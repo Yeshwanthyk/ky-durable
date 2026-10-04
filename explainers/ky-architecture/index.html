@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ky — where everything runs</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0a0a;
+      --panel: linear-gradient(180deg, #161616, #0d0d0d);
+      --ink: #e9e6e1;
+      --dim: #8a857e;
+      --faint: #6d6862;
+      --line: rgba(255, 255, 255, .13);
+      --amber: #e6b04f;
+      --coral: #e0736a;
+      --green: #9cc48a;
+      --blue: #8fb3d9;
+      --mono: "IBM Plex Mono", "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--mono); letter-spacing: .01em; }
+    body::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse 80% 75% at 50% 45%, transparent 45%, rgba(0, 0, 0, .5) 100%); }
+    main { width: min(1200px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 80px; position: relative; z-index: 1; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 10px; }
+    h1 { margin: 0; font-size: clamp(1.2rem, 2.6vw, 1.75rem); font-weight: 400; white-space: nowrap; min-height: 1.5em; }
+    h1 .k { color: var(--amber); margin-right: .6em; }
+    .lede { color: var(--dim); margin: 0 0 22px; max-width: 70ch; }
+    .pill { display: inline-flex; align-items: center; gap: 10px; padding: 6px 16px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; background: rgba(255, 255, 255, .02); }
+    .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); box-shadow: 0 0 10px currentColor; transition: background .3s; }
+
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .controls .group-label { color: var(--faint); font-size: 13px; margin: 0 4px 0 2px; }
+    .controls .sep { flex: 1; }
+    button {
+      appearance: none; font: inherit; font-size: 14px; color: var(--dim); background: transparent; cursor: pointer;
+      border: 1px solid var(--line); border-radius: 7px; padding: 6px 11px; transition: color .2s, border-color .2s, box-shadow .2s;
+    }
+    button:hover { color: var(--ink); border-color: rgba(255, 255, 255, .25); }
+    button[aria-pressed="true"] { color: var(--ink); border-color: rgba(230, 176, 79, .55); box-shadow: 0 0 18px rgba(230, 176, 79, .14); }
+    button.planned[aria-pressed="true"] { border-color: rgba(143, 179, 217, .6); box-shadow: 0 0 18px rgba(143, 179, 217, .14); }
+    button.planned::before { content: "◇ "; color: var(--blue); }
+    button:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+    button:disabled { opacity: .35; cursor: default; }
+    #step-count { color: var(--faint); min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; }
+
+    .frame { position: relative; border: 1px solid rgba(255, 255, 255, .07); border-radius: 14px; overflow: hidden; background: radial-gradient(rgba(255, 255, 255, .04) 1px, transparent 1.2px) 0 0 / 24px 24px, #0b0b0b; }
+    .stage { position: relative; width: 1200px; height: 640px; transform-origin: 0 0; }
+    #fx { position: absolute; inset: 0; width: 1200px; height: 640px; }
+    #grain { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .04; mix-blend-mode: screen; pointer-events: none; }
+    .node {
+      position: absolute; transform: translate(-50%, -50%); min-width: 150px; padding: 8px 14px; text-align: center; cursor: pointer;
+      border: 1px solid var(--line); border-radius: 11px; background: var(--panel);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .04);
+      transition: border-color .35s, box-shadow .35s, background .35s, opacity .3s;
+    }
+    .node strong { display: block; font-weight: 400; font-size: 16px; white-space: nowrap; }
+    .node span { display: block; margin-top: 1px; font-size: 13px; color: var(--dim); white-space: nowrap; transition: color .3s; }
+    .node.amber { border-color: rgba(230, 176, 79, .7); box-shadow: 0 0 26px rgba(230, 176, 79, .22), 0 10px 28px rgba(0, 0, 0, .55); }
+    .node.amber span { color: var(--amber); }
+    .node.coral { border-color: rgba(224, 115, 106, .8); background: linear-gradient(180deg, #2a1514, #1a0e0d); box-shadow: 0 0 30px rgba(224, 115, 106, .25); }
+    .node.coral strong, .node.coral span { color: var(--coral); }
+    .node.green { border-color: rgba(156, 196, 138, .6); box-shadow: 0 0 24px rgba(156, 196, 138, .16); }
+    .node.green span { color: var(--green); }
+    .node.blue { border-color: rgba(143, 179, 217, .65); box-shadow: 0 0 24px rgba(143, 179, 217, .16); }
+    .node.blue span { color: var(--blue); }
+    .node.future { border-style: dashed; opacity: .42; }
+    .node.future.live { opacity: 1; }
+    .node.orb { min-width: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; }
+    .node.orb .label { position: absolute; left: 50%; top: calc(100% + 10px); transform: translateX(-50%); }
+    .node:focus-visible { outline: none; }
+    .dimmed { opacity: .22 !important; }
+    .callout { position: absolute; transform: translateY(-50%); padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: rgba(12, 12, 12, .95); color: var(--dim); white-space: nowrap; opacity: 0; transition: opacity .3s; font-size: 14px; z-index: 2; }
+    .callout.left { transform: translate(-100%, -50%); }
+    .callout em { font-style: normal; color: var(--amber); }
+
+    .caption { min-height: 2.6em; margin: 18px 0 0; font-size: clamp(1rem, 1.7vw, 1.22rem); }
+    .caption em { font-style: normal; color: var(--amber); }
+    .caption.in { animation: rise .45s cubic-bezier(.2, .7, .2, 1); }
+    .cite { color: var(--faint); font-size: 13px; margin: 4px 0 0; min-height: 1.4em; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); filter: blur(3px); } }
+    .inspector { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 6px 18px; margin: 16px 0 0; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .07); }
+    .inspector dt { color: var(--faint); }
+    .inspector dd { margin: 0; }
+    .inspector code { font: inherit; color: var(--amber); }
+    .hint { margin-top: 18px; color: var(--faint); font-size: 13px; }
+
+    section.doc { margin-top: 56px; padding-top: 28px; border-top: 1px solid rgba(255, 255, 255, .07); }
+    section.doc h2 { font-weight: 400; font-size: 1.25rem; margin: 0 0 6px; }
+    section.doc h2 .k { color: var(--amber); margin-right: .5em; }
+    section.doc > p { color: var(--dim); max-width: 80ch; margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+    th { color: var(--faint); font-weight: 400; }
+    td code, li code, p code { color: var(--amber); font: inherit; }
+    .ok { color: var(--green); } .bad { color: var(--coral); } .new { color: var(--blue); } .muted { color: var(--dim); }
+    ol.path { padding-left: 1.4em; } ol.path li { margin: 0 0 10px; }
+    ol.path li b { font-weight: 400; color: var(--ink); }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    .two ul { padding-left: 1.2em; margin: 6px 0; } .two li { margin-bottom: 7px; color: var(--dim); } .two li b { color: var(--ink); font-weight: 400; }
+    pre { background: #0f0f0f; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 13px; color: var(--dim); }
+    pre b { color: var(--amber); font-weight: 400; }
+    @media (max-width: 760px) { header { flex-wrap: wrap; } .inspector, .two { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .caption.in { animation: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1 id="title"><span class="k"></span><span></span></h1>
+      <span class="pill" aria-live="polite"><i id="pill-dot"></i><span id="pill-text"></span></span>
+    </header>
+    <p class="lede">One Durable Object is the brain and holds all durable state. Everything else is a place it reaches: the cloud capabilities on the left of the map, and the computers (nodes) on the right. Pick a flow. ◇ marks a <span class="new">planned</span> flow, drawn from the target design below.</p>
+
+    <div class="controls" aria-label="Flows">
+      <span class="group-label">today</span>
+      <button type="button" aria-controls="scenario-view" data-scenario="overview">where things run</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="turn">chat turn + model</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="subagent">subagent browses</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="sandbox">sandbox exec</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="memory">memory</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="machine">machine task</button>
+      <button type="button" aria-controls="scenario-view" data-scenario="reconnect">reconnect trap</button>
+    </div>
+    <div class="controls" aria-label="Planned flows">
+      <span class="group-label">planned</span>
+      <button type="button" class="planned" aria-controls="scenario-view" data-scenario="reminders">node tool: reminders</button>
+      <button type="button" class="planned" aria-controls="scenario-view" data-scenario="automation">automation</button>
+      <button type="button" class="planned" aria-controls="scenario-view" data-scenario="node2">second node + model</button>
+      <span class="sep"></span>
+      <button type="button" id="play" aria-controls="scenario-view" aria-pressed="false">▶ play</button>
+      <button type="button" id="prev" aria-controls="scenario-view" aria-label="previous step">◂</button>
+      <span id="step-count"></span>
+      <button type="button" id="next" aria-controls="scenario-view" aria-label="next step">▸</button>
+    </div>
+
+    <section id="scenario-view" aria-live="polite">
+      <div class="frame" id="frame"><div class="stage" id="stage"><canvas id="fx" aria-hidden="true"></canvas></div><canvas id="grain" width="600" height="320" aria-hidden="true"></canvas></div>
+      <p class="caption" id="caption"></p>
+      <p class="cite" id="cite"></p>
+      <dl class="inspector">
+        <dt>selected</dt><dd id="i-title"></dd>
+        <dt>runs in</dt><dd id="i-where"></dd>
+        <dt>state it owns</dt><dd id="i-state"></dd>
+        <dt>contract</dt><dd id="i-contract"></dd>
+        <dt>when it's gone</dt><dd id="i-offline"></dd>
+        <dt>source</dt><dd><code id="i-source"></code></dd>
+      </dl>
+      <p class="hint">←/→ steps · space plays · click a box to inspect it · hover to trace its wires · dashed boxes are planned</p>
+    </section>
+
+    <section class="doc" id="watch">
+      <h2><span class="k">00</span>the 60-second version</h2>
+      <p class="hint">Narrated walkthrough: <a href="video/video.mp4" style="color:var(--amber)">video/video.mp4</a> (MP4, 62s) · scrubbable and inspectable: <a href="video/index.html" style="color:var(--amber)">video/index.html</a></p>
+    </section>
+
+    <section class="doc" id="primitives">
+      <h2><span class="k">01</span>primitives: today → target</h2>
+      <p>Seven primitives, one of them new. These are the draft after Fable's review: no separate Jobs table and no new <code>defineCapability</code>. The extension contract stays pi-durable's <code>defineExtension</code>, and placement on a node is a property of a small <code>nodeTool()</code> helper.</p>
+      <table>
+        <thead><tr><th>primitive</th><th>runs in</th><th>today</th><th>target</th></tr></thead>
+        <tbody>
+          <tr><td>brain</td><td>DO <code>PiAgent "me"</code></td><td class="muted">server.ts is composition <em>and</em> model router <em>and</em> prompt</td><td>composition only; prompt in <code>prompt.ts</code></td></tr>
+          <tr><td>models</td><td>DO → providers</td><td class="muted">policy split over server.ts:73-90, 281-373, vibeproxy.ts, images.ts:53-67; one hard-coded Mac origin</td><td><code>models.ts</code> owns catalog, slots and <code>resolve(slot)</code>; <code>vibeProxy({binding, origin, api})</code> per tunnel</td></tr>
+          <tr><td>memory</td><td>DO SQLite (memo_log, memo_tree)</td><td class="ok">self-contained (memory.ts)</td><td>unchanged; drop the redundant <code>remembers</code> gate</td></tr>
+          <tr><td>sandbox</td><td>Dynamic Worker over DO workspace fs</td><td class="muted">built in server.ts:96-108, tools in workspace.ts</td><td>one module builds it; no network, git only</td></tr>
+          <tr><td>browser</td><td>Browser Rendering (Kitesurf)</td><td class="ok">self-contained; subagents only</td><td>unchanged; fix the slow-launch leak</td></tr>
+          <tr><td>apps</td><td>Executor MCP (SaaS)</td><td class="bad">retries unsafe calls; ignores abort</td><td>retry only on connect or expired session; pass the signal</td></tr>
+          <tr><td class="new">node ◇</td><td>any computer running the runner</td><td class="muted">"machine": Claude Code tasks only; one token; name collisions</td><td>hello carries a manifest <code>{protocol, os, tools, models}</code>; <b>node tasks</b> report later, <b>node tools</b> block the turn with a deadline; node models stay on their own tunnel</td></tr>
+          <tr><td class="new">automations ◇</td><td>DO alarm via Agents <code>Scheduler</code></td><td class="muted">none</td><td>cron/interval rows; each fire submits to the main chat with <code>operationId automation:&lt;id&gt;:&lt;slot&gt;</code></td></tr>
+        </tbody>
+      </table>
+      <pre>// a node tool: schema in the DO, handler on the node
+<b>nodeTool</b>({ name: "apple_reminders", os: "darwin", parameters, description })
+  → defineTool({ replay: "unsafe", execute: enqueue {call} to the node's inbox;
+                 await {return} | deadline 90s | abort → enqueue {stop-call} })
+// runner/tools/apple-reminders.ts exports the handler (osascript)
+
+// an automation
+scheduler.set("0 8 * * *", "fire", { id })   // Agents Scheduler on the existing Lifecycle
+fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:${slot}`, whenBusy: "followUp" })</pre>
+    </section>
+
+    <section class="doc" id="traps">
+      <h2><span class="k">02</span>state traps (Quint)</h2>
+      <p id="traps-lede">Quint models live in <code>explainers/ky-architecture/quint/</code>. Each row is an invariant, whether the simulator broke it, and the rule it forces. Evidence is random simulation plus exact replays, not proof: <code>quint verify</code> needs Java 21 and this machine has 17. The models assume a FIFO socket, one clock shared by the node and the DO, and that pi-durable re-invokes a tool with the same call id after eviction. Full write-up: <code>quint/README.md</code>.</p>
+      <table>
+        <thead><tr><th>model</th><th>invariant</th><th>result</th><th>rule it forces</th></tr></thead>
+        <tbody id="traps-body"></tbody>
+      </table>
+    </section>
+
+    <section class="doc" id="fable">
+      <h2><span class="k">03</span>Fable's review: recommendations and gaps</h2>
+      <div class="two">
+        <div>
+          <ul>
+            <li><b>No Jobs table.</b> <code>ky_tasks</code> already keys delegated work by an idempotent id (tasks.ts INSERT OR IGNORE). Fix its overloaded <code>session</code>/<code>worker</code> columns instead.</li>
+            <li><b>Node work stays out of pi tasks.</b> A pi task can only park while waiting on other tasks; its sleep dies with the invocation. Multi-hour Claude Code sessions fit the inbox and feed better.</li>
+            <li><b>Node tools block with a deadline.</b> A tool call is already a durable task, and a crash gives the model an <code>interrupted</code> result (pi-durable README:168). Anything longer than about 2 minutes is a node task. <span class="new">Quint disagrees on the default:</span> both shapes are safe, but blocking also depends on pi re-invoking the tool with the same call id after eviction, so it prefers "started, then report later". A reasonable split is to block only for quick, bounded tools.</li>
+            <li><b>Node models stay on tunnels.</b> Streaming over the runner WS would keep the DO awake and share a socket with tasks. Add a second <code>vpc_services</code> entry instead.</li>
+            <li><b>Automations use the Agents <code>Scheduler</code>.</b> It's a Lifecycle capability and ky already runs Lifecycle. No backfill of missed slots; it's marked experimental.</li>
+          </ul>
+        </div>
+        <div>
+          <ul>
+            <li><b>One token for everything.</b> <code>KY_TOKEN</code> is in every Claude Code child's env under bypassPermissions, so a prompt-injected task holds full UI access. Add <code>KY_RUNNER_TOKEN</code>.</li>
+            <li><b>Node name collisions.</b> Two runners with the same name share a tag, and every command is sent to both (machines.ts:138-150).</li>
+            <li><b>Manifest versioning.</b> Add one <code>protocol</code> integer. Schemas live in the DO and handlers on the node; a stale runner answers "unknown tool".</li>
+            <li><b>Side-effect ownership.</b> Node tools should be main-only (add them to <code>mainOnly</code>) so a subagent can't create reminders.</li>
+            <li><b>UI submits carry no id</b> (use-pi-session.ts:154-157), so a resend after a drop can double-submit. Found by the map subagent.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="doc" id="path">
+      <h2><span class="k">04</span>the path, each step shippable alone</h2>
+      <ol class="path">
+        <li><b>Harden the runner protocol: the six Quint fixes.</b> Flush the outbox before hello; fence reports by turn with a deterministic operationId; persist handled seqs; make stop() safe; let hello close queued tasks too; deliver pending rows in seq order. Also give each node name one socket.</li>
+        <li><b>Manifest + split auth.</b> hello carries <code>{protocol, os, tools, models}</code>, stored in <code>ky_machines</code>; add <code>KY_RUNNER_TOKEN</code>.</li>
+        <li><b>Node tools.</b> Add <code>call / return / stop-call</code> frames, a <code>nodeTool()</code> helper and <code>apple_reminders</code>, main-only.</li>
+        <li><b>Automations.</b> <code>automations.ts</code>, the <code>Scheduler</code> on Lifecycle, and one <code>fire</code> callback that submits to the main chat.</li>
+        <li><b>Extract <code>models.ts</code>.</b> A per-tunnel provider factory. The second node's model is then one binding plus one line.</li>
+      </ol>
+    </section>
+  </main>
+
+  <script>
+    // ─── the model. Zones are where things run; nodes are what runs there; wires are the contracts between them.
+    const title = ['ky', 'where everything runs'];
+    const zones = [
+      { label: 'your devices', x: 18, y: 18, w: 150, h: 604 },
+      { label: 'Cloudflare · one Worker, one Durable Object', x: 186, y: 18, w: 580, h: 604 },
+      { label: 'SaaS', x: 784, y: 18, w: 398, h: 134 },
+      { label: 'node: the Mac', x: 784, y: 168, w: 398, h: 262 },
+      { label: 'node: another box (planned)', x: 784, y: 446, w: 398, h: 176, future: true },
+    ];
+    const nodes = {
+      ui:       { title: 'browser',          status: 'React client',     x: 93,   y: 300, where: 'your phone or laptop', state: 'none durable; rebuilt from a snapshot on connect', contract: 'WS /agents/pi-agent/me?session=… · submit, steer, stop', offline: 'the agent keeps running; the UI resyncs on reconnect', source: 'src/use-pi-session.ts:64-70 · src/sockets.ts:225-256' },
+      worker:   { title: 'Worker',           status: 'auth · files',     x: 290,  y: 300, where: 'Cloudflare Worker fetch', state: 'none', contract: 'KY_TOKEN cookie or Bearer → route to DO "me"; /api/files → R2', offline: 'n/a', source: 'src/server.ts:380-404 · src/auth.ts:12-61' },
+      brain:    { title: 'PiAgent "me"',     status: 'main · chats · subagents', x: 480, y: 300, r: 64, where: 'one Durable Object', state: 'authoritative for everything: pi sessions, tasks, inbox, chats, settings, memory, workspace fs', contract: 'pi harness turns; tools are durable tasks (safe tools replay, unsafe ones return interrupted)', offline: 'always on; Lifecycle alarm re-wakes sessions with live tasks', source: 'src/server.ts:72-197 · agents/harness/pi index.js:466-513' },
+      sqlite:   { title: 'DO SQLite',        status: 'source of truth',  x: 480,  y: 560, where: 'inside the DO', state: 'pi_* store · ky_tasks · ky_machine_inbox · ky_machines · ky_chats · ky_settings · memo_log/memo_tree · ky_files · workspace fs', contract: 'single owner: only this DO reads or writes it', offline: 'survives restarts and deploys', source: 'src/tasks.ts:51-60 · src/machines.ts:84-89 · src/memory.ts:145-149' },
+      memory:   { title: 'memory',           status: 'OptMem',           x: 300,  y: 470, where: 'module in the DO', state: 'memo_log (notes) and memo_tree (summaries) in SQLite', contract: 'memory_note (unsafe) · nap/recall/zoom/forget (safe); main conversations only', offline: 'n/a: local', source: 'src/memory.ts:145-149, 373-431' },
+      scheduler:{ title: 'Scheduler',        status: 'cron · interval',  x: 480,  y: 84,  future: true, where: 'Lifecycle capability in the DO (Agents SDK)', state: 'schedule rows in the Lifecycle job queue; one physical alarm', contract: 'set(cron, "fire", {id}) → fire → submit to main chat, operationId automation:<id>:<slot>', offline: 'a late alarm fires once; missed slots are not backfilled', source: 'agents/dist/scheduler-*.d.ts:120-200 · src/server.ts:195-197 (Lifecycle)' },
+      sandbox:  { title: 'exec sandbox',     status: 'Dynamic Worker',   x: 662,  y: 110, where: 'Dynamic Worker minted via LOADER', state: 'none: an ephemeral isolate whose fs is the DO workspace at /workspace', contract: 'exec runs a JS module; git over HTTPS through the host; no shell, npm or network', offline: 'n/a: per call', source: 'src/workspace.ts:25-65 · src/server.ts:96-108' },
+      kitesurf: { title: 'Kitesurf',         status: 'cloud browser',    x: 662,  y: 540, where: 'Cloudflare Browser Rendering (BROWSER)', state: 'per-call browser session', contract: 'browse tool, safe, 90s cap; subagents only, no logins', offline: 'works while the Mac is away', source: 'src/browse.ts:17-83, 175-199 · src/server.ts:231-237' },
+      r2:       { title: 'R2 files',         status: 'screenshots',      x: 290,  y: 130, where: 'R2 bucket ky-files', state: 'blobs at files/<id>, 25 MB cap; rows in ky_files', contract: 'PUT /api/files?task= from ky-attach; GET /api/files/<id>', offline: 'n/a', source: 'src/files.ts:19-28, 100-138' },
+      executor: { title: 'Executor',         status: 'apps over MCP',    x: 880,  y: 92,  where: 'executor.sh (SaaS)', state: 'your app connections, on their side', contract: 'executor_skills (safe) · execute / resume (unsafe), 6 min timeout', offline: 'tool returns an error; today it retries once, even unsafe calls', source: 'src/executor.ts:28, 62-95, 117-149' },
+      opencode: { title: 'OpenCode Go',      status: 'KY_MODEL',         x: 1080, y: 92,  where: 'public model API', state: 'none', contract: 'pi-ai provider; fallback for Claude and default for subagents', offline: 'turn fails', source: 'src/server.ts:90, 360-373' },
+      vibeproxy:{ title: 'VibeProxy',        status: 'Claude (sub)',     x: 880,  y: 236, where: 'the Mac, 127.0.0.1:8317', state: 'none', contract: 'Anthropic Messages over a Workers VPC tunnel; /v1/messages and /v1/models only', offline: 'probe fails (3s, cached 30s) → the turn runs on the fallback slot', source: 'src/vibeproxy.ts:21-27, 65-129 · wrangler.jsonc:27-34' },
+      reminders:{ title: 'apple_reminders',  status: 'node tool',        x: 1080, y: 236, future: true, where: 'handler in the runner on the Mac (osascript)', state: 'Reminders.app', contract: 'call {id, tool, args} → return {id, result}; deadline 90s; main-only', offline: 'tool returns "node offline" at once; no queueing for tools', source: 'planned: runner/tools/apple-reminders.ts · src/nodes.ts' },
+      runner:   { title: 'ky-runner',        status: 'node "mac"',       x: 880,  y: 372, where: 'Node process on the Mac', state: 'runs map, outbox and handled seqs, all in memory', contract: 'outbound WS ?runner=<name>, Bearer KY_TOKEN · run/stop in · hello/ack/session/progress/result out', offline: 'the DO keeps commands in ky_machine_inbox until ack', source: 'runner/ky-runner.ts:129-139, 278-318 · src/machines.ts:39-62' },
+      claude:   { title: 'Claude Code',      status: 'claude -p',        x: 1080, y: 372, where: 'child process of the runner', state: 'its own session (resumable by id)', contract: 'stream-json stdin/stdout; bypassPermissions by default; KY_TOKEN in env', offline: 'killed with the runner; the task is reported interrupted', source: 'runner/ky-runner.ts:145-222' },
+      node2:    { title: 'ky-runner',        status: 'node "box"',       x: 880,  y: 540, future: true, where: 'a second computer (Linux or another Mac)', state: 'same as the Mac runner', contract: 'same WS; hello manifest says {os: linux, tools: [], models: [local]}', offline: 'its inbox waits; run without a machine name is refused when two are online', source: 'src/sockets.ts:54-64 · src/machines.ts:324-325' },
+      localmodel:{ title: 'local model',     status: 'ollama / ChatGPT proxy', x: 1080, y: 540, future: true, where: 'HTTP server on that box', state: 'none', contract: 'its own VPC tunnel + vibeProxy({binding, origin, api}) instance', offline: 'probe fails → that slot falls back', source: 'seam: src/vibeproxy.ts:54-60 · src/server.ts:144-151' },
+    };
+    const wires = {
+      uw: ['ui', 'worker'], wb: ['worker', 'brain', 'WS'], bs: ['brain', 'sqlite'], bm: ['brain', 'memory'], ms: ['memory', 'sqlite'],
+      bsc: ['brain', 'scheduler', '', true], bx: ['brain', 'sandbox'], bk: ['brain', 'kitesurf'], wr: ['worker', 'r2', '', false],
+      be: ['brain', 'executor'], bo: ['brain', 'opencode'], bv: ['brain', 'vibeproxy', 'VPC tunnel'], rb: ['runner', 'brain', 'WS ?runner='],
+      rc: ['runner', 'claude'], rr: ['runner', 'reminders', '', true], nb: ['node2', 'brain', '', true], nl: ['brain', 'localmodel', 'VPC #2', true],
+    };
+    const S = (caption, o = {}) => ({ caption, ...o });
+    const scenarios = {
+      overview: { name: 'where things run', steps: [
+        S('Everything durable lives in <em>one Durable Object</em>, "me", and its SQLite.', { set: { brain: ['source of truth', 'amber'], sqlite: ['every table', 'amber'] }, select: 'brain', cite: 'src/server.ts:72 · src/server.ts:393' }),
+        S('The <em>browser</em> holds nothing; it reconnects and gets a snapshot.', { send: ['wb', 'hello · snapshot', true], set: { ui: ['snapshot', 'green'] }, select: 'ui', cite: 'src/sockets.ts:225-256' }),
+        S('Cloud capabilities: <em>sandbox</em>, <em>Kitesurf</em>, <em>R2</em>. Bindings, always on.', { set: { sandbox: ['binding LOADER', 'green'], kitesurf: ['binding BROWSER', 'green'], r2: ['binding FILES', 'green'] }, select: 'sandbox', cite: 'wrangler.jsonc:10-14' }),
+        S('<em>Memory</em> is a module in the DO, not a service.', { set: { memory: ['memo_log · memo_tree', 'amber'] }, select: 'memory', cite: 'src/memory.ts:145-149' }),
+        S('Two separate channels reach the Mac: the <em>model</em> over a VPC tunnel, and <em>tasks</em> over the runner\'s WS.', { send: ['bv', 'Messages API'], set: { vibeproxy: ['tunnel in', 'amber'], runner: ['dials out', 'amber'] }, callout: ['vibeproxy', 'two channels', 'one Mac, one hard-coded origin'], select: 'runner', cite: 'src/vibeproxy.ts:21 · runner/ky-runner.ts:278-313' }),
+      ] },
+      turn: { name: 'chat turn + model', steps: [
+        S('You send a message; the Worker checks <em>KY_TOKEN</em> and routes to "me".', { send: ['uw', 'submit'], set: { ui: ['sending', 'amber'], worker: ['auth ok', 'green'] }, select: 'worker', cite: 'src/server.ts:380-404' }),
+        S('The DO queues the input and <em>wakes</em> the main conversation.', { send: ['wb', 'submit · followUp'], set: { brain: ['turn running', 'amber'] }, select: 'brain', cite: 'agents/harness/pi index.js:406-432' }),
+        S('The main slot is Claude: probe the Mac, then <em>stream through the tunnel</em>.', { send: ['bv', '/v1/messages'], set: { vibeproxy: ['streaming', 'green'] }, select: 'vibeproxy', cite: 'src/vibeproxy.ts:79-129' }),
+        S('Mac asleep? The probe fails and the <em>same turn</em> runs on the fallback slot.', { send: ['bo', 'fallback'], fail: 'bv', set: { vibeproxy: ['unreachable', 'coral'], opencode: ['answering', 'green'] }, callout: ['vibeproxy', 'derived', 'probe cached 30s'], select: 'opencode', cite: 'src/vibeproxy.ts:117-129 · src/server.ts:74-89' }),
+        S('Events stream back to every open tab.', { send: ['wb', 'events', true], set: { ui: ['streaming', 'green'], brain: ['idle', 'green'] }, select: 'ui', cite: 'src/sockets.ts:242-256' }),
+      ] },
+      subagent: { name: 'subagent browses', steps: [
+        S('The main agent <em>delegates</em>: a subagent is a child conversation in the same DO.', { set: { brain: ['spawn subagent', 'amber'] }, select: 'brain', cite: 'src/subagents.ts:255-302' }),
+        S('Only subagents have <em>browse</em>; the main agent stays free to talk.', { send: ['bk', 'browse url'], set: { kitesurf: ['page open', 'amber'] }, select: 'kitesurf', cite: 'src/server.ts:231-237 · src/browse.ts:17-75' }),
+        S('The page text comes back to the subagent.', { send: ['bk', 'text', true], set: { kitesurf: ['closed', 'green'] }, select: 'kitesurf' }),
+        S('A reporter task posts the answer to main with <em>requestId subagent-report:&lt;id&gt;</em>: idempotent.', { set: { brain: ['report steered in', 'green'], sqlite: ['ky_tasks · done', 'green'] }, select: 'sqlite', cite: 'src/subagents.ts:153-174' }),
+      ] },
+      sandbox: { name: 'sandbox exec', steps: [
+        S('<em>exec</em> runs a JavaScript module in a fresh Dynamic Worker.', { send: ['bx', 'module'], set: { sandbox: ['running', 'amber'] }, select: 'sandbox', cite: 'src/workspace.ts:25-65' }),
+        S('Its filesystem is the DO\'s <em>/workspace</em>: durable, in SQLite.', { send: ['bs', 'fs ops'], set: { sqlite: ['workspace fs', 'amber'] }, callout: ['sandbox', 'no network', 'git only, no shell'], select: 'sqlite', cite: 'src/server.ts:96-108' }),
+        S('The result returns; the isolate is gone and the <em>files remain</em>.', { send: ['bx', 'result', true], set: { sandbox: ['gone', 'green'], sqlite: ['files kept', 'green'] }, select: 'sandbox' }),
+      ] },
+      memory: { name: 'memory', steps: [
+        S('<em>memory_note</em> appends a fact to memo_log.', { send: ['bm', 'note'], set: { memory: ['noted', 'amber'] }, select: 'memory', cite: 'src/memory.ts:394-410' }),
+        S('Older notes <em>fold</em> into summaries in memo_tree (nap).', { send: ['ms', 'fold'], set: { sqlite: ['memo_tree +1', 'green'], memory: ['napped', 'green'] }, select: 'memory', cite: 'src/memory.ts:145-185' }),
+        S('Every main conversation renders memory as a <em>section</em>; subagents and nodes get none.', { set: { brain: ['<memory> section', 'green'] }, callout: ['memory', 'main only', 'chats share it'], select: 'brain', cite: 'src/memory.ts:373-392 · src/server.ts:134-143' }),
+      ] },
+      machine: { name: 'machine task', steps: [
+        S('<em>machine run</em> writes a task row and a run command to the inbox.', { set: { brain: ['machine run', 'amber'], sqlite: ['inbox seq 41', 'amber'] }, select: 'sqlite', cite: 'src/machines.ts:126-177' }),
+        S('The DO pushes it down the runner\'s socket.', { send: ['rb', 'run #41', true], set: { runner: ['ack 41', 'green'] }, select: 'runner', cite: 'src/machines.ts:138-150' }),
+        S('The runner acks (the inbox row is deleted) and spawns <em>claude -p</em>.', { send: ['rc', 'prompt'], set: { claude: ['working', 'amber'], sqlite: ['inbox empty', ''] }, select: 'claude', cite: 'runner/ky-runner.ts:145-168, 247-274' }),
+        S('Progress every 4s, then a <em>result</em>, steered into the main chat.', { send: ['rb', 'result'], set: { claude: ['done', 'green'], runner: ['idle', 'green'], brain: ['report in', 'green'] }, select: 'runner', cite: 'src/machines.ts:239-269' }),
+      ] },
+      reconnect: { name: 'reconnect trap', steps: [
+        S('A task finishes while the <em>socket is down</em>; the result waits in the runner\'s outbox.', { set: { runner: ['outbox: result', 'amber'], claude: ['done', 'green'] }, select: 'runner', cite: 'runner/ky-runner.ts:134-139, 214-220' }),
+        S('On reconnect the runner sends <em>hello</em> first, with active: [].', { send: ['rb', 'hello active:[]'], set: { runner: ['hello', 'amber'] }, select: 'runner', cite: 'runner/ky-runner.ts:286-288' }),
+        S('The DO sees a working task missing from active and reports <em>"Interrupted"</em>.', { fail: 'rb', send: ['rb', 'hello'], set: { brain: ['report #1: interrupted', 'coral'] }, callout: ['brain', 'false report', 'random operationId, no dedupe'], select: 'brain', cite: 'src/machines.ts:208-222, 265-268' }),
+        S('Then the real result lands, and <em>#finish reports again</em>.', { send: ['rb', 'result'], set: { brain: ['report #2: done', 'coral'], sqlite: ['failed → done', 'coral'] }, select: 'sqlite', cite: 'src/machines.ts:247-258' }),
+        S('Fix: flush the outbox <em>before</em> hello, skip terminal tasks, and give reports a fixed id.', { set: { brain: ['one report', 'green'], sqlite: ['done', 'green'], runner: ['outbox → hello', 'green'] }, select: 'runner', cite: 'quint/runner_protocol*.qnt' }),
+      ] },
+      reminders: { name: 'node tool: reminders', future: true, steps: [
+        S('The model calls <em>apple_reminders</em>. The schema lives in the DO; placement says os: darwin.', { set: { brain: ['tool call', 'blue'] }, select: 'reminders', cite: 'planned: src/nodes.ts nodeTool()' }),
+        S('The tool enqueues <em>call {id}</em> into the Mac\'s inbox and awaits it, with a 90s deadline.', { send: ['rb', 'call #id', true], set: { runner: ['call', 'blue'], sqlite: ['inbox call', 'blue'] }, select: 'runner' }),
+        S('The runner runs the handler: <em>osascript</em>, not Claude Code.', { send: ['rr', 'create reminder'], set: { reminders: ['created', 'green'] }, select: 'reminders' }),
+        S('<em>return {id}</em> resolves the waiting tool and the turn continues.', { send: ['rb', 'return #id'], set: { brain: ['tool result', 'green'], runner: ['idle', 'green'] }, callout: ['reminders', 'deadline', 'offline → error at once'], select: 'brain', cite: 'pi-durable README:168 (interrupted on crash)' }),
+      ] },
+      automation: { name: 'automation', future: true, steps: [
+        S('An automation is a <em>Scheduler</em> row: "every day at 8, summarise my inbox".', { set: { scheduler: ['0 8 * * *', 'blue'] }, select: 'scheduler', cite: 'agents/schedules Scheduler (experimental)' }),
+        S('The alarm fires; <em>fire({id, slot})</em> submits to the main chat.', { send: ['bsc', 'fire', true], set: { brain: ['followUp', 'blue'] }, callout: ['scheduler', 'operationId', 'automation:<id>:<slot>'], select: 'brain' }),
+        S('A duplicate fire carries the <em>same operationId</em>, so pi accepts it once.', { set: { brain: ['deduped', 'green'] }, select: 'brain', cite: 'agents/harness/pi index.d.ts:57-70' }),
+        S('The reply <em>is</em> the update in your main chat.', { send: ['wb', 'events', true], set: { ui: ['8:00 summary', 'green'] }, select: 'ui' }),
+      ] },
+      node2: { name: 'second node + model', future: true, steps: [
+        S('A second box starts the runner; its <em>hello</em> carries a manifest.', { send: ['nb', 'hello {os: linux}'], set: { node2: ['online', 'blue'] }, select: 'node2', cite: 'src/sockets.ts:54-64' }),
+        S('Tasks can name it. Without a name, <em>run is refused</em> once two nodes are online.', { set: { sqlite: ['ky_machines: mac, box', 'blue'] }, callout: ['node2', 'gap', 'name collisions double-send'], select: 'node2', cite: 'src/machines.ts:138-150, 324-325' }),
+        S('Its model gets <em>its own tunnel</em>, not the runner socket.', { send: ['nl', '/v1/chat'], set: { localmodel: ['streaming', 'green'] }, select: 'localmodel', cite: 'seam: src/vibeproxy.ts:54-60' }),
+      ] },
+    };
+
+    // ─── renderer
+    const W = 1200, H = 640;
+    const $ = (id) => document.getElementById(id);
+    const stage = $('stage'), fx = $('fx'), ctx = fx.getContext('2d');
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const TONE = { ink: [236, 220, 212], amber: [230, 176, 79], coral: [224, 115, 106], green: [156, 196, 138], blue: [143, 179, 217] };
+    const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+    const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+    const inOut = (u) => (u < .5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2);
+    const rng = (s) => () => ((s = Math.imul(s ^ (s >>> 15), 1 | s) + 0x6d2b79f5 | 0) >>> 0) / 4294967296;
+    const GLYPHS = 'abcdefghijklmnopqrstuvwxyz#_·';
+    const ui = { scenario: 'overview', step: 0, selected: 'brain', hover: null, t0: 0, landed: true, playing: 0, view: null };
+    const boot = performance.now(), ARRIVE = .9;
+    const FONT = () => getComputedStyle(document.body).fontFamily;
+
+    { const g = $('grain').getContext('2d'), img = g.createImageData(600, 320), r = rng(42);
+      for (let i = 0; i < img.data.length; i += 4) { img.data[i] = img.data[i + 1] = img.data[i + 2] = r() * 255; img.data[i + 3] = 255; }
+      g.putImageData(img, 0, 0); }
+
+    const typing = new Map();
+    function type(el, text, dur = 420) { if (el.dataset.v === text) return; el.dataset.v = text; if (still) el.textContent = text; else typing.set(el, { text, t: performance.now(), dur }); }
+    function resolveText(now) {
+      for (const [el, s] of typing) {
+        const u = (now - s.t) / s.dur;
+        if (u >= 1) { el.textContent = s.text; typing.delete(el); continue; }
+        const fixed = Math.floor(s.text.length * u), shown = Math.ceil(s.text.length * Math.min(1, u * 2.5));
+        el.textContent = s.text.slice(0, fixed) + s.text.slice(fixed, shown).replace(/\S/g, () => GLYPHS[Math.random() * GLYPHS.length | 0]);
+      }
+    }
+
+    for (const [id, n] of Object.entries(nodes)) {
+      n.el = Object.assign(document.createElement('div'), { className: (n.r ? 'node orb' : 'node') + (n.future ? ' future' : ''), tabIndex: 0 });
+      n.el.innerHTML = n.r ? '<div class="label"><strong></strong><span></span></div>' : '<strong></strong><span></span>';
+      if (n.r) Object.assign(n.el.style, { width: `${n.r * 2}px`, height: `${n.r * 2}px` });
+      n.el.style.left = `${n.x}px`; n.el.style.top = `${n.y}px`;
+      n.el.setAttribute('role', 'button'); n.el.setAttribute('aria-label', `inspect ${n.title} (${n.status})`);
+      n.el.addEventListener('click', () => select(id));
+      n.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); select(id); } });
+      n.el.addEventListener('pointerenter', () => trace(id));
+      n.el.addEventListener('pointerleave', () => trace(null));
+      n.el.querySelector('strong').textContent = n.title;
+      n.base = n.status; n.tone = '';
+      stage.appendChild(n.el);
+      if (n.r) n.pts = Array.from({ length: 360 }, (_, k) => { const y = 1 - (2 * (k + .5)) / 360, r = Math.sqrt(1 - y * y), p = k * 2.399963; return [Math.cos(p) * r, y, Math.sin(p) * r]; });
+    }
+    const callout = Object.assign(document.createElement('div'), { className: 'callout' });
+    stage.appendChild(callout);
+
+    const half = (n) => (n.r ? [n.r, n.r] : [n.el.offsetWidth / 2, n.el.offsetHeight / 2]);
+    const anchor = (n, to) => { const [w, h] = half(n); return Math.abs(to.x - n.x) > Math.abs(to.y - n.y) ? [n.x + Math.sign(to.x - n.x) * w, n.y] : [n.x, n.y + Math.sign(to.y - n.y) * h]; };
+    function curve(id) {
+      const [a, b] = wires[id], A = anchor(nodes[a], nodes[b]), B = anchor(nodes[b], nodes[a]);
+      const horiz = Math.abs(B[0] - A[0]) >= Math.abs(B[1] - A[1]), k = (horiz ? B[0] - A[0] : B[1] - A[1]) / 2;
+      return [A, horiz ? [A[0] + k, A[1]] : [A[0], A[1] + k], horiz ? [B[0] - k, B[1]] : [B[0], B[1] - k], B];
+    }
+    const at = ([p0, p1, p2, p3], u) => [0, 1].map((i) => (1 - u) ** 3 * p0[i] + 3 * (1 - u) ** 2 * u * p1[i] + 3 * (1 - u) * u * u * p2[i] + u ** 3 * p3[i]);
+    const isFuture = () => !!scenarios[ui.scenario].future;
+    const near = (id) => !ui.hover || id === ui.hover || Object.values(wires).some((w) => w.slice(0, 2).includes(id) && w.slice(0, 2).includes(ui.hover));
+    const wireAlpha = (wid) => (!ui.hover || wires[wid].slice(0, 2).includes(ui.hover) ? 1 : .2);
+
+    function stateAt(k) {
+      const s = { nodes: {}, wires: {}, callout: null };
+      for (const [id, n] of Object.entries(nodes)) s.nodes[id] = [n.base, ''];
+      for (const step of scenarios[ui.scenario].steps.slice(0, k + 1)) {
+        Object.assign(s.nodes, step.set);
+        if (step.send) s.wires[step.send[0]] = isFuture() && wires[step.send[0]][3] ? 'blue' : 'amber';
+        if (step.fail) s.wires[step.fail] = 'coral';
+        if (step.callout) s.callout = step.callout;
+      }
+      return s;
+    }
+    const current = () => scenarios[ui.scenario].steps[ui.step];
+    function apply(s) {
+      ui.view = s;
+      for (const [id, [status, tone]] of Object.entries(s.nodes)) {
+        const n = nodes[id]; n.status = status; n.tone = tone;
+        n.el.classList.remove('amber', 'coral', 'green', 'blue'); if (tone) n.el.classList.add(tone);
+        n.el.classList.toggle('live', !!n.future && (isFuture() || !!tone));
+        type(n.el.querySelector('span'), status);
+      }
+      callout.style.opacity = s.callout ? 1 : 0;
+      if (s.callout) {
+        const n = nodes[s.callout[0]], left = n.x > 700;
+        callout.classList.toggle('left', left);
+        callout.innerHTML = `<em>${s.callout[1]}</em> · ${s.callout[2]}`;
+        callout.style.left = `${left ? n.x - half(n)[0] - 50 : n.x + half(n)[0] + 50}px`;
+        callout.style.top = `${n.y - 40}px`;
+      }
+      inspect();
+    }
+
+    function render() {
+      const sc = scenarios[ui.scenario], step = current();
+      ui.t0 = performance.now(); ui.landed = !step.send || still;
+      if (step.select) ui.selected = step.select;
+      apply(stateAt(ui.landed ? ui.step : ui.step - 1));
+      const cap = $('caption'); cap.innerHTML = step.caption; cap.classList.remove('in'); void cap.offsetWidth; cap.classList.add('in');
+      $('cite').textContent = step.cite ? `↳ ${step.cite}` : '';
+      type($('pill-text'), sc.future ? `◇ ${sc.name}` : sc.name);
+      const dot = step.fail ? 'var(--coral)' : ui.step === sc.steps.length - 1 ? 'var(--green)' : sc.future ? 'var(--blue)' : 'var(--amber)';
+      Object.assign($('pill-dot').style, { background: dot, color: dot });
+      $('step-count').textContent = `${ui.step + 1} / ${sc.steps.length}`;
+      $('prev').disabled = ui.step === 0; $('next').disabled = ui.step === sc.steps.length - 1;
+      document.querySelectorAll('[data-scenario]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scenario === ui.scenario)));
+      if (still) draw(performance.now());
+    }
+    function select(id) { ui.selected = id; inspect(); if (still) draw(performance.now()); }
+    function inspect() {
+      const n = nodes[ui.selected];
+      $('i-title').textContent = `${n.title} · ${n.status}${n.future ? '  (planned)' : ''}`;
+      $('i-where').textContent = n.where; $('i-state').textContent = n.state; $('i-contract').textContent = n.contract;
+      $('i-offline').textContent = n.offline; $('i-source').textContent = n.source;
+    }
+    function trace(id) {
+      ui.hover = id;
+      for (const [nid, n] of Object.entries(nodes)) n.el.classList.toggle('dimmed', !near(nid));
+      callout.classList.toggle('dimmed', !!id && ui.view.callout?.[0] !== id);
+      if (still) draw(performance.now());
+    }
+
+    const sparks = (() => { const r = rng(7); return Array.from({ length: 160 }, () => ({ a: r() * Math.PI * 2, sp: 30 + r() * r() * 150, life: .4 + r() * .9, size: .6 + r() * 1.6 })); })();
+    function draw(now) {
+      const t = still ? 99 : (now - boot) / 1000, T = still ? 99 : (now - ui.t0) / 1000, step = current();
+      if (!ui.landed && T >= ARRIVE) { ui.landed = true; apply(stateAt(ui.step)); }
+      ctx.setTransform(fx.width / W, 0, 0, fx.height / H, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      ctx.font = `12px ${FONT()}`; ctx.textAlign = 'left';
+
+      for (const z of zones) { // where things run
+        const live = !z.future || isFuture();
+        ctx.strokeStyle = z.future ? rgba(TONE.blue, live ? .35 : .18) : 'rgba(255,255,255,.09)';
+        ctx.setLineDash(z.future ? [5, 6] : [2, 5]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(z.x, z.y, z.w, z.h, 14); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = z.future ? rgba(TONE.blue, live ? .7 : .4) : 'rgba(255,255,255,.38)';
+        ctx.fillText(z.label, z.x + 12, z.y + 18);
+      }
+
+      Object.keys(wires).forEach((id, i) => {
+        const [, , label, future] = wires[id], c = curve(id), show = inOut(clamp((t - .25 - i * .08) / .7)), tone = ui.view.wires[id], a = wireAlpha(id);
+        if (show <= 0) return;
+        const quiet = future && !isFuture() && !tone;
+        const flash = step.fail === id ? Math.exp(-(((T - ARRIVE) / .25) ** 2)) : 0;
+        ctx.strokeStyle = tone ? rgba(TONE[tone], (.6 + .4 * flash) * a) : `rgba(255,255,255,${(quiet ? .08 : .2 + .3 * flash) * a})`;
+        ctx.lineWidth = 1.2 + flash * 2;
+        if (future) ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(...c[0]); for (let u = .02; u < show; u += .02) ctx.lineTo(...at(c, u)); ctx.lineTo(...at(c, show)); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = rgba(tone ? TONE[tone] : [200, 190, 180], (quiet ? .3 : .85) * a); ctx.beginPath(); ctx.arc(...c[0], 2.4, 0, 7); ctx.fill();
+        if (label && show >= 1 && !quiet) { const [x, y] = at(c, .5); ctx.fillStyle = `rgba(200,190,180,${.5 * a})`; ctx.textAlign = 'center'; ctx.fillText(label, x, y + 16); ctx.textAlign = 'left'; }
+      });
+
+      if (step.send && !still) {
+        const [wid, label, back] = step.send, c = curve(wid), u = T / ARRIVE, tc = TONE[step.fail ? 'coral' : isFuture() && wires[wid][3] ? 'blue' : 'amber'], a = wireAlpha(wid);
+        const fade = 1 - clamp((u - 1) / .6), pos = back ? 1 - inOut(clamp(u)) : inOut(clamp(u));
+        if (fade > 0) {
+          ctx.globalCompositeOperation = 'lighter';
+          for (let k = 0; k < 16; k++) { ctx.fillStyle = rgba(tc, (.5 - k * .03) * fade * a); ctx.beginPath(); ctx.arc(...at(c, clamp(back ? pos + k * .012 : pos - k * .012)), 3.2 - k * .15, 0, 7); ctx.fill(); }
+          const [x, y] = at(c, pos), g = ctx.createRadialGradient(x, y, 0, x, y, 20);
+          g.addColorStop(0, rgba(tc, .4 * fade * a)); g.addColorStop(1, rgba(tc, 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 20, 0, 7); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.fillStyle = `rgba(255,240,220,${fade * a})`; ctx.beginPath(); ctx.arc(x, y, 3.4, 0, 7); ctx.fill();
+          ctx.font = `14px ${FONT()}`; ctx.textAlign = 'center';
+          ctx.fillStyle = rgba(tc, fade * a); ctx.fillText(label, x, y - 14);
+        }
+      }
+
+      if (step.fail && !still) {
+        const n = nodes[wires[step.fail][step.send?.[2] ? 0 : 1]], bu = T - ARRIVE, [w, h] = half(n);
+        if (bu > 0 && bu < 1.4) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = rgba(TONE.coral, .55 * (1 - bu / 1.4)); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.roundRect(n.x - w - bu * 50, n.y - h - bu * 50, (w + bu * 50) * 2, (h + bu * 50) * 2, 12 + bu * 30); ctx.stroke();
+          for (const p of sparks) {
+            const life = bu / p.life; if (life >= 1) continue;
+            const d = p.sp * (1 - Math.exp(-bu * 3)), x = n.x + Math.cos(p.a) * (w * .6 + d), y = n.y + Math.sin(p.a) * (h * .6 + d) + 30 * bu * bu;
+            ctx.fillStyle = rgba([255, 150 + 70 * (1 - life), 110], (1 - life) * .9); ctx.fillRect(x, y, p.size, p.size);
+          }
+          ctx.globalCompositeOperation = 'source-over';
+        }
+      }
+
+      for (const [id, n] of Object.entries(nodes)) {
+        if (!n.r) continue;
+        const a = near(id) ? 1 : .22, th = still ? .6 : t * .35, tilt = .35, show = inOut(clamp((t - .1) / 1.1));
+        const tone = n.tone ? TONE[n.tone].map((v, i) => v * .6 + TONE.ink[i] * .4) : TONE.ink;
+        if (n.tone) { const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 2); g.addColorStop(0, rgba(TONE[n.tone], (.12 + .05 * Math.sin(t * 3)) * a)); g.addColorStop(1, rgba(TONE[n.tone], 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 2, 0, 7); ctx.fill(); }
+        ctx.globalCompositeOperation = 'lighter';
+        n.pts.forEach(([px, py, pz], k) => {
+          if (k / n.pts.length > show) return;
+          const x1 = px * Math.cos(th) + pz * Math.sin(th), z1 = -px * Math.sin(th) + pz * Math.cos(th);
+          const y2 = py * Math.cos(tilt) - z1 * Math.sin(tilt), depth = (py * Math.sin(tilt) + z1 * Math.cos(tilt) + 1) / 2;
+          ctx.fillStyle = rgba(tone, (.15 + .85 * depth) * a); ctx.beginPath(); ctx.arc(n.x + x1 * n.r, n.y + y2 * n.r, .7 + 1.3 * depth, 0, 7); ctx.fill();
+        });
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
+      if (ui.view.callout) {
+        const n = nodes[ui.view.callout[0]], left = callout.classList.contains('left'), p = step.callout && !still ? inOut(clamp((T - ARRIVE) / .4)) : 1;
+        const ax = n.x + (left ? -1 : 1) * half(n)[0], ay = n.y, tx = parseFloat(callout.style.left), ty = parseFloat(callout.style.top), mx = ax + (tx - ax) * .5;
+        const s1 = Math.hypot(mx - ax, ty - ay), L = (s1 + Math.abs(tx - mx)) * p, dir = Math.sign(tx - mx), a = !ui.hover || ui.hover === ui.view.callout[0] ? 1 : .22;
+        ctx.strokeStyle = rgba(TONE.amber, .8 * a); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(ax, ay);
+        if (L <= s1) ctx.lineTo(ax + (mx - ax) * L / s1, ay + (ty - ay) * L / s1); else { ctx.lineTo(mx, ty); ctx.lineTo(mx + dir * (L - s1), ty); }
+        ctx.stroke(); ctx.beginPath(); ctx.arc(ax, ay, 5, 0, 7); ctx.stroke();
+        ctx.fillStyle = rgba(TONE.amber, a); ctx.beginPath(); ctx.arc(ax, ay, 2, 0, 7); ctx.fill();
+      }
+
+      { const n = nodes[ui.selected], [w, h] = half(n);
+        ctx.strokeStyle = 'rgba(230,176,79,.65)'; ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ctx.lineDashOffset = still ? 0 : -t * 12; ctx.beginPath();
+        if (n.r) ctx.arc(n.x, n.y, n.r + 10, 0, 7); else ctx.roundRect(n.x - w - 7, n.y - h - 7, w * 2 + 14, h * 2 + 14, 14);
+        ctx.stroke(); ctx.setLineDash([]); }
+
+      resolveText(now);
+    }
+    const loop = (now) => { draw(now); requestAnimationFrame(loop); };
+
+    const scale = () => $('frame').clientWidth / W;
+    function fit() {
+      const s = scale(), dpr = Math.min(2, devicePixelRatio * s);
+      stage.style.transform = `scale(${s})`; $('frame').style.height = `${H * s}px`;
+      fx.width = W * dpr; fx.height = H * dpr;
+      if (still && ui.view) draw(performance.now());
+    }
+    const last = () => scenarios[ui.scenario].steps.length - 1;
+    const go = (k) => { ui.step = clamp(k, 0, last()); render(); };
+    function play(on = !ui.playing) {
+      clearInterval(ui.playing); ui.playing = 0;
+      $('play').textContent = on ? '❚❚ pause' : '▶ play'; $('play').setAttribute('aria-pressed', String(on));
+      if (!on) return;
+      if (ui.step === last()) go(0);
+      ui.playing = setInterval(() => (ui.step >= last() ? play(false) : go(ui.step + 1)), 2800);
+    }
+    const stepTo = (k) => { play(false); if (clamp(k, 0, last()) !== ui.step) go(k); };
+    document.querySelectorAll('[data-scenario]').forEach((b) => b.addEventListener('click', () => { play(false); ui.scenario = b.dataset.scenario; go(0); }));
+    $('prev').addEventListener('click', () => stepTo(ui.step - 1));
+    $('next').addEventListener('click', () => stepTo(ui.step + 1));
+    $('play').addEventListener('click', () => play());
+    addEventListener('keydown', (e) => {
+      if (e.target.closest?.('button, .node')) return;
+      if (e.key === 'ArrowRight') stepTo(ui.step + 1);
+      if (e.key === 'ArrowLeft') stepTo(ui.step - 1);
+      if (e.key === ' ') { e.preventDefault(); play(); }
+    });
+    addEventListener('resize', fit);
+
+    // ─── state traps: filled from the Quint models' README
+    const traps = [
+      ['runner · today', 'NoFalseInterrupt, AtMostOneTerminalReportPerTurn', 'FAIL: hello before outbox', 'runner flushes its outbox before hello (ky-runner.ts:286-288)'],
+      ['runner · today', 'AtMostOneTerminalReportPerTurn, NoTerminalFlip', 'FAIL: stop() while the run ack is in flight → "stopped" then "done"', 'reports carry the turn; drop reports for a closed turn; operationId task:turn (machines.ts:267)'],
+      ['runner · today', 'NoDuplicateExecution', 'FAIL: ack lost + runner restart re-runs the task', 'persist handled seqs on the runner (ky-runner.ts:129)'],
+      ['runner · today', 'NoSteerIntoStoppedRun', 'FAIL: a send right after stop goes to the dying session', 'runner queues a run that arrives while stopping'],
+      ['runner · today', 'QuiescentRecoverable', 'FAIL: result lost before any session report → stuck "queued"', 'hello also closes queued tasks with no unacked runs (machines.ts:210-216)'],
+      ['runner · today', 'NoOutOfOrderExecution', 'FAIL: follow-up delivered before the first run', '#enqueue re-sends all pending rows in seq order (machines.ts:135)'],
+      ['runner · all fixes', 'Safety (all of the above)', 'ok: 6 replays + 300k simulated traces', 'switching off any fix except fencing brings a violation back; keep fencing for DO eviction mid-#finish and submit retries'],
+      ['node tool · naive', 'NoExecutionAfterExpiryOrAbort', 'FAIL: node starts the job after the deadline', 'the job carries its absolute deadline; the node refuses to start after it'],
+      ['node tool · naive', 'NonIdempotentEffectAtMostOnce', 'FAIL: node crash + redelivery creates the reminder twice', 'node keeps durable started/done marks by job id and never re-runs'],
+      ['node tool · naive', 'NoStuckWaiter', 'FAIL: DO evicted mid-wait, the in-memory timer is gone', 'deadline in SQL + DO alarm; the re-invoked tool finds its row by call id'],
+      ['node tool · naive', 'TruthfulOutcome', 'FAIL: expiry says "not run" after the node already ran it', 'say "not run" only if never sent; otherwise "unknown"'],
+      ['node tool · design', 'NoExecutionAfterExpiryOrAbort', 'FAIL (unavoidable): abort races a job already received', 'tell the model "unknown, may have run", never "not run"'],
+      ['automations · naive', 'AtMostOneRunPerSlot', 'FAIL: a doubled alarm fire runs the slot twice', 'one row per (automation, slot); spawn keyed by slot'],
+      ['automations · naive', 'NoLostSlotWithoutRecord', 'FAIL: a late alarm runs several slots or drops them silently', 'run only the latest due slot; record missed slots as skipped'],
+      ['automations · naive', 'NoStartAfterDisableOrDelete, NoPostAfterDelete', 'FAIL: runs after disable, posts after delete', 're-check enabled at spawn; delete cancels pending and unposted runs'],
+      ['automations · naive', 'NoOverlap, NoStrandedRun', 'FAIL: overlaps the previous run; eviction strands a pending row', 'skip and record overlapping slots; a recovery scan restarts stranded rows'],
+      ['automations · naive', 'AtMostOnePostPerRun', 'FAIL: a retried post double-posts', 'stable operationId auto:&lt;id&gt;:&lt;slot&gt;'],
+      ['automations · design', 'Design (all of the above)', 'ok: 8 replays + 200k simulated traces', 'switching off any one of the 8 fixes breaks it'],
+    ];
+    $('traps-body').innerHTML = traps.map(([m, inv, res, rule]) => `<tr><td>${m}</td><td><code>${inv}</code></td><td class="${res.startsWith('FAIL') ? 'bad' : res.startsWith('ok') ? 'ok' : 'muted'}">${res}</td><td>${rule}</td></tr>`).join('');
+
+    fit(); render();
+    type($('title').children[0], title[0], 500);
+    setTimeout(() => type($('title').children[1], title[1], 700), still ? 0 : 250);
+    if (still) draw(performance.now()); else requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

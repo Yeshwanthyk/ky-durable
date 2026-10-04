@@ -1,0 +1,4 @@
+Everything durable in [ky](K Y) lives in one Durable Object, and its SQLite holds every table. Your browser holds nothing, and resyncs over a socket. The sandbox and the Kitesurf browser are Cloudflare bindings, always on. Memory is just a module inside the object.
+Your Mac is reached two ways. The model streams through a tunnel to VibeProxy. Tasks go down the runner socket to Claude Code. Today, a reconnect sends hello before the outbox. The object reports interrupted, then the real result reports again. The fix flushes the outbox first, so each result lands once.
+Next, any computer can become a node. Its hello carries a manifest of tools and models. A reminders call waits on the Mac, with a ninety second deadline. A second box serves its own model, over its own tunnel.
+Automations ride the scheduler inside the same object. Each fire submits to the main chat with a fixed operation id. A duplicate is dropped, and the reply is your update.
