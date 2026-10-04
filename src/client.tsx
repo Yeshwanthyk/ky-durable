@@ -542,6 +542,14 @@ function App() {
     ? undefined
     : tasks.find((task) => task.kind === "cloud" && task.session === session);
 
+  const mainSlot = settings?.slots.main;
+
+  const mainModel = mainSlot
+    ? (settings?.providers
+        .find((provider) => provider.id === mainSlot.provider)
+        ?.models.find((each) => each.modelId === mainSlot.modelId)?.name ?? mainSlot.modelId)
+    : "Main agent";
+
   const working = tasks.filter((task) => task.status === "working").length;
 
   const empty = messages.length === 0 && !live && !running;
@@ -577,7 +585,7 @@ function App() {
                     {main ? "ky" : (subagent?.worker ?? "Subagent")}
                   </h1>
                   <p className="truncate text-xs text-kumo-subtle">
-                    {main ? "Main agent" : (subagent?.title ?? `Session ${session}`)}
+                    {main ? mainModel : (subagent?.title ?? `Session ${session}`)}
                   </p>
                 </div>
               </div>
