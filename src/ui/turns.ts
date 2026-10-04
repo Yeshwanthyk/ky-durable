@@ -1,4 +1,5 @@
 import type { PiMessage, PiMessagePart } from "../transcript";
+import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
 import type { Tool, Turn } from "./conversation";
 
@@ -122,6 +123,7 @@ export function buildTurns(
       id: message?.id ?? `t${turns.length}`,
       state: "completed",
       user: report ? raw.slice(report[0].length) : raw,
+      images: message ? message.parts.flatMap((part) => (part.type === "image" ? [imageSrc(part)] : [])) : [],
       from: report ? `${report[1]} ${report[2]}` : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
       assistant: "",

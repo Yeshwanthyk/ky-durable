@@ -24,6 +24,8 @@ export type Turn = {
   id: string;
   state: "completed" | "streaming" | "failed" | "aborted";
   user: string;
+  /** Images the user sent with the prompt, as data URLs. */
+  images: string[];
   /** Set when the turn was started by a subagent or machine report, not the user. */
   from: string | null;
   /** The machine task a report is from; its files show under the report. */

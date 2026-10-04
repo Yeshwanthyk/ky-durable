@@ -26,6 +26,8 @@ export type ModelOption = {
   readonly name: string;
   /** Thinking levels the model accepts; the first is the lowest. */
   readonly levels: readonly ModelThinkingLevel[];
+  /** It reads images in the user's messages. */
+  readonly images: boolean;
   /** Dollars per million input and output tokens, when known. */
   readonly cost?: { readonly input: number; readonly output: number };
 };

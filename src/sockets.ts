@@ -17,6 +17,7 @@ import {
   type MachineHub,
   type RunnerReport
 } from "./machines";
+import { checkInput } from "./images";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Settings } from "./settings";
@@ -317,11 +318,22 @@ export class PiSessionSockets {
     const handle = this.#harness.session(session);
 
     switch (message.type) {
-      case "submit":
+      case "submit": {
+        // The main session runs on the main slot; every other session is a subagent's.
+        const problem = checkInput(
+          message.input,
+          this.#settings.view(),
+          session === ROOT_SESSION ? "main" : "subagents"
+        );
+
+        if (problem !== null) throw new Error(problem);
+
         return await handle.submit(message.input, {
           ...(message.whenBusy ? { whenBusy: message.whenBusy } : {}),
           ...(message.operationId ? { operationId: message.operationId } : {})
         });
+      }
+
       case "abort":
         return await handle.abort();
       case "reset":

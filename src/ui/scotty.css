@@ -241,6 +241,11 @@ kbd {
   .send-button:hover:not(:disabled) {
     opacity: 0.85;
   }
+
+  .attach-button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .thread {
   flex: 1;
@@ -283,6 +288,20 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-images img {
+  display: block;
+  max-width: min(240px, 100%);
+  max-height: 240px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
 }
 
 .user-message {
@@ -696,6 +715,89 @@ kbd {
   border-color: var(--line-hover);
 }
 
+/* Thumbnails and the text span the box; the attach button starts the bottom bar. */
+.composer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.composer > :is(.composer-images, textarea) {
+  grid-column: 1 / -1;
+}
+
+.composer > .composer-bar {
+  grid-column: 2;
+}
+
+.composer[data-dragging="true"] {
+  border-color: var(--ink);
+  border-style: dashed;
+}
+
+.composer-images {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 10px 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.composer-images li {
+  position: relative;
+  flex: none;
+}
+
+.composer-images img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+}
+
+/* A small mark with a larger hit area around it. */
+.composer-image-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+
+.composer-image-remove::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 1.5px solid var(--surface);
+}
+
+.composer-image-remove svg {
+  position: relative;
+  color: var(--bg);
+}
+
+.attach-button {
+  grid-row: 3;
+  align-self: end;
+  width: 32px;
+  height: 32px;
+  margin: 0 0 8px 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.attach-button:disabled {
+  color: var(--quiet);
+}
+
 .composer textarea {
   display: block;
   width: 100%;
@@ -801,8 +903,27 @@ kbd {
   /* One row on phones: the send button sits beside the text, not on its own bar. */
   .composer {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     border-radius: 22px;
+  }
+
+  .composer-images {
+    flex-basis: 100%;
+    padding: 12px 12px 2px;
+  }
+
+  /* 44px to tap, the same height as one line of text. */
+  .attach-button {
+    width: 44px;
+    height: 44px;
+    margin: 0 -8px 0 0;
+  }
+
+  .composer textarea {
+    flex: 1;
+    width: auto;
+    min-width: 0;
   }
 
   .composer textarea {
