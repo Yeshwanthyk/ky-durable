@@ -277,7 +277,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
         name: "machine",
         description:
           "Run tasks on the user's real computers, each as a Claude Code session with a shell, files, scripts, installed tools and a real browser. " +
-          "Use it for anything the cloud cannot do: opening websites in a browser, logging in to things, running scripts or builds, touching local files. " +
+          "Use it for anything the cloud cannot do: web pages that need the user's logins (try Exa search, then browse, first), running scripts or builds, touching local files. " +
           "Actions: list (machines and their recent tasks). " +
           "run (title, prompt, machine optional when one is online): start a task; the prompt must be self-contained. " +
           "send (task, message): steer a working task, or resume a finished one with its history. " +

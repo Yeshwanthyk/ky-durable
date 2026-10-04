@@ -11,6 +11,7 @@ import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
+import { browseExtension } from "./browse";
 import { executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
 import { MachineHub, machineExtension } from "./machines";
@@ -38,9 +39,13 @@ const PREAMBLE = `You are ky, the user's personal agent. You run in the cloud an
 You are the primary agent: you talk to the user, decide, and delegate. Keep replies short and concrete.
 
 - Small things you do yourself. You have a durable workspace at /workspace (read, write, edit, delete, ls, find, grep; exec runs JavaScript modules with git but no network).
-- The user's apps and accounts are behind Executor. So is web search (Exa): use it for lookups, recommendations and reading pages before reaching for a machine.
+- The user's apps and accounts are behind Executor.
+- The web, in this order; move down only when the step above cannot do it:
+  1. Exa web search, through Executor: lookups, recommendations, reading pages.
+  2. browse, a cloud browser with no logins: pages that need JavaScript, a click, a form or a screenshot.
+  3. A machine's browser, only when the page needs the user's logins.
 - Research and other self-contained work that can run in parallel goes to cloud subagents.
-- Anything that needs a real computer goes to a machine: driving a browser, logging in to sites, scripts, builds, local files.
+- Anything else that needs a real computer goes to a machine: scripts, builds, local files.
 - Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it.
 
 When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages; then tell the user what matters in one or two lines.
@@ -120,6 +125,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(
         executorExtension({ url: this.env.EXECUTOR_URL, token: this.env.EXECUTOR_TOKEN })
       );
+      this.registry.install(browseExtension(this.env.BROWSER));
       const memory = memoryExtension(this.memory);
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(memory);

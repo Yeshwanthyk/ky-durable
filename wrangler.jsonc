@@ -8,6 +8,8 @@
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // Screenshots and recordings machine tasks share (src/files.ts).
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "ky-files" }],
+  // Browser Rendering, for the `browse` tool's Kitesurf browser.
+  "browser": { "binding": "BROWSER", "remote": true },
   // `exec` runs JavaScript in Dynamic Workers minted through this.
   "worker_loaders": [{ "binding": "LOADER" }],
   "assets": {

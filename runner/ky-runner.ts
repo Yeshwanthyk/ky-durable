@@ -7,13 +7,15 @@
  *
  *   KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... node runner/ky-runner.ts
  *
+ * KY_TOKEN_FILE   read KY_TOKEN from this file instead
  * KY_MACHINE      name shown in ky (default: this host's name)
  * KY_WORKDIR      where tasks run (default: ~/ky-work)
  * KY_PERMISSION_MODE  Claude Code permission mode (default: bypassPermissions)
  * KY_CLAUDE       the claude executable (default: claude)
+ * KY_CHROME       1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -40,7 +42,9 @@ type Run = {
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
 
-const TOKEN = required("KY_TOKEN");
+const TOKEN = process.env.KY_TOKEN_FILE
+  ? readFileSync(process.env.KY_TOKEN_FILE, "utf8").trim()
+  : required("KY_TOKEN");
 
 const MACHINE = (process.env.KY_MACHINE ?? hostname().split(".")[0]!)
   .toLowerCase()
@@ -52,6 +56,8 @@ const WORKDIR = process.env.KY_WORKDIR ?? join(homedir(), "ky-work");
 const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
+
+const CHROME = process.env.KY_CHROME === "1";
 
 const PROGRESS_EVERY_MS = 4_000;
 
@@ -90,7 +96,11 @@ const TASK_PROMPT = `You are running a task for ky, the user's agent; the user r
 To show the user a screenshot, a recording or a chart, attach it: ky-attach <file> [caption] (png, jpeg, webp, gif, webm or mp4, at most 25 MB). It appears on this task and in its report. Attach every image or video you make for the user, and mention it in your answer.
 - For web pages use Playwright. The first time, install it in ${CAPTURE}: mkdir -p ${CAPTURE} && cd ${CAPTURE} && echo '{"private":true}' > package.json && npm install playwright && npx playwright install chromium. Run capture scripts from there.
 - Screenshot at a 390x844 viewport unless asked otherwise. Record video with the browser context option recordVideo: { dir, size }; the webm is saved when the context closes.
-- Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.`;
+- Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.${
+  CHROME
+    ? "\n\nFor anything that needs the user's logins, use the user's own Chrome through the Claude in Chrome tools; Playwright starts logged out. Never read, copy or report passwords, cookies or tokens."
+    : ""
+}`;
 
 function installAttach() {
   mkdirSync(BIN, { recursive: true });
@@ -142,6 +152,7 @@ function start(task: string, prompt: string, session: string | null) {
     "--verbose",
     "--permission-mode", PERMISSION_MODE,
     "--append-system-prompt", TASK_PROMPT,
+    ...(CHROME ? ["--chrome"] : []),
     ...(session ? ["--resume", session] : [])
   ];
 
@@ -150,6 +161,7 @@ function start(task: string, prompt: string, session: string | null) {
     cwd: WORKDIR,
     env: {
       ...process.env,
+      KY_TOKEN: TOKEN,
       KY_TASK: task,
       PATH: `${BIN}:${process.env.PATH ?? ""}`
     }
