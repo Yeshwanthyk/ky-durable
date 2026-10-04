@@ -288,7 +288,7 @@ function SettingsTab({
               <span className="text-kumo-subtle">
                 {provider.connected
                   ? `· ${provider.models.length} models`
-                  : `· set the ${provider.needs ?? "key"} secret`}
+                  : `· needs ${provider.needs ?? "a key"}`}
               </span>
             </li>
           ))}

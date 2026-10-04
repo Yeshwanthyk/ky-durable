@@ -9,7 +9,6 @@ import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
-import { createAI } from "agents/models/pi-ai";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
 import { executorExtension } from "./executor";
@@ -22,37 +21,9 @@ import { TaskFeed } from "./tasks";
 import { VIBEPROXY_PROVIDER, vibeProxy } from "./vibeproxy";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
-const DEFAULT_MODEL = "@cf/moonshotai/kimi-k2.7-code";
-
 const CLAUDE_MODEL = "claude-opus-5-5";
 
-const CLOUDFLARE = "cloudflare";
-
 const OPENCODE_GO = "opencode-go";
-
-const OPENCODE_DEFAULT = "deepseek-v4.1-flash";
-
-/** Workers AI models with tool calling worth choosing, with $/M tokens. */
-const WORKERS_AI_MODELS: ReadonlyArray<{ id: string; name: string; input: number; output: number }> = [
-  { id: "@cf/moonshotai/kimi-k2.7-code", name: "Kimi K2.7 Code", input: 0.95, output: 4 },
-  { id: "@cf/zai-org/glm-5.3-flash", name: "GLM-5.3 Flash", input: 0.15, output: 0.5 },
-  { id: "@cf/deepseek-ai/deepseek-v4-flash-0731", name: "DeepSeek V4 Flash", input: 0.44, output: 1.32 },
-  { id: "@cf/openai/gpt-oss-120b", name: "gpt-oss-120b", input: 0.35, output: 0.75 },
-  { id: "@cf/google/gemma-4-26b-a4b-it", name: "Gemma 4 26B", input: 0.1, output: 0.3 }
-];
-
-/** OpenCode Go models offered, the cheap and capable ones first. */
-const OPENCODE_GO_CHOICES = [
-  OPENCODE_DEFAULT,
-  "deepseek-v4-pro",
-  "glm-5.3-flash",
-  "qwen3.8-flash",
-  "mimo-v2.6-flash",
-  "gpt-6-luna",
-  "kimi-k2.7-code",
-  "minimax-m3",
-  "kimi-k3"
-];
 
 /** A pi context with no values that is never cancelled. */
 const BACKGROUND = Object.freeze({
@@ -70,25 +41,43 @@ You are the primary agent: you talk to the user, decide, and delegate. Keep repl
 - Research and other self-contained work that can run in parallel goes to cloud subagents.
 - Anything that needs a real computer goes to a machine: driving a browser, logging in to sites, scripts, builds, local files.
 
-When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages; then tell the user what matters in one or two lines.`;
+When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages; then tell the user what matters in one or two lines.
+
+Changing yourself: your own code is the GitHub repo Yeshwanthyk/ky-durable, with a working copy for you at ~/ky-work/ky-durable on the user's Mac. Changes go through a pull request the user merges; never deploy unmerged work.
+
+When the user asks you to change how you work or look, run one machine task with the change and these steps:
+1. cd ~/ky-work/ky-durable (gh repo clone Yeshwanthyk/ky-durable there if missing). git fetch, then git switch -c ky/<short-name> origin/main. pnpm install.
+2. Make the change.
+3. Run pnpm typecheck and pnpm test, and fix failures.
+4. Commit with a clear message, git push -u origin HEAD, and open a pull request with gh pr create (what changed and why).
+5. Report the PR URL and a short summary of the diff.
+Then tell the user the PR is ready and to say "ship it" or merge it on GitHub.
+
+When the user says to ship it or that they merged it, run one machine task:
+1. cd ~/ky-work/ky-durable. If the PR is still open, gh pr merge <number> --squash --delete-branch.
+2. git switch main, git pull, pnpm install, then pnpm typecheck and pnpm test.
+3. pnpm run deploy. Open pages reload on their own.
+4. Check that https://ky.yeshwanth-yk.workers.dev/login answers 200. If not, run npx wrangler rollback -m "ky self-edit rollback" -y and report it.
+The deploy restarts you, which cuts off your current turn; the task's report still reaches you after. Never print or commit secrets.`;
 
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
-  readonly ai = createAI({ binding: this.env.AI });
-  /** Claude on the user's Mac, falling back to Workers AI when the Mac is away. */
+  /** Claude on the user's Mac, falling back to the fallback slot when the Mac is away. */
   readonly claude = vibeProxy({
     binding: this.env.VIBEPROXY,
     key: this.env.VIBEPROXY_KEY,
     modelId: CLAUDE_MODEL,
     fallback: (context, options) => {
       const { provider, modelId, thinkingLevel } = this.settings.get("fallback");
-      const model = this.model(provider, modelId);
       const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel;
 
-      return provider === OPENCODE_GO
-        ? this.opencode.streamSimple(model, context, { ...options, reasoning, apiKey: this.env.OPENCODE_API_KEY })
-        : this.ai.streamSimple(model, context, { ...options, reasoning, apiKey: undefined });
-    }
+      return this.opencode.streamSimple(this.model(provider, modelId), context, {
+        ...options,
+        reasoning,
+        apiKey: this.env.OPENCODE_API_KEY
+      });
+    },
+    onChange: () => this.ctx.waitUntil(this.applyMain())
   });
   readonly opencode: Provider = opencodeGoProvider();
   readonly settings = new Settings(
@@ -138,7 +127,6 @@ export class PiAgent extends DurableObject<Env> {
           fileExists: async () => false
         }
       });
-      models.setProvider(this.ai.provider);
       models.setProvider(this.claude.provider);
       models.setProvider(this.opencode);
 
@@ -192,6 +180,7 @@ export class PiAgent extends DurableObject<Env> {
 
   async onStart(): Promise<void> {
     await this.sockets.reattach();
+    await this.claude.check();
     await this.applyMain();
   }
 
@@ -203,14 +192,11 @@ export class PiAgent extends DurableObject<Env> {
 
   model(provider: string, modelId: string): Model<Api> {
     if (provider === VIBEPROXY_PROVIDER) return this.claude.model;
+    const model = this.opencode.getModels().find((each) => each.id === modelId);
 
-    if (provider === OPENCODE_GO) {
-      const model = this.opencode.getModels().find((each) => each.id === modelId);
+    if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
 
-      if (model) return model;
-    }
-
-    return this.ai(modelId);
+    return model;
   }
 
   catalog(): ProviderInfo[] {
@@ -225,43 +211,25 @@ export class PiAgent extends DurableObject<Env> {
       {
         id: VIBEPROXY_PROVIDER,
         name: "Claude via VibeProxy",
-        connected: Boolean(this.env.VIBEPROXY_KEY),
-        needs: "VIBEPROXY_KEY",
+        connected: this.claude.connected(),
+        needs: "the Mac online with VibeProxy",
         models: [option(this.claude.model)]
       },
       {
         id: OPENCODE_GO,
         name: "OpenCode Go",
         connected: Boolean(this.env.OPENCODE_API_KEY),
-        needs: "OPENCODE_API_KEY",
-        models: OPENCODE_GO_CHOICES.map((id) => this.model(OPENCODE_GO, id))
-          .filter((model) => model.provider === OPENCODE_GO)
-          .map((model) => option(model))
-      },
-      {
-        id: CLOUDFLARE,
-        name: "Workers AI",
-        connected: true,
-        models: WORKERS_AI_MODELS.map((each) => ({
-          ...option(this.ai(each.id), each.name),
-          cost: { input: each.input, output: each.output }
-        }))
+        needs: "the OPENCODE_API_KEY secret",
+        models: [option(this.model(OPENCODE_GO, this.env.KY_MODEL))]
       }
     ];
   }
 
   defaultSettings(): Record<Slot, SlotSetting> {
-    const workersAI: SlotSetting = {
-      provider: CLOUDFLARE,
-      modelId: this.env.KY_MODEL || DEFAULT_MODEL,
-      thinkingLevel: "low"
-    };
-    const cheap: SlotSetting = this.env.OPENCODE_API_KEY
-      ? { provider: OPENCODE_GO, modelId: OPENCODE_DEFAULT, thinkingLevel: "high" }
-      : workersAI;
+    const cheap: SlotSetting = { provider: OPENCODE_GO, modelId: this.env.KY_MODEL, thinkingLevel: "high" };
 
     return {
-      main: this.env.VIBEPROXY_KEY
+      main: this.claude.connected()
         ? { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_MODEL, thinkingLevel: "medium" }
         : cheap,
       subagents: cheap,

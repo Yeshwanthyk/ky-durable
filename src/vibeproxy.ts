@@ -10,8 +10,9 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/e
  * VPC binding. Requests may only go to the two Messages API paths, and
  * VibeProxy still checks its own key.
  *
- * When the Mac is asleep or offline, the turn runs on the fallback model
- * instead, so ky keeps answering.
+ * Claude is offered only while the Mac answers. When it is asleep or offline,
+ * a turn already on Claude runs on the fallback model instead, so ky keeps
+ * answering.
  */
 
 export const VIBEPROXY_PROVIDER = "vibeproxy";
@@ -34,9 +35,20 @@ export type VibeProxyConfig = {
     context: TranscriptContext,
     options: SimpleStreamOptions | undefined
   ) => ReturnType<Provider["streamSimple"]>;
+  /** Called when the Mac comes online or goes away. */
+  readonly onChange?: (up: boolean) => void;
 };
 
-export function vibeProxy(config: VibeProxyConfig): { provider: Provider; model: Model<Api> } {
+export type VibeProxy = {
+  readonly provider: Provider;
+  readonly model: Model<Api>;
+  /** The last probe reached the Mac. Starts a new probe when that one is stale. */
+  readonly connected: () => boolean;
+  /** Probe now, or reuse a fresh probe, and say whether the Mac answers. */
+  readonly check: () => Promise<boolean>;
+};
+
+export function vibeProxy(config: VibeProxyConfig): VibeProxy {
   const base = Object.values(ANTHROPIC_MODELS).find((model) => model.id === config.modelId);
 
   if (!base) throw new TypeError(`No Anthropic model "${config.modelId}" in pi-ai's catalog.`);
@@ -55,16 +67,28 @@ export function vibeProxy(config: VibeProxyConfig): { provider: Provider; model:
   };
 
   let probe: { at: number; up: Promise<boolean> } | undefined;
+  let lastUp = false;
+
   const reachable = (): Promise<boolean> => {
+    if (!config.key) return Promise.resolve(false);
+
     if (probe && Date.now() - probe.at < PROBE_TTL_MS) return probe.up;
+
     const up = send(`${ORIGIN}/v1/models`, {
-      headers: { "x-api-key": config.key ?? "", "anthropic-version": "2023-06-01" },
+      headers: { "x-api-key": config.key, "anthropic-version": "2023-06-01" },
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     }).then(
       (response) => response.ok,
       () => false
     );
     probe = { at: Date.now(), up };
+
+    void up.then((value) => {
+      if (value === lastUp) return;
+
+      lastUp = value;
+      config.onChange?.(value);
+    });
 
     return up;
   };
@@ -123,5 +147,14 @@ export function vibeProxy(config: VibeProxyConfig): { provider: Provider; model:
     }
   });
 
-  return { provider, model };
+  return {
+    provider,
+    model,
+    connected: () => {
+      void reachable();
+
+      return lastUp;
+    },
+    check: reachable
+  };
 }

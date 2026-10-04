@@ -33,9 +33,9 @@ export type ModelOption = {
 export type ProviderInfo = {
   readonly id: string;
   readonly name: string;
-  /** Its key is set, so its models can be chosen. */
+  /** It can take requests now, so its models can be chosen. */
   readonly connected: boolean;
-  /** What to set to connect it, when it is not. */
+  /** What connects it, when it is not. */
   readonly needs?: string;
   readonly models: readonly ModelOption[];
 };
