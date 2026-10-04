@@ -999,3 +999,278 @@ kbd {
   max-height: 72px;
   object-fit: cover;
 }
+
+/* Header: the name, then one quiet chip that carries the model and the connection. */
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.app-title {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 10px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sunken);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.app-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--quiet);
+  animation: app-dot-wait 1.2s ease-in-out infinite alternate;
+}
+
+.app-dot[data-connected="true"] {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 20%, transparent);
+  animation: none;
+}
+
+@keyframes app-dot-wait {
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* Thumbnails are buttons that open the lightbox. */
+.attachment-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  transition: transform 160ms var(--ease-out);
+}
+
+.attachment-open:active {
+  transform: scale(0.98);
+}
+
+.user-images .attachment-open {
+  width: auto;
+}
+
+/* Lightbox: a native modal dialog; fades and settles in, leaves faster than it came. */
+.lightbox {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  opacity: 0;
+  transition:
+    opacity 140ms var(--ease-out),
+    overlay 140ms allow-discrete,
+    display 140ms allow-discrete;
+}
+
+.lightbox[open] {
+  display: grid;
+  place-items: center;
+  opacity: 1;
+  transition-duration: 200ms;
+}
+
+.lightbox::backdrop {
+  background: rgb(0 0 0 / 0);
+  backdrop-filter: blur(0);
+  transition:
+    background-color 140ms var(--ease-out),
+    backdrop-filter 140ms var(--ease-out),
+    overlay 140ms allow-discrete,
+    display 140ms allow-discrete;
+}
+
+.lightbox[open]::backdrop {
+  background: rgb(0 0 0 / 0.78);
+  backdrop-filter: blur(8px);
+}
+
+@starting-style {
+  .lightbox[open] {
+    opacity: 0;
+  }
+
+  .lightbox[open]::backdrop {
+    background: rgb(0 0 0 / 0);
+    backdrop-filter: blur(0);
+  }
+
+  .lightbox[open] .lightbox-figure {
+    transform: scale(0.96);
+  }
+}
+
+.lightbox-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  transform: scale(1);
+  transition: transform 220ms var(--ease-out);
+}
+
+.lightbox:not([open]) .lightbox-figure {
+  transform: scale(0.98);
+}
+
+.lightbox-figure img,
+.lightbox-figure video {
+  display: block;
+  max-width: min(92vw, 1400px);
+  max-height: calc(100dvh - 120px);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+  background: rgb(255 255 255 / 0.04);
+}
+
+.lightbox-figure figcaption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 720px);
+  font-size: 12.5px;
+  color: rgb(255 255 255 / 0.72);
+}
+
+.lightbox-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lightbox-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: rgb(255 255 255 / 0.5);
+}
+
+.lightbox-figure figcaption a {
+  flex-shrink: 0;
+  color: rgb(255 255 255 / 0.9);
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 0.3);
+  text-underline-offset: 3px;
+}
+
+.lightbox-close,
+.lightbox-step {
+  position: fixed;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    transform 160ms var(--ease-out);
+}
+
+.lightbox-close {
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
+}
+
+.lightbox-step {
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.lightbox-step[data-side="left"] {
+  left: 16px;
+}
+
+.lightbox-step[data-side="right"] {
+  right: 16px;
+}
+
+.lightbox-close:active,
+.lightbox-step:active {
+  transform: scale(0.94);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .lightbox-close:hover,
+  .lightbox-step:hover {
+    background: rgb(255 255 255 / 0.18);
+  }
+}
+
+/* Scrollbars: a thin thumb on no track, darker under the pointer. */
+.thread,
+[data-scroll] {
+  scrollbar-gutter: stable;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*:hover {
+  scrollbar-color: var(--line-hover) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--line-strong) padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--line-hover) padding-box;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dot {
+    animation: none;
+  }
+
+  .lightbox-figure,
+  .attachment-open,
+  .lightbox-close,
+  .lightbox-step {
+    transition: none;
+    transform: none;
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Attachments } from "./Attachments";
+import { useLightbox } from "./Lightbox";
 import type { Item, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { Icon, Spinner } from "./Icon";
@@ -55,13 +56,19 @@ function UserMessage({
   from: string | null;
   task: string | null;
 }) {
+  const open = useLightbox();
+
   if (from !== null) return <Report text={text} from={from} task={task} />;
+  const media = images.map((src, index) => ({ src, label: `Image ${index + 1} you sent` }));
+
   return (
     <>
       {images.length > 0 ? (
         <div className="user-images">
-          {images.map((src, index) => (
-            <img key={index} src={src} alt={`Image ${index + 1} you sent`} loading="lazy" />
+          {media.map((item, index) => (
+            <button key={index} type="button" className="attachment-open" aria-label={`Open ${item.label}`} onClick={() => open(media, index)}>
+              <img src={item.src} alt={item.label} loading="lazy" />
+            </button>
           ))}
         </div>
       ) : null}

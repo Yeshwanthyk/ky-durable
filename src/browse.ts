@@ -19,6 +19,14 @@ const SETTLE_TIMEOUT_MS = 5_000;
 
 const STEP_TIMEOUT_MS = 10_000;
 
+/** Launching, opening a page, reading it or a screenshot: each gets this long. */
+const OPERATION_TIMEOUT_MS = 20_000;
+
+/** The whole call, so a stuck browser cannot hold the turn. */
+const CALL_TIMEOUT_MS = 90_000;
+
+const CLOSE_TIMEOUT_MS = 5_000;
+
 const MAX_TEXT = 20_000;
 
 const MAX_LINKS = 60;
@@ -54,67 +62,93 @@ export function browseExtension(binding: BrowserWorker): Extension {
           screenshot: Type.Optional(Type.Boolean({ description: "Attach a PNG of the viewport." }))
         }),
         replay: "safe",
-        execute: async (args) => {
-          const { launch } = await import("@cloudflare/playwright");
-          const browser = await launch(binding, { browser: "kitesurf" });
-
-          try {
-            const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-            const response = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
-            await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
-
-            for (const [index, step] of (args.steps ?? []).entries()) {
-              const failed = await runStep(page, step).then(
-                () => undefined,
-                (error: Error) => error.message
-              );
-
-              if (failed) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${failed}`, true);
-            }
-
-            const read: PageRead = await page.evaluate((maxLinks) => {
-              const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
-                .flatMap((a) => {
-                  const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
-
-                  return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
-                })
-                .slice(0, maxLinks);
-
-              return { title: document.title, text: document.body?.innerText ?? "", links };
-            }, MAX_LINKS);
-
-            const text = read.text.length > MAX_TEXT ? `${read.text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : read.text;
-
-            const summary = [
-              `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
-              text,
-              read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`
-            ]
-              .filter(Boolean)
-              .join("\n\n");
-
-            const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
-              { type: "text", text: summary }
-            ];
-
-            if (args.screenshot) {
-              const session = await page.context().newCDPSession(page);
-              const shot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-              await session.detach();
-              content.push({ type: "image", data: shot.data, mimeType: "image/png" });
-            }
-
-            return { content, isError: false };
-          } catch (error) {
-            return reply(`Could not browse ${args.url}: ${error instanceof Error ? error.message : String(error)}`, true);
-          } finally {
-            await browser.close().catch(() => undefined);
-          }
-        }
+        execute: async (args) =>
+          within(CALL_TIMEOUT_MS, "the whole browse call", browse(binding, args)).catch((error: Error) =>
+            reply(`Could not browse ${args.url}: ${error.message}`, true)
+          )
       })
     ]
   });
+}
+
+type Args = { url: string; steps?: Array<{ do: string; selector?: string; value?: string }>; screenshot?: boolean };
+
+async function browse(binding: BrowserWorker, args: Args) {
+  const { launch } = await import("@cloudflare/playwright");
+  const browser = await within(OPERATION_TIMEOUT_MS, "starting the browser", launch(binding, { browser: "kitesurf" }));
+
+  try {
+    const page = await within(
+      OPERATION_TIMEOUT_MS,
+      "opening a page",
+      browser.newPage({ viewport: { width: 1280, height: 900 } })
+    );
+
+    const response = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+    await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
+
+    for (const [index, step] of (args.steps ?? []).entries()) {
+      const failed = await runStep(page, step).then(
+        () => undefined,
+        (error: Error) => error.message
+      );
+
+      if (failed) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${failed}`, true);
+    }
+
+    const read: PageRead = await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate((maxLinks) => {
+      const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
+        .flatMap((a) => {
+          const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
+
+          return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
+        })
+        .slice(0, maxLinks);
+
+      return { title: document.title, text: document.body?.innerText ?? "", links };
+    }, MAX_LINKS));
+
+    const text = read.text.length > MAX_TEXT ? `${read.text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : read.text;
+
+    const summary = [
+      `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
+      text,
+      read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+      { type: "text", text: summary }
+    ];
+
+    if (args.screenshot) {
+      const shot = await within(OPERATION_TIMEOUT_MS, "the screenshot", (async () => {
+        const session = await page.context().newCDPSession(page);
+        const result = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        await session.detach();
+
+        return result;
+      })());
+
+      content.push({ type: "image", data: shot.data, mimeType: "image/png" });
+    }
+
+    return { content, isError: false };
+  } finally {
+    // Closing has hung before; never let it hold the answer.
+    await within(CLOSE_TIMEOUT_MS, "closing the browser", browser.close()).catch(() => undefined);
+  }
+}
+
+function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} took longer than ${ms / 1000}s`)), ms);
+  });
+
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 type Page = Awaited<ReturnType<Awaited<ReturnType<typeof import("@cloudflare/playwright").launch>>["newPage"]>>;
