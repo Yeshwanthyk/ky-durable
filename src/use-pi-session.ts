@@ -3,7 +3,12 @@ import { useCallback, useEffect, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
+  MachineInfo,
   ServerMessage,
+  SettingsView,
+  Slot,
+  SlotSetting,
+  TaskRow,
   SessionView,
   ToolInfo
 } from "./protocol";
@@ -14,13 +19,24 @@ type State = SessionView & {
   readonly status: ConnectionStatus;
   /** Every registered tool, from the server's hello. */
   readonly catalog: readonly ToolInfo[];
+  /** Delegated work, newest first, from the server's task feed. */
+  readonly tasks: readonly TaskRow[];
+  readonly machines: readonly MachineInfo[];
+  /** Model choices; null until the server sends them. */
+  readonly settings: SettingsView | null;
 };
 
 const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
-  catalog: []
+  catalog: [],
+  tasks: [],
+  machines: [],
+  settings: null
 };
+
+/** The one agent object this app talks to. */
+const OBJECT = "me";
 
 /**
  * One pi session over the harness's WebSocket protocol, connected with
@@ -28,33 +44,52 @@ const INITIAL_STATE: State = {
  * the same `reduceEvents` the server tests use. A reconnect gets a fresh
  * snapshot, so there is nothing to resume from.
  */
-export function usePiSession(object: string) {
+export function usePiSession(session: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
 
   const agent = useAgent({
     agent: "pi-agent",
-    name: object,
+    name: OBJECT,
+    query: { session },
+    queryDeps: [session],
     onOpen: () => setState((current) => ({ ...current, status: "open" })),
     onClose: () => setState((current) => ({ ...current, status: "closed" })),
     onMessage: (event) => {
       let message: ServerMessage;
+
       try {
         message = JSON.parse(String(event.data)) as ServerMessage;
       } catch {
         return;
       }
+
       switch (message.type) {
         case "hello":
           setState((current) => ({ ...current, catalog: message.tools }));
+
           return;
         case "events":
           setState((current) => ({
             ...current,
             ...reduceEvents(current, message.events)
           }));
+
+          return;
+        case "tasks":
+          setState((current) => ({
+            ...current,
+            tasks: message.tasks,
+            machines: message.machines
+          }));
+
+          return;
+        case "settings":
+          setState((current) => ({ ...current, settings: message.settings }));
+
           return;
         case "error":
           setState((current) => ({ ...current, error: message.message }));
+
           return;
         default:
           return;
@@ -63,8 +98,13 @@ export function usePiSession(object: string) {
   });
 
   useEffect(() => {
-    setState(INITIAL_STATE);
-  }, [object]);
+    setState((current) => ({
+      ...INITIAL_STATE,
+      tasks: current.tasks,
+      machines: current.machines,
+      settings: current.settings
+    }));
+  }, [session]);
 
   const send = useCallback(
     (message: ClientMessage) => {
@@ -92,5 +132,21 @@ export function usePiSession(object: string) {
     [send]
   );
 
-  return { ...state, submit, abort, reset };
+  const stopTask = useCallback(
+    (task: string) => send({ type: "stop-task", id: crypto.randomUUID(), task }),
+    [send]
+  );
+
+  const stopAll = useCallback(
+    () => send({ type: "stop-all", id: crypto.randomUUID() }),
+    [send]
+  );
+
+  const setModel = useCallback(
+    (slot: Slot, setting: SlotSetting) =>
+      send({ type: "set-model", id: crypto.randomUUID(), slot, setting }),
+    [send]
+  );
+
+  return { ...state, submit, abort, reset, stopTask, stopAll, setModel };
 }

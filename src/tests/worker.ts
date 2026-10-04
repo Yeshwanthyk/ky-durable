@@ -25,15 +25,21 @@ import {
 } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { MachineHub } from "../machines";
+import { Settings } from "../settings";
 import { PiSessionSockets } from "../sockets";
+import { TaskFeed } from "../tasks";
 import { EMPTY_VIEW, reduceEvents } from "../view";
 
 const RELEASE_KEY = "test:gate:release";
+
 const GATE_RUNS_KEY = "test:gate:runs";
 
 function textOf(content: Message["content"] | undefined): string {
   if (content === undefined) return "";
+
   if (typeof content === "string") return content;
+
   return content
     .map((part) =>
       "text" in part && typeof part.text === "string" ? part.text : ""
@@ -53,6 +59,7 @@ function script(context: TranscriptContext): AssistantMessage {
   // pi places system-prompt changes positionally, so a system message can
   // follow the user's input.
   const last = context.messages.filter((m) => m.role !== "system").at(-1);
+
   if (last?.role === "toolResult") {
     return fauxAssistantMessage([
       fauxText(
@@ -60,20 +67,24 @@ function script(context: TranscriptContext): AssistantMessage {
       )
     ]);
   }
+
   const prompt = last?.role === "user" ? textOf(last.content) : "";
   const multiply = /^multiply (\d+)$/.exec(prompt);
+
   if (multiply) {
     return fauxAssistantMessage(
       [fauxToolCall("multiply", { value: Number(multiply[1]) })],
       { stopReason: "toolUse" }
     );
   }
+
   if (prompt === "gate" || prompt === "gate-unsafe") {
     return fauxAssistantMessage(
       [fauxToolCall(prompt === "gate" ? "gate" : "gate_unsafe", {})],
       { stopReason: "toolUse" }
     );
   }
+
   return fauxAssistantMessage([fauxText(`echo: ${prompt}`)]);
 }
 
@@ -89,6 +100,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
       this.registry.install(this.#testTools());
       const models = createModels();
       models.setProvider(this.#faux.provider);
+
       return Harness.open(
         storage,
         {
@@ -104,8 +116,21 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     },
     defaults: { model: this.#faux.getModel() }
   });
-  readonly sockets = new PiSessionSockets(this.harness, this.registry, (tag) =>
+  readonly feed = new TaskFeed(this.ctx.storage.sql);
+  readonly machines = new MachineHub(this.ctx.storage.sql, this.feed, (tag) =>
     this.ctx.getWebSockets(tag)
+  );
+  readonly sockets = new PiSessionSockets(
+    this.harness,
+    this.registry,
+    (tag) => this.ctx.getWebSockets(tag),
+    this.feed,
+    this.machines,
+    new Settings(this.ctx.storage.sql, () => [], () => {
+      const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
+
+      return { main: faux, subagents: faux, fallback: faux };
+    })
   );
   readonly webSockets = new WebSockets(this.sockets.options());
   readonly lifecycle = Lifecycle.install(this)
@@ -124,6 +149,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   /** Prompt the root session; the result without its transcript. */
   async prompt(text: string): Promise<PiOperationResult> {
     const { messages: _messages, ...result } = await this.harness.prompt(text);
+
     return result;
   }
 
@@ -146,9 +172,11 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   async gateStarted(runs: number): Promise<number> {
     for (let i = 0; i < 200; i++) {
       const count = (await this.ctx.storage.get<number>(GATE_RUNS_KEY)) ?? 0;
+
       if (count >= runs) return count;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+
     throw new Error("The gate tool never started");
   }
 
@@ -165,10 +193,12 @@ export class PiHarnessTestObject extends DurableObject<Env> {
       stream.start(async (events: readonly AgentEvent[]) => {
         types.push(...events.map((event) => event.type));
         view = reduceEvents(view, events);
+
         if (events.some((event) => event.type === "run_end")) resolve();
       });
     });
     await stream.stop();
+
     // JSON, so the RPC type stays shallow for the test's type checker.
     return { view: JSON.stringify(view), types };
   }
@@ -177,12 +207,14 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   async snapshotView(): Promise<string> {
     const stream = await this.harness.session().events();
     await stream.stop();
+
     return JSON.stringify(reduceEvents(EMPTY_VIEW, [stream.snapshot]));
   }
 
   /** The fixture's tools and preamble, as one pi extension. */
   #testTools(): Extension {
     const storage = this.ctx.storage;
+
     const gate = (
       name: string,
       replay: "safe" | "unsafe"
@@ -195,15 +227,18 @@ export class PiHarnessTestObject extends DurableObject<Env> {
         const runs = ((await storage.get<number>(GATE_RUNS_KEY)) ?? 0) + 1;
         await storage.put(GATE_RUNS_KEY, runs);
         api.output(`run ${runs}\n`);
+
         while (!(await storage.get<boolean>(RELEASE_KEY))) {
           context.abortSignal?.throwIfAborted();
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
+
         return {
           content: [{ type: "text", text: `released after ${runs} runs` }]
         };
       }
     });
+
     return {
       name: "test-tools",
       sections: [
@@ -223,6 +258,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
 }
 
 const NoParameters = Type.Object({});
+
 const MultiplyParameters = Type.Object({ value: Type.Number() });
 
 /** Multiplies by three. */

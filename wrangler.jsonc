@@ -2,15 +2,31 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "ky",
   "main": "src/server.ts",
-  "compatibility_date": "2026-06-11",
+  "compatibility_date": "2026-10-03",
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI", "remote": true },
   // `exec` runs JavaScript in Dynamic Workers minted through this.
   "worker_loaders": [{ "binding": "LOADER" }],
   "assets": {
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/agents/*"]
+    // Every request goes through the Worker, which signs the user in.
+    "run_worker_first": true
   },
+  "vars": {
+    // Executor's MCP endpoint for the organization, with approvals in the browser.
+    "EXECUTOR_URL": "https://v2.executor.sh/org/presh/mcp?elicitation_mode=browser",
+    // A Workers AI id, or a vendor model through AI Gateway.
+    "KY_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+  },
+  // The Mac's VibeProxy, reached only through a private tunnel (no public hostname).
+  "vpc_services": [
+    {
+      "binding": "VIBEPROXY",
+      "service_id": "01a1072f-6f9d-7400-be66-5286e94898a1",
+      "remote": true
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

@@ -1,0 +1,3 @@
+Thread.tsx, ToolRow.tsx, Composer.tsx, Icon.tsx and scotty.css come from
+../scotty/ui/src (commit c1265a09), adapted to ky: no diffs or attachments,
+Markdown through Streamdown, and turns built from pi's transcript (turns.ts).

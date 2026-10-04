@@ -119,6 +119,7 @@ export function projectMessage(message: Message, id: string): PiMessage {
  */
 export function projectEntry(entry: EntryRecord): PiMessage | undefined {
   const message = entry.model?.[0];
+
   if (entry.kind === "pi.reset") {
     return {
       id: String(entry.id),
@@ -127,13 +128,16 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
       timestamp: 0
     };
   }
+
   if (entry.kind === "pi.system" || message === undefined) return undefined;
+
   return projectMessage(message, String(entry.id));
 }
 
 export function projectEntries(entries: readonly EntryRecord[]): PiMessage[] {
   return entries.flatMap((entry) => {
     const message = projectEntry(entry);
+
     return message ? [message] : [];
   });
 }

@@ -12,9 +12,11 @@ async function connect(name: string, query = ""): Promise<WebSocket> {
     }),
     env
   );
+
   expect(response?.status).toBe(101);
   const socket = response!.webSocket as WebSocket;
   socket.accept();
+
   return socket;
 }
 
@@ -25,19 +27,24 @@ function follow(socket: WebSocket) {
   const waiters: Array<() => void> = [];
   socket.addEventListener("message", (event) => {
     if (typeof event.data !== "string") return;
+
     const message = JSON.parse(event.data) as
       | PiServerMessage
       | { type: string };
+
     if (!("type" in message)) return;
     frames.push(message as PiServerMessage);
+
     if (message.type === "events") {
       view = reduceEvents(
         view,
         (message as Extract<PiServerMessage, { type: "events" }>).events
       );
     }
+
     for (const waiter of waiters.splice(0)) waiter();
   });
+
   const until = async (check: () => boolean) => {
     for (let i = 0; i < 500 && !check(); i++) {
       await new Promise<void>((resolve) => {
@@ -45,8 +52,10 @@ function follow(socket: WebSocket) {
         setTimeout(resolve, 20);
       });
     }
+
     if (!check()) throw new Error("Condition never held");
   };
+
   return { view: () => view, frames, until };
 }
 
@@ -123,11 +132,13 @@ describe("the session WebSocket protocol", () => {
     );
 
     await evictDurableObject(stub);
+
     const snapshots = () =>
       client.frames.filter(
         (frame) =>
           frame.type === "events" && frame.events[0]?.type === "snapshot"
       ).length;
+
     const before = snapshots();
     // The next call restarts the object; its start re-watches the socket.
     const result = await stub.prompt("after hibernation");

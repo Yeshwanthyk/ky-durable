@@ -2,66 +2,100 @@ import {
   Badge,
   Button,
   Empty,
-  InputArea,
-  PoweredByCloudflare,
-  Surface,
-  Text
+  Surface
 } from "@cloudflare/kumo";
 import {
+  ArrowLeftIcon,
   BrainIcon,
   CheckCircleIcon,
-  CodeIcon,
-  FilePlusIcon,
+  CircleDashedIcon,
+  CloudIcon,
+  DesktopIcon,
   GearIcon,
-  GitBranchIcon,
+  ListChecksIcon,
+  MagnifyingGlassIcon,
   MoonIcon,
-  PaperPlaneRightIcon,
-  PlusIcon,
-  StopIcon,
+  PlugsConnectedIcon,
+  StopCircleIcon,
   SunIcon,
   WrenchIcon,
   XCircleIcon,
   XIcon
 } from "@phosphor-icons/react";
-import { code } from "@streamdown/code";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Streamdown } from "streamdown";
-import type { ToolInfo, TranscriptMessage, TranscriptPart } from "./protocol";
+import type {
+  MachineInfo,
+  SettingsView,
+  Slot,
+  SlotSetting,
+  TaskRow,
+  ToolInfo
+} from "./protocol";
+import { Composer } from "./ui/Composer";
+import { Thread } from "./ui/Thread";
+import { buildTurns } from "./ui/turns";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
+import "./ui/scotty.css";
 
-const SESSION_KEY = "pi-harness-session";
-const MODEL = "@cf/moonshotai/kimi-k2.7-code";
+/** The main agent's session; subagents have their own. */
+const MAIN_SESSION = "1";
 
 const SUGGESTIONS = [
   {
-    icon: <FilePlusIcon size={15} />,
-    label: "Write a file",
-    value:
-      "Write a haiku about Durable Objects to /workspace/haiku.txt, then read it back."
+    icon: <PlugsConnectedIcon size={15} />,
+    label: "What's connected",
+    value: "What apps do I have connected in Executor, and what can you do with them?"
   },
   {
-    icon: <CodeIcon size={15} />,
-    label: "Run JavaScript",
+    icon: <MagnifyingGlassIcon size={15} />,
+    label: "Research in the background",
     value:
-      "Use exec to run JavaScript that lists /workspace and returns the size of each file."
+      "Start a subagent to research the best way to back up an iPhone to a NAS, and tell me when it is done."
   },
   {
-    icon: <GitBranchIcon size={15} />,
-    label: "Clone a repo",
+    icon: <DesktopIcon size={15} />,
+    label: "Use my Mac",
     value:
-      "Clone https://github.com/octocat/Hello-World into /workspace/hello, then show its git log."
+      "On my machine, open https://news.ycombinator.com in a browser and tell me the top 3 stories."
   }
 ] satisfies Array<{ icon: ReactNode; label: string; value: string }>;
 
-function getSession(): string {
-  const existing = localStorage.getItem(SESSION_KEY);
-  if (existing) return existing;
-  const created = crypto.randomUUID();
-  localStorage.setItem(SESSION_KEY, created);
-  return created;
+function sessionFromUrl(): string {
+  const session = new URLSearchParams(location.search).get("session");
+
+  return session && /^\d+$/.test(session) ? session : MAIN_SESSION;
+}
+
+function ago(time: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - time) / 1000));
+
+  if (seconds < 60) return "now";
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+
+  if (hours < 24) return `${hours}h`;
+
+  return `${Math.round(hours / 24)}d`;
+}
+
+function StatusIcon({ status }: { status: TaskRow["status"] }) {
+  switch (status) {
+    case "queued":
+      return <CircleDashedIcon size={16} className="text-kumo-inactive" />;
+    case "working":
+      return <GearIcon size={16} className="animate-spin text-kumo-accent" />;
+    case "done":
+      return <CheckCircleIcon size={16} weight="fill" className="text-kumo-success" />;
+    case "failed":
+      return <XCircleIcon size={16} weight="fill" className="text-kumo-danger" />;
+    case "stopped":
+      return <StopCircleIcon size={16} className="text-kumo-inactive" />;
+  }
 }
 
 function ModeToggle() {
@@ -86,299 +120,351 @@ function ModeToggle() {
   );
 }
 
-function JsonBlock({ value }: { value: unknown }) {
-  return (
-    <pre className="max-h-40 overflow-auto rounded-lg bg-kumo-elevated p-2.5 text-xs leading-5 whitespace-pre-wrap break-words">
-      {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-    </pre>
-  );
-}
+const isLive = (task: TaskRow) => task.status === "queued" || task.status === "working";
 
-function ToolCallCard({
-  part,
-  running
+function TaskItem({
+  task,
+  now,
+  selected,
+  onOpen,
+  onStop
 }: {
-  part: Extract<TranscriptPart, { type: "tool-call" }>;
-  running: boolean;
+  task: TaskRow;
+  now: number;
+  selected: boolean;
+  onOpen: (session: string) => void;
+  onStop: (task: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const opensSession = task.kind === "cloud" && task.session !== null;
+
   return (
-    <details className="rounded-xl border border-kumo-line bg-kumo-base">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5">
-        {running ? (
-          <GearIcon size={14} className="animate-spin text-kumo-inactive" />
-        ) : (
-          <CheckCircleIcon size={14} className="text-kumo-success" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-          {part.name}
+    <li className="group relative">
+      <button
+        type="button"
+        onClick={() => (opensSession ? onOpen(task.session!) : setOpen((value) => !value))}
+        className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-kumo-elevated ${
+          selected ? "bg-kumo-elevated" : ""
+        }`}
+      >
+        <span className="mt-0.5 shrink-0">
+          <StatusIcon status={task.status} />
         </span>
-        <Badge variant="secondary">{running ? "Running" : "Called"}</Badge>
-      </summary>
-      <div className="border-t border-kumo-line px-3 py-3">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
-          Arguments
-        </p>
-        <JsonBlock value={part.arguments} />
-      </div>
-    </details>
-  );
-}
-
-function ToolResultCard({
-  part
-}: {
-  part: Extract<TranscriptPart, { type: "tool-result" }>;
-}) {
-  const text = part.content
-    .filter((content) => content.type === "text")
-    .map((content) => (content.type === "text" ? content.text : ""))
-    .join("\n");
-  const images = part.content.filter((content) => content.type === "image");
-  return (
-    <details className="rounded-xl border border-kumo-line bg-kumo-base">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5">
-        {part.error ? (
-          <XCircleIcon size={14} className="text-kumo-danger" />
-        ) : (
-          <CheckCircleIcon size={14} className="text-kumo-success" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs">
-          <span className="font-semibold">{part.name}</span>
-          {text ? <span className="ml-2 text-kumo-subtle">{text}</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{task.title}</span>
+            <span
+              className={`shrink-0 text-xs text-kumo-inactive ${isLive(task) ? "invisible" : ""}`}
+            >
+              {ago(task.updated_at, now)}
+            </span>
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-kumo-subtle">
+            {task.kind === "cloud" ? <CloudIcon size={12} /> : <DesktopIcon size={12} />}
+            <span className="shrink-0">{task.worker}</span>
+            {task.summary ? (
+              <span className={`min-w-0 ${open ? "whitespace-pre-wrap" : "truncate"}`}>
+                · {task.summary}
+              </span>
+            ) : null}
+          </span>
         </span>
-        <Badge variant={part.error ? "destructive" : "secondary"}>
-          {part.error ? "Failed" : "Done"}
-        </Badge>
-      </summary>
-      <div className="space-y-3 border-t border-kumo-line px-3 py-3">
-        {text ? (
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
-              Result
-            </p>
-            <JsonBlock value={text} />
-          </div>
-        ) : null}
-        {images.map((image, index) =>
-          image.type === "image" ? (
-            <img
-              key={index}
-              src={`data:${image.mimeType};base64,${image.data}`}
-              alt={`${part.name} output`}
-              className="max-w-full rounded-lg"
-            />
-          ) : null
-        )}
-        {part.details !== undefined ? (
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
-              Details
-            </p>
-            <JsonBlock value={part.details} />
-          </div>
-        ) : null}
-      </div>
-    </details>
-  );
-}
-
-function AssistantPart({
-  part,
-  running
-}: {
-  part: TranscriptPart;
-  running: boolean;
-}) {
-  switch (part.type) {
-    case "text":
-      return (
-        <Streamdown
-          className="sd-theme text-sm leading-6"
-          plugins={{ code }}
-          controls={false}
+      </button>
+      {isLive(task) ? (
+        <button
+          type="button"
+          aria-label={`Stop ${task.title}`}
+          title={task.status === "queued" ? "Cancel" : "Stop"}
+          onClick={() => onStop(task.id)}
+          className="absolute top-2 right-2 rounded-md p-1 text-kumo-subtle hover:bg-kumo-line hover:text-kumo-danger"
         >
-          {part.text}
-        </Streamdown>
-      );
-    case "thinking":
-      return (
-        <details className="rounded-xl border border-kumo-line px-3 py-2">
-          <summary className="cursor-pointer list-none text-xs font-semibold text-kumo-subtle">
-            Thinking
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap text-xs italic leading-5 text-kumo-subtle">
-            {part.text}
-          </p>
-        </details>
-      );
-    case "tool-call":
-      return <ToolCallCard part={part} running={running} />;
-    case "tool-result":
-      return <ToolResultCard part={part} />;
-    case "image":
-      return (
-        <img
-          src={`data:${part.mimeType};base64,${part.data}`}
-          alt=""
-          className="max-w-full rounded-lg"
-        />
-      );
-  }
-}
-
-function UserMessage({ message }: { message: TranscriptMessage }) {
-  const text = message.parts
-    .map((part) => (part.type === "text" ? part.text : ""))
-    .join("");
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-kumo-contrast px-4 py-2.5 text-sm leading-relaxed text-kumo-inverse">
-        {text}
-      </div>
-    </div>
+          <StopCircleIcon size={16} />
+        </button>
+      ) : null}
+    </li>
   );
 }
 
-function AssistantMessage({
-  message,
-  streaming = false,
-  runningTools
+const SLOT_LABELS: ReadonlyArray<{ slot: Slot; label: string; hint: string }> = [
+  { slot: "main", label: "Main agent", hint: "Talks to you and decides." },
+  { slot: "subagents", label: "Subagents", hint: "Research and parallel work." },
+  { slot: "fallback", label: "When the Mac is away", hint: "Answers for Claude while VibeProxy is unreachable." }
+];
+
+const SELECT =
+  "w-full rounded-md border border-kumo-line bg-kumo-base px-2 py-1.5 text-xs text-kumo-default";
+
+function price(cost: { input: number; output: number } | undefined): string {
+  return cost ? ` · $${cost.input}/$${cost.output}` : "";
+}
+
+function SettingsTab({
+  settings,
+  onSet
 }: {
-  message: TranscriptMessage;
-  streaming?: boolean;
-  runningTools: readonly string[];
+  settings: SettingsView | null;
+  onSet: (slot: Slot, setting: SlotSetting) => void;
 }) {
+  if (!settings) {
+    return <p className="px-3 py-6 text-center text-sm text-kumo-subtle">Loading…</p>;
+  }
+
+  const connected = settings.providers.filter((provider) => provider.connected);
+
   return (
-    <div className="flex items-start gap-3">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-kumo-brand text-white">
-        <BrainIcon size={17} weight="bold" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-3">
-        {message.parts.map((part, index) => (
-          <AssistantPart
-            key={`${message.id}-${index}`}
-            part={part}
-            running={
-              streaming &&
-              part.type === "tool-call" &&
-              runningTools.includes(part.name)
-            }
-          />
-        ))}
-        {streaming ? <span className="streaming-cursor" /> : null}
-        {message.error ? (
-          <div
-            role="alert"
-            className="rounded-xl bg-kumo-danger/10 px-4 py-3 text-sm text-kumo-danger"
-          >
-            {message.error}
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      {SLOT_LABELS.map(({ slot, label, hint }) => {
+        const current = settings.slots[slot];
+        const model = settings.providers
+          .find((provider) => provider.id === current.provider)
+          ?.models.find((each) => each.modelId === current.modelId);
+
+        return (
+          <div key={slot} className="space-y-1.5">
+            <div>
+              <p className="text-xs font-semibold">{label}</p>
+              <p className="text-[11px] text-kumo-subtle">{hint}</p>
+            </div>
+            <select
+              aria-label={`${label} model`}
+              className={SELECT}
+              value={`${current.provider}/${current.modelId}`}
+              onChange={(event) => {
+                const value = event.target.value;
+                const cut = value.indexOf("/");
+                onSet(slot, {
+                  provider: value.slice(0, cut),
+                  modelId: value.slice(cut + 1),
+                  thinkingLevel: current.thinkingLevel
+                });
+              }}
+            >
+              {connected.map((provider) => (
+                <optgroup key={provider.id} label={provider.name}>
+                  {provider.models.map((each) => (
+                    <option key={each.modelId} value={`${provider.id}/${each.modelId}`}>
+                      {each.name}
+                      {price(each.cost)}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {model && model.levels.length > 1 ? (
+              <select
+                aria-label={`${label} thinking`}
+                className={SELECT}
+                value={current.thinkingLevel}
+                onChange={(event) =>
+                  onSet(slot, {
+                    ...current,
+                    thinkingLevel: event.target.value as SlotSetting["thinkingLevel"]
+                  })
+                }
+              >
+                {model.levels.map((level) => (
+                  <option key={level} value={level}>
+                    Thinking: {level}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
-        ) : null}
+        );
+      })}
+      <div className="border-t border-kumo-line pt-3">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
+          Providers
+        </p>
+        <ul className="space-y-1">
+          {settings.providers.map((provider) => (
+            <li key={provider.id} className="flex items-center gap-1.5 text-xs">
+              <span
+                className={`size-2 shrink-0 rounded-full ${
+                  provider.connected ? "bg-kumo-success" : "bg-kumo-line"
+                }`}
+              />
+              <span className="font-medium">{provider.name}</span>
+              <span className="text-kumo-subtle">
+                {provider.connected
+                  ? `· ${provider.models.length} models`
+                  : `· set the ${provider.needs ?? "key"} secret`}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-[11px] text-kumo-subtle">Prices are dollars per million input/output tokens.</p>
       </div>
     </div>
   );
 }
 
-function ToolMessage({ message }: { message: TranscriptMessage }) {
-  return (
-    <div className="ml-11 space-y-2">
-      {message.parts.map((part, index) =>
-        part.type === "tool-result" ? (
-          <ToolResultCard key={`${message.id}-${index}`} part={part} />
-        ) : null
-      )}
-    </div>
-  );
-}
-
-function Message({
-  message,
-  streaming = false,
-  runningTools
-}: {
-  message: TranscriptMessage;
-  streaming?: boolean;
-  runningTools: readonly string[];
-}) {
-  switch (message.role) {
-    case "user":
-      return <UserMessage message={message} />;
-    case "assistant":
-      return (
-        <AssistantMessage
-          message={message}
-          streaming={streaming}
-          runningTools={runningTools}
-        />
-      );
-    case "tool":
-      return <ToolMessage message={message} />;
-    case "notice":
-      return message.parts.length === 0 ? null : (
-        <p className="text-center text-xs text-kumo-inactive">
-          {message.parts
-            .map((part) => (part.type === "text" ? part.text : ""))
-            .join("")}
-        </p>
-      );
-  }
-}
-
-function Sidebar({
+function Panel({
+  tasks,
+  machines,
   tools,
   activeTools,
+  session,
+  onOpen,
+  onStop,
+  onStopAll,
+  settings,
+  onSetModel,
   onClose
 }: {
+  tasks: readonly TaskRow[];
+  machines: readonly MachineInfo[];
   tools: readonly ToolInfo[];
   activeTools: readonly string[];
+  session: string;
+  onOpen: (session: string) => void;
+  onStop: (task: string) => void;
+  onStopAll: () => void;
+  settings: SettingsView | null;
+  onSetModel: (slot: Slot, setting: SlotSetting) => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<"tasks" | "tools" | "settings">("tasks");
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+
+    return () => clearInterval(timer);
+  }, []);
+  const live = tasks.filter(isLive).length;
+
   return (
     <aside
-      className="flex min-h-0 flex-col border-l border-kumo-line bg-kumo-base"
-      aria-label="Tools"
+      className="fixed inset-0 z-10 flex min-h-0 flex-col bg-kumo-base lg:static lg:border-l lg:border-kumo-line"
+      aria-label="Tasks"
     >
       <div className="flex h-[68px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-4">
-        <Text size="sm" bold>
-          Tools
-        </Text>
+        <div className="flex gap-1">
+          <Button
+            variant={tab === "tasks" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setTab("tasks")}
+          >
+            Tasks
+          </Button>
+          <Button
+            variant={tab === "tools" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setTab("tools")}
+          >
+            Tools
+          </Button>
+          <Button
+            variant={tab === "settings" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setTab("settings")}
+          >
+            Models
+          </Button>
+        </div>
         <Button
           variant="ghost"
           shape="square"
-          aria-label="Close tools"
+          aria-label="Close panel"
           onClick={onClose}
           icon={<XIcon size={16} />}
         />
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-        {tools.map((tool) => (
-          <Surface
-            key={tool.name}
-            className="rounded-lg p-3 ring ring-kumo-line"
-          >
-            <div className="flex items-center gap-2">
-              {activeTools.includes(tool.name) ? (
-                <GearIcon size={14} className="animate-spin text-kumo-accent" />
-              ) : (
-                <WrenchIcon size={14} className="text-kumo-inactive" />
-              )}
-              <code className="text-xs font-semibold">{tool.name}</code>
+      {tab === "tasks" ? (
+        <>
+          {live > 0 ? (
+            <div className="flex shrink-0 items-center justify-between border-b border-kumo-line px-4 py-2 text-xs text-kumo-subtle">
+              <span>{live} running</span>
+              <Button variant="ghost" size="sm" onClick={onStopAll}>
+                Stop all
+              </Button>
             </div>
-            <p className="mt-1 text-xs text-kumo-subtle">{tool.description}</p>
-          </Surface>
-        ))}
-      </div>
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {tasks.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-kumo-subtle">
+                Work the agent hands to subagents and machines shows up here.
+              </p>
+            ) : (
+              <ul className="space-y-0.5">
+                {tasks.map((task) => (
+                  <TaskItem
+                    key={task.id}
+                    task={task}
+                    now={now}
+                    selected={task.session === session && task.kind === "cloud"}
+                    onOpen={onOpen}
+                    onStop={onStop}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="shrink-0 border-t border-kumo-line px-4 py-3">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
+              Machines
+            </p>
+            {machines.length === 0 ? (
+              <p className="text-xs text-kumo-subtle">
+                None yet. Run <code>runner/ky-runner.ts</code> on a computer.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {machines.map((machine) => (
+                  <li key={machine.name} className="flex items-center gap-1.5 text-xs">
+                    <span
+                      className={`size-2 shrink-0 rounded-full ${
+                        machine.online ? "bg-kumo-success" : "bg-kumo-line"
+                      }`}
+                    />
+                    <span className="font-medium">{machine.name}</span>
+                    <span className="text-kumo-subtle">
+                      {machine.online
+                        ? machine.active > 0
+                          ? `· ${machine.active} ${machine.active === 1 ? "task" : "tasks"}`
+                          : "· idle"
+                        : `· offline, seen ${ago(machine.seenAt, now)}${ago(machine.seenAt, now) === "now" ? "" : " ago"}`}
+                      {!machine.online && machine.active > 0 ? ` · ${machine.active} waiting` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      ) : tab === "settings" ? (
+        <SettingsTab settings={settings} onSet={onSetModel} />
+      ) : (
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+          {tools.map((tool) => (
+            <Surface key={tool.name} className="rounded-lg p-3 ring ring-kumo-line">
+              <div className="flex items-center gap-2">
+                {activeTools.includes(tool.name) ? (
+                  <GearIcon size={14} className="animate-spin text-kumo-accent" />
+                ) : (
+                  <WrenchIcon size={14} className="text-kumo-inactive" />
+                )}
+                <code className="text-xs font-semibold">{tool.name}</code>
+              </div>
+              <p className="mt-1 text-xs text-kumo-subtle">{tool.description}</p>
+            </Surface>
+          ))}
+        </div>
+      )}
     </aside>
   );
 }
 
 function App() {
-  const [session, setSession] = useState(getSession);
+  const [session, setSession] = useState(sessionFromUrl);
   const [prompt, setPrompt] = useState("");
-  const [toolsOpen, setToolsOpen] = useState(
-    () => window.matchMedia("(min-width: 1100px)").matches
+
+  const [panelOpen, setPanelOpen] = useState(
+    () => window.matchMedia("(min-width: 1024px)").matches
   );
+
   const endRef = useRef<HTMLDivElement>(null);
+
   const {
     status,
     messages,
@@ -386,13 +472,25 @@ function App() {
     running,
     tools: running_,
     catalog,
+    tasks,
+    machines,
     queued,
     retry,
     error,
     submit: submitPrompt,
-    abort
+    abort,
+    stopTask,
+    stopAll,
+    settings,
+    setModel
   } = usePiSession(session);
+
   const runningTools = running_.map((tool) => tool.name);
+
+  const turns = useMemo(
+    () => buildTurns(messages, live, running, running_),
+    [messages, live, running, running_]
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -403,23 +501,41 @@ function App() {
   /** While a run is going, Enter queues a follow-up and Steer joins the run. */
   const submit = (whenBusy: "followUp" | "steer" = "followUp") => {
     const text = prompt.trim();
+
     if (!text || !connected) return;
     setPrompt("");
     submitPrompt(text, whenBusy);
   };
 
-  const newSession = () => {
-    const next = crypto.randomUUID();
-    localStorage.setItem(SESSION_KEY, next);
+  useEffect(() => {
+    const onPop = () => setSession(sessionFromUrl());
+    addEventListener("popstate", onPop);
+
+    return () => removeEventListener("popstate", onPop);
+  }, []);
+
+  const openSession = (next: string) => {
+    if (next === session) return;
+    history.pushState(null, "", next === MAIN_SESSION ? "/" : `/?session=${next}`);
     setSession(next);
+
+    if (!window.matchMedia("(min-width: 1024px)").matches) setPanelOpen(false);
   };
+
+  const main = session === MAIN_SESSION;
+
+  const subagent = main
+    ? undefined
+    : tasks.find((task) => task.kind === "cloud" && task.session === session);
+
+  const working = tasks.filter((task) => task.status === "working").length;
 
   const empty = messages.length === 0 && !live && !running;
 
   return (
     <div
       className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
-        toolsOpen
+        panelOpen
           ? "lg:grid-cols-[minmax(520px,1fr)_minmax(300px,26vw)]"
           : "grid-cols-1"
       }`}
@@ -428,20 +544,29 @@ function App() {
         <header className="shrink-0 border-b border-kumo-line bg-kumo-base">
           <div className="mx-auto flex h-[68px] max-w-3xl items-center justify-between gap-3 px-5">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-kumo-brand text-white">
-                <BrainIcon size={20} weight="bold" />
-              </div>
+              {main ? (
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-kumo-brand text-white">
+                  <BrainIcon size={20} weight="bold" />
+                </div>
+              ) : (
+                <Button
+                  variant="ghost"
+                  shape="square"
+                  aria-label="Back to the main agent"
+                  onClick={() => openSession(MAIN_SESSION)}
+                  icon={<ArrowLeftIcon size={18} />}
+                />
+              )}
               <div className="min-w-0">
-                <h1 className="truncate text-base font-semibold">Pi harness</h1>
+                <h1 className="truncate text-base font-semibold">
+                  {main ? "ky" : (subagent?.worker ?? "Subagent")}
+                </h1>
                 <p className="truncate text-xs text-kumo-subtle">
-                  Session <code>{session.slice(0, 8)}</code>
+                  {main ? "Main agent" : (subagent?.title ?? `Session ${session}`)}
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              <Badge variant="secondary" className="hidden sm:inline-flex">
-                {MODEL.split("/").at(-1)}
-              </Badge>
               <Badge variant={connected ? "success" : "secondary"}>
                 {connected
                   ? "Live"
@@ -452,186 +577,105 @@ function App() {
               <Button
                 variant="ghost"
                 shape="square"
-                aria-label="Tools"
-                aria-expanded={toolsOpen}
-                onClick={() => setToolsOpen((open) => !open)}
-                icon={<WrenchIcon size={16} />}
-              />
-              <Button
-                variant="ghost"
-                shape="square"
-                aria-label="New session"
-                onClick={newSession}
-                icon={<PlusIcon size={16} />}
+                aria-label="Tasks"
+                aria-expanded={panelOpen}
+                onClick={() => setPanelOpen((open) => !open)}
+                icon={
+                  <span className="relative">
+                    <ListChecksIcon size={16} />
+                    {working > 0 ? (
+                      <span className="absolute -top-1.5 -right-2 rounded-full bg-kumo-brand px-1 text-[9px] leading-[14px] text-white">
+                        {working}
+                      </span>
+                    ) : null}
+                  </span>
+                }
               />
               <ModeToggle />
             </div>
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl space-y-5 px-5 py-6">
-            {empty ? (
-              <div className="py-10 sm:py-16">
-                <Empty
-                  icon={<BrainIcon size={32} />}
-                  title="Ask Pi something that needs a tool"
-                  description="Tool calls and results stream in as they happen."
-                />
-                <div className="mt-6 flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map((suggestion) => (
-                    <Button
-                      key={suggestion.label}
-                      variant="secondary"
-                      size="sm"
-                      icon={suggestion.icon}
-                      disabled={!connected}
-                      onClick={() => setPrompt(suggestion.value)}
-                    >
-                      {suggestion.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {messages.map((message) => (
-              <Message
-                key={message.id}
-                message={message}
-                runningTools={runningTools}
-              />
-            ))}
-
-            {live ? (
-              <Message message={live} streaming runningTools={runningTools} />
-            ) : null}
-
-            {running && !live ? (
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-kumo-brand text-white">
-                  <BrainIcon size={17} weight="bold" />
-                </div>
-                <Surface className="rounded-xl px-4 py-3 ring ring-kumo-line">
-                  <div className="flex items-center gap-2 text-sm text-kumo-subtle">
-                    <GearIcon size={15} className="animate-spin" />
-                    {retry
-                      ? `Retrying: ${retry.error}`
-                      : runningTools.length > 0
-                        ? `Running ${runningTools.join(", ")}`
-                        : "Waiting for the model"}
+        <div className="chat chat-surface min-h-0 flex-1">
+          <main className="thread" data-scroll>
+            <div className="thread-inner">
+              {empty ? (
+                <div className="py-10 sm:py-16">
+                  <Empty
+                    icon={<BrainIcon size={32} />}
+                    title={main ? "What should we get done?" : "Nothing here yet"}
+                    description={
+                      main
+                        ? "Small things happen here. Bigger ones go to subagents and your machines, and show up under Tasks."
+                        : "This subagent's conversation shows up here as it works."
+                    }
+                  />
+                  <div className={`mt-6 flex-wrap justify-center gap-2 ${main ? "flex" : "hidden"}`}>
+                    {SUGGESTIONS.map((suggestion) => (
+                      <Button
+                        key={suggestion.label}
+                        variant="secondary"
+                        size="sm"
+                        icon={suggestion.icon}
+                        disabled={!connected}
+                        onClick={() => setPrompt(suggestion.value)}
+                      >
+                        {suggestion.label}
+                      </Button>
+                    ))}
                   </div>
-                </Surface>
-              </div>
+                </div>
+              ) : (
+                <Thread turns={turns} mode={running ? "live" : "dormant"} />
+              )}
+              <div ref={endRef} />
+            </div>
+          </main>
+
+          <div className="composer-wrap">
+            {retry ? (
+              <div className="composer-note">Retrying: {retry.error}</div>
+            ) : queued > 0 ? (
+              <div className="composer-note">{queued} queued behind this run</div>
             ) : null}
-
-            {running_.map((tool) =>
-              tool.output ? (
-                <pre
-                  key={tool.callId}
-                  className="ml-11 max-h-40 overflow-auto rounded-lg bg-kumo-elevated p-2.5 text-xs"
-                >
-                  {tool.output}
-                </pre>
-              ) : null
-            )}
-
-            {queued > 0 ? (
-              <p className="ml-11 text-xs text-kumo-subtle">
-                {queued} queued behind this run
-              </p>
-            ) : null}
-
             {error ? (
-              <div
-                role="alert"
-                className="rounded-xl bg-kumo-danger/10 px-4 py-3 text-sm text-kumo-danger"
-              >
+              <div className="composer-note" data-tone="error" role="alert">
                 {error}
               </div>
             ) : null}
-
-            <div ref={endRef} />
-          </div>
-        </main>
-
-        <div className="shrink-0 border-t border-kumo-line bg-kumo-base">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-            className="mx-auto max-w-3xl px-5 pt-4"
-          >
-            <div className="flex items-end gap-3 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-sm transition-shadow focus-within:border-transparent focus-within:ring-2 focus-within:ring-kumo-ring">
-              <InputArea
-                value={prompt}
-                onValueChange={setPrompt}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submit();
-                  }
-                }}
-                placeholder={
-                  running
-                    ? "Queue a follow-up, or steer the running turn"
-                    : "Ask Pi to use a tool"
-                }
-                aria-label="Message Pi"
-                disabled={!connected}
-                rows={2}
-                className="flex-1 !bg-transparent !shadow-none !ring-0 !outline-none focus:!ring-0"
-              />
-              {running ? (
-                <div className="mb-0.5 flex gap-1.5">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    aria-label="Steer"
-                    disabled={prompt.trim() === ""}
-                    onClick={() => submit("steer")}
-                  >
-                    Steer
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    shape="square"
-                    aria-label="Stop"
-                    onClick={abort}
-                    icon={<StopIcon size={18} weight="fill" />}
-                  />
-                </div>
-              ) : (
-                <Button
-                  type="submit"
-                  variant="primary"
-                  shape="square"
-                  aria-label="Send message"
-                  disabled={!connected || prompt.trim() === ""}
-                  icon={<PaperPlaneRightIcon size={18} />}
-                  className="mb-0.5"
-                />
-              )}
-            </div>
-          </form>
-          <div className="flex items-center justify-center gap-2 px-5 py-3">
-            <span className="hidden text-[10px] text-kumo-inactive sm:inline">
-              Enter to send · Shift+Enter for a new line
-            </span>
-            <span className="hidden text-kumo-line sm:inline">·</span>
-            <PoweredByCloudflare href="https://developers.cloudflare.com/agents/" />
+            <Composer
+              value={prompt}
+              onChange={setPrompt}
+              onSubmit={() => submit(running ? "steer" : "followUp")}
+              onStop={abort}
+              working={running}
+              disabled={!connected}
+              label="Message"
+              placeholder={
+                running
+                  ? "Steer the running turn"
+                  : main
+                    ? "Message ky"
+                    : "Message this subagent directly"
+              }
+            />
           </div>
         </div>
       </section>
 
-      {toolsOpen ? (
-        <Sidebar
+      {panelOpen ? (
+        <Panel
+          tasks={tasks}
+          machines={machines}
           tools={catalog}
           activeTools={runningTools}
-          onClose={() => setToolsOpen(false)}
+          session={session}
+          onOpen={openSession}
+          onStop={stopTask}
+          onStopAll={stopAll}
+          settings={settings}
+          onSetModel={setModel}
+          onClose={() => setPanelOpen(false)}
         />
       ) : null}
     </div>
@@ -639,5 +683,7 @@ function App() {
 }
 
 const root = document.getElementById("root");
+
 if (!root) throw new Error("Missing #root element");
+
 createRoot(root).render(<App />);

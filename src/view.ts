@@ -60,10 +60,14 @@ const LIVE_ID = "live";
 
 function append(view: PiSessionView, entry: EntryRecord): PiSessionView {
   const message = projectEntry(entry);
+
   if (!message) return view;
+
   // A reset starts a new context; the snapshot shows only the active one.
   if (entry.kind === "pi.reset") return { ...view, messages: [message] };
+
   if (view.messages.some((known) => known.id === message.id)) return view;
+
   return { ...view, messages: [...view.messages, message] };
 }
 
@@ -88,6 +92,7 @@ function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
     } as AssistantMessage,
     LIVE_ID
   ).parts;
+
   return part;
 }
 
@@ -96,14 +101,17 @@ function applyChanges(
   changes: readonly MessageChange[]
 ): PiMessage | null {
   let message = live;
+
   for (const change of changes) {
     if (change.type === "message") {
       message = projectMessage(change.message, LIVE_ID);
       continue;
     }
+
     if (!message) continue;
     const parts = [...message.parts];
     const previous = parts[change.contentIndex];
+
     switch (change.type) {
       case "text_start":
       case "thinking_start":
@@ -128,8 +136,10 @@ function applyChanges(
         // Partial argument JSON; the call renders once its block completes.
         break;
     }
+
     message = { ...message, parts };
   }
+
   return message;
 }
 
@@ -140,6 +150,7 @@ export function reduceView(
   switch (event.type) {
     case "snapshot": {
       const partial = event.generation?.message;
+
       return {
         messages: projectEntries(event.entries),
         live: partial ? projectMessage(partial, LIVE_ID) : null,
@@ -157,6 +168,7 @@ export function reduceView(
         error: null
       };
     }
+
     case "run_start":
       return { ...view, running: true, error: null };
     case "run_end":
@@ -169,10 +181,12 @@ export function reduceView(
       return { ...view, live: applyChanges(view.live, event.changes) };
     case "message_end": {
       const next = append(view, event.entry);
+
       return event.entry.model?.[0]?.role === "assistant"
         ? { ...next, live: null }
         : next;
     }
+
     case "entry_appended":
       return append(view, event.entry);
     case "tool_execution_start":
@@ -185,12 +199,16 @@ export function reduceView(
       };
     case "tool_execution_update": {
       const output = event.output;
+
       if (!output) return view;
+
       return {
         ...view,
         tools: view.tools.map((tool) => {
           if (tool.callId !== event.toolCallId) return tool;
+
           if ("set" in output) return { ...tool, output: output.set };
+
           return {
             ...tool,
             output:
@@ -199,6 +217,7 @@ export function reduceView(
         })
       };
     }
+
     case "tool_execution_end":
       return {
         ...view,

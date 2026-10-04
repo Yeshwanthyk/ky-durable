@@ -71,6 +71,7 @@ const COMMAND_DESCRIPTION =
 function describeExec(tool: PiTool): PiTool {
   const properties = tool.parameters.properties ?? {};
   const command = properties.command;
+
   return {
     ...tool,
     description: EXEC_DESCRIPTION,
@@ -116,6 +117,7 @@ export function createWorkspaceTools(
 
   return tools.map((declared): ToolRegistration => {
     const tool = declared.name === "exec" ? describeExec(declared) : declared;
+
     return {
       name: tool.name,
       description: tool.description,
@@ -131,6 +133,7 @@ export function createWorkspaceTools(
           { id: api.callId, name: tool.name, arguments: args },
           { abortSignal: context.abortSignal }
         );
+
         return { content, isError };
       }
     };

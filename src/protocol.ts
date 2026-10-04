@@ -1,6 +1,16 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
+import type { SettingsView, Slot, SlotSetting } from "./settings";
+import type { TaskRow } from "./tasks";
+
+export type MachineInfo = {
+  readonly name: string;
+  readonly online: boolean;
+  readonly seenAt: number;
+  /** Its tasks that are queued or working. */
+  readonly active: number;
+};
 
 /**
  * This app's WebSocket protocol, served by `sockets.ts`. The harness knows
@@ -25,7 +35,17 @@ export type PiClientMessage =
   | { readonly type: "abort"; readonly id?: string }
   | { readonly type: "reset"; readonly id?: string; readonly handoff?: string }
   /** Ask for a fresh snapshot. */
-  | { readonly type: "resync"; readonly id?: string };
+  | { readonly type: "resync"; readonly id?: string }
+  /** Stop a subagent's current work or a machine task; queued machine runs are withdrawn. */
+  | { readonly type: "stop-task"; readonly id?: string; readonly task: string }
+  | { readonly type: "stop-all"; readonly id?: string }
+  /** Choose the model, and its thinking level, for one slot. */
+  | {
+      readonly type: "set-model";
+      readonly id?: string;
+      readonly slot: Slot;
+      readonly setting: SlotSetting;
+    };
 
 /** Server → client. */
 export type PiServerMessage =
@@ -44,6 +64,14 @@ export type PiServerMessage =
       readonly session: PiSessionId;
       readonly events: readonly AgentEvent[];
     }
+  /** The task feed, sent on connect and whenever it changes. */
+  | {
+      readonly type: "tasks";
+      readonly tasks: readonly TaskRow[];
+      readonly machines: readonly MachineInfo[];
+    }
+  /** Providers, their models, and each slot's choice; sent on connect and on change. */
+  | { readonly type: "settings"; readonly settings: SettingsView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 
@@ -52,8 +80,14 @@ export type {
   PiServerMessage as ServerMessage,
   PiToolInfo as ToolInfo
 };
+
+export type { TaskRow } from "./tasks";
+
+export type { ModelOption, ProviderInfo, SettingsView, Slot, SlotSetting } from "./settings";
+
 export type {
   PiMessage as TranscriptMessage,
   PiMessagePart as TranscriptPart
 } from "./transcript";
+
 export type { PiSessionView as SessionView } from "./view";
