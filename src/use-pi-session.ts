@@ -1,3 +1,4 @@
+import type { UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
@@ -135,8 +136,8 @@ export function usePiSession(session: string) {
 
   /** Idle: starts a run. Busy: queued as a follow-up, or steers the run. */
   const submit = useCallback(
-    (text: string, whenBusy: "followUp" | "steer" = "followUp") =>
-      send({ type: "submit", id: crypto.randomUUID(), input: text, whenBusy }),
+    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp") =>
+      send({ type: "submit", id: crypto.randomUUID(), input, whenBusy }),
     [send]
   );
 

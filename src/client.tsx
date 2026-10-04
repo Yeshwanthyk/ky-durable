@@ -33,8 +33,10 @@ import type {
   TaskRow,
   ToolInfo
 } from "./protocol";
+import { imageSupport, MAX_IMAGES } from "./images";
 import { Attachments, FilesContext } from "./ui/Attachments";
 import { Composer } from "./ui/Composer";
+import { prepareImage, type PendingImage } from "./ui/pick-images";
 import { Thread } from "./ui/Thread";
 import { buildTurns } from "./ui/turns";
 import { usePiSession } from "./use-pi-session";
@@ -473,6 +475,10 @@ function Panel({
 function App() {
   const [session, setSession] = useState(sessionFromUrl);
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<readonly PendingImage[]>([]);
+  /** Images still being read and shrunk. */
+  const [reading, setReading] = useState(0);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const [panelOpen, setPanelOpen] = useState(
     () => window.matchMedia("(min-width: 1024px)").matches
@@ -504,8 +510,8 @@ function App() {
 
   // A new deploy is live: reload, unless that would throw away a draft.
   useEffect(() => {
-    if (updated && prompt.trim() === "") location.reload();
-  }, [updated, prompt]);
+    if (updated && prompt.trim() === "" && images.length === 0) location.reload();
+  }, [updated, prompt, images]);
 
   const runningTools = running_.map((tool) => tool.name);
 
@@ -524,9 +530,34 @@ function App() {
   const submit = (whenBusy: "followUp" | "steer" = "followUp") => {
     const text = prompt.trim();
 
-    if (!text || !connected) return;
+    if ((!text && images.length === 0) || !connected || reading > 0 || cantSee) return;
     setPrompt("");
-    submitPrompt(text, whenBusy);
+    setImages([]);
+    setImageError(null);
+    submitPrompt(
+      images.length === 0
+        ? text
+        : [
+            ...images.map(({ type, data, mimeType }) => ({ type, data, mimeType })),
+            ...(text ? [{ type: "text" as const, text }] : [])
+          ],
+      whenBusy
+    );
+  };
+
+  const addImages = (files: File[]) => {
+    const room = MAX_IMAGES - images.length - reading;
+
+    setImageError(files.length > room ? `Attach at most ${MAX_IMAGES} images.` : null);
+
+    for (const file of files.slice(0, Math.max(0, room))) {
+      setReading((count) => count + 1);
+      prepareImage(file)
+        .then((image) => setImages((current) => [...current, image]))
+        // prepareImage rejects only with Errors.
+        .catch((error: Error) => setImageError(error.message))
+        .finally(() => setReading((count) => count - 1));
+    }
   };
 
   useEffect(() => {
@@ -545,6 +576,10 @@ function App() {
   };
 
   const main = session === MAIN_SESSION;
+
+  /** Why the attached images can't go to this session's model, if they can't. */
+  const cantSee =
+    images.length > 0 && settings ? imageSupport(settings, main ? "main" : "subagents") : null;
 
   const subagent = main
     ? undefined
@@ -705,6 +740,11 @@ function App() {
                   {error}
                 </div>
               ) : null}
+              {cantSee ?? imageError ? (
+                <div className="composer-note" data-tone="error" role="alert">
+                  {cantSee ?? imageError}
+                </div>
+              ) : null}
               <Composer
                 value={prompt}
                 onChange={setPrompt}
@@ -712,6 +752,13 @@ function App() {
                 onStop={abort}
                 working={running}
                 disabled={!connected}
+                busy={reading > 0 || cantSee !== null}
+                images={images}
+                onAddImages={addImages}
+                onRemoveImage={(id) => {
+                  setImages((current) => current.filter((image) => image.id !== id));
+                  setImageError(null);
+                }}
                 label="Message"
                 placeholder={
                   running

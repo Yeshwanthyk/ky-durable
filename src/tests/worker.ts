@@ -132,7 +132,18 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     this.feed,
     this.machines,
     this.files,
-    new Settings(this.ctx.storage.sql, () => [], () => {
+    // The faux model reads images; faux-text stands in for a model that can't.
+    new Settings(this.ctx.storage.sql, () => [
+      {
+        id: "faux",
+        name: "Faux",
+        connected: true,
+        models: [
+          { modelId: this.#faux.getModel().id, name: "Faux", levels: [], images: true },
+          { modelId: "faux-text", name: "Faux Text", levels: [], images: false }
+        ]
+      }
+    ], () => {
       const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
 
       return { main: faux, subagents: faux, fallback: faux };

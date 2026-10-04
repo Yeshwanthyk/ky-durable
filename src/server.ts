@@ -221,6 +221,7 @@ export class PiAgent extends DurableObject<Env> {
       modelId: model.id,
       name,
       levels: getSupportedThinkingLevels(model),
+      images: model.input.includes("image"),
       ...(model.cost.input > 0 ? { cost: { input: model.cost.input, output: model.cost.output } } : {})
     });
 

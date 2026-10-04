@@ -100,6 +100,70 @@ describe("the session WebSocket protocol", () => {
     socket.close();
   });
 
+  it("sends images to the model and keeps them in the transcript", async () => {
+    const name = crypto.randomUUID();
+    const stub = env.PI_HARNESS_TEST.getByName(name);
+    const socket = await connect(name);
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "events"));
+
+    const picture = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
+    socket.send(
+      JSON.stringify({
+        type: "submit",
+        id: "i1",
+        input: [picture, { type: "text", text: "what is this" }]
+      })
+    );
+    await client.until(() =>
+      client.view().messages.some((message) =>
+        message.parts.some((part) => part.type === "text" && part.text === "echo: what is this")
+      )
+    );
+    expect(client.frames.find((frame) => frame.type === "result")).toMatchObject({ id: "i1" });
+    socket.close();
+
+    // A page loaded later, after the object restarts, gets the image from storage.
+    await evictDurableObject(stub);
+    const later = follow(await connect(name));
+    await later.until(() => later.view().messages.length > 0);
+    expect(later.view().messages[0]).toMatchObject({
+      role: "user",
+      parts: [picture, { type: "text", text: "what is this" }]
+    });
+  });
+
+  it("refuses images when the session's model can't read them", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name);
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "events"));
+
+    socket.send(
+      JSON.stringify({
+        type: "set-model",
+        id: "m1",
+        slot: "main",
+        setting: { provider: "faux", modelId: "faux-text", thinkingLevel: "off" }
+      })
+    );
+    await client.until(() => client.frames.some((frame) => frame.type === "result"));
+    socket.send(
+      JSON.stringify({
+        type: "submit",
+        id: "i2",
+        input: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]
+      })
+    );
+    await client.until(() => client.frames.some((frame) => frame.type === "error"));
+    expect(client.frames.find((frame) => frame.type === "error")).toMatchObject({
+      id: "i2",
+      message: expect.stringMatching(/^Faux Text can't read images/)
+    });
+    expect(client.view().messages).toEqual([]);
+    socket.close();
+  });
+
   it("gives a client that joins mid-run the running state", async () => {
     const name = crypto.randomUUID();
     const stub = env.PI_HARNESS_TEST.getByName(name);

@@ -44,9 +44,30 @@ export function Thread({
   );
 }
 
-function UserMessage({ text, from, task }: { text: string; from: string | null; task: string | null }) {
+function UserMessage({
+  text,
+  images,
+  from,
+  task,
+}: {
+  text: string;
+  images: readonly string[];
+  from: string | null;
+  task: string | null;
+}) {
   if (from !== null) return <Report text={text} from={from} task={task} />;
-  return <UserBubble text={text} />;
+  return (
+    <>
+      {images.length > 0 ? (
+        <div className="user-images">
+          {images.map((src, index) => (
+            <img key={index} src={src} alt={`Image ${index + 1} you sent`} loading="lazy" />
+          ))}
+        </div>
+      ) : null}
+      {text ? <UserBubble text={text} /> : null}
+    </>
+  );
 }
 
 // A subagent's or machine's report arrives as input; it reads as a note, not as the user.
@@ -135,7 +156,7 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   const [copied, setCopied] = useState(false);
   return (
     <article className="turn">
-      <UserMessage text={turn.user} from={turn.from} task={turn.task} />
+      <UserMessage text={turn.user} images={turn.images} from={turn.from} task={turn.task} />
       <div className="assistant">
         {live && mode === "booting" ? null : live ? (
           <>
