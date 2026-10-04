@@ -3,6 +3,7 @@ import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
+  ChatRow,
   ClientMessage,
   FileRow,
   MachineInfo,
@@ -25,6 +26,8 @@ type State = SessionView & {
   readonly tasks: readonly TaskRow[];
   readonly machines: readonly MachineInfo[];
   readonly files: readonly FileRow[];
+  /** Side chats, newest first. */
+  readonly chats: readonly ChatRow[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** A newer deploy is serving than the one this page loaded from. */
@@ -38,6 +41,7 @@ const INITIAL_STATE: State = {
   tasks: [],
   machines: [],
   files: [],
+  chats: [],
   settings: null,
   updated: false
 };
@@ -54,6 +58,8 @@ const OBJECT = "me";
 export function usePiSession(session: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
   const version = useRef<string | null>(null);
+  /** Commands waiting for their `result`, by id. */
+  const waiting = useRef(new Map<string, (result: unknown) => void>());
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -104,6 +110,15 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, settings: message.settings }));
 
           return;
+        case "chats":
+          setState((current) => ({ ...current, chats: message.chats }));
+
+          return;
+        case "result":
+          waiting.current.get(message.id)?.(message.result);
+          waiting.current.delete(message.id);
+
+          return;
         case "error":
           setState((current) => ({ ...current, error: message.message }));
 
@@ -120,6 +135,7 @@ export function usePiSession(session: string) {
       tasks: current.tasks,
       machines: current.machines,
       files: current.files,
+      chats: current.chats,
       settings: current.settings,
       updated: current.updated
     }));
@@ -167,5 +183,16 @@ export function usePiSession(session: string) {
     [send]
   );
 
-  return { ...state, submit, abort, reset, stopTask, stopAll, setModel };
+  /** Start a side chat; resolves with its session. */
+  const newChat = useCallback(
+    () =>
+      new Promise<string>((resolve) => {
+        const id = crypto.randomUUID();
+        waiting.current.set(id, (result) => resolve((result as { session: string }).session));
+        send({ type: "new-chat", id });
+      }),
+    [send]
+  );
+
+  return { ...state, submit, abort, reset, stopTask, stopAll, setModel, newChat };
 }

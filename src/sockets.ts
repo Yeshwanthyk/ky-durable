@@ -1,7 +1,8 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type {
   AgentEventStream,
-  RegistryReader
+  RegistryReader,
+  UserInput
 } from "@earendil-works/pi-durable";
 import type { Connection, ConnectionContext } from "agents/lifecycle";
 import type { WebSocketMessage, WebSocketsOptions } from "agents/websockets";
@@ -18,6 +19,7 @@ import {
   type RunnerReport
 } from "./machines";
 import { checkInput } from "./images";
+import type { ChatList } from "./chats";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Settings } from "./settings";
@@ -69,6 +71,12 @@ function sessionOf(tags: readonly string[]): string | undefined {
   return tag?.slice(SESSION_TAG_PREFIX.length);
 }
 
+function textOf(input: UserInput): string {
+  if (!Array.isArray(input)) return String(input);
+
+  return input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n") || "Image";
+}
+
 function send(socket: WebSocket, message: PiServerMessage): void {
   if (socket.readyState !== OPEN) return;
 
@@ -99,7 +107,10 @@ export class PiSessionSockets {
   readonly #hub: MachineHub;
   readonly #files: FileStore;
   readonly #settings: Settings;
+  readonly #chats: ChatList;
   readonly #version: string;
+  /** Makes a side chat: a new top-level session set up like the main one. */
+  readonly #newChat: () => Promise<PiSessionId>;
 
   constructor(
     harness: PiHarness,
@@ -110,6 +121,8 @@ export class PiSessionSockets {
     hub: MachineHub,
     files: FileStore,
     settings: Settings,
+    chats: ChatList,
+    newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
   ) {
@@ -120,7 +133,14 @@ export class PiSessionSockets {
     this.#hub = hub;
     this.#files = files;
     this.#settings = settings;
+    this.#chats = chats;
+    this.#newChat = newChat;
     this.#version = version;
+    chats.onChange(() => {
+      const message = this.#chatsMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
     feed.onChange(() => this.broadcastTasks());
     files.onChange(() => this.broadcastTasks());
     settings.onChange(() => {
@@ -128,6 +148,10 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+  }
+
+  #chatsMessage(): PiServerMessage {
+    return { type: "chats", chats: this.#chats.list() };
   }
 
   #settingsMessage(): PiServerMessage {
@@ -211,6 +235,7 @@ export class PiSessionSockets {
     });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
+    send(connection, this.#chatsMessage());
     await this.#watch(connection, session);
   }
 
@@ -319,14 +344,17 @@ export class PiSessionSockets {
 
     switch (message.type) {
       case "submit": {
-        // The main session runs on the main slot; every other session is a subagent's.
+        // The main session and side chats run on the main slot; every other session is a subagent's.
+        const chat = this.#chats.has(session);
         const problem = checkInput(
           message.input,
           this.#settings.view(),
-          session === ROOT_SESSION ? "main" : "subagents"
+          session === ROOT_SESSION || chat ? "main" : "subagents"
         );
 
         if (problem !== null) throw new Error(problem);
+
+        if (chat) this.#chats.touch(session, textOf(message.input));
 
         return await handle.submit(message.input, {
           ...(message.whenBusy ? { whenBusy: message.whenBusy } : {}),
@@ -353,6 +381,8 @@ export class PiSessionSockets {
 
         return { provider, modelId, thinkingLevel };
       }
+      case "new-chat":
+        return { session: await this.#newChat() };
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

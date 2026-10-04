@@ -4,7 +4,6 @@ import {
   defineTool,
   type Extension
 } from "@earendil-works/pi-durable";
-import { ROOT_SESSION } from "agents/harness/pi";
 
 /**
  * OptMem (github.com/VictorTaelin/OptMem) on the Durable Object's SQLite.
@@ -17,7 +16,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
  *
  * Differences from the tool: wake is a system prompt section, rendered once
  * per context (a reset renders it again), so there is no wake tool call;
- * and only the main conversation gets the extension, which replaces the
+ * and only the main conversation and its side chats wake with memory, which replaces the
  * tool's "subagents must not run memo" rule.
  */
 
@@ -370,8 +369,12 @@ Subagents and machine runs have no memory. Note what they found that is worth ke
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
-/** The memory extension. Install it only where memory belongs: the main agent. */
-export function memoryExtension(memory: Memory): Extension {
+/** The memory extension. Install it only where memory belongs: the main agent and its side chats. */
+export function memoryExtension(
+  memory: Memory,
+  /** Whether a conversation wakes with memory; subagents do not. */
+  remembers: (session: string) => boolean
+): Extension {
   return defineExtension({
     name: "memory",
     sections: [
@@ -381,7 +384,7 @@ export function memoryExtension(memory: Memory): Extension {
         // Once per context, like `memo wake` at the start of a session: a
         // memory that changed with every note would re-send the prompt.
         render: (input) =>
-          String(input.conversationId) !== ROOT_SESSION
+          !remembers(String(input.conversationId))
             ? undefined
             : (input.shown.memory ?? `<memory>\n${memory.wake()}\n</memory>`),
         tag: false

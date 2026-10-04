@@ -1,5 +1,7 @@
 /* From ../scotty/ui/src/global.css (see UPSTREAM). Dark follows ky's theme toggle. */
 :root {
+  /* Settings → Text size; every font size and fixed line height is multiplied by it. */
+  --text-scale: 1;
   color-scheme: light dark;
   --radius: 10px;
   --radius-sm: calc(var(--radius) - 4px);
@@ -18,21 +20,21 @@
   --sidebar-width: 264px;
   --thread-width: 44rem;
 
-  --bg: #fbfbfa;
-  --sidebar: #f5f5f3;
+  --bg: #ffffff;
+  --sidebar: #f7f7f7;
   --surface: #ffffff;
-  --raised: #f2f2f0;
-  --sunken: #f6f6f4;
+  --raised: #f3f3f3;
+  --sunken: #f7f7f7;
   --hover: rgb(0 0 0 / 0.045);
   --selected: rgb(0 0 0 / 0.07);
-  --ink: #1b1b1a;
-  --muted: #62615d;
-  --quiet: #959490;
+  --ink: #141414;
+  --muted: #666666;
+  --quiet: #8a8a8a;
   --line: rgb(0 0 0 / 0.075);
   --line-strong: rgb(0 0 0 / 0.12);
   --line-hover: rgb(0 0 0 / 0.18);
-  --accent: #c2552f;
-  --accent-strong: #a8461f;
+  --accent: #141414;
+  --accent-strong: #000000;
   --link: #1d6fb8;
   --working: #2f8fdc;
   --attention: #c98a14;
@@ -45,25 +47,28 @@
   --diff-add-bg: rgb(47 155 98 / 0.1);
   --diff-del-bg: rgb(207 59 46 / 0.08);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.1);
   --overlay: rgb(0 0 0 / 0.18);
+  --user-bubble: #f1f1f1;
+  --user-ink: var(--ink);
 }
 
 :root[data-mode="dark"] {
-  --bg: #161615;
-  --sidebar: #121211;
-  --surface: #1d1d1c;
-  --raised: #242423;
-  --sunken: #131312;
+  --bg: #111111;
+  --sidebar: #161616;
+  --surface: #1b1b1b;
+  --raised: #222222;
+  --sunken: #0d0d0d;
   --hover: rgb(255 255 255 / 0.045);
   --selected: rgb(255 255 255 / 0.075);
-  --ink: #ecebe8;
-  --muted: #a3a29d;
-  --quiet: #6e6d69;
+  --ink: #ededed;
+  --muted: #a3a3a3;
+  --quiet: #7d7d7d;
   --line: rgb(255 255 255 / 0.07);
   --line-strong: rgb(255 255 255 / 0.11);
   --line-hover: rgb(255 255 255 / 0.17);
-  --accent: #d9693f;
-  --accent-strong: #e8825b;
+  --accent: #ededed;
+  --accent-strong: #ffffff;
   --link: #7cc3ec;
   --working: #6cb6f0;
   --attention: #e0b057;
@@ -76,7 +81,10 @@
   --diff-add-bg: rgb(98 197 142 / 0.1);
   --diff-del-bg: rgb(240 114 102 / 0.09);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px rgb(0 0 0 / 0.45);
   --overlay: rgb(0 0 0 / 0.45);
+  --user-bubble: #262626;
+  --user-ink: var(--ink);
 }
 
 .mono {
@@ -106,7 +114,7 @@
 }
 
 .pressable:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 /* ---------- Icons, spinner, status ---------- */
@@ -150,7 +158,7 @@
   height: 28px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 500;
   color: var(--ink);
   background: var(--raised);
@@ -160,7 +168,7 @@
 
 .changes-button {
   padding: 0 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   background: transparent;
 }
 
@@ -211,7 +219,7 @@
 
 kbd {
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--quiet);
   padding: 1px 5px;
   border-radius: 4px;
@@ -273,9 +281,9 @@ kbd {
   height: 28px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  background: var(--raised);
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .earlier span {
@@ -293,6 +301,7 @@ kbd {
 .user-images {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -300,17 +309,25 @@ kbd {
   display: block;
   max-width: min(240px, 100%);
   max-height: 240px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  outline: 1px solid rgb(0 0 0 / 0.1);
+  outline-offset: -1px;
 }
 
+:root[data-mode="dark"] .user-images img {
+  outline-color: rgb(255 255 255 / 0.1);
+}
+
+/* Yours sit right in a soft fill; the composer is white and outlined, so the two never read alike. */
 .user-message {
   position: relative;
-  padding: 10px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  font-size: 14px;
+  align-self: flex-end;
+  max-width: min(85%, 36rem);
+  padding: 9px 15px;
+  border-radius: 20px;
+  background: var(--user-bubble);
+  color: var(--user-ink);
+  font-size: calc(14px * var(--text-scale));
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -323,9 +340,9 @@ kbd {
 }
 
 .more-lines {
-  align-self: flex-start;
+  align-self: flex-end;
   margin-top: -6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--muted);
 }
 
@@ -348,7 +365,7 @@ kbd {
   padding: 0 6px;
   border-radius: var(--radius-sm);
   color: var(--quiet);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .worked b {
@@ -377,14 +394,14 @@ kbd {
 
 .log-text {
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   line-height: 1.6;
   padding: 4px 0;
 }
 
 .log-text > div {
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
 }
 
 .log-text p:last-child {
@@ -394,7 +411,7 @@ kbd {
 .log-thought {
   color: var(--quiet);
   font-style: italic;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   line-height: 1.5;
   padding: 2px 0;
   display: -webkit-box;
@@ -431,7 +448,7 @@ kbd {
   padding: 0 6px;
   border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   text-align: left;
 }
 
@@ -453,7 +470,7 @@ kbd {
 }
 
 .tool-row .target.mono {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
 }
 
 .tool-row .trail {
@@ -463,7 +480,7 @@ kbd {
   align-items: center;
   gap: 8px;
   color: var(--quiet);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
 }
 
 .tool-row .chevron {
@@ -505,7 +522,7 @@ kbd {
   max-height: 280px;
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.55;
   color: var(--muted);
   white-space: pre-wrap;
@@ -557,7 +574,7 @@ kbd {
 }
 
 .plan-head {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--quiet);
   display: flex;
   justify-content: space-between;
@@ -567,7 +584,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--muted);
 }
 
@@ -597,7 +614,7 @@ kbd {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--quiet);
   padding: 2px 0;
 }
@@ -615,7 +632,7 @@ kbd {
 
 .answer {
   position: relative;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 
 .answer-actions {
@@ -639,7 +656,7 @@ kbd {
 }
 
 .turn-end {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--quiet);
   display: flex;
   align-items: center;
@@ -667,7 +684,7 @@ kbd {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   height: 22px;
 }
 
@@ -711,22 +728,51 @@ kbd {
   transition: border-color var(--fast) var(--ease-out);
 }
 
+/* Focus grows it a little, taller and a touch wider, with a deeper shadow: it comes to you. */
 .composer:focus-within {
-  border-color: var(--line-hover);
+  padding-block: 3px;
+  scale: 1.012;
+  box-shadow: var(--shadow-lift);
 }
 
-/* Thumbnails and the text span the box; the attach button starts the bottom bar. */
+/* A pill while it is one line: attach, the text, send. Once the text wraps it opens into a
+   card, the text across the top and the buttons in a row below. Thumbnails always sit on top. */
 .composer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  border-radius: 26px;
+  transition-property: border-color, border-radius, padding, scale, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: var(--ease-out);
 }
 
-.composer > :is(.composer-images, textarea) {
-  grid-column: 1 / -1;
+.composer[data-open="true"] {
+  border-radius: 22px;
 }
 
-.composer > .composer-bar {
-  grid-column: 2;
+.composer[data-open="true"] textarea {
+  order: -1;
+  flex-basis: 100%;
+  padding-inline: 16px;
+  padding-top: 14px;
+}
+
+.composer[data-open="true"] .attach-button {
+  margin-block: 0 6px;
+}
+
+.composer[data-open="true"] .composer-bar {
+  margin-left: auto;
+  padding-top: 0;
+}
+
+.composer-images {
+  order: -2;
+}
+
+.composer-images {
+  flex-basis: 100%;
 }
 
 .composer[data-dragging="true"] {
@@ -783,11 +829,10 @@ kbd {
 }
 
 .attach-button {
-  grid-row: 3;
-  align-self: end;
-  width: 32px;
-  height: 32px;
-  margin: 0 0 8px 8px;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: 0 0 0 6px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -800,16 +845,17 @@ kbd {
 
 .composer textarea {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 44px;
   max-height: 40dvh;
   resize: none;
   border: 0;
   outline: 0;
   background: transparent;
-  padding: 12px 14px 4px;
-  font-size: 14px;
-  line-height: 1.5;
+  padding: 11px 8px 11px 6px;
+  font-size: calc(14px * var(--text-scale));
+  line-height: calc(22px * var(--text-scale));
 }
 
 .composer textarea::placeholder {
@@ -817,10 +863,16 @@ kbd {
 }
 
 .composer-bar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 8px 10px;
+  padding: 6px;
+}
+
+.composer-bar .send-button {
+  width: 32px;
+  height: 32px;
 }
 
 .composer-bar .agent {
@@ -831,20 +883,13 @@ kbd {
   padding: 0 6px;
   border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12px;
-}
-
-.composer-bar .hint {
-  margin-left: auto;
-  margin-right: 4px;
-  font-size: 11.5px;
-  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
 }
 
 .composer-note {
   max-width: var(--thread-width);
   margin: 0 auto 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--quiet);
   display: flex;
   gap: 6px;
@@ -860,12 +905,12 @@ kbd {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-.chat-surface button {
+:where(.chat-surface button) {
   cursor: pointer;
   background: none;
   border: 0;
@@ -875,9 +920,109 @@ kbd {
 }
 
 .markdown {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1.65;
   color: var(--ink);
+  text-wrap: pretty;
+}
+
+/* Long answers: one even rhythm between blocks, a clear break before each heading, and
+   lists that hang their bullets so wrapped lines line up with the text, not the bullet. */
+.markdown > * {
+  margin-block: 0;
+}
+
+.markdown > * + * {
+  margin-top: 0.85em;
+}
+
+.markdown > :is(h1, h2, h3, h4, h5, h6),
+.markdown > p:has(> strong:only-child) {
+  margin-top: 1.5em;
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.markdown > h1 {
+  font-size: 1.2em;
+}
+
+.markdown > h2 {
+  font-size: 1.1em;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :is(h1, h2, h3, h4, h5, h6) + *,
+.markdown > p:has(> strong:only-child) + * {
+  margin-top: 0.35em;
+}
+
+.markdown :is(ul, ol) {
+  padding-left: 1.35em;
+  list-style-position: outside;
+}
+
+.markdown ul {
+  list-style-type: disc;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+}
+
+.markdown li {
+  padding-block: 0;
+  padding-left: 0.2em;
+}
+
+.markdown li + li {
+  margin-top: 0.4em;
+}
+
+.markdown li::marker {
+  color: var(--quiet);
+}
+
+.markdown :is(li > ul, li > ol) {
+  margin-top: 0.4em;
+}
+
+.markdown :is(strong, b) {
+  font-weight: 600;
+}
+
+/* Tables: one quiet frame instead of a card inside a card. */
+.markdown [data-streamdown="table-wrapper"] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.markdown [data-streamdown="table-wrapper"] > div {
+  border-radius: 12px;
+  border-color: var(--line);
+}
+
+.markdown :is(th, td) {
+  padding: 8px 12px;
+  font-size: 0.9em;
+  line-height: 1.45;
+  vertical-align: top;
+}
+
+.markdown th {
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--sidebar);
+}
+
+.markdown td {
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 767px) {
@@ -900,51 +1045,23 @@ kbd {
     padding-bottom: 8px;
   }
 
-  /* One row on phones: the send button sits beside the text, not on its own bar. */
-  .composer {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    border-radius: 22px;
-  }
-
-  .composer-images {
-    flex-basis: 100%;
-    padding: 12px 12px 2px;
-  }
-
-  /* 44px to tap, the same height as one line of text. */
+  /* 44px to tap, the same height as one line of text. 16px text keeps iOS from zooming. */
   .attach-button {
     width: 44px;
     height: 44px;
-    margin: 0 -8px 0 0;
-  }
-
-  .composer textarea {
-    flex: 1;
-    width: auto;
-    min-width: 0;
+    margin: 0 -6px 0 0;
   }
 
   .composer textarea {
     min-height: 44px;
-    padding: 10px 4px 10px 16px;
-    font-size: 16px;
-    line-height: 24px;
+    padding: 10px 4px 10px 8px;
+    /* Never under 16px: iOS zooms into smaller fields. */
+    font-size: max(16px, calc(16px * var(--text-scale)));
+    line-height: calc(24px * var(--text-scale));
   }
 
   .composer-bar {
-    flex: none;
     padding: 6px;
-  }
-
-  .composer-bar .hint {
-    display: none;
-  }
-
-  .composer-bar .send-button {
-    width: 32px;
-    height: 32px;
   }
 }
 
@@ -982,7 +1099,7 @@ kbd {
 
 .attachment figcaption {
   padding: 6px 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1000,55 +1117,6 @@ kbd {
   object-fit: cover;
 }
 
-/* Header: the name, then one quiet chip that carries the model and the connection. */
-.app-header {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-}
-
-.app-title {
-  font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  line-height: 1;
-  color: var(--ink);
-}
-
-.app-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 24px;
-  padding: 0 10px 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--sunken);
-  font-size: 12px;
-  line-height: 1;
-  color: var(--muted);
-}
-
-.app-dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--quiet);
-  animation: app-dot-wait 1.2s ease-in-out infinite alternate;
-}
-
-.app-dot[data-connected="true"] {
-  background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 20%, transparent);
-  animation: none;
-}
-
-@keyframes app-dot-wait {
-  to {
-    opacity: 0.35;
-  }
-}
-
 /* Thumbnails are buttons that open the lightbox. */
 .attachment-open {
   display: block;
@@ -1061,7 +1129,7 @@ kbd {
 }
 
 .attachment-open:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .user-images .attachment-open {
@@ -1152,7 +1220,7 @@ kbd {
   align-items: center;
   gap: 12px;
   max-width: min(92vw, 720px);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: rgb(255 255 255 / 0.72);
 }
 
@@ -1187,7 +1255,7 @@ kbd {
   border-radius: 999px;
   background: rgb(255 255 255 / 0.1);
   color: #fff;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   line-height: 1;
   cursor: pointer;
   transition:
@@ -1215,7 +1283,7 @@ kbd {
 
 .lightbox-close:active,
 .lightbox-step:active {
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1226,7 +1294,11 @@ kbd {
 }
 
 /* Scrollbars: a thin thumb on no track, darker under the pointer. */
-.thread,
+/* Both edges, so the thread and the composer under it share one centre line and one left edge. */
+.thread {
+  scrollbar-gutter: stable both-edges;
+}
+
 [data-scroll] {
   scrollbar-gutter: stable;
 }
@@ -1262,10 +1334,6 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-dot {
-    animation: none;
-  }
-
   .lightbox-figure,
   .attachment-open,
   .lightbox-close,

@@ -22,7 +22,8 @@ const settings = (mainImages: boolean, connected = true): SettingsView => ({
   slots: {
     main: { provider: "a", modelId: "seer", thinkingLevel: "off" },
     subagents: { provider: "b", modelId: "blind", thinkingLevel: "off" },
-    fallback: { provider: "b", modelId: "blind", thinkingLevel: "off" }
+    fallback: { provider: "b", modelId: "blind", thinkingLevel: "off" },
+    titles: { provider: "b", modelId: "blind", thinkingLevel: "off" }
   }
 });
 

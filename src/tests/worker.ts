@@ -26,9 +26,11 @@ import {
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { FileStore } from "../files";
-import { MachineHub } from "../machines";
+import { MachineHub, machineExtension } from "../machines";
 import { Settings } from "../settings";
+import { ChatList } from "../chats";
 import { PiSessionSockets } from "../sockets";
+import { subagentExtension } from "../subagents";
 import { TaskFeed } from "../tasks";
 import { EMPTY_VIEW, reduceEvents } from "../view";
 
@@ -53,7 +55,8 @@ function textOf(content: Message["content"] | undefined): string {
  * the same answer after an eviction as before it:
  *
  * - `multiply N` calls `multiply`, `gate` calls `gate`, `gate-unsafe` calls
- *   `gate_unsafe`; anything else is echoed back.
+ *   `gate_unsafe`, `spawn NAME MESSAGE` spawns a subagent, `machine PROMPT`
+ *   runs a task on the machine "mac"; anything else is echoed back.
  * - After a tool result it answers `tool said: <result>`.
  */
 function script(context: TranscriptContext): AssistantMessage {
@@ -79,6 +82,24 @@ function script(context: TranscriptContext): AssistantMessage {
     );
   }
 
+  const spawn = /^spawn (\S+) (.+)$/.exec(prompt);
+
+  if (spawn) {
+    return fauxAssistantMessage(
+      [fauxToolCall("subagent", { action: "spawn", name: spawn[1], message: spawn[2] })],
+      { stopReason: "toolUse" }
+    );
+  }
+
+  const machine = /^machine (.+)$/.exec(prompt);
+
+  if (machine) {
+    return fauxAssistantMessage(
+      [fauxToolCall("machine", { action: "run", machine: "mac", prompt: machine[1] })],
+      { stopReason: "toolUse" }
+    );
+  }
+
   if (prompt === "gate" || prompt === "gate-unsafe") {
     return fauxAssistantMessage(
       [fauxToolCall(prompt === "gate" ? "gate" : "gate_unsafe", {})],
@@ -99,6 +120,11 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       this.registry.install(this.#testTools());
+      const machines = machineExtension(this.machines, this.feed);
+      this.registry.install(machines);
+      this.registry.install(
+        subagentExtension(this.feed, [machines], () => this.settings.get("subagents"))
+      );
       const models = createModels();
       models.setProvider(this.#faux.provider);
 
@@ -108,7 +134,9 @@ export class PiHarnessTestObject extends DurableObject<Env> {
           models,
           registry: this.registry,
           settings: {
-            retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }
+            retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },
+            steeringMode: "all",
+            followUpMode: "all"
           },
           onReport: (error) => console.warn("pi report", error)
         },
@@ -119,12 +147,29 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   });
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
+  readonly chats = new ChatList(this.ctx.storage.sql);
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
     this.files
   );
+  // The faux model reads images; faux-text stands in for a model that can't.
+  readonly settings = new Settings(this.ctx.storage.sql, () => [
+    {
+      id: "faux",
+      name: "Faux",
+      connected: true,
+      models: [
+        { modelId: this.#faux.getModel().id, name: "Faux", levels: [], images: true },
+        { modelId: "faux-text", name: "Faux Text", levels: [], images: false }
+      ]
+    }
+  ], () => {
+    const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
+
+    return { main: faux, subagents: faux, fallback: faux, titles: faux };
+  });
   readonly sockets = new PiSessionSockets(
     this.harness,
     this.registry,
@@ -132,22 +177,14 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     this.feed,
     this.machines,
     this.files,
-    // The faux model reads images; faux-text stands in for a model that can't.
-    new Settings(this.ctx.storage.sql, () => [
-      {
-        id: "faux",
-        name: "Faux",
-        connected: true,
-        models: [
-          { modelId: this.#faux.getModel().id, name: "Faux", levels: [], images: true },
-          { modelId: "faux-text", name: "Faux Text", levels: [], images: false }
-        ]
-      }
-    ], () => {
-      const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
+    this.settings,
+    this.chats,
+    async () => {
+      const { id } = await this.harness.sessions.create();
+      this.chats.add(id);
 
-      return { main: faux, subagents: faux, fallback: faux };
-    }),
+      return id;
+    },
     "test"
   );
   readonly webSockets = new WebSockets(this.sockets.options());
@@ -161,6 +198,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.machines.attach(this.harness);
     this.#faux.setResponses(Array.from({ length: 200 }, () => script));
   }
 
@@ -219,6 +257,11 @@ export class PiHarnessTestObject extends DurableObject<Env> {
 
     // JSON, so the RPC type stays shallow for the test's type checker.
     return { view: JSON.stringify(view), types };
+  }
+
+  /** The feed's delegated tasks, as the task list shows them. */
+  tasks(): Array<{ kind: string; worker: string; status: string }> {
+    return this.feed.list().map(({ kind, worker, status }) => ({ kind, worker, status }));
   }
 
   /** The view folded from a fresh snapshot, as a client joining now sees it. */

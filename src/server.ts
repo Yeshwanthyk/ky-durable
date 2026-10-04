@@ -2,15 +2,17 @@ import { DurableObject } from "cloudflare:workers";
 import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createModels, getSupportedThinkingLevels, type Provider } from "@earendil-works/pi-ai/models";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
+import { ChatList } from "./chats";
 import { browseExtension } from "./browse";
 import { executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
@@ -20,10 +22,14 @@ import { type ModelOption, type ProviderInfo, type Slot, type SlotSetting, Setti
 import { PiSessionSockets } from "./sockets";
 import { subagentExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
+import { Titler } from "./titles";
 import { VIBEPROXY_PROVIDER, vibeProxy } from "./vibeproxy";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
 const CLAUDE_MODEL = "claude-opus-5-5";
+
+/** Small and quick: names chats and tasks. */
+const CLAUDE_SMALL = "claude-haiku-4-5";
 
 const OPENCODE_GO = "opencode-go";
 
@@ -36,19 +42,14 @@ const BACKGROUND = Object.freeze({
 
 const PREAMBLE = `You are ky, the user's personal agent. You run in the cloud and are reachable from anywhere; the conversation and your memory persist across devices and restarts.
 
-You are the primary agent: you talk to the user, decide, and delegate. Keep replies short and concrete.
+You are the primary agent: you talk to the user, decide, and delegate. Keep replies short and concrete. Stay free to talk: never do slow work yourself.
 
-- Small things you do yourself. You have a durable workspace at /workspace (read, write, edit, delete, ls, find, grep; exec runs JavaScript modules with git but no network).
-- The user's apps and accounts are behind Executor.
-- The web, in this order; move down only when the step above cannot do it:
-  1. Exa web search, through Executor: lookups, recommendations, reading pages.
-  2. browse, a cloud browser with no logins: pages that need JavaScript, a click, a form or a screenshot.
-  3. A machine's browser, only when the page needs the user's logins.
-- Research and other self-contained work that can run in parallel goes to cloud subagents.
-- Anything else that needs a real computer goes to a machine: scripts, builds, local files.
+- Quick things you do yourself: one or two fast calls. You have a durable workspace at /workspace (read, write, edit, delete, ls, find, grep; exec runs JavaScript modules with git but no network). The user's apps and accounts are behind Executor.
+- Everything else goes to cloud subagents, by default: research, web lookups, browsing, multi-step work. Start several at once when the work splits. They have your tools plus browse, a cloud browser with no logins. For the web, tell them to try Exa web search through Executor first, then browse.
+- Use a machine only when the user asks for one, or when the work needs a real computer: pages behind the user's logins, scripts, builds, local files, changing yourself.
 - Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it.
 
-When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages; then tell the user what matters in one or two lines.
+When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages, sometimes in the middle of other work; tell the user what matters in one or two lines.
 
 Changing yourself: your own code is the GitHub repo Yeshwanthyk/ky-durable, with a working copy for you at ~/ky-work/ky-durable on the user's Mac. Changes go through a pull request the user merges; never deploy unmerged work.
 
@@ -73,7 +74,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly claude = vibeProxy({
     binding: this.env.VIBEPROXY,
     key: this.env.VIBEPROXY_KEY,
-    modelId: CLAUDE_MODEL,
+    modelIds: [CLAUDE_MODEL, CLAUDE_SMALL],
     fallback: (context, options) => {
       const { provider, modelId, thinkingLevel } = this.settings.get("fallback");
       const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel;
@@ -108,6 +109,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
+  readonly chats = new ChatList(this.ctx.storage.sql);
+  readonly titler = new Titler((system, text) => this.#complete("titles", system, text));
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
     this.feed,
@@ -115,6 +118,8 @@ export class PiAgent extends DurableObject<Env> {
     this.files
   );
   readonly registry = createRegistry();
+  /** Subagents browse; the main agent delegates it, since a page can take a minute. */
+  readonly browse = browseExtension(this.env.BROWSER);
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       this.registry.install({
@@ -125,8 +130,11 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(
         executorExtension({ url: this.env.EXECUTOR_URL, token: this.env.EXECUTOR_TOKEN })
       );
-      this.registry.install(browseExtension(this.env.BROWSER));
-      const memory = memoryExtension(this.memory);
+      this.registry.install(this.browse);
+      const memory = memoryExtension(
+        this.memory,
+        (session) => session === ROOT_SESSION || this.chats.has(session)
+      );
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(memory);
       this.registry.install(machines);
@@ -148,7 +156,10 @@ export class PiAgent extends DurableObject<Env> {
           models,
           registry: this.registry,
           settings: {
-            retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 }
+            retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 },
+            // Reports from delegated work queue while the main agent is busy; place them all at once.
+            steeringMode: "all",
+            followUpMode: "all"
           },
           onReport: (error) => console.warn("pi report", error)
         },
@@ -176,6 +187,8 @@ export class PiAgent extends DurableObject<Env> {
     this.machines,
     this.files,
     this.settings,
+    this.chats,
+    () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );
   readonly webSockets = new WebSockets(this.sockets.options());
@@ -186,6 +199,7 @@ export class PiAgent extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.machines.attach(this.harness);
+    this.#nameThings();
     this.settings.onChange((slot) => {
       if (slot === "main") this.ctx.waitUntil(this.applyMain());
     });
@@ -207,14 +221,108 @@ export class PiAgent extends DurableObject<Env> {
     return null;
   }
 
-  /** A conversation keeps the model it was created with; move the main one to the main slot. */
+  /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
   async applyMain(): Promise<void> {
-    const main = await this.harness.conversation(ROOT_SESSION);
-    await main.configure(this.harness.agentDefaults(), BACKGROUND);
+    for (const session of [ROOT_SESSION, ...this.chats.list().map((chat) => chat.session)]) {
+      await this.#configureMain(session);
+    }
+  }
+
+  async #configureMain(session: string): Promise<void> {
+    const conversation = await this.harness.conversation(session);
+    await conversation.configure(
+      { ...this.harness.agentDefaults(), extensions: { remove: [this.browse] } },
+      BACKGROUND
+    );
+  }
+
+  /** A side chat: a new top-level conversation set up like the main one, sharing its memory. */
+  async newChat(): Promise<string> {
+    const { id } = await this.harness.sessions.create();
+    await this.#configureMain(id);
+    this.chats.add(id);
+
+    return id;
+  }
+
+  /** The titles model renames chats and tasks once it answers, unless they were renamed first. */
+  #nameThings(): void {
+    const later = (work: () => Promise<void>) => this.ctx.waitUntil(work());
+
+    this.chats.onNamed((session, text) =>
+      later(async () => {
+        const was = this.chats.list().find((chat) => chat.session === session)?.title;
+        const title = await this.titler.title(text);
+
+        if (was !== undefined && title) this.chats.retitle(session, was, title);
+      })
+    );
+    this.feed.nameWith({
+      title: (id, text) =>
+        later(async () => {
+          const was = this.feed.get(id)?.title;
+          const title = await this.titler.title(text);
+
+          if (title && was !== undefined && this.feed.get(id)?.title === was) this.feed.update(id, { title });
+        }),
+      summary: (id, text) =>
+        later(async () => {
+          const was = this.feed.get(id);
+          const summary = await this.titler.summary(text);
+          const now = this.feed.get(id);
+
+          if (summary && was && now?.summary === was.summary && now.status === was.status) {
+            this.feed.update(id, { summary });
+          }
+        })
+    });
+  }
+
+  /** One short answer from a slot's model. Claude on an absent Mac becomes the fallback model. */
+  async #complete(slot: Slot, system: string, text: string): Promise<string> {
+    let { provider, modelId, thinkingLevel } = this.settings.get(slot);
+
+    if (provider === VIBEPROXY_PROVIDER && !(await this.claude.check())) {
+      ({ provider, modelId } = this.settings.get("fallback"));
+    }
+
+    const model = this.model(provider, modelId);
+    const levels = getSupportedThinkingLevels(model);
+
+    // Keep the slot's light thinking on the stand-in model; when it lacks that level, its lightest.
+    if (!levels.includes(thinkingLevel)) thinkingLevel = levels[0] ?? "off";
+
+    const options: SimpleStreamOptions = {
+      // Room for a model that cannot stop thinking to think, then name it.
+      maxTokens: 2_000,
+      // OpenCode Go routes by session and refuses requests without one.
+      sessionId: `ky-${slot}`,
+      signal: AbortSignal.timeout(30_000)
+    };
+
+    if (thinkingLevel !== "off") options.reasoning = thinkingLevel;
+
+    const source = provider === VIBEPROXY_PROVIDER ? this.claude.provider : this.opencode;
+
+    if (source === this.opencode) options.apiKey = this.env.OPENCODE_API_KEY;
+
+    const context = normalizeContext({
+      systemPrompt: system,
+      messages: [{ role: "user", content: text, timestamp: Date.now() }]
+    });
+
+    const answer = await source.streamSimple(model, context, options).result();
+
+    if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? "The titles model failed.");
+
+    return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
   }
 
   model(provider: string, modelId: string): Model<Api> {
-    if (provider === VIBEPROXY_PROVIDER) return this.claude.model;
+    if (provider === VIBEPROXY_PROVIDER) {
+      return this.claude.models.find((each) => each.id === modelId) ?? this.claude.model;
+    }
+
     const model = this.opencode.getModels().find((each) => each.id === modelId);
 
     if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
@@ -237,7 +345,7 @@ export class PiAgent extends DurableObject<Env> {
         name: "Claude via VibeProxy",
         connected: this.claude.connected(),
         needs: "the Mac online with VibeProxy",
-        models: [option(this.claude.model)]
+        models: this.claude.models.map((model) => option(model))
       },
       {
         id: OPENCODE_GO,
@@ -257,7 +365,10 @@ export class PiAgent extends DurableObject<Env> {
         ? { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_MODEL, thinkingLevel: "medium" }
         : cheap,
       subagents: cheap,
-      fallback: cheap
+      fallback: cheap,
+      titles: this.claude.connected()
+        ? { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_SMALL, thinkingLevel: "off" }
+        : { ...cheap, thinkingLevel: "off" }
     };
   }
 }

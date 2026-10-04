@@ -21,7 +21,7 @@ import { summarize, type TaskFeed } from "./tasks";
  * them, and lists them. Each subagent is its own pi conversation in this
  * object, so it remembers earlier messages. Each message is delivered by a
  * background reporter task that posts the answer back to the main agent as
- * a follow-up, and records it in the task feed.
+ * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
  */
 
 type Subagent = {
@@ -112,6 +112,8 @@ export function subagentExtension(
           summary: ""
         };
 
+        let report = "";
+
         await runtime.commit(async (tx) => {
           const next = (report?: string) =>
             ({ status: "running", checkpoint: { phase: "report", report } }) as const;
@@ -140,10 +142,13 @@ export function subagentExtension(
 
           const text = textOf(answer);
           outcome = { status: "done", summary: summarize(text) };
+          report = text;
 
           return next(`[subagent ${name} answered, no reply needed] ${text}`);
         }, context);
         feed.update(String(reporter.id), outcome);
+
+        if (outcome.status === "done") feed.describe(String(reporter.id), report);
       },
       report: async (reporter, runtime, context) => {
         const report = reporter.state.checkpoint.report;
@@ -154,7 +159,8 @@ export function subagentExtension(
             {
               type: "input",
               content: report,
-              whenBusy: "followUp",
+              // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
+              whenBusy: "steer",
               requestId: `subagent-report:${reporter.id}`
             },
             context
@@ -181,7 +187,7 @@ export function subagentExtension(
     name: "subagent",
     description:
       "Delegate work to persistent cloud subagents that run in the background with your tools (minus memory and subagents). " +
-      "Use them for research and anything that can run in parallel while you keep talking to the user. Actions: " +
+      "They are your default for any work beyond a quick call: research, web lookups, browsing, multi-step work. Spawn several when the work splits; they run while you keep talking to the user. Actions: " +
       "spawn (name, title, message): start a new subagent. " +
       "send (name, title, message; followUp: true queues it after the current answer instead of steering it): message an existing one, which also resumes an idle one with its history. " +
       "stop (name): abort its current work; it stays usable. " +
@@ -291,6 +297,8 @@ export function subagentExtension(
           status: "working",
           session: conversationId === undefined ? null : String(conversationId)
         });
+
+        if (title === undefined) feed.name(reporterId, message);
       }
 
       return reply(result);
