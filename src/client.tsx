@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Empty,
   Surface
@@ -36,6 +35,7 @@ import type {
 import { imageSupport, MAX_IMAGES } from "./images";
 import { Attachments, FilesContext } from "./ui/Attachments";
 import { Composer } from "./ui/Composer";
+import { LightboxProvider } from "./ui/Lightbox";
 import { prepareImage, type PendingImage } from "./ui/pick-images";
 import { Thread } from "./ui/Thread";
 import { buildTurns } from "./ui/turns";
@@ -605,6 +605,7 @@ function App() {
 
   return (
     <FilesContext.Provider value={files}>
+      <LightboxProvider>
       <div
         className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
           panelOpen
@@ -613,14 +614,10 @@ function App() {
         }`}
       >
         <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
-          <header className="shrink-0 border-b border-kumo-line bg-kumo-base pt-[env(safe-area-inset-top)]">
-            <div className="mx-auto flex h-[52px] max-w-3xl items-center justify-between gap-2 pr-1 pl-3 sm:h-14 sm:gap-3 sm:px-5">
-              <div className="flex min-w-0 items-center gap-2.5">
-                {main ? (
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-kumo-brand text-white">
-                    <BrainIcon size={18} weight="bold" />
-                  </div>
-                ) : (
+          <header className="app-header shrink-0 pt-[env(safe-area-inset-top)]">
+            <div className="mx-auto flex h-[52px] max-w-3xl items-center justify-between gap-2 pr-1 pl-4 sm:h-14 sm:gap-3 sm:px-5">
+              <div className="flex min-w-0 items-center gap-3">
+                {main ? null : (
                   <Button
                     variant="ghost"
                     shape="square"
@@ -630,14 +627,13 @@ function App() {
                     icon={<ArrowLeftIcon size={18} />}
                   />
                 )}
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <h1 className="max-w-[45vw] shrink-0 truncate text-[15px] leading-tight font-semibold sm:max-w-none">
-                    {main ? "ky" : (subagent?.worker ?? "Subagent")}
-                  </h1>
-                  <p className="min-w-0 truncate text-xs leading-tight text-kumo-subtle">
-                    {main ? mainModel : (subagent?.title ?? `Session ${session}`)}
-                  </p>
-                </div>
+                <h1 className="app-title max-w-[40vw] shrink-0 truncate sm:max-w-none">
+                  {main ? "ky" : (subagent?.worker ?? "Subagent")}
+                </h1>
+                <p className="app-chip min-w-0" role="status" aria-label={statusLabel} title={statusLabel}>
+                  <span className="app-dot" data-connected={connected} />
+                  <span className="truncate">{main ? mainModel : (subagent?.title ?? `Session ${session}`)}</span>
+                </p>
               </div>
               <div className="flex shrink-0 items-center">
                 {updated ? (
@@ -651,21 +647,6 @@ function App() {
                     <span className="hidden sm:inline">Update ready · Reload</span>
                   </Button>
                 ) : null}
-                <span
-                  role="status"
-                  aria-label={statusLabel}
-                  title={statusLabel}
-                  className="grid size-11 place-items-center sm:hidden"
-                >
-                  <span
-                    className={`size-2 rounded-full ${
-                      connected ? "bg-kumo-success" : "animate-pulse bg-kumo-inactive"
-                    }`}
-                  />
-                </span>
-                <Badge variant={connected ? "success" : "secondary"} className="mr-1 hidden sm:inline-flex">
-                  {statusLabel}
-                </Badge>
                 <Button
                   variant="ghost"
                   shape="square"
@@ -788,6 +769,7 @@ function App() {
           />
         ) : null}
       </div>
+      </LightboxProvider>
     </FilesContext.Provider>
   );
 }
