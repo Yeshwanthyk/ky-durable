@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
+  FileRow,
   MachineInfo,
   ServerMessage,
   SettingsView,
@@ -22,6 +23,7 @@ type State = SessionView & {
   /** Delegated work, newest first, from the server's task feed. */
   readonly tasks: readonly TaskRow[];
   readonly machines: readonly MachineInfo[];
+  readonly files: readonly FileRow[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** A newer deploy is serving than the one this page loaded from. */
@@ -34,6 +36,7 @@ const INITIAL_STATE: State = {
   catalog: [],
   tasks: [],
   machines: [],
+  files: [],
   settings: null,
   updated: false
 };
@@ -91,7 +94,8 @@ export function usePiSession(session: string) {
           setState((current) => ({
             ...current,
             tasks: message.tasks,
-            machines: message.machines
+            machines: message.machines,
+            files: message.files
           }));
 
           return;
@@ -114,6 +118,7 @@ export function usePiSession(session: string) {
       ...INITIAL_STATE,
       tasks: current.tasks,
       machines: current.machines,
+      files: current.files,
       settings: current.settings,
       updated: current.updated
     }));

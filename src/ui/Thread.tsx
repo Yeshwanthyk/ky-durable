@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Attachments } from "./Attachments";
 import type { Item, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { Icon, Spinner } from "./Icon";
@@ -43,35 +44,38 @@ export function Thread({
   );
 }
 
-function UserMessage({ text, from }: { text: string; from: string | null }) {
-  if (from !== null) return <Report text={text} from={from} />;
+function UserMessage({ text, from, task }: { text: string; from: string | null; task: string | null }) {
+  if (from !== null) return <Report text={text} from={from} task={task} />;
   return <UserBubble text={text} />;
 }
 
 // A subagent's or machine's report arrives as input; it reads as a note, not as the user.
-function Report({ text, from }: { text: string; from: string }) {
+function Report({ text, from, task }: { text: string; from: string; task: string | null }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="tool">
-      <button
-        type="button"
-        className="tool-row"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Icon name="nodes" size={14} />
-        <span className="verb">Report from</span>
-        <span className="target">{from}</span>
-        <span className="trail">
-          <Icon name="chevronRight" size={12} className="chevron" />
-        </span>
-      </button>
-      {open ? (
-        <div className="tool-body">
-          <pre>{text}</pre>
-        </div>
-      ) : null}
-    </div>
+    <>
+      <div className="tool">
+        <button
+          type="button"
+          className="tool-row"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <Icon name="nodes" size={14} />
+          <span className="verb">Report from</span>
+          <span className="target">{from}</span>
+          <span className="trail">
+            <Icon name="chevronRight" size={12} className="chevron" />
+          </span>
+        </button>
+        {open ? (
+          <div className="tool-body">
+            <pre>{text}</pre>
+          </div>
+        ) : null}
+      </div>
+      {task ? <Attachments task={task} /> : null}
+    </>
   );
 }
 
@@ -131,7 +135,7 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   const [copied, setCopied] = useState(false);
   return (
     <article className="turn">
-      <UserMessage text={turn.user} from={turn.from} />
+      <UserMessage text={turn.user} from={turn.from} task={turn.task} />
       <div className="assistant">
         {live && mode === "booting" ? null : live ? (
           <>

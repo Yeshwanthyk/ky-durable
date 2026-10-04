@@ -25,6 +25,7 @@ import {
 } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { FileStore } from "../files";
 import { MachineHub } from "../machines";
 import { Settings } from "../settings";
 import { PiSessionSockets } from "../sockets";
@@ -117,8 +118,12 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     defaults: { model: this.#faux.getModel() }
   });
   readonly feed = new TaskFeed(this.ctx.storage.sql);
-  readonly machines = new MachineHub(this.ctx.storage.sql, this.feed, (tag) =>
-    this.ctx.getWebSockets(tag)
+  readonly files = new FileStore(this.ctx.storage.sql);
+  readonly machines = new MachineHub(
+    this.ctx.storage.sql,
+    this.feed,
+    (tag) => this.ctx.getWebSockets(tag),
+    this.files
   );
   readonly sockets = new PiSessionSockets(
     this.harness,
@@ -126,6 +131,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.feed,
     this.machines,
+    this.files,
     new Settings(this.ctx.storage.sql, () => [], () => {
       const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
 

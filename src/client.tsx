@@ -22,7 +22,7 @@ import {
   XCircleIcon,
   XIcon
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type {
@@ -33,6 +33,7 @@ import type {
   TaskRow,
   ToolInfo
 } from "./protocol";
+import { Attachments, FilesContext } from "./ui/Attachments";
 import { Composer } from "./ui/Composer";
 import { Thread } from "./ui/Thread";
 import { buildTurns } from "./ui/turns";
@@ -137,6 +138,7 @@ function TaskItem({
 }) {
   const [open, setOpen] = useState(false);
   const opensSession = task.kind === "cloud" && task.session !== null;
+  const shared = useContext(FilesContext).some((file) => file.task === task.id);
 
   return (
     <li className="group relative">
@@ -170,6 +172,11 @@ function TaskItem({
           </span>
         </span>
       </button>
+      {shared ? (
+        <div className="pr-3 pb-2 pl-10">
+          <Attachments task={task.id} compact />
+        </div>
+      ) : null}
       {isLive(task) ? (
         <button
           type="button"
@@ -481,6 +488,7 @@ function App() {
     abort,
     stopTask,
     stopAll,
+    files,
     settings,
     setModel,
     updated
@@ -539,157 +547,159 @@ function App() {
   const empty = messages.length === 0 && !live && !running;
 
   return (
-    <div
-      className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
-        panelOpen
-          ? "lg:grid-cols-[minmax(520px,1fr)_minmax(300px,26vw)]"
-          : "grid-cols-1"
-      }`}
-    >
-      <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
-        <header className="shrink-0 border-b border-kumo-line bg-kumo-base">
-          <div className="mx-auto flex h-[68px] max-w-3xl items-center justify-between gap-3 px-5">
-            <div className="flex min-w-0 items-center gap-3">
-              {main ? (
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-kumo-brand text-white">
-                  <BrainIcon size={20} weight="bold" />
+    <FilesContext.Provider value={files}>
+      <div
+        className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
+          panelOpen
+            ? "lg:grid-cols-[minmax(520px,1fr)_minmax(300px,26vw)]"
+            : "grid-cols-1"
+        }`}
+      >
+        <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
+          <header className="shrink-0 border-b border-kumo-line bg-kumo-base">
+            <div className="mx-auto flex h-[68px] max-w-3xl items-center justify-between gap-3 px-5">
+              <div className="flex min-w-0 items-center gap-3">
+                {main ? (
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-kumo-brand text-white">
+                    <BrainIcon size={20} weight="bold" />
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    shape="square"
+                    aria-label="Back to the main agent"
+                    onClick={() => openSession(MAIN_SESSION)}
+                    icon={<ArrowLeftIcon size={18} />}
+                  />
+                )}
+                <div className="min-w-0">
+                  <h1 className="truncate text-base font-semibold">
+                    {main ? "ky" : (subagent?.worker ?? "Subagent")}
+                  </h1>
+                  <p className="truncate text-xs text-kumo-subtle">
+                    {main ? "Main agent" : (subagent?.title ?? `Session ${session}`)}
+                  </p>
                 </div>
-              ) : (
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {updated ? (
+                  <Button variant="secondary" size="sm" onClick={() => location.reload()}>
+                    Update ready · Reload
+                  </Button>
+                ) : null}
+                <Badge variant={connected ? "success" : "secondary"}>
+                  {connected
+                    ? "Live"
+                    : status === "connecting"
+                      ? "Connecting"
+                      : "Reconnecting"}
+                </Badge>
                 <Button
                   variant="ghost"
                   shape="square"
-                  aria-label="Back to the main agent"
-                  onClick={() => openSession(MAIN_SESSION)}
-                  icon={<ArrowLeftIcon size={18} />}
+                  aria-label="Tasks"
+                  aria-expanded={panelOpen}
+                  onClick={() => setPanelOpen((open) => !open)}
+                  icon={
+                    <span className="relative">
+                      <ListChecksIcon size={16} />
+                      {working > 0 ? (
+                        <span className="absolute -top-1.5 -right-2 rounded-full bg-kumo-brand px-1 text-[9px] leading-[14px] text-white">
+                          {working}
+                        </span>
+                      ) : null}
+                    </span>
+                  }
                 />
-              )}
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-semibold">
-                  {main ? "ky" : (subagent?.worker ?? "Subagent")}
-                </h1>
-                <p className="truncate text-xs text-kumo-subtle">
-                  {main ? "Main agent" : (subagent?.title ?? `Session ${session}`)}
-                </p>
+                <ModeToggle />
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {updated ? (
-                <Button variant="secondary" size="sm" onClick={() => location.reload()}>
-                  Update ready · Reload
-                </Button>
+          </header>
+  
+          <div className="chat chat-surface min-h-0 flex-1">
+            <main className="thread" data-scroll>
+              <div className="thread-inner">
+                {empty ? (
+                  <div className="py-10 sm:py-16">
+                    <Empty
+                      icon={<BrainIcon size={32} />}
+                      title={main ? "What should we get done?" : "Nothing here yet"}
+                      description={
+                        main
+                          ? "Small things happen here. Bigger ones go to subagents and your machines, and show up under Tasks."
+                          : "This subagent's conversation shows up here as it works."
+                      }
+                    />
+                    <div className={`mt-6 flex-wrap justify-center gap-2 ${main ? "flex" : "hidden"}`}>
+                      {SUGGESTIONS.map((suggestion) => (
+                        <Button
+                          key={suggestion.label}
+                          variant="secondary"
+                          size="sm"
+                          icon={suggestion.icon}
+                          disabled={!connected}
+                          onClick={() => setPrompt(suggestion.value)}
+                        >
+                          {suggestion.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <Thread turns={turns} mode={running ? "live" : "dormant"} />
+                )}
+                <div ref={endRef} />
+              </div>
+            </main>
+  
+            <div className="composer-wrap">
+              {retry ? (
+                <div className="composer-note">Retrying: {retry.error}</div>
+              ) : queued > 0 ? (
+                <div className="composer-note">{queued} queued behind this run</div>
               ) : null}
-              <Badge variant={connected ? "success" : "secondary"}>
-                {connected
-                  ? "Live"
-                  : status === "connecting"
-                    ? "Connecting"
-                    : "Reconnecting"}
-              </Badge>
-              <Button
-                variant="ghost"
-                shape="square"
-                aria-label="Tasks"
-                aria-expanded={panelOpen}
-                onClick={() => setPanelOpen((open) => !open)}
-                icon={
-                  <span className="relative">
-                    <ListChecksIcon size={16} />
-                    {working > 0 ? (
-                      <span className="absolute -top-1.5 -right-2 rounded-full bg-kumo-brand px-1 text-[9px] leading-[14px] text-white">
-                        {working}
-                      </span>
-                    ) : null}
-                  </span>
+              {error ? (
+                <div className="composer-note" data-tone="error" role="alert">
+                  {error}
+                </div>
+              ) : null}
+              <Composer
+                value={prompt}
+                onChange={setPrompt}
+                onSubmit={() => submit(running ? "steer" : "followUp")}
+                onStop={abort}
+                working={running}
+                disabled={!connected}
+                label="Message"
+                placeholder={
+                  running
+                    ? "Steer the running turn"
+                    : main
+                      ? "Message ky"
+                      : "Message this subagent directly"
                 }
               />
-              <ModeToggle />
             </div>
           </div>
-        </header>
-
-        <div className="chat chat-surface min-h-0 flex-1">
-          <main className="thread" data-scroll>
-            <div className="thread-inner">
-              {empty ? (
-                <div className="py-10 sm:py-16">
-                  <Empty
-                    icon={<BrainIcon size={32} />}
-                    title={main ? "What should we get done?" : "Nothing here yet"}
-                    description={
-                      main
-                        ? "Small things happen here. Bigger ones go to subagents and your machines, and show up under Tasks."
-                        : "This subagent's conversation shows up here as it works."
-                    }
-                  />
-                  <div className={`mt-6 flex-wrap justify-center gap-2 ${main ? "flex" : "hidden"}`}>
-                    {SUGGESTIONS.map((suggestion) => (
-                      <Button
-                        key={suggestion.label}
-                        variant="secondary"
-                        size="sm"
-                        icon={suggestion.icon}
-                        disabled={!connected}
-                        onClick={() => setPrompt(suggestion.value)}
-                      >
-                        {suggestion.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <Thread turns={turns} mode={running ? "live" : "dormant"} />
-              )}
-              <div ref={endRef} />
-            </div>
-          </main>
-
-          <div className="composer-wrap">
-            {retry ? (
-              <div className="composer-note">Retrying: {retry.error}</div>
-            ) : queued > 0 ? (
-              <div className="composer-note">{queued} queued behind this run</div>
-            ) : null}
-            {error ? (
-              <div className="composer-note" data-tone="error" role="alert">
-                {error}
-              </div>
-            ) : null}
-            <Composer
-              value={prompt}
-              onChange={setPrompt}
-              onSubmit={() => submit(running ? "steer" : "followUp")}
-              onStop={abort}
-              working={running}
-              disabled={!connected}
-              label="Message"
-              placeholder={
-                running
-                  ? "Steer the running turn"
-                  : main
-                    ? "Message ky"
-                    : "Message this subagent directly"
-              }
-            />
-          </div>
-        </div>
-      </section>
-
-      {panelOpen ? (
-        <Panel
-          tasks={tasks}
-          machines={machines}
-          tools={catalog}
-          activeTools={runningTools}
-          session={session}
-          onOpen={openSession}
-          onStop={stopTask}
-          onStopAll={stopAll}
-          settings={settings}
-          onSetModel={setModel}
-          onClose={() => setPanelOpen(false)}
-        />
-      ) : null}
-    </div>
+        </section>
+  
+        {panelOpen ? (
+          <Panel
+            tasks={tasks}
+            machines={machines}
+            tools={catalog}
+            activeTools={runningTools}
+            session={session}
+            onOpen={openSession}
+            onStop={stopTask}
+            onStopAll={stopAll}
+            settings={settings}
+            onSetModel={setModel}
+            onClose={() => setPanelOpen(false)}
+          />
+        ) : null}
+      </div>
+    </FilesContext.Provider>
   );
 }
 

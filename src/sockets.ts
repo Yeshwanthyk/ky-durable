@@ -18,6 +18,7 @@ import {
   type RunnerReport
 } from "./machines";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
+import type { FileStore } from "./files";
 import type { Settings } from "./settings";
 import type { TaskFeed } from "./tasks";
 
@@ -95,6 +96,7 @@ export class PiSessionSockets {
   readonly #watches = new Map<WebSocket, AgentEventStream>();
   readonly #feed: TaskFeed;
   readonly #hub: MachineHub;
+  readonly #files: FileStore;
   readonly #settings: Settings;
   readonly #version: string;
 
@@ -105,6 +107,7 @@ export class PiSessionSockets {
     getWebSockets: (tag?: string) => WebSocket[],
     feed: TaskFeed,
     hub: MachineHub,
+    files: FileStore,
     settings: Settings,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -114,9 +117,11 @@ export class PiSessionSockets {
     this.#getWebSockets = getWebSockets;
     this.#feed = feed;
     this.#hub = hub;
+    this.#files = files;
     this.#settings = settings;
     this.#version = version;
     feed.onChange(() => this.broadcastTasks());
+    files.onChange(() => this.broadcastTasks());
     settings.onChange(() => {
       const message = this.#settingsMessage();
 
@@ -136,7 +141,12 @@ export class PiSessionSockets {
   }
 
   #tasksMessage(): PiServerMessage {
-    return { type: "tasks", tasks: this.#feed.list(), machines: this.#hub.machines() };
+    return {
+      type: "tasks",
+      tasks: this.#feed.list(),
+      machines: this.#hub.machines(),
+      files: this.#files.list()
+    };
   }
 
   options(): WebSocketsOptions {

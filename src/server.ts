@@ -12,6 +12,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
 import { executorExtension } from "./executor";
+import { download, type FileRow, FileStore, upload } from "./files";
 import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { type ModelOption, type ProviderInfo, type Slot, type SlotSetting, Settings } from "./settings";
@@ -40,6 +41,7 @@ You are the primary agent: you talk to the user, decide, and delegate. Keep repl
 - The user's apps and accounts are behind Executor. So is web search (Exa): use it for lookups, recommendations and reading pages before reaching for a machine.
 - Research and other self-contained work that can run in parallel goes to cloud subagents.
 - Anything that needs a real computer goes to a machine: driving a browser, logging in to sites, scripts, builds, local files.
+- Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it.
 
 When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages; then tell the user what matters in one or two lines.
 
@@ -99,9 +101,13 @@ export class PiAgent extends DurableObject<Env> {
     ]
   });
   readonly feed = new TaskFeed(this.ctx.storage.sql);
+  readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
-  readonly machines = new MachineHub(this.ctx.storage.sql, this.feed, (tag) =>
-    this.ctx.getWebSockets(tag)
+  readonly machines = new MachineHub(
+    this.ctx.storage.sql,
+    this.feed,
+    (tag) => this.ctx.getWebSockets(tag),
+    this.files
   );
   readonly registry = createRegistry();
   readonly harness = new PiHarness({
@@ -162,6 +168,7 @@ export class PiAgent extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.feed,
     this.machines,
+    this.files,
     this.settings,
     this.env.CF_VERSION_METADATA.id
   );
@@ -182,6 +189,16 @@ export class PiAgent extends DurableObject<Env> {
     await this.sockets.reattach();
     await this.claude.check();
     await this.applyMain();
+  }
+
+  /** Record a file a machine task shared; null, or why it was refused. */
+  async attachFile(file: Omit<FileRow, "created_at">): Promise<string | null> {
+    const task = this.feed.get(file.task);
+
+    if (!task || task.kind !== "machine") return `No machine task ${file.task}.`;
+    this.files.record(file);
+
+    return null;
   }
 
   /** A conversation keeps the model it was created with; move the main one to the main slot. */
@@ -253,6 +270,14 @@ export default {
 
       return Response.redirect(new URL("/login", url).toString(), 302);
     }
+
+    if (url.pathname === "/api/files") {
+      return upload(request, env.FILES, (file) => env.PiAgent.getByName("me").attachFile(file));
+    }
+
+    const file = /^\/api\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
+
+    if (file && request.method === "GET") return download(request, env.FILES, file);
 
     try {
       return (

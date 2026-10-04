@@ -123,6 +123,7 @@ export function buildTurns(
       state: "completed",
       user: report ? raw.slice(report[0].length) : raw,
       from: report ? `${report[1]} ${report[2]}` : null,
+      task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
       assistant: "",
       items: [],
       startedAt: message ? iso(message.timestamp) : null,

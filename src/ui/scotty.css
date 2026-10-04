@@ -810,3 +810,48 @@ kbd {
     animation: none;
   }
 }
+
+/* Screenshots and recordings a machine task shared, as in scotty. */
+.attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.attachment {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.attachment img,
+.attachment video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: var(--hover);
+}
+
+.attachment figcaption {
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachments[data-compact="true"] {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 4px;
+}
+
+.attachments[data-compact="true"] img,
+.attachments[data-compact="true"] video {
+  max-height: 72px;
+  object-fit: cover;
+}

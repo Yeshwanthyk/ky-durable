@@ -13,7 +13,7 @@
  * KY_CLAUDE       the claude executable (default: claude)
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -54,6 +54,50 @@ const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
 
 const PROGRESS_EVERY_MS = 4_000;
+
+/** Where `ky-attach` is installed; each task finds it on its PATH. */
+const BIN = join(homedir(), ".ky", "bin");
+
+/** Playwright and Chromium for captures, installed on first use outside any repo. */
+const CAPTURE = join(WORKDIR, ".capture");
+
+// ky-attach <file> [caption]: shows an image or video in ky, on this task and in its report.
+const ATTACH = `#!/usr/bin/env node
+const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+  ".gif": "image/gif", ".webm": "video/webm", ".mp4": "video/mp4" };
+const [path, caption] = process.argv.slice(2);
+(async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { basename, extname } = await import("node:path");
+  if (!path) throw new Error("usage: ky-attach <file> [caption]");
+  const { KY_URL, KY_TOKEN, KY_TASK } = process.env;
+  if (!KY_URL || !KY_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
+  const type = types[extname(path).toLowerCase()];
+  if (!type) throw new Error("png, jpeg, webp, gif, webm or mp4 only");
+  const headers = { "content-type": type, authorization: "Bearer " + KY_TOKEN,
+    "x-ky-name": encodeURIComponent(basename(path)) };
+  if (caption) headers["x-ky-caption"] = encodeURIComponent(caption);
+  const url = KY_URL.replace(/\\/$/, "") + "/api/files?task=" + encodeURIComponent(KY_TASK);
+  const response = await fetch(url, { method: "PUT", headers, body: await readFile(path) });
+  if (!response.ok) throw new Error("HTTP " + response.status + ": " + (await response.text()).trim());
+  console.log("Attached: " + basename(path));
+})().catch((error) => { console.error("ky-attach: " + error.message); process.exitCode = 1; });
+`;
+
+/** Added to Claude Code's system prompt in every task. */
+const TASK_PROMPT = `You are running a task for ky, the user's agent; the user reads the result in ky, often on a phone.
+
+To show the user a screenshot, a recording or a chart, attach it: ky-attach <file> [caption] (png, jpeg, webp, gif, webm or mp4, at most 25 MB). It appears on this task and in its report. Attach every image or video you make for the user, and mention it in your answer.
+- For web pages use Playwright. The first time, install it in ${CAPTURE}: mkdir -p ${CAPTURE} && cd ${CAPTURE} && echo '{"private":true}' > package.json && npm install playwright && npx playwright install chromium. Run capture scripts from there.
+- Screenshot at a 390x844 viewport unless asked otherwise. Record video with the browser context option recordVideo: { dir, size }; the webm is saved when the context closes.
+- Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.`;
+
+function installAttach() {
+  mkdirSync(BIN, { recursive: true });
+  const file = join(BIN, "ky-attach");
+  writeFileSync(file, ATTACH);
+  chmodSync(file, 0o755);
+}
 
 function required(name: string): string {
   const value = process.env[name];
@@ -97,11 +141,19 @@ function start(task: string, prompt: string, session: string | null) {
     "--output-format", "stream-json",
     "--verbose",
     "--permission-mode", PERMISSION_MODE,
+    "--append-system-prompt", TASK_PROMPT,
     ...(session ? ["--resume", session] : [])
   ];
 
   log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
-  const child = spawn(CLAUDE, args, { cwd: WORKDIR, env: process.env });
+  const child = spawn(CLAUDE, args, {
+    cwd: WORKDIR,
+    env: {
+      ...process.env,
+      KY_TASK: task,
+      PATH: `${BIN}:${process.env.PATH ?? ""}`
+    }
+  });
   const run: Run = { child, session, pending: 1, stopped: false, last: "" };
   runs.set(task, run);
   let lastProgress = 0;
@@ -258,4 +310,5 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
+installAttach();
 connect();

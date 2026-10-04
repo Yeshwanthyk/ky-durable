@@ -5,6 +5,7 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
+import type { FileStore } from "./files";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -66,12 +67,20 @@ export class MachineHub {
   readonly #sql: SqlStorage;
   readonly #feed: TaskFeed;
   readonly #sockets: (tag: string) => WebSocket[];
+  readonly #files: FileStore;
   #harness: PiHarness | undefined;
 
-  constructor(sql: SqlStorage, feed: TaskFeed, sockets: (tag: string) => WebSocket[]) {
+  constructor(
+    sql: SqlStorage,
+    feed: TaskFeed,
+    sockets: (tag: string) => WebSocket[],
+    /** Files tasks share; a report lists them so the agent can mention them. */
+    files: FileStore
+  ) {
     this.#sql = sql;
     this.#feed = feed;
     this.#sockets = sockets;
+    this.#files = files;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_inbox (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       machine TEXT NOT NULL,
@@ -246,8 +255,13 @@ export class MachineHub {
     });
 
     if (!this.#harness) return;
+    const files = this.#files.forTask(id);
+    const shared =
+      files.length === 0
+        ? ""
+        : `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
     await this.#harness.submit(
-      `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}`,
+      `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}${shared}`,
       { operationId: `machine-report:${id}:${crypto.randomUUID()}`, whenBusy: "followUp" }
     );
   }

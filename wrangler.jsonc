@@ -6,6 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   // Which deploy is serving; open pages reload when it changes.
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  // Screenshots and recordings machine tasks share (src/files.ts).
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "ky-files" }],
   // `exec` runs JavaScript in Dynamic Workers minted through this.
   "worker_loaders": [{ "binding": "LOADER" }],
   "assets": {

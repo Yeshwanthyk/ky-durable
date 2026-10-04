@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
+import type { FileRow } from "./files";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
 import type { TaskRow } from "./tasks";
 
@@ -71,6 +72,8 @@ export type PiServerMessage =
       readonly type: "tasks";
       readonly tasks: readonly TaskRow[];
       readonly machines: readonly MachineInfo[];
+      /** Files machine tasks shared, newest first. */
+      readonly files: readonly FileRow[];
     }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
@@ -84,6 +87,8 @@ export type {
 };
 
 export type { TaskRow } from "./tasks";
+
+export type { FileRow } from "./files";
 
 export type { ModelOption, ProviderInfo, SettingsView, Slot, SlotSetting } from "./settings";
 

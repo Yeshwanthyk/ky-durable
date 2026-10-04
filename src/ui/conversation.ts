@@ -26,6 +26,8 @@ export type Turn = {
   user: string;
   /** Set when the turn was started by a subagent or machine report, not the user. */
   from: string | null;
+  /** The machine task a report is from; its files show under the report. */
+  task: string | null;
   assistant: string;
   items: Item[];
   startedAt: string | null;
