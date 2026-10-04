@@ -73,7 +73,6 @@ export function Composer({
           data-mode={stop ? "stop" : "send"}
           aria-label={stop ? "Stop" : "Send"}
           disabled={disabled || busy || (empty && !stop)}
-          style={{ marginLeft: children === undefined ? "auto" : undefined }}
         >
           <Icon name={stop ? "stop" : "arrowUp"} size={stop ? 12 : 15} />
         </button>

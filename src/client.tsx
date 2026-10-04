@@ -115,11 +115,15 @@ function ModeToggle() {
       variant="ghost"
       shape="square"
       aria-label="Toggle theme"
+      className={ICON_BUTTON}
       onClick={() => setMode((value) => (value === "light" ? "dark" : "light"))}
-      icon={mode === "light" ? <MoonIcon size={16} /> : <SunIcon size={16} />}
+      icon={mode === "light" ? <MoonIcon size={18} /> : <SunIcon size={18} />}
     />
   );
 }
+
+/** Icon buttons get a 44px tap target on touch screens and stay compact on desktop. */
+const ICON_BUTTON = "size-11 sm:size-9";
 
 const isLive = (task: TaskRow) => task.status === "queued" || task.status === "working";
 
@@ -145,7 +149,7 @@ function TaskItem({
       <button
         type="button"
         onClick={() => (opensSession ? onOpen(task.session!) : setOpen((value) => !value))}
-        className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-kumo-elevated ${
+        className={`flex min-h-11 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-kumo-elevated ${
           selected ? "bg-kumo-elevated" : ""
         }`}
       >
@@ -183,7 +187,7 @@ function TaskItem({
           aria-label={`Stop ${task.title}`}
           title={task.status === "queued" ? "Cancel" : "Stop"}
           onClick={() => onStop(task.id)}
-          className="absolute top-2 right-2 rounded-md p-1 text-kumo-subtle hover:bg-kumo-line hover:text-kumo-danger"
+          className="absolute top-1 right-1 grid size-9 place-items-center rounded-md text-kumo-subtle hover:bg-kumo-line hover:text-kumo-danger"
         >
           <StopCircleIcon size={16} />
         </button>
@@ -199,7 +203,7 @@ const SLOT_LABELS: ReadonlyArray<{ slot: Slot; label: string; hint: string }> = 
 ];
 
 const SELECT =
-  "w-full rounded-md border border-kumo-line bg-kumo-base px-2 py-1.5 text-xs text-kumo-default";
+  "h-11 w-full rounded-lg border border-kumo-line bg-kumo-base px-3 text-base text-kumo-default sm:h-8 sm:rounded-md sm:px-2 sm:text-xs";
 
 function price(cost: { input: number; output: number } | undefined): string {
   return cost ? ` · $${cost.input}/$${cost.output}` : "";
@@ -219,7 +223,7 @@ function SettingsTab({
   const connected = settings.providers.filter((provider) => provider.connected);
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:space-y-4">
       {SLOT_LABELS.map(({ slot, label, hint }) => {
         const current = settings.slots[slot];
         const model = settings.providers
@@ -229,8 +233,8 @@ function SettingsTab({
         return (
           <div key={slot} className="space-y-1.5">
             <div>
-              <p className="text-xs font-semibold">{label}</p>
-              <p className="text-[11px] text-kumo-subtle">{hint}</p>
+              <p className="text-sm font-semibold sm:text-xs">{label}</p>
+              <p className="text-xs text-kumo-subtle sm:text-[11px]">{hint}</p>
             </div>
             <select
               aria-label={`${label} model`}
@@ -285,22 +289,24 @@ function SettingsTab({
         </p>
         <ul className="space-y-1">
           {settings.providers.map((provider) => (
-            <li key={provider.id} className="flex items-center gap-1.5 text-xs">
+            <li key={provider.id} className="flex items-center gap-2 text-sm sm:gap-1.5 sm:text-xs">
               <span
-                className={`size-2 shrink-0 rounded-full ${
+                className={`size-2 shrink-0 self-center rounded-full ${
                   provider.connected ? "bg-kumo-success" : "bg-kumo-line"
                 }`}
               />
-              <span className="font-medium">{provider.name}</span>
-              <span className="text-kumo-subtle">
-                {provider.connected
-                  ? `· ${provider.models.length} models`
-                  : `· needs ${provider.needs ?? "a key"}`}
+              <span className="min-w-0">
+                <span className="font-medium">{provider.name}</span>{" "}
+                <span className="text-kumo-subtle">
+                  {provider.connected
+                    ? `· ${provider.models.length} models`
+                    : `· needs ${provider.needs ?? "a key"}`}
+                </span>
               </span>
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-[11px] text-kumo-subtle">Prices are dollars per million input/output tokens.</p>
+        <p className="mt-2 text-xs text-kumo-subtle sm:text-[11px]">Prices are dollars per million input/output tokens.</p>
       </div>
     </div>
   );
@@ -345,36 +351,38 @@ function Panel({
       className="fixed inset-0 z-10 flex min-h-0 flex-col bg-kumo-base lg:static lg:border-l lg:border-kumo-line"
       aria-label="Tasks"
     >
-      <div className="flex h-[68px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-4">
-        <div className="flex gap-1">
-          <Button
-            variant={tab === "tasks" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setTab("tasks")}
-          >
-            Tasks
-          </Button>
-          <Button
-            variant={tab === "tools" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setTab("tools")}
-          >
-            Tools
-          </Button>
-          <Button
-            variant={tab === "settings" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setTab("settings")}
-          >
-            Models
-          </Button>
+      <div className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line pr-1 pl-3 pt-[env(safe-area-inset-top)] box-content sm:h-14 sm:pr-2 sm:pl-4">
+        <div className="flex rounded-lg bg-kumo-elevated p-0.5 ring ring-kumo-line" role="tablist">
+          {(
+            [
+              ["tasks", "Tasks"],
+              ["tools", "Tools"],
+              ["settings", "Models"]
+            ] as const
+          ).map(([id, name]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`h-9 rounded-md px-3.5 text-sm font-medium transition-colors sm:h-7 sm:px-3 sm:text-xs ${
+                tab === id
+                  ? "bg-kumo-base text-kumo-default shadow-sm ring ring-kumo-line"
+                  : "text-kumo-subtle hover:text-kumo-default"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
         </div>
         <Button
           variant="ghost"
           shape="square"
           aria-label="Close panel"
+          className={ICON_BUTTON}
           onClick={onClose}
-          icon={<XIcon size={16} />}
+          icon={<XIcon size={18} />}
         />
       </div>
       {tab === "tasks" ? (
@@ -382,7 +390,7 @@ function Panel({
           {live > 0 ? (
             <div className="flex shrink-0 items-center justify-between border-b border-kumo-line px-4 py-2 text-xs text-kumo-subtle">
               <span>{live} running</span>
-              <Button variant="ghost" size="sm" onClick={onStopAll}>
+              <Button variant="ghost" size="sm" className="h-9 sm:h-6.5" onClick={onStopAll}>
                 Stop all
               </Button>
             </div>
@@ -407,18 +415,18 @@ function Panel({
               </ul>
             )}
           </div>
-          <div className="shrink-0 border-t border-kumo-line px-4 py-3">
+          <div className="shrink-0 border-t border-kumo-line px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
               Machines
             </p>
             {machines.length === 0 ? (
-              <p className="text-xs text-kumo-subtle">
+              <p className="text-sm text-kumo-subtle sm:text-xs">
                 None yet. Run <code>runner/ky-runner.ts</code> on a computer.
               </p>
             ) : (
               <ul className="space-y-1">
                 {machines.map((machine) => (
-                  <li key={machine.name} className="flex items-center gap-1.5 text-xs">
+                  <li key={machine.name} className="flex items-center gap-1.5 text-sm sm:text-xs">
                     <span
                       className={`size-2 shrink-0 rounded-full ${
                         machine.online ? "bg-kumo-success" : "bg-kumo-line"
@@ -442,7 +450,7 @@ function Panel({
       ) : tab === "settings" ? (
         <SettingsTab settings={settings} onSet={onSetModel} />
       ) : (
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {tools.map((tool) => (
             <Surface key={tool.name} className="rounded-lg p-3 ring ring-kumo-line">
               <div className="flex items-center gap-2">
@@ -542,6 +550,20 @@ function App() {
     ? undefined
     : tasks.find((task) => task.kind === "cloud" && task.session === session);
 
+  const mainSlot = settings?.slots.main;
+
+  const mainModel = mainSlot
+    ? (settings?.providers
+        .find((provider) => provider.id === mainSlot.provider)
+        ?.models.find((each) => each.modelId === mainSlot.modelId)?.name ?? mainSlot.modelId)
+    : "Main agent";
+
+  const statusLabel = connected
+    ? "Live"
+    : status === "connecting"
+      ? "Connecting"
+      : "Reconnecting";
+
   const working = tasks.filter((task) => task.status === "working").length;
 
   const empty = messages.length === 0 && !live && !running;
@@ -556,53 +578,69 @@ function App() {
         }`}
       >
         <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
-          <header className="shrink-0 border-b border-kumo-line bg-kumo-base">
-            <div className="mx-auto flex h-[68px] max-w-3xl items-center justify-between gap-3 px-5">
-              <div className="flex min-w-0 items-center gap-3">
+          <header className="shrink-0 border-b border-kumo-line bg-kumo-base pt-[env(safe-area-inset-top)]">
+            <div className="mx-auto flex h-[52px] max-w-3xl items-center justify-between gap-2 pr-1 pl-3 sm:h-14 sm:gap-3 sm:px-5">
+              <div className="flex min-w-0 items-center gap-2.5">
                 {main ? (
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-kumo-brand text-white">
-                    <BrainIcon size={20} weight="bold" />
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-kumo-brand text-white">
+                    <BrainIcon size={18} weight="bold" />
                   </div>
                 ) : (
                   <Button
                     variant="ghost"
                     shape="square"
                     aria-label="Back to the main agent"
+                    className={ICON_BUTTON}
                     onClick={() => openSession(MAIN_SESSION)}
                     icon={<ArrowLeftIcon size={18} />}
                   />
                 )}
-                <div className="min-w-0">
-                  <h1 className="truncate text-base font-semibold">
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <h1 className="max-w-[45vw] shrink-0 truncate text-[15px] leading-tight font-semibold sm:max-w-none">
                     {main ? "ky" : (subagent?.worker ?? "Subagent")}
                   </h1>
-                  <p className="truncate text-xs text-kumo-subtle">
-                    {main ? "Main agent" : (subagent?.title ?? `Session ${session}`)}
+                  <p className="min-w-0 truncate text-xs leading-tight text-kumo-subtle">
+                    {main ? mainModel : (subagent?.title ?? `Session ${session}`)}
                   </p>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
+              <div className="flex shrink-0 items-center">
                 {updated ? (
-                  <Button variant="secondary" size="sm" onClick={() => location.reload()}>
-                    Update ready · Reload
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mr-1"
+                    onClick={() => location.reload()}
+                  >
+                    <span className="sm:hidden">Reload</span>
+                    <span className="hidden sm:inline">Update ready · Reload</span>
                   </Button>
                 ) : null}
-                <Badge variant={connected ? "success" : "secondary"}>
-                  {connected
-                    ? "Live"
-                    : status === "connecting"
-                      ? "Connecting"
-                      : "Reconnecting"}
+                <span
+                  role="status"
+                  aria-label={statusLabel}
+                  title={statusLabel}
+                  className="grid size-11 place-items-center sm:hidden"
+                >
+                  <span
+                    className={`size-2 rounded-full ${
+                      connected ? "bg-kumo-success" : "animate-pulse bg-kumo-inactive"
+                    }`}
+                  />
+                </span>
+                <Badge variant={connected ? "success" : "secondary"} className="mr-1 hidden sm:inline-flex">
+                  {statusLabel}
                 </Badge>
                 <Button
                   variant="ghost"
                   shape="square"
                   aria-label="Tasks"
                   aria-expanded={panelOpen}
+                  className={ICON_BUTTON}
                   onClick={() => setPanelOpen((open) => !open)}
                   icon={
                     <span className="relative">
-                      <ListChecksIcon size={16} />
+                      <ListChecksIcon size={18} />
                       {working > 0 ? (
                         <span className="absolute -top-1.5 -right-2 rounded-full bg-kumo-brand px-1 text-[9px] leading-[14px] text-white">
                           {working}
@@ -620,8 +658,9 @@ function App() {
             <main className="thread" data-scroll>
               <div className="thread-inner">
                 {empty ? (
-                  <div className="py-10 sm:py-16">
+                  <div className="py-2 sm:py-16">
                     <Empty
+                      className="px-6 py-8 sm:px-10 sm:py-16"
                       icon={<BrainIcon size={32} />}
                       title={main ? "What should we get done?" : "Nothing here yet"}
                       description={
@@ -630,12 +669,15 @@ function App() {
                           : "This subagent's conversation shows up here as it works."
                       }
                     />
-                    <div className={`mt-6 flex-wrap justify-center gap-2 ${main ? "flex" : "hidden"}`}>
+                    <div
+                      className={`mt-4 flex-col gap-2 sm:mt-6 sm:flex-row sm:flex-wrap sm:justify-center ${main ? "flex" : "hidden"}`}
+                    >
                       {SUGGESTIONS.map((suggestion) => (
                         <Button
                           key={suggestion.label}
                           variant="secondary"
                           size="sm"
+                          className="h-11 w-full justify-start px-3.5! text-sm sm:h-7 sm:w-max sm:px-2.5! sm:text-xs"
                           icon={suggestion.icon}
                           disabled={!connected}
                           onClick={() => setPrompt(suggestion.value)}
