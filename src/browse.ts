@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import type { BrowserWorker } from "@cloudflare/playwright";
+import type { BrowserWorker, SessionlessBrowser as Browser } from "@cloudflare/playwright";
 
 /**
  * A cloud browser for pages a search API cannot read: ones that render with
@@ -10,7 +10,8 @@ import type { BrowserWorker } from "@cloudflare/playwright";
  * a machine.
  *
  * Each call opens a fresh page, runs the steps, reads the page and closes the
- * browser. Screenshots go over CDP, which Kitesurf pages support.
+ * browser. Screenshots go over CDP, which Kitesurf pages support. Stopping the
+ * turn closes the browser, which fails whatever step is running.
  */
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -30,6 +31,8 @@ const CLOSE_TIMEOUT_MS = 5_000;
 const MAX_TEXT = 20_000;
 
 const MAX_LINKS = 60;
+
+const CLOSE_GRACE_MS = 1_000;
 
 const reply = (text: string, isError = false) => ({
   content: [{ type: "text" as const, text }],
@@ -62,8 +65,8 @@ export function browseExtension(binding: BrowserWorker): Extension {
           screenshot: Type.Optional(Type.Boolean({ description: "Attach a PNG of the viewport." }))
         }),
         replay: "safe",
-        execute: async (args) =>
-          within(CALL_TIMEOUT_MS, "the whole browse call", browse(binding, args)).catch((error: Error) =>
+        execute: async (args, _api, context) =>
+          within(CALL_TIMEOUT_MS, "the whole browse call", browse(binding, args, context.abortSignal)).catch((error: Error) =>
             reply(`Could not browse ${args.url}: ${error.message}`, true)
           )
       })
@@ -73,11 +76,15 @@ export function browseExtension(binding: BrowserWorker): Extension {
 
 type Args = { url: string; steps?: Array<{ do: string; selector?: string; value?: string }>; screenshot?: boolean };
 
-async function browse(binding: BrowserWorker, args: Args) {
+async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal | undefined) {
   const { launch } = await import("@cloudflare/playwright");
   const browser = await within(OPERATION_TIMEOUT_MS, "starting the browser", launch(binding, { browser: "kitesurf" }));
+  const close = once(() => closeBrowser(browser));
+  signal?.addEventListener("abort", close, { once: true });
 
   try {
+    signal?.throwIfAborted();
+
     const page = await within(
       OPERATION_TIMEOUT_MS,
       "opening a page",
@@ -136,8 +143,9 @@ async function browse(binding: BrowserWorker, args: Args) {
 
     return { content, isError: false };
   } finally {
+    signal?.removeEventListener("abort", close);
     // Closing has hung before; never let it hold the answer.
-    await within(CLOSE_TIMEOUT_MS, "closing the browser", browser.close()).catch(() => undefined);
+    await within(CLOSE_TIMEOUT_MS, "closing the browser", close()).catch(() => undefined);
   }
 }
 
@@ -151,7 +159,44 @@ function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
-type Page = Awaited<ReturnType<Awaited<ReturnType<typeof import("@cloudflare/playwright").launch>>["newPage"]>>;
+type Page = Awaited<ReturnType<Browser["newPage"]>>;
+
+const once = (run: () => Promise<void>) => {
+  let ran: Promise<void> | undefined;
+
+  return () => (ran ??= run());
+};
+
+/**
+ * Kitesurf takes `Browser.close` but leaves the DevTools socket open, so
+ * `browser.close()` waits forever for the disconnect. Close the socket after a
+ * grace period; that disconnects the browser and settles `close()`.
+ */
+async function closeBrowser(browser: Browser): Promise<void> {
+  const closing = browser.close().catch(() => undefined);
+
+  const closed = await Promise.race([
+    closing.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), CLOSE_GRACE_MS))
+  ]);
+
+  if (closed) return;
+
+  browserSocket(browser)?.close();
+  await closing;
+}
+
+/**
+ * The DevTools socket, through the same internal hop launch() takes
+ * (browser._connection.toImpl(browser)._connection._transport). Every step is
+ * optional, so a changed shape yields nothing and the caller's timeout still
+ * bounds the wait.
+ */
+function browserSocket(browser: Browser & {
+  _connection?: { toImpl?(browser: Browser): { _connection?: { _transport?: { close(): void } } } };
+}) {
+  return browser._connection?.toImpl?.(browser)?._connection?._transport;
+}
 
 async function runStep(page: Page, step: { do: string; selector?: string; value?: string }): Promise<void> {
   if (step.do === "wait") {
