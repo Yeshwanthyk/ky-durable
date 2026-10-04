@@ -96,6 +96,7 @@ export class PiSessionSockets {
   readonly #feed: TaskFeed;
   readonly #hub: MachineHub;
   readonly #settings: Settings;
+  readonly #version: string;
 
   constructor(
     harness: PiHarness,
@@ -104,7 +105,9 @@ export class PiSessionSockets {
     getWebSockets: (tag?: string) => WebSocket[],
     feed: TaskFeed,
     hub: MachineHub,
-    settings: Settings
+    settings: Settings,
+    /** The deploy's version id, sent in each hello. */
+    version: string
   ) {
     this.#harness = harness;
     this.#registry = registry;
@@ -112,6 +115,7 @@ export class PiSessionSockets {
     this.#feed = feed;
     this.#hub = hub;
     this.#settings = settings;
+    this.#version = version;
     feed.onChange(() => this.broadcastTasks());
     settings.onChange(() => {
       const message = this.#settingsMessage();
@@ -188,6 +192,7 @@ export class PiSessionSockets {
     send(connection, {
       type: "hello",
       session,
+      version: this.#version,
       tools: this.#registry
         .snapshot()
         .tools()

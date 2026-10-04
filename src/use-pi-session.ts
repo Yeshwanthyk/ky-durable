@@ -1,5 +1,5 @@
 import { useAgent } from "agents/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
@@ -24,6 +24,8 @@ type State = SessionView & {
   readonly machines: readonly MachineInfo[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
+  /** A newer deploy is serving than the one this page loaded from. */
+  readonly updated: boolean;
 };
 
 const INITIAL_STATE: State = {
@@ -32,7 +34,8 @@ const INITIAL_STATE: State = {
   catalog: [],
   tasks: [],
   machines: [],
-  settings: null
+  settings: null,
+  updated: false
 };
 
 /** The one agent object this app talks to. */
@@ -46,6 +49,7 @@ const OBJECT = "me";
  */
 export function usePiSession(session: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
+  const version = useRef<string | null>(null);
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -64,10 +68,18 @@ export function usePiSession(session: string) {
       }
 
       switch (message.type) {
-        case "hello":
-          setState((current) => ({ ...current, catalog: message.tools }));
+        case "hello": {
+          // A deploy restarts the object, so the socket reconnects and says hello again.
+          const updated = version.current !== null && version.current !== message.version;
+          version.current ??= message.version;
+          setState((current) => ({
+            ...current,
+            catalog: message.tools,
+            updated: current.updated || updated
+          }));
 
           return;
+        }
         case "events":
           setState((current) => ({
             ...current,
@@ -102,7 +114,8 @@ export function usePiSession(session: string) {
       ...INITIAL_STATE,
       tasks: current.tasks,
       machines: current.machines,
-      settings: current.settings
+      settings: current.settings,
+      updated: current.updated
     }));
   }, [session]);
 

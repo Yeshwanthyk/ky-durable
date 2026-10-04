@@ -130,7 +130,8 @@ export class PiHarnessTestObject extends DurableObject<Env> {
       const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
 
       return { main: faux, subagents: faux, fallback: faux };
-    })
+    }),
+    "test"
   );
   readonly webSockets = new WebSockets(this.sockets.options());
   readonly lifecycle = Lifecycle.install(this)

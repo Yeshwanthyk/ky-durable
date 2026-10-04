@@ -482,8 +482,14 @@ function App() {
     stopTask,
     stopAll,
     settings,
-    setModel
+    setModel,
+    updated
   } = usePiSession(session);
+
+  // A new deploy is live: reload, unless that would throw away a draft.
+  useEffect(() => {
+    if (updated && prompt.trim() === "") location.reload();
+  }, [updated, prompt]);
 
   const runningTools = running_.map((tool) => tool.name);
 
@@ -567,6 +573,11 @@ function App() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
+              {updated ? (
+                <Button variant="secondary" size="sm" onClick={() => location.reload()}>
+                  Update ready · Reload
+                </Button>
+              ) : null}
               <Badge variant={connected ? "success" : "secondary"}>
                 {connected
                   ? "Live"

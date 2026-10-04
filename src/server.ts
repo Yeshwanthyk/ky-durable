@@ -174,7 +174,8 @@ export class PiAgent extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.feed,
     this.machines,
-    this.settings
+    this.settings,
+    this.env.CF_VERSION_METADATA.id
   );
   readonly webSockets = new WebSockets(this.sockets.options());
   readonly lifecycle = Lifecycle.install(this)

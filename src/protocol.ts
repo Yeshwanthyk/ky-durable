@@ -53,6 +53,8 @@ export type PiServerMessage =
       readonly type: "hello";
       readonly session: PiSessionId;
       readonly tools: readonly PiToolInfo[];
+      /** The deploy serving this socket; a page from an older one reloads. */
+      readonly version: string;
     }
   /**
    * pi's own agent events for the connection's session. The first batch of a
