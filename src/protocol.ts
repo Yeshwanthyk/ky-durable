@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
+import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
 import type { TaskRow } from "./tasks";
@@ -40,6 +41,8 @@ export type PiClientMessage =
   /** Stop a subagent's current work or a machine task; queued machine runs are withdrawn. */
   | { readonly type: "stop-task"; readonly id?: string; readonly task: string }
   | { readonly type: "stop-all"; readonly id?: string }
+  /** Start a side chat; the result is `{ session }`. */
+  | { readonly type: "new-chat"; readonly id?: string }
   /** Choose the model, and its thinking level, for one slot. */
   | {
       readonly type: "set-model";
@@ -75,6 +78,8 @@ export type PiServerMessage =
       /** Files machine tasks shared, newest first. */
       readonly files: readonly FileRow[];
     }
+  /** Side chats, newest first; sent on connect and on change. */
+  | { readonly type: "chats"; readonly chats: readonly ChatRow[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
@@ -87,6 +92,8 @@ export type {
 };
 
 export type { TaskRow } from "./tasks";
+
+export type { ChatRow } from "./chats";
 
 export type { FileRow } from "./files";
 

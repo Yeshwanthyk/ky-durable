@@ -29,7 +29,8 @@ const PROBE_TTL_MS = 30_000;
 export type VibeProxyConfig = {
   readonly binding: Fetcher;
   readonly key: string | undefined;
-  readonly modelId: string;
+  /** Claude models to offer; the first is the one turns use. */
+  readonly modelIds: readonly string[];
   /** Runs the turn when VibeProxy is unreachable. */
   readonly fallback: (
     context: TranscriptContext,
@@ -42,6 +43,7 @@ export type VibeProxyConfig = {
 export type VibeProxy = {
   readonly provider: Provider;
   readonly model: Model<Api>;
+  readonly models: readonly Model<Api>[];
   /** The last probe reached the Mac. Starts a new probe when that one is stale. */
   readonly connected: () => boolean;
   /** Probe now, or reuse a fresh probe, and say whether the Mac answers. */
@@ -49,10 +51,15 @@ export type VibeProxy = {
 };
 
 export function vibeProxy(config: VibeProxyConfig): VibeProxy {
-  const base = Object.values(ANTHROPIC_MODELS).find((model) => model.id === config.modelId);
+  const models = config.modelIds.map((id): Model<Api> => {
+    const base = Object.values(ANTHROPIC_MODELS).find((model) => model.id === id);
 
-  if (!base) throw new TypeError(`No Anthropic model "${config.modelId}" in pi-ai's catalog.`);
-  const model: Model<Api> = { ...base, provider: VIBEPROXY_PROVIDER, baseUrl: ORIGIN };
+    if (!base) throw new TypeError(`No Anthropic model "${id}" in pi-ai's catalog.`);
+
+    return { ...base, provider: VIBEPROXY_PROVIDER, baseUrl: ORIGIN };
+  });
+
+  const model = models[0]!;
   const api = anthropicMessagesApi();
 
   const send = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -104,7 +111,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
           config.key ? { auth: { apiKey: config.key }, source: "VIBEPROXY_KEY" } : undefined
       }
     },
-    models: [model],
+    models,
     api: {
       stream: (target, context, options) => api.stream(target, context, { ...options, fetch: send }),
       streamSimple: (target, context, options) => {
@@ -150,6 +157,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
   return {
     provider,
     model,
+    models,
     connected: () => {
       void reachable();
 

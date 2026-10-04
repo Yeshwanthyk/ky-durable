@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { Icon } from "./Icon";
 
 // Images and videos open over the page instead of in a new tab. One dialog for the
 // whole app; arrows step through the set it was opened from, Escape or a click

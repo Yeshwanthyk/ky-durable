@@ -35,9 +35,16 @@ export function summarize(text: string): string {
   return line.length > SUMMARY_CHARS ? `${line.slice(0, SUMMARY_CHARS - 1)}…` : line;
 }
 
+/** Writes better titles and summaries than a first line, in the background. */
+export type TaskNamer = {
+  readonly title: (id: string, text: string) => void;
+  readonly summary: (id: string, text: string) => void;
+};
+
 export class TaskFeed {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<(tasks: TaskRow[]) => void>();
+  #namer: TaskNamer | undefined;
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
@@ -57,6 +64,20 @@ export class TaskFeed {
     this.#listeners.add(listener);
 
     return () => this.#listeners.delete(listener);
+  }
+
+  nameWith(namer: TaskNamer): void {
+    this.#namer = namer;
+  }
+
+  /** A task started with no title: name it from its prompt. */
+  name(id: string, prompt: string): void {
+    this.#namer?.title(id, prompt);
+  }
+
+  /** A task finished: sum up its whole report, not just the report's first line. */
+  describe(id: string, report: string): void {
+    this.#namer?.summary(id, report);
   }
 
   list(limit = 100): TaskRow[] {

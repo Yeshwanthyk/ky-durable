@@ -5,6 +5,27 @@ import { imageSrc, type PendingImage } from "./pick-images";
 // Enter sends on a keyboard; on touch Enter is a newline and the button sends.
 const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
+// Taller than one line and its padding means the text wrapped; the line grows with Settings → Text size.
+function oneLine(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  const line = parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+
+  return Math.max(parseFloat(style.minHeight), line) + 2;
+}
+
+let ruler: CanvasRenderingContext2D | null = null;
+
+// Whether the text fits on one line of a textarea this wide, padding and a little slack included.
+function fitsOneLine(element: HTMLTextAreaElement, text: string, width: number): boolean {
+  ruler ??= document.createElement("canvas").getContext("2d");
+  if (ruler === null) return text === "";
+  const style = getComputedStyle(element);
+  ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const room = width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 8;
+
+  return ruler.measureText(text).width < room;
+}
+
 const imageFiles = (files: FileList | null | undefined) =>
   [...(files ?? [])].filter((file) => file.type.startsWith("image/"));
 
@@ -43,12 +64,21 @@ export function Composer({
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  // A pill while it is one line; once the text wraps it opens into a card with the buttons
+  // below. It closes again only when the text would fit the pill's narrower line, measured
+  // against the width the pill had, so it never flips back and forth at the edge.
+  const [open, setOpen] = useState(false);
+  const pillWidth = useRef(0);
   useLayoutEffect(() => {
     const element = area.current;
     if (element === null) return;
     element.style.height = "auto";
     element.style.height = `${element.scrollHeight}px`;
-  }, [value]);
+    if (!open) {
+      pillWidth.current = element.clientWidth;
+      if (value.includes("\n") || element.scrollHeight > oneLine(element)) setOpen(true);
+    } else if (!value.includes("\n") && fitsOneLine(element, value, pillWidth.current)) setOpen(false);
+  }, [value, open]);
   const empty = value.trim() === "" && images.length === 0;
   const stop = working && empty && onStop !== undefined;
   const attach = onAddImages !== undefined && !disabled;
@@ -56,6 +86,7 @@ export function Composer({
     <form
       className="composer"
       data-dragging={dragging}
+      data-open={open}
       onSubmit={(event) => {
         event.preventDefault();
         if (stop) onStop();
@@ -145,7 +176,6 @@ export function Composer({
       />
       <div className="composer-bar">
         {children}
-        <span className="hint desktop-only">{working ? "Enter to steer" : "Enter to send"}</span>
         <button
           type="submit"
           className="send-button pressable"

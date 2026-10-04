@@ -1,475 +1,87 @@
-import {
-  Button,
-  Empty,
-  Surface
-} from "@cloudflare/kumo";
-import {
-  ArrowLeftIcon,
-  BrainIcon,
-  CheckCircleIcon,
-  CircleDashedIcon,
-  CloudIcon,
-  DesktopIcon,
-  GearIcon,
-  ListChecksIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  PlugsConnectedIcon,
-  StopCircleIcon,
-  SunIcon,
-  WrenchIcon,
-  XCircleIcon,
-  XIcon
-} from "@phosphor-icons/react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type {
-  MachineInfo,
-  SettingsView,
-  Slot,
-  SlotSetting,
-  TaskRow,
-  ToolInfo
-} from "./protocol";
 import { imageSupport, MAX_IMAGES } from "./images";
-import { Attachments, FilesContext } from "./ui/Attachments";
+import { FilesContext } from "./ui/Attachments";
+import type { BlobVariantId } from "./ui/blob-catalog";
+import { BotAvatar } from "./ui/BotAvatar";
 import { Composer } from "./ui/Composer";
+import { Icon, type IconName } from "./ui/Icon";
 import { LightboxProvider } from "./ui/Lightbox";
+import { CommandPalette } from "./ui/CommandPalette";
+import { Panel, type PanelTab, type Theme } from "./ui/Panel";
 import { prepareImage, type PendingImage } from "./ui/pick-images";
+import { Sidebar } from "./ui/Sidebar";
+import { ago } from "./ui/time";
 import { Thread } from "./ui/Thread";
 import { buildTurns } from "./ui/turns";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
 import "./ui/scotty.css";
+import "./ui/shell.css";
 
-/** The main agent's session; subagents have their own. */
+/** The main chat's session. Side chats and subagents have their own. */
 const MAIN_SESSION = "1";
 
-const SUGGESTIONS = [
+const NAME = "ky";
+
+/** ky's own blob, ink on light and cream on dark; subagents get one from their name. */
+const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "squircle-creme" };
+
+const SUGGESTIONS: ReadonlyArray<{ icon: IconName; label: string; value: string }> = [
   {
-    icon: <PlugsConnectedIcon size={15} />,
+    icon: "plug",
     label: "What's connected",
     value: "What apps do I have connected in Executor, and what can you do with them?"
   },
   {
-    icon: <MagnifyingGlassIcon size={15} />,
+    icon: "search",
     label: "Research in the background",
     value:
       "Start a subagent to research the best way to back up an iPhone to a NAS, and tell me when it is done."
   },
   {
-    icon: <DesktopIcon size={15} />,
+    icon: "monitor",
     label: "Use my Mac",
     value:
       "On my machine, open https://news.ycombinator.com in a browser and tell me the top 3 stories."
   }
-] satisfies Array<{ icon: ReactNode; label: string; value: string }>;
+];
 
 function sessionFromUrl(): string {
   const session = new URLSearchParams(location.search).get("session");
 
-  return session && /^\d+$/.test(session) ? session : MAIN_SESSION;
+  return session && /^[\w-]{1,64}$/.test(session) ? session : MAIN_SESSION;
 }
 
-function ago(time: number, now: number): string {
-  const seconds = Math.max(0, Math.round((now - time) / 1000));
+/** The sidebar and panel sit beside the chat from this width; below it they slide over it. */
+const WIDE = "(min-width: 1024px)";
 
-  if (seconds < 60) return "now";
-  const minutes = Math.round(seconds / 60);
+const wide = () => window.matchMedia(WIDE).matches;
 
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-
-  if (hours < 24) return `${hours}h`;
-
-  return `${Math.round(hours / 24)}d`;
-}
-
-function StatusIcon({ status }: { status: TaskRow["status"] }) {
-  switch (status) {
-    case "queued":
-      return <CircleDashedIcon size={16} className="text-kumo-inactive" />;
-    case "working":
-      return <GearIcon size={16} className="animate-spin text-kumo-accent" />;
-    case "done":
-      return <CheckCircleIcon size={16} weight="fill" className="text-kumo-success" />;
-    case "failed":
-      return <XCircleIcon size={16} weight="fill" className="text-kumo-danger" />;
-    case "stopped":
-      return <StopCircleIcon size={16} className="text-kumo-inactive" />;
-  }
-}
-
-function ModeToggle() {
-  const [mode, setMode] = useState(
-    () => localStorage.getItem("theme") ?? "light"
+function useTheme(): [Theme, (theme: Theme) => void] {
+  const [theme, setTheme] = useState<Theme>(() =>
+    localStorage.getItem("theme") === "dark" ? "dark" : "light"
   );
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-mode", mode);
-    document.documentElement.style.colorScheme = mode;
-    localStorage.setItem("theme", mode);
-  }, [mode]);
+    document.documentElement.setAttribute("data-mode", theme);
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
-  return (
-    <Button
-      variant="ghost"
-      shape="square"
-      aria-label="Toggle theme"
-      className={ICON_BUTTON}
-      onClick={() => setMode((value) => (value === "light" ? "dark" : "light"))}
-      icon={mode === "light" ? <MoonIcon size={18} /> : <SunIcon size={18} />}
-    />
-  );
+  return [theme, setTheme];
 }
 
-/** Icon buttons get a 44px tap target on touch screens and stay compact on desktop. */
-const ICON_BUTTON = "size-11 sm:size-9";
-
-const isLive = (task: TaskRow) => task.status === "queued" || task.status === "working";
-
-function TaskItem({
-  task,
-  now,
-  selected,
-  onOpen,
-  onStop
-}: {
-  task: TaskRow;
-  now: number;
-  selected: boolean;
-  onOpen: (session: string) => void;
-  onStop: (task: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const opensSession = task.kind === "cloud" && task.session !== null;
-  const shared = useContext(FilesContext).some((file) => file.task === task.id);
-
-  return (
-    <li className="group relative">
-      <button
-        type="button"
-        onClick={() => (opensSession ? onOpen(task.session!) : setOpen((value) => !value))}
-        className={`flex min-h-11 w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-kumo-elevated ${
-          selected ? "bg-kumo-elevated" : ""
-        }`}
-      >
-        <span className="mt-0.5 shrink-0">
-          <StatusIcon status={task.status} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{task.title}</span>
-            <span
-              className={`shrink-0 text-xs text-kumo-inactive ${isLive(task) ? "invisible" : ""}`}
-            >
-              {ago(task.updated_at, now)}
-            </span>
-          </span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-kumo-subtle">
-            {task.kind === "cloud" ? <CloudIcon size={12} /> : <DesktopIcon size={12} />}
-            <span className="shrink-0">{task.worker}</span>
-            {task.summary ? (
-              <span className={`min-w-0 ${open ? "whitespace-pre-wrap" : "truncate"}`}>
-                · {task.summary}
-              </span>
-            ) : null}
-          </span>
-        </span>
-      </button>
-      {shared ? (
-        <div className="pr-3 pb-2 pl-10">
-          <Attachments task={task.id} compact />
-        </div>
-      ) : null}
-      {isLive(task) ? (
-        <button
-          type="button"
-          aria-label={`Stop ${task.title}`}
-          title={task.status === "queued" ? "Cancel" : "Stop"}
-          onClick={() => onStop(task.id)}
-          className="absolute top-1 right-1 grid size-9 place-items-center rounded-md text-kumo-subtle hover:bg-kumo-line hover:text-kumo-danger"
-        >
-          <StopCircleIcon size={16} />
-        </button>
-      ) : null}
-    </li>
-  );
-}
-
-const SLOT_LABELS: ReadonlyArray<{ slot: Slot; label: string; hint: string }> = [
-  { slot: "main", label: "Main agent", hint: "Talks to you and decides." },
-  { slot: "subagents", label: "Subagents", hint: "Research and parallel work." },
-  { slot: "fallback", label: "When the Mac is away", hint: "Answers for Claude while VibeProxy is unreachable." }
-];
-
-const SELECT =
-  "h-11 w-full rounded-lg border border-kumo-line bg-kumo-base px-3 text-base text-kumo-default sm:h-8 sm:rounded-md sm:px-2 sm:text-xs";
-
-function price(cost: { input: number; output: number } | undefined): string {
-  return cost ? ` · $${cost.input}/$${cost.output}` : "";
-}
-
-function SettingsTab({
-  settings,
-  onSet
-}: {
-  settings: SettingsView | null;
-  onSet: (slot: Slot, setting: SlotSetting) => void;
-}) {
-  if (!settings) {
-    return <p className="px-3 py-6 text-center text-sm text-kumo-subtle">Loading…</p>;
-  }
-
-  const connected = settings.providers.filter((provider) => provider.connected);
-
-  return (
-    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:space-y-4">
-      {SLOT_LABELS.map(({ slot, label, hint }) => {
-        const current = settings.slots[slot];
-        const model = settings.providers
-          .find((provider) => provider.id === current.provider)
-          ?.models.find((each) => each.modelId === current.modelId);
-
-        return (
-          <div key={slot} className="space-y-1.5">
-            <div>
-              <p className="text-sm font-semibold sm:text-xs">{label}</p>
-              <p className="text-xs text-kumo-subtle sm:text-[11px]">{hint}</p>
-            </div>
-            <select
-              aria-label={`${label} model`}
-              className={SELECT}
-              value={`${current.provider}/${current.modelId}`}
-              onChange={(event) => {
-                const value = event.target.value;
-                const cut = value.indexOf("/");
-                onSet(slot, {
-                  provider: value.slice(0, cut),
-                  modelId: value.slice(cut + 1),
-                  thinkingLevel: current.thinkingLevel
-                });
-              }}
-            >
-              {connected.map((provider) => (
-                <optgroup key={provider.id} label={provider.name}>
-                  {provider.models.map((each) => (
-                    <option key={each.modelId} value={`${provider.id}/${each.modelId}`}>
-                      {each.name}
-                      {price(each.cost)}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            {model && model.levels.length > 1 ? (
-              <select
-                aria-label={`${label} thinking`}
-                className={SELECT}
-                value={current.thinkingLevel}
-                onChange={(event) =>
-                  onSet(slot, {
-                    ...current,
-                    thinkingLevel: event.target.value as SlotSetting["thinkingLevel"]
-                  })
-                }
-              >
-                {model.levels.map((level) => (
-                  <option key={level} value={level}>
-                    Thinking: {level}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-          </div>
-        );
-      })}
-      <div className="border-t border-kumo-line pt-3">
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
-          Providers
-        </p>
-        <ul className="space-y-1">
-          {settings.providers.map((provider) => (
-            <li key={provider.id} className="flex items-center gap-2 text-sm sm:gap-1.5 sm:text-xs">
-              <span
-                className={`size-2 shrink-0 self-center rounded-full ${
-                  provider.connected ? "bg-kumo-success" : "bg-kumo-line"
-                }`}
-              />
-              <span className="min-w-0">
-                <span className="font-medium">{provider.name}</span>{" "}
-                <span className="text-kumo-subtle">
-                  {provider.connected
-                    ? `· ${provider.models.length} models`
-                    : `· needs ${provider.needs ?? "a key"}`}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-kumo-subtle sm:text-[11px]">Prices are dollars per million input/output tokens.</p>
-      </div>
-    </div>
-  );
-}
-
-function Panel({
-  tasks,
-  machines,
-  tools,
-  activeTools,
-  session,
-  onOpen,
-  onStop,
-  onStopAll,
-  settings,
-  onSetModel,
-  onClose
-}: {
-  tasks: readonly TaskRow[];
-  machines: readonly MachineInfo[];
-  tools: readonly ToolInfo[];
-  activeTools: readonly string[];
-  session: string;
-  onOpen: (session: string) => void;
-  onStop: (task: string) => void;
-  onStopAll: () => void;
-  settings: SettingsView | null;
-  onSetModel: (slot: Slot, setting: SlotSetting) => void;
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<"tasks" | "tools" | "settings">("tasks");
+function useNow(): number {
   const [now, setNow] = useState(Date.now);
+
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
 
     return () => clearInterval(timer);
   }, []);
-  const live = tasks.filter(isLive).length;
 
-  return (
-    <aside
-      className="fixed inset-0 z-10 flex min-h-0 flex-col bg-kumo-base lg:static lg:border-l lg:border-kumo-line"
-      aria-label="Tasks"
-    >
-      <div className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line pr-1 pl-3 pt-[env(safe-area-inset-top)] box-content sm:h-14 sm:pr-2 sm:pl-4">
-        <div className="flex rounded-lg bg-kumo-elevated p-0.5 ring ring-kumo-line" role="tablist">
-          {(
-            [
-              ["tasks", "Tasks"],
-              ["tools", "Tools"],
-              ["settings", "Models"]
-            ] as const
-          ).map(([id, name]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              onClick={() => setTab(id)}
-              className={`h-9 rounded-md px-3.5 text-sm font-medium transition-colors sm:h-7 sm:px-3 sm:text-xs ${
-                tab === id
-                  ? "bg-kumo-base text-kumo-default shadow-sm ring ring-kumo-line"
-                  : "text-kumo-subtle hover:text-kumo-default"
-              }`}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-        <Button
-          variant="ghost"
-          shape="square"
-          aria-label="Close panel"
-          className={ICON_BUTTON}
-          onClick={onClose}
-          icon={<XIcon size={18} />}
-        />
-      </div>
-      {tab === "tasks" ? (
-        <>
-          {live > 0 ? (
-            <div className="flex shrink-0 items-center justify-between border-b border-kumo-line px-4 py-2 text-xs text-kumo-subtle">
-              <span>{live} running</span>
-              <Button variant="ghost" size="sm" className="h-9 sm:h-6.5" onClick={onStopAll}>
-                Stop all
-              </Button>
-            </div>
-          ) : null}
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {tasks.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-kumo-subtle">
-                Work the agent hands to subagents and machines shows up here.
-              </p>
-            ) : (
-              <ul className="space-y-0.5">
-                {tasks.map((task) => (
-                  <TaskItem
-                    key={task.id}
-                    task={task}
-                    now={now}
-                    selected={task.session === session && task.kind === "cloud"}
-                    onOpen={onOpen}
-                    onStop={onStop}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="shrink-0 border-t border-kumo-line px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
-              Machines
-            </p>
-            {machines.length === 0 ? (
-              <p className="text-sm text-kumo-subtle sm:text-xs">
-                None yet. Run <code>runner/ky-runner.ts</code> on a computer.
-              </p>
-            ) : (
-              <ul className="space-y-1">
-                {machines.map((machine) => (
-                  <li key={machine.name} className="flex items-center gap-1.5 text-sm sm:text-xs">
-                    <span
-                      className={`size-2 shrink-0 rounded-full ${
-                        machine.online ? "bg-kumo-success" : "bg-kumo-line"
-                      }`}
-                    />
-                    <span className="font-medium">{machine.name}</span>
-                    <span className="text-kumo-subtle">
-                      {machine.online
-                        ? machine.active > 0
-                          ? `· ${machine.active} ${machine.active === 1 ? "task" : "tasks"}`
-                          : "· idle"
-                        : `· offline, seen ${ago(machine.seenAt, now)}${ago(machine.seenAt, now) === "now" ? "" : " ago"}`}
-                      {!machine.online && machine.active > 0 ? ` · ${machine.active} waiting` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
-      ) : tab === "settings" ? (
-        <SettingsTab settings={settings} onSet={onSetModel} />
-      ) : (
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          {tools.map((tool) => (
-            <Surface key={tool.name} className="rounded-lg p-3 ring ring-kumo-line">
-              <div className="flex items-center gap-2">
-                {activeTools.includes(tool.name) ? (
-                  <GearIcon size={14} className="animate-spin text-kumo-accent" />
-                ) : (
-                  <WrenchIcon size={14} className="text-kumo-inactive" />
-                )}
-                <code className="text-xs font-semibold">{tool.name}</code>
-              </div>
-              <p className="mt-1 text-xs text-kumo-subtle">{tool.description}</p>
-            </Surface>
-          ))}
-        </div>
-      )}
-    </aside>
-  );
+  return now;
 }
 
 function App() {
@@ -479,10 +91,47 @@ function App() {
   /** Images still being read and shrunk. */
   const [reading, setReading] = useState(0);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [theme, setTheme] = useTheme();
+  const now = useNow();
 
-  const [panelOpen, setPanelOpen] = useState(
-    () => window.matchMedia("(min-width: 1024px)").matches
-  );
+  const [panelOpen, setPanelOpenState] = useState(wide);
+  /** Kept on screen while it pours back into the agent pill. */
+  const [panelClosing, setPanelClosing] = useState(false);
+  /** Only a click plays the genie; the panel that is open on load just sits there. */
+  const [genie, setGenie] = useState(false);
+  const [panelTab, setPanelTab] = useState<PanelTab>("activity");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const whoRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const setPanelOpen = (next: boolean | ((open: boolean) => boolean)) => {
+    const open = typeof next === "function" ? next(panelOpen && !panelClosing) : next;
+
+    if (open === (panelOpen && !panelClosing)) return;
+    setGenie(true);
+
+    if (open) {
+      setPanelClosing(false);
+      setPanelOpenState(true);
+    } else if (panelOpen) setPanelClosing(true);
+  };
+  // animationend normally ends the genie, but a tab that is not painting never runs it, so
+  // settle it anyway a little after it should have finished. A click mid-way restarts the wait.
+  useEffect(() => {
+    if (!genie) return;
+    const timer = setTimeout(() => {
+      if (panelClosing) {
+        setPanelClosing(false);
+        setPanelOpenState(false);
+      }
+      setGenie(false);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [genie, panelClosing]);
+  /** Only below WIDE: the sidebar is always there above it. */
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -491,10 +140,11 @@ function App() {
     messages,
     live,
     running,
-    tools: running_,
+    tools: runningTools,
     catalog,
     tasks,
     machines,
+    chats,
     queued,
     retry,
     error,
@@ -505,6 +155,7 @@ function App() {
     files,
     settings,
     setModel,
+    newChat,
     updated
   } = usePiSession(session);
 
@@ -513,16 +164,43 @@ function App() {
     if (updated && prompt.trim() === "" && images.length === 0) location.reload();
   }, [updated, prompt, images]);
 
-  const runningTools = running_.map((tool) => tool.name);
-
   const turns = useMemo(
-    () => buildTurns(messages, live, running, running_),
-    [messages, live, running, running_]
+    () => buildTurns(messages, live, running, runningTools),
+    [messages, live, running, runningTools]
   );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, live, running]);
+
+  // Escape closes whatever is sliding over the chat; ⌘K opens the palette from anywhere.
+  const keys = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  keys.current = (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      setPaletteOpen((open) => !open);
+    } else if (event.key === "Escape" && !paletteOpen && !wide()) {
+      setDrawerOpen(false);
+      setPanelOpen(false);
+    }
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => keys.current(event);
+    addEventListener("keydown", onKey);
+
+    return () => removeEventListener("keydown", onKey);
+  }, []);
+
+  // The genie pours out of the agent pill: aim the panel's narrow end at it.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const who = whoRef.current;
+    if (!panelOpen || !genie || panel === null || who === null) return;
+    const from = who.getBoundingClientRect();
+    const to = panel.getBoundingClientRect();
+    panel.style.setProperty("--genie-x", `${from.left + from.width / 2 - (to.left + to.width / 2)}px`);
+    panel.style.setProperty("--genie-y", `${from.top + from.height / 2 - to.top}px`);
+  }, [panelOpen, panelClosing, genie]);
 
   const connected = status === "open";
 
@@ -567,21 +245,39 @@ function App() {
     return () => removeEventListener("popstate", onPop);
   }, []);
 
+  const openPanel = (tab: PanelTab) => {
+    setPanelTab(tab);
+    setPanelOpen(true);
+  };
+
   const openSession = (next: string) => {
+    setDrawerOpen(false);
+
+    if (!wide()) setPanelOpen(false);
+
     if (next === session) return;
     history.pushState(null, "", next === MAIN_SESSION ? "/" : `/?session=${next}`);
     setSession(next);
+  };
 
-    if (!window.matchMedia("(min-width: 1024px)").matches) setPanelOpen(false);
+  const startChat = () => {
+    setCreating(true);
+    newChat()
+      .then(openSession)
+      .catch(() => undefined)
+      .finally(() => setCreating(false));
   };
 
   const main = session === MAIN_SESSION;
+  const chat = chats.find((each) => each.session === session);
+  /** Side chats talk to the main agent too, with its model and memory. */
+  const talksToMain = main || chat !== undefined;
 
   /** Why the attached images can't go to this session's model, if they can't. */
   const cantSee =
-    images.length > 0 && settings ? imageSupport(settings, main ? "main" : "subagents") : null;
+    images.length > 0 && settings ? imageSupport(settings, talksToMain ? "main" : "subagents") : null;
 
-  const subagent = main
+  const subagent = talksToMain
     ? undefined
     : tasks.find((task) => task.kind === "cloud" && task.session === session);
 
@@ -593,182 +289,298 @@ function App() {
         ?.models.find((each) => each.modelId === mainSlot.modelId)?.name ?? mainSlot.modelId)
     : "Main agent";
 
-  const statusLabel = connected
-    ? "Live"
-    : status === "connecting"
-      ? "Connecting"
-      : "Reconnecting";
+  const statusLabel = connected ? "Connected" : status === "connecting" ? "Connecting" : "Reconnecting";
 
   const working = tasks.filter((task) => task.status === "working").length;
 
   const empty = messages.length === 0 && !live && !running;
 
+  /** Who is talking in the open chat: ky, or the subagent's own blob. */
+  const speaker = subagent?.worker ?? (talksToMain ? NAME : "Subagent");
+  const where = main ? null : chat ? chat.title || "New side chat" : (subagent?.title ?? `Session ${session}`);
+
   return (
     <FilesContext.Provider value={files}>
       <LightboxProvider>
-      <div
-        className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
-          panelOpen
-            ? "lg:grid-cols-[minmax(520px,1fr)_minmax(300px,26vw)]"
-            : "grid-cols-1"
-        }`}
-      >
-        <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
-          <header className="app-header shrink-0 pt-[env(safe-area-inset-top)]">
-            <div className="mx-auto flex h-[52px] max-w-3xl items-center justify-between gap-2 pr-1 pl-4 sm:h-14 sm:gap-3 sm:px-5">
-              <div className="flex min-w-0 items-center gap-3">
-                {main ? null : (
-                  <Button
-                    variant="ghost"
-                    shape="square"
-                    aria-label="Back to the main agent"
-                    className={ICON_BUTTON}
-                    onClick={() => openSession(MAIN_SESSION)}
-                    icon={<ArrowLeftIcon size={18} />}
-                  />
-                )}
-                <h1 className="app-title max-w-[40vw] shrink-0 truncate sm:max-w-none">
-                  {main ? "ky" : (subagent?.worker ?? "Subagent")}
-                </h1>
-                <p className="app-chip min-w-0" role="status" aria-label={statusLabel} title={statusLabel}>
-                  <span className="app-dot" data-connected={connected} />
-                  <span className="truncate">{main ? mainModel : (subagent?.title ?? `Session ${session}`)}</span>
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center">
-                {updated ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="mr-1"
-                    onClick={() => location.reload()}
+        <div
+          className="shell"
+          data-panel={panelOpen}
+          data-panel-closing={panelClosing}
+          data-drawer={drawerOpen}
+        >
+          <div className="sidebar-slot">
+            <Sidebar
+              chats={chats}
+              session={session}
+              main={MAIN_SESSION}
+              now={now}
+              onOpen={openSession}
+              onNew={startChat}
+              onSearch={() => setPaletteOpen(true)}
+              creating={creating}
+            />
+          </div>
+          {drawerOpen ? <div className="scrim" aria-hidden onClick={() => setDrawerOpen(false)} /> : null}
+
+          <section className="stage" aria-label="Chat">
+            <header className="topbar">
+              <div className="topbar-side">
+                {talksToMain ? (
+                  <button
+                    type="button"
+                    className="icon-button pressable drawer-toggle"
+                    aria-label="Chats"
+                    aria-expanded={drawerOpen}
+                    onClick={() => setDrawerOpen(true)}
                   >
-                    <span className="sm:hidden">Reload</span>
-                    <span className="hidden sm:inline">Update ready · Reload</span>
-                  </Button>
+                    <Icon name="menu" size={18} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="icon-button pressable"
+                    aria-label="Back to the main chat"
+                    onClick={() => openSession(MAIN_SESSION)}
+                  >
+                    <Icon name="arrowLeft" size={18} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                ref={whoRef}
+                className="who pressable"
+                aria-expanded={panelOpen && !panelClosing}
+                aria-label={`${speaker}: ${statusLabel}. ${panelOpen ? "Hide" : "Show"} activity`}
+                onClick={() => setPanelOpen((open) => !open)}
+              >
+                <BotAvatar name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} active={running} size={28} />
+                <span className="who-text">
+                  <span className="who-name">
+                    {speaker}
+                    <span className="status-dot" data-connected={connected} />
+                  </span>
+                  <span className="who-sub">
+                    {where ?? (working > 0 ? `${working} working` : mainModel)}
+                  </span>
+                </span>
+              </button>
+              <div className="topbar-side end">
+                {updated ? (
+                  <button type="button" className="pill pressable" onClick={() => location.reload()}>
+                    Reload
+                  </button>
                 ) : null}
-                <Button
-                  variant="ghost"
-                  shape="square"
-                  aria-label="Tasks"
-                  aria-expanded={panelOpen}
-                  className={ICON_BUTTON}
-                  onClick={() => setPanelOpen((open) => !open)}
-                  icon={
-                    <span className="relative">
-                      <ListChecksIcon size={18} />
-                      {working > 0 ? (
-                        <span className="absolute -top-1.5 -right-2 rounded-full bg-kumo-brand px-1 text-[9px] leading-[14px] text-white">
-                          {working}
-                        </span>
+              </div>
+            </header>
+
+            <div className="chat chat-surface">
+              <main className="thread" data-scroll>
+                <div className="thread-inner">
+                  {empty ? (
+                    <div className="welcome">
+                      <BotAvatar name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} active={running} size={88} />
+                      <h1 className="welcome-title">
+                        {main
+                          ? "What should we get done?"
+                          : chat
+                            ? "A side chat"
+                            : "Nothing here yet"}
+                      </h1>
+                      <p className="welcome-text">
+                        {main
+                          ? "Small things happen here. Bigger ones go to subagents and your machines, and show up in Activity."
+                          : chat
+                            ? "For a tangent. It shares memory with the main chat, so nothing you settle here is lost."
+                            : "This subagent's conversation shows up here as it works."}
+                      </p>
+                      {talksToMain ? (
+                        <div className="suggestions">
+                          {SUGGESTIONS.map((suggestion) => (
+                            <button
+                              key={suggestion.label}
+                              type="button"
+                              className="pill pressable"
+                              disabled={!connected}
+                              onClick={() => setPrompt(suggestion.value)}
+                            >
+                              <Icon name={suggestion.icon} size={14} />
+                              {suggestion.label}
+                            </button>
+                          ))}
+                        </div>
                       ) : null}
-                    </span>
+                    </div>
+                  ) : (
+                    <Thread turns={turns} mode={running ? "live" : "dormant"} />
+                  )}
+                  <div ref={endRef} />
+                </div>
+              </main>
+
+              <div className="composer-wrap">
+                {retry ? (
+                  <div className="composer-note">Retrying: {retry.error}</div>
+                ) : queued > 0 ? (
+                  <div className="composer-note">{queued} queued behind this run</div>
+                ) : null}
+                {error ? (
+                  <div className="composer-note" data-tone="error" role="alert">
+                    {error}
+                  </div>
+                ) : null}
+                {cantSee ?? imageError ? (
+                  <div className="composer-note" data-tone="error" role="alert">
+                    {cantSee ?? imageError}
+                  </div>
+                ) : null}
+                <Composer
+                  value={prompt}
+                  onChange={setPrompt}
+                  onSubmit={() => submit(running ? "steer" : "followUp")}
+                  onStop={abort}
+                  working={running}
+                  disabled={!connected}
+                  busy={reading > 0 || cantSee !== null}
+                  images={images}
+                  onAddImages={addImages}
+                  onRemoveImage={(id) => {
+                    setImages((current) => current.filter((image) => image.id !== id));
+                    setImageError(null);
+                  }}
+                  label="Message"
+                  placeholder={
+                    running
+                      ? "Steer the running turn"
+                      : talksToMain
+                        ? `Message ${NAME}`
+                        : "Message this subagent directly"
                   }
                 />
-                <ModeToggle />
               </div>
             </div>
-          </header>
-  
-          <div className="chat chat-surface min-h-0 flex-1">
-            <main className="thread" data-scroll>
-              <div className="thread-inner">
-                {empty ? (
-                  <div className="py-2 sm:py-16">
-                    <Empty
-                      className="px-6 py-8 sm:px-10 sm:py-16"
-                      icon={<BrainIcon size={32} />}
-                      title={main ? "What should we get done?" : "Nothing here yet"}
-                      description={
-                        main
-                          ? "Small things happen here. Bigger ones go to subagents and your machines, and show up under Tasks."
-                          : "This subagent's conversation shows up here as it works."
-                      }
-                    />
-                    <div
-                      className={`mt-4 flex-col gap-2 sm:mt-6 sm:flex-row sm:flex-wrap sm:justify-center ${main ? "flex" : "hidden"}`}
-                    >
-                      {SUGGESTIONS.map((suggestion) => (
-                        <Button
-                          key={suggestion.label}
-                          variant="secondary"
-                          size="sm"
-                          className="h-11 w-full justify-start px-3.5! text-sm sm:h-7 sm:w-max sm:px-2.5! sm:text-xs"
-                          icon={suggestion.icon}
-                          disabled={!connected}
-                          onClick={() => setPrompt(suggestion.value)}
-                        >
-                          {suggestion.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <Thread turns={turns} mode={running ? "live" : "dormant"} />
-                )}
-                <div ref={endRef} />
-              </div>
-            </main>
-  
-            <div className="composer-wrap">
-              {retry ? (
-                <div className="composer-note">Retrying: {retry.error}</div>
-              ) : queued > 0 ? (
-                <div className="composer-note">{queued} queued behind this run</div>
-              ) : null}
-              {error ? (
-                <div className="composer-note" data-tone="error" role="alert">
-                  {error}
-                </div>
-              ) : null}
-              {cantSee ?? imageError ? (
-                <div className="composer-note" data-tone="error" role="alert">
-                  {cantSee ?? imageError}
-                </div>
-              ) : null}
-              <Composer
-                value={prompt}
-                onChange={setPrompt}
-                onSubmit={() => submit(running ? "steer" : "followUp")}
-                onStop={abort}
-                working={running}
-                disabled={!connected}
-                busy={reading > 0 || cantSee !== null}
-                images={images}
-                onAddImages={addImages}
-                onRemoveImage={(id) => {
-                  setImages((current) => current.filter((image) => image.id !== id));
-                  setImageError(null);
-                }}
-                label="Message"
-                placeholder={
-                  running
-                    ? "Steer the running turn"
-                    : main
-                      ? "Message ky"
-                      : "Message this subagent directly"
+          </section>
+
+          {panelOpen ? (
+            <div
+              ref={panelRef}
+              className="panel-slot"
+              data-genie={genie ? (panelClosing ? "out" : "in") : undefined}
+              onAnimationEnd={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (panelClosing) {
+                  setPanelClosing(false);
+                  setPanelOpenState(false);
                 }
+                setGenie(false);
+              }}
+            >
+              <Panel
+                name={NAME}
+                variantId={KY_BLOB[theme]}
+                active={running || working > 0}
+                status={{ label: statusLabel, connected }}
+                model={mainModel}
+                tasks={tasks}
+                machines={machines}
+                running={runningTools.map((tool) => tool.name)}
+                catalog={catalog}
+                session={session}
+                now={now}
+                settings={settings}
+                theme={theme}
+                onTheme={setTheme}
+                onSetModel={setModel}
+                onOpen={openSession}
+                onStop={stopTask}
+                onStopAll={stopAll}
+                onClose={() => setPanelOpen(false)}
+                tab={panelTab}
+                onTab={setPanelTab}
               />
             </div>
-          </div>
-        </section>
-  
-        {panelOpen ? (
-          <Panel
-            tasks={tasks}
-            machines={machines}
-            tools={catalog}
-            activeTools={runningTools}
-            session={session}
-            onOpen={openSession}
-            onStop={stopTask}
-            onStopAll={stopAll}
-            settings={settings}
-            onSetModel={setModel}
-            onClose={() => setPanelOpen(false)}
-          />
-        ) : null}
-      </div>
+          ) : null}
+          {paletteOpen ? (
+            <CommandPalette
+              onClose={() => setPaletteOpen(false)}
+              commands={[
+                {
+                  id: "new",
+                  group: "Chats",
+                  label: "New side chat",
+                  icon: "plus",
+                  keywords: "create start",
+                  run: startChat
+                },
+                {
+                  id: "main",
+                  group: "Chats",
+                  label: "Main chat",
+                  icon: "chat",
+                  hint: main ? "Open" : undefined,
+                  run: () => openSession(MAIN_SESSION)
+                },
+                ...chats.map((each) => ({
+                  id: `chat-${each.session}`,
+                  group: "Chats",
+                  label: each.title || "New chat",
+                  icon: "chat" as const,
+                  hint: each.session === session ? "Open" : ago(each.updated_at, now),
+                  keywords: "side",
+                  run: () => openSession(each.session)
+                })),
+                {
+                  id: "activity",
+                  group: "ky",
+                  label: "Activity",
+                  icon: "list",
+                  keywords: "tasks tools subagents feed",
+                  run: () => openPanel("activity")
+                },
+                {
+                  id: "settings",
+                  group: "ky",
+                  label: "Settings",
+                  icon: "settings",
+                  keywords: "models providers preferences",
+                  run: () => openPanel("settings")
+                },
+                {
+                  id: "theme",
+                  group: "ky",
+                  label: theme === "dark" ? "Light appearance" : "Dark appearance",
+                  icon: theme === "dark" ? "sun" : "moon",
+                  keywords: "theme mode toggle",
+                  run: () => setTheme(theme === "dark" ? "light" : "dark")
+                },
+                ...(working > 0
+                  ? [
+                      {
+                        id: "stop-all",
+                        group: "ky",
+                        label: `Stop ${working} working`,
+                        icon: "stop" as const,
+                        keywords: "cancel tasks",
+                        run: stopAll
+                      }
+                    ]
+                  : []),
+                ...tasks
+                  .filter((task) => task.kind === "cloud" && task.session !== null)
+                  .slice(0, 20)
+                  .map((task) => ({
+                    id: `task-${task.id}`,
+                    group: "Subagents",
+                    label: task.title,
+                    icon: "nodes" as const,
+                    hint: task.worker,
+                    keywords: `${task.worker} ${task.status}`,
+                    run: () => openSession(task.session!)
+                  }))
+              ]}
+            />
+          ) : null}
+        </div>
       </LightboxProvider>
     </FilesContext.Provider>
   );

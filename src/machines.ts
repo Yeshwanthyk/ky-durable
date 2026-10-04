@@ -18,7 +18,7 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * What the runner must do is kept in an inbox table until it acknowledges
  * it, so a message sent while the machine is offline is delivered when it
  * reconnects. Each finished turn is recorded in the task feed and posted to
- * the main agent as a follow-up.
+ * the main agent as a steer, so it lands after its current tool round.
  */
 
 export const RUNNER_QUERY = "runner";
@@ -254,6 +254,8 @@ export class MachineHub {
       summary: summarize(text) || (ok ? "Done" : "Failed")
     });
 
+    if (ok) this.#feed.describe(id, text);
+
     if (!this.#harness) return;
     const files = this.#files.forTask(id);
     const shared =
@@ -262,7 +264,7 @@ export class MachineHub {
         : `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
     await this.#harness.submit(
       `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}${shared}`,
-      { operationId: `machine-report:${id}:${crypto.randomUUID()}`, whenBusy: "followUp" }
+      { operationId: `machine-report:${id}:${crypto.randomUUID()}`, whenBusy: "steer" }
     );
   }
 }
@@ -277,7 +279,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
         name: "machine",
         description:
           "Run tasks on the user's real computers, each as a Claude Code session with a shell, files, scripts, installed tools and a real browser. " +
-          "Use it for anything the cloud cannot do: web pages that need the user's logins (try Exa search, then browse, first), running scripts or builds, touching local files. " +
+          "Use it only when the user asks for a machine, or for what the cloud cannot do: web pages that need the user's logins (have a subagent try Exa search and browse first), running scripts or builds, touching local files. " +
           "Actions: list (machines and their recent tasks). " +
           "run (title, prompt, machine optional when one is online): start a task; the prompt must be self-contained. " +
           "send (task, message): steer a working task, or resume a finished one with its history. " +
@@ -332,6 +334,8 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
             // Model call ids repeat across turns (Kimi: functions.machine:0); pi's task id does not.
             const id = `m-${String(api.taskId)}`;
             const task = hub.start(machine, args.title ?? summarize(args.prompt).slice(0, 60), args.prompt, id);
+
+            if (args.title === undefined) feed.name(task.id, args.prompt);
 
             return reply(
               `Started task ${task.id} on ${machine}${hub.online(machine) ? "" : " (offline: it starts when the machine connects)"}.`

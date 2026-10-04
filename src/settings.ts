@@ -1,9 +1,9 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 
 /**
- * Which model does which job. There are three slots: the main agent, the
- * cloud subagents, and the stand-in that answers for Claude while the Mac is
- * away. Each slot holds a provider, a model and a thinking level, and is
+ * Which model does which job. There are four slots: the main agent, the
+ * cloud subagents, the stand-in that answers for Claude while the Mac is
+ * away, and the small model that names chats and tasks. Each slot holds a provider, a model and a thinking level, and is
  * kept in this object's SQLite so a change survives restarts.
  *
  * The catalog of providers and models comes from the server, which knows
@@ -11,9 +11,9 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
  * whose model left the catalog, reads as the slot's default.
  */
 
-export type Slot = "main" | "subagents" | "fallback";
+export type Slot = "main" | "subagents" | "fallback" | "titles";
 
-export const SLOTS: readonly Slot[] = ["main", "subagents", "fallback"];
+export const SLOTS: readonly Slot[] = ["main", "subagents", "fallback", "titles"];
 
 export type SlotSetting = {
   readonly provider: string;
@@ -85,7 +85,12 @@ export class Settings {
   view(): SettingsView {
     return {
       providers: this.#catalog(),
-      slots: { main: this.get("main"), subagents: this.get("subagents"), fallback: this.get("fallback") }
+      slots: {
+        main: this.get("main"),
+        subagents: this.get("subagents"),
+        fallback: this.get("fallback"),
+        titles: this.get("titles")
+      }
     };
   }
 
