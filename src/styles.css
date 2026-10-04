@@ -13,8 +13,12 @@ body,
   margin: 0;
 }
 
+/* dvh, not vh: on phones 100vh is taller than the visible area, so the page
+   scrolled and left empty space under the composer. */
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
 }
 
 /* Streamdown theme bridge — maps shadcn-style tokens to Kumo semantics */
