@@ -75,6 +75,8 @@ export function machine(name: string, root: string): Machine {
         KY_TOKEN: TOKEN,
         KY_MACHINE: name,
         KY_WORKDIR: path.join(dir, "work"),
+        // The runner's state dir (default ~/.ky), kept with the machine so a relaunch finds it and the user's is never touched.
+        KY_STATE_DIR: path.join(dir, "state"),
         KY_CLAUDE: FAKE_CLAUDE,
         FAKE_CLAUDE_LOG: log,
         ...env
