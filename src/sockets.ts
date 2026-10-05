@@ -308,24 +308,29 @@ export class PiSessionSockets {
     }
   }
 
+  /** A frame on a runner's socket. */
+  async #onReport(connection: Connection, machine: string, raw: string): Promise<void> {
+    const report = decodeReport(raw);
+
+    if (!report) {
+      // A runner of another protocol version, or a broken one: it must be updated, not half-understood.
+      connection.close(1008, "Malformed or outdated ky-runner report; update ky-runner.");
+
+      return;
+    }
+
+    if (report.type === "hello") this.#replaceRunner(connection, machine);
+    await this.#hub.onReport(machine, report);
+
+    if (report.type === "hello") this.broadcastTasks();
+  }
+
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
     if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
-      const report = decodeReport(raw);
-
-      if (!report) {
-        // A runner of another protocol version, or a broken one: it must be updated, not half-understood.
-        connection.close(1008, "Malformed or outdated ky-runner report; update ky-runner.");
-
-        return;
-      }
-
-      if (report.type === "hello") this.#replaceRunner(connection, machine);
-      await this.#hub.onReport(machine, report);
-
-      if (report.type === "hello") this.broadcastTasks();
+      await this.#onReport(connection, machine, raw);
 
       return;
     }

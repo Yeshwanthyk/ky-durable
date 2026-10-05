@@ -5,7 +5,7 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
-import type { FileStore } from "./files";
+import type { FileRow, FileStore } from "./files";
 import type { RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
@@ -242,56 +242,55 @@ export class MachineHub {
     this.#enqueue(task.worker, { type: "stop", task: task.id, turn });
   }
 
+  /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
+  async #onHello(machine: string, active: readonly string[]): Promise<void> {
+    // An open task the runner is not running is over, unless one of its runs is still unacked:
+    // the socket is in order, so every run the runner had seen when it said hello was acked first.
+    const lost = this.#sql
+      .exec<TaskRow>(
+        `SELECT * FROM ky_tasks t WHERE kind = 'machine' AND worker = ? AND status IN ('queued', 'working')
+           AND NOT EXISTS (SELECT 1 FROM ky_machine_inbox i WHERE i.machine = t.worker
+             AND json_extract(i.payload, '$.type') = 'run' AND json_extract(i.payload, '$.task') = t.id)`,
+        machine
+      )
+      .toArray()
+      .filter((task) => !active.includes(task.id));
+
+    for (const task of lost) {
+      await this.#finish(
+        task.id,
+        false,
+        "Interrupted: the runner restarted. Send it a message to resume.",
+        this.#turns(task.id).turn
+      );
+    }
+
+    this.#deliver(machine, this.#pending(machine));
+  }
+
   async onReport(machine: string, report: RunnerReport): Promise<void> {
+    if (report.type === "hello") return this.#onHello(machine, report.active);
+
+    if (report.type === "ack") {
+      this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
+
+      return;
+    }
+
+    if (this.#closed(report.task, report.turn)) return;
+
     switch (report.type) {
-      case "hello": {
-        // An open task the runner is not running is over, unless one of its runs is still unacked:
-        // the socket is in order, so every run the runner had seen when it said hello was acked first.
-        const lost = this.#sql
-          .exec<TaskRow>(
-            `SELECT * FROM ky_tasks t WHERE kind = 'machine' AND worker = ? AND status IN ('queued', 'working')
-               AND NOT EXISTS (SELECT 1 FROM ky_machine_inbox i WHERE i.machine = t.worker
-                 AND json_extract(i.payload, '$.type') = 'run' AND json_extract(i.payload, '$.task') = t.id)`,
-            machine
-          )
-          .toArray()
-          .filter((task) => !report.active.includes(task.id));
-
-        for (const task of lost) {
-          await this.#finish(
-            task.id,
-            false,
-            "Interrupted: the runner restarted. Send it a message to resume.",
-            this.#turns(task.id).turn
-          );
-        }
-
-        this.#deliver(machine, this.#pending(machine));
-
-        return;
-      }
-
-      case "ack":
-        this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
-
-        return;
       case "session":
-        if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { session: report.session, status: "working" });
 
         return;
       case "progress":
-        if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { status: "working", summary: summarize(report.text) });
 
         return;
       case "result":
-        if (this.#closed(report.task, report.turn)) return;
-
         if (report.session) this.#feed.update(report.task, { session: report.session });
         await this.#finish(report.task, report.ok, report.text, report.turn);
-
-        return;
     }
   }
 
@@ -309,27 +308,34 @@ export class MachineHub {
 
     if (!task || this.#closed(id, turn)) return;
     this.#setTurns(id, { closed: turn });
-    const stopped = !ok && /\b(stopped|interrupted by user)\b/i.test(text);
-    this.#feed.update(id, {
-      status: ok ? "done" : stopped ? "stopped" : "failed",
-      summary: summarize(text) || (ok ? "Done" : "Failed")
-    });
+    const ended = endOf(ok, text);
+    this.#feed.update(id, { status: ended.status, summary: summarize(text) || (ok ? "Done" : "Failed") });
 
     if (ok) this.#feed.describe(id, text);
 
     if (!this.#harness) return;
-    const files = this.#files.forTask(id);
-
-    const shared =
-      files.length === 0
-        ? ""
-        : `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
 
     await this.#harness.submit(
-      `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}${shared}`,
+      `[machine ${task.worker}, task ${id} "${task.title}" ${ended.word}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(this.#files.forTask(id))}`,
       { operationId: `task:${id}:${turn}`, whenBusy: "steer" }
     );
   }
+}
+
+/** How a task's last turn ended: its status, and the word its report uses. */
+function endOf(ok: boolean, text: string) {
+  if (ok) return { status: "done", word: "finished" } as const;
+
+  return /\b(stopped|interrupted by user)\b/i.test(text)
+    ? ({ status: "stopped", word: "stopped" } as const)
+    : ({ status: "failed", word: "failed" } as const);
+}
+
+/** The line naming a task's shared files under its report, or nothing. */
+function sharedLine(files: readonly FileRow[]): string {
+  if (files.length === 0) return "";
+
+  return `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
 }
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });

@@ -59,6 +59,14 @@ function stoppedText(run: Run): string {
   return `Stopped. Dropped ${run.dropped} queued message${run.dropped === 1 ? "" : "s"}.`;
 }
 
+/** What an assistant message says, or the tools it uses, as one progress line. */
+function assistantText(event: any): string {
+  return (event.message?.content ?? [])
+    .flatMap((part: any) => (part.type === "text" ? [part.text] : part.type === "tool_use" ? [`Using ${part.name}`] : []))
+    .join(" ")
+    .trim();
+}
+
 function userLine(text: string): string {
   return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
 }
@@ -216,6 +224,27 @@ export class Runner {
     else run.ended = true;
   }
 
+  /** Claude Code answered one turn: the run ends once it has answered every turn written to it. */
+  #onResult(task: string, run: Run, event: any): void {
+    run.pending = Math.max(0, run.pending - 1);
+    run.last = String(event.result ?? "");
+
+    if (run.pending > 0) {
+      this.#report({ type: "progress", task, turn: run.turn, text: run.last });
+
+      return;
+    }
+
+    // Nothing more to answer: end the session so the result is final.
+    run.child.end();
+    this.#end(
+      task,
+      run,
+      !event.is_error && !run.stopped,
+      run.stopped ? stoppedText(run) : run.last || (event.is_error ? "Failed." : "Done.")
+    );
+  }
+
   #start(task: string, turn: number, prompt: string, session: string | null): Run {
     this.#log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     let lastProgress = 0;
@@ -237,12 +266,7 @@ export class Runner {
         }
 
         if (event.type === "assistant") {
-          const text = (event.message?.content ?? [])
-            .flatMap((part: any) =>
-              part.type === "text" ? [part.text] : part.type === "tool_use" ? [`Using ${part.name}`] : []
-            )
-            .join(" ")
-            .trim();
+          const text = assistantText(event);
 
           if (text && Date.now() - lastProgress > PROGRESS_EVERY_MS) {
             lastProgress = Date.now();
@@ -250,25 +274,7 @@ export class Runner {
           }
         }
 
-        if (event.type === "result") {
-          run.pending = Math.max(0, run.pending - 1);
-          run.last = String(event.result ?? "");
-
-          if (run.pending > 0) {
-            this.#report({ type: "progress", task, turn: run.turn, text: run.last });
-
-            return;
-          }
-
-          // Nothing more to answer: end the session so the result is final.
-          run.child.end();
-          this.#end(
-            task,
-            run,
-            !event.is_error && !run.stopped,
-            run.stopped ? stoppedText(run) : run.last || (event.is_error ? "Failed." : "Done.")
-          );
-        }
+        if (event.type === "result") this.#onResult(task, run, event);
       },
       exit: (code, stderr) => {
         this.#log(`${task}: exit ${code}`);
