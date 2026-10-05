@@ -28,7 +28,7 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` |
 | OpenCode Go | The cheap model (`KY_MODEL`), and the stand-in while the Mac is away. | `src/server.ts` |
-| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed every 30s; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.jsonc` |
+| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.jsonc` |
 | ky-runner on the Mac | Dials out to the DO and runs each machine task as a `claude -p` session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
@@ -74,13 +74,14 @@ modules.
 
 ## Run a machine
 
-Needs Node 22 or later, and `claude` installed and signed in on that machine.
+Needs Node 22.6 or later (the runner is TypeScript run directly; before Node 23.6 that takes
+`--experimental-strip-types`), and `claude` installed and signed in on that machine.
 
 ```sh
 KY_URL=https://ky.<account>.workers.dev \
 KY_TOKEN_FILE=~/.config/ky/token \
 KY_MACHINE=mac \
-node runner/ky-runner.ts
+node --experimental-strip-types runner/ky-runner.ts
 ```
 
 | Variable | Default | Meaning |
