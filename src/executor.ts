@@ -110,7 +110,10 @@ class ExecutorClient {
       try {
         client = await connection;
       } catch (error) {
-        if (retry) continue;
+        // A refused token stays refused; only a connection that may not have been made is tried again.
+        const refused = error instanceof StreamableHTTPError && (error.code === 401 || error.code === 403);
+
+        if (retry && !refused) continue;
 
         return failed(error instanceof Error ? error : String(error));
       }

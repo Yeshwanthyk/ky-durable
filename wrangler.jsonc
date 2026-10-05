@@ -22,7 +22,13 @@
     // Executor's MCP endpoint for the organization, with approvals in the browser.
     "EXECUTOR_URL": "https://v2.executor.sh/org/presh/mcp?elicitation_mode=browser",
     // The OpenCode Go model for subagents, and for the main agent while Claude is away.
-    "KY_MODEL": "deepseek-v4.1-flash"
+    "KY_MODEL": "deepseek-v4.1-flash",
+    // VibeProxy's listen address on the Mac; the VIBEPROXY tunnel forwards here.
+    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
+    // Where ky's own code lives, for self-edits (src/prompt.ts): the repo, the Mac's working copy, the deployed app.
+    "KY_REPO": "Yeshwanthyk/ky-durable",
+    "KY_WORK_COPY": "~/ky-work/ky-durable",
+    "KY_URL": "https://ky.yeshwanth-yk.workers.dev"
   },
   // The Mac's VibeProxy, reached only through a private tunnel (no public hostname).
   "vpc_services": [

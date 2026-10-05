@@ -11,8 +11,15 @@ import { z } from "zod";
  * - `lose-response` runs, then the response is lost on the way back, as when
  *   a timeout or a dropped connection comes after the program ran;
  * - anything else runs and answers `ran <n>`.
+ *
+ * `skills` lists two apps and `resume` answers with its request id. Requests
+ * without `Authorization: Bearer <token>` get a 401.
  */
 export class FakeExecutor {
+  /** The token it takes; a test changes it to make ky's token wrong. */
+  token: string;
+  /** Requests refused for a wrong token. */
+  unauthorized = 0;
   /** Programs that ran, by code. */
   readonly runs = new Map<string, number>();
   /** `hang` programs the caller cancelled. */
@@ -21,6 +28,10 @@ export class FakeExecutor {
   sessions = 0;
   #open = new Map<string, WebStandardStreamableHTTPServerTransport>();
   #refuse = 0;
+
+  constructor(token: string) {
+    this.token = token;
+  }
 
   /** Forget every session, as Executor does when one expires. */
   expireSessions(): void {
@@ -34,6 +45,12 @@ export class FakeExecutor {
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
+
+    if (request.headers.get("Authorization") !== `Bearer ${this.token}`) {
+      this.unauthorized++;
+
+      return new Response("Unauthorized", { status: 401 });
+    }
 
     // No standalone event stream: the client does without one.
     if (request.method === "GET") return new Response(null, { status: 405 });
@@ -94,6 +111,12 @@ export class FakeExecutor {
         return { content: [{ type: "text", text: `ran ${runs}` }] };
       }
     );
+    server.registerTool("skills", { inputSchema: { app: z.string().optional(), name: z.string().optional() } }, async () => ({
+      content: [{ type: "text", text: "fake executor apps: calendar (2 skills), github (3 skills)" }]
+    }));
+    server.registerTool("resume", { inputSchema: { requestId: z.string() } }, async ({ requestId }) => ({
+      content: [{ type: "text", text: `fake executor resumed ${requestId}` }]
+    }));
     await server.connect(transport);
 
     return transport;

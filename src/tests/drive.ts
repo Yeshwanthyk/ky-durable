@@ -110,6 +110,16 @@ export function wait(name: string, operationId: string): Promise<PiOperationResu
   return inside(name, (instance) => instance.harness.wait(operationId, {}));
 }
 
+/** Resolve once `check` holds, polling. */
+export async function until(check: () => Promise<boolean>, what: string, ms = 10_000): Promise<void> {
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Never happened: ${what}`);
+}
+
 /** Resolve once the gate tools have started `runs` times. */
 export async function gateStarted(name: string, runs: number): Promise<void> {
   for (let i = 0; i < 250; i++) {

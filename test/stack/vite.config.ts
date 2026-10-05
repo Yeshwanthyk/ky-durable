@@ -6,27 +6,24 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vite";
-import { startExecutor } from "../fakes/executor.ts";
 
 /**
- * The local stack: ky's web app and real Worker (src/tests/stack.ts) on pi-ai's
- * faux model, with the fake Executor beside it. `pnpm stack` serves it on
- * KY_STACK_PORT (default 8790), signed in with the token `ky-stack-token`.
- * Every start gets fresh state in a temporary directory.
+ * The local stack: ky's web app and real Worker (src/tests/stack.ts) with
+ * fakes at the outside boundary: pi-ai's faux model, a fake VibeProxy (the
+ * Mac starts away; `POST /test/mac?up=1` brings it online), a fake Executor
+ * and a fake browser. `pnpm stack` serves it on KY_STACK_PORT (default 8790),
+ * signed in with the token `ky-stack-token`. Every start gets fresh state in
+ * a temporary directory.
  *
- * Ready when `GET /login` answers 200. Stop it with Ctrl-C or SIGTERM, which
- * also stops the fake Executor; the state directory is left for inspection.
+ * Ready when `GET /login` answers 200. Stop it with Ctrl-C or SIGTERM; the
+ * state directory is left for inspection.
  */
 
 const repo = path.resolve(import.meta.dirname, "../..");
 
-const executor = await startExecutor();
-
-executor.server.unref();
-
 const state = mkdtempSync(path.join(tmpdir(), "ky-stack-"));
 
-console.log(`ky stack: fake executor at ${executor.url}, state in ${state}`);
+console.log(`ky stack: state in ${state}`);
 
 export default defineConfig({
   root: repo,
@@ -35,7 +32,6 @@ export default defineConfig({
     react(),
     cloudflare({
       configPath: path.join(repo, "src/tests/wrangler.jsonc"),
-      config: (config) => ({ vars: { ...config.vars, EXECUTOR_URL: executor.url } }),
       persistState: { path: state },
       inspectorPort: false
     }),

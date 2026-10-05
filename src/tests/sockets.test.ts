@@ -34,7 +34,8 @@ describe("the session WebSocket protocol", () => {
     socket.close();
   });
 
-  it("takes a submit resent after a dropped socket once, by its operation id", async () => {
+  // A server-side dedupe guard: the frames are written by hand. test/web/ky.spec.ts drives the page's own resend.
+  it("dedupes a submit resent with the same operation id after a dropped socket", async () => {
     const name = crypto.randomUUID();
     const submit = JSON.stringify({ type: "submit", id: "op-1", operationId: "op-1", input: "only once" });
 
@@ -113,6 +114,7 @@ describe("the session WebSocket protocol", () => {
     expect(await refusal("svg", [image("aGk=", "image/svg+xml")])).toMatch(/JPEG, PNG/);
     expect(await refusal("base64", [image("not base64!")])).toMatch(/base64/);
 
+    expect(await refusal("empty", [])).toMatch(/one text part/);
     expect(
       await refusal("texts", [
         { type: "text", text: "one" },

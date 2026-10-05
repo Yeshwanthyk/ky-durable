@@ -1,7 +1,8 @@
 {
-  // The local stack and the worker e2e tests: ky's real Worker and PiAgent
-  // (src/tests/stack.ts) on pi-ai's faux model. The remote bindings are left
-  // out, BROWSER and VIBEPROXY, so ky runs as it does with the Mac away.
+  // The local stack and the worker e2e tests: ky's real Worker and PiAgent,
+  // whose src/tests/stack.ts subclass puts fakes at the outside boundary
+  // (models, VibeProxy, Browser Rendering, Executor). So the remote bindings,
+  // BROWSER and VIBEPROXY, are left out.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "ky-stack",
   "main": "stack.ts",
@@ -17,11 +18,12 @@
   },
   "vars": {
     "KY_TOKEN": "ky-stack-token",
-    "KY_MODEL": "faux",
-    // The fake Executor (test/fakes/executor.ts) checks this token. Whoever
-    // starts it on a free port sets EXECUTOR_URL: src/tests/vitest.config.ts
-    // and test/stack/vite.config.ts.
-    "EXECUTOR_TOKEN": "ky-stack-executor"
+    // fake-vibeproxy.ts checks this key.
+    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
+    "VIBEPROXY_KEY": "test-vibeproxy-key",
+    "KY_REPO": "test-owner/test-repo",
+    "KY_WORK_COPY": "~/test-work/ky",
+    "KY_URL": "https://ky.test"
   },
   "durable_objects": {
     "bindings": [{ "name": "PiAgent", "class_name": "PiAgent" }]

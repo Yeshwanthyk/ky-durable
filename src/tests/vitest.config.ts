@@ -1,20 +1,13 @@
 import path from "node:path";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
-import { startExecutor } from "../../test/fakes/executor.ts";
 
 const testsDir = import.meta.dirname;
-
-// The fake Executor runs in this Node process for the whole run; ky's real MCP client reaches it over HTTP.
-const executor = await startExecutor();
-
-executor.server.unref();
 
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
-      miniflare: { bindings: { EXECUTOR_URL: executor.url } }
+      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") }
     })
   ],
   resolve: {

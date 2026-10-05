@@ -1,24 +1,20 @@
-import type { Api, AssistantMessage, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
-import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
+import { createProvider } from "@earendil-works/pi-ai/models";
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
+import type { Endpoint } from "./models";
 
 /**
- * Claude through VibeProxy on the user's Mac. The Mac runs a Cloudflare Tunnel
- * that has no public hostname; this Worker reaches it only through its Workers
- * VPC binding. Requests may only go to the two Messages API paths, and
- * VibeProxy still checks its own key.
+ * Claude through VibeProxy on a computer of the user's. The computer runs a
+ * Cloudflare Tunnel that has no public hostname; this Worker reaches it only
+ * through its Workers VPC binding. Requests may only go to the two Messages
+ * API paths, and VibeProxy still checks its own key.
  *
- * Claude is offered only while the Mac answers. When it is asleep or offline,
- * a turn already on Claude runs on the fallback model instead, so ky keeps
- * answering.
+ * One call per tunnel. The provider is offered only while its probe answers;
+ * models.ts runs a turn on the fallback model when it does not.
  */
 
 export const VIBEPROXY_PROVIDER = "vibeproxy";
-
-/** VibeProxy's listen address on the Mac; the tunnel forwards here. */
-const ORIGIN = "http://127.0.0.1:8317";
 
 const ALLOWED_PATHS = new Set(["/v1/messages", "/v1/models"]);
 
@@ -27,46 +23,49 @@ const PROBE_TIMEOUT_MS = 3_000;
 const PROBE_TTL_MS = 30_000;
 
 export type VibeProxyConfig = {
-  readonly binding: Fetcher;
+  /** The pi provider id; one per tunnel. */
+  readonly id?: string;
+  /** The name the Models settings show. */
+  readonly name?: string;
+  /** What brings it online, for the Models settings. */
+  readonly needs?: string;
+  /** The tunnel's Workers VPC binding. */
+  readonly binding: Pick<Fetcher, "fetch">;
+  /** VibeProxy's listen address on that computer, which the tunnel forwards to, e.g. http://127.0.0.1:8317. */
+  readonly origin: string;
   readonly key: string | undefined;
-  /** Claude models to offer; the first is the one turns use. */
+  /** Claude models to offer. */
   readonly modelIds: readonly string[];
-  /** Runs the turn when VibeProxy is unreachable. */
-  readonly fallback: (
-    context: TranscriptContext,
-    options: SimpleStreamOptions | undefined
-  ) => ReturnType<Provider["streamSimple"]>;
-  /** Called when the Mac comes online or goes away. */
+  /** Called when the computer comes online or goes away. */
   readonly onChange?: (up: boolean) => void;
+  /** How long one probe's answer is trusted; 30s by default. */
+  readonly probeTtlMs?: number;
 };
 
-export type VibeProxy = {
-  readonly provider: Provider;
-  readonly model: Model<Api>;
-  readonly models: readonly Model<Api>[];
-  /** The last probe reached the Mac. Starts a new probe when that one is stale. */
-  readonly connected: () => boolean;
-  /** Probe now, or reuse a fresh probe, and say whether the Mac answers. */
-  readonly check: () => Promise<boolean>;
+export type VibeProxy = Endpoint & {
+  /** Probe now, or reuse a fresh probe, and say whether VibeProxy answers. */
+  readonly reachable: () => Promise<boolean>;
 };
 
 export function vibeProxy(config: VibeProxyConfig): VibeProxy {
-  const models = config.modelIds.map((id): Model<Api> => {
-    const base = Object.values(ANTHROPIC_MODELS).find((model) => model.id === id);
+  const id = config.id ?? VIBEPROXY_PROVIDER;
+  const origin = new URL(config.origin).origin;
 
-    if (!base) throw new TypeError(`No Anthropic model "${id}" in pi-ai's catalog.`);
+  const models = config.modelIds.map((modelId): Model<Api> => {
+    const base = Object.values(ANTHROPIC_MODELS).find((model) => model.id === modelId);
 
-    return { ...base, provider: VIBEPROXY_PROVIDER, baseUrl: ORIGIN };
+    if (!base) throw new TypeError(`No Anthropic model "${modelId}" in pi-ai's catalog.`);
+
+    return { ...base, provider: id, baseUrl: origin };
   });
 
-  const model = models[0]!;
   const api = anthropicMessagesApi();
 
   const send = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     const url = new URL(request.url);
 
-    if (url.origin !== ORIGIN || !ALLOWED_PATHS.has(url.pathname)) {
+    if (url.origin !== origin || !ALLOWED_PATHS.has(url.pathname)) {
       return new Response("ky only sends Messages API requests to VibeProxy.", { status: 403 });
     }
 
@@ -79,9 +78,9 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
   const reachable = (): Promise<boolean> => {
     if (!config.key) return Promise.resolve(false);
 
-    if (probe && Date.now() - probe.at < PROBE_TTL_MS) return probe.up;
+    if (probe && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
 
-    const up = send(`${ORIGIN}/v1/models`, {
+    const up = send(`${origin}/v1/models`, {
       headers: { "x-api-key": config.key, "anthropic-version": "2023-06-01" },
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     }).then(
@@ -102,9 +101,9 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
   };
 
   const provider = createProvider({
-    id: VIBEPROXY_PROVIDER,
-    name: "VibeProxy (Mac)",
-    baseUrl: ORIGIN,
+    id,
+    name: "VibeProxy",
+    baseUrl: origin,
     auth: {
       apiKey: {
         name: "VibeProxy key",
@@ -115,59 +114,23 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
     models,
     api: {
       stream: (target, context, options) => api.stream(target, context, { ...options, fetch: send }),
-      streamSimple: (target, context, options) => {
-        const out = createAssistantMessageEventStream();
-
-        void (async () => {
-          try {
-            const up = await reachable();
-
-            if (!up) console.warn("VibeProxy is unreachable; this turn runs on the fallback model.");
-
-            const inner = up
-              ? api.streamSimple(target, context, { ...options, fetch: send })
-              : config.fallback(context, options);
-
-            for await (const event of inner) out.push(event);
-            out.end(await inner.result());
-          } catch (error) {
-            const message: AssistantMessage = {
-              role: "assistant",
-              content: [],
-              api: target.api,
-              provider: target.provider,
-              model: target.id,
-              usage: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 0,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-              },
-              stopReason: "error",
-              errorMessage: error instanceof Error ? error.message : String(error),
-              timestamp: Date.now()
-            };
-
-            out.push({ type: "error", reason: "error", error: message });
-          }
-        })();
-
-        return out;
-      }
+      streamSimple: (target, context, options) => api.streamSimple(target, context, { ...options, fetch: send })
     }
   });
 
   return {
     provider,
-    model,
+    name: config.name ?? "Claude via VibeProxy",
+    needs: config.needs ?? "the Mac online with VibeProxy",
     models,
+    // Direct requests (titles) need the key in their options; pi's registry resolves it through `auth` above.
+    apiKey: { name: "VIBEPROXY_KEY", value: config.key },
+    /** The last probe reached it. Starts a new probe when that one is stale. */
     connected: () => {
       void reachable();
 
       return lastUp;
     },
-    check: reachable
+    reachable
   };
 }

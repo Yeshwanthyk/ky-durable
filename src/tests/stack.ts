@@ -10,14 +10,23 @@ import {
   Type
 } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
-import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import server, { type Cloud, PiAgent as ProductionAgent } from "../server";
+import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { Endpoint } from "../models";
+import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
+import { FakeBrowser } from "./fake-browser";
+import { FakeExecutor } from "./fake-executor";
+import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
 
 /**
- * ky's real composition on pi-ai's faux provider, for the worker e2e tests
- * and the local stack. Only the outside boundary is faked: the model. Claude
- * (VibeProxy) and Browser Rendering are absent, as when the Mac is away, so
- * every turn runs on the fallback slot the way production degrades.
+ * ky's real composition with fakes at its outside boundary, for the worker
+ * e2e tests and the local stack. Only `boundaryFor` is replaced:
+ *
+ * - the cloud models are pi-ai's faux provider, "faux" (thinks, reads images)
+ *   and "faux-text" (text only);
+ * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
+ *   then fake-vibeproxy.ts answers as Claude;
+ * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
+ * - Browser Rendering is FakeBrowser, a CDP fake.
  *
  * The faux model answers from the transcript alone, so it gives the same
  * answer after an eviction as before it:
@@ -26,6 +35,8 @@ import server, { type Cloud, PiAgent as ProductionAgent } from "../server";
  *   tools, which wait until the test releases them.
  * - `spawn NAME MESSAGE` spawns a subagent; `machine PROMPT` runs a task on
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
+ * - `executor CODE` runs CODE on Executor; `browse URL` browses it, and
+ *   `browse-wait URL N` browses it with N ten-second waits.
  * - `tool NAME JSON` calls any tool with those arguments.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
@@ -38,7 +49,26 @@ const RELEASED_KEY = "test:gate:released";
 
 const GATE_RUNS_KEY = "test:gate:runs";
 
+/** Whether the fake VibeProxy answers (the Mac is online). */
+const MAC_UP_KEY = "test:mac-up";
+
 const FAUX = "faux";
+
+/** The token the fake Executor wants. */
+const EXECUTOR_TOKEN = "ky-stack-executor";
+
+/** The key the faux cloud provider is given, so a test sees which provider's key a request carried. */
+const FAUX_KEY = "faux-key";
+
+/** What the faux cloud model was asked, and with which key. */
+export type FauxCall = { model: string; reasoning: string | null; apiKey: string | null; system: string };
+
+/** The test boundary, with its fakes in reach. */
+export type TestBoundary = Boundary & {
+  readonly executorFake: FakeExecutor;
+  readonly browserFake: FakeBrowser;
+  readonly calls: FauxCall[];
+};
 
 function textOf(content: Message["content"] | undefined): string {
   if (content === undefined) return "";
@@ -79,12 +109,31 @@ function script(context: TranscriptContext): AssistantMessage {
   const multiply = /^multiply (\d+)$/.exec(prompt);
 
   if (multiply) return call("multiply", { value: Number(multiply[1]) });
+
   const spawn = /^spawn (\S+) (.+)$/s.exec(prompt);
 
   if (spawn) return call("subagent", { action: "spawn", name: spawn[1]!, message: spawn[2]! });
+
   const machine = /^machine(?:@(\S+))? (.+)$/s.exec(prompt);
 
   if (machine) return call("machine", { action: "run", machine: machine[1] ?? "mac", prompt: machine[2]! });
+
+  const executor = /^executor (.+)$/s.exec(prompt);
+
+  if (executor) return call("executor_execute", { code: executor[1]! });
+
+  const browseWait = /^browse-wait (\S+) (\d+)$/.exec(prompt);
+
+  if (browseWait) {
+    const steps = Array.from({ length: Number(browseWait[2]) }, () => ({ do: "wait", value: "10000" }));
+
+    return call("browse", { url: browseWait[1]!, steps });
+  }
+
+  const browse = /^browse (\S+)$/.exec(prompt);
+
+  if (browse) return call("browse", { url: browse[1]! });
+
   const tool = /^tool (\S+) (\{.*\})$/s.exec(prompt);
 
   if (tool) {
@@ -98,7 +147,7 @@ function script(context: TranscriptContext): AssistantMessage {
 }
 
 /** pi-ai's faux provider, given the script again before every call so its queue never runs dry. */
-function fauxCloud(extensions: readonly Extension[]): Cloud {
+function fauxCloud(calls: FauxCall[]): Endpoint {
   const core = createFauxCore({
     provider: FAUX,
     models: [
@@ -111,11 +160,28 @@ function fauxCloud(extensions: readonly Extension[]): Cloud {
 
   const provider = createProvider({
     id: FAUX,
-    auth: { apiKey: { name: "Faux", resolve: async () => ({ auth: {} }) } },
+    // Resolved by name from the registry's env, as OpenCode Go resolves OPENCODE_API_KEY.
+    auth: {
+      apiKey: {
+        name: "Faux key",
+        resolve: async ({ ctx }) => {
+          const key = await ctx.env("FAUX_KEY");
+
+          return key ? { auth: { apiKey: key }, source: "FAUX_KEY" } : undefined;
+        }
+      }
+    },
     models: core.models,
     api: {
       stream: core.stream,
       streamSimple: (model, context, options) => {
+        calls.push({
+          model: model.id,
+          reasoning: options?.reasoning ?? null,
+          apiKey: options?.apiKey ?? null,
+          // As sent: pi's system messages, some of which are sections rather than text parts.
+          system: JSON.stringify(context.messages.filter((message) => message.role === "system"))
+        });
         core.setResponses([script]);
 
         return core.streamSimple(model, context, options);
@@ -129,18 +195,24 @@ function fauxCloud(extensions: readonly Extension[]): Cloud {
     provider,
     name: "Faux",
     needs: "nothing",
-    apiKey: "faux",
-    modelIds: ["faux", "faux-text"],
-    extensions
+    models: provider.getModels(),
+    connected: () => true,
+    apiKey: { name: "FAUX_KEY", value: FAUX_KEY }
   };
 }
 
 const NoParameters = Type.Object({});
 
-/** The real agent, on the faux model, with a multiply tool and gate tools the test opens. */
+/** The real agent with the fakes above, a multiply tool, and gate tools the test opens. */
 export class PiAgent extends ProductionAgent {
-  override cloudFor(): Cloud {
+  declare readonly boundary: TestBoundary;
+
+  override boundaryFor(): TestBoundary {
+    // Runs as the first field initializer: only ctx and env are set.
     const storage = this.ctx.storage;
+    const executorFake = new FakeExecutor(EXECUTOR_TOKEN);
+    const browserFake = new FakeBrowser();
+    const calls: FauxCall[] = [];
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
       defineTool({
@@ -173,12 +245,23 @@ export class PiAgent extends ProductionAgent {
       })
     });
 
-    const tools = defineExtension({
-      name: "test-tools",
-      tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")]
-    });
-
-    return fauxCloud([tools]);
+    return {
+      cloud: fauxCloud(calls),
+      vibeProxy: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
+          (await storage.get<boolean>(MAC_UP_KEY)) === true
+            ? fakeVibeProxy(new Request(input, init))
+            : refusingVibeProxy()
+      },
+      // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
+      probeTtlMs: 0,
+      browser: browserFake.binding,
+      executor: { url: "https://executor.test/mcp", token: EXECUTOR_TOKEN, fetch: executorFake.fetch },
+      extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
+      executorFake,
+      browserFake,
+      calls
+    };
   }
 
   /** How many times a gate tool has started. */
@@ -189,6 +272,18 @@ export class PiAgent extends ProductionAgent {
   /** Open every gate started so far; later gates wait for the next release. */
   async release(): Promise<void> {
     await this.ctx.storage.put(RELEASED_KEY, await this.gateRuns());
+  }
+
+  /** Bring the Mac's VibeProxy up or take it away, probe it as PiAgent does on start, and move the chats to the main slot. */
+  async mac(up: boolean): Promise<void> {
+    await this.ctx.storage.put(MAC_UP_KEY, up);
+    await this.claude.reachable();
+    await this.applyMain();
+  }
+
+  /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
+  async macLeaves(): Promise<void> {
+    await this.ctx.storage.put(MAC_UP_KEY, false);
   }
 }
 
@@ -202,22 +297,32 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // The CLI harness and Playwright open gates over HTTP, behind the same sign-in as everything else.
-    if (url.pathname === "/test/release" && request.method === "POST") {
-      const bearer = request.headers.get("Authorization");
+    // The CLI harness and Playwright drive the fakes over HTTP, behind the same sign-in as everything else.
+    if (url.pathname.startsWith("/test/")) {
+      if (request.headers.get("Authorization") !== `Bearer ${env.KY_TOKEN}`) {
+        return new Response("Unauthorized", { status: 401 });
+      }
 
-      if (bearer !== `Bearer ${env.KY_TOKEN}`) return new Response("Unauthorized", { status: 401 });
-      await agents(env).getByName("me").release();
+      const me = agents(env).getByName("me");
 
-      return new Response(null, { status: 204 });
-    }
+      if (url.pathname === "/test/release" && request.method === "POST") {
+        await me.release();
 
-    if (url.pathname === "/test/gate-runs" && request.method === "GET") {
-      const bearer = request.headers.get("Authorization");
+        return new Response(null, { status: 204 });
+      }
 
-      if (bearer !== `Bearer ${env.KY_TOKEN}`) return new Response("Unauthorized", { status: 401 });
+      if (url.pathname === "/test/gate-runs" && request.method === "GET") {
+        return Response.json({ runs: await me.gateRuns() });
+      }
 
-      return Response.json({ runs: await agents(env).getByName("me").gateRuns() });
+      // POST /test/mac?up=1 brings the Mac online; up=0 takes it away.
+      if (url.pathname === "/test/mac" && request.method === "POST") {
+        await me.mac(url.searchParams.get("up") === "1");
+
+        return new Response(null, { status: 204 });
+      }
+
+      return new Response("Not found", { status: 404 });
     }
 
     return server.fetch(request, env);

@@ -120,7 +120,7 @@ describe("the tools", () => {
     expect(skills.text).toBe("tool said: fake executor apps: calendar (2 skills), github (3 skills)");
 
     const ran = await prompt(name, 'tool executor_execute {"code":"return 1"}');
-    expect(ran.text).toBe("tool said: fake executor ran: return 1");
+    expect(ran.text).toBe("tool said: ran 1");
   });
 });
 

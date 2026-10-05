@@ -63,7 +63,8 @@ const RunnerCommand = Type.Union([
 
 export type RunnerCommand = Static<typeof RunnerCommand>;
 
-function parsed(data: string): JsonValue | undefined {
+/** JSON text as a value, or undefined when it is not JSON. Check the value with a schema before use. */
+export function parsed(data: string): JsonValue | undefined {
   try {
     return JSON.parse(data);
   } catch {

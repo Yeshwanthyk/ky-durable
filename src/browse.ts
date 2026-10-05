@@ -88,14 +88,26 @@ export function browseExtension(binding: BrowserWorker): Extension {
 
 type Args = { url: string; steps?: Array<{ do: string; selector?: string; value?: string }>; screenshot?: boolean };
 
-/** Rejects with the abort reason once `signal` aborts. */
-function aborted(signal: AbortSignal): Promise<never> {
-  return new Promise((_, reject) => {
+type Stopped = { readonly promise: Promise<never>; readonly dispose: () => void };
+
+/** Rejects with the abort reason once `signal` aborts; `dispose` stops listening. */
+function aborted(signal: AbortSignal): Stopped {
+  let dispose = () => {};
+
+  const promise = new Promise<never>((_, reject) => {
     const fail = () => reject(signal.reason instanceof Error ? signal.reason : new Error("the browse call was stopped"));
 
-    if (signal.aborted) fail();
-    else signal.addEventListener("abort", fail, { once: true });
+    if (signal.aborted) {
+      fail();
+
+      return;
+    }
+
+    signal.addEventListener("abort", fail, { once: true });
+    dispose = () => signal.removeEventListener("abort", fail);
   });
+
+  return { promise, dispose: () => dispose() };
 }
 
 async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal) {
@@ -104,16 +116,17 @@ async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal) {
   const launching = launch(binding, { browser: "kitesurf" });
   // A stop or the call timeout ends the call at once; the finally still closes the browser.
   const stopped = aborted(signal);
-  stopped.catch(() => undefined);
+  stopped.promise.catch(() => undefined);
 
   try {
     const browser = await Promise.race([
-      stopped,
+      stopped.promise,
       within(OPERATION_TIMEOUT_MS, "starting the browser", launching)
     ]);
 
-    return await Promise.race([stopped, readPage(browser, args)]);
+    return await Promise.race([stopped.promise, readPage(browser, args)]);
   } finally {
+    stopped.dispose();
     // Every path closes the browser exactly once, here, even one that launches after the call gave up.
     // Closing has hung before, and a launch can outlive the call; never let either hold the answer.
     const closing = launching.then(closeBrowser, () => undefined);
