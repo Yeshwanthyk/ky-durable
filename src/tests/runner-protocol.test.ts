@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { routeAgentRequest } from "agents";
 import { describe, expect, it } from "vitest";
+import { HandledSeqs } from "../../runner/handled.ts";
 import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
 import type { PiSessionView } from "../view";
 
@@ -136,7 +137,9 @@ class Mac {
 
         return claude;
       },
-      () => {}
+      () => {},
+      // The same file across restarts, as on a real machine.
+      new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`)
     );
   }
 
@@ -283,7 +286,7 @@ describe("runner protocol: the Quint counterexamples", () => {
   });
 
   // CE3 seqDupExec: the ack is lost and the runner restarts; the redelivered run must not run again.
-  it.fails("dupExec: a run whose ack was lost runs once across a runner restart", async () => {
+  it("dupExec: a run whose ack was lost runs once across a runner restart", async () => {
     const { stub, mac } = await online();
     mac.wire!.mode = "drop";
     await start(stub);

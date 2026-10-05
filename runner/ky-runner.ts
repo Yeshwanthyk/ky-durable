@@ -19,6 +19,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
@@ -39,6 +40,9 @@ const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
 
 const CHROME = process.env.KY_CHROME === "1";
+
+/** Where the runner keeps what must outlive it: the seqs of the commands it has run. */
+const STATE_DIR = process.env.KY_STATE_DIR ?? join(homedir(), ".ky");
 
 /** Where `ky-attach` is installed; each task finds it on its PATH. */
 const BIN = join(homedir(), ".ky", "bin");
@@ -152,7 +156,11 @@ function spawnClaude(task: string, session: string | null, events: ClaudeEvents)
   };
 }
 
-const runner = new Runner(spawnClaude, (line) => log(line));
+const runner = new Runner(
+  spawnClaude,
+  (line) => log(line),
+  new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`)
+);
 
 let socket: WebSocket | undefined;
 

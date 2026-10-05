@@ -5,6 +5,7 @@
  * `claude`; the tests give it a socket to a real object and a fake `claude`.
  */
 
+import type { HandledSeqs } from "./handled.ts";
 import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
@@ -48,14 +49,15 @@ export class Runner {
   readonly #spawn: SpawnClaude;
   readonly #log: (line: string) => void;
   readonly #runs = new Map<string, Run>();
-  readonly #handled = new Set<number>();
+  readonly #handled: HandledSeqs;
   /** Reports made while disconnected, sent on the next connect. */
   readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
 
-  constructor(spawn: SpawnClaude, log: (line: string) => void) {
+  constructor(spawn: SpawnClaude, log: (line: string) => void, handled: HandledSeqs) {
     this.#spawn = spawn;
     this.#log = log;
+    this.#handled = handled;
   }
 
   /** Tasks with a live Claude Code session. */
@@ -108,11 +110,19 @@ export class Runner {
     if (message.type !== "progress" && message.type !== "ack") this.#outbox.push(message);
   }
 
+  /**
+   * Record, then ack, then act. The seq is on disk before the ack goes out,
+   * so a command the object stops resending is never run twice, even across
+   * a restart. A crash between the record and the act loses the command;
+   * the next hello does not list the task, and the object closes it.
+   */
   #onCommand(command: RunnerCommand): void {
+    const fresh = !this.#handled.has(command.seq);
+
+    if (fresh) this.#handled.add(command.seq);
     this.#report({ type: "ack", seq: command.seq });
 
-    if (this.#handled.has(command.seq)) return;
-    this.#handled.add(command.seq);
+    if (!fresh) return;
     const run = this.#runs.get(command.task);
 
     if (command.type === "stop") {
