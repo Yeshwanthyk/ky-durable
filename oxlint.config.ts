@@ -2,6 +2,8 @@ import { defineConfig } from "oxlint";
 
 export default defineConfig({
   ignorePatterns: [
+    // Docs: explainer pages and mx video scenes, not shipped code.
+    "explainers/**",
     ".agent/**",
     ".agents/**",
     ".claude/**",
