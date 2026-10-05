@@ -85,6 +85,29 @@ export function decodeRunnerCommand(data: string): RunnerCommand | undefined {
   return Value.Check(RunnerCommand, value) ? value : undefined;
 }
 
+const RunnerReport = Type.Union([
+  Type.Object({ type: Type.Literal("hello"), active: Type.Array(Type.String()) }),
+  Type.Object({ type: Type.Literal("ack"), seq: Type.Number() }),
+  Type.Object({ type: Type.Literal("session"), task: Type.String(), session: Type.String() }),
+  Type.Object({ type: Type.Literal("progress"), task: Type.String(), text: Type.String() }),
+  Type.Object({
+    type: Type.Literal("result"),
+    task: Type.String(),
+    ok: Type.Boolean(),
+    text: Type.String(),
+    session: Type.Union([Type.String(), Type.Null()])
+  })
+]);
+
+export type RunnerReport = Static<typeof RunnerReport>;
+
+/** A report from a runner's socket; undefined for anything else. */
+export function decodeRunnerReport(data: string): RunnerReport | undefined {
+  const value = parsed(data);
+
+  return Value.Check(RunnerReport, value) ? value : undefined;
+}
+
 const NewChat = Type.Object({ session: Type.String() });
 
 /** The session a `new-chat` command's result names; undefined if it names none. */

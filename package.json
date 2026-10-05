@@ -8,10 +8,13 @@
     "start": "vite dev",
     "build": "vite build",
     "deploy": "vite build && wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "types": "wrangler types env.d.ts --include-runtime false",
     "test": "vitest run --config src/tests/vitest.config.ts",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "stack": "vite dev --config test/stack/vite.config.ts",
+    "harness": "node --experimental-strip-types --no-warnings test/harness/main.ts",
+    "test:web": "playwright test --config test/web/playwright.config.ts"
   },
   "dependencies": {
     "@cloudflare/computer": "^0.4.0",
@@ -35,15 +38,19 @@
     "@cloudflare/vitest-pool-workers": "^0.19.1",
     "@cloudflare/workers-types": "^5.20260729.1",
     "@oxlint/plugins": "1.86.0",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "^4",
+    "@types/node": "26.6.4",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "1.86.0",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",
     "vitest": "4.1.11",
-    "wrangler": "^4.145.0"
+    "wrangler": "^4.145.0",
+    "ws": "8.22.0"
   }
 }
