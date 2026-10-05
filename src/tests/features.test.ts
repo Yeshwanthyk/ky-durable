@@ -100,6 +100,25 @@ describe("the tools", () => {
     expect(recalled.text).toContain("the user likes green tea");
   });
 
+  it("asks for a compression, saves it, opens it into its memories, and forgets it", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, 'tool memory_note {"text":"first memory"}');
+    const second = await prompt(name, 'tool memory_note {"text":"second memory"}');
+    expect(second.text).toContain('Call memory_nap with block "0-1"');
+
+    expect((await prompt(name, 'tool memory_nap {"block":"0-1","text":"two memories"}')).text).toMatch(
+      /^tool said: 0-1 saved\./
+    );
+
+    const zoomed = (await prompt(name, 'tool memory_zoom {"block":"0-1"}')).text;
+    expect(zoomed).toContain("first memory");
+    expect(zoomed).toContain("second memory");
+
+    expect((await prompt(name, 'tool memory_forget {"block":"0-1"}')).text).toBe(
+      "tool said: Forgot 1 summary. The next note or nap rebuilds them."
+    );
+  });
+
   it("writes and reads a workspace file that outlives the object", async () => {
     const name = crypto.randomUUID();
     await prompt(name, 'tool write {"path":"/workspace/notes.txt","content":"kept"}');
@@ -121,6 +140,9 @@ describe("the tools", () => {
 
     const ran = await prompt(name, 'tool executor_execute {"code":"return 1"}');
     expect(ran.text).toBe("tool said: ran 1");
+
+    const resumed = await prompt(name, 'tool executor_resume {"requestId":"approval-1"}');
+    expect(resumed.text).toBe("tool said: fake executor resumed approval-1");
   });
 });
 
