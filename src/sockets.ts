@@ -9,7 +9,8 @@ import type { WebSocketMessage, WebSocketsOptions } from "agents/websockets";
 import {
   ROOT_SESSION,
   type PiHarness,
-  type PiSessionId
+  type PiSessionId,
+  type PiWhenBusy
 } from "agents/harness/pi";
 import {
   RUNNER_QUERY,
@@ -34,6 +35,9 @@ const UI_TAG = "ui";
 
 /** `WebSocket.OPEN`; the constant is not defined on every runtime's global. */
 const OPEN = 1;
+
+/** The submit options a client set; ones it left out stay absent. */
+type SubmitOptions = { whenBusy?: PiWhenBusy; operationId?: string };
 
 function sessionTag(session: PiSessionId): string {
   return `${SESSION_TAG_PREFIX}${session}`;
@@ -289,13 +293,14 @@ export class PiSessionSockets {
   }
 
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
-    if (typeof raw !== "string") return;
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
       let report: RunnerReport;
 
       try {
+        // SAFETY: only an authenticated runner gets a runner socket, and it sends RunnerReports.
         report = JSON.parse(raw) as RunnerReport;
       } catch {
         return;
@@ -311,6 +316,7 @@ export class PiSessionSockets {
     let message: PiClientMessage;
 
     try {
+      // SAFETY: only an authenticated client gets a socket; #dispatch throws on a type it does not know.
       message = JSON.parse(raw) as PiClientMessage;
     } catch {
       send(connection, { type: "error", message: "Malformed JSON" });
@@ -327,11 +333,14 @@ export class PiSessionSockets {
         send(connection, { type: "result", id: message.id, result });
       }
     } catch (error) {
-      send(connection, {
-        type: "error",
-        ...(message.id === undefined ? {} : { id: message.id }),
-        message: error instanceof Error ? error.message : String(error)
-      });
+      const text = error instanceof Error ? error.message : String(error);
+
+      send(
+        connection,
+        message.id === undefined
+          ? { type: "error", message: text }
+          : { type: "error", id: message.id, message: text }
+      );
     }
   }
 
@@ -357,10 +366,14 @@ export class PiSessionSockets {
 
         if (chat) this.#chats.touch(session, textOf(message.input));
 
-        return await handle.submit(message.input, {
-          ...(message.whenBusy ? { whenBusy: message.whenBusy } : {}),
-          ...(message.operationId ? { operationId: message.operationId } : {})
-        });
+        // Pass only the options the client set.
+        const options: SubmitOptions = {};
+
+        if (message.whenBusy) options.whenBusy = message.whenBusy;
+
+        if (message.operationId) options.operationId = message.operationId;
+
+        return await handle.submit(message.input, options);
       }
 
       case "abort":
@@ -390,6 +403,7 @@ export class PiSessionSockets {
 
         return null;
       default:
+        // SAFETY: the switch covers every known type, so `message` is `never` here; at runtime it is a parsed object.
         throw new Error(
           `Unknown pi message type ${JSON.stringify((message as { type: string }).type)}`
         );

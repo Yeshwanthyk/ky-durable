@@ -89,7 +89,7 @@ function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
       },
       stopReason: "stop",
       timestamp: 0
-    } as AssistantMessage,
+    },
     LIVE_ID
   ).parts;
 

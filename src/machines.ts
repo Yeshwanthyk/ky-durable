@@ -132,7 +132,7 @@ export class MachineHub {
       )
       .one();
 
-    this.#deliver(machine, [{ ...command, seq } as RunnerCommand]);
+    this.#deliver(machine, [{ ...command, seq }]);
   }
 
   #deliver(machine: string, commands: readonly RunnerCommand[]): void {
@@ -156,7 +156,12 @@ export class MachineHub {
         machine
       )
       .toArray()
-      .map((row) => ({ ...(JSON.parse(row.payload) as Distributive<RunnerCommand>), seq: row.seq }) as RunnerCommand);
+      .map((row): RunnerCommand => {
+        // SAFETY: only #enqueue writes payloads, each a RunnerCommand without its seq.
+        const command = JSON.parse(row.payload) as Distributive<RunnerCommand>;
+
+        return { ...command, seq: row.seq };
+      });
   }
 
   start(machine: string, title: string, prompt: string, id: string): TaskRow {

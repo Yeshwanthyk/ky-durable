@@ -94,7 +94,8 @@ export class PiAgent extends DurableObject<Env> {
     () => this.defaultSettings()
   );
   readonly workspace = new Workspace({
-    storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+    // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
+    storage: this.ctx.storage as DurableObjectStorageLike,
     git: createGitClient(),
     backends: [
       new WorkerJavaScriptBackend({
@@ -335,13 +336,18 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   catalog(): ProviderInfo[] {
-    const option = (model: Model<Api>, name = model.name): ModelOption => ({
-      modelId: model.id,
-      name,
-      levels: getSupportedThinkingLevels(model),
-      images: model.input.includes("image"),
-      ...(model.cost.input > 0 ? { cost: { input: model.cost.input, output: model.cost.output } } : {})
-    });
+    const option = (model: Model<Api>, name = model.name): ModelOption => {
+      const base: ModelOption = {
+        modelId: model.id,
+        name,
+        levels: getSupportedThinkingLevels(model),
+        images: model.input.includes("image")
+      };
+
+      return model.cost.input > 0
+        ? { ...base, cost: { input: model.cost.input, output: model.cost.output } }
+        : base;
+    };
 
     return [
       {

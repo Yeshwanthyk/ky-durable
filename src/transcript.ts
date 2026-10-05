@@ -44,9 +44,9 @@ export type PiMessage = {
 };
 
 function userParts(content: UserMessage["content"]): PiMessagePart[] {
-  return typeof content === "string"
-    ? [{ type: "text", text: content }]
-    : content;
+  return Array.isArray(content)
+    ? content
+    : [{ type: "text", text: content }];
 }
 
 function assistantParts(content: AssistantMessage["content"]): PiMessagePart[] {
@@ -80,35 +80,39 @@ export function projectMessage(message: Message, id: string): PiMessage {
         parts: userParts(message.content),
         timestamp: message.timestamp
       };
-    case "assistant":
-      return {
+    case "assistant": {
+      const assistant: PiMessage = {
         id,
         role: "assistant",
         parts: assistantParts(message.content),
         timestamp: message.timestamp,
-        stopReason: message.stopReason,
-        ...(message.errorMessage === undefined
-          ? {}
-          : { error: message.errorMessage })
+        stopReason: message.stopReason
       };
-    case "toolResult":
+
+      return message.errorMessage === undefined
+        ? assistant
+        : { ...assistant, error: message.errorMessage };
+    }
+
+    case "toolResult": {
+      const result = {
+        type: "tool-result",
+        id: message.toolCallId,
+        name: message.toolName,
+        content: message.content
+      } as const;
+
       return {
         id,
         role: "tool",
         parts: [
-          {
-            type: "tool-result",
-            id: message.toolCallId,
-            name: message.toolName,
-            content: message.content,
-            ...(message.details === undefined
-              ? {}
-              : { details: message.details }),
-            error: message.isError
-          }
+          message.details === undefined
+            ? { ...result, error: message.isError }
+            : { ...result, details: message.details, error: message.isError }
         ],
         timestamp: message.timestamp
       };
+    }
   }
 }
 

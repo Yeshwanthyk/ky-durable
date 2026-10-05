@@ -80,7 +80,7 @@ function describeExec(tool: PiTool): PiTool {
       properties: {
         ...properties,
         command:
-          typeof command === "object" && command !== null
+          command instanceof Object
             ? { ...command, description: COMMAND_DESCRIPTION }
             : command
       }
@@ -118,15 +118,12 @@ export function createWorkspaceTools(
   return tools.map((declared): ToolRegistration => {
     const tool = declared.name === "exec" ? describeExec(declared) : declared;
 
-    return {
+    const registration: ToolRegistration = {
       name: tool.name,
       description: tool.description,
       // Plain JSON Schema: pi validates with TypeBox, which accepts it, but
       // computer's schema type is untyped, so `args` is too.
       parameters: tool.parameters,
-      ...(tool.constrainedSampling
-        ? { constrainedSampling: tool.constrainedSampling }
-        : {}),
       replay: REPLAY_SAFE.has(tool.name) ? "safe" : "unsafe",
       async execute(args, api, context) {
         const { content, isError } = await execute(
@@ -137,5 +134,9 @@ export function createWorkspaceTools(
         return { content, isError };
       }
     };
+
+    return tool.constrainedSampling
+      ? { ...registration, constrainedSampling: tool.constrainedSampling }
+      : registration;
   });
 }

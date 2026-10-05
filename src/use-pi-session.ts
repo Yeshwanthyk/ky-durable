@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -59,7 +60,7 @@ export function usePiSession(session: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
   const version = useRef<string | null>(null);
   /** Commands waiting for their `result`, by id. */
-  const waiting = useRef(new Map<string, (result: unknown) => void>());
+  const waiting = useRef(new Map<string, (result: JsonValue) => void>());
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -72,6 +73,7 @@ export function usePiSession(session: string) {
       let message: ServerMessage;
 
       try {
+        // SAFETY: the only sender is ky's own object, which sends ServerMessages.
         message = JSON.parse(String(event.data)) as ServerMessage;
       } catch {
         return;
@@ -189,6 +191,7 @@ export function usePiSession(session: string) {
     () =>
       new Promise<string>((resolve) => {
         const id = crypto.randomUUID();
+        // SAFETY: the server answers new-chat with `{ session }`.
         waiting.current.set(id, (result) => resolve((result as { session: string }).session));
         send({ type: "new-chat", id });
       }),
