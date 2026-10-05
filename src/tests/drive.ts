@@ -4,6 +4,7 @@ import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
 import type { PiServerMessage } from "../protocol";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
+import { decodeRunnerCommand, decodeServerFrame, type RunnerCommand } from "./frames";
 import { agents, type PiAgent } from "./stack";
 
 /**
@@ -51,9 +52,9 @@ export function follow(socket: WebSocket): Follower {
   socket.addEventListener("message", (event) => {
     if (event.data instanceof ArrayBuffer) return;
 
-    const message: PiServerMessage = JSON.parse(event.data);
+    const message = decodeServerFrame(event.data);
 
-    if (!("type" in message)) return;
+    if (message === undefined) return;
     frames.push(message);
 
     if (message.type === "events") view = reduceEvents(view, message.events);
@@ -146,13 +147,11 @@ export function tasks(name: string): Promise<Array<{ kind: string; worker: strin
   );
 }
 
-type RunCommand = { type: string; seq: number; task: string; prompt?: string };
-
 export type FakeRunner = {
   socket: WebSocket;
-  commands: RunCommand[];
+  commands: RunnerCommand[];
   /** The next command, acknowledged as the runner does. */
-  next: () => Promise<RunCommand>;
+  next: () => Promise<RunnerCommand>;
   send: (report: Record<string, string | number | boolean | string[] | null>) => void;
 };
 
@@ -162,13 +161,12 @@ export type FakeRunner = {
  */
 export async function runner(name: string, machine = "mac"): Promise<FakeRunner> {
   const socket = await connect(name, `?runner=${machine}`);
-  const commands: RunCommand[] = [];
+  const commands: RunnerCommand[] = [];
 
   socket.addEventListener("message", (event) => {
-    // SAFETY: the object sends this socket runner commands and the agents handshake, told apart by type.
-    const command = JSON.parse(String(event.data)) as RunCommand;
+    const command = decodeRunnerCommand(String(event.data));
 
-    if (command.type === "run" || command.type === "stop") commands.push(command);
+    if (command !== undefined) commands.push(command);
   });
 
   const send: FakeRunner["send"] = (report) => socket.send(JSON.stringify(report));

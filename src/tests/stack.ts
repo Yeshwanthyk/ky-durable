@@ -27,11 +27,10 @@ import server, { type Cloud, PiAgent as ProductionAgent } from "../server";
  * - `spawn NAME MESSAGE` spawns a subagent; `machine PROMPT` runs a task on
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `tool NAME JSON` calls any tool with those arguments.
- * - `fail` answers with a model error.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
- * - The titles model answers `Title: "<the text>"` with a second line, so
- *   the cleaning is exercised; text containing `no-title` makes it fail.
+ * - The titles model answers `Title: "Named: <first line>"` and a second line,
+ *   so its cleaning is exercised; text containing `no-title` makes it fail.
  */
 
 /** Gate runs up to this one are released. */
@@ -59,7 +58,7 @@ function title(context: TranscriptContext): AssistantMessage {
     return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The faux titles model is down." });
   }
 
-  return fauxAssistantMessage([fauxText(`Title: "${text.split("\n")[0]}"\nA second line the cleaning drops.`)]);
+  return fauxAssistantMessage([fauxText(`Title: "Named: ${text.split("\n")[0]}"\nA second line the cleaning drops.`)]);
 }
 
 function script(context: TranscriptContext): AssistantMessage {
@@ -94,10 +93,6 @@ function script(context: TranscriptContext): AssistantMessage {
   }
 
   if (prompt === "gate" || prompt === "gate-unsafe") return call(prompt === "gate" ? "gate" : "gate_unsafe", {});
-
-  if (prompt === "fail") {
-    return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The faux model failed on purpose." });
-  }
 
   return fauxAssistantMessage([fauxText(`echo: ${prompt}`)]);
 }

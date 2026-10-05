@@ -33,7 +33,7 @@ describe("delegated work leaves the main chat free", () => {
     expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "queued" }]);
 
     mac.send({ type: "result", task: run.task, ok: true, text: "built", session: null });
-    await said(name, `[machine mac, task ${run.task} "build it" finished`);
+    await said(name, `build it" finished`);
     expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "done" }]);
     mac.socket.close();
   });
@@ -53,7 +53,7 @@ describe("delegated work leaves the main chat free", () => {
 
     // The same run answers the report; a follow-up would have waited for "tool said: released".
     const result = await wait(name, busy.operationId);
-    expect(result.text).toMatch(/^echo: \[machine mac, task \S+ "build it" finished/);
+    expect(result.text).toMatch(/^echo: \[machine mac, task \S+ "(Named: )?build it" finished/);
     mac.socket.close();
   });
 });

@@ -79,7 +79,7 @@ export function startExecutor(port = 0): Promise<{ server: HttpServer; url: stri
     const payload = incoming.method === "GET" || incoming.method === "HEAD" ? undefined : await body(incoming);
 
     const response = await handle(
-      new Request(`http://127.0.0.1${incoming.url ?? "/"}`, { method: incoming.method, headers, body: payload })
+      new Request(`http://127.0.0.1${incoming.url ?? "/"}`, { method: incoming.method, headers, body: payload && new Uint8Array(payload) })
     );
 
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
