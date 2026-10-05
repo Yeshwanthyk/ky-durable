@@ -44,7 +44,7 @@
     },
     "src/server.ts": {
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
     "src/sockets.ts": {
@@ -60,14 +60,6 @@
         "count": 1
       },
       "crap_critical": {
-        "count": 1
-      }
-    },
-    "src/tests/stack.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
         "count": 1
       }
     },
@@ -215,6 +207,9 @@
       }
     },
     "src/use-pi-session.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
       "crap_critical": {
         "count": 1
       }
@@ -231,14 +226,6 @@
       }
     },
     "test/fakes/claude.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "test/fakes/executor.ts": {
-      "crap_high": {
-        "count": 1
-      },
       "crap_moderate": {
         "count": 1
       }
@@ -340,11 +327,11 @@
     "src/ui/blob-catalog.ts:dead code",
     "src/ui/bloub/skins.ts:dead code",
     "src/client.tsx:complexity",
-    "src/images.ts:high impact",
     "test/harness/client.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
     "src/ui/bloub/expressions.ts:dead code",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
+    "src/images.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
     "src/ui/bloub/states.ts:dead code",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk",

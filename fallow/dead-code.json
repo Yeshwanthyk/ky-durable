@@ -14,7 +14,6 @@
     "unused-export:src/chats.ts:titleOf",
     "unused-export:src/files.ts:FILE_TYPES",
     "unused-export:src/files.ts:MAX_FILE_BYTES",
-    "unused-export:src/images.ts:imagesOf",
     "unused-export:src/memory.ts:cover",
     "unused-export:src/settings.ts:SLOTS",
     "unused-export:src/titles.ts:clean",
