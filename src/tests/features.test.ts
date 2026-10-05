@@ -286,15 +286,15 @@ describe("machine tasks", () => {
     const run = await mac.next();
     expect(run).toMatchObject({ type: "run", prompt: "build it", session: null });
 
-    mac.send({ type: "session", task: run.task, session: "claude-session-1" });
-    mac.send({ type: "progress", task: run.task, text: "compiling" });
+    mac.send({ type: "session", task: run.task, turn: run.turn, session: "claude-session-1" });
+    mac.send({ type: "progress", task: run.task, turn: run.turn, text: "compiling" });
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
 
     await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);
     const followUp = await mac.next();
     expect(followUp).toMatchObject({ type: "run", task: run.task, prompt: "also test it", session: "claude-session-1" });
 
-    mac.send({ type: "result", task: run.task, ok: true, text: "built and tested", session: "claude-session-1" });
+    mac.send({ type: "result", task: run.task, turn: followUp.turn, ok: true, text: "built and tested", session: "claude-session-1" });
     await said(name, `build it" finished`);
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.summary.startsWith("Named:") === true);
     expect(latest(client, "tasks")?.machines).toMatchObject([{ name: "mac", online: true }]);
@@ -319,7 +319,7 @@ describe("machine tasks", () => {
     const mac = await runner(name);
     await prompt(name, "machine second");
     const run = await mac.next();
-    mac.send({ type: "session", task: run.task, session: "s2" });
+    mac.send({ type: "session", task: run.task, turn: run.turn, session: "s2" });
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
 
     await command(socket, client, { type: "stop-all" });
@@ -333,7 +333,7 @@ describe("machine tasks", () => {
     const mac = await runner(name);
     await prompt(name, "machine long job");
     const run = await mac.next();
-    mac.send({ type: "session", task: run.task, session: "s3" });
+    mac.send({ type: "session", task: run.task, turn: run.turn, session: "s3" });
     mac.socket.close();
 
     const restarted = await runner(name);

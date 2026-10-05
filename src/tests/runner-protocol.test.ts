@@ -1,0 +1,485 @@
+import { describe, expect, it } from "vitest";
+import { HandledSeqs } from "../../runner/handled.ts";
+import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
+import { REPLACED } from "../runner-protocol";
+import type { TaskRow } from "../tasks";
+import { connect, inside, prompt, snapshotView } from "./drive";
+
+/**
+ * The machine protocol end to end: the real runner logic (runner/runner.ts)
+ * on a real WebSocket through ky's Worker to the real PiAgent, with a
+ * scripted `claude` in place of the binary. The wire between them can hold or drop the runner's frames,
+ * so each test replays one counterexample from
+ * explainers/ky-architecture/quint/runner_protocol.qnt step by step.
+ */
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Poll until `probe` holds. */
+async function until(what: string, probe: () => boolean | Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    if (await probe()) return;
+    await pause(20);
+  }
+
+  throw new Error(`Timed out waiting for ${what}`);
+}
+
+/** Let frames in flight land before checking that nothing more happens. */
+const settle = () => pause(300);
+
+/** A `claude -p` stand-in: the test decides what it says and when it exits. */
+class FakeClaude implements ClaudeProcess {
+  readonly resumed: string | null;
+  readonly prompts: string[] = [];
+  /** Prompts written after it was told to stop; they die with it. */
+  readonly afterStop: string[] = [];
+  interrupted = false;
+  #exited = false;
+  readonly #events: ClaudeEvents;
+
+  constructor(resumed: string | null, events: ClaudeEvents) {
+    this.resumed = resumed;
+    this.#events = events;
+  }
+
+  write(line: string): void {
+    // SAFETY: the runner writes stream-json user lines, { type: "user", message: { content } }.
+    const { message } = JSON.parse(line) as { message: { content: string } };
+    (this.interrupted ? this.afterStop : this.prompts).push(message.content);
+  }
+
+  end(): void {
+    setTimeout(() => this.exit(0), 0);
+  }
+
+  interrupt(): void {
+    this.interrupted = true;
+  }
+
+  session(id: string): void {
+    this.#emit({ type: "system", subtype: "init", session_id: id });
+  }
+
+  answer(text: string): void {
+    this.#emit({ type: "result", subtype: "success", is_error: false, result: text });
+  }
+
+  exit(code: number): void {
+    if (this.#exited) return;
+    this.#exited = true;
+    this.#events.exit(code, "");
+  }
+
+  /** The process died with the runner: it says nothing more. */
+  kill(): void {
+    this.#exited = true;
+  }
+
+  #emit(event: Record<string, string | boolean>): void {
+    if (!this.#exited) this.#events.line(JSON.stringify(event));
+  }
+}
+
+/** One socket from the runner to the object; it can hold or drop what the runner sends. */
+class Wire {
+  readonly socket: WebSocket;
+  readonly held: string[] = [];
+  mode: "pass" | "hold" | "drop";
+  open = true;
+  /** The close code, when the object closed it. */
+  closedBy: number | undefined;
+  readonly link: Link = {
+    send: (text) => {
+      if (!this.open) return false;
+
+      if (this.mode === "pass") this.socket.send(text);
+      else if (this.mode === "hold") this.held.push(text);
+
+      return true;
+    }
+  };
+
+  constructor(socket: WebSocket, mode: "pass" | "hold" | "drop") {
+    this.socket = socket;
+    this.mode = mode;
+  }
+
+  /** Deliver what was held, in order, and pass from now on. */
+  release(): void {
+    this.mode = "pass";
+
+    for (const text of this.held.splice(0)) this.socket.send(text);
+  }
+}
+
+/** A machine named "mac": a runner, its sessions, and its socket when connected. */
+class Mac {
+  readonly #object: string;
+  readonly claudes: FakeClaude[] = [];
+  runner: Runner;
+  wire: Wire | undefined;
+
+  constructor(object: string) {
+    this.#object = object;
+    this.runner = this.#boot();
+  }
+
+  #boot(): Runner {
+    return new Runner(
+      (_task, session, events) => {
+        const claude = new FakeClaude(session, events);
+        this.claudes.push(claude);
+
+        return claude;
+      },
+      () => {},
+      // The same file across restarts, as on a real machine.
+      new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`)
+    );
+  }
+
+  /** Dial the object; `mode` decides what happens to what the runner sends. */
+  async connect(mode: "pass" | "hold" | "drop" = "pass"): Promise<Wire> {
+    const socket = await connect(this.#object, "?runner=mac");
+    const wire = new Wire(socket, mode);
+    const runner = this.runner;
+    socket.addEventListener("message", (event) => {
+      if (wire.open) runner.message(String(event.data));
+    });
+    socket.addEventListener("close", (event) => {
+      if (!wire.open) return;
+      wire.open = false;
+      wire.closedBy = event.code;
+      runner.closed(wire.link);
+    });
+    this.wire = wire;
+    runner.open(wire.link);
+
+    return wire;
+  }
+
+  /** The socket drops. What was held is lost unless `deliverHeld`. */
+  disconnect(deliverHeld = false): void {
+    const wire = this.wire!;
+
+    if (deliverHeld) wire.release();
+    wire.open = false;
+    this.runner.closed(wire.link);
+    wire.socket.close(1000, "test");
+  }
+
+  /** The runner process dies and starts again: its sessions and memory are gone. */
+  restart(): void {
+    if (this.wire?.open) this.disconnect();
+
+    for (const claude of this.claudes) claude.kill();
+    this.runner = this.#boot();
+  }
+
+  async claude(index: number): Promise<FakeClaude> {
+    await until(`claude #${index + 1} to start`, () => this.claudes.length > index);
+
+    return this.claudes[index]!;
+  }
+}
+
+/** A fresh object and its machine, not yet connected. */
+type Fixture = { readonly object: string; readonly mac: Mac };
+
+function fixture(): Fixture {
+  const object = crypto.randomUUID();
+
+  return { object, mac: new Mac(object) };
+}
+
+/** A fresh object with its machine connected. */
+async function online(): Promise<Fixture> {
+  const machine = fixture();
+  await machine.mac.connect();
+
+  return machine;
+}
+
+/** The main agent runs "build it" on the mac; returns the task id. */
+async function start(object: string): Promise<string> {
+  const result = await prompt(object, "machine build it");
+  const id = /Started task (\S+) on mac/.exec(result.text ?? "")?.[1];
+
+  if (!id) throw new Error(`No task started: ${result.text}`);
+
+  return id;
+}
+
+/** The reports the main agent was given about a task, in order. */
+async function reports(object: string, id: string): Promise<string[]> {
+  const view = await snapshotView(object);
+
+  return view.messages
+    .filter((message) => message.role === "user")
+    .flatMap((message) => message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])))
+    .filter((text) => text.startsWith("[machine mac,") && text.includes(`task ${id} `));
+}
+
+/** The task as the task list shows it. */
+function task(object: string, id: string): Promise<TaskRow | undefined> {
+  return inside(object, (agent) => agent.feed.get(id));
+}
+
+async function status(object: string, id: string): Promise<string | undefined> {
+  return (await task(object, id))?.status;
+}
+
+/** Stop a machine task, as the task list's stop button does. */
+function stopTask(object: string, id: string): Promise<void> {
+  return inside(object, async (agent) => {
+    const row = agent.feed.get(id);
+
+    if (row) await agent.machines.stop(row);
+  });
+}
+
+/** Send a machine task a message, as the machine tool's send does. */
+function sendTask(object: string, id: string, message: string): Promise<void> {
+  return inside(object, (agent) => {
+    const row = agent.feed.get(id);
+
+    if (row) agent.machines.send(row, message);
+  });
+}
+
+/** Commands the object holds for a machine until it acknowledges them. */
+function inbox(object: string, machine: string): Promise<number[]> {
+  return inside(object, (_agent, state) =>
+    state.storage.sql
+      .exec<{ seq: number }>("SELECT seq FROM ky_machine_inbox WHERE machine = ? ORDER BY seq", machine)
+      .toArray()
+      .map((row) => row.seq)
+  );
+}
+
+const terminal = (value: string | undefined) => value === "done" || value === "failed" || value === "stopped";
+
+describe("runner protocol: the Quint counterexamples", () => {
+  // CE1 seqStopRace: stop() while the run's ack is in flight.
+  it("stopRace: a stop racing the ack stops the run, with one report", async () => {
+    const { object, mac } = await online();
+    mac.wire!.mode = "hold";
+    const id = await start(object);
+    const claude = await mac.claude(0);
+
+    await stopTask(object, id);
+    mac.wire!.release();
+    claude.session("s1");
+    await settle();
+
+    if (claude.interrupted) claude.exit(130);
+    else claude.answer("built");
+
+    await until("the task to end", async () => terminal(await status(object, id)));
+    await settle();
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).not.toContain("Stopped before it started");
+    expect(await status(object, id)).toBe("stopped");
+  });
+
+  // CE2 seqHelloBeforeOutbox: a result made offline must beat the reconnect hello.
+  it("helloBeforeOutbox: a result finished offline is reported once, as done", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const claude = await mac.claude(0);
+    claude.session("s1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    mac.disconnect();
+    claude.answer("built");
+    await mac.connect();
+
+    await until("a report", async () => (await reports(object, id)).length > 0);
+    await settle();
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).not.toContain("Interrupted");
+    expect(await status(object, id)).toBe("done");
+  });
+
+  // CE3 seqDupExec: the ack is lost and the runner restarts; the redelivered run must not run again.
+  it("dupExec: a run whose ack was lost runs once across a runner restart", async () => {
+    const { object, mac } = await online();
+    mac.wire!.mode = "drop";
+    await start(object);
+    await mac.claude(0);
+
+    mac.restart();
+    await mac.connect();
+    await settle();
+
+    expect(mac.claudes).toHaveLength(1);
+  });
+
+  // CE4 seqSteerIntoStop: a send after a stop must not go to the dying session.
+  it("steerIntoStop: a message sent while stopping starts a new session after it", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const first = await mac.claude(0);
+    first.session("s1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    await stopTask(object, id);
+    await until("the stop to reach the runner", () => first.interrupted);
+    await until("the stop to be acked", async () => (await inbox(object, "mac")).length === 0);
+    await sendTask(object, id, "and this");
+    await settle();
+    expect(first.afterStop).toEqual([]);
+    first.exit(130);
+
+    const second = await mac.claude(1);
+    expect(second.prompts).toEqual(["and this"]);
+    expect(second.resumed).toBe("s1");
+
+    second.session("s1");
+    second.answer("did this");
+    await until("the task to be done", async () => (await status(object, id)) === "done");
+    await settle();
+    expect(await reports(object, id)).toHaveLength(2);
+  });
+
+  // CE5 seqStuckQueued: everything the run said was lost with the socket; the task must not stay queued.
+  it("stuckQueued: a task whose reports were lost ends instead of staying queued", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const claude = await mac.claude(0);
+    await until("the run to be acked", async () => (await inbox(object, "mac")).length === 0);
+
+    mac.wire!.mode = "drop";
+    claude.session("s1");
+    claude.answer("built");
+    mac.disconnect();
+    await mac.connect();
+    await settle();
+    mac.runner.keepalive();
+    await settle();
+
+    expect(await status(object, id)).toBe("failed");
+    expect((await task(object, id))?.summary).toContain("Interrupted");
+    expect(await reports(object, id)).toHaveLength(1);
+  });
+
+  // CE6 seqReorder: started offline, then a follow-up sent before the hello lands.
+  it("reorder: turns reach Claude Code in the order they were sent", async () => {
+    const { object, mac } = fixture();
+    const id = await start(object);
+    const wire = await mac.connect("hold");
+    await sendTask(object, id, "second");
+    await mac.claude(0);
+    wire.release();
+    await settle();
+
+    expect(mac.claudes).toHaveLength(1);
+    expect(mac.claudes[0]!.prompts).toEqual(["build it", "second"]);
+  });
+});
+
+describe("runner protocol", () => {
+  it("decodes runner frames: a malformed report closes the runner's socket", async () => {
+    const { mac } = await online();
+    mac.wire!.socket.send(JSON.stringify({ type: "ack", seq: "one" }));
+
+    await until("the object to close the socket", () => !mac.wire!.open);
+    expect(mac.wire!.closedBy).toBe(1008);
+  });
+
+  it("decodes commands: the runner ignores a run without a prompt", async () => {
+    const { mac } = await online();
+    mac.runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-x", turn: 1, session: null }));
+    await settle();
+
+    expect(mac.claudes).toHaveLength(0);
+  });
+
+  it("fences turns: a repeated result posts once, and a late progress does not reopen the task", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    await mac.claude(0);
+    const result = JSON.stringify({ type: "result", task: id, turn: 1, ok: true, text: "built", session: null });
+    mac.wire!.socket.send(result);
+    mac.wire!.socket.send(result);
+    mac.wire!.socket.send(JSON.stringify({ type: "progress", task: id, turn: 1, text: "late" }));
+
+    await until("a report", async () => (await reports(object, id)).length > 0);
+    await settle();
+    expect(await reports(object, id)).toHaveLength(1);
+    expect(await status(object, id)).toBe("done");
+  });
+
+  it("stops a task the runner never got before it starts", async () => {
+    const { object, mac } = fixture();
+    const id = await start(object);
+    await stopTask(object, id);
+
+    await until("a report", async () => (await reports(object, id)).length > 0);
+    expect((await reports(object, id))[0]).toContain("Stopped before it started");
+    expect(await status(object, id)).toBe("stopped");
+
+    await mac.connect();
+    await settle();
+    expect(mac.claudes).toHaveLength(0);
+  });
+
+  // Beyond the model: a second stop also stops the turn queued behind the first.
+  it("drops a turn queued behind a stop when it is stopped too", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const first = await mac.claude(0);
+    first.session("s1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    await stopTask(object, id);
+    await until("the stop to be acked", async () => first.interrupted && (await inbox(object, "mac")).length === 0);
+    await sendTask(object, id, "and this");
+    await until("the message to be acked", async () => (await inbox(object, "mac")).length === 0);
+    await stopTask(object, id);
+    await until("the second stop to be acked", async () => (await inbox(object, "mac")).length === 0);
+    first.exit(130);
+
+    await until("the task to end", async () => terminal(await status(object, id)));
+    await settle();
+    expect(mac.claudes).toHaveLength(1);
+    expect(await status(object, id)).toBe("stopped");
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
+  });
+
+  // The stale keepalive the fixes surfaced: a hello sent before the run arrived must not end that run.
+  it("keeps a run that a keepalive hello raced", async () => {
+    const { object, mac } = await online();
+    mac.wire!.mode = "hold";
+    mac.runner.keepalive();
+    const id = await start(object);
+    const claude = await mac.claude(0);
+    mac.wire!.release();
+    await settle();
+    expect(await status(object, id)).toBe("queued");
+
+    claude.session("s1");
+    claude.answer("built");
+    await until("the task to be done", async () => (await status(object, id)) === "done");
+    await settle();
+    expect(await reports(object, id)).toHaveLength(1);
+  });
+
+  it("keeps one socket per machine: a second runner's hello replaces the first", async () => {
+    const { object, mac } = await online();
+    const other = new Mac(object);
+    await other.connect();
+
+    await until("the object to close the first socket", () => !mac.wire!.open);
+    expect(mac.wire!.closedBy).toBe(REPLACED);
+    await start(object);
+    await other.claude(0);
+    await settle();
+    expect(mac.claudes).toHaveLength(0);
+  });
+});

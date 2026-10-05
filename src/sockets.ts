@@ -16,9 +16,9 @@ import {
   RUNNER_QUERY,
   runnerOf,
   runnerTag,
-  type MachineHub,
-  type RunnerReport
+  type MachineHub
 } from "./machines";
+import { decodeReport, REPLACED } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { ChatList } from "./chats";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
@@ -292,20 +292,37 @@ export class PiSessionSockets {
     }
   }
 
+  /** The runner that said hello on `connection` is the machine's only one: close its other sockets. */
+  #replaceRunner(connection: Connection, machine: string): void {
+    // Agents tags each socket with its connection id.
+    const own = new Set(this.#getWebSockets(connection.id));
+
+    for (const socket of this.#getWebSockets(runnerTag(machine))) {
+      if (own.has(socket) || socket.readyState !== OPEN) continue;
+
+      try {
+        socket.close(REPLACED, "Another ky-runner connected with this name.");
+      } catch {
+        // Already closing.
+      }
+    }
+  }
+
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
     if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
-      let report: RunnerReport;
+      const report = decodeReport(raw);
 
-      try {
-        // SAFETY: only an authenticated runner gets a runner socket, and it sends RunnerReports.
-        report = JSON.parse(raw) as RunnerReport;
-      } catch {
+      if (!report) {
+        // A runner of another protocol version, or a broken one: it must be updated, not half-understood.
+        connection.close(1008, "Malformed or outdated ky-runner report; update ky-runner.");
+
         return;
       }
 
+      if (report.type === "hello") this.#replaceRunner(connection, machine);
       await this.#hub.onReport(machine, report);
 
       if (report.type === "hello") this.broadcastTasks();

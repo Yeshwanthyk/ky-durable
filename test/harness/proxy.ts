@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket as Socket, WebSocketServer } from "ws";
-import { decodeRunnerReport, type RunnerReport } from "../../src/tests/frames.ts";
+import { decodeReport, type RunnerReport } from "../../src/runner-protocol.ts";
 import { freePort } from "./stack.ts";
 
 /**
@@ -101,7 +101,7 @@ export async function startProxy(target: string): Promise<Proxy> {
 
       runner.on("message", (data) => {
         const frame = String(data);
-        const report = decodeRunnerReport(frame);
+        const report = decodeReport(frame);
 
         if (report) reports.push(report);
 

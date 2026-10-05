@@ -4,7 +4,8 @@ import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
 import type { PiServerMessage } from "../protocol";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
-import { decodeRunnerCommand, decodeServerFrame, type RunnerCommand } from "./frames";
+import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../runner-protocol";
+import { decodeServerFrame } from "./frames";
 import { agents, type PiAgent } from "./stack";
 
 /**
@@ -88,9 +89,9 @@ export function agent(name: string): DurableObjectStub<PiAgent> {
   return agents(env).getByName(name);
 }
 
-/** Run `work` inside the agent object, on its real composition. */
-export function inside<T>(name: string, work: (agent: PiAgent) => Promise<T> | T): Promise<T> {
-  return runInDurableObject(agent(name), (instance: PiAgent) => work(instance));
+/** Run `work` inside the agent object, on its real composition and storage. */
+export function inside<T>(name: string, work: (agent: PiAgent, state: DurableObjectState) => Promise<T> | T): Promise<T> {
+  return runInDurableObject(agent(name), (instance: PiAgent, state) => work(instance, state));
 }
 
 /** Prompt the root session and wait; the result without its transcript. */
@@ -162,7 +163,7 @@ export type FakeRunner = {
   commands: RunnerCommand[];
   /** The next command, acknowledged as the runner does. */
   next: () => Promise<RunnerCommand>;
-  send: (report: Record<string, string | number | boolean | string[] | null>) => void;
+  send: (report: RunnerReport) => void;
 };
 
 /**
@@ -174,13 +175,14 @@ export async function runner(name: string, machine = "mac"): Promise<FakeRunner>
   const commands: RunnerCommand[] = [];
 
   socket.addEventListener("message", (event) => {
-    const command = decodeRunnerCommand(String(event.data));
+    // The object also sends the Agents SDK's handshake on this socket; decoding skips it.
+    const command = decodeCommand(String(event.data));
 
     if (command !== undefined) commands.push(command);
   });
 
   const send: FakeRunner["send"] = (report) => socket.send(JSON.stringify(report));
-  send({ type: "hello", active: [] });
+  send({ type: "hello", protocol: PROTOCOL, active: [] });
 
   const next = async () => {
     for (let i = 0; i < 250 && commands.length === 0; i++) {
