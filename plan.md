@@ -56,14 +56,14 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| B0 | One shared `runner-protocol.ts` for the three copies of the message types, **decoded with typebox at the socket** (replaces the trusted `JSON.parse as` casts in sockets.ts:300-319, use-pi-session.ts:76; Fable L-review); typecheck the runner | review |
-| B1 | Flush first: runner sends its outbox before `hello` (ky-runner.ts:286-288) | review |
-| B2 | Fence: reports carry the turn, DO drops reports for a closed turn, operationId `task:<id>:<turn>` (machines.ts:247-269) | review |
-| B3 | Durable handled: runner persists handled seqs before acking (ky-runner.ts:129) | review |
-| B4 | Safe stop: `stop()` withdraws only unsent runs and finishes early only if no turn reached the runner; runner queues runs for a stopping job instead of steering into it | review |
-| B5 | Reconcile: `hello` closes queued **and** working tasks that are not active and have no unacked run rows (machines.ts:208-222) | review |
-| B6 | Ordered delivery: `#enqueue` resends every pending row in seq order; runner dedupes (machines.ts:135) | review |
-| B7 | One socket per node name: a second `hello` with the same name replaces the old socket (machines.ts:138-150) | review |
+| B0 | One shared `runner-protocol.ts` for the three copies of the message types, **decoded with typebox at the socket** (replaces the trusted `JSON.parse as` casts in sockets.ts:300-319, use-pi-session.ts:76; Fable L-review); typecheck the runner | done (Fable PASS) |
+| B1 | Flush first: runner sends its outbox before `hello` (ky-runner.ts:286-288) | done (Fable PASS) |
+| B2 | Fence: reports carry the turn, DO drops reports for a closed turn, operationId `task:<id>:<turn>` (machines.ts:247-269) | done (Fable PASS) |
+| B3 | Durable handled: runner persists handled seqs before acking (ky-runner.ts:129) | done (Fable PASS) |
+| B4 | Safe stop: `stop()` withdraws only unsent runs and finishes early only if no turn reached the runner; runner queues runs for a stopping job instead of steering into it | done (Fable PASS) |
+| B5 | Reconcile: `hello` closes queued **and** working tasks that are not active and have no unacked run rows (machines.ts:208-222) | done (Fable PASS) |
+| B6 | Ordered delivery: `#enqueue` resends every pending row in seq order; runner dedupes (machines.ts:135) | done (Fable PASS) |
+| B7 | One socket per node name: a second `hello` with the same name replaces the old socket (machines.ts:138-150) | done (Fable PASS) |
 
 ## M: models and prompt
 
