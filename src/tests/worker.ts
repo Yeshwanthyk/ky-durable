@@ -41,13 +41,9 @@ const GATE_RUNS_KEY = "test:gate:runs";
 function textOf(content: Message["content"] | undefined): string {
   if (content === undefined) return "";
 
-  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return content;
 
-  return content
-    .map((part) =>
-      "text" in part && typeof part.text === "string" ? part.text : ""
-    )
-    .join("");
+  return content.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
 /**

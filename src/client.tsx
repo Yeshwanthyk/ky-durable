@@ -105,7 +105,7 @@ function App() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   const setPanelOpen = (next: boolean | ((open: boolean) => boolean)) => {
-    const open = typeof next === "function" ? next(panelOpen && !panelClosing) : next;
+    const open = next instanceof Function ? next(panelOpen && !panelClosing) : next;
 
     if (open === (panelOpen && !panelClosing)) return;
     setGenie(true);

@@ -14,7 +14,7 @@ describe("the session view", () => {
     const receipt = await stub.submit("multiply 5");
     await stub.wait(receipt.operationId);
     const { view: folded, types } = await watching;
-    const view = JSON.parse(folded) as PiSessionView;
+    const view: PiSessionView = JSON.parse(folded);
 
     for (const type of [
       "run_start",
@@ -25,7 +25,7 @@ describe("the session view", () => {
       expect(types).toContain(type);
     }
 
-    const late = JSON.parse(await stub.snapshotView()) as PiSessionView;
+    const late: PiSessionView = JSON.parse(await stub.snapshotView());
     expect(view.messages).toEqual(late.messages);
     expect(late.running).toBe(false);
   });

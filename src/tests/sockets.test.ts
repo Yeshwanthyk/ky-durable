@@ -14,7 +14,7 @@ async function connect(name: string, query = ""): Promise<WebSocket> {
   );
 
   expect(response?.status).toBe(101);
-  const socket = response!.webSocket as WebSocket;
+  const socket = response!.webSocket!;
   socket.accept();
 
   return socket;
@@ -26,21 +26,14 @@ function follow(socket: WebSocket) {
   const frames: PiServerMessage[] = [];
   const waiters: Array<() => void> = [];
   socket.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") return;
+    if (event.data instanceof ArrayBuffer) return;
 
-    const message = JSON.parse(event.data) as
-      | PiServerMessage
-      | { type: string };
+    const message: PiServerMessage = JSON.parse(event.data);
 
     if (!("type" in message)) return;
-    frames.push(message as PiServerMessage);
+    frames.push(message);
 
-    if (message.type === "events") {
-      view = reduceEvents(
-        view,
-        (message as Extract<PiServerMessage, { type: "events" }>).events
-      );
-    }
+    if (message.type === "events") view = reduceEvents(view, message.events);
 
     for (const waiter of waiters.splice(0)) waiter();
   });

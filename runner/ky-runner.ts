@@ -279,7 +279,7 @@ let backoff = 1_000;
 
 function connect() {
   const url = `${URL_BASE.replace(/^http/, "ws")}/agents/pi-agent/me?runner=${MACHINE}`;
-  // Node's WebSocket (undici) takes headers as a non-standard option.
+  // SAFETY: Node's WebSocket (undici) takes headers as a non-standard option its types leave out.
   const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${TOKEN}` } } as any);
   socket = ws;
   ws.addEventListener("open", () => {
@@ -299,7 +299,9 @@ function connect() {
     }
 
     // The socket also carries the Agents SDK's own frames; skip those.
-    if ((message.type === "run" || message.type === "stop") && typeof message.seq === "number") {
+    // JSON has no NaN or Infinity, so a finite seq is any number seq.
+    if ((message.type === "run" || message.type === "stop") && Number.isFinite(message.seq)) {
+      // SAFETY: only the hub sends run and stop frames with a seq, and it sends whole Commands.
       onCommand(message as Command);
     }
   });

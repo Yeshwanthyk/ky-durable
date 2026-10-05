@@ -199,7 +199,8 @@ export class Memory {
         .join("\n");
     } else {
       const mid = (lo + hi) / 2;
-      body = ([[lo, mid], [mid, hi]] as Block[])
+      const halves: Block[] = [[lo, mid], [mid, hi]];
+      body = halves
         .map((half) => `  ${label(half)} ${this.#summary(...half) ?? "(missing)"}`)
         .join("\n");
     }
@@ -332,8 +333,9 @@ export class Memory {
     if (lo >= total) throw new Error(`#${id} is beyond the memory: it holds ${total}.`);
     const mid = (lo + hi) / 2;
     const lines: string[] = [];
+    const halves: Block[] = [[lo, mid], [mid, hi]];
 
-    for (const [a, b] of [[lo, mid], [mid, hi]] as Block[]) {
+    for (const [a, b] of halves) {
       if (a >= total) continue;
 
       if (b - a === 1) this.#render([a, b], lines);

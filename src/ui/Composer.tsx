@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 import { imageSrc, type PendingImage } from "./pick-images";
 
 // Enter sends on a keyboard; on touch Enter is a newline and the button sends.
-const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const coarse = () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
 // Taller than one line and its padding means the text wrapped; the line grows with Settings → Text size.
 function oneLine(element: HTMLElement): number {
