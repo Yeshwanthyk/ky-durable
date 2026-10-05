@@ -110,14 +110,27 @@ A cite points at the code that does the work.
 
 | id | behaviour | cite | tag | check |
 |---|---|---|---|---|
-| task-run | A task runs on a machine, shows its session and progress, takes a follow-up, and reports its result. | src/machines.ts:167, src/machines.ts:211, runner/ky-runner.ts | local | W features › runs a task, shows its session and progress, takes a follow-up, and reports its result; H machine-run; H follow-up; P runs a task on a machine and shows its report |
+| task-run | A task runs on a machine, shows its session and progress, takes a follow-up, and reports its result. | src/machines.ts:192, src/machines.ts:211, runner/runner.ts:139 | local | W features › runs a task, shows its session and progress, takes a follow-up, and reports its result; H machine-run; H follow-up; P runs a task on a machine and shows its report |
 | task-chat | A plain chat works end to end through the stack. | src/sockets.ts:295 | local | H chat |
-| task-withdraw | A task the runner hasn't picked up is withdrawn. A picked-up task is sent a stop. | src/machines.ts:194 | local | W features › withdraws a task the runner has not picked up, and sends a stop to one it has; H stop; P stops a machine task from Activity |
+| task-withdraw | A task the runner hasn't picked up is withdrawn. A picked-up task is sent a stop. | src/machines.ts:224 | local | W features › withdraws a task the runner has not picked up, and sends a stop to one it has; H stop; P stops a machine task from Activity |
 | task-stop-all | Stop all in Activity stops every working task at once. | src/sockets.ts:402, src/ui/Panel.tsx:158 | local | P stops every working task at once from Activity |
-| task-interrupted | A working task is marked interrupted when its runner restarts without it. | src/machines.ts:211 | local | W features › marks a working task interrupted when its runner restarts without it |
+| task-interrupted | A working task is marked interrupted when its runner restarts without it. | src/machines.ts:247 | local | W features › marks a working task interrupted when its runner restarts without it |
 | task-files | A machine task's file is shared, and served whole or by range. | src/files.ts:100, src/files.ts:142 | local | W features › shares a machine task's file, and serves it whole and by range |
 | task-screenshot | A screenshot taken through ky-attach shows on the task. | runner/ky-runner.ts:64 | local | H screenshot; P shows a task's screenshot and opens it in the lightbox |
-| runner-reconnect | The runner reconnects after the socket closes and flushes its outbox after hello. | runner/ky-runner.ts:288, runner/ky-runner.ts:290, runner/ky-runner.ts:311 | local | H reconnect |
+| runner-reconnect | The runner reconnects after the socket closes and flushes its outbox before hello. | runner/ky-runner.ts:193, runner/runner.ts:92 | local | H reconnect |
+| runner-reconnect-outage | A runner whose retry fails (503, or nothing listening) keeps retrying and reconnects. Node's WebSocket fires only `error` when a handshake fails, and the runner retries on it. | runner/ky-runner.ts:211 | local | H reconnect-outage |
+| runner-stop-race | A stop sent while the run's ack is in flight stops the run, with one report and no "Stopped before it started". | src/machines.ts:224 | local | W runner-protocol › stopRace: a stop racing the ack stops the run, with one report; H trap-stopRace |
+| runner-offline-result | A result that finished offline is sent before the reconnect hello, so it is reported once, as done, not Interrupted. | runner/runner.ts:92 | local | W runner-protocol › helloBeforeOutbox: a result finished offline is reported once, as done; H trap-helloBeforeOutbox |
+| runner-run-once | A run whose ack was lost runs once across a runner restart: handled seqs are on disk (KY_STATE_DIR) before the ack. | runner/handled.ts:18, runner/runner.ts:139 | local | W runner-protocol › dupExec: a run whose ack was lost runs once across a runner restart; H trap-dupExec |
+| runner-steer-after-stop | A message sent while a task is stopping starts a new session after the stop, resuming it. | runner/runner.ts:205 | local | W runner-protocol › steerIntoStop: a message sent while stopping starts a new session after it; H trap-steerIntoStop |
+| runner-lost-reports | A task whose reports were lost with the socket ends as Interrupted instead of staying queued. | src/machines.ts:247 | local | W runner-protocol › stuckQueued: a task whose reports were lost ends instead of staying queued; H trap-stuckQueued |
+| runner-order | Turns reach Claude Code in the order they were sent, even when a follow-up comes before the hello is handled. | src/machines.ts:148 | local | W runner-protocol › reorder: turns reach Claude Code in the order they were sent; H trap-reorder |
+| runner-protocol-version | Every runner frame is decoded against the protocol; a malformed or outdated report closes the runner's socket, and the runner ignores a malformed command. | src/runner-protocol.ts, src/sockets.ts:316 | local | W runner-protocol › decodes runner frames: a malformed report closes the runner's socket; W runner-protocol › decodes commands: the runner ignores a run without a prompt |
+| runner-turn-fence | A repeated result posts once, and a late progress does not reopen the task. | src/machines.ts:299 | local | W runner-protocol › fences turns: a repeated result posts once, and a late progress does not reopen the task |
+| runner-stop-unsent | A task the runner never got is stopped before it starts, and never runs later. | src/machines.ts:224 | local | W runner-protocol › stops a task the runner never got before it starts |
+| runner-stop-queued | A second stop also drops the turn queued behind the first. | src/machines.ts:224 | local | W runner-protocol › drops a turn queued behind a stop when it is stopped too |
+| runner-keepalive-race | A keepalive hello sent before a run arrived does not end that run. | src/machines.ts:247 | local | W runner-protocol › keeps a run that a keepalive hello raced |
+| runner-one-socket | One socket per machine: a second runner's hello replaces the first, which exits. | src/sockets.ts:296, runner/ky-runner.ts:197 | local | W runner-protocol › keeps one socket per machine: a second runner's hello replaces the first |
 
 ## Live-only
 
@@ -134,26 +147,12 @@ These need a real outside service, so the local gate can't cover them.
 | live-executor | Executor runs real accounts and approvals. | src/executor.ts:181 | live-only | by hand: run executor_skills, then a program that needs approval | Locally an MCP fake stands in for Executor. |
 | live-claude-cli | The runner drives the real `claude` CLI on the Mac. | runner/ky-runner.ts | live-only | by hand: start a machine task with the runner on the Mac | The harness uses test/fakes/claude.ts. |
 
-## Known broken: expected failures in `pnpm harness`
-
-These scenarios check what should happen, and today they fail. They are marked `xfail`. If one starts to pass, the harness reports it and the scenario should be flipped to `pass`. All seven failed the same way on every run so far.
-
-| id | what goes wrong | cite | check |
-|---|---|---|---|
-| broken-reconnect-outage | After one failed retry, the runner never reconnects. Node's WebSocket fires only `error` when a handshake fails, and the runner retries only on `close`. | runner/ky-runner.ts:311 | H reconnect-outage |
-| trap-stopRace | A stop sent while the run's ack is in flight reports "Stopped before it started", and then the runner runs the task anyway. | src/machines.ts:194 | H trap-stopRace |
-| trap-helloBeforeOutbox | A result that finished offline loses to the reconnect hello: the task is reported Interrupted, then done. | runner/ky-runner.ts:288 | H trap-helloBeforeOutbox |
-| trap-dupExec | The ack is lost and the runner restarts: hello redelivers the run and it executes twice. | src/machines.ts:211 | H trap-dupExec |
-| trap-steerIntoStop | A message sent right after stop goes to the dying claude and is lost. | src/machines.ts:194 | H trap-steerIntoStop |
-| trap-stuckQueued | The result is lost on a dropping socket before any session report, and the task stays queued forever. | src/machines.ts:211 | H trap-stuckQueued |
-| trap-reorder | A follow-up sent before hello is handled runs before the task's first message. | src/machines.ts:167 | H trap-reorder |
-
 ## Known gaps that have no fix yet
 
 - When the Mac leaves or comes back, open pages aren't told. The header and Settings stay stale until a reload. The server still refuses what the stand-in can't do (`image-standin`).
 
 ## Counts
 
-- Local features: 60.
+- Local features: 73.
 - Live-only features: 8.
-- Known broken: 7 (expected failures).
+- Known broken: none. `pnpm harness` has no expected failures.

@@ -10,11 +10,12 @@ import { TOKEN } from "./stack.ts";
  * runner/ky-runner.ts process with the fake claude, connected through a
  * proxy the scenario can break.
  *
- * A `pass` scenario checks a feature that works today. An `xfail` scenario
- * replays one of the six Quint counterexamples (explainers/ky-architecture/
- * quint/README.md) and checks the fixed protocol's property; it is expected
- * to fail with a `Violation` until lane B lands. Any other error, such as a
- * timeout, is a FAIL either way, so a broken harness never passes as XFAIL.
+ * A `pass` scenario checks a feature that works today; the `trap-*` ones
+ * replay the six Quint counterexamples (explainers/ky-architecture/
+ * quint/README.md) and check the fixed protocol's property. An `xfail`
+ * scenario checks something known broken: it is expected to fail with a
+ * `Violation`. Any other error, such as a timeout, is a FAIL either way, so a
+ * broken harness never passes as XFAIL.
  */
 
 /** The property under test does not hold. */
@@ -188,12 +189,12 @@ export const SCENARIOS: Scenario[] = [
 
   {
     name: "reconnect-outage",
-    expect: "xfail",
-    about: "BROKEN: a runner whose retry fails (503, or nothing listening) never retries again",
+    expect: "pass",
+    about: "a runner whose retry fails (503, or nothing listening) keeps retrying and reconnects",
     async run(context) {
       const { proxy } = await context.machine("outage");
       // Node's WebSocket fires only `error`, not `close`, when a handshake
-      // fails, and the runner retries only on `close`.
+      // fails; the runner must retry on that too.
       proxy.cut("refuse");
       await sleep(1_500);
       proxy.open();
@@ -206,29 +207,32 @@ export const SCENARIOS: Scenario[] = [
     }
   },
 
-  // The six Quint traps, replayed on today's code.
+  // The six Quint traps, replayed on the fixed protocol.
   {
     name: "trap-stopRace",
-    expect: "xfail",
-    about: "stop while the run's ack is in flight: ky says 'Stopped before it started', then the runner runs it",
+    expect: "pass",
+    about: "stop while the run's ack is in flight: the run is stopped, with one report and no 'Stopped before it started'",
     async run(context) {
       const { machine: mac, proxy } = await context.machine("stoprace");
       proxy.hold();
-      const task = await startTask(context, "stoprace", "[delay=300] racing the stop");
+      const task = await startTask(context, "stoprace", "[delay=30000] racing the stop");
       await until("the runner to start it", () => turns(mac, task).length > 0);
+      // The runner's ack is still held: ky must not take the run for unsent.
       await context.main.command({ type: "stop-task", task });
-      await until("ky to answer the stop", () => terminal(context.main.task(task)));
+      await until("claude to get SIGINT", () => mac.claude().some((event) => event.event === "sigint" && event.task === task));
       proxy.release();
+      await until("ky to answer the stop", () => terminal(context.main.task(task)));
       await sleep(2_000);
       const saidNotStarted = context.main.history(task).some((entry) => entry.includes("before it started"));
       check(!(saidNotStarted && turns(mac, task).length > 0), "NoRunAfterStoppedReport: a task reported 'Stopped before it started' never runs");
       check(!flipped(context.main.history(task)), "NoTerminalFlip: a stopped task is not reopened or finished again");
+      check(context.main.task(task)?.status === "stopped", "the task ends stopped");
     }
   },
   {
     name: "trap-helloBeforeOutbox",
-    expect: "xfail",
-    about: "a result finished offline: on reconnect the hello lands first and reports Interrupted, then the result says done",
+    expect: "pass",
+    about: "a result finished offline is reported once, as done, with no false 'Interrupted' from the reconnect hello",
     async run(context) {
       const { machine: mac, proxy } = await context.machine("outbox");
       const task = await startTask(context, "outbox", "[delay=1500] finish while offline");
@@ -245,8 +249,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: "trap-dupExec",
-    expect: "xfail",
-    about: "the ack is lost and the runner restarts: the hello redelivers the run and it executes twice",
+    expect: "pass",
+    about: "the ack is lost and the runner restarts: the redelivered run does not execute again",
     async run(context) {
       const { machine: mac, proxy } = await context.machine("dupexec");
       proxy.dropWhen((report) => report.type === "ack");
@@ -262,8 +266,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: "trap-steerIntoStop",
-    expect: "xfail",
-    about: "a message sent right after stop goes to the dying claude and is lost",
+    expect: "pass",
+    about: "a message sent right after stop is not lost to the dying claude: it runs after the stop",
     async run(context) {
       const { machine: mac } = await context.machine("steerstop", { FAKE_CLAUDE_SIGINT_MS: "2000" });
       const task = await startTask(context, "steerstop", "[delay=30000] a long job");
@@ -278,8 +282,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: "trap-stuckQueued",
-    expect: "xfail",
-    about: "the result is lost on a dropping socket before any session report: the task stays queued forever",
+    expect: "pass",
+    about: "the result is lost on a dropping socket before any session report: the task still ends",
     async run(context) {
       const { machine: mac, proxy } = await context.machine("stuck");
       proxy.dropWhen((report) => report.type === "session" || report.type === "progress" || report.type === "result");
@@ -294,8 +298,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: "trap-reorder",
-    expect: "xfail",
-    about: "a task started offline gets a follow-up before the hello is handled: the follow-up runs first",
+    expect: "pass",
+    about: "a task started offline gets a follow-up before the hello is handled: the turns run in order",
     async run(context) {
       const offline = machine("reorder", context.dir);
       const task = await startTask(context, "reorder", "[delay=300] the first message");
