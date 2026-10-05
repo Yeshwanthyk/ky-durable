@@ -1,12 +1,30 @@
 {
+  // The local stack and the worker e2e tests: ky's real Worker and PiAgent
+  // (src/tests/stack.ts) on pi-ai's faux model. The remote bindings are left
+  // out, BROWSER and VIBEPROXY, so ky runs as it does with the Mac away.
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "main": "worker.ts",
-  "compatibility_date": "2026-06-11",
+  "name": "ky-stack",
+  "main": "stack.ts",
+  "compatibility_date": "2026-08-06",
   "compatibility_flags": ["nodejs_compat"],
-  "durable_objects": {
-    "bindings": [
-      { "name": "PI_HARNESS_TEST", "class_name": "PiHarnessTestObject" }
-    ]
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "ky-files-stack" }],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiHarnessTestObject"] }]
+  "vars": {
+    "KY_TOKEN": "ky-stack-token",
+    "KY_MODEL": "faux",
+    // The fake Executor (test/fakes/executor.ts) checks this token. Whoever
+    // starts it on a free port sets EXECUTOR_URL: src/tests/vitest.config.ts
+    // and test/stack/vite.config.ts.
+    "EXECUTOR_TOKEN": "ky-stack-executor"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PiAgent", "class_name": "PiAgent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiAgent"] }]
 }
