@@ -7,13 +7,22 @@ Progress is mirrored in `explainers/ky-architecture/index.html` (section "fixing
 ## DAG
 
 ```
-L ──┬── A (bugs: executor, browse, ui submit id)
-    ├── B (runner protocol, Quint) ──── S (sockets, task row, test worker)
-    ├── M (models + prompt)  ─────────┘
-    └── U (client App split, README)
+L ─┐
+   ├─ G (gate) ──┬── A (bugs: executor, browse, ui submit id)
+G ─┘             ├── B (runner protocol, Quint) ──── S (sockets, task row)
+                 ├── M (models + prompt)  ─────────┘
+                 └── U (client App split, README)
 ```
-Each lane is implemented by an Opus subagent in its own worktree, merged here, then the whole lane goes to Fable for verification before it's marked done.
-`pnpm typecheck && pnpm test && pnpm lint` must pass after every merge.
+L and G run in parallel; nothing else starts until both are merged. Each lane is implemented by an Opus subagent in its own worktree,
+merged here, then the whole lane goes to Fable for verification before it's marked done. One giant PR to `main` at the end.
+
+**Rules for every lane.**
+- `pnpm gate` must pass before a merge and after it. The gate is the regression check: every feature in `FEATURES.md` that passed at
+  baseline must still pass.
+- No backward compatibility: rename, reshape tables and drop shims freely. But no working feature may be lost.
+- Tests are end to end only: real worker, real DO, real runner process, real browser. Fakes only at the outside boundary
+  (model provider, the `claude` binary, Executor, Browser Rendering, VibeProxy). No mock-only unit tests, no module mocking.
+- Structure and quality are gated too: oxlint anti-slop at 0, fallow structure checks at 0, typecheck of worker **and** runner.
 
 ## L: lint and dead code
 
@@ -22,6 +31,18 @@ Each lane is implemented by an Opus subagent in its own worktree, merged here, t
 | L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | doing |
 | L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | doing |
 | L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | doing |
+
+## G: the gate (e2e harnesses + regression baseline)
+
+| id | item | status |
+|---|---|---|
+| G1 | `FEATURES.md`: inventory every working feature (UI, chat, chats/sidebar, settings slots, titles, activity panel, subagents, machine tasks, files/lightbox, memory, exec, executor, browse), each tagged `local` or `live-only` | doing |
+| G2 | Local stack: the real worker under `vite dev` / wrangler with a test config; fake model (pi faux provider), fake `claude` binary, fake Executor MCP; test `KY_TOKEN` | doing |
+| G3 | Worker e2e (vitest-pool-workers) runs the **real** `PiAgent` wiring, not a copy (was S4); fold `titles`/`images` unit tests into e2e | doing |
+| G4 | CLI harness `pnpm harness <scenario>`: drives the local worker over WS and a real `ky-runner` process; the six Quint traps as scenarios marked expected-fail until lane B | doing |
+| G5 | Web UI e2e (Playwright) over the local stack, one check per `local` feature in `FEATURES.md` | doing |
+| G6 | `pnpm gate` = typecheck (worker + runner) + oxlint + fallow + worker e2e + CLI harness + web e2e; baseline recorded; `pnpm gate:live` for live-only checks | doing |
+| G7 | Project skills `verify-ky-cli` and `verify-ky-web` so every lane drives the same harnesses | doing |
 
 ## A: correctness bugs
 
@@ -57,9 +78,8 @@ Each lane is implemented by an Opus subagent in its own worktree, merged here, t
 | id | item | status |
 |---|---|---|
 | S1 | MachineHub stops querying `ky_tasks` directly; goes through TaskFeed | todo |
-| S2 | `ky_tasks` row: replace overloaded `session`/`worker` with `kind`/`target`/`ref` (with an in-place migration) | todo |
+| S2 | `ky_tasks` row: replace overloaded `session`/`worker` with `kind`/`target`/`ref` (no migration: no backward compat) | todo |
 | S3 | `PiSessionSockets`: replace 10 positional deps with a small typed object; split responsibilities | todo |
-| S4 | Test worker reuses the real DO wiring instead of duplicating it | todo |
 
 ## U: UI and docs
 

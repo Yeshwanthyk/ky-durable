@@ -157,7 +157,7 @@
 
     <section class="doc" id="progress">
       <h2><span class="k">↻</span>fixing now</h2>
-      <p>Branch <code>fix/lint-and-state-traps</code>, mirrored from <code>plan.md</code>. Lanes run as Opus subagents in the order L → {A, B, M, U} → S; Fable verifies each lane before it is marked done. <span id="progress-sum"></span></p>
+      <p>Branch <code>fix/lint-and-state-traps</code>, mirrored from <code>plan.md</code>. Lanes run as Opus subagents: L and G first, then {A, B, M, U}, then S. <code>pnpm gate</code> (typecheck, oxlint, fallow, worker e2e, CLI harness, web e2e) must pass before every merge, and Fable verifies each lane before it is marked done. One PR at the end. <span id="progress-sum"></span></p>
       <table>
         <thead><tr><th>id</th><th>item</th><th>status</th></tr></thead>
         <tbody id="progress-body"></tbody>
@@ -588,6 +588,15 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
         ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'doing'],
         ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'doing'],
       ]],
+      ['G', 'the gate: e2e harnesses and regression baseline', [
+        ['G1', 'FEATURES.md: every working feature, tagged local or live-only', 'doing'],
+        ['G2', 'local stack: real worker, fake model / claude binary / Executor', 'doing'],
+        ['G3', 'worker e2e runs the real PiAgent wiring (was S4)', 'doing'],
+        ['G4', 'CLI harness: real ky-runner; Quint traps as scenarios', 'doing'],
+        ['G5', 'web UI e2e (Playwright), one check per local feature', 'doing'],
+        ['G6', 'pnpm gate: typecheck + oxlint + fallow + all e2e; baseline', 'doing'],
+        ['G7', 'verify-ky-cli and verify-ky-web project skills', 'doing'],
+      ]],
       ['A', 'correctness bugs', [
         ['A1', 'executor: retry only on connect / expired session; pass the abort signal', 'todo'],
         ['A2', 'browse: no leaked browser when launch is slow and the call times out', 'todo'],
@@ -614,9 +623,8 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
       ]],
       ['S', 'state ownership (after B and M)', [
         ['S1', 'MachineHub goes through TaskFeed', 'todo'],
-        ['S2', 'ky_tasks kind / target / ref, with migration', 'todo'],
+        ['S2', 'ky_tasks kind / target / ref (no migration)', 'todo'],
         ['S3', 'PiSessionSockets takes a typed deps object', 'todo'],
-        ['S4', 'test worker reuses the real DO wiring', 'todo'],
       ]],
     ];
     const tone = (st) => st.startsWith('done') ? 'ok' : st === 'doing' || st === 'review' ? 'doing' : 'muted';
