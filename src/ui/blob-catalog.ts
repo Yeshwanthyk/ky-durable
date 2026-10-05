@@ -1,35 +1,35 @@
 import {
   COLORS,
-  SHAPES,
+  OUTLINES,
   type BotColor,
-  type BotShape,
+  type BotOutline,
   type ColorId,
-  type ShapeId,
+  type OutlineId,
 } from "./bloub/skins";
 
-export type BlobVariantId = `${ShapeId}-${ColorId}`;
+export type BlobVariantId = `${OutlineId}-${ColorId}`;
 
 export interface BlobVariant {
   id: BlobVariantId;
-  shape: BotShape;
+  outline: BotOutline;
   color: BotColor;
 }
 
-function createBlobVariant(shape: BotShape, color: BotColor): BlobVariant {
-  const id: BlobVariantId = `${shape.id}-${color.id}`;
+function createBlobVariant(outline: BotOutline, color: BotColor): BlobVariant {
+  const id: BlobVariantId = `${outline.id}-${color.id}`;
 
-  return { id, shape, color };
+  return { id, outline, color };
 }
 
-export const BLOB_CATALOG: readonly BlobVariant[] = SHAPES.flatMap((shape) =>
-  COLORS.map((color) => createBlobVariant(shape, color)),
+export const BLOB_CATALOG: readonly BlobVariant[] = OUTLINES.flatMap((outline) =>
+  COLORS.map((color) => createBlobVariant(outline, color)),
 );
 
 const BLOB_BY_ID = new Map<BlobVariantId, BlobVariant>(
   BLOB_CATALOG.map((variant) => [variant.id, variant]),
 );
 
-const AUTOMATIC_SHAPE_IDS = new Set<ShapeId>(["cercle", "galet", "squircle", "hexagone"]);
+const AUTOMATIC_OUTLINE_IDS = new Set<OutlineId>(["cercle", "galet", "squircle", "hexagone"]);
 
 const AUTOMATIC_COLOR_IDS = new Set<ColorId>([
   "rouge",
@@ -41,7 +41,7 @@ const AUTOMATIC_COLOR_IDS = new Set<ColorId>([
 ]);
 
 export const AUTOMATIC_BLOB_VARIANTS: readonly BlobVariant[] = BLOB_CATALOG.filter(
-  ({ shape, color }) => AUTOMATIC_SHAPE_IDS.has(shape.id) && AUTOMATIC_COLOR_IDS.has(color.id),
+  ({ outline, color }) => AUTOMATIC_OUTLINE_IDS.has(outline.id) && AUTOMATIC_COLOR_IDS.has(color.id),
 );
 
 export function normalizeBlobIdentity(identity: string): string {

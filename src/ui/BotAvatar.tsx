@@ -66,8 +66,8 @@ export function BotAvatar({
   const phase = useMemo(() => blobPhaseForIdentity(identity), [identity]);
 
   const engine = useMemo(
-    () => new BotEngine(RAYON, "idle", variant.shape.radii),
-    [identity, variant.id, variant.shape.radii],
+    () => new BotEngine(RAYON, "idle", variant.outline.radii),
+    [identity, variant.id, variant.outline.radii],
   );
 
   const engineTime = useRef(phase);

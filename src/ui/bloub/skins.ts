@@ -24,7 +24,7 @@ import {
  * la cle existe). Un `as const` sur le tableau aurait le meme effet mais
  * rendrait `radii` en lecture seule, alors que le moteur le passe tel quel.
  */
-export type ShapeId =
+export type OutlineId =
   | 'cercle'
   | 'galet'
   | 'squircle'
@@ -34,8 +34,8 @@ export type ShapeId =
   | 'nuage'
   | 'goutte'
 
-export interface BotShape {
-  id: ShapeId
+export interface BotOutline {
+  id: OutlineId
   radii: number[]
 }
 
@@ -78,7 +78,7 @@ const droplet = normalize(
 /** Capsule couchee : enveloppe de deux disques cote a cote. */
 const capsule = profileFromPolygon(hullOfCircles(-0.42, 0, 0.62, 0.42, 0, 0.62), 0, 0)
 
-export const SHAPES: BotShape[] = [
+export const OUTLINES: BotOutline[] = [
   { id: 'cercle', radii: new Array(PROFILE_SAMPLES).fill(1) },
   { id: 'galet', radii: pebble },
   // 1.15 et pas 1.02 : sur une superellipse le rayon maximal est la diagonale,
@@ -93,11 +93,11 @@ export const SHAPES: BotShape[] = [
   { id: 'goutte', radii: droplet }
 ]
 
-// Map indexee par `string` et non par `ShapeId` : les appelants interrogent avec
+// Map indexee par `string` et non par `OutlineId` : les appelants interrogent avec
 // une valeur relue du localStorage ou d'une prop, donc non validee.
-export const SHAPE_BY_ID = new Map<string, BotShape>(SHAPES.map((s) => [s.id, s]))
+export const OUTLINE_BY_ID = new Map<string, BotOutline>(OUTLINES.map((s) => [s.id, s]))
 
-export const DEFAULT_SHAPE = 'cercle'
+export const DEFAULT_OUTLINE = 'cercle'
 
 export type ColorId =
   | 'encre'

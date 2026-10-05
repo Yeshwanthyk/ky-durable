@@ -41,7 +41,7 @@
 import { EXPRESSIONS, type BotExpression } from './expressions'
 import { eyePoses } from './face'
 import { radiusAtAngle, toPoints, type Point } from './shape'
-import { SHAPES } from './skins'
+import { OUTLINES } from './skins'
 import { STATES, type Pose, type StateDef, type StateId } from './states'
 
 /** Rayon de reference du solveur. Le decalage rendu est en unites de ce rayon. */
@@ -444,13 +444,13 @@ const clef = (state: StateId, expr: string | null) => `${state}|${expr ?? ''}`
  * sur la video et une seule entree.
  *
  * Clef par REFERENCE du tableau de rayons, ce qui est deja la convention du moteur : ses
- * gardes `radii === this.shape` et `expression === this.expr` reposent sur la meme
+ * gardes `radii === this.outline` et `expression === this.expr` reposent sur la meme
  * stabilite. Un profil inconnu, ou `null`, ne corrige rien — l'API accepte n'importe quel
  * tableau et le moteur n'a pas a dependre de la prudence de ses appelants.
  */
 function batir(): Map<number[], Map<string, { x: number; y: number }>> {
   return new Map(
-  SHAPES.map((forme) => {
+  OUTLINES.map((forme) => {
     const par = new Map<string, { x: number; y: number }>()
 
     for (const def of STATES) {
