@@ -15,6 +15,13 @@ export const PROTOCOL = 1;
 
 const Seq = Type.Integer({ minimum: 1 });
 
+/**
+ * A task's turn: 1 for its run, one more for each message sent to it. A
+ * report names the turn it ends or speaks for, and the object drops a report
+ * for a turn it has already closed.
+ */
+const Turn = Type.Integer({ minimum: 1 });
+
 const Text = Type.String();
 
 const Session = Type.Union([Type.String(), Type.Null()]);
@@ -24,16 +31,18 @@ const RunCommandSchema = Type.Object({
   type: Type.Literal("run"),
   seq: Seq,
   task: Text,
+  turn: Turn,
   prompt: Text,
   /** The Claude Code session to resume, once the first turn named one. */
   session: Session
 });
 
-/** Object → runner: stop the task's session. */
+/** Object → runner: stop the task's session; `turn` is its latest. */
 const StopCommandSchema = Type.Object({
   type: Type.Literal("stop"),
   seq: Seq,
-  task: Text
+  task: Text,
+  turn: Turn
 });
 
 const RunnerCommandSchema = Type.Union([RunCommandSchema, StopCommandSchema]);
@@ -48,11 +57,13 @@ const HelloSchema = Type.Object({
 const RunnerReportSchema = Type.Union([
   HelloSchema,
   Type.Object({ type: Type.Literal("ack"), seq: Seq }),
-  Type.Object({ type: Type.Literal("session"), task: Text, session: Text }),
-  Type.Object({ type: Type.Literal("progress"), task: Text, text: Text }),
+  Type.Object({ type: Type.Literal("session"), task: Text, turn: Turn, session: Text }),
+  Type.Object({ type: Type.Literal("progress"), task: Text, turn: Turn, text: Text }),
+  /** The end of every turn up to `turn`. */
   Type.Object({
     type: Type.Literal("result"),
     task: Text,
+    turn: Turn,
     ok: Type.Boolean(),
     text: Text,
     session: Session

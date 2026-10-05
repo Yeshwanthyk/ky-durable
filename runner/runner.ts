@@ -33,6 +33,8 @@ export type SpawnClaude = (task: string, session: string | null, events: ClaudeE
 type Run = {
   child: ClaudeProcess;
   session: string | null;
+  /** The latest turn written to it; its reports speak for every turn up to this one. */
+  turn: number;
   /** Messages written that have no result yet. */
   pending: number;
   stopped: boolean;
@@ -137,16 +139,17 @@ export class Runner {
     if (run) {
       // Steer: Claude Code takes it as the next user message in this session.
       run.pending += 1;
+      run.turn = command.turn;
       run.child.write(userLine(command.prompt));
       this.#log(`${command.task}: steer`);
 
       return;
     }
 
-    this.#start(command.task, command.prompt, command.session);
+    this.#start(command.task, command.turn, command.prompt, command.session);
   }
 
-  #start(task: string, prompt: string, session: string | null): void {
+  #start(task: string, turn: number, prompt: string, session: string | null): void {
     this.#log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     let lastProgress = 0;
 
@@ -162,7 +165,7 @@ export class Runner {
 
         if (event.session_id && event.session_id !== run.session) {
           run.session = event.session_id;
-          this.#report({ type: "session", task, session: event.session_id });
+          this.#report({ type: "session", task, turn: run.turn, session: event.session_id });
         }
 
         if (event.type === "assistant") {
@@ -175,7 +178,7 @@ export class Runner {
 
           if (text && Date.now() - lastProgress > PROGRESS_EVERY_MS) {
             lastProgress = Date.now();
-            this.#report({ type: "progress", task, text });
+            this.#report({ type: "progress", task, turn: run.turn, text });
           }
         }
 
@@ -184,7 +187,7 @@ export class Runner {
           run.last = String(event.result ?? "");
 
           if (run.pending > 0) {
-            this.#report({ type: "progress", task, text: run.last });
+            this.#report({ type: "progress", task, turn: run.turn, text: run.last });
 
             return;
           }
@@ -194,6 +197,7 @@ export class Runner {
           this.#report({
             type: "result",
             task,
+            turn: run.turn,
             ok: !event.is_error && !run.stopped,
             text: run.stopped ? "Stopped." : run.last || (event.is_error ? "Failed." : "Done."),
             session: run.session
@@ -209,6 +213,7 @@ export class Runner {
         this.#report({
           type: "result",
           task,
+          turn: run.turn,
           ok: false,
           text: run.stopped ? "Stopped." : `claude exited with ${code}. ${stderr.trim()}`,
           session: run.session
@@ -216,7 +221,7 @@ export class Runner {
       }
     });
 
-    const run: Run = { child, session, pending: 1, stopped: false, last: "" };
+    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "" };
     this.#runs.set(task, run);
     child.write(userLine(prompt));
   }

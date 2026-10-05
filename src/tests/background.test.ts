@@ -93,7 +93,7 @@ describe("delegated work leaves the main chat free", () => {
     expect(reply.text).toBe("echo: hello");
     expect(await stub.tasks()).toEqual([{ kind: "machine", worker: "mac", status: "queued" }]);
 
-    mac.socket.send(JSON.stringify({ type: "result", task: run.task, ok: true, text: "built", session: null }));
+    mac.socket.send(JSON.stringify({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null }));
     await said(stub, `[machine mac, task ${run.task} "build it" finished`);
     expect(await stub.tasks()).toEqual([{ kind: "machine", worker: "mac", status: "done" }]);
     mac.socket.close();
@@ -109,7 +109,7 @@ describe("delegated work leaves the main chat free", () => {
     // The main agent is stuck in a tool when the report arrives.
     const busy = await stub.submit("gate");
     await stub.gateStarted(1);
-    mac.socket.send(JSON.stringify({ type: "result", task: run.task, ok: true, text: "built", session: null }));
+    mac.socket.send(JSON.stringify({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null }));
     await new Promise((resolve) => setTimeout(resolve, 100));
     await stub.release();
 

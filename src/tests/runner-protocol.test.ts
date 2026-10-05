@@ -379,7 +379,7 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
-  it.fails("fences turns: a repeated result posts once, and a late progress does not reopen the task", async () => {
+  it("fences turns: a repeated result posts once, and a late progress does not reopen the task", async () => {
     const { stub, mac } = await online();
     const id = await start(stub);
     await mac.claude(0);

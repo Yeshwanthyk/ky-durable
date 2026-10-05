@@ -36,6 +36,8 @@ export function runnerOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(RUNNER_TAG_PREFIX))?.slice(RUNNER_TAG_PREFIX.length);
 }
 
+type Turns = { turn: number; closed: number; sent: number };
+
 export class MachineHub {
   readonly #sql: SqlStorage;
   readonly #feed: TaskFeed;
@@ -60,6 +62,35 @@ export class MachineHub {
       payload TEXT NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machines (
       name TEXT PRIMARY KEY, seen_at INTEGER NOT NULL)`);
+    // Each task's turns: its latest, the highest one reported over, and the highest one sent to its runner.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_turns (
+      task TEXT PRIMARY KEY,
+      turn INTEGER NOT NULL,
+      closed INTEGER NOT NULL,
+      sent INTEGER NOT NULL)`);
+    // Commands from before turns were numbered; no runner of this protocol accepts them.
+    sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
+  }
+
+  /** A task's turns; a task from before they were kept is on its first. */
+  #turns(task: string): Turns {
+    return (
+      this.#sql
+        .exec<Turns>("SELECT turn, closed, sent FROM ky_machine_turns WHERE task = ?", task)
+        .toArray()[0] ?? { turn: 1, closed: 0, sent: 0 }
+    );
+  }
+
+  #setTurns(task: string, turns: Partial<Turns>): void {
+    const next = { ...this.#turns(task), ...turns };
+    this.#sql.exec(
+      `INSERT INTO ky_machine_turns (task, turn, closed, sent) VALUES (?, ?, ?, ?)
+       ON CONFLICT(task) DO UPDATE SET turn = excluded.turn, closed = excluded.closed, sent = excluded.sent`,
+      task,
+      next.turn,
+      next.closed,
+      next.sent
+    );
   }
 
   /** The harness reports go to; set once it exists. */
@@ -148,16 +179,19 @@ export class MachineHub {
     });
 
     if (task.status === "queued") {
-      this.#enqueue(machine, { type: "run", task: id, prompt, session: null });
+      this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
+      this.#enqueue(machine, { type: "run", task: id, turn: 1, prompt, session: null });
     }
 
     return task;
   }
 
-  /** Steer a running task, or resume a finished one with a new turn. */
+  /** Steer a running task, or resume a finished one, as its next turn. */
   send(task: TaskRow, message: string): void {
+    const turn = this.#turns(task.id).turn + 1;
+    this.#setTurns(task.id, { turn });
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-    this.#enqueue(task.worker, { type: "run", task: task.id, prompt: message, session: task.session });
+    this.#enqueue(task.worker, { type: "run", task: task.id, turn, prompt: message, session: task.session });
   }
 
   /**
@@ -172,13 +206,15 @@ export class MachineHub {
       task.id
     ).rowsWritten;
 
+    const { turn } = this.#turns(task.id);
+
     if (task.status === "queued" && withdrawn > 0) {
-      await this.#finish(task.id, false, "Stopped before it started.");
+      await this.#finish(task.id, false, "Stopped before it started.", turn);
 
       return;
     }
 
-    this.#enqueue(task.worker, { type: "stop", task: task.id });
+    this.#enqueue(task.worker, { type: "stop", task: task.id, turn });
   }
 
   async onReport(machine: string, report: RunnerReport): Promise<void> {
@@ -194,7 +230,12 @@ export class MachineHub {
           .filter((task) => !report.active.includes(task.id));
 
         for (const task of lost) {
-          await this.#finish(task.id, false, "Interrupted: the runner restarted. Send it a message to resume.");
+          await this.#finish(
+            task.id,
+            false,
+            "Interrupted: the runner restarted. Send it a message to resume.",
+            this.#turns(task.id).turn
+          );
         }
 
         this.#deliver(machine, this.#pending(machine));
@@ -207,25 +248,39 @@ export class MachineHub {
 
         return;
       case "session":
+        if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { session: report.session, status: "working" });
 
         return;
       case "progress":
+        if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { status: "working", summary: summarize(report.text) });
 
         return;
       case "result":
+        if (this.#closed(report.task, report.turn)) return;
+
         if (report.session) this.#feed.update(report.task, { session: report.session });
-        await this.#finish(report.task, report.ok, report.text);
+        await this.#finish(report.task, report.ok, report.text, report.turn);
 
         return;
     }
   }
 
-  async #finish(id: string, ok: boolean, text: string): Promise<void> {
+  /** Whether `turn` is already reported over: what the runner says about it is late. */
+  #closed(task: string, turn: number): boolean {
+    return turn <= this.#turns(task).closed;
+  }
+
+  /**
+   * Report every turn up to `turn` as over, once: a turn already closed is
+   * not reported again, and the report's operation id is the turn's.
+   */
+  async #finish(id: string, ok: boolean, text: string, turn: number): Promise<void> {
     const task = this.#feed.get(id);
 
-    if (!task) return;
+    if (!task || this.#closed(id, turn)) return;
+    this.#setTurns(id, { closed: turn });
     const stopped = !ok && /\b(stopped|interrupted by user)\b/i.test(text);
     this.#feed.update(id, {
       status: ok ? "done" : stopped ? "stopped" : "failed",
@@ -244,7 +299,7 @@ export class MachineHub {
 
     await this.#harness.submit(
       `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}${shared}`,
-      { operationId: `machine-report:${id}:${crypto.randomUUID()}`, whenBusy: "steer" }
+      { operationId: `task:${id}:${turn}`, whenBusy: "steer" }
     );
   }
 }
