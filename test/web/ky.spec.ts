@@ -269,6 +269,18 @@ test("stops a machine task from Activity", async ({ page }) => {
   await expect(panel(page).getByRole("button", { name: /long web job/ }).first()).toContainText(/Stopped/);
 });
 
+test("stops every working task at once from Activity", async ({ page }) => {
+  await open(page);
+  await send(page, "machine@webmac [delay=60000] the first long job");
+  await expect(panel(page).getByRole("button", { name: /^Stop .*first long job/ })).toBeVisible();
+  await send(page, "machine@webmac [delay=60000] the second long job");
+  await expect(panel(page).getByRole("button", { name: /^Stop .*second long job/ })).toBeVisible();
+
+  await panel(page).getByRole("button", { name: "Stop all", exact: true }).click();
+  await expect(panel(page).getByRole("button", { name: /^Stop .*long job/ })).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: "Stop all", exact: true })).toBeHidden();
+});
+
 test("shows a task's screenshot and opens it in the lightbox", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [attach] screenshot the web page");
