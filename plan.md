@@ -28,9 +28,9 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | doing |
-| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | doing |
-| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | doing |
+| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | review |
+| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | review |
+| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | review |
 
 ## G: the gate (e2e harnesses + regression baseline)
 

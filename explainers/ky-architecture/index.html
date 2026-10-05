@@ -584,9 +584,9 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
     // ─── fix progress: keep in step with plan.md. status: todo · doing · review · done <sha>
     const progress = [
       ['L', 'lint and dead code', [
-        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'doing'],
-        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'doing'],
-        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'doing'],
+        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'review'],
+        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'review'],
+        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'review'],
       ]],
       ['G', 'the gate: e2e harnesses and regression baseline', [
         ['G1', 'FEATURES.md: every working feature, tagged local or live-only', 'doing'],
