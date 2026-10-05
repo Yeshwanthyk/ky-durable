@@ -85,11 +85,12 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| U1 | Split `App` in client.tsx (cognitive complexity 97) | review |
-| U2 | README matches the system (where things run, runner setup) | review |
+| U1 | Split `App` in client.tsx (cognitive complexity 97) | done (Fable PASS) |
+| U2 | README matches the system (where things run, runner setup) | done (Fable PASS) |
 
 ## Finish
 - Merge order into `fix/lint-and-state-traps`: integration branch from G (L + A + M + G), then U, then B, then S. Run `pnpm gate` after each merge.
+- README pass after B merges (Fable, lane U): point Models at `src/models.ts` and the prompt at `src/prompt.ts`; add the M vars (`VIBEPROXY_ORIGIN`, `KY_REPO`, `KY_WORK_COPY`, `KY_URL`); the runner protocol is shared in `src/runner-protocol.ts` with typebox decode and a `PROTOCOL` check; add `ky_machine_turns` and `KY_STATE_DIR`; scripts table gets `gate`, `gate:live`, `harness`, `test:web` and the runner typecheck that survives.
 - One PR to `main`. Rewrite history so the commits are clean. In particular, move the L1 deletions out of the explainer commit 0a64423.
 - Remove every agent worktree and its `worktree-agent-*` branch: `git worktree list`, then `git worktree remove` + `git branch -D` for each one, then `git worktree prune`.
 - Delete this file. The explainer's "fixing now" table records the final state.
