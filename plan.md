@@ -19,9 +19,9 @@ Each lane is implemented by an Opus subagent in its own worktree, merged here, t
 
 | id | item | status |
 |---|---|---|
-| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | todo |
-| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | todo |
-| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | todo |
+| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | doing |
+| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | doing |
+| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | doing |
 
 ## A: correctness bugs
 

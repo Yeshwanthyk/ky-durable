@@ -94,7 +94,7 @@
     th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); }
     th { color: var(--faint); font-weight: 400; }
     td code, li code, p code { color: var(--amber); font: inherit; }
-    .ok { color: var(--green); } .bad { color: var(--coral); } .new { color: var(--blue); } .muted { color: var(--dim); }
+    .ok { color: var(--green); } .bad { color: var(--coral); } .new { color: var(--blue); } .muted { color: var(--dim); } .doing { color: var(--amber); }
     ol.path { padding-left: 1.4em; } ol.path li { margin: 0 0 10px; }
     ol.path li b { font-weight: 400; color: var(--ink); }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
@@ -153,6 +153,15 @@
     <section class="doc" id="watch">
       <h2><span class="k">00</span>the 60-second version</h2>
       <p class="hint">Narrated walkthrough: <a href="video/video.mp4" style="color:var(--amber)">video/video.mp4</a> (MP4, 62s) · scrubbable and inspectable: <a href="video/index.html" style="color:var(--amber)">video/index.html</a></p>
+    </section>
+
+    <section class="doc" id="progress">
+      <h2><span class="k">↻</span>fixing now</h2>
+      <p>Branch <code>fix/lint-and-state-traps</code>, mirrored from <code>plan.md</code>. Lanes run as Opus subagents in the order L → {A, B, M, U} → S; Fable verifies each lane before it is marked done. <span id="progress-sum"></span></p>
+      <table>
+        <thead><tr><th>id</th><th>item</th><th>status</th></tr></thead>
+        <tbody id="progress-body"></tbody>
+      </table>
     </section>
 
     <section class="doc" id="primitives">
@@ -247,8 +256,9 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
       sandbox:  { title: 'exec sandbox',     status: 'Dynamic Worker',   x: 662,  y: 110, where: 'Dynamic Worker minted via LOADER', state: 'none: an ephemeral isolate whose fs is the DO workspace at /workspace', contract: 'exec runs a JS module; git over HTTPS through the host; no shell, npm or network', offline: 'n/a: per call', source: 'src/workspace.ts:25-65 · src/server.ts:96-108' },
       kitesurf: { title: 'Kitesurf',         status: 'cloud browser',    x: 662,  y: 540, where: 'Cloudflare Browser Rendering (BROWSER)', state: 'per-call browser session', contract: 'browse tool, safe, 90s cap; subagents only, no logins', offline: 'works while the Mac is away', source: 'src/browse.ts:17-83, 175-199 · src/server.ts:231-237' },
       r2:       { title: 'R2 files',         status: 'screenshots',      x: 290,  y: 130, where: 'R2 bucket ky-files', state: 'blobs at files/<id>, 25 MB cap; rows in ky_files', contract: 'PUT /api/files?task= from ky-attach; GET /api/files/<id>', offline: 'n/a', source: 'src/files.ts:19-28, 100-138' },
+      models:   { title: 'models',           status: 'slot router',      x: 662,  y: 300, where: 'logic in the DO (server.ts today, models.ts planned)', state: 'four slots in ky_settings: main · subagents · fallback · titles', contract: 'main → Claude via VibeProxy; Mac probe fails → the fallback slot (OpenCode); subagents → OpenCode; titles → Claude while the Mac is up', offline: 'one stream per turn: whichever provider the slot resolves to', source: 'src/settings.ts:4-16, 64 · src/server.ts:73-90, 281-373' },
       executor: { title: 'Executor',         status: 'apps over MCP',    x: 880,  y: 92,  where: 'executor.sh (SaaS)', state: 'your app connections, on their side', contract: 'executor_skills (safe) · execute / resume (unsafe), 6 min timeout', offline: 'tool returns an error; today it retries once, even unsafe calls', source: 'src/executor.ts:28, 62-95, 117-149' },
-      opencode: { title: 'OpenCode Go',      status: 'KY_MODEL',         x: 1080, y: 92,  where: 'public model API', state: 'none', contract: 'pi-ai provider; fallback for Claude and default for subagents', offline: 'turn fails', source: 'src/server.ts:90, 360-373' },
+      opencode: { title: 'OpenCode Go',      status: 'KY_MODEL',         x: 1080, y: 92,  where: 'public model API', state: 'none', contract: 'pi-ai provider for the subagents slot, and the fallback slot when the Mac is away', offline: 'turn fails', source: 'src/server.ts:90, 360-373' },
       vibeproxy:{ title: 'VibeProxy',        status: 'Claude (sub)',     x: 880,  y: 236, where: 'the Mac, 127.0.0.1:8317', state: 'none', contract: 'Anthropic Messages over a Workers VPC tunnel; /v1/messages and /v1/models only', offline: 'probe fails (3s, cached 30s) → the turn runs on the fallback slot', source: 'src/vibeproxy.ts:21-27, 65-129 · wrangler.jsonc:27-34' },
       reminders:{ title: 'apple_reminders',  status: 'node tool',        x: 1080, y: 236, future: true, where: 'handler in the runner on the Mac (osascript)', state: 'Reminders.app', contract: 'call {id, tool, args} → return {id, result}; deadline 90s; main-only', offline: 'tool returns "node offline" at once; no queueing for tools', source: 'planned: runner/tools/apple-reminders.ts · src/nodes.ts' },
       runner:   { title: 'ky-runner',        status: 'node "mac"',       x: 880,  y: 372, where: 'Node process on the Mac', state: 'runs map, outbox and handled seqs, all in memory', contract: 'outbound WS ?runner=<name>, Bearer KY_TOKEN · run/stop in · hello/ack/session/progress/result out', offline: 'the DO keeps commands in ky_machine_inbox until ack', source: 'runner/ky-runner.ts:129-139, 278-318 · src/machines.ts:39-62' },
@@ -259,8 +269,8 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
     const wires = {
       uw: ['ui', 'worker'], wb: ['worker', 'brain', 'WS'], bs: ['brain', 'sqlite'], bm: ['brain', 'memory'], ms: ['memory', 'sqlite'],
       bsc: ['brain', 'scheduler', '', true], bx: ['brain', 'sandbox'], bk: ['brain', 'kitesurf'], wr: ['worker', 'r2', '', false],
-      be: ['brain', 'executor'], bo: ['brain', 'opencode'], bv: ['brain', 'vibeproxy', 'VPC tunnel'], rb: ['runner', 'brain', 'WS ?runner='],
-      rc: ['runner', 'claude'], rr: ['runner', 'reminders', '', true], nb: ['node2', 'brain', '', true], nl: ['brain', 'localmodel', 'VPC #2', true],
+      be: ['brain', 'executor'], bmo: ['brain', 'models', 'slot'], bo: ['models', 'opencode', 'HTTPS'], bv: ['models', 'vibeproxy', 'VPC tunnel'], rb: ['runner', 'brain', 'WS ?runner='],
+      rc: ['runner', 'claude'], rr: ['runner', 'reminders', '', true], nb: ['node2', 'brain', '', true], nl: ['models', 'localmodel', 'VPC #2', true],
     };
     const S = (caption, o = {}) => ({ caption, ...o });
     const scenarios = {
@@ -274,6 +284,7 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
       turn: { name: 'chat turn + model', steps: [
         S('You send a message; the Worker checks <em>KY_TOKEN</em> and routes to "me".', { send: ['uw', 'submit'], set: { ui: ['sending', 'amber'], worker: ['auth ok', 'green'] }, select: 'worker', cite: 'src/server.ts:380-404' }),
         S('The DO queues the input and <em>wakes</em> the main conversation.', { send: ['wb', 'submit · followUp'], set: { brain: ['turn running', 'amber'] }, select: 'brain', cite: 'agents/harness/pi index.js:406-432' }),
+        S('The DO asks <em>models</em> what the main slot resolves to. Each turn streams from exactly one provider.', { send: ['bmo', 'resolve main'], set: { models: ['main → Claude', 'amber'] }, select: 'models', cite: 'src/server.ts:73-90 · src/settings.ts:74-82' }),
         S('The main slot is Claude: probe the Mac, then <em>stream through the tunnel</em>.', { send: ['bv', '/v1/messages'], set: { vibeproxy: ['streaming', 'green'] }, select: 'vibeproxy', cite: 'src/vibeproxy.ts:79-129' }),
         S('Mac asleep? The probe fails and the <em>same turn</em> runs on the fallback slot.', { send: ['bo', 'fallback'], fail: 'bv', set: { vibeproxy: ['unreachable', 'coral'], opencode: ['answering', 'green'] }, callout: ['vibeproxy', 'derived', 'probe cached 30s'], select: 'opencode', cite: 'src/vibeproxy.ts:117-129 · src/server.ts:74-89' }),
         S('Events stream back to every open tab.', { send: ['wb', 'events', true], set: { ui: ['streaming', 'green'], brain: ['idle', 'green'] }, select: 'ui', cite: 'src/sockets.ts:242-256' }),
@@ -569,6 +580,50 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
       if (e.key === ' ') { e.preventDefault(); play(); }
     });
     addEventListener('resize', fit);
+
+    // ─── fix progress: keep in step with plan.md. status: todo · doing · review · done <sha>
+    const progress = [
+      ['L', 'lint and dead code', [
+        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'doing'],
+        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'doing'],
+        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'doing'],
+      ]],
+      ['A', 'correctness bugs', [
+        ['A1', 'executor: retry only on connect / expired session; pass the abort signal', 'todo'],
+        ['A2', 'browse: no leaked browser when launch is slow and the call times out', 'todo'],
+        ['A3', 'UI submits carry an operationId', 'todo'],
+      ]],
+      ['B', 'runner protocol (Quint)', [
+        ['B0', 'one shared runner-protocol.ts; typecheck the runner', 'todo'],
+        ['B1', 'flush the outbox before hello', 'todo'],
+        ['B2', 'fence reports by turn; operationId task:&lt;id&gt;:&lt;turn&gt;', 'todo'],
+        ['B3', 'runner persists handled seqs before acking', 'todo'],
+        ['B4', 'safe stop', 'todo'],
+        ['B5', 'hello reconciles queued and working tasks', 'todo'],
+        ['B6', 'ordered delivery of pending inbox rows', 'todo'],
+        ['B7', 'one socket per node name', 'todo'],
+      ]],
+      ['M', 'models and prompt', [
+        ['M1', 'models.ts owns catalog, slots, resolve(slot) and fallback', 'todo'],
+        ['M2', 'vibeProxy takes its origin', 'todo'],
+        ['M3', 'PREAMBLE → prompt.ts; the Mac path comes from config', 'todo'],
+      ]],
+      ['U', 'UI and docs', [
+        ['U1', 'split App in client.tsx', 'todo'],
+        ['U2', 'README matches the system', 'todo'],
+      ]],
+      ['S', 'state ownership (after B and M)', [
+        ['S1', 'MachineHub goes through TaskFeed', 'todo'],
+        ['S2', 'ky_tasks kind / target / ref, with migration', 'todo'],
+        ['S3', 'PiSessionSockets takes a typed deps object', 'todo'],
+        ['S4', 'test worker reuses the real DO wiring', 'todo'],
+      ]],
+    ];
+    const tone = (st) => st.startsWith('done') ? 'ok' : st === 'doing' || st === 'review' ? 'doing' : 'muted';
+    const items = progress.flatMap(([, , rows]) => rows);
+    $('progress-sum').textContent = `${items.filter(([, , st]) => st.startsWith('done')).length} of ${items.length} done.`;
+    $('progress-body').innerHTML = progress.map(([lane, name, rows]) =>
+      `<tr><td colspan="3"><b>${lane}</b> · ${name}</td></tr>` + rows.map(([id, item, st]) => `<tr><td>${id}</td><td>${item}</td><td class="${tone(st)}">${st}</td></tr>`).join('')).join('');
 
     // ─── state traps: filled from the Quint models' README
     const traps = [
