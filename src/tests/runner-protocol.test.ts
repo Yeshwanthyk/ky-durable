@@ -263,7 +263,7 @@ describe("runner protocol: the Quint counterexamples", () => {
   });
 
   // CE2 seqHelloBeforeOutbox: a result made offline must beat the reconnect hello.
-  it.fails("helloBeforeOutbox: a result finished offline is reported once, as done", async () => {
+  it("helloBeforeOutbox: a result finished offline is reported once, as done", async () => {
     const { stub, mac } = await online();
     const id = await start(stub);
     const claude = await mac.claude(0);

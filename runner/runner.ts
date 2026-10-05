@@ -63,12 +63,18 @@ export class Runner {
     return [...this.#runs.keys()];
   }
 
-  /** A socket opened: say hello, then send what was made offline. */
+  /**
+   * A socket opened: first send what was made offline, then hello. The
+   * object reads hello's `active` as "everything else is over", so a result
+   * finished offline must land before it, or the task is first declared
+   * interrupted and then reported again as done.
+   */
   open(link: Link): void {
     this.#link = link;
-    link.send(JSON.stringify(this.#hello()));
 
     for (const message of this.#outbox.splice(0)) link.send(JSON.stringify(message));
+
+    link.send(JSON.stringify(this.#hello()));
   }
 
   closed(link: Link): void {
