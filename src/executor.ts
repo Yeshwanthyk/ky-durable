@@ -5,7 +5,12 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPClientTransport,
+  type StreamableHTTPClientTransportOptions,
+  StreamableHTTPError
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 
 /**
  * Executor (v2.executor.sh) over MCP. Executor holds the accounts and turns
@@ -21,11 +26,41 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 export type ExecutorConfig = {
   readonly url: string | undefined;
   readonly token: string | undefined;
+  /** How requests reach Executor; global fetch unless set. */
+  readonly fetch?: typeof fetch;
 };
 
 type CallResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 const REQUEST_TIMEOUT_MS = 6 * 60_000;
+
+const failed = (error: Error): CallResult => ({
+  content: [{ type: "text", text: `Executor call failed: ${error.message}` }],
+  isError: true
+});
+
+/** One try at a call, and whether it provably never reached Executor, so it may be tried again. */
+type Attempt = { result: CallResult; neverRan: boolean };
+
+/** Whether Executor answered with one of these HTTP statuses. */
+function answered(error: Error, ...codes: number[]): boolean {
+  return error instanceof StreamableHTTPError && error.code !== undefined && codes.includes(error.code);
+}
+
+/** An MCP tool result as pi tool content: text parts as they are, anything else as JSON. */
+function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
+  const content = (Array.isArray(result.content) ? result.content : []).map((part) =>
+    part.type === "text"
+      ? { type: "text" as const, text: part.text }
+      : { type: "text" as const, text: JSON.stringify(part) }
+  );
+
+  if (result.structuredContent !== undefined && content.length === 0) {
+    content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
+  }
+
+  return { content, isError: result.isError === true };
+}
 
 class ExecutorClient {
   readonly #config: ExecutorConfig;
@@ -45,9 +80,12 @@ class ExecutorClient {
     const connecting = (async () => {
       const client = new Client({ name: "ky", version: "0.1.0" });
 
-      const transport = new StreamableHTTPClientTransport(new URL(this.#config.url!), {
+      const options: StreamableHTTPClientTransportOptions = {
         requestInit: { headers: { Authorization: `Bearer ${this.#config.token}` } }
-      });
+      };
+
+      if (this.#config.fetch) options.fetch = this.#config.fetch;
+      const transport = new StreamableHTTPClientTransport(new URL(this.#config.url!), options);
 
       await client.connect(transport);
 
@@ -55,15 +93,31 @@ class ExecutorClient {
     })();
 
     // A failed connect is not kept; the caller still sees its error.
-    connecting.catch(() => {
-      this.#client = undefined;
-    });
+    connecting.catch(() => this.#forget(connecting));
     this.#client = connecting;
 
     return connecting;
   }
 
-  async call(name: string, args: Record<string, JsonValue | undefined>): Promise<CallResult> {
+  /** Drop a connection, unless a newer one already replaced it. */
+  #forget(connection: Promise<Client>): void {
+    if (this.#client !== connection) return;
+    this.#client = undefined;
+    connection.then((client) => client.close()).catch(() => undefined);
+  }
+
+  /**
+   * `execute` and `resume` can act in the user's accounts, so a call is
+   * retried only when it provably never reached Executor: the connection could
+   * not be made, or Executor refused the session before running anything. A
+   * timeout or a lost response can come after the program ran, so it is
+   * reported, never retried.
+   */
+  async call(
+    name: string,
+    args: Record<string, JsonValue | undefined>,
+    signal: AbortSignal | undefined
+  ): Promise<CallResult> {
     if (!this.configured) {
       return {
         content: [{ type: "text", text: "Executor is not configured: EXECUTOR_URL and EXECUTOR_TOKEN are unset." }],
@@ -71,38 +125,46 @@ class ExecutorClient {
       };
     }
 
-    let lastError: unknown;
+    for (let attempt = 0; ; attempt++) {
+      const retry = attempt === 0 && signal?.aborted !== true;
+      const { result, neverRan } = await this.#attempt(name, args, signal);
 
-    // One retry on a fresh connection: the MCP session may have expired.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const client = await this.#connect();
+      if (!retry || !neverRan) return result;
+    }
+  }
 
-        const result = await client.callTool({ name, arguments: args }, undefined, {
-          timeout: REQUEST_TIMEOUT_MS
-        });
+  async #attempt(
+    name: string,
+    args: Record<string, JsonValue | undefined>,
+    signal: AbortSignal | undefined
+  ): Promise<Attempt> {
+    const connection = this.#connect();
+    let client: Client;
 
-        const content = (Array.isArray(result.content) ? result.content : []).map((part) =>
-          part.type === "text"
-            ? { type: "text" as const, text: part.text }
-            : { type: "text" as const, text: JSON.stringify(part) }
-        );
+    try {
+      client = await connection;
+    } catch (thrown) {
+      const error = thrown instanceof Error ? thrown : new Error(String(thrown));
 
-        if (result.structuredContent !== undefined && content.length === 0) {
-          content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
-        }
-
-        return { content, isError: result.isError === true };
-      } catch (error) {
-        lastError = error;
-        this.#client = undefined;
-      }
+      // A refused token stays refused; only a connection that may not have been made is tried again.
+      return { result: failed(error), neverRan: !answered(error, 401, 403) };
     }
 
-    return {
-      content: [{ type: "text", text: `Executor call failed: ${lastError instanceof Error ? lastError.message : String(lastError)}` }],
-      isError: true
-    };
+    try {
+      const options: RequestOptions = { timeout: REQUEST_TIMEOUT_MS };
+
+      if (signal) options.signal = signal;
+
+      return { result: toResult(await client.callTool({ name, arguments: args }, undefined, options)), neverRan: false };
+    } catch (thrown) {
+      const error = thrown instanceof Error ? thrown : new Error(String(thrown));
+
+      // An aborted call leaves the connection working; any other failure may not.
+      if (signal?.aborted !== true) this.#forget(connection);
+
+      // Executor refused the session as unknown or expired: the Streamable HTTP spec answers 404 before running anything.
+      return { result: failed(error), neverRan: answered(error, 404) };
+    }
   }
 }
 
@@ -128,7 +190,7 @@ export function executorExtension(config: ExecutorConfig): Extension {
           name: Type.Optional(Type.String())
         }),
         replay: "safe",
-        execute: async (args) => executor.call("skills", args)
+        execute: async (args, _api, context) => executor.call("skills", args, context.abortSignal)
       }),
       defineTool({
         name: "executor_execute",
@@ -139,7 +201,7 @@ export function executorExtension(config: ExecutorConfig): Extension {
         }),
         // A program can have side effects in the user's accounts.
         replay: "unsafe",
-        execute: async (args) => executor.call("execute", args)
+        execute: async (args, _api, context) => executor.call("execute", args, context.abortSignal)
       }),
       defineTool({
         name: "executor_resume",
@@ -150,7 +212,7 @@ export function executorExtension(config: ExecutorConfig): Extension {
           { additionalProperties: true }
         ),
         replay: "unsafe",
-        execute: async (args) => executor.call("resume", args)
+        execute: async (args, _api, context) => executor.call("resume", args, context.abortSignal)
       })
     ]
   });

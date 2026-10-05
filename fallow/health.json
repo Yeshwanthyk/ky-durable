@@ -1,0 +1,340 @@
+{
+  "kind": "health",
+  "finding_counts": {
+    "runner/ky-runner.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "src/browse.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/client.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/machines.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/server.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/sockets.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/subagents.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/ui/Attachments.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/BotAvatar.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/CommandPalette.tsx": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/ui/Composer.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/Icon.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/Lightbox.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/Panel.tsx": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/Thread.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/ToolRow.tsx": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/bloub/decor.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/bloub/engine.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/ui/bloub/eyefit.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/bloub/face.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/bloub/shape.ts": {
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/pick-images.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/turns.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/use-pi-session.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/view.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "test/fakes/claude.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/gate-live.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/gate.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "test/harness/client.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/harness/proxy.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/harness/scenarios.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tools/oxlint/anti-slop/rules/no-known-value-widening.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "tools/oxlint/anti-slop/rules/no-module-mocking.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 3
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tools/oxlint/anti-slop/shared/type-alias-resolution.ts": {
+      "crap_moderate": {
+        "count": 3
+      }
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": [
+    "src/ui/turns.ts:complexity",
+    "src/ui/Thread.tsx:complexity",
+    "src/ui/ToolRow.tsx:untested risk",
+    "src/ui/blob-catalog.ts:dead code",
+    "src/ui/bloub/skins.ts:dead code",
+    "src/client.tsx:complexity",
+    "test/harness/client.ts:high impact",
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
+    "src/ui/bloub/expressions.ts:dead code",
+    "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
+    "src/images.ts:high impact",
+    "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
+    "src/ui/bloub/states.ts:dead code",
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk",
+    "src/subagents.ts:complexity"
+  ]
+}

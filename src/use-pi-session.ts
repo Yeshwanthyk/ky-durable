@@ -61,13 +61,28 @@ export function usePiSession(session: string) {
   const version = useRef<string | null>(null);
   /** Commands waiting for their `result`, by id. */
   const waiting = useRef(new Map<string, (result: JsonValue) => void>());
+  /**
+   * Submits the server has not answered yet, by operation id, with the session
+   * they went to. A socket that drops may or may not have delivered one, so
+   * each is sent again when its session's socket opens; pi drops the copy
+   * whose operation id it already has.
+   */
+  const unanswered = useRef(new Map<string, { session: string; message: ClientMessage }>());
+  /** This render's session and socket, for the open handler. */
+  const live = useRef<{ session: string; send(data: string): void } | null>(null);
 
   const agent = useAgent({
     agent: "pi-agent",
     name: OBJECT,
     query: { session },
     queryDeps: [session],
-    onOpen: () => setState((current) => ({ ...current, status: "open" })),
+    onOpen: () => {
+      setState((state) => ({ ...state, status: "open" }));
+
+      for (const pending of unanswered.current.values()) {
+        if (pending.session === live.current?.session) live.current.send(JSON.stringify(pending.message));
+      }
+    },
     onClose: () => setState((current) => ({ ...current, status: "closed" })),
     onMessage: (event) => {
       let message: ServerMessage;
@@ -118,11 +133,14 @@ export function usePiSession(session: string) {
 
           return;
         case "result":
+          unanswered.current.delete(message.id);
           waiting.current.get(message.id)?.(message.result);
           waiting.current.delete(message.id);
 
           return;
         case "error":
+          // A refused submit is answered too; sending it again would be refused again.
+          if (message.id !== undefined) unanswered.current.delete(message.id);
           setState((current) => ({ ...current, error: message.message }));
 
           return;
@@ -131,6 +149,10 @@ export function usePiSession(session: string) {
       }
     }
   });
+
+  useEffect(() => {
+    live.current = { session, send: (data) => agent.send(data) };
+  }, [session, agent]);
 
   useEffect(() => {
     setState((current) => ({
@@ -153,11 +175,18 @@ export function usePiSession(session: string) {
     [agent]
   );
 
-  /** Idle: starts a run. Busy: queued as a follow-up, or steers the run. */
+  /**
+   * Idle: starts a run. Busy: queued as a follow-up, or steers the run. Each
+   * message gets one operation id, kept across resends, so pi takes it once.
+   */
   const submit = useCallback(
-    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp") =>
-      send({ type: "submit", id: crypto.randomUUID(), input, whenBusy }),
-    [send]
+    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp") => {
+      const operationId = crypto.randomUUID();
+      const message: ClientMessage = { type: "submit", id: operationId, operationId, input, whenBusy };
+      unanswered.current.set(operationId, { session, message });
+      send(message);
+    },
+    [send, session]
   );
 
   const abort = useCallback(

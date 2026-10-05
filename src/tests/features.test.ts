@@ -1,0 +1,404 @@
+import { evictDurableObject } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import type { PiClientMessage, PiServerMessage } from "../protocol";
+import {
+  agent,
+  call,
+  connect,
+  follow,
+  type Follower,
+  gateStarted,
+  prompt,
+  runner,
+  said,
+  shows,
+  submit,
+  tasks,
+  TOKEN,
+  wait
+} from "./drive";
+import { decodeNewChat } from "./frames";
+
+/**
+ * One check per server-side feature in FEATURES.md that the local stack can
+ * reach, each through ky's real Worker and PiAgent on the faux model.
+ */
+
+type Frame<T extends PiServerMessage["type"]> = Extract<PiServerMessage, { type: T }>;
+
+/** The newest frame of one type. */
+function latest<T extends PiServerMessage["type"]>(client: Follower, type: T): Frame<T> | undefined {
+  const frames = client.frames.filter((frame): frame is Frame<T> => frame.type === type);
+
+  return frames.at(-1);
+}
+
+async function session(name: string, query = ""): Promise<{ socket: WebSocket; client: Follower }> {
+  const socket = await connect(name, query);
+  const client = follow(socket);
+  await client.until(() => client.frames.some((frame) => frame.type === "events"));
+
+  return { socket, client };
+}
+
+/** Send a command with an id and wait for its result or error. */
+async function command(
+  socket: WebSocket,
+  client: Follower,
+  message: PiClientMessage
+): Promise<Frame<"result"> | Frame<"error">> {
+  const id = crypto.randomUUID();
+  socket.send(JSON.stringify({ ...message, id }));
+
+  const reply = () =>
+    client.frames.find(
+      (frame): frame is Frame<"result"> | Frame<"error"> =>
+        (frame.type === "result" || frame.type === "error") && frame.id === id
+    );
+
+  await client.until(() => reply() !== undefined);
+
+  return reply()!;
+}
+
+describe("signing in", () => {
+  it("sends pages to the login form and refuses the API and sockets without the token", async () => {
+    const page = await call("/", { headers: { Authorization: "" }, redirect: "manual" });
+    expect(page.status).toBe(302);
+    expect(page.headers.get("Location")).toBe("https://ky.test/login");
+
+    expect((await call("/api/files/0123456789abcdef0123456789abcdef", { headers: { Authorization: "" } })).status).toBe(401);
+    expect((await call("/agents/pi-agent/me", { headers: { Authorization: "", Upgrade: "websocket" } })).status).toBe(401);
+    expect((await call("/", { headers: { Authorization: "Bearer wrong" }, redirect: "manual" })).status).toBe(302);
+    expect((await call("/login", { headers: { Authorization: "" } })).status).toBe(200);
+  });
+
+  it("sets an HttpOnly cookie for the right token, which then signs requests in", async () => {
+    const wrong = await call("/login", { method: "POST", body: new URLSearchParams({ token: "nope" }) });
+    expect(wrong.status).toBe(401);
+
+    const right = await call("/login", { method: "POST", body: new URLSearchParams({ token: TOKEN }), redirect: "manual" });
+    expect(right.status).toBe(303);
+    const cookie = right.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toMatch(/^ky_token=ky-stack-token;.*HttpOnly; Secure; SameSite=Lax$/);
+
+    const signedIn = await call("/api/files/0123456789abcdef0123456789abcdef", {
+      headers: { Authorization: "", Cookie: cookie.split(";")[0]! }
+    });
+
+    expect(signedIn.status).toBe(404);
+  });
+});
+
+describe("the tools", () => {
+  it("remembers a note and recalls it", async () => {
+    const name = crypto.randomUUID();
+    const noted = await prompt(name, 'tool memory_note {"text":"the user likes green tea"}');
+    expect(noted.text).toMatch(/^tool said: /);
+
+    const recalled = await prompt(name, 'tool memory_recall {"regex":"green tea"}');
+    expect(recalled.text).toContain("the user likes green tea");
+  });
+
+  it("asks for a compression, saves it, opens it into its memories, and forgets it", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, 'tool memory_note {"text":"first memory"}');
+    const second = await prompt(name, 'tool memory_note {"text":"second memory"}');
+    expect(second.text).toContain('Call memory_nap with block "0-1"');
+
+    expect((await prompt(name, 'tool memory_nap {"block":"0-1","text":"two memories"}')).text).toMatch(
+      /^tool said: 0-1 saved\./
+    );
+
+    const zoomed = (await prompt(name, 'tool memory_zoom {"block":"0-1"}')).text;
+    expect(zoomed).toContain("first memory");
+    expect(zoomed).toContain("second memory");
+
+    expect((await prompt(name, 'tool memory_forget {"block":"0-1"}')).text).toBe(
+      "tool said: Forgot 1 summary. The next note or nap rebuilds them."
+    );
+  });
+
+  it("writes and reads a workspace file that outlives the object", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, 'tool write {"path":"/workspace/notes.txt","content":"kept"}');
+    await evictDurableObject(agent(name));
+
+    const read = await prompt(name, 'tool read {"path":"/workspace/notes.txt"}');
+    expect(read.text).toContain("kept");
+  });
+
+  it("runs JavaScript in the workspace with exec", async () => {
+    const result = await prompt(crypto.randomUUID(), 'tool exec {"command":"export default () => 6 * 7"}');
+    expect(result.text).toContain("42");
+  });
+
+  it("calls Executor over MCP", async () => {
+    const name = crypto.randomUUID();
+    const skills = await prompt(name, "tool executor_skills {}");
+    expect(skills.text).toBe("tool said: fake executor apps: calendar (2 skills), github (3 skills)");
+
+    const ran = await prompt(name, 'tool executor_execute {"code":"return 1"}');
+    expect(ran.text).toBe("tool said: ran 1");
+
+    const resumed = await prompt(name, 'tool executor_resume {"requestId":"approval-1"}');
+    expect(resumed.text).toBe("tool said: fake executor resumed approval-1");
+  });
+});
+
+describe("running turns", () => {
+  it("steers a running turn with a message sent while it works", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    socket.send(JSON.stringify({ type: "submit", input: "gate" }));
+    await gateStarted(name, 1);
+
+    socket.send(JSON.stringify({ type: "submit", input: "also this", whenBusy: "steer" }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await agent(name).release();
+
+    await client.until(() => shows(client.view(), "echo: also this") && !client.view().running);
+    socket.close();
+  });
+
+  it("stops a running turn", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    socket.send(JSON.stringify({ type: "submit", input: "gate" }));
+    await gateStarted(name, 1);
+    await client.until(() => client.view().running);
+
+    expect(await command(socket, client, { type: "abort" })).toMatchObject({ type: "result" });
+    await client.until(() => !client.view().running);
+    expect(shows(client.view(), "released")).toBe(false);
+    socket.close();
+  });
+
+  it("serves the deploy's version, and a fresh snapshot on resync", async () => {
+    const { socket, client } = await session(crypto.randomUUID());
+    expect(latest(client, "hello")?.version).toEqual(expect.any(String));
+
+    const snapshots = () =>
+      client.frames.filter((frame) => frame.type === "events" && frame.events[0]?.type === "snapshot").length;
+
+    const before = snapshots();
+    await command(socket, client, { type: "resync" });
+    await client.until(() => snapshots() > before);
+    socket.close();
+  });
+});
+
+describe("side chats and titles", () => {
+  it("starts a side chat whose title the titles model rewrites from its first message", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const created = await command(main.socket, main.client, { type: "new-chat" });
+    expect(created).toMatchObject({ type: "result", result: { session: expect.any(String) } });
+    const chat = created.type === "result" ? (decodeNewChat(created.result) ?? "") : "";
+
+    const side = await session(name, `?session=${chat}`);
+    side.socket.send(JSON.stringify({ type: "submit", input: "Plan a trip to Lisbon\nwith details" }));
+    await side.client.until(() => shows(side.client.view(), "echo: Plan a trip to Lisbon"));
+
+    // The model's `Title: "Named: …"` and second line are cleaned to the bare title.
+    await main.client.until(() =>
+      latest(main.client, "chats")?.chats.some((row) => row.session === chat && row.title === "Named: Plan a trip to Lisbon") === true
+    );
+
+    // The main chat does not hear the side chat.
+    expect(shows(main.client.view(), "Lisbon")).toBe(false);
+    main.socket.close();
+    side.socket.close();
+  });
+
+  it("trims a long title, and keeps the first line when the titles model fails", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+
+    const open = async (text: string) => {
+      const created = await command(main.socket, main.client, { type: "new-chat" });
+      const chat = created.type === "result" ? (decodeNewChat(created.result) ?? "") : "";
+      const side = await session(name, `?session=${chat}`);
+      side.socket.send(JSON.stringify({ type: "submit", input: text }));
+      await side.client.until(() => !side.client.view().running && side.client.view().messages.length > 1);
+      side.socket.close();
+
+      return chat;
+    };
+
+    const long = await open("a".repeat(80));
+    await main.client.until(() => latest(main.client, "chats")?.chats.find((row) => row.session === long)?.title.startsWith("Named:") === true);
+    const title = latest(main.client, "chats")?.chats.find((row) => row.session === long)?.title ?? "";
+    expect(title).toHaveLength(60);
+    expect(title.endsWith("…")).toBe(true);
+
+    const failed = await open("no-title for this one");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(latest(main.client, "chats")?.chats.find((row) => row.session === failed)?.title).toBe("no-title for this one");
+    main.socket.close();
+  });
+});
+
+describe("settings", () => {
+  it("stores a slot's model across restarts and refuses one that does not exist", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+
+    expect(latest(client, "settings")?.settings.slots).toMatchObject({
+      main: { provider: "faux", modelId: "faux" },
+      subagents: { provider: "faux", modelId: "faux" },
+      fallback: { provider: "faux", modelId: "faux" },
+      titles: { provider: "faux", modelId: "faux", thinkingLevel: "off" }
+    });
+
+    const providers = latest(client, "settings")?.settings.providers ?? [];
+    expect(providers.find((each) => each.id === "vibeproxy")?.connected).toBe(false);
+
+    const refused = await command(socket, client, {
+      type: "set-model",
+      slot: "main",
+      setting: { provider: "faux", modelId: "missing", thinkingLevel: "off" }
+    });
+
+    expect(refused).toMatchObject({ type: "error", message: "faux/missing is not available." });
+
+    await command(socket, client, {
+      type: "set-model",
+      slot: "titles",
+      setting: { provider: "faux", modelId: "faux-text", thinkingLevel: "off" }
+    });
+
+    socket.close();
+    await evictDurableObject(agent(name));
+    const later = await session(name);
+    expect(latest(later.client, "settings")?.settings.slots.titles).toMatchObject({ modelId: "faux-text" });
+    later.socket.close();
+  });
+});
+
+describe("machine tasks", () => {
+  it("runs a task, shows its session and progress, takes a follow-up, and reports its result", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    const { socket, client } = await session(name);
+
+    await prompt(name, "machine build it");
+    const run = await mac.next();
+    expect(run).toMatchObject({ type: "run", prompt: "build it", session: null });
+
+    mac.send({ type: "session", task: run.task, session: "claude-session-1" });
+    mac.send({ type: "progress", task: run.task, text: "compiling" });
+    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
+
+    await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);
+    const followUp = await mac.next();
+    expect(followUp).toMatchObject({ type: "run", task: run.task, prompt: "also test it", session: "claude-session-1" });
+
+    mac.send({ type: "result", task: run.task, ok: true, text: "built and tested", session: "claude-session-1" });
+    await said(name, `build it" finished`);
+    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.summary.startsWith("Named:") === true);
+    expect(latest(client, "tasks")?.machines).toMatchObject([{ name: "mac", online: true }]);
+
+    socket.close();
+    mac.socket.close();
+  });
+
+  it("withdraws a task the runner has not picked up, and sends a stop to one it has", async () => {
+    const name = crypto.randomUUID();
+
+    // No runner yet: the task waits in the inbox.
+    await prompt(name, "machine first");
+    const [queued] = await tasks(name);
+    expect(queued).toMatchObject({ status: "queued" });
+
+    const { socket, client } = await session(name);
+    const first = latest(client, "tasks")?.tasks[0]?.id ?? "";
+    await command(socket, client, { type: "stop-task", task: first });
+    await said(name, "Stopped before it started.");
+
+    const mac = await runner(name);
+    await prompt(name, "machine second");
+    const run = await mac.next();
+    mac.send({ type: "session", task: run.task, session: "s2" });
+    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
+
+    await command(socket, client, { type: "stop-all" });
+    expect(await mac.next()).toMatchObject({ type: "stop", task: run.task });
+    socket.close();
+    mac.socket.close();
+  });
+
+  it("marks a working task interrupted when its runner restarts without it", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await prompt(name, "machine long job");
+    const run = await mac.next();
+    mac.send({ type: "session", task: run.task, session: "s3" });
+    mac.socket.close();
+
+    const restarted = await runner(name);
+    await said(name, "Interrupted: the runner restarted.");
+    expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "failed" }]);
+    restarted.socket.close();
+  });
+
+  it("shares a machine task's file, and serves it whole and by range", async () => {
+    // Uploads go to the user's one agent, "me".
+    const mac = await runner("me");
+    await prompt("me", "machine take a screenshot");
+    const run = await mac.next();
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
+
+    const upload = (task: string, type = "image/png") =>
+      call(`/api/files?task=${task}`, {
+        method: "PUT",
+        body: png,
+        headers: { "Content-Type": type, "Content-Length": String(png.byteLength), "X-Ky-Name": "shot.png", "X-Ky-Caption": "the page" }
+      });
+
+    expect((await upload(run.task, "image/svg+xml")).status).toBe(415);
+    expect((await upload("not-a-task")).status).toBe(404);
+
+    const uploaded = await upload(run.task);
+    expect(uploaded.status).toBe(200);
+    const { url } = await uploaded.json<{ id: string; url: string }>();
+
+    const whole = await call(url);
+    expect(whole.headers.get("Content-Type")).toBe("image/png");
+    expect(new Uint8Array(await whole.arrayBuffer())).toEqual(png);
+
+    const part = await call(url, { headers: { Range: "bytes=8-" } });
+    expect(part.status).toBe(206);
+    expect(new Uint8Array(await part.arrayBuffer())).toEqual(png.slice(8));
+
+    const { client, socket } = await session("me");
+    expect(latest(client, "tasks")?.files.find((file) => file.task === run.task)).toMatchObject({ name: "shot.png", caption: "the page" });
+    socket.close();
+    mac.socket.close();
+  });
+});
+
+describe("subagents", () => {
+  it("stops a subagent's work from the task list", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    await prompt(name, "spawn worker gate");
+    await gateStarted(name, 1);
+
+    const row = latest(client, "tasks")?.tasks.find((task) => task.kind === "cloud");
+    await command(socket, client, { type: "stop-task", task: row?.id ?? "" });
+    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.kind === "cloud")?.status === "stopped");
+    socket.close();
+  });
+
+  it("waits for a whole run before answering a message sent as a follow-up", async () => {
+    const name = crypto.randomUUID();
+    const busy = await submit(name, "gate");
+    await gateStarted(name, 1);
+    const later = await submit(name, "after");
+    await agent(name).release();
+
+    expect((await wait(name, busy.operationId)).text).toBe("tool said: released after 1 runs");
+    expect((await wait(name, later.operationId)).text).toBe("echo: after");
+  });
+});

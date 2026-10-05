@@ -11,7 +11,8 @@ import type { BrowserWorker, SessionlessBrowser as Browser } from "@cloudflare/p
  *
  * Each call opens a fresh page, runs the steps, reads the page and closes the
  * browser. Screenshots go over CDP, which Kitesurf pages support. Stopping the
- * turn closes the browser, which fails whatever step is running.
+ * turn, or the call's time cap, ends the call at once and closes the browser,
+ * including one that only finishes launching later.
  */
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -65,10 +66,21 @@ export function browseExtension(binding: BrowserWorker): Extension {
           screenshot: Type.Optional(Type.Boolean({ description: "Attach a PNG of the viewport." }))
         }),
         replay: "safe",
-        execute: async (args, _api, context) =>
-          within(CALL_TIMEOUT_MS, "the whole browse call", browse(binding, args, context.abortSignal)).catch((error: Error) =>
-            reply(`Could not browse ${args.url}: ${error.message}`, true)
-          )
+        execute: async (args, _api, context) => {
+          // Running out of time is one more way the call is stopped.
+          const timeUp = new AbortController();
+
+          const timer = setTimeout(
+            () => timeUp.abort(new Error(`the whole browse call took longer than ${CALL_TIMEOUT_MS / 1000}s`)),
+            CALL_TIMEOUT_MS
+          );
+
+          const signal = context.abortSignal ? AbortSignal.any([context.abortSignal, timeUp.signal]) : timeUp.signal;
+
+          return browse(binding, args, signal)
+            .catch((error: Error) => reply(`Could not browse ${args.url}: ${error.message}`, true))
+            .finally(() => clearTimeout(timer));
+        }
       })
     ]
   });
@@ -76,77 +88,111 @@ export function browseExtension(binding: BrowserWorker): Extension {
 
 type Args = { url: string; steps?: Array<{ do: string; selector?: string; value?: string }>; screenshot?: boolean };
 
-async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal | undefined) {
+type Stopped = { readonly promise: Promise<never>; readonly dispose: () => void };
+
+/** Rejects with the abort reason once `signal` aborts; `dispose` stops listening. */
+function aborted(signal: AbortSignal): Stopped {
+  let dispose = () => {};
+
+  const promise = new Promise<never>((_, reject) => {
+    const fail = () => reject(signal.reason instanceof Error ? signal.reason : new Error("the browse call was stopped"));
+
+    if (signal.aborted) {
+      fail();
+
+      return;
+    }
+
+    signal.addEventListener("abort", fail, { once: true });
+    dispose = () => signal.removeEventListener("abort", fail);
+  });
+
+  return { promise, dispose: () => dispose() };
+}
+
+async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal) {
+  signal.throwIfAborted();
   const { launch } = await import("@cloudflare/playwright");
-  const browser = await within(OPERATION_TIMEOUT_MS, "starting the browser", launch(binding, { browser: "kitesurf" }));
-  const close = once(() => closeBrowser(browser));
-  signal?.addEventListener("abort", close, { once: true });
+  const launching = launch(binding, { browser: "kitesurf" });
+  // A stop or the call timeout ends the call at once; the finally still closes the browser.
+  const stopped = aborted(signal);
+  stopped.promise.catch(() => undefined);
 
   try {
-    signal?.throwIfAborted();
+    const browser = await Promise.race([
+      stopped.promise,
+      within(OPERATION_TIMEOUT_MS, "starting the browser", launching)
+    ]);
 
-    const page = await within(
-      OPERATION_TIMEOUT_MS,
-      "opening a page",
-      browser.newPage({ viewport: { width: 1280, height: 900 } })
+    return await Promise.race([stopped.promise, readPage(browser, args)]);
+  } finally {
+    stopped.dispose();
+    // Every path closes the browser exactly once, here, even one that launches after the call gave up.
+    // Closing has hung before, and a launch can outlive the call; never let either hold the answer.
+    const closing = launching.then(closeBrowser, () => undefined);
+    await within(CLOSE_TIMEOUT_MS, "closing the browser", closing).catch(() => undefined);
+  }
+}
+
+/** Open the page, run the steps and read it. */
+async function readPage(browser: Browser, args: Args) {
+  const page = await within(
+    OPERATION_TIMEOUT_MS,
+    "opening a page",
+    browser.newPage({ viewport: { width: 1280, height: 900 } })
+  );
+
+  const response = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
+
+  for (const [index, step] of (args.steps ?? []).entries()) {
+    const failed = await runStep(page, step).then(
+      () => undefined,
+      (error: Error) => error.message
     );
 
-    const response = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
-    await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
-
-    for (const [index, step] of (args.steps ?? []).entries()) {
-      const failed = await runStep(page, step).then(
-        () => undefined,
-        (error: Error) => error.message
-      );
-
-      if (failed) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${failed}`, true);
-    }
-
-    const read: PageRead = await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate((maxLinks) => {
-      const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
-        .flatMap((a) => {
-          const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
-
-          return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
-        })
-        .slice(0, maxLinks);
-
-      return { title: document.title, text: document.body?.innerText ?? "", links };
-    }, MAX_LINKS));
-
-    const text = read.text.length > MAX_TEXT ? `${read.text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : read.text;
-
-    const summary = [
-      `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
-      text,
-      read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
-      { type: "text", text: summary }
-    ];
-
-    if (args.screenshot) {
-      const shot = await within(OPERATION_TIMEOUT_MS, "the screenshot", (async () => {
-        const session = await page.context().newCDPSession(page);
-        const result = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-        await session.detach();
-
-        return result;
-      })());
-
-      content.push({ type: "image", data: shot.data, mimeType: "image/png" });
-    }
-
-    return { content, isError: false };
-  } finally {
-    signal?.removeEventListener("abort", close);
-    // Closing has hung before; never let it hold the answer.
-    await within(CLOSE_TIMEOUT_MS, "closing the browser", close()).catch(() => undefined);
+    if (failed) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${failed}`, true);
   }
+
+  const read: PageRead = await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate((maxLinks) => {
+    const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
+      .flatMap((a) => {
+        const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
+
+        return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
+      })
+      .slice(0, maxLinks);
+
+    return { title: document.title, text: document.body?.innerText ?? "", links };
+  }, MAX_LINKS));
+
+  const text = read.text.length > MAX_TEXT ? `${read.text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : read.text;
+
+  const summary = [
+    `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
+    text,
+    read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+    { type: "text", text: summary }
+  ];
+
+  if (args.screenshot) {
+    const shot = await within(OPERATION_TIMEOUT_MS, "the screenshot", (async () => {
+      const session = await page.context().newCDPSession(page);
+      const result = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+      await session.detach();
+
+      return result;
+    })());
+
+    content.push({ type: "image", data: shot.data, mimeType: "image/png" });
+  }
+
+  return { content, isError: false };
 }
 
 function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
@@ -160,12 +206,6 @@ function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
 }
 
 type Page = Awaited<ReturnType<Browser["newPage"]>>;
-
-const once = (run: () => Promise<void>) => {
-  let ran: Promise<void> | undefined;
-
-  return () => (ran ??= run());
-};
 
 /**
  * Kitesurf takes `Browser.close` but leaves the DevTools socket open, so

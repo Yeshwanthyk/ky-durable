@@ -1,0 +1,36 @@
+{
+  "kind": "dupes",
+  "clone_groups": [
+    "src/ui/shell.css:1060-1084|src/ui/shell.css:1087-1111",
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:221-229|tools/oxlint/anti-slop/shared/dictionary-types.ts:462-477",
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:323-332|tools/oxlint/anti-slop/shared/dictionary-types.ts:427-434",
+    "src/ui/bloub/engine.ts:100-106|src/ui/bloub/expressions.ts:185-191",
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:48-54|tools/oxlint/anti-slop/shared/array-method.ts:84-90",
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:195-211|tools/oxlint/anti-slop/shared/dictionary-types.ts:334-340",
+    "src/ui/bloub/engine.ts:535-544|src/ui/bloub/eyefit.ts:121-127",
+    "runner/ky-runner.ts:28-41|src/machines.ts:52-64",
+    "src/chats.ts:28-42|src/files.ts:34-51"
+  ],
+  "clone_fingerprints": [
+    "dup:3230b701:2",
+    "dup:5a3c6f48:2",
+    "dup:1ab7af84:2",
+    "dup:dce00afc:2",
+    "dup:8888b624:2",
+    "dup:4523571c:2",
+    "dup:0c7ab49e:2",
+    "dup:b715594a:2",
+    "dup:00053dc9:2"
+  ],
+  "normalized_clone_fingerprints": [
+    "dup:972a52c5:2",
+    "dup:c77b3abb6f87acd9-r3:2",
+    "dup:c77b3abb6f87acd9-r2:2",
+    "dup:c77b3abb6f87acd9-r6:2",
+    "dup:c77b3abb6f87acd9-r1:2",
+    "dup:c77b3abb6f87acd9-r4:2",
+    "dup:1b0ba716:2",
+    "dup:c77b3abb6f87acd9-r7:2",
+    "dup:c77b3abb6f87acd9-r5:2"
+  ]
+}

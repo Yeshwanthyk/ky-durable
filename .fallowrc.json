@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "runner/ky-runner.ts",
+    "test/fakes/claude.ts",
+    "test/web/global-setup.ts",
+    "test/web/outcomes.ts",
+    "test/gate.ts",
+    "test/gate-live.ts"
+  ],
+  "ignorePatterns": ["explainers/**", "test-results/**"]
+}

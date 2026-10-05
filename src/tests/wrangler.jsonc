@@ -1,12 +1,32 @@
 {
+  // The local stack and the worker e2e tests: ky's real Worker and PiAgent,
+  // whose src/tests/stack.ts subclass puts fakes at the outside boundary
+  // (models, VibeProxy, Browser Rendering, Executor). So the remote bindings,
+  // BROWSER and VIBEPROXY, are left out.
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "main": "worker.ts",
-  "compatibility_date": "2026-06-11",
+  "name": "ky-stack",
+  "main": "stack.ts",
+  "compatibility_date": "2026-08-06",
   "compatibility_flags": ["nodejs_compat"],
-  "durable_objects": {
-    "bindings": [
-      { "name": "PI_HARNESS_TEST", "class_name": "PiHarnessTestObject" }
-    ]
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "ky-files-stack" }],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiHarnessTestObject"] }]
+  "vars": {
+    "KY_TOKEN": "ky-stack-token",
+    // fake-vibeproxy.ts checks this key.
+    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
+    "VIBEPROXY_KEY": "test-vibeproxy-key",
+    "KY_REPO": "test-owner/test-repo",
+    "KY_WORK_COPY": "~/test-work/ky",
+    "KY_URL": "https://ky.test"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PiAgent", "class_name": "PiAgent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiAgent"] }]
 }

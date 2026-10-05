@@ -17,6 +17,8 @@ export default defineConfig({
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
     "dist/**",
+    // The gate's outputs: Playwright reports, traces and harness logs.
+    "test-results/**",
     "env.d.ts",
   ],
   jsPlugins: [
