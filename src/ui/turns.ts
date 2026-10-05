@@ -126,7 +126,6 @@ export function buildTurns(
       images: message ? message.parts.flatMap((part) => (part.type === "image" ? [imageSrc(part)] : [])) : [],
       from: report ? `${report[1]} ${report[2]}` : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
-      assistant: "",
       items: [],
       startedAt: message ? iso(message.timestamp) : null,
       endedAt: null
@@ -167,7 +166,6 @@ export function buildTurns(
             ...describe(part.name, typeof args === "object" ? args : {}),
             status: "running",
             output: "",
-            exitCode: null,
             durationMs: null
           };
           calls.set(part.id, tool);

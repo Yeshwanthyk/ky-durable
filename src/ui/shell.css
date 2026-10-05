@@ -652,14 +652,6 @@
   color: var(--quiet);
 }
 
-.group-note {
-  margin: 6px 0 0;
-  padding: 0 4px;
-  font-size: calc(12px * var(--text-scale));
-  color: var(--quiet);
-  text-wrap: pretty;
-}
-
 .card {
   margin: 0;
   padding: 0;

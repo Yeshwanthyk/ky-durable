@@ -130,10 +130,10 @@ function split(turn: Turn) {
   const answer = turn.items[last];
   if (answer?.kind === "text" && (answer.final || turn.state !== "streaming"))
     return { log: turn.items.filter((_, index) => index !== last), answer: answer.text };
-  return { log: turn.items, answer: turn.items.length === 0 ? turn.assistant : "" };
+  return { log: turn.items, answer: "" };
 }
 
-export function useNow(live: boolean, every = 1000) {
+function useNow(live: boolean, every = 1000) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!live) return;
@@ -147,8 +147,7 @@ export function useNow(live: boolean, every = 1000) {
 function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   // A streaming turn nothing is working on was cut off; it must not look live. While booting, one
   // that already has output is left from before the restart.
-  const cutOff =
-    mode === "dormant" || (mode === "booting" && (turn.items.length > 0 || turn.assistant !== ""));
+  const cutOff = mode === "dormant" || (mode === "booting" && turn.items.length > 0);
   const state = turn.state === "streaming" && cutOff ? "aborted" : turn.state;
   const live = state === "streaming";
   const now = useNow(live && mode === "live");
@@ -290,8 +289,6 @@ function LogItem({ item }: { item: Item }) {
       ) : null;
     case "thinking":
       return item.text ? <Thought text={item.text} /> : null;
-    case "plan":
-      return <Plan steps={item.steps} />;
     case "notice":
       return <Notice text={item.text} tone={item.tone} />;
   }
@@ -317,32 +314,6 @@ function Thought({ text }: { text: string }) {
     >
       {title ? <b>{title}. </b> : null}
       {body}
-    </div>
-  );
-}
-
-function Plan({ steps }: { steps: ReadonlyArray<{ step: string; status: string }> }) {
-  const done = steps.filter((step) => step.status === "completed").length;
-  return (
-    <div className="plan">
-      <div className="plan-head">
-        <span>Plan</span>
-        <span className="tabular">
-          {done}/{steps.length}
-        </span>
-      </div>
-      {steps.map((step, index) => (
-        <div className="plan-step" data-status={step.status} key={index}>
-          {step.status === "completed" ? (
-            <Icon name="check" size={13} />
-          ) : step.status === "inProgress" ? (
-            <Spinner size={12} />
-          ) : (
-            <Icon name="circle" size={13} />
-          )}
-          <span>{step.step}</span>
-        </div>
-      ))}
     </div>
   );
 }

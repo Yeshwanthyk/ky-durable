@@ -4,12 +4,11 @@ export type Tool = {
   kind: "tool";
   id: string;
   name: string;
-  category: "inspect" | "change" | "check" | "research" | "agent" | "run" | "other";
+  category: "inspect" | "change" | "research" | "agent" | "run" | "other";
   summary: string;
-  status: "running" | "done" | "failed" | "declined";
+  status: "running" | "done" | "failed";
   input: string;
   output: string;
-  exitCode: number | null;
   durationMs: number | null;
 };
 
@@ -17,7 +16,6 @@ export type Item =
   | { kind: "text"; id: string; text: string; final: boolean }
   | { kind: "thinking"; id: string; text: string }
   | Tool
-  | { kind: "plan"; id: string; steps: ReadonlyArray<{ step: string; status: string }> }
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" };
 
 export type Turn = {
@@ -30,7 +28,6 @@ export type Turn = {
   from: string | null;
   /** The machine task a report is from; its files show under the report. */
   task: string | null;
-  assistant: string;
   items: Item[];
   startedAt: string | null;
   endedAt: string | null;

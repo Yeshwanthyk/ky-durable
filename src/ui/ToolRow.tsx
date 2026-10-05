@@ -6,7 +6,6 @@ import { Icon, Spinner, type IconName } from "./Icon";
 const categoryIcon: Record<Tool["category"], IconName> = {
   inspect: "eye",
   change: "pencil",
-  check: "gauge",
   research: "globe",
   agent: "nodes",
   run: "terminal",
@@ -18,23 +17,16 @@ const tenses: Record<string, [string, string]> = {
   Read: ["Reading", "Read"],
   Search: ["Searching", "Searched"],
   List: ["Listing", "Listed"],
-  Explore: ["Exploring", "Explored"],
-  View: ["Viewing", "Viewed"],
   Edit: ["Editing", "Edited"],
-  Create: ["Creating", "Created"],
   Delete: ["Deleting", "Deleted"],
   Write: ["Writing", "Wrote"],
-  Open: ["Opening", "Opened"],
   Start: ["Starting", "Started"],
   Message: ["Messaging", "Messaged"],
-  Wait: ["Waiting", "Waited"],
-  Update: ["Updating", "Updated"],
-  Run: ["Running", "Ran"],
 };
 
 export function phrase(tool: Tool): { verb: string; target: string; mono: boolean } {
   const running = tool.status === "running";
-  if (tool.category === "run" || tool.category === "check")
+  if (tool.category === "run")
     return {
       verb: tool.status === "failed" ? "Failed" : running ? "Running" : "Ran",
       target: tool.summary,
@@ -50,25 +42,15 @@ export function phrase(tool: Tool): { verb: string; target: string; mono: boolea
   const tense = tenses[first];
   if (tense === undefined) return { verb: tool.summary, target: "", mono: false };
   // File names and paths read in mono; searches and subagent verbs read as prose.
-  const prose = ["Search", "Wait", "Start", "Message"].includes(first);
+  const prose = ["Search", "Start", "Message"].includes(first);
   return { verb: tense[running ? 0 : 1], target: rest.join(" "), mono: !prose };
 }
 
 function Trail({ tool }: { tool: Tool }) {
   if (tool.status === "running") return <Spinner size={12} />;
-  return (
-    <>
-      {tool.exitCode !== null && tool.exitCode !== 0 ? (
-        <span className="tabular" style={{ color: "var(--danger)" }}>
-          exit {tool.exitCode}
-        </span>
-      ) : null}
-      {tool.status === "declined" ? <span>Declined</span> : null}
-      {tool.durationMs !== null && tool.durationMs >= 1000 ? (
-        <span className="tabular">{duration(tool.durationMs)}</span>
-      ) : null}
-    </>
-  );
+  return tool.durationMs !== null && tool.durationMs >= 1000 ? (
+    <span className="tabular">{duration(tool.durationMs)}</span>
+  ) : null;
 }
 
 const hasBody = (tool: Tool) => tool.output !== "" || tool.input !== "";
@@ -101,7 +83,7 @@ export function ToolRow({ tool }: { tool: Tool }) {
 }
 
 function ToolBody({ tool }: { tool: Tool }) {
-  const command = tool.category === "run" || tool.category === "check";
+  const command = tool.category === "run";
   return (
     <div className="tool-body">
       {tool.input ? <pre className={command ? "command" : undefined}>{tool.input}</pre> : null}
@@ -114,9 +96,7 @@ function ToolBody({ tool }: { tool: Tool }) {
 export function ExploreGroup({ tools }: { tools: Tool[] }) {
   const [open, setOpen] = useState(false);
   const running = tools.some((tool) => tool.status === "running");
-  const reads = tools.filter(
-    (tool) => tool.summary.startsWith("Read") || tool.summary.startsWith("View"),
-  ).length;
+  const reads = tools.filter((tool) => tool.summary.startsWith("Read")).length;
   const searches = tools.filter((tool) => tool.summary.startsWith("Search")).length;
   const other = tools.length - reads - searches;
   const parts = [
