@@ -172,7 +172,7 @@ function Activity({
               </li>
             ))}
             {live.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} now={now} onOpen={onOpen} onStop={onStop} />
+              <TaskItem key={task.id} task={task} session={session} onOpen={onOpen} onStop={onStop} />
             ))}
           </ul>
         </section>
@@ -182,7 +182,7 @@ function Activity({
           <h3 className="feed-head">{label}</h3>
           <ul className="feed">
             {rows.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} now={now} onOpen={onOpen} onStop={onStop} />
+              <TaskItem key={task.id} task={task} session={session} onOpen={onOpen} onStop={onStop} />
             ))}
           </ul>
         </section>
@@ -222,13 +222,11 @@ function Activity({
 function TaskItem({
   task,
   session,
-  now,
   onOpen,
   onStop,
 }: {
   task: TaskRow;
   session: string;
-  now: number;
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
 }) {

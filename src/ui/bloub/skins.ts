@@ -79,7 +79,7 @@ const droplet = normalize(
 const capsule = profileFromPolygon(hullOfCircles(-0.42, 0, 0.62, 0.42, 0, 0.62), 0, 0)
 
 export const OUTLINES: BotOutline[] = [
-  { id: 'cercle', radii: new Array(PROFILE_SAMPLES).fill(1) },
+  { id: 'cercle', radii: Array.from({ length: PROFILE_SAMPLES }, () => 1) },
   { id: 'galet', radii: pebble },
   // 1.15 et pas 1.02 : sur une superellipse le rayon maximal est la diagonale,
   // donc normaliser dessus donne une forme qui parait plus petite que le cercle.
