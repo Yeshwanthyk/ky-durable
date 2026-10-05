@@ -1,13 +1,12 @@
-import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
 import { FilesContext } from "./ui/Attachments";
 import type { BlobVariantId } from "./ui/blob-catalog";
+import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
 import { paletteCommands } from "./ui/commands";
 import { ComposerDock } from "./ui/ComposerDock";
-import { ChatThread } from "./ui/ChatThread";
 import { LightboxProvider } from "./ui/Lightbox";
 import { mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
@@ -15,11 +14,11 @@ import { PanelSlot } from "./ui/PanelSlot";
 import type { PendingImage } from "./ui/pick-images";
 import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
-import { useDraft, useReloadOnDeploy } from "./ui/use-draft";
+import { useDraft, useReloadOnDeploy, type Draft } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
-import { usePanel, wide } from "./ui/use-panel";
+import { usePanel, type PanelState } from "./ui/use-panel";
 import { MAIN_SESSION, useSessionRoute } from "./ui/use-session-route";
-import { useShortcuts } from "./ui/use-shortcuts";
+import { useShell, type Shell } from "./ui/use-shell";
 import { useTheme } from "./ui/use-theme";
 import { Welcome } from "./ui/Welcome";
 import { usePiSession } from "./use-pi-session";
@@ -42,168 +41,188 @@ function whyCantSee(images: readonly PendingImage[], settings: SettingsView | nu
 const canSend = (connected: boolean, reading: number, cantSee: string | null) =>
   connected && reading === 0 && !cantSee;
 
+type Ky = ReturnType<typeof usePiSession>;
+
+/** What the open chat looks like, worked out once per render for every part of the page. */
+function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
+  const open = openChat(session, ky.chats, ky.tasks);
+  const connected = ky.status === "open";
+  const cantSee = whyCantSee(draft.images, ky.settings, open.talksToMain);
+
+  return {
+    session,
+    theme,
+    open,
+    connected,
+    status: { label: statusLabel(ky.status), connected },
+    cantSee,
+    sendable: canSend(connected, draft.reading, cantSee),
+    mainModel: mainModelName(ky.settings),
+    working: workingCount(ky.tasks),
+    variantId: speakerBlob(open.subagent, theme)
+  };
+}
+
+type View = ReturnType<typeof describe>;
+
+/** What every part of the page is drawn from. */
+type Parts = {
+  ky: Ky;
+  view: View;
+  panel: PanelState;
+  shell: Shell;
+  now: number;
+  setTheme: (theme: Theme) => void;
+};
+
+// The chat: the topbar, the thread, and the composer.
+function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
+  const { open, variantId } = view;
+
+  /** While a run is going, Enter steers it; otherwise it starts one. */
+  const submit = () => {
+    const input = view.sendable ? draft.take() : null;
+
+    if (input !== null) ky.submit(input, ky.running ? "steer" : "followUp");
+  };
+
+  return (
+    <section className="stage" aria-label="Chat">
+      <Topbar
+        talksToMain={open.talksToMain}
+        drawerOpen={shell.drawerOpen}
+        onDrawer={() => shell.setDrawerOpen(true)}
+        onBack={() => shell.openSession(MAIN_SESSION)}
+        whoRef={panel.whoRef}
+        speaker={open.speaker}
+        variantId={variantId}
+        running={ky.running}
+        status={view.status}
+        sub={whoSub(open.where, view.working, view.mainModel)}
+        panelOpen={panel.open}
+        panelShown={panel.shown}
+        onToggle={panel.toggle}
+        updated={ky.updated}
+      />
+
+      <div className="chat chat-surface">
+        <ChatThread
+          view={ky}
+          welcome={
+            <Welcome
+              kind={open.kind}
+              speaker={open.speaker}
+              variantId={variantId}
+              running={ky.running}
+              connected={view.connected}
+              onPick={draft.setPrompt}
+            />
+          }
+        />
+        <ComposerDock
+          view={ky}
+          draft={draft}
+          cantSee={view.cantSee}
+          connected={view.connected}
+          talksToMain={open.talksToMain}
+          name={NAME}
+          onSubmit={submit}
+          onStop={ky.abort}
+        />
+      </div>
+    </section>
+  );
+}
+
+// ky's panel, activity and settings, in its slot.
+function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
+  return (
+    <PanelSlot panel={panel}>
+      <Panel
+        name={NAME}
+        variantId={KY_BLOB[view.theme]}
+        active={ky.running || view.working > 0}
+        status={view.status}
+        model={view.mainModel}
+        tasks={ky.tasks}
+        machines={ky.machines}
+        running={ky.tools.map((tool) => tool.name)}
+        catalog={ky.catalog}
+        session={view.session}
+        now={now}
+        settings={ky.settings}
+        theme={view.theme}
+        onTheme={setTheme}
+        onSetModel={ky.setModel}
+        onOpen={shell.openSession}
+        onStop={ky.stopTask}
+        onStopAll={ky.stopAll}
+        onClose={() => panel.setOpen(false)}
+        tab={panel.tab}
+        onTab={panel.setTab}
+      />
+    </PanelSlot>
+  );
+}
+
+// ⌘K, while it is open.
+function Palette({ ky, view, panel, shell, now, setTheme }: Parts) {
+  if (!shell.paletteOpen) return null;
+
+  return (
+    <CommandPalette
+      onClose={() => shell.setPaletteOpen(false)}
+      commands={paletteCommands({
+        session: view.session,
+        main: view.open.main,
+        chats: ky.chats,
+        tasks: ky.tasks,
+        now,
+        theme: view.theme,
+        working: view.working,
+        openSession: shell.openSession,
+        startChat: shell.startChat,
+        openPanel: panel.openTab,
+        setTheme,
+        stopAll: ky.stopAll
+      })}
+    />
+  );
+}
+
 function App() {
   const [session, go] = useSessionRoute();
   const draft = useDraft();
   const [theme, setTheme] = useTheme();
   const now = useNow();
   const panel = usePanel();
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  /** Only below WIDE: the sidebar is always there above it. */
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const pi = usePiSession(session);
+  const ky = usePiSession(session);
+  const shell = useShell(go, panel, ky.newChat);
+  const parts: Parts = { ky, view: describe(ky, session, theme, draft), panel, shell, now, setTheme };
 
-  useReloadOnDeploy(pi.updated, draft);
-
-  // Escape closes whatever is sliding over the chat; ⌘K opens the palette from anywhere.
-  useShortcuts(
-    () => setPaletteOpen((open) => !open),
-    () => {
-      if (paletteOpen || wide()) return;
-      setDrawerOpen(false);
-      panel.setOpen(false);
-    }
-  );
-
-  const openSession = (next: string) => {
-    setDrawerOpen(false);
-
-    if (!wide()) panel.setOpen(false);
-    go(next);
-  };
-
-  const startChat = () => {
-    setCreating(true);
-    pi.newChat()
-      .then(openSession)
-      .catch(() => undefined)
-      .finally(() => setCreating(false));
-  };
-
-  const open = openChat(session, pi.chats, pi.tasks);
-  const connected = pi.status === "open";
-  const status = { label: statusLabel(pi.status), connected };
-  const cantSee = whyCantSee(draft.images, pi.settings, open.talksToMain);
-  const sendable = canSend(connected, draft.reading, cantSee);
-  const mainModel = mainModelName(pi.settings);
-  const working = workingCount(pi.tasks);
-  const variantId = speakerBlob(open.subagent, theme);
-
-  /** While a run is going, Enter steers it; otherwise it starts one. */
-  const submit = () => {
-    const input = sendable ? draft.take() : null;
-
-    if (input !== null) pi.submit(input, pi.running ? "steer" : "followUp");
-  };
+  useReloadOnDeploy(ky.updated, draft);
 
   return (
-    <FilesContext.Provider value={pi.files}>
+    <FilesContext.Provider value={ky.files}>
       <LightboxProvider>
-        <div className="shell" data-panel={panel.open} data-panel-closing={panel.closing} data-drawer={drawerOpen}>
+        <div className="shell" data-panel={panel.open} data-panel-closing={panel.closing} data-drawer={shell.drawerOpen}>
           <div className="sidebar-slot">
             <Sidebar
-              chats={pi.chats}
+              chats={ky.chats}
               session={session}
               main={MAIN_SESSION}
               now={now}
-              onOpen={openSession}
-              onNew={startChat}
-              onSearch={() => setPaletteOpen(true)}
-              creating={creating}
+              onOpen={shell.openSession}
+              onNew={shell.startChat}
+              onSearch={() => shell.setPaletteOpen(true)}
+              creating={shell.creating}
             />
           </div>
-          {drawerOpen ? <div className="scrim" aria-hidden onClick={() => setDrawerOpen(false)} /> : null}
+          {shell.drawerOpen ? <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} /> : null}
 
-          <section className="stage" aria-label="Chat">
-            <Topbar
-              talksToMain={open.talksToMain}
-              drawerOpen={drawerOpen}
-              onDrawer={() => setDrawerOpen(true)}
-              onBack={() => openSession(MAIN_SESSION)}
-              whoRef={panel.whoRef}
-              speaker={open.speaker}
-              variantId={variantId}
-              running={pi.running}
-              status={status}
-              sub={whoSub(open.where, working, mainModel)}
-              panelOpen={panel.open}
-              panelShown={panel.shown}
-              onToggle={panel.toggle}
-              updated={pi.updated}
-            />
-
-            <div className="chat chat-surface">
-              <ChatThread
-                view={pi}
-                welcome={
-                  <Welcome
-                    kind={open.kind}
-                    speaker={open.speaker}
-                    variantId={variantId}
-                    running={pi.running}
-                    connected={connected}
-                    onPick={draft.setPrompt}
-                  />
-                }
-              />
-              <ComposerDock
-                view={pi}
-                draft={draft}
-                cantSee={cantSee}
-                connected={connected}
-                talksToMain={open.talksToMain}
-                name={NAME}
-                onSubmit={submit}
-                onStop={pi.abort}
-              />
-            </div>
-          </section>
-
-          <PanelSlot panel={panel}>
-            <Panel
-              name={NAME}
-              variantId={KY_BLOB[theme]}
-              active={pi.running || working > 0}
-              status={status}
-              model={mainModel}
-              tasks={pi.tasks}
-              machines={pi.machines}
-              running={pi.tools.map((tool) => tool.name)}
-              catalog={pi.catalog}
-              session={session}
-              now={now}
-              settings={pi.settings}
-              theme={theme}
-              onTheme={setTheme}
-              onSetModel={pi.setModel}
-              onOpen={openSession}
-              onStop={pi.stopTask}
-              onStopAll={pi.stopAll}
-              onClose={() => panel.setOpen(false)}
-              tab={panel.tab}
-              onTab={panel.setTab}
-            />
-          </PanelSlot>
-          {paletteOpen ? (
-            <CommandPalette
-              onClose={() => setPaletteOpen(false)}
-              commands={paletteCommands({
-                session,
-                main: open.main,
-                chats: pi.chats,
-                tasks: pi.tasks,
-                now,
-                theme,
-                working,
-                openSession,
-                startChat,
-                openPanel: panel.openTab,
-                setTheme,
-                stopAll: pi.stopAll
-              })}
-            />
-          ) : null}
+          <Stage {...parts} draft={draft} />
+          <KyPanel {...parts} />
+          <Palette {...parts} />
         </div>
       </LightboxProvider>
     </FilesContext.Provider>
