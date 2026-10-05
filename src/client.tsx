@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport, MAX_IMAGES } from "./images";
+import { currentActivity } from "./ui/activity";
+import { ActivityIsland } from "./ui/ActivityIsland";
 import { FilesContext } from "./ui/Attachments";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { BotAvatar } from "./ui/BotAvatar";
@@ -169,6 +171,11 @@ function App() {
     [messages, live, running, runningTools]
   );
 
+  const activity = useMemo(
+    () => currentActivity({ running, live, tools: runningTools, messages, retrying: retry !== null }),
+    [running, live, runningTools, messages, retry]
+  );
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, live, running]);
@@ -322,7 +329,7 @@ function App() {
           </div>
           {drawerOpen ? <div className="scrim" aria-hidden onClick={() => setDrawerOpen(false)} /> : null}
 
-          <section className="stage" aria-label="Chat">
+          <section className="stage" aria-label="Chat" data-busy={activity !== null}>
             <header className="topbar">
               <div className="topbar-side">
                 {talksToMain ? (
@@ -373,6 +380,8 @@ function App() {
                 ) : null}
               </div>
             </header>
+
+            <ActivityIsland activity={activity} name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} />
 
             <div className="chat chat-surface">
               <main className="thread" data-scroll>
