@@ -240,6 +240,71 @@
     },
     {
       "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples stopRace: a stop racing the ack stops the run, with one report",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples helloBeforeOutbox: a result finished offline is reported once, as done",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples dupExec: a run whose ack was lost runs once across a runner restart",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples steerIntoStop: a message sent while stopping starts a new session after it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples stuckQueued: a task whose reports were lost ends instead of staying queued",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: the Quint counterexamples reorder: turns reach Claude Code in the order they were sent",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol decodes runner frames: a malformed report closes the runner's socket",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol decodes commands: the runner ignores a run without a prompt",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol fences turns: a repeated result posts once, and a late progress does not reopen the task",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol stops a task the runner never got before it starts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol drops a turn queued behind a stop when it is stopped too",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol keeps a run that a keepalive hello raced",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol keeps one socket per machine: a second runner's hello replaces the first",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the session WebSocket protocol sends a snapshot, then pi's events for a run started over the socket",
       "outcome": "passed"
     },
@@ -306,37 +371,37 @@
     {
       "check": "harness",
       "name": "reconnect-outage",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-stopRace",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-helloBeforeOutbox",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-dupExec",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-steerIntoStop",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-stuckQueued",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "harness",
       "name": "trap-reorder",
-      "outcome": "XFAIL"
+      "outcome": "PASS"
     },
     {
       "check": "web",
