@@ -25,6 +25,7 @@ import {
 } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { executorExtension } from "../executor";
 import { FileStore } from "../files";
 import { MachineHub, machineExtension } from "../machines";
 import { Settings } from "../settings";
@@ -33,6 +34,7 @@ import { PiSessionSockets } from "../sockets";
 import { subagentExtension } from "../subagents";
 import { TaskFeed } from "../tasks";
 import { EMPTY_VIEW, reduceEvents } from "../view";
+import { FakeExecutor } from "./fake-executor";
 
 const RELEASE_KEY = "test:gate:release";
 
@@ -96,6 +98,12 @@ function script(context: TranscriptContext): AssistantMessage {
     );
   }
 
+  const executor = /^executor (.+)$/.exec(prompt);
+
+  if (executor) {
+    return fauxAssistantMessage([fauxToolCall("executor_execute", { code: executor[1] })], { stopReason: "toolUse" });
+  }
+
   if (prompt === "gate" || prompt === "gate-unsafe") {
     return fauxAssistantMessage(
       [fauxToolCall(prompt === "gate" ? "gate" : "gate_unsafe", {})],
@@ -116,6 +124,9 @@ export class PiHarnessTestObject extends DurableObject<Env> {
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       this.registry.install(this.#testTools());
+      this.registry.install(
+        executorExtension({ url: "https://executor.test/mcp", token: "test", fetch: this.executor.fetch })
+      );
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(machines);
       this.registry.install(
@@ -141,6 +152,8 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     },
     defaults: { model: this.#faux.getModel() }
   });
+  /** Executor, faked at the network boundary. */
+  readonly executor = new FakeExecutor();
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -234,6 +247,24 @@ export class PiHarnessTestObject extends DurableObject<Env> {
 
   async release(): Promise<void> {
     await this.ctx.storage.put(RELEASE_KEY, true);
+  }
+
+  /** Stop the root session's run, as the stop button does. */
+  async abort(): Promise<void> {
+    await this.harness.session().abort();
+  }
+
+  /** What the fake Executor saw: how often `code` ran, cancellations, sessions opened. */
+  executorSaw(code: string) {
+    return { runs: this.executor.runs.get(code) ?? 0, cancelled: this.executor.cancelled, sessions: this.executor.sessions };
+  }
+
+  expireExecutorSessions(): void {
+    this.executor.expireSessions();
+  }
+
+  refuseExecutorConnects(count: number): void {
+    this.executor.refuseConnects(count);
   }
 
   /** Watch the root session's events until a run ends. */
