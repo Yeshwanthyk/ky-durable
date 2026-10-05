@@ -327,7 +327,7 @@ describe("runner protocol: the Quint counterexamples", () => {
   });
 
   // CE5 seqStuckQueued: everything the run said was lost with the socket; the task must not stay queued.
-  it.fails("stuckQueued: a task whose reports were lost ends instead of staying queued", async () => {
+  it("stuckQueued: a task whose reports were lost ends instead of staying queued", async () => {
     const { stub, mac } = await online();
     const id = await start(stub);
     const claude = await mac.claude(0);

@@ -246,10 +246,13 @@ export class MachineHub {
   async onReport(machine: string, report: RunnerReport): Promise<void> {
     switch (report.type) {
       case "hello": {
-        // Work the runner lost when it restarted is over: say so.
+        // An open task the runner is not running is over, unless one of its runs is still unacked:
+        // the socket is in order, so every run the runner had seen when it said hello was acked first.
         const lost = this.#sql
           .exec<TaskRow>(
-            "SELECT * FROM ky_tasks WHERE kind = 'machine' AND worker = ? AND status = 'working'",
+            `SELECT * FROM ky_tasks t WHERE kind = 'machine' AND worker = ? AND status IN ('queued', 'working')
+               AND NOT EXISTS (SELECT 1 FROM ky_machine_inbox i WHERE i.machine = t.worker
+                 AND json_extract(i.payload, '$.type') = 'run' AND json_extract(i.payload, '$.task') = t.id)`,
             machine
           )
           .toArray()
