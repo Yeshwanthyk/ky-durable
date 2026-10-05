@@ -8,12 +8,16 @@
  * Each user message is one turn: an assistant message, a pause, then a
  * result `fake claude did: <prompt>`. Messages queue and run in order. The
  * session id is new, or the one given with --resume. stdin closing ends it
- * once its turns are done.
+ * once its turns are done. Each result carries the process's totals so far,
+ * as Claude Code's do: one turn per message, and COST_PER_TURN each.
  *
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default FAKE_CLAUDE_DELAY_MS, else 50)
  *   [attach]     share a 1x1 PNG through `ky-attach`, as a screenshot would be
  *   [fail]       the turn ends in an error result
+ *   [tools=Bash:pnpm test,Edit:src/x.ts]
+ *                the assistant message also uses these tools, each with its
+ *                one argument (Bash's command, a file tool's path)
  *
  * FAKE_CLAUDE_LOG      append one JSON line per start, turn, SIGINT and exit, so
  *                      a test can count and order what really ran
@@ -52,6 +56,12 @@ const defaultDelay = Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 50);
 
 const sigintDelay = Number(process.env.FAKE_CLAUDE_SIGINT_MS ?? 0);
 
+/** What each turn costs, in US dollars. */
+const COST_PER_TURN = 0.01;
+
+/** Turns answered by this process, for the totals on each result. */
+let turns = 0;
+
 let dying = false;
 
 function record(event: string, fields: Record<string, string | number> = {}) {
@@ -63,8 +73,31 @@ function record(event: string, fields: Record<string, string | number> = {}) {
 /** The stream-json events the runner reads from Claude Code. */
 type StreamEvent =
   | { type: "system"; subtype: "init" }
-  | { type: "assistant"; message: { role: "assistant"; content: Array<{ type: "text"; text: string }> } }
-  | { type: "result"; subtype: "success" | "error_during_execution"; is_error: boolean; result: string };
+  | { type: "assistant"; message: { role: "assistant"; content: Part[] } }
+  | {
+      type: "result";
+      subtype: "success" | "error_during_execution";
+      is_error: boolean;
+      result: string;
+      num_turns: number;
+      total_cost_usd: number;
+    };
+
+type Part = { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, string> };
+
+/** The tool uses a `[tools=...]` directive asks for. */
+function toolUses(prompt: string): Part[] {
+  const listed = /\[tools=([^\]]+)\]/.exec(prompt)?.[1] ?? "";
+
+  return listed
+    .split(",")
+    .filter((each) => each.includes(":"))
+    .map((each): Part => {
+      const [name, value] = [each.slice(0, each.indexOf(":")), each.slice(each.indexOf(":") + 1)];
+
+      return { type: "tool_use", id: crypto.randomUUID(), name, input: { [name === "Bash" ? "command" : "file_path"]: value } };
+    });
+}
 
 function emit(event: StreamEvent) {
   process.stdout.write(`${JSON.stringify({ ...event, session_id: session })}\n`);
@@ -81,7 +114,10 @@ async function attach(): Promise<string> {
 async function turn(prompt: string) {
   if (dying) return;
   record("turn", { prompt });
-  emit({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `working on: ${prompt}` }] } });
+  emit({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: `working on: ${prompt}` }, ...toolUses(prompt)] }
+  });
 
   const delay = /\[delay=(\d+)\]/.exec(prompt);
   await new Promise((resolve) => setTimeout(resolve, delay ? Number(delay[1]) : defaultDelay));
@@ -89,7 +125,15 @@ async function turn(prompt: string) {
 
   if (dying) return;
   const failed = prompt.includes("[fail]");
-  emit({ type: "result", subtype: failed ? "error_during_execution" : "success", is_error: failed, result: `fake claude did: ${prompt}${attached}` });
+  turns += 1;
+  emit({
+    type: "result",
+    subtype: failed ? "error_during_execution" : "success",
+    is_error: failed,
+    result: `fake claude did: ${prompt}${attached}`,
+    num_turns: turns,
+    total_cost_usd: turns * COST_PER_TURN
+  });
 }
 
 process.on("SIGINT", () => {

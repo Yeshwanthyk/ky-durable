@@ -11,7 +11,7 @@ import { Value } from "typebox/value";
  * object refuses a runner that says another one.
  */
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 
 /**
  * The close code for a runner's socket when a runner of the same name says
@@ -65,15 +65,18 @@ const RunnerReportSchema = Type.Union([
   HelloSchema,
   Type.Object({ type: Type.Literal("ack"), seq: Seq }),
   Type.Object({ type: Type.Literal("session"), task: Text, turn: Turn, session: Text }),
-  Type.Object({ type: Type.Literal("progress"), task: Text, turn: Turn, text: Text }),
-  /** The end of every turn up to `turn`. */
+  /** What the session is doing now, in a few words, such as "Editing tasks.ts". */
+  Type.Object({ type: Type.Literal("step"), task: Text, turn: Turn, text: Text }),
+  /** The end of every turn up to `turn`, with what the session spent on them when Claude Code says. */
   Type.Object({
     type: Type.Literal("result"),
     task: Text,
     turn: Turn,
     ok: Type.Boolean(),
     text: Text,
-    session: Session
+    session: Session,
+    turns: Type.Optional(Type.Integer({ minimum: 0 })),
+    costUsd: Type.Optional(Type.Number({ minimum: 0 }))
   })
 ]);
 

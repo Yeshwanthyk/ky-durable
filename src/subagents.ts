@@ -9,11 +9,15 @@ import {
   defineTool,
   type EntryId,
   type Extension,
+  GenerationTask,
+  hook,
   LiveDoc,
-  type TaskId
+  type TaskId,
+  ToolTask
 } from "@earendil-works/pi-durable";
 import type { SlotSetting } from "./settings";
 import { summarize, type TaskFeed } from "./tasks";
+import { describeTool } from "./tool-labels";
 
 /**
  * Persistent cloud subagents, after pi-durable's example 23. One `subagent`
@@ -316,4 +320,36 @@ export function subagentExtension(
   });
 
   return extension;
+}
+
+/**
+ * Each tool a subagent uses becomes a step on its task, and each model
+ * response adds a turn and its cost. Installed for every conversation, since
+ * subagents drop the `subagents` extension; a conversation with no working
+ * cloud task, such as the main chat, records nothing.
+ */
+export function subagentProgressExtension(feed: TaskFeed): Extension {
+  const task = (conversationId: ConversationId) => feed.working(String(conversationId))?.id;
+
+  return defineExtension({
+    name: "subagent-progress",
+    hooks: [
+      hook(ToolTask, {
+        beforeTool(call, api) {
+          const id = task(api.conversationId);
+
+          if (id !== undefined) feed.step(id, describeTool(call.name, call.arguments).label);
+
+          return undefined;
+        }
+      }),
+      hook(GenerationTask, {
+        afterResponse(message, api) {
+          const id = task(api.conversationId);
+
+          if (id !== undefined) feed.spend(id, 1, message.usage?.cost?.total ?? 0);
+        }
+      })
+    ]
+  });
 }

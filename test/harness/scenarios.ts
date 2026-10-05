@@ -128,6 +128,21 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
+    name: "steps",
+    expect: "pass",
+    about: "each tool claude uses shows as a step on the task, and the result carries its turns and cost",
+    async run(context) {
+      await context.machine("steps");
+      const task = await startTask(context, "steps", "[tools=Bash:pnpm test,Edit:src/tasks.ts] fix the tests");
+      await status(context, task, "done");
+      const row = context.main.task(task)!;
+      const steps = row.steps.map((step) => step.text).join(" | ");
+      check(steps === "Running pnpm test | Editing tasks.ts", `the steps are the tools used, got ${steps}`);
+      check(`${row.turns} ${row.cost_usd}` === "1 0.01", `the task spent one turn and a cent, got ${row.turns} and ${row.cost_usd}`);
+      check(Number(row.finished_at) >= Number(row.started_at), "the task has a start and a finish");
+    }
+  },
+  {
     name: "follow-up",
     expect: "pass",
     about: "a message to a finished task resumes its Claude session with a new turn",
@@ -286,7 +301,7 @@ export const SCENARIOS: Scenario[] = [
     about: "the result is lost on a dropping socket before any session report: the task still ends",
     async run(context) {
       const { machine: mac, proxy } = await context.machine("stuck");
-      proxy.dropWhen((report) => report.type === "session" || report.type === "progress" || report.type === "result");
+      proxy.dropWhen((report) => report.type === "session" || report.type === "step" || report.type === "result");
       const task = await startTask(context, "stuck", "finish unheard");
       await until("claude to finish", () => mac.claude().some((event) => event.event === "exit" && event.task === task));
       proxy.cut();

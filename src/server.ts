@@ -18,7 +18,7 @@ import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
-import { subagentExtension } from "./subagents";
+import { subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
 import { vibeProxy } from "./vibeproxy";
@@ -118,6 +118,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(
         subagentExtension(this.feed, [memory, machines], () => this.models.settings.get("subagents"))
       );
+      this.registry.install(subagentProgressExtension(this.feed));
 
       return Harness.open(
         storage,

@@ -75,9 +75,14 @@ export function statusLabel(status: ConnectionStatus): string {
   return status === "connecting" ? "Connecting" : "Reconnecting";
 }
 
-/** The line under the speaker: where we are, else how much is working, else the model. */
-export function whoSub(where: string | null, working: number, model: string): string {
+/**
+ * The line under the speaker: where we are, else what the background work is
+ * doing ("webmac: Editing x.ts"), else how much is working, else the model.
+ */
+export function whoSub(where: string | null, background: string | null, working: number, model: string): string {
   if (where !== null) return where;
+
+  if (background !== null) return background;
 
   return working > 0 ? `${working} working` : model;
 }

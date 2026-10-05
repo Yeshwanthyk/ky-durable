@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PiMessage } from "../transcript";
-import { currentActivity, describeTool } from "../ui/activity";
+import { describeTool } from "../tool-labels";
+import { currentActivity } from "../ui/activity";
 
 const assistant = (parts: PiMessage["parts"], id = "live"): PiMessage => ({
   id,
