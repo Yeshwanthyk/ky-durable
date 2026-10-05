@@ -34,6 +34,39 @@ describe("the session WebSocket protocol", () => {
     socket.close();
   });
 
+  it("takes a submit resent after a dropped socket once, by its operation id", async () => {
+    const name = crypto.randomUUID();
+    const submit = JSON.stringify({ type: "submit", id: "op-1", operationId: "op-1", input: "only once" });
+
+    // The first socket delivers the submit, then drops before the page sees the answer.
+    const first = await connect(name);
+    const before = follow(first);
+    await before.until(() => before.frames.some((frame) => frame.type === "events"));
+    first.send(submit);
+    await before.until(() => before.frames.some((frame) => frame.type === "result"));
+    first.close();
+
+    // The page reconnects and sends the unanswered submit again, with the same ids.
+    const second = await connect(name);
+    const after = follow(second);
+    await after.until(() => after.frames.some((frame) => frame.type === "events"));
+    second.send(submit);
+    await after.until(() => after.frames.some((frame) => frame.type === "result"));
+    expect(after.frames.find((frame) => frame.type === "result")).toMatchObject({
+      id: "op-1",
+      result: { operationId: "op-1", accepted: false }
+    });
+
+    await after.until(() => !after.view().running && after.view().messages.length >= 2);
+
+    const texts = after.view().messages.map((message) =>
+      message.parts.map((part) => (part.type === "text" ? part.text : "")).join("")
+    );
+
+    expect(texts).toEqual(["only once", "echo: only once"]);
+    second.close();
+  });
+
   it("sends images to the model and keeps them in the transcript", async () => {
     const name = crypto.randomUUID();
     const socket = await connect(name);
