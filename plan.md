@@ -69,9 +69,9 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| M1 | `models.ts` owns catalog, slots, `resolve(slot)` and fallback; today split over server.ts:73-90, 281-373, vibeproxy.ts, images.ts:53-67 | doing |
-| M2 | `vibeProxy({ binding, origin, … })` takes its origin instead of the hard-coded `ORIGIN` | doing |
-| M3 | PREAMBLE moves to `prompt.ts`; the Mac path/URL comes from config, not a literal | doing |
+| M1 | `models.ts` owns catalog, slots, `resolve(slot)` and fallback; today split over server.ts:73-90, 281-373, vibeproxy.ts, images.ts:53-67 | review |
+| M2 | `vibeProxy({ binding, origin, … })` takes its origin instead of the hard-coded `ORIGIN` | review |
+| M3 | PREAMBLE moves to `prompt.ts`; the Mac path/URL comes from config, not a literal | review |
 
 ## S: state ownership (after B and M)
 
