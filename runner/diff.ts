@@ -12,7 +12,7 @@ export type Git = (args: readonly string[]) => { status: number; stdout: string 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Where the branch's work starts: the given base, else its fork from the default branch, else HEAD. */
-export function diffBase(git: Git, base?: string): string {
+function diffBase(git: Git, base?: string): string {
   if (base !== undefined) {
     const named = git(["rev-parse", "--verify", "--quiet", `${base}^{commit}`]);
 

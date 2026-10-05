@@ -17,10 +17,37 @@ const git: Git = (args) => {
   return { status: run.status ?? 1, stdout: run.stdout };
 };
 
-async function main() {
+type Task = { url: string; token: string; task: string };
+
+/** The task this runs in, from the environment the runner gives it. */
+function taskOf(): Task {
   const { KY_URL, KY_TOKEN, KY_TASK } = process.env;
 
   if (!KY_URL || !KY_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
+
+  return { url: KY_URL.replace(/\/$/, ""), token: KY_TOKEN, task: KY_TASK };
+}
+
+/** Put the patch on the task, named for the repository and captioned with its branch. */
+async function upload(task: Task, body: Uint8Array<ArrayBuffer>, repo: string): Promise<void> {
+  const branch = git(["branch", "--show-current"]).stdout.trim();
+
+  const response = await fetch(`${task.url}/api/files?task=${encodeURIComponent(task.task)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": DIFF_TYPE,
+      Authorization: `Bearer ${task.token}`,
+      "X-Ky-Name": encodeURIComponent(`${repo}.diff`),
+      "X-Ky-Caption": encodeURIComponent(branch ? `${repo} · ${branch}` : repo)
+    },
+    body
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).trim()}`);
+}
+
+async function main() {
+  const task = taskOf();
   const root = git(["rev-parse", "--show-toplevel"]);
 
   if (root.status !== 0) throw new Error("run this inside a git repository");
@@ -36,21 +63,7 @@ async function main() {
 
   if (body.byteLength > MAX_DIFF_BYTES) throw new Error(`the diff is over ${MAX_DIFF_BYTES / 1024 / 1024} MB; pass a later base`);
   const repo = basename(root.stdout.trim());
-  const branch = git(["branch", "--show-current"]).stdout.trim();
-
-  const response = await fetch(`${KY_URL.replace(/\/$/, "")}/api/files?task=${encodeURIComponent(KY_TASK)}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": DIFF_TYPE,
-      Authorization: `Bearer ${KY_TOKEN}`,
-      "X-Ky-Name": encodeURIComponent(`${repo}.diff`),
-      "X-Ky-Caption": encodeURIComponent(branch ? `${repo} · ${branch}` : repo)
-    },
-    body
-  });
-
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).trim()}`);
-
+  await upload(task, body, repo);
   console.log(`Shared the changes in ${repo}.`);
 }
 

@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { ChatRow } from "../protocol";
 import { ago } from "./time";
 import { Icon } from "./Icon";
+
+const ARCHIVE = { label: "Archive", icon: "archive" } as const;
+
+const UNARCHIVE = { label: "Unarchive", icon: "unarchive" } as const;
 
 // One side chat in the list, with the button that archives it or puts it back.
 function SideChat({
@@ -19,6 +23,7 @@ function SideChat({
 }) {
   const archived = chat.archived_at !== null;
   const title = chat.title || "New chat";
+  const action = archived ? UNARCHIVE : ARCHIVE;
 
   return (
     <li className="chat-row">
@@ -36,13 +41,41 @@ function SideChat({
       <button
         type="button"
         className="icon-button pressable chat-archive"
-        aria-label={`${archived ? "Unarchive" : "Archive"} ${title}`}
-        title={archived ? "Unarchive" : "Archive"}
+        aria-label={`${action.label} ${title}`}
+        title={action.label}
         onClick={() => onArchive(chat.session, !archived)}
       >
-        <Icon name={archived ? "unarchive" : "archive"} size={14} />
+        <Icon name={action.icon} size={14} />
       </button>
     </li>
+  );
+}
+
+// The archived side chats, folded away under their count.
+function ArchivedChats({ chats, row }: { chats: readonly ChatRow[]; row: (chat: ChatRow) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+
+  if (chats.length === 0) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="sidebar-head sidebar-toggle pressable"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>
+          Archived <span className="tabular">{chats.length}</span>
+        </span>
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
+      </button>
+      {open ? (
+        <ul className="chat-list" data-scroll>
+          {chats.map(row)}
+        </ul>
+      ) : null}
+    </>
   );
 }
 
@@ -68,7 +101,6 @@ export function Sidebar({
   onArchive: (session: string, archived: boolean) => void;
   creating: boolean;
 }) {
-  const [showArchived, setShowArchived] = useState(false);
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
 
@@ -122,26 +154,7 @@ export function Sidebar({
           {active.map(row)}
         </ul>
       )}
-      {archived.length > 0 ? (
-        <>
-          <button
-            type="button"
-            className="sidebar-head sidebar-toggle pressable"
-            aria-expanded={showArchived}
-            onClick={() => setShowArchived((open) => !open)}
-          >
-            <span>
-              Archived <span className="tabular">{archived.length}</span>
-            </span>
-            <Icon name={showArchived ? "chevronDown" : "chevronRight"} size={14} />
-          </button>
-          {showArchived ? (
-            <ul className="chat-list" data-scroll>
-              {archived.map(row)}
-            </ul>
-          ) : null}
-        </>
-      ) : null}
+      <ArchivedChats chats={archived} row={row} />
     </nav>
   );
 }

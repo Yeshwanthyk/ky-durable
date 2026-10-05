@@ -58,3 +58,23 @@ export function feedbackMessage(comments: readonly LineComment[]): string {
 
   return `Review of your changes (${count}). Address each, then run ky-diff again.\n\n${notes.join("\n\n")}`;
 }
+
+/** A line the user picked and is still writing a comment for. */
+export type Draft = Omit<LineComment, "text">;
+
+/** What a diff line carries: a saved comment, with its place in the list, or the draft. */
+export type Note = { comment: LineComment; index: number } | { draft: Draft };
+
+/** The notes on one file's lines: its comments, then the draft if it is on this file. */
+export function notesOn(file: string, comments: readonly LineComment[], draft: Draft | null): Note[] {
+  const notes: Note[] = comments.flatMap((comment, index) => (comment.file === file ? [{ comment, index }] : []));
+
+  if (draft?.file === file) notes.push({ draft });
+
+  return notes;
+}
+
+/** A file's name, with where it moved from if it was renamed. */
+export function fileLabel(file: Pick<FileDiffMetadata, "name" | "prevName">): string {
+  return file.prevName && file.prevName !== file.name ? `${file.prevName} → ${file.name}` : file.name;
+}

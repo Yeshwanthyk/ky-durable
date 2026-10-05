@@ -2,7 +2,7 @@ import { type DiffLineAnnotation, type FileDiffMetadata, parsePatchFiles } from 
 import { FileDiff } from "@pierre/diffs/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { FilesContext } from "./Attachments";
-import { countsOf, feedbackMessage, latestDiff, type LineComment } from "./review";
+import { countsOf, type Draft, feedbackMessage, fileLabel, latestDiff, type LineComment, type Note, notesOn } from "./review";
 import { Icon } from "./Icon";
 
 // A machine task's code changes, from the newest patch its `ky-diff` shared:
@@ -25,7 +25,8 @@ function patchText(id: string): Promise<string> {
   return text;
 }
 
-function usePatch(id: string | undefined): FileDiffMetadata[] | "failed" | null {
+/** The patch's files; none while it loads, or if it could not be read. */
+function usePatch(id: string | undefined): FileDiffMetadata[] {
   const [text, setText] = useState<string | "failed" | null>(null);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ function usePatch(id: string | undefined): FileDiffMetadata[] | "failed" | null 
   }, [id]);
 
   return useMemo(() => {
-    if (text === null || text === "failed") return text;
+    if (text === null || text === "failed") return [];
 
     return parsePatchFiles(text, id).flatMap((patch) => patch.files);
   }, [text, id]);
@@ -90,162 +91,197 @@ function Counts({ additions, deletions }: { additions: number; deletions: number
   );
 }
 
-type Draft = Omit<LineComment, "text">;
+/** The user's line comments on one task's changes, and sending them to the task. */
+function useReview(task: string) {
+  const send = useContext(SendTaskContext);
+  const [comments, setComments] = useState<readonly LineComment[]>([]);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [sent, setSent] = useState(false);
 
-type Note = { comment: LineComment; index: number } | { draft: Draft };
+  return {
+    comments,
+    draft,
+    sent,
+    pick: (line: Draft) => {
+      setSent(false);
+      setDraft(line);
+    },
+    cancel: () => setDraft(null),
+    save: (text: string) => {
+      setComments((current) => (draft ? [...current, { ...draft, text }] : current));
+      setDraft(null);
+    },
+    remove: (index: number) => setComments((current) => current.filter((_, at) => at !== index)),
+    submit: () => {
+      send(task, feedbackMessage(comments));
+      setComments([]);
+      setDraft(null);
+      setSent(true);
+    }
+  };
+}
+
+type Review = ReturnType<typeof useReview>;
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 export function Changes({ task }: { task: string }) {
   const diff = latestDiff(useContext(FilesContext), task);
-  const send = useContext(SendTaskContext);
   const files = usePatch(diff?.id);
+
+  if (!diff || files.length === 0) return null;
+
+  return <ChangeSet task={task} caption={diff.caption} files={files} />;
+}
+
+function ChangeSet({ task, caption, files }: { task: string; caption: string | null; files: FileDiffMetadata[] }) {
   const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const [comments, setComments] = useState<readonly LineComment[]>([]);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [split, setSplit] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [box, setBox] = useState<HTMLDivElement | null>(null);
-  const wide = useWide(box);
-  const mode = useMode();
-
-  if (!diff || files === null) return null;
-
-  if (files === "failed" || files.length === 0) return null;
-  const total = countsOf(files);
-
-  const toggle = (name: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-
-      if (!next.delete(name)) next.add(name);
-
-      return next;
-    });
-
-  const submit = () => {
-    send(task, feedbackMessage(comments));
-    setComments([]);
-    setDraft(null);
-    setSent(true);
-  };
+  const review = useReview(task);
 
   return (
-    <div className="tool changes" ref={setBox}>
+    <div className="tool changes">
       <button type="button" className="tool-row" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <Icon name="branch" size={14} />
         <span className="verb">Changes</span>
-        <span className="target">
-          {files.length} {files.length === 1 ? "file" : "files"}
-        </span>
+        <span className="target">{plural(files.length, "file")}</span>
         <span className="trail">
-          <Counts {...total} />
+          <Counts {...countsOf(files)} />
           <Icon name="chevronRight" size={12} className="chevron" />
         </span>
       </button>
-      {open ? (
-        <div className="changes-body">
-          {diff.caption ? <p className="changes-caption">{diff.caption}</p> : null}
-          {wide ? (
-            <div className="changes-tools">
-              <button type="button" className="pill" aria-pressed={split} onClick={() => setSplit((value) => !value)}>
-                {split ? "Unified" : "Split"}
-              </button>
-            </div>
-          ) : null}
-          <ul className="change-files">
-            {files.map((file) => {
-              const shown = expanded.has(file.name);
-              const notes = comments.filter((comment) => comment.file === file.name);
-
-              const annotations: DiffLineAnnotation<Note>[] = comments.flatMap((comment, index) =>
-                comment.file === file.name
-                  ? [{ side: comment.side, lineNumber: comment.line, metadata: { comment, index } }]
-                  : []
-              );
-
-              if (draft?.file === file.name) annotations.push({ side: draft.side, lineNumber: draft.line, metadata: { draft } });
-
-              return (
-                <li key={file.name} className="change-file">
-                  <button type="button" className="change-file-row" aria-expanded={shown} onClick={() => toggle(file.name)}>
-                    <Icon name="chevronRight" size={12} className="chevron" />
-                    <span className="change-file-name" title={file.name}>
-                      {file.prevName && file.prevName !== file.name ? `${file.prevName} → ` : ""}
-                      {file.name}
-                    </span>
-                    {notes.length > 0 ? (
-                      <span className="change-file-notes" aria-label={`${notes.length} comments`}>
-                        <Icon name="chat" size={12} />
-                        {notes.length}
-                      </span>
-                    ) : null}
-                    <Counts {...countsOf([file])} />
-                  </button>
-                  {shown ? (
-                    <FileDiff<Note>
-                      className="change-diff"
-                      fileDiff={file}
-                      options={{
-                        diffStyle: wide && split ? "split" : "unified",
-                        overflow: "wrap",
-                        disableFileHeader: true,
-                        themeType: mode,
-                        lineHoverHighlight: "both",
-                        onLineClick: ({ lineNumber, annotationSide, lineElement }) => {
-                          setSent(false);
-                          setDraft({ file: file.name, line: lineNumber, side: annotationSide, code: lineElement.textContent ?? "" });
-                        }
-                      }}
-                      lineAnnotations={annotations}
-                      renderAnnotation={({ metadata }) =>
-                        "draft" in metadata ? (
-                          <CommentForm
-                            onCancel={() => setDraft(null)}
-                            onSave={(text) => {
-                              setComments((current) => [...current, { ...metadata.draft, text }]);
-                              setDraft(null);
-                            }}
-                          />
-                        ) : (
-                          <div className="change-comment">
-                            <p>{metadata.comment.text}</p>
-                            <button
-                              type="button"
-                              className="icon-button"
-                              aria-label="Delete comment"
-                              onClick={() => setComments((current) => current.filter((_, at) => at !== metadata.index))}
-                            >
-                              <Icon name="x" size={12} />
-                            </button>
-                          </div>
-                        )
-                      }
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-          {comments.length > 0 ? (
-            <div className="changes-send">
-              <span>
-                {comments.length} {comments.length === 1 ? "comment" : "comments"} for this task
-              </span>
-              <button type="button" className="pill" onClick={submit}>
-                <Icon name="send" size={13} />
-                Send to task
-              </button>
-            </div>
-          ) : sent ? (
-            <p className="changes-caption" role="status">
-              Sent to the task.
-            </p>
-          ) : (
-            <p className="changes-caption">Tap a line to comment on it.</p>
-          )}
-        </div>
-      ) : null}
+      {open ? <ChangesBody caption={caption} files={files} review={review} /> : null}
     </div>
+  );
+}
+
+function ChangesBody({ caption, files, review }: { caption: string | null; files: FileDiffMetadata[]; review: Review }) {
+  const [split, setSplit] = useState(false);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const wide = useWide(box);
+  const mode = useMode();
+  const style = wide && split ? "split" : "unified";
+
+  return (
+    <div className="changes-body" ref={setBox}>
+      <Caption text={caption} />
+      {wide ? <SplitToggle split={split} onToggle={() => setSplit((value) => !value)} /> : null}
+      <ul className="change-files">
+        {files.map((file) => (
+          <ChangeFile key={file.name} file={file} review={review} style={style} mode={mode} />
+        ))}
+      </ul>
+      <ReviewFooter review={review} />
+    </div>
+  );
+}
+
+function Caption({ text }: { text: string | null }) {
+  return text ? <p className="changes-caption">{text}</p> : null;
+}
+
+function SplitToggle({ split, onToggle }: { split: boolean; onToggle: () => void }) {
+  return (
+    <div className="changes-tools">
+      <button type="button" className="pill" aria-pressed={split} onClick={onToggle}>
+        {split ? "Unified" : "Split"}
+      </button>
+    </div>
+  );
+}
+
+type FileProps = { file: FileDiffMetadata; review: Review; style: "split" | "unified"; mode: "light" | "dark" };
+
+function ChangeFile({ file, review, style, mode }: FileProps) {
+  const [shown, setShown] = useState(false);
+  const count = review.comments.filter((comment) => comment.file === file.name).length;
+
+  return (
+    <li className="change-file">
+      <button type="button" className="change-file-row" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
+        <Icon name="chevronRight" size={12} className="chevron" />
+        <span className="change-file-name" title={file.name}>
+          {fileLabel(file)}
+        </span>
+        <NoteCount count={count} />
+        <Counts {...countsOf([file])} />
+      </button>
+      {shown ? <ChangeDiff file={file} review={review} style={style} mode={mode} /> : null}
+    </li>
+  );
+}
+
+function NoteCount({ count }: { count: number }) {
+  if (count === 0) return null;
+
+  return (
+    <span className="change-file-notes" aria-label={`${count} comments`}>
+      <Icon name="chat" size={12} />
+      {count}
+    </span>
+  );
+}
+
+/** Where a note sits in the diff. */
+function annotationOf(note: Note): DiffLineAnnotation<Note> {
+  if ("draft" in note) return { side: note.draft.side, lineNumber: note.draft.line, metadata: note };
+
+  return { side: note.comment.side, lineNumber: note.comment.line, metadata: note };
+}
+
+function ChangeDiff({ file, review, style, mode }: FileProps) {
+  const annotations = notesOn(file.name, review.comments, review.draft).map(annotationOf);
+
+  return (
+    <FileDiff<Note>
+      className="change-diff"
+      fileDiff={file}
+      options={{
+        diffStyle: style,
+        overflow: "wrap",
+        disableFileHeader: true,
+        themeType: mode,
+        lineHoverHighlight: "both",
+        onLineClick: ({ lineNumber, annotationSide, lineElement }) =>
+          review.pick({ file: file.name, line: lineNumber, side: annotationSide, code: lineElement.textContent ?? "" })
+      }}
+      lineAnnotations={annotations}
+      renderAnnotation={({ metadata }) => <Annotation note={metadata} review={review} />}
+    />
+  );
+}
+
+function Annotation({ note, review }: { note: Note; review: Review }) {
+  if ("draft" in note) return <CommentForm onCancel={review.cancel} onSave={review.save} />;
+
+  return (
+    <div className="change-comment">
+      <p>{note.comment.text}</p>
+      <button type="button" className="icon-button" aria-label="Delete comment" onClick={() => review.remove(note.index)}>
+        <Icon name="x" size={12} />
+      </button>
+    </div>
+  );
+}
+
+function ReviewFooter({ review }: { review: Review }) {
+  if (review.comments.length > 0) {
+    return (
+      <div className="changes-send">
+        <span>{plural(review.comments.length, "comment")} for this task</span>
+        <button type="button" className="pill" onClick={review.submit}>
+          <Icon name="send" size={13} />
+          Send to task
+        </button>
+      </div>
+    );
+  }
+
+  return review.sent ? (
+    <p className="changes-caption" role="status">
+      Sent to the task.
+    </p>
+  ) : (
+    <p className="changes-caption">Tap a line to comment on it.</p>
   );
 }
 
