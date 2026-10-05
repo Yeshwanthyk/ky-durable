@@ -19,26 +19,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-
-type Command =
-  | { type: "run"; seq: number; task: string; prompt: string; session: string | null }
-  | { type: "stop"; seq: number; task: string };
-
-type Report =
-  | { type: "hello"; active: string[] }
-  | { type: "ack"; seq: number }
-  | { type: "session"; task: string; session: string }
-  | { type: "progress"; task: string; text: string }
-  | { type: "result"; task: string; ok: boolean; text: string; session: string | null };
-
-type Run = {
-  child: ChildProcessWithoutNullStreams;
-  session: string | null;
-  /** Messages written that have no result yet. */
-  pending: number;
-  stopped: boolean;
-  last: string;
-};
+import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
 
@@ -58,8 +39,6 @@ const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
 
 const CHROME = process.env.KY_CHROME === "1";
-
-const PROGRESS_EVERY_MS = 4_000;
 
 /** Where `ky-attach` is installed; each task finds it on its PATH. */
 const BIN = join(homedir(), ".ky", "bin");
@@ -124,25 +103,8 @@ function log(...parts: unknown[]) {
   console.log(new Date().toISOString().slice(11, 19), ...parts);
 }
 
-const runs = new Map<string, Run>();
-
-const handled = new Set<number>();
-
-let socket: WebSocket | undefined;
-
-/** Reports made while disconnected, sent on the next connect. */
-const outbox: Report[] = [];
-
-function report(message: Report) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
-  else if (message.type !== "progress" && message.type !== "ack") outbox.push(message);
-}
-
-function userLine(text: string): string {
-  return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
-}
-
-function start(task: string, prompt: string, session: string | null) {
+/** Start `claude -p` with stream-json on both ends, in the work dir. */
+function spawnClaude(task: string, session: string | null, events: ClaudeEvents): ClaudeProcess {
   mkdirSync(WORKDIR, { recursive: true });
 
   const args = [
@@ -156,9 +118,7 @@ function start(task: string, prompt: string, session: string | null) {
     ...(session ? ["--resume", session] : [])
   ];
 
-  log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
-
-  const child = spawn(CLAUDE, args, {
+  const child: ChildProcessWithoutNullStreams = spawn(CLAUDE, args, {
     cwd: WORKDIR,
     env: {
       ...process.env,
@@ -168,112 +128,33 @@ function start(task: string, prompt: string, session: string | null) {
     }
   });
 
-  const run: Run = { child, session, pending: 1, stopped: false, last: "" };
-  runs.set(task, run);
-  let lastProgress = 0;
-
-  createInterface({ input: child.stdout }).on("line", (line) => {
-    let event: any;
-
-    try {
-      event = JSON.parse(line);
-    } catch {
-      return;
-    }
-
-    if (event.session_id && event.session_id !== run.session) {
-      run.session = event.session_id;
-      report({ type: "session", task, session: event.session_id });
-    }
-
-    if (event.type === "assistant") {
-      const text = (event.message?.content ?? [])
-        .flatMap((part: any) =>
-          part.type === "text" ? [part.text] : part.type === "tool_use" ? [`Using ${part.name}`] : []
-        )
-        .join(" ")
-        .trim();
-
-      if (text && Date.now() - lastProgress > PROGRESS_EVERY_MS) {
-        lastProgress = Date.now();
-        report({ type: "progress", task, text });
-      }
-    }
-
-    if (event.type === "result") {
-      run.pending = Math.max(0, run.pending - 1);
-      run.last = String(event.result ?? "");
-
-      if (run.pending > 0) {
-        report({ type: "progress", task, text: run.last });
-
-        return;
-      }
-
-      // Nothing more to answer: end the session so the result is final.
-      child.stdin.end();
-      report({
-        type: "result",
-        task,
-        ok: !event.is_error && !run.stopped,
-        text: run.stopped ? "Stopped." : run.last || (event.is_error ? "Failed." : "Done."),
-        session: run.session
-      });
-      runs.delete(task);
-    }
-  });
-
+  createInterface({ input: child.stdout }).on("line", (line) => events.line(line));
   let stderr = "";
   child.stderr.on("data", (chunk) => {
     stderr = (stderr + chunk).slice(-2000);
   });
-  child.on("close", (code) => {
-    log(`${task}: exit ${code}`);
-
-    if (runs.get(task) !== run) return;
-    runs.delete(task);
-    report({
-      type: "result",
-      task,
-      ok: false,
-      text: run.stopped ? "Stopped." : `claude exited with ${code}. ${stderr.trim()}`,
-      session: run.session
-    });
-  });
+  child.on("close", (code) => events.exit(code, stderr));
   child.on("error", (error) => {
     stderr += String(error);
   });
-  child.stdin.write(userLine(prompt));
-}
 
-function onCommand(command: Command) {
-  report({ type: "ack", seq: command.seq });
-
-  if (handled.has(command.seq)) return;
-  handled.add(command.seq);
-  const run = runs.get(command.task);
-
-  if (command.type === "stop") {
-    if (run) {
-      run.stopped = true;
-      run.child.kill("SIGINT");
-      setTimeout(() => run.child.kill("SIGKILL"), 5_000).unref();
+  return {
+    write: (line) => {
+      child.stdin.write(line);
+    },
+    end: () => {
+      child.stdin.end();
+    },
+    interrupt: () => {
+      child.kill("SIGINT");
+      setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
     }
-
-    return;
-  }
-
-  if (run) {
-    // Steer: Claude Code takes it as the next user message in this session.
-    run.pending += 1;
-    run.child.stdin.write(userLine(command.prompt));
-    log(`${command.task}: steer`);
-
-    return;
-  }
-
-  start(command.task, command.prompt, command.session);
+  };
 }
+
+const runner = new Runner(spawnClaude, (line) => log(line));
+
+let socket: WebSocket | undefined;
 
 let backoff = 1_000;
 
@@ -281,31 +162,26 @@ function connect() {
   const url = `${URL_BASE.replace(/^http/, "ws")}/agents/pi-agent/me?runner=${MACHINE}`;
   // SAFETY: Node's WebSocket (undici) takes headers as a non-standard option its types leave out.
   const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${TOKEN}` } } as any);
+
+  const link: Link = {
+    send: (text) => {
+      if (ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(text);
+
+      return true;
+    }
+  };
+
   socket = ws;
   ws.addEventListener("open", () => {
     backoff = 1_000;
     log(`connected as ${MACHINE}, working in ${WORKDIR}`);
-    ws.send(JSON.stringify({ type: "hello", active: [...runs.keys()] } satisfies Report));
-
-    for (const message of outbox.splice(0)) ws.send(JSON.stringify(message));
+    runner.open(link);
   });
-  ws.addEventListener("message", (event) => {
-    let message: Partial<Command>;
-
-    try {
-      message = JSON.parse(String(event.data));
-    } catch {
-      return;
-    }
-
-    // The socket also carries the Agents SDK's own frames; skip those.
-    // JSON has no NaN or Infinity, so a finite seq is any number seq.
-    if ((message.type === "run" || message.type === "stop") && Number.isFinite(message.seq)) {
-      // SAFETY: only the hub sends run and stop frames with a seq, and it sends whole Commands.
-      onCommand(message as Command);
-    }
-  });
+  ws.addEventListener("message", (event) => runner.message(String(event.data)));
   ws.addEventListener("close", (event) => {
+    runner.closed(link);
+
     if (socket === ws) socket = undefined;
     log(`disconnected (${event.code}), retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
@@ -317,12 +193,10 @@ function connect() {
 }
 
 // Keep the socket alive through idle proxies.
-setInterval(() => {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "hello", active: [...runs.keys()] }));
-}, 30_000);
+setInterval(() => runner.keepalive(), 30_000);
 
 process.on("SIGINT", () => {
-  for (const run of runs.values()) run.child.kill("SIGINT");
+  runner.shutdown();
   process.exit(0);
 });
 
