@@ -1,5 +1,8 @@
-import { expect, type Page, test } from "@playwright/test";
-import { decodeServerFrame } from "../../src/tests/frames.ts";
+import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
 import { TOKEN } from "../harness/stack.ts";
 
 /**
@@ -39,6 +42,94 @@ async function send(page: Page, text: string): Promise<void> {
 async function release(page: Page): Promise<void> {
   const response = await page.request.post("/test/release", { headers: { Authorization: `Bearer ${TOKEN}` } });
   expect(response.status()).toBe(204);
+}
+
+/** Bring the stack's Mac (its fake VibeProxy) online ("1"), take it away ("0"), or let it leave unnoticed ("leaves"). */
+async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
+  const response = await page.request.post(`/test/mac?up=${up}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  expect(response.status()).toBe(204);
+}
+
+/** Pick a slot's model in Settings, by the slot's label and the model's radio. */
+async function pick(page: Page, slot: string, model: RegExp): Promise<void> {
+  const row = panel(page).getByRole("button", { name: new RegExp(`^${slot}`) });
+  await row.click();
+  const radio = panel(page).getByRole("radiogroup", { name: `${slot} model` }).getByRole("radio", { name: model });
+  await radio.click();
+  await expect(radio).toHaveAttribute("aria-checked", "true");
+  await row.click();
+}
+
+const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), operationId: Type.String() });
+
+/** One socket the page opened: the session it asked for, the submits it sent and the answers it got. */
+type Connection = {
+  session: string | null;
+  submits: string[];
+  results: Array<{ id: string; result: JsonValue }>;
+  errors: string[];
+  route: WebSocketRoute;
+};
+
+/**
+ * The network between the page and ky, seen frame by frame. It can lose the
+ * page's submits on the way in, or drop the socket just as a submit's answer
+ * comes back, as a flaky connection would.
+ */
+async function network(page: Page) {
+  const connections: Connection[] = [];
+  const faults = { loseSubmits: false, dropOnAnswer: false };
+
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (route) => {
+    const connection: Connection = {
+      session: new URL(route.url()).searchParams.get("session"),
+      submits: [],
+      results: [],
+      errors: [],
+      route
+    };
+
+    connections.push(connection);
+    const server = route.connectToServer();
+
+    route.onMessage((message) => {
+      const value = parsed(String(message));
+      const submit = Value.Check(Submit, value) ? value : undefined;
+
+      if (submit) connection.submits.push(submit.operationId);
+
+      if (submit && faults.loseSubmits) return;
+
+      server.send(message);
+    });
+
+    server.onMessage((message) => {
+      const answered = record(connection, String(message));
+
+      if (answered !== undefined && faults.dropOnAnswer && connection.submits.includes(answered)) {
+        faults.dropOnAnswer = false;
+        void route.close();
+
+        return;
+      }
+
+      route.send(message);
+    });
+  });
+
+  return { connections, faults };
+}
+
+/** Note a result or a refusal from ky on its connection; the id of the command a result answers. */
+function record(connection: Connection, message: string): string | undefined {
+  const frame = decodeServerFrame(message);
+
+  if (frame?.type === "error" && frame.id !== undefined) connection.errors.push(frame.id);
+
+  if (frame?.type !== "result") return undefined;
+  connection.results.push({ id: frame.id, result: frame.result });
+
+  return frame.id;
 }
 
 test("sends the sign-in form to strangers, refuses a wrong token, and lets the right one in", async ({ page }) => {
@@ -237,4 +328,92 @@ test("offers a reload when a new deploy is live and a draft would be lost", asyn
   const reload = page.getByRole("button", { name: "Reload", exact: true });
   await expect(reload).toBeVisible();
   await expect(composer(page)).toHaveValue("a draft worth keeping");
+});
+
+test("sends a message again after its socket drops before the answer, and pi takes it once", async ({ page }) => {
+  const { connections, faults } = await network(page);
+  await open(page);
+
+  faults.dropOnAnswer = true;
+  await send(page, "resent but taken once");
+  await expect.poll(() => connections.length).toBe(2);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+
+  const [operationId] = connections[0]!.submits;
+  await expect.poll(() => connections[1]!.submits).toEqual([operationId]);
+  await expect
+    .poll(() => connections[1]!.results.find((each) => each.id === operationId)?.result)
+    .toMatchObject({ operationId, accepted: false });
+
+  await expect(page.getByText("echo: resent but taken once")).toHaveCount(1);
+  await expect(page.getByText("resent but taken once", { exact: true })).toHaveCount(1);
+});
+
+test("keeps an unanswered message for its own chat when the page switches chats", async ({ page }) => {
+  const { connections, faults } = await network(page);
+  await open(page);
+
+  // The first socket loses the submit, so it stays unanswered.
+  faults.loseSubmits = true;
+  await send(page, "held for the main chat");
+  await expect.poll(() => connections[0]!.submits).toHaveLength(1);
+  faults.loseSubmits = false;
+
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  const side = connections.at(-1)!;
+  expect(side.session).not.toBe(connections[0]!.session);
+  expect(side.submits).toEqual([]);
+
+  // Back in the main chat, its socket sends the message again, and it runs there.
+  await chats.getByRole("button", { name: "Main chat", exact: true }).click();
+  await expect(page.getByText("echo: held for the main chat")).toBeVisible();
+  expect(side.submits).toEqual([]);
+});
+
+test("refuses an image the stand-in model can't read, never resends it, and warns before sending", async ({ page }) => {
+  const { connections } = await network(page);
+
+  const attach = async () => {
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Attach images" }).click();
+    await (await chooser).setFiles([{ name: "pixel.png", mimeType: "image/png", buffer: PIXEL }]);
+    await expect(page.getByRole("list", { name: "Images to send" }).getByRole("img")).toHaveCount(1);
+  };
+
+  const cantRead = "Faux Text can't read images. Pick a model that can in Models, or send text only.";
+
+  await mac(page, "1");
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await pick(page, "Main agent", /Opus/);
+  await pick(page, "Fallback", /Faux Text/);
+
+  // The Mac goes away unnoticed: the page still shows Claude, so only the server, which asks the Mac, can refuse.
+  await mac(page, "leaves");
+  await attach();
+  await send(page, "what is in this picture");
+  await expect(page.getByRole("alert")).toHaveText(cantRead);
+  const [refused] = connections[0]!.submits;
+  expect(connections[0]!.errors).toEqual([refused]);
+
+  // A dropped socket does not send the refused message again.
+  await connections[0]!.route.close();
+  await expect.poll(() => connections.length).toBe(2);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  expect(connections[1]!.submits).toEqual([]);
+
+  // With a text-only main model the page warns before anything is sent.
+  await page.reload();
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await pick(page, "Main agent", /^Faux Text/);
+  await attach();
+  await expect(page.getByRole("alert")).toHaveText(cantRead);
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  // Put the slots back for the other tests.
+  await pick(page, "Main agent", /^Faux Faux/);
+  await pick(page, "Fallback", /^Faux Faux/);
 });

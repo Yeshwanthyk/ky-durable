@@ -91,10 +91,16 @@ function title(context: TranscriptContext): AssistantMessage {
   return fauxAssistantMessage([fauxText(`Title: "Named: ${text.split("\n")[0]}"\nA second line the cleaning drops.`)]);
 }
 
-function script(context: TranscriptContext): AssistantMessage {
-  const system = context.messages[0]?.role === "system" ? textOf(context.messages[0].content) : "";
+/** Whether this is the titles model's call: its system prompt asks for a name or a summary. */
+function naming(context: TranscriptContext): boolean {
+  const [first] = context.messages;
+  const system = first?.role === "system" ? textOf(first.content) : "";
 
-  if (system.startsWith("You name things") || system.startsWith("You summarize")) return title(context);
+  return system.startsWith("You name things") || system.startsWith("You summarize");
+}
+
+function script(context: TranscriptContext): AssistantMessage {
+  if (naming(context)) return title(context);
 
   // pi places system-prompt changes positionally, so a system message can follow the user's input.
   const last = context.messages.filter((message) => message.role !== "system").at(-1);
@@ -105,43 +111,33 @@ function script(context: TranscriptContext): AssistantMessage {
     ]);
   }
 
-  const prompt = last?.role === "user" ? textOf(last.content) : "";
-  const multiply = /^multiply (\d+)$/.exec(prompt);
+  return answer(last?.role === "user" ? textOf(last.content) : "");
+}
 
-  if (multiply) return call("multiply", { value: Number(multiply[1]) });
+/** The prompts that call a tool: each pattern, and the call its match makes. */
+const CALLS: Array<[RegExp, (match: RegExpExecArray) => AssistantMessage]> = [
+  [/^multiply (\d+)$/, (match) => call("multiply", { value: Number(match[1]) })],
+  [/^spawn (\S+) (.+)$/s, (match) => call("subagent", { action: "spawn", name: match[1]!, message: match[2]! })],
+  [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
+  [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
+  [
+    /^browse-wait (\S+) (\d+)$/,
+    (match) => call("browse", { url: match[1]!, steps: Array.from({ length: Number(match[2]) }, () => ({ do: "wait", value: "10000" })) })
+  ],
+  [/^browse (\S+)$/, (match) => call("browse", { url: match[1]! })],
+  // SAFETY: the tests write a JSON object after the tool name; a bad one fails the turn loudly.
+  [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
+  [/^gate$/, () => call("gate", {})],
+  [/^gate-unsafe$/, () => call("gate_unsafe", {})]
+];
 
-  const spawn = /^spawn (\S+) (.+)$/s.exec(prompt);
+/** The answer to a user's prompt: the tool call it asks for, or an echo. */
+function answer(prompt: string): AssistantMessage {
+  for (const [pattern, make] of CALLS) {
+    const match = pattern.exec(prompt);
 
-  if (spawn) return call("subagent", { action: "spawn", name: spawn[1]!, message: spawn[2]! });
-
-  const machine = /^machine(?:@(\S+))? (.+)$/s.exec(prompt);
-
-  if (machine) return call("machine", { action: "run", machine: machine[1] ?? "mac", prompt: machine[2]! });
-
-  const executor = /^executor (.+)$/s.exec(prompt);
-
-  if (executor) return call("executor_execute", { code: executor[1]! });
-
-  const browseWait = /^browse-wait (\S+) (\d+)$/.exec(prompt);
-
-  if (browseWait) {
-    const steps = Array.from({ length: Number(browseWait[2]) }, () => ({ do: "wait", value: "10000" }));
-
-    return call("browse", { url: browseWait[1]!, steps });
+    if (match) return make(match);
   }
-
-  const browse = /^browse (\S+)$/.exec(prompt);
-
-  if (browse) return call("browse", { url: browse[1]! });
-
-  const tool = /^tool (\S+) (\{.*\})$/s.exec(prompt);
-
-  if (tool) {
-    // SAFETY: the tests write a JSON object after the tool name; a bad one fails the turn loudly.
-    return call(tool[1]!, JSON.parse(tool[2]!) as Record<string, JsonValue>);
-  }
-
-  if (prompt === "gate" || prompt === "gate-unsafe") return call(prompt === "gate" ? "gate" : "gate_unsafe", {});
 
   return fauxAssistantMessage([fauxText(`echo: ${prompt}`)]);
 }
@@ -293,38 +289,44 @@ export function agents(env: Env): DurableObjectNamespace<PiAgent> {
   return env.PiAgent as DurableObjectNamespace<PiAgent>;
 }
 
+type Me = DurableObjectStub<PiAgent>;
+
+/** The test routes: method and path, and what they do to the agent `me`. */
+const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
+  [
+    "POST /test/release",
+    async (me) => {
+      await me.release();
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  ["GET /test/gate-runs", async (me) => Response.json({ runs: await me.gateRuns() })],
+  // up=1 brings the Mac online; up=0 takes it away; up=leaves takes it away unnoticed until ky next asks.
+  [
+    "POST /test/mac",
+    async (me, url) => {
+      const up = url.searchParams.get("up");
+      await (up === "leaves" ? me.macLeaves() : me.mac(up === "1"));
+
+      return new Response(null, { status: 204 });
+    }
+  ]
+]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (!url.pathname.startsWith("/test/")) return server.fetch(request, env);
+
     // The CLI harness and Playwright drive the fakes over HTTP, behind the same sign-in as everything else.
-    if (url.pathname.startsWith("/test/")) {
-      if (request.headers.get("Authorization") !== `Bearer ${env.KY_TOKEN}`) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-
-      const me = agents(env).getByName("me");
-
-      if (url.pathname === "/test/release" && request.method === "POST") {
-        await me.release();
-
-        return new Response(null, { status: 204 });
-      }
-
-      if (url.pathname === "/test/gate-runs" && request.method === "GET") {
-        return Response.json({ runs: await me.gateRuns() });
-      }
-
-      // POST /test/mac?up=1 brings the Mac online; up=0 takes it away.
-      if (url.pathname === "/test/mac" && request.method === "POST") {
-        await me.mac(url.searchParams.get("up") === "1");
-
-        return new Response(null, { status: 204 });
-      }
-
-      return new Response("Not found", { status: 404 });
+    if (request.headers.get("Authorization") !== `Bearer ${env.KY_TOKEN}`) {
+      return new Response("Unauthorized", { status: 401 });
     }
 
-    return server.fetch(request, env);
+    const route = ROUTES.get(`${request.method} ${url.pathname}`);
+
+    return route ? route(agents(env).getByName("me"), url) : new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;

@@ -111,56 +111,56 @@ function frame(url: string, loaderId: string) {
   };
 }
 
-/** One blank page that loads any URL at once. */
-function pages(message: CdpIn): CdpOut[] {
-  const event = (method: string, params: Payload): CdpOut => ({ method, sessionId: SESSION, params });
+const event = (method: string, params: Payload): CdpOut => ({ method, sessionId: SESSION, params });
 
-  switch (message.method) {
-    case "Browser.getVersion":
-      return [reply(message, VERSION)];
-    case "Target.createBrowserContext":
-      return [reply(message, { browserContextId: "context-1" })];
-    case "Target.createTarget":
-      // Chrome attaches to the new page before it answers, and Playwright looks the page up on the answer.
-      return [
-        {
-          method: "Target.attachedToTarget",
-          params: {
-            sessionId: SESSION,
-            targetInfo: {
-              targetId: PAGE,
-              type: "page",
-              title: "",
-              url: "about:blank",
-              attached: true,
-              canAccessOpener: false,
-              browserContextId: message.params?.browserContextId ?? "context-1"
-            },
-            waitingForDebugger: true
-          }
+/** Chrome attaches to the new page before it answers, and Playwright looks the page up on the answer. */
+function createTarget(message: CdpIn): CdpOut[] {
+  return [
+    {
+      method: "Target.attachedToTarget",
+      params: {
+        sessionId: SESSION,
+        targetInfo: {
+          targetId: PAGE,
+          type: "page",
+          title: "",
+          url: "about:blank",
+          attached: true,
+          canAccessOpener: false,
+          browserContextId: message.params?.browserContextId ?? "context-1"
         },
-        reply(message, { targetId: PAGE })
-      ];
-    case "Page.getFrameTree":
-      return [reply(message, { frameTree: { frame: frame("about:blank", "loader-0"), childFrames: [] } })];
-    case "Page.createIsolatedWorld":
-      return [reply(message, { executionContextId: 2 })];
-    case "Page.addScriptToEvaluateOnNewDocument":
-      return [reply(message, { identifier: "1" })];
-    case "Page.navigate": {
-      const url = message.params?.url ?? "about:blank";
-      const at = Date.now() / 1000;
+        waitingForDebugger: true
+      }
+    },
+    reply(message, { targetId: PAGE })
+  ];
+}
 
-      return [
-        reply(message, { frameId: PAGE, loaderId: "loader-1" }),
-        event("Page.frameNavigated", { frame: frame(url, "loader-1"), type: "Navigation" }),
-        ...["DOMContentLoaded", "load", "networkIdle"].map((name) =>
-          event("Page.lifecycleEvent", { frameId: PAGE, loaderId: "loader-1", name, timestamp: at })
-        )
-      ];
-    }
+/** The page loads any URL at once, with nothing on it. */
+function navigate(message: CdpIn): CdpOut[] {
+  const url = message.params?.url ?? "about:blank";
+  const at = Date.now() / 1000;
 
-    default:
-      return [reply(message, {})];
-  }
+  return [
+    reply(message, { frameId: PAGE, loaderId: "loader-1" }),
+    event("Page.frameNavigated", { frame: frame(url, "loader-1"), type: "Navigation" }),
+    ...["DOMContentLoaded", "load", "networkIdle"].map((name) =>
+      event("Page.lifecycleEvent", { frameId: PAGE, loaderId: "loader-1", name, timestamp: at })
+    )
+  ];
+}
+
+/** What one blank page answers, by method; anything else gets an empty result. */
+const PAGES = new Map<string, (message: CdpIn) => CdpOut[]>([
+  ["Browser.getVersion", (message) => [reply(message, VERSION)]],
+  ["Target.createBrowserContext", (message) => [reply(message, { browserContextId: "context-1" })]],
+  ["Target.createTarget", createTarget],
+  ["Page.getFrameTree", (message) => [reply(message, { frameTree: { frame: frame("about:blank", "loader-0"), childFrames: [] } })]],
+  ["Page.createIsolatedWorld", (message) => [reply(message, { executionContextId: 2 })]],
+  ["Page.addScriptToEvaluateOnNewDocument", (message) => [reply(message, { identifier: "1" })]],
+  ["Page.navigate", navigate]
+]);
+
+function pages(message: CdpIn): CdpOut[] {
+  return PAGES.get(message.method)?.(message) ?? [reply(message, {})];
 }
