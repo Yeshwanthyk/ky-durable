@@ -3,6 +3,7 @@ import { routeAgentRequest } from "agents";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
 import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
+import { REPLACED } from "../runner-protocol";
 import type { PiSessionView } from "../view";
 
 /**
@@ -449,12 +450,13 @@ describe("runner protocol", () => {
     expect(await reports(stub, id)).toHaveLength(1);
   });
 
-  it.fails("keeps one socket per machine: a second runner's hello replaces the first", async () => {
+  it("keeps one socket per machine: a second runner's hello replaces the first", async () => {
     const { stub, mac, object } = await online();
     const other = new Mac(object);
     await other.connect();
 
     await until("the object to close the first socket", () => !mac.wire!.open);
+    expect(mac.wire!.closedBy).toBe(REPLACED);
     await start(stub);
     await other.claude(0);
     await settle();

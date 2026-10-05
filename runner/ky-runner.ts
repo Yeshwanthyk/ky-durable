@@ -19,6 +19,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { REPLACED } from "../src/runner-protocol.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
@@ -187,16 +188,33 @@ function connect() {
     runner.open(link);
   });
   ws.addEventListener("message", (event) => runner.message(String(event.data)));
-  ws.addEventListener("close", (event) => {
+
+  // Once per socket: Node fires only `error`, never `close`, when a connect fails.
+  const lost = (code: number | undefined) => {
+    if (socket !== ws) return;
+    socket = undefined;
     runner.closed(link);
 
-    if (socket === ws) socket = undefined;
-    log(`disconnected (${event.code}), retrying in ${backoff / 1000}s`);
+    if (code === REPLACED) {
+      log(`another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`);
+      runner.shutdown();
+      process.exit(1);
+    }
+
+    log(`disconnected (${code ?? "error"}), retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 60_000);
-  });
+  };
+
+  ws.addEventListener("close", (event) => lost(event.code));
   ws.addEventListener("error", () => {
-    // close follows.
+    lost(undefined);
+
+    try {
+      ws.close();
+    } catch {
+      // Never opened.
+    }
   });
 }
 

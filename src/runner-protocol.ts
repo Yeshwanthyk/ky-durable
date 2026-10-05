@@ -13,6 +13,13 @@ import { Value } from "typebox/value";
 
 export const PROTOCOL = 1;
 
+/**
+ * The close code for a runner's socket when a runner of the same name says
+ * hello on another: one socket per name, so commands and reports have one
+ * path, and the newest runner wins.
+ */
+export const REPLACED = 4409;
+
 const Seq = Type.Integer({ minimum: 1 });
 
 /**

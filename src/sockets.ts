@@ -18,7 +18,7 @@ import {
   runnerTag,
   type MachineHub
 } from "./machines";
-import { decodeReport } from "./runner-protocol";
+import { decodeReport, REPLACED } from "./runner-protocol";
 import { checkInput } from "./images";
 import type { ChatList } from "./chats";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
@@ -292,6 +292,22 @@ export class PiSessionSockets {
     }
   }
 
+  /** The runner that said hello on `connection` is the machine's only one: close its other sockets. */
+  #replaceRunner(connection: Connection, machine: string): void {
+    // Agents tags each socket with its connection id.
+    const own = new Set(this.#getWebSockets(connection.id));
+
+    for (const socket of this.#getWebSockets(runnerTag(machine))) {
+      if (own.has(socket) || socket.readyState !== OPEN) continue;
+
+      try {
+        socket.close(REPLACED, "Another ky-runner connected with this name.");
+      } catch {
+        // Already closing.
+      }
+    }
+  }
+
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
     if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return;
     const machine = runnerOf(connection.tags);
@@ -306,6 +322,7 @@ export class PiSessionSockets {
         return;
       }
 
+      if (report.type === "hello") this.#replaceRunner(connection, machine);
       await this.#hub.onReport(machine, report);
 
       if (report.type === "hello") this.broadcastTasks();
