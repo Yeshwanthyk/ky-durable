@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport, MAX_IMAGES } from "./images";
 import { currentActivity } from "./ui/activity";
-import { ActivityIsland } from "./ui/ActivityIsland";
 import { FilesContext } from "./ui/Attachments";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { BotAvatar } from "./ui/BotAvatar";
@@ -15,6 +14,7 @@ import { prepareImage, type PendingImage } from "./ui/pick-images";
 import { Sidebar } from "./ui/Sidebar";
 import { ago } from "./ui/time";
 import { Thread } from "./ui/Thread";
+import { useFitWidth, WhoSub } from "./ui/WhoSub";
 import { buildTurns } from "./ui/turns";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
@@ -104,6 +104,8 @@ function App() {
   const [panelTab, setPanelTab] = useState<PanelTab>("activity");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const whoRef = useRef<HTMLButtonElement>(null);
+  const whoInnerRef = useRef<HTMLSpanElement>(null);
+  useFitWidth(whoRef, whoInnerRef);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const setPanelOpen = (next: boolean | ((open: boolean) => boolean)) => {
@@ -329,7 +331,7 @@ function App() {
           </div>
           {drawerOpen ? <div className="scrim" aria-hidden onClick={() => setDrawerOpen(false)} /> : null}
 
-          <section className="stage" aria-label="Chat" data-busy={activity !== null}>
+          <section className="stage" aria-label="Chat">
             <header className="topbar">
               <div className="topbar-side">
                 {talksToMain ? (
@@ -357,18 +359,19 @@ function App() {
                 type="button"
                 ref={whoRef}
                 className="who pressable"
+                data-busy={activity !== null}
                 aria-expanded={panelOpen && !panelClosing}
                 aria-label={`${speaker}: ${statusLabel}. ${panelOpen ? "Hide" : "Show"} activity`}
                 onClick={() => setPanelOpen((open) => !open)}
               >
-                <BotAvatar name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} active={running} size={28} />
-                <span className="who-text">
-                  <span className="who-name">
-                    {speaker}
-                    <span className="status-dot" data-connected={connected} />
-                  </span>
-                  <span className="who-sub">
-                    {where ?? (working > 0 ? `${working} working` : mainModel)}
+                <span className="who-inner" ref={whoInnerRef}>
+                  <BotAvatar name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} active={running} size={28} />
+                  <span className="who-text">
+                    <span className="who-name">
+                      {speaker}
+                      <span className="status-dot" data-connected={connected} />
+                    </span>
+                    <WhoSub activity={activity} idle={where ?? (working > 0 ? `${working} working` : mainModel)} />
                   </span>
                 </span>
               </button>
@@ -380,8 +383,6 @@ function App() {
                 ) : null}
               </div>
             </header>
-
-            <ActivityIsland activity={activity} name={speaker} variantId={subagent ? undefined : KY_BLOB[theme]} />
 
             <div className="chat chat-surface">
               <main className="thread" data-scroll>
