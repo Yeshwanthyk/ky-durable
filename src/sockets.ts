@@ -421,6 +421,12 @@ export class PiSessionSockets {
 
       case "new-chat":
         return { session: await this.#newChat() };
+      case "archive-chat":
+        if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
+
+        this.#chats.archive(message.session, message.archived === true);
+
+        return null;
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

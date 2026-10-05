@@ -237,6 +237,37 @@ describe("side chats and titles", () => {
     expect(latest(main.client, "chats")?.chats.find((row) => row.session === failed)?.title).toBe("no-title for this one");
     main.socket.close();
   });
+
+  it("archives a side chat and puts it back, keeping it across restarts", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const created = await command(main.socket, main.client, { type: "new-chat" });
+    const chat = created.type === "result" ? (decodeNewChat(created.result) ?? "") : "";
+    const row = (client: Follower) => latest(client, "chats")?.chats.find((each) => each.session === chat);
+    await main.client.until(() => row(main.client) !== undefined);
+    expect(row(main.client)?.archived_at).toBeNull();
+
+    expect(await command(main.socket, main.client, { type: "archive-chat", session: chat, archived: true })).toMatchObject({
+      type: "result"
+    });
+    await main.client.until(() => (row(main.client)?.archived_at ?? null) !== null);
+    main.socket.close();
+
+    // Archived is stored, not just sent, and the chat itself is still there to open.
+    await evictDurableObject(agent(name));
+    const later = await session(name);
+    expect(row(later.client)?.archived_at).toEqual(expect.any(Number));
+    const side = await session(name, `?session=${chat}`);
+    side.socket.close();
+
+    await command(later.socket, later.client, { type: "archive-chat", session: chat, archived: false });
+    await later.client.until(() => row(later.client)?.archived_at === null);
+
+    expect(
+      await command(later.socket, later.client, { type: "archive-chat", session: "not-a-chat", archived: true })
+    ).toMatchObject({ type: "error" });
+    later.socket.close();
+  });
 });
 
 describe("settings", () => {

@@ -134,6 +134,30 @@
   color: var(--quiet);
 }
 
+/* A side chat and its archive button, which stays visible: no hover on a phone. */
+.chat-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-row > .chat-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar .chat-archive {
+  flex: none;
+  color: var(--quiet);
+}
+
+.sidebar-toggle {
+  width: 100%;
+  min-height: 32px;
+  padding-right: 10px;
+  text-align: left;
+}
+
 .sidebar-empty {
   margin: 4px 10px;
   font-size: calc(12.5px * var(--text-scale));

@@ -227,5 +227,11 @@ export function usePiSession(session: string) {
     [send]
   );
 
-  return { ...state, submit, abort, reset, stopTask, stopAll, setModel, newChat };
+  /** Archive a side chat, or put it back in the list. */
+  const archiveChat = useCallback(
+    (chat: string, archived: boolean) => send({ type: "archive-chat", id: crypto.randomUUID(), session: chat, archived }),
+    [send]
+  );
+
+  return { ...state, submit, abort, reset, stopTask, stopAll, setModel, newChat, archiveChat };
 }

@@ -43,6 +43,8 @@ export type PiClientMessage =
   | { readonly type: "stop-all"; readonly id?: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
+  /** Archive a side chat, or unarchive it with `archived: false`. */
+  | { readonly type: "archive-chat"; readonly id?: string; readonly session: string; readonly archived: boolean }
   /** Choose the model, and its thinking level, for one slot. */
   | {
       readonly type: "set-model";
@@ -78,7 +80,7 @@ export type PiServerMessage =
       /** Files machine tasks shared, newest first. */
       readonly files: readonly FileRow[];
     }
-  /** Side chats, newest first; sent on connect and on change. */
+  /** Side chats, archived ones included, newest first; sent on connect and on change. */
   | { readonly type: "chats"; readonly chats: readonly ChatRow[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
