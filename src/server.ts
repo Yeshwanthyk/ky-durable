@@ -6,7 +6,7 @@ import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createModels, getSupportedThinkingLevels, type Provider } from "@earendil-works/pi-ai/models";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -31,7 +31,35 @@ const CLAUDE_MODEL = "claude-opus-5-5";
 /** Small and quick: names chats and tasks. */
 const CLAUDE_SMALL = "claude-haiku-4-5";
 
-const OPENCODE_GO = "opencode-go";
+/**
+ * The models ky runs on besides Claude: subagents, and the main agent while
+ * the Mac is away. Production uses OpenCode Go; the local stack and the
+ * worker e2e tests use pi-ai's faux provider through the same seam.
+ */
+export type Cloud = {
+  readonly provider: Provider;
+  readonly name: string;
+  /** What the settings panel says the provider needs while it is off. */
+  readonly needs: string;
+  /** Unset means the provider is off. */
+  readonly apiKey: string | undefined;
+  /** Model ids offered; the first is the default. */
+  readonly modelIds: readonly [string, ...string[]];
+  /** More tools for every agent, after ky's own. */
+  readonly extensions: readonly Extension[];
+};
+
+/** OpenCode Go, with the model KY_MODEL names. */
+export function openCodeGo(env: Env): Cloud {
+  return {
+    provider: opencodeGoProvider(),
+    name: "OpenCode Go",
+    needs: "the OPENCODE_API_KEY secret",
+    apiKey: env.OPENCODE_API_KEY || undefined,
+    modelIds: [env.KY_MODEL],
+    extensions: []
+  };
+}
 
 /** A pi context with no values that is never cancelled. */
 const BACKGROUND = Object.freeze({
@@ -70,6 +98,7 @@ The deploy restarts you, which cuts off your current turn; the task's report sti
 
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
+  readonly cloud = this.cloudFor(this.env);
   /** Claude on the user's Mac, falling back to the fallback slot when the Mac is away. */
   readonly claude = vibeProxy({
     binding: this.env.VIBEPROXY,
@@ -82,12 +111,12 @@ export class PiAgent extends DurableObject<Env> {
       return this.opencode.streamSimple(this.model(provider, modelId), context, {
         ...options,
         reasoning,
-        apiKey: this.env.OPENCODE_API_KEY
+        apiKey: this.cloud.apiKey
       });
     },
     onChange: () => this.ctx.waitUntil(this.applyMain())
   });
-  readonly opencode: Provider = opencodeGoProvider();
+  readonly opencode: Provider = this.cloud.provider;
   readonly settings = new Settings(
     this.ctx.storage.sql,
     () => this.catalog(),
@@ -133,6 +162,8 @@ export class PiAgent extends DurableObject<Env> {
       );
       this.registry.install(this.browse);
 
+      for (const extension of this.cloud.extensions) this.registry.install(extension);
+
       const memory = memoryExtension(
         this.memory,
         (session) => session === ROOT_SESSION || this.chats.has(session)
@@ -147,7 +178,7 @@ export class PiAgent extends DurableObject<Env> {
 
       const models = createModels({
         authContext: {
-          env: async (name) => (name === "OPENCODE_API_KEY" ? this.env.OPENCODE_API_KEY || undefined : undefined),
+          env: async (name) => (name === "OPENCODE_API_KEY" ? this.cloud.apiKey : undefined),
           fileExists: async () => false
         }
       });
@@ -200,6 +231,15 @@ export class PiAgent extends DurableObject<Env> {
   readonly lifecycle = Lifecycle.install(this)
     .use(this.webSockets)
     .use(this.harness);
+
+  /**
+   * The cloud models besides Claude. Read while the object is built, so a
+   * subclass can swap them: the local stack and the worker e2e tests run
+   * this same composition on pi-ai's faux provider.
+   */
+  cloudFor(env: Env): Cloud {
+    return openCodeGo(env);
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -309,7 +349,7 @@ export class PiAgent extends DurableObject<Env> {
 
     const source = provider === VIBEPROXY_PROVIDER ? this.claude.provider : this.opencode;
 
-    if (source === this.opencode) options.apiKey = this.env.OPENCODE_API_KEY;
+    if (source === this.opencode) options.apiKey = this.cloud.apiKey;
 
     const context = normalizeContext({
       systemPrompt: system,
@@ -330,7 +370,7 @@ export class PiAgent extends DurableObject<Env> {
 
     const model = this.opencode.getModels().find((each) => each.id === modelId);
 
-    if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
+    if (!model) throw new TypeError(`No ${this.cloud.name} model "${modelId}" in pi-ai's catalog.`);
 
     return model;
   }
@@ -358,17 +398,17 @@ export class PiAgent extends DurableObject<Env> {
         models: this.claude.models.map((model) => option(model))
       },
       {
-        id: OPENCODE_GO,
-        name: "OpenCode Go",
-        connected: Boolean(this.env.OPENCODE_API_KEY),
-        needs: "the OPENCODE_API_KEY secret",
-        models: [option(this.model(OPENCODE_GO, this.env.KY_MODEL))]
+        id: this.opencode.id,
+        name: this.cloud.name,
+        connected: this.cloud.apiKey !== undefined,
+        needs: this.cloud.needs,
+        models: this.cloud.modelIds.map((id) => option(this.model(this.opencode.id, id)))
       }
     ];
   }
 
   defaultSettings(): Record<Slot, SlotSetting> {
-    const cheap: SlotSetting = { provider: OPENCODE_GO, modelId: this.env.KY_MODEL, thinkingLevel: "high" };
+    const cheap: SlotSetting = { provider: this.opencode.id, modelId: this.cloud.modelIds[0], thinkingLevel: "high" };
 
     return {
       main: this.claude.connected()
