@@ -1,60 +1,63 @@
+import { env } from "cloudflare:workers";
+import type { UserInput } from "@earendil-works/pi-durable";
+import { routeAgentRequest } from "agents";
 import { describe, expect, it } from "vitest";
-import { checkInput, imageSupport, MAX_IMAGE_CHARS, MAX_IMAGES } from "../images";
-import type { SettingsView } from "../settings";
+import { MAX_IMAGE_CHARS, MAX_IMAGES } from "../images";
+import type { PiServerMessage } from "../protocol";
 
-const image = (data = "aGk=", mimeType = "image/png") => ({ type: "image" as const, data, mimeType });
+const image = (data = "iVBORw0KGgo=", mimeType = "image/png") => ({ type: "image" as const, data, mimeType });
 
-const settings = (mainImages: boolean, connected = true): SettingsView => ({
-  providers: [
-    {
-      id: "a",
-      name: "A",
-      connected,
-      models: [{ modelId: "seer", name: "Seer", levels: [], images: mainImages }]
-    },
-    {
-      id: "b",
-      name: "B",
-      connected: true,
-      models: [{ modelId: "blind", name: "Blind", levels: [], images: false }]
-    }
-  ],
-  slots: {
-    main: { provider: "a", modelId: "seer", thinkingLevel: "off" },
-    subagents: { provider: "b", modelId: "blind", thinkingLevel: "off" },
-    fallback: { provider: "b", modelId: "blind", thinkingLevel: "off" },
-    titles: { provider: "b", modelId: "blind", thinkingLevel: "off" }
-  }
-});
+/** Submit one input on a fresh object's main session; the error it got, or null when it was taken. */
+async function submit(input: UserInput): Promise<string | null> {
+  const response = await routeAgentRequest(
+    new Request(`https://example.com/agents/pi-harness-test/${crypto.randomUUID()}`, {
+      headers: { Upgrade: "websocket" }
+    }),
+    env
+  );
 
-describe("checking a message's images", () => {
-  it("lets text through, with or without images", () => {
-    expect(checkInput("hello", settings(false), "main")).toBeNull();
-    expect(checkInput([image()], settings(true), "main")).toBeNull();
-    expect(checkInput([image(), { type: "text", text: "what is this?" }], settings(true), "main")).toBeNull();
+  const socket = response!.webSocket!;
+  socket.accept();
+
+  const answer = new Promise<string | null>((resolve) => {
+    socket.addEventListener("message", (event) => {
+      if (event.data instanceof ArrayBuffer) return;
+
+      const message: PiServerMessage = JSON.parse(event.data);
+
+      if (message.type === "error" && message.id === "s1") resolve(message.message);
+
+      if (message.type === "result" && message.id === "s1") resolve(null);
+    });
   });
 
-  it("refuses images the slot's model can't read", () => {
-    expect(checkInput([image()], settings(false), "main")).toMatch(/^Seer can't read images/);
-    expect(checkInput([image()], settings(true), "subagents")).toMatch(/^Blind can't read images/);
+  socket.send(JSON.stringify({ type: "submit", id: "s1", input }));
+  const result = await answer;
+  socket.close();
+
+  return result;
+}
+
+describe("the images a message carries", () => {
+  it("lets text through, with or without images", async () => {
+    expect(await submit("hello")).toBeNull();
+    expect(await submit([image(), { type: "text", text: "what is this?" }])).toBeNull();
   });
 
-  it("checks the fallback model while the slot's provider is offline", () => {
-    expect(imageSupport(settings(true, false), "main")).toMatch(/^Blind can't read images/);
+  it("refuses too many, too large, or the wrong kind of image", async () => {
+    expect(await submit(Array.from({ length: MAX_IMAGES + 1 }, () => image()))).toMatch(/at most/);
+    expect(await submit([image("a".repeat(MAX_IMAGE_CHARS + 4))])).toMatch(/too large/);
+    expect(await submit([image("aGk=", "image/svg+xml")])).toMatch(/JPEG, PNG/);
+    expect(await submit([image("not base64!")])).toMatch(/base64/);
   });
 
-  it("lets through a model the catalog does not list", () => {
-    const unknown = { ...settings(false), providers: [] };
-
-    expect(checkInput([image()], unknown, "main")).toBeNull();
-  });
-
-  it("refuses too many, too large, or the wrong kind of image", () => {
-    const many = Array.from({ length: MAX_IMAGES + 1 }, () => image());
-
-    expect(checkInput(many, settings(true), "main")).toMatch(/at most/);
-    expect(checkInput([image("a".repeat(MAX_IMAGE_CHARS + 4))], settings(true), "main")).toMatch(/too large/);
-    expect(checkInput([image("aGk=", "image/svg+xml")], settings(true), "main")).toMatch(/JPEG, PNG/);
-    expect(checkInput([image("not base64!")], settings(true), "main")).toMatch(/base64/);
+  it("refuses an empty message, or more than one text part", async () => {
+    expect(await submit([])).toMatch(/one text part/);
+    expect(
+      await submit([
+        { type: "text", text: "a" },
+        { type: "text", text: "b" }
+      ])
+    ).toMatch(/one text part/);
   });
 });

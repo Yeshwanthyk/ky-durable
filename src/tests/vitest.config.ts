@@ -1,13 +1,16 @@
 import path from "node:path";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy.ts";
 
 const testsDir = import.meta.dirname;
 
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") }
+      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
+      // The Mac's VibeProxy tunnel: away (refuses connections) and online.
+      miniflare: { serviceBindings: { VIBEPROXY: refusingVibeProxy, VIBEPROXY_UP: fakeVibeProxy } }
     })
   ],
   resolve: {

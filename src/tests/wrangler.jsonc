@@ -3,10 +3,22 @@
   "main": "worker.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
+  // VIBEPROXY and VIBEPROXY_UP are fakes at the env boundary, defined in vitest.config.ts.
+  "vars": {
+    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
+    "VIBEPROXY_KEY": "test-vibeproxy-key",
+    "KY_REPO": "test-owner/test-repo",
+    "KY_WORK_COPY": "~/test-work/ky",
+    "KY_URL": "https://ky.test"
+  },
   "durable_objects": {
     "bindings": [
-      { "name": "PI_HARNESS_TEST", "class_name": "PiHarnessTestObject" }
+      { "name": "PI_HARNESS_TEST", "class_name": "PiHarnessTestObject" },
+      { "name": "MODELS_TEST", "class_name": "ModelsTestObject" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiHarnessTestObject"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PiHarnessTestObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["ModelsTestObject"] }
+  ]
 }
