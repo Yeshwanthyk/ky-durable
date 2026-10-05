@@ -48,9 +48,9 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| A1 | Executor retries any error, including unsafe `execute`/`resume`; retry only on connect / expired session, and pass the abort signal (executor.ts:71-95) | doing |
-| A2 | Browse can leak a browser when launch is slow and the call times out or aborts (browse.ts) | doing |
-| A3 | UI submits carry no `operationId`, so a resend after a drop can double-submit (use-pi-session.ts:154-157) | doing |
+| A1 | Executor retries any error, including unsafe `execute`/`resume`; retry only on connect / expired session, and pass the abort signal (executor.ts:71-95) | review |
+| A2 | Browse can leak a browser when launch is slow and the call times out or aborts (browse.ts) | review |
+| A3 | UI submits carry no `operationId`, so a resend after a drop can double-submit (use-pi-session.ts:154-157) | review |
 
 ## B: runner protocol (Quint `runner_protocol.qnt`, all six fail today)
 
