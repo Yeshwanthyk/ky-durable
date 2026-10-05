@@ -24,7 +24,7 @@ export type Client = {
   close: () => void;
 };
 
-export class Timeout extends Error {}
+class Timeout extends Error {}
 
 export async function until(what: string, check: () => boolean, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -35,9 +35,9 @@ export async function until(what: string, check: () => boolean, timeoutMs = 15_0
   }
 }
 
-export async function connect(url: string, query = ""): Promise<Client> {
+export async function connect(url: string, query = "", token = TOKEN): Promise<Client> {
   const socket = new Socket(`${url.replace(/^http/, "ws")}/agents/pi-agent/me${query}`, {
-    headers: { Authorization: `Bearer ${TOKEN}` }
+    headers: { Authorization: `Bearer ${token}` }
   });
 
   const frames: PiServerMessage[] = [];

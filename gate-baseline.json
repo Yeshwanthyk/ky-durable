@@ -1,0 +1,287 @@
+{
+  "checks": [
+    "typecheck",
+    "lint",
+    "fallow",
+    "worker-e2e",
+    "harness",
+    "web"
+  ],
+  "items": [
+    {
+      "check": "worker-e2e",
+      "name": "delegated work leaves the main chat free answers the user while a subagent is still working",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "delegated work leaves the main chat free answers the user while a machine task is still working",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "delegated work leaves the main chat free hands a report to the main agent after its current tool, not after its whole run",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "signing in sends pages to the login form and refuses the API and sockets without the token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "signing in sets an HttpOnly cookie for the right token, which then signs requests in",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools remembers a note and recalls it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools writes and reads a workspace file that outlives the object",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools runs JavaScript in the workspace with exec",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools calls Executor over MCP",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "running turns steers a running turn with a message sent while it works",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "running turns stops a running turn",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "running turns serves the deploy's version, and a fresh snapshot on resync",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "side chats and titles starts a side chat whose title the titles model rewrites from its first message",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "side chats and titles trims a long title, and keeps the first line when the titles model fails",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "settings stores a slot's model across restarts and refuses one that does not exist",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "machine tasks runs a task, shows its session and progress, takes a follow-up, and reports its result",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "machine tasks withdraws a task the runner has not picked up, and sends a stop to one it has",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "machine tasks marks a working task interrupted when its runner restarts without it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "machine tasks shares a machine task's file, and serves it whole and by range",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subagents stops a subagent's work from the task list",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subagents waits for a whole run before answering a message sent as a follow-up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol sends a snapshot, then pi's events for a run started over the socket",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol sends images to the model and keeps them in the transcript",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol refuses images the model can't read, or too many, too large, or the wrong kind",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol gives a client that joins mid-run the running state",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol keeps serving a hibernated socket after the object is evicted",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session view folds a run's events into the same view a late joiner gets",
+      "outcome": "passed"
+    },
+    {
+      "check": "harness",
+      "name": "chat",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "machine-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "follow-up",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "stop",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "screenshot",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "reconnect",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "reconnect-outage",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-stopRace",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-helloBeforeOutbox",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-dupExec",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-steerIntoStop",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-stuckQueued",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "harness",
+      "name": "trap-reorder",
+      "outcome": "XFAIL"
+    },
+    {
+      "check": "web",
+      "name": "sends the sign-in form to strangers, refuses a wrong token, and lets the right one in",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "streams the answer to a message",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "steers a running turn with a message sent while it works",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "stops a running turn",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "starts a side chat, names it from its first message, and goes back to the main chat",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "picks a slot's model in settings and keeps it after a reload, with VibeProxy off",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "switches the theme and keeps it after a reload",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "opens the command palette with the keyboard and runs a command",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "lists the tools ky can use",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "shows a subagent's work in Activity and opens its chat",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "runs a task on a machine and shows its report",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "stops a machine task from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "shows a task's screenshot and opens it in the lightbox",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "sends an image with a message, and refuses a fifth image",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "offers a reload when a new deploy is live and a draft would be lost",
+      "outcome": "passed"
+    }
+  ]
+}

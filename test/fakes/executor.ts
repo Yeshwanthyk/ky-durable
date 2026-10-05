@@ -18,7 +18,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 /** The token src/tests/wrangler.jsonc gives ky as EXECUTOR_TOKEN. */
-export const EXECUTOR_TOKEN = "ky-stack-executor";
+const EXECUTOR_TOKEN = "ky-stack-executor";
 
 const TOOLS = [
   { name: "skills", description: "List apps and skills.", inputSchema: { type: "object" as const } },

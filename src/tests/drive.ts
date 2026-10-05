@@ -15,7 +15,7 @@ import { agents, type PiAgent } from "./stack";
 
 export const TOKEN = "ky-stack-token";
 
-export const ORIGIN = "https://ky.test";
+const ORIGIN = "https://ky.test";
 
 /** Fetch through ky's Worker, signed in with the bearer token. */
 export function call(path: string, init: RequestInit = {}): Promise<Response> {

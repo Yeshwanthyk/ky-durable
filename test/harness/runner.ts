@@ -11,7 +11,7 @@ import { REPO, TOKEN } from "./stack.ts";
  * workdir, so it never touches the user's ~/.ky or ~/ky-work.
  */
 
-export const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
+const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
 
 const ClaudeEvent = Type.Object({
   event: Type.String(),

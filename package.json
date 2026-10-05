@@ -14,7 +14,9 @@
     "lint": "oxlint",
     "stack": "vite dev --config test/stack/vite.config.ts",
     "harness": "node --experimental-strip-types --no-warnings test/harness/main.ts",
-    "test:web": "playwright test --config test/web/playwright.config.ts"
+    "test:web": "playwright test --config test/web/playwright.config.ts",
+    "gate": "node --experimental-strip-types --no-warnings test/gate.ts",
+    "gate:live": "node --experimental-strip-types --no-warnings test/gate-live.ts"
   },
   "dependencies": {
     "@cloudflare/computer": "^0.4.0",

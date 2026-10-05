@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 
@@ -30,7 +30,7 @@ export function freePort(): Promise<number> {
 }
 
 /** Resolves once `GET /login` answers 200, which needs the Worker up. */
-export async function ready(url: string, timeoutMs = 90_000): Promise<void> {
+async function ready(url: string, timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -47,7 +47,7 @@ export async function ready(url: string, timeoutMs = 90_000): Promise<void> {
 }
 
 /** Start the stack, wait until it is ready, and return how to stop it. */
-export async function startStack(log: string): Promise<Stack> {
+async function startStack(log: string): Promise<Stack> {
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   const out = createWriteStream(log);
@@ -80,4 +80,23 @@ export async function startStack(log: string): Promise<Stack> {
   }
 
   return { url, log, stop };
+}
+
+/**
+ * Empty the output directory `out` and return a ready stack: the one at
+ * KY_STACK_URL if set (stopping it is then a no-op), else a new one logging
+ * to `out`/stack.log.
+ */
+export async function useStack(out: string): Promise<Pick<Stack, "url" | "stop">> {
+  rmSync(out, { recursive: true, force: true });
+
+  mkdirSync(out, { recursive: true });
+
+  const given = process.env.KY_STACK_URL;
+
+  if (!given) return startStack(path.join(out, "stack.log"));
+
+  await ready(given);
+
+  return { url: given, stop: async () => {} };
 }

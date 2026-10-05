@@ -8,13 +8,13 @@
  * (a trap now holds: mark it `pass`). Exits non-zero on any FAIL or XPASS.
  * Logs, runner output and fake-claude logs go to test-results/harness/.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect } from "./client.ts";
 import { machine } from "./runner.ts";
 import { type Context, online, SCENARIOS, Violation } from "./scenarios.ts";
 import { startProxy } from "./proxy.ts";
-import { REPO, startStack } from "./stack.ts";
+import { REPO, useStack } from "./stack.ts";
 
 type Outcome = "PASS" | "FAIL" | "XFAIL" | "XPASS";
 
@@ -40,13 +40,9 @@ const chosen = wanted.includes("all") ? SCENARIOS : SCENARIOS.filter((scenario) 
 
 const out = path.join(REPO, "test-results/harness");
 
-rmSync(out, { recursive: true, force: true });
+const stack = await useStack(out);
 
-mkdirSync(out, { recursive: true });
-
-const stack = process.env.KY_STACK_URL ? undefined : await startStack(path.join(out, "stack.log"));
-
-const url = process.env.KY_STACK_URL ?? stack!.url;
+const { url } = stack;
 
 const results: Array<{ name: string; outcome: Outcome; detail: string; ms: number }> = [];
 
@@ -98,7 +94,7 @@ for (const scenario of SCENARIOS.filter((each) => chosen.includes(each))) {
   console.log(`${outcome.padEnd(5)} ${scenario.name.padEnd(24)} ${(ms / 1000).toFixed(1).padStart(5)}s${detail ? `  ${detail}` : ""}`);
 }
 
-await stack?.stop();
+await stack.stop();
 
 writeFileSync(path.join(out, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
 

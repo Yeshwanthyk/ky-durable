@@ -21,7 +21,11 @@ export default defineConfig({
   retries: 0,
   timeout: 45_000,
   expect: { timeout: 15_000 },
-  reporter: [["list"], ["html", { outputFolder: path.join(repo, "test-results/web-report"), open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: path.join(repo, "test-results/web-report"), open: "never" }],
+    [path.join(import.meta.dirname, "outcomes.ts")]
+  ],
   use: {
     baseURL: process.env.KY_STACK_URL,
     screenshot: "only-on-failure",
