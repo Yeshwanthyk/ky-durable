@@ -1,5 +1,6 @@
 import type { PiSessionView } from "../view";
 import { Composer } from "./Composer";
+import { NAME } from "./open-chat";
 import type { Draft } from "./use-draft";
 
 /** The run's state under the thread: retrying, or how much is queued behind it. */
@@ -17,51 +18,49 @@ function ErrorNote({ error }: { error: string | null }) {
   ) : null;
 }
 
-function placeholder(running: boolean, talksToMain: boolean, name: string) {
+function placeholder(running: boolean, talksToMain: boolean) {
   if (running) return "Steer the running turn";
 
-  return talksToMain ? `Message ${name}` : "Message this subagent directly";
+  return talksToMain ? `Message ${NAME}` : "Message this subagent directly";
 }
 
 // The composer and the notes above it. While a run is going, sending steers it.
 export function ComposerDock({
-  view,
+  session,
   draft,
   cantSee,
   connected,
   talksToMain,
-  name,
   onSubmit,
   onStop,
 }: {
-  view: Pick<PiSessionView, "retry" | "queued" | "error" | "running">;
+  session: Pick<PiSessionView, "retry" | "queued" | "error" | "running">;
   draft: Draft;
   /** Why the attached images can't go to this session's model, if they can't. */
   cantSee: string | null;
   connected: boolean;
   talksToMain: boolean;
-  name: string;
   onSubmit: () => void;
   onStop: () => void;
 }) {
   return (
     <div className="composer-wrap">
-      <RunNote retry={view.retry} queued={view.queued} />
-      <ErrorNote error={view.error} />
+      <RunNote retry={session.retry} queued={session.queued} />
+      <ErrorNote error={session.error} />
       <ErrorNote error={cantSee ?? draft.imageError} />
       <Composer
         value={draft.prompt}
         onChange={draft.setPrompt}
         onSubmit={onSubmit}
         onStop={onStop}
-        working={view.running}
+        working={session.running}
         disabled={!connected}
         busy={draft.reading > 0 || cantSee !== null}
         images={draft.images}
         onAddImages={draft.addImages}
         onRemoveImage={draft.removeImage}
         label="Message"
-        placeholder={placeholder(view.running, talksToMain, name)}
+        placeholder={placeholder(session.running, talksToMain)}
       />
     </div>
   );

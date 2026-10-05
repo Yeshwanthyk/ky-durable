@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { wide } from "./layout";
 import type { PanelState } from "./use-panel";
-import { wide } from "./use-panel";
 import { useShortcuts } from "./use-shortcuts";
 
 export type Shell = {

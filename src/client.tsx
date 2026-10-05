@@ -8,7 +8,7 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { paletteCommands } from "./ui/commands";
 import { ComposerDock } from "./ui/ComposerDock";
 import { LightboxProvider } from "./ui/Lightbox";
-import { mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
+import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
 import type { PendingImage } from "./ui/pick-images";
@@ -17,7 +17,7 @@ import { Topbar } from "./ui/Topbar";
 import { useDraft, useReloadOnDeploy, type Draft } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
 import { usePanel, type PanelState } from "./ui/use-panel";
-import { MAIN_SESSION, useSessionRoute } from "./ui/use-session-route";
+import { useSessionRoute } from "./ui/use-session-route";
 import { useShell, type Shell } from "./ui/use-shell";
 import { useTheme } from "./ui/use-theme";
 import { Welcome } from "./ui/Welcome";
@@ -89,25 +89,20 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
   return (
     <section className="stage" aria-label="Chat">
       <Topbar
-        talksToMain={open.talksToMain}
-        drawerOpen={shell.drawerOpen}
-        onDrawer={() => shell.setDrawerOpen(true)}
-        onBack={() => shell.openSession(MAIN_SESSION)}
-        whoRef={panel.whoRef}
-        speaker={open.speaker}
+        open={open}
         variantId={variantId}
         running={ky.running}
         status={view.status}
         sub={whoSub(open.where, view.working, view.mainModel)}
-        panelOpen={panel.open}
-        panelShown={panel.shown}
-        onToggle={panel.toggle}
+        drawer={{ open: shell.drawerOpen, onOpen: () => shell.setDrawerOpen(true) }}
+        onBack={() => shell.openSession(MAIN_SESSION)}
+        panel={panel}
         updated={ky.updated}
       />
 
       <div className="chat chat-surface">
         <ChatThread
-          view={ky}
+          session={ky}
           welcome={
             <Welcome
               kind={open.kind}
@@ -120,12 +115,11 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
           }
         />
         <ComposerDock
-          view={ky}
+          session={ky}
           draft={draft}
           cantSee={view.cantSee}
           connected={view.connected}
           talksToMain={open.talksToMain}
-          name={NAME}
           onSubmit={submit}
           onStop={ky.abort}
         />

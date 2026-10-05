@@ -1,8 +1,8 @@
 import type { ChatRow, TaskRow } from "../protocol";
 import type { Command } from "./CommandPalette";
 import type { PanelTab, Theme } from "./Panel";
+import { MAIN_SESSION } from "./open-chat";
 import { ago } from "./time";
-import { MAIN_SESSION } from "./use-session-route";
 
 /** What the palette offers, and what its commands do. */
 export type CommandSources = {
@@ -22,7 +22,7 @@ export type CommandSources = {
 };
 
 function chatCommands(sources: CommandSources): Command[] {
-  const { session, main, chats, now, openSession } = sources;
+  const { session, main, chats, now, openSession, startChat } = sources;
 
   return [
     {
@@ -31,7 +31,7 @@ function chatCommands(sources: CommandSources): Command[] {
       label: "New side chat",
       icon: "plus",
       keywords: "create start",
-      run: sources.startChat
+      run: startChat
     },
     {
       id: "main",
@@ -82,7 +82,7 @@ function stopAllCommands(working: number, stopAll: () => void): Command[] {
 }
 
 function kyCommands(sources: CommandSources): Command[] {
-  const { openPanel } = sources;
+  const { openPanel, theme, setTheme, working, stopAll } = sources;
 
   return [
     {
@@ -101,8 +101,8 @@ function kyCommands(sources: CommandSources): Command[] {
       keywords: "models providers preferences",
       run: () => openPanel("settings")
     },
-    themeCommand(sources.theme, sources.setTheme),
-    ...stopAllCommands(sources.working, sources.stopAll)
+    themeCommand(theme, setTheme),
+    ...stopAllCommands(working, stopAll)
   ];
 }
 

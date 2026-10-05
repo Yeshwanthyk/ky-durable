@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-
-/** The main chat's session. Side chats and subagents have their own. */
-export const MAIN_SESSION = "1";
+import { MAIN_SESSION } from "./open-chat";
 
 function sessionFromUrl(): string {
   const session = new URLSearchParams(location.search).get("session");

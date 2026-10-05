@@ -1,8 +1,10 @@
 import type { ChatRow, SettingsView, TaskRow } from "../protocol";
 import type { ConnectionStatus } from "../use-pi-session";
-import { MAIN_SESSION } from "./use-session-route";
 
 export const NAME = "ky";
+
+/** The main chat's session. Side chats and subagents have their own. */
+export const MAIN_SESSION = "1";
 
 /** ky's main chat, a side chat with ky, or a subagent's own conversation. */
 export type ChatKind = "main" | "side" | "subagent";

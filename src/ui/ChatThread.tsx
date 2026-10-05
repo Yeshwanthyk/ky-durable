@@ -9,13 +9,13 @@ const isEmpty = ({ messages, live, running }: ThreadView) => messages.length ===
 
 // The open chat's thread, kept scrolled to the end; `welcome` stands in while it is empty.
 export function ChatThread({
-  view,
+  session,
   welcome,
 }: {
-  view: ThreadView;
+  session: ThreadView;
   welcome: ReactNode;
 }) {
-  const { messages, live, running, tools } = view;
+  const { messages, live, running, tools } = session;
   const endRef = useRef<HTMLDivElement>(null);
   const turns = useMemo(() => buildTurns(messages, live, running, tools), [messages, live, running, tools]);
 
@@ -26,7 +26,7 @@ export function ChatThread({
   return (
     <main className="thread" data-scroll>
       <div className="thread-inner">
-        {isEmpty(view) ? welcome : <Thread turns={turns} mode={running ? "live" : "dormant"} />}
+        {isEmpty(session) ? welcome : <Thread turns={turns} mode={running ? "live" : "dormant"} />}
         <div ref={endRef} />
       </div>
     </main>

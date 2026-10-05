@@ -1,20 +1,23 @@
-import type { RefObject } from "react";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
+import type { OpenChat } from "./open-chat";
+import type { PanelState } from "./use-panel";
+
+/** The chats drawer, below the wide layout. */
+type Drawer = {
+  readonly open: boolean;
+  readonly onOpen: () => void;
+};
+
+/** The agent pill's view of the panel it opens. */
+type PillPanel = Pick<PanelState, "whoRef" | "open" | "shown" | "toggle">;
+
+/** How the connection is doing, in words. */
+type Status = { readonly label: string; readonly connected: boolean };
 
 // In ky's chats, the drawer of chats (below the wide layout); in a subagent's, the way back.
-function NavButton({
-  talksToMain,
-  drawerOpen,
-  onDrawer,
-  onBack,
-}: {
-  talksToMain: boolean;
-  drawerOpen: boolean;
-  onDrawer: () => void;
-  onBack: () => void;
-}) {
+function NavButton({ talksToMain, drawer, onBack }: { talksToMain: boolean; drawer: Drawer; onBack: () => void }) {
   if (!talksToMain) {
     return (
       <button type="button" className="icon-button pressable" aria-label="Back to the main chat" onClick={onBack}>
@@ -28,8 +31,8 @@ function NavButton({
       type="button"
       className="icon-button pressable drawer-toggle"
       aria-label="Chats"
-      aria-expanded={drawerOpen}
-      onClick={onDrawer}
+      aria-expanded={drawer.open}
+      onClick={drawer.onOpen}
     >
       <Icon name="menu" size={18} />
     </button>
@@ -38,36 +41,28 @@ function NavButton({
 
 // The agent pill: who is talking and how it is connected. A click shows or hides the panel.
 function Who({
-  whoRef,
   speaker,
   variantId,
   running,
   status,
   sub,
-  panelOpen,
-  panelShown,
-  onToggle,
+  panel,
 }: {
-  whoRef: RefObject<HTMLButtonElement | null>;
   speaker: string;
-  /** ky's own blob; a subagent's comes from its name. */
   variantId: BlobVariantId | undefined;
   running: boolean;
-  status: { label: string; connected: boolean };
-  /** The line under the name. */
+  status: Status;
   sub: string;
-  panelOpen: boolean;
-  panelShown: boolean;
-  onToggle: () => void;
+  panel: PillPanel;
 }) {
   return (
     <button
       type="button"
-      ref={whoRef}
+      ref={panel.whoRef}
       className="who pressable"
-      aria-expanded={panelShown}
-      aria-label={`${speaker}: ${status.label}. ${panelOpen ? "Hide" : "Show"} activity`}
-      onClick={onToggle}
+      aria-expanded={panel.shown}
+      aria-label={`${speaker}: ${status.label}. ${panel.open ? "Hide" : "Show"} activity`}
+      onClick={panel.toggle}
     >
       <BotAvatar name={speaker} variantId={variantId} active={running} size={28} />
       <span className="who-text">
@@ -81,21 +76,31 @@ function Who({
   );
 }
 
-export type TopbarProps = Parameters<typeof NavButton>[0] &
-  Parameters<typeof Who>[0] & {
-    /** A newer deploy is serving; offer to reload. */
-    updated: boolean;
-  };
+export type TopbarProps = {
+  /** The open chat: who is talking, and whether it is ky. */
+  open: Pick<OpenChat, "talksToMain" | "speaker">;
+  /** ky's own blob; a subagent's comes from its name. */
+  variantId: BlobVariantId | undefined;
+  running: boolean;
+  status: Status;
+  /** The line under the name. */
+  sub: string;
+  drawer: Drawer;
+  onBack: () => void;
+  panel: PillPanel;
+  /** A newer deploy is serving; offer to reload. */
+  updated: boolean;
+};
 
-export function Topbar(props: TopbarProps) {
+export function Topbar({ open, variantId, running, status, sub, drawer, onBack, panel, updated }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="topbar-side">
-        <NavButton {...props} />
+        <NavButton talksToMain={open.talksToMain} drawer={drawer} onBack={onBack} />
       </div>
-      <Who {...props} />
+      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} panel={panel} />
       <div className="topbar-side end">
-        {props.updated ? (
+        {updated ? (
           <button type="button" className="pill pressable" onClick={() => location.reload()}>
             Reload
           </button>

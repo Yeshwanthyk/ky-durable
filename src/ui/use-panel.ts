@@ -1,10 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { wide } from "./layout";
 import type { PanelTab } from "./Panel";
-
-/** The sidebar and panel sit beside the chat from this width; below it they slide over it. */
-const WIDE = "(min-width: 1024px)";
-
-export const wide = () => window.matchMedia(WIDE).matches;
 
 export type PanelState = {
   /** On screen, including while it pours back into the agent pill. */
