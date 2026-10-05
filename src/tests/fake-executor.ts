@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { type Static, Type } from "typebox";
+import { Value } from "typebox/value";
 import { z } from "zod";
+import { parsed } from "./frames";
 
 /**
  * A real MCP server standing in for Executor, at the network boundary: ky's
@@ -26,21 +29,13 @@ export class FakeExecutor {
   cancelled = 0;
   /** Sessions opened, including ones since expired. */
   sessions = 0;
-  #open = new Map<string, WebStandardStreamableHTTPServerTransport>();
-  #refuse = 0;
+  /** Open sessions by id; a test clears it to expire every session, as Executor does. */
+  readonly open = new Map<string, WebStandardStreamableHTTPServerTransport>();
+  /** Connection attempts still to fail before they reach the server. */
+  refuseConnects = 0;
 
   constructor(token: string) {
     this.token = token;
-  }
-
-  /** Forget every session, as Executor does when one expires. */
-  expireSessions(): void {
-    this.#open.clear();
-  }
-
-  /** Fail the next `count` connection attempts before they reach the server. */
-  refuseConnects(count: number): void {
-    this.#refuse = count;
   }
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -55,20 +50,10 @@ export class FakeExecutor {
     // No standalone event stream: the client does without one.
     if (request.method === "GET") return new Response(null, { status: 405 });
 
-    const body: { method?: string; params?: { arguments?: { code?: string } } } =
-      request.method === "POST" ? await request.clone().json() : {};
+    const body = await mcpRequest(request);
+    const transport = await this.#transport(body.method, request.headers.get("mcp-session-id"));
 
-    const session = request.headers.get("mcp-session-id");
-    let transport = session === null ? undefined : this.#open.get(session);
-
-    if (body.method === "initialize") {
-      if (this.#refuse > 0) {
-        this.#refuse--;
-        throw new TypeError("Network connection lost.");
-      }
-
-      transport = await this.#session();
-    } else if (transport === undefined) {
+    if (transport === undefined) {
       return Response.json(
         { jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null },
         { status: 404 }
@@ -85,13 +70,28 @@ export class FakeExecutor {
     return response;
   };
 
+  /** A new session for `initialize`, unless the connection is refused; else the open session the request names. */
+  async #transport(
+    method: string | undefined,
+    session: string | null
+  ): Promise<WebStandardStreamableHTTPServerTransport | undefined> {
+    if (method !== "initialize") return session === null ? undefined : this.open.get(session);
+
+    if (this.refuseConnects > 0) {
+      this.refuseConnects--;
+      throw new TypeError("Network connection lost.");
+    }
+
+    return this.#session();
+  }
+
   async #session(): Promise<WebStandardStreamableHTTPServerTransport> {
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       enableJsonResponse: true,
       onsessioninitialized: (id) => {
         this.sessions++;
-        this.#open.set(id, transport);
+        this.open.set(id, transport);
       }
     });
 
@@ -121,4 +121,19 @@ export class FakeExecutor {
 
     return transport;
   }
+}
+
+/** An MCP request, by the fields the fake reads. */
+const McpRequest = Type.Object({
+  method: Type.Optional(Type.String()),
+  params: Type.Optional(
+    Type.Object({ arguments: Type.Optional(Type.Object({ code: Type.Optional(Type.String()) })) })
+  )
+});
+
+async function mcpRequest(request: Request): Promise<Static<typeof McpRequest>> {
+  if (request.method !== "POST") return {};
+  const value = parsed(await request.clone().text());
+
+  return Value.Check(McpRequest, value) ? value : {};
 }

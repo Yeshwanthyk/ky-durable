@@ -34,10 +34,33 @@ type CallResult = { content: Array<{ type: "text"; text: string }>; isError?: bo
 
 const REQUEST_TIMEOUT_MS = 6 * 60_000;
 
-const failed = (error: Error | string): CallResult => ({
-  content: [{ type: "text", text: `Executor call failed: ${error instanceof Error ? error.message : error}` }],
+const failed = (error: Error): CallResult => ({
+  content: [{ type: "text", text: `Executor call failed: ${error.message}` }],
   isError: true
 });
+
+/** One try at a call, and whether it provably never reached Executor, so it may be tried again. */
+type Attempt = { result: CallResult; neverRan: boolean };
+
+/** Whether Executor answered with one of these HTTP statuses. */
+function answered(error: Error, ...codes: number[]): boolean {
+  return error instanceof StreamableHTTPError && error.code !== undefined && codes.includes(error.code);
+}
+
+/** An MCP tool result as pi tool content: text parts as they are, anything else as JSON. */
+function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
+  const content = (Array.isArray(result.content) ? result.content : []).map((part) =>
+    part.type === "text"
+      ? { type: "text" as const, text: part.text }
+      : { type: "text" as const, text: JSON.stringify(part) }
+  );
+
+  if (result.structuredContent !== undefined && content.length === 0) {
+    content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
+  }
+
+  return { content, isError: result.isError === true };
+}
 
 class ExecutorClient {
   readonly #config: ExecutorConfig;
@@ -104,46 +127,43 @@ class ExecutorClient {
 
     for (let attempt = 0; ; attempt++) {
       const retry = attempt === 0 && signal?.aborted !== true;
-      const connection = this.#connect();
-      let client: Client;
+      const { result, neverRan } = await this.#attempt(name, args, signal);
 
-      try {
-        client = await connection;
-      } catch (error) {
-        // A refused token stays refused; only a connection that may not have been made is tried again.
-        const refused = error instanceof StreamableHTTPError && (error.code === 401 || error.code === 403);
+      if (!retry || !neverRan) return result;
+    }
+  }
 
-        if (retry && !refused) continue;
+  async #attempt(
+    name: string,
+    args: Record<string, JsonValue | undefined>,
+    signal: AbortSignal | undefined
+  ): Promise<Attempt> {
+    const connection = this.#connect();
+    let client: Client;
 
-        return failed(error instanceof Error ? error : String(error));
-      }
+    try {
+      client = await connection;
+    } catch (thrown) {
+      const error = thrown instanceof Error ? thrown : new Error(String(thrown));
 
-      try {
-        const options: RequestOptions = { timeout: REQUEST_TIMEOUT_MS };
+      // A refused token stays refused; only a connection that may not have been made is tried again.
+      return { result: failed(error), neverRan: !answered(error, 401, 403) };
+    }
 
-        if (signal) options.signal = signal;
-        const result = await client.callTool({ name, arguments: args }, undefined, options);
+    try {
+      const options: RequestOptions = { timeout: REQUEST_TIMEOUT_MS };
 
-        const content = (Array.isArray(result.content) ? result.content : []).map((part) =>
-          part.type === "text"
-            ? { type: "text" as const, text: part.text }
-            : { type: "text" as const, text: JSON.stringify(part) }
-        );
+      if (signal) options.signal = signal;
 
-        if (result.structuredContent !== undefined && content.length === 0) {
-          content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
-        }
+      return { result: toResult(await client.callTool({ name, arguments: args }, undefined, options)), neverRan: false };
+    } catch (thrown) {
+      const error = thrown instanceof Error ? thrown : new Error(String(thrown));
 
-        return { content, isError: result.isError === true };
-      } catch (error) {
-        // An aborted call leaves the connection working; any other failure may not.
-        if (signal?.aborted !== true) this.#forget(connection);
+      // An aborted call leaves the connection working; any other failure may not.
+      if (signal?.aborted !== true) this.#forget(connection);
 
-        // Executor refused the session as unknown or expired: the Streamable HTTP spec answers 404 before running anything.
-        if (retry && error instanceof StreamableHTTPError && error.code === 404) continue;
-
-        return failed(error instanceof Error ? error : String(error));
-      }
+      // Executor refused the session as unknown or expired: the Streamable HTTP spec answers 404 before running anything.
+      return { result: failed(error), neverRan: answered(error, 404) };
     }
   }
 }

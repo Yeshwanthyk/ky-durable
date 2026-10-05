@@ -29,7 +29,7 @@ describe("executor tools over MCP", () => {
   it("retries once on a fresh session when Executor expired the old one", async () => {
     const name = crypto.randomUUID();
     await prompt(name, "executor first");
-    await inside(name, (agent) => agent.boundary.executorFake.expireSessions());
+    await inside(name, (agent) => agent.boundary.executorFake.open.clear());
 
     expect((await prompt(name, "executor second")).text).toBe("tool said: ran 1");
     expect(await executorSaw(name, "second")).toEqual({ runs: 1, cancelled: 0, sessions: 2 });
@@ -37,11 +37,15 @@ describe("executor tools over MCP", () => {
 
   it("retries once when the connection cannot be made, and reports a second failure", async () => {
     const once = crypto.randomUUID();
-    await inside(once, (agent) => agent.boundary.executorFake.refuseConnects(1));
+    await inside(once, (agent) => {
+      agent.boundary.executorFake.refuseConnects = 1;
+    });
     expect((await prompt(once, "executor once")).text).toBe("tool said: ran 1");
 
     const never = crypto.randomUUID();
-    await inside(never, (agent) => agent.boundary.executorFake.refuseConnects(2));
+    await inside(never, (agent) => {
+      agent.boundary.executorFake.refuseConnects = 2;
+    });
     expect((await prompt(never, "executor never")).text).toMatch(/^tool failed: Executor call failed:/);
     expect((await executorSaw(never, "never")).runs).toBe(0);
   });
