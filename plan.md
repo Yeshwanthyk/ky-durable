@@ -85,8 +85,14 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| U1 | Split `App` in client.tsx (cognitive complexity 97) | doing |
-| U2 | README matches the system (where things run, runner setup) | doing |
+| U1 | Split `App` in client.tsx (cognitive complexity 97) | review |
+| U2 | README matches the system (where things run, runner setup) | review |
+
+## Finish
+- Merge order into `fix/lint-and-state-traps`: integration branch from G (L + A + M + G), then U, then B, then S. Run `pnpm gate` after each merge.
+- One PR to `main`. Rewrite history so the commits are clean. In particular, move the L1 deletions out of the explainer commit 0a64423.
+- Remove every agent worktree and its `worktree-agent-*` branch: `git worktree list`, then `git worktree remove` + `git branch -D` for each one, then `git worktree prune`.
+- Delete this file. The explainer's "fixing now" table records the final state.
 
 ## Later (not in this branch)
 Split `KY_RUNNER_TOKEN` (needs a new secret), node manifest + node tools, automations, second runner/model.
