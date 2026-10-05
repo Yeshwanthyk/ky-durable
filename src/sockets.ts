@@ -19,11 +19,11 @@ import {
   type MachineHub,
   type RunnerReport
 } from "./machines";
-import { checkInput } from "./images";
+import { checkInput, imagesOf } from "./images";
 import type { ChatList } from "./chats";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
-import type { Settings } from "./settings";
+import type { Models } from "./models";
 import type { TaskFeed } from "./tasks";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -110,7 +110,7 @@ export class PiSessionSockets {
   readonly #feed: TaskFeed;
   readonly #hub: MachineHub;
   readonly #files: FileStore;
-  readonly #settings: Settings;
+  readonly #models: Models;
   readonly #chats: ChatList;
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
@@ -124,7 +124,7 @@ export class PiSessionSockets {
     feed: TaskFeed,
     hub: MachineHub,
     files: FileStore,
-    settings: Settings,
+    models: Models,
     chats: ChatList,
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
@@ -136,7 +136,7 @@ export class PiSessionSockets {
     this.#feed = feed;
     this.#hub = hub;
     this.#files = files;
-    this.#settings = settings;
+    this.#models = models;
     this.#chats = chats;
     this.#newChat = newChat;
     this.#version = version;
@@ -147,7 +147,7 @@ export class PiSessionSockets {
     });
     feed.onChange(() => this.broadcastTasks());
     files.onChange(() => this.broadcastTasks());
-    settings.onChange(() => {
+    models.settings.onChange(() => {
       const message = this.#settingsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
@@ -159,7 +159,7 @@ export class PiSessionSockets {
   }
 
   #settingsMessage(): PiServerMessage {
-    return { type: "settings", settings: this.#settings.view() };
+    return { type: "settings", settings: this.#models.settings.view() };
   }
 
   /** Send the task feed to every UI socket. */
@@ -356,11 +356,11 @@ export class PiSessionSockets {
         // The main session and side chats run on the main slot; every other session is a subagent's.
         const chat = this.#chats.has(session);
 
-        const problem = checkInput(
-          message.input,
-          this.#settings.view(),
-          session === ROOT_SESSION || chat ? "main" : "subagents"
-        );
+        const slot = session === ROOT_SESSION || chat ? "main" : "subagents";
+
+        const problem =
+          checkInput(message.input) ??
+          (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(slot) : null);
 
         if (problem !== null) throw new Error(problem);
 
@@ -391,7 +391,7 @@ export class PiSessionSockets {
 
         return null;
       case "set-model": {
-        const { provider, modelId, thinkingLevel } = this.#settings.set(message.slot, message.setting);
+        const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.slot, message.setting);
 
         return { provider, modelId, thinkingLevel };
       }

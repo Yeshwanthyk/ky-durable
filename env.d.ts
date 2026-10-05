@@ -9,6 +9,10 @@ interface __BaseEnv_Env {
 	ASSETS: Fetcher;
 	EXECUTOR_URL: "https://v2.executor.sh/org/presh/mcp?elicitation_mode=browser";
 	KY_MODEL: "deepseek-v4.1-flash";
+	VIBEPROXY_ORIGIN: "http://127.0.0.1:8317";
+	KY_REPO: "Yeshwanthyk/ky-durable";
+	KY_WORK_COPY: "~/ky-work/ky-durable";
+	KY_URL: "https://ky.yeshwanth-yk.workers.dev";
 	KY_TOKEN: string;
 	EXECUTOR_TOKEN: string;
 	VIBEPROXY_KEY: string;
@@ -27,5 +31,5 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "EXECUTOR_URL" | "KY_MODEL" | "KY_TOKEN" | "EXECUTOR_TOKEN" | "VIBEPROXY_KEY" | "OPENCODE_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "EXECUTOR_URL" | "KY_MODEL" | "VIBEPROXY_ORIGIN" | "KY_REPO" | "KY_WORK_COPY" | "KY_URL" | "KY_TOKEN" | "EXECUTOR_TOKEN" | "VIBEPROXY_KEY" | "OPENCODE_API_KEY">> {}
 }

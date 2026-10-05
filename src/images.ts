@@ -23,8 +23,11 @@ export function imagesOf(input: UserInput): ImageContent[] {
   return Array.isArray(input) ? input.filter((part) => part.type === "image") : [];
 }
 
-/** Why this input is refused, or null when it is fine. Images need a slot model that reads them. */
-export function checkInput(input: UserInput, settings: SettingsView, slot: Slot): string | null {
+/**
+ * Why this input's shape is refused, or null when it is fine. Whether the
+ * slot's model reads images is Models.imageSupport's answer (models.ts).
+ */
+export function checkInput(input: UserInput): string | null {
   if (!Array.isArray(input)) return null;
   const images = imagesOf(input);
 
@@ -42,13 +45,15 @@ export function checkInput(input: UserInput, settings: SettingsView, slot: Slot)
     return "These images are too large together. Attach fewer.";
   }
 
-  return images.length > 0 ? imageSupport(settings, slot) : null;
+  return null;
 }
 
 /**
- * Why the slot's model cannot read images, or null when it can. A slot whose
- * provider is offline runs on the fallback slot, so that model is checked.
- * A model missing from the catalog is let through; pi knows it better.
+ * The browser's early warning, from the settings it was sent: why the slot's
+ * model cannot read images, or null when it can. A slot whose provider is
+ * offline runs on the fallback slot, so that model is checked, as
+ * Models.resolve does on the server, which has the final say. A model missing
+ * from the catalog is let through.
  */
 export function imageSupport(settings: SettingsView, slot: Slot): string | null {
   const find = (setting: SettingsView["slots"][Slot]) => {

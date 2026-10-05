@@ -27,7 +27,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { FileStore } from "../files";
 import { MachineHub, machineExtension } from "../machines";
-import { Settings } from "../settings";
+import { Models } from "../models";
 import { ChatList } from "../chats";
 import { PiSessionSockets } from "../sockets";
 import { subagentExtension } from "../subagents";
@@ -108,7 +108,12 @@ function script(context: TranscriptContext): AssistantMessage {
 
 /** Real Durable Object fixture: the example's composition with pi-ai's faux provider. */
 export class PiHarnessTestObject extends DurableObject<Env> {
+  // The first faux model reads images; faux-text stands in for a model that can't.
   readonly #faux = fauxProvider({
+    models: [
+      { id: "faux-1", name: "Faux", input: ["text", "image"] },
+      { id: "faux-text", name: "Faux Text", input: ["text"] }
+    ],
     tokensPerSecond: 200,
     tokenSize: { min: 2, max: 4 }
   });
@@ -119,7 +124,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(machines);
       this.registry.install(
-        subagentExtension(this.feed, [machines], () => this.settings.get("subagents"))
+        subagentExtension(this.feed, [machines], () => this.models.settings.get("subagents"))
       );
       const models = createModels();
       models.setProvider(this.#faux.provider);
@@ -150,22 +155,15 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.files
   );
-  // The faux model reads images; faux-text stands in for a model that can't.
-  readonly settings = new Settings(this.ctx.storage.sql, () => [
-    {
-      id: "faux",
-      name: "Faux",
-      connected: true,
-      models: [
-        { modelId: this.#faux.getModel().id, name: "Faux", levels: [], images: true },
-        { modelId: "faux-text", name: "Faux Text", levels: [], images: false }
-      ]
-    }
-  ], () => {
-    const faux = { provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const;
+  readonly models = new Models(
+    this.ctx.storage.sql,
+    [{ provider: this.#faux.provider, name: "Faux", needs: "nothing", models: this.#faux.models, connected: () => true }],
+    (() => {
+      const faux = [{ provider: "faux", modelId: this.#faux.getModel().id, thinkingLevel: "off" } as const];
 
-    return { main: faux, subagents: faux, fallback: faux, titles: faux };
-  });
+      return { main: faux, subagents: faux, fallback: faux, titles: faux };
+    })()
+  );
   readonly sockets = new PiSessionSockets(
     this.harness,
     this.registry,
@@ -173,7 +171,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     this.feed,
     this.machines,
     this.files,
-    this.settings,
+    this.models,
     this.chats,
     async () => {
       const { id } = await this.harness.sessions.create();
@@ -333,5 +331,7 @@ function multiplyTool(): ToolRegistration<typeof MultiplyParameters> {
     }
   };
 }
+
+export { ModelsTestObject } from "./models-fixture";
 
 export default { fetch: () => new Response("Not found", { status: 404 }) };

@@ -2,10 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
-import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { createModels, getSupportedThinkingLevels, type Provider } from "@earendil-works/pi-ai/models";
-import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
@@ -18,20 +14,14 @@ import { executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
 import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
-import { type ModelOption, type ProviderInfo, type Slot, type SlotSetting, Settings } from "./settings";
+import { CLAUDE_MODEL, CLAUDE_SMALL, kyDefaults, Models, OPENCODE_GO, opencodeGo } from "./models";
+import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
 import { subagentExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
-import { VIBEPROXY_PROVIDER, vibeProxy } from "./vibeproxy";
+import { vibeProxy } from "./vibeproxy";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
-
-const CLAUDE_MODEL = "claude-opus-5-5";
-
-/** Small and quick: names chats and tasks. */
-const CLAUDE_SMALL = "claude-haiku-4-5";
-
-const OPENCODE_GO = "opencode-go";
 
 /** A pi context with no values that is never cancelled. */
 const BACKGROUND = Object.freeze({
@@ -40,59 +30,22 @@ const BACKGROUND = Object.freeze({
   toString: () => "[Context ky background]"
 });
 
-const PREAMBLE = `You are ky, the user's personal agent. You run in the cloud and are reachable from anywhere; the conversation and your memory persist across devices and restarts.
-
-You are the primary agent: you talk to the user, decide, and delegate. Keep replies short and concrete. Stay free to talk: never do slow work yourself.
-
-- Quick things you do yourself: one or two fast calls. You have a durable workspace at /workspace (read, write, edit, delete, ls, find, grep; exec runs JavaScript modules with git but no network). The user's apps and accounts are behind Executor.
-- Everything else goes to cloud subagents, by default: research, web lookups, browsing, multi-step work. Start several at once when the work splits. They have your tools plus browse, a cloud browser with no logins. For the web, tell them to try Exa web search through Executor first, then browse.
-- Use a machine only when the user asks for one, or when the work needs a real computer: pages behind the user's logins, scripts, builds, local files, changing yourself.
-- Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it.
-
-When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages, sometimes in the middle of other work; tell the user what matters in one or two lines.
-
-Changing yourself: your own code is the GitHub repo Yeshwanthyk/ky-durable, with a working copy for you at ~/ky-work/ky-durable on the user's Mac. Changes go through a pull request the user merges; never deploy unmerged work.
-
-When the user asks you to change how you work or look, run one machine task with the change and these steps:
-1. cd ~/ky-work/ky-durable (gh repo clone Yeshwanthyk/ky-durable there if missing). git fetch, then git switch -c ky/<short-name> origin/main. pnpm install.
-2. Make the change.
-3. Run pnpm typecheck and pnpm test, and fix failures.
-4. Commit with a clear message, git push -u origin HEAD, and open a pull request with gh pr create (what changed and why).
-5. Report the PR URL and a short summary of the diff.
-Then tell the user the PR is ready and to say "ship it" or merge it on GitHub.
-
-When the user says to ship it or that they merged it, run one machine task:
-1. cd ~/ky-work/ky-durable. If the PR is still open, gh pr merge <number> --squash --delete-branch.
-2. git switch main, git pull, pnpm install, then pnpm typecheck and pnpm test.
-3. pnpm run deploy. Open pages reload on their own.
-4. Check that https://ky.yeshwanth-yk.workers.dev/login answers 200. If not, run npx wrangler rollback -m "ky self-edit rollback" -y and report it.
-The deploy restarts you, which cuts off your current turn; the task's report still reaches you after. Never print or commit secrets.`;
-
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
-  /** Claude on the user's Mac, falling back to the fallback slot when the Mac is away. */
+  /** Claude on the user's Mac. While the Mac is away, models.ts runs its turns on the fallback slot. */
   readonly claude = vibeProxy({
     binding: this.env.VIBEPROXY,
+    origin: this.env.VIBEPROXY_ORIGIN,
     key: this.env.VIBEPROXY_KEY,
     modelIds: [CLAUDE_MODEL, CLAUDE_SMALL],
-    fallback: (context, options) => {
-      const { provider, modelId, thinkingLevel } = this.settings.get("fallback");
-      const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel;
-
-      return this.opencode.streamSimple(this.model(provider, modelId), context, {
-        ...options,
-        reasoning,
-        apiKey: this.env.OPENCODE_API_KEY
-      });
-    },
     onChange: () => this.ctx.waitUntil(this.applyMain())
   });
-  readonly opencode: Provider = opencodeGoProvider();
-  readonly settings = new Settings(
+  readonly models = new Models(
     this.ctx.storage.sql,
-    () => this.catalog(),
-    () => this.defaultSettings()
+    [this.claude, opencodeGo(this.env.OPENCODE_API_KEY, this.env.KY_MODEL)],
+    kyDefaults({ provider: OPENCODE_GO, modelId: this.env.KY_MODEL })
   );
+  readonly #preamble = preamble({ repo: this.env.KY_REPO, workCopy: this.env.KY_WORK_COPY, url: this.env.KY_URL });
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
     storage: this.ctx.storage as DurableObjectStorageLike,
@@ -111,7 +64,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
-  readonly titler = new Titler((system, text) => this.#complete("titles", system, text));
+  readonly titler = new Titler((system, text) => this.models.complete("titles", system, text));
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
     this.feed,
@@ -125,7 +78,7 @@ export class PiAgent extends DurableObject<Env> {
     harness: async ({ storage, context }) => {
       this.registry.install({
         name: "playground",
-        sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
+        sections: [{ key: "preamble", render: () => this.#preamble, tag: false }],
         tools: createWorkspaceTools(this.workspace)
       });
       this.registry.install(
@@ -142,23 +95,13 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(memory);
       this.registry.install(machines);
       this.registry.install(
-        subagentExtension(this.feed, [memory, machines], () => this.settings.get("subagents"))
+        subagentExtension(this.feed, [memory, machines], () => this.models.settings.get("subagents"))
       );
-
-      const models = createModels({
-        authContext: {
-          env: async (name) => (name === "OPENCODE_API_KEY" ? this.env.OPENCODE_API_KEY || undefined : undefined),
-          fileExists: async () => false
-        }
-      });
-
-      models.setProvider(this.claude.provider);
-      models.setProvider(this.opencode);
 
       return Harness.open(
         storage,
         {
-          models,
+          models: this.models.registry(),
           registry: this.registry,
           settings: {
             retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 },
@@ -172,16 +115,16 @@ export class PiAgent extends DurableObject<Env> {
       );
     },
     // Read on each new session, so they follow the main slot.
-    defaults: ((agent: PiAgent) => ({
+    defaults: ((models: Models) => ({
       get model() {
-        const { provider, modelId } = agent.settings.get("main");
+        const { provider, modelId } = models.settings.get("main");
 
-        return agent.model(provider, modelId);
+        return models.model(provider, modelId);
       },
       get thinkingLevel() {
-        return agent.settings.get("main").thinkingLevel;
+        return models.settings.get("main").thinkingLevel;
       }
-    }))(this)
+    }))(this.models)
   });
 
   readonly sockets = new PiSessionSockets(
@@ -191,7 +134,7 @@ export class PiAgent extends DurableObject<Env> {
     this.feed,
     this.machines,
     this.files,
-    this.settings,
+    this.models,
     this.chats,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
@@ -205,14 +148,14 @@ export class PiAgent extends DurableObject<Env> {
     super(ctx, env);
     this.machines.attach(this.harness);
     this.#nameThings();
-    this.settings.onChange((slot) => {
+    this.models.settings.onChange((slot) => {
       if (slot === "main") this.ctx.waitUntil(this.applyMain());
     });
   }
 
   async onStart(): Promise<void> {
     await this.sockets.reattach();
-    await this.claude.check();
+    await this.claude.reachable();
     await this.applyMain();
   }
 
@@ -281,105 +224,6 @@ export class PiAgent extends DurableObject<Env> {
           }
         })
     });
-  }
-
-  /** One short answer from a slot's model. Claude on an absent Mac becomes the fallback model. */
-  async #complete(slot: Slot, system: string, text: string): Promise<string> {
-    let { provider, modelId, thinkingLevel } = this.settings.get(slot);
-
-    if (provider === VIBEPROXY_PROVIDER && !(await this.claude.check())) {
-      ({ provider, modelId } = this.settings.get("fallback"));
-    }
-
-    const model = this.model(provider, modelId);
-    const levels = getSupportedThinkingLevels(model);
-
-    // Keep the slot's light thinking on the stand-in model; when it lacks that level, its lightest.
-    if (!levels.includes(thinkingLevel)) thinkingLevel = levels[0] ?? "off";
-
-    const options: SimpleStreamOptions = {
-      // Room for a model that cannot stop thinking to think, then name it.
-      maxTokens: 2_000,
-      // OpenCode Go routes by session and refuses requests without one.
-      sessionId: `ky-${slot}`,
-      signal: AbortSignal.timeout(30_000)
-    };
-
-    if (thinkingLevel !== "off") options.reasoning = thinkingLevel;
-
-    const source = provider === VIBEPROXY_PROVIDER ? this.claude.provider : this.opencode;
-
-    if (source === this.opencode) options.apiKey = this.env.OPENCODE_API_KEY;
-
-    const context = normalizeContext({
-      systemPrompt: system,
-      messages: [{ role: "user", content: text, timestamp: Date.now() }]
-    });
-
-    const answer = await source.streamSimple(model, context, options).result();
-
-    if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? "The titles model failed.");
-
-    return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-  }
-
-  model(provider: string, modelId: string): Model<Api> {
-    if (provider === VIBEPROXY_PROVIDER) {
-      return this.claude.models.find((each) => each.id === modelId) ?? this.claude.model;
-    }
-
-    const model = this.opencode.getModels().find((each) => each.id === modelId);
-
-    if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
-
-    return model;
-  }
-
-  catalog(): ProviderInfo[] {
-    const option = (model: Model<Api>, name = model.name): ModelOption => {
-      const base: ModelOption = {
-        modelId: model.id,
-        name,
-        levels: getSupportedThinkingLevels(model),
-        images: model.input.includes("image")
-      };
-
-      return model.cost.input > 0
-        ? { ...base, cost: { input: model.cost.input, output: model.cost.output } }
-        : base;
-    };
-
-    return [
-      {
-        id: VIBEPROXY_PROVIDER,
-        name: "Claude via VibeProxy",
-        connected: this.claude.connected(),
-        needs: "the Mac online with VibeProxy",
-        models: this.claude.models.map((model) => option(model))
-      },
-      {
-        id: OPENCODE_GO,
-        name: "OpenCode Go",
-        connected: Boolean(this.env.OPENCODE_API_KEY),
-        needs: "the OPENCODE_API_KEY secret",
-        models: [option(this.model(OPENCODE_GO, this.env.KY_MODEL))]
-      }
-    ];
-  }
-
-  defaultSettings(): Record<Slot, SlotSetting> {
-    const cheap: SlotSetting = { provider: OPENCODE_GO, modelId: this.env.KY_MODEL, thinkingLevel: "high" };
-
-    return {
-      main: this.claude.connected()
-        ? { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_MODEL, thinkingLevel: "medium" }
-        : cheap,
-      subagents: cheap,
-      fallback: cheap,
-      titles: this.claude.connected()
-        ? { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_SMALL, thinkingLevel: "off" }
-        : { ...cheap, thinkingLevel: "off" }
-    };
   }
 }
 
