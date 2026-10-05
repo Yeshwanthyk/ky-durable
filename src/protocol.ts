@@ -41,6 +41,8 @@ export type PiClientMessage =
   /** Stop a subagent's current work or a machine task; queued machine runs are withdrawn. */
   | { readonly type: "stop-task"; readonly id?: string; readonly task: string }
   | { readonly type: "stop-all"; readonly id?: string }
+  /** Send a machine task a message: it steers a working task, or resumes a finished one. */
+  | { readonly type: "send-task"; readonly id?: string; readonly task: string; readonly message: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */

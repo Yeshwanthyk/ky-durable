@@ -1191,3 +1191,184 @@ kbd {
     transform: none;
   }
 }
+
+/* A machine task's code changes: totals, a file list, each file's diff and line comments. */
+.changes .change-counts {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.change-counts .added {
+  color: var(--success);
+}
+
+.change-counts .removed {
+  color: var(--danger);
+}
+
+.changes-body {
+  margin: 4px 0 8px;
+  min-width: 0;
+}
+
+.changes-caption {
+  margin: 6px 2px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+  overflow-wrap: anywhere;
+}
+
+.changes-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.change-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.change-file + .change-file {
+  border-top: 1px solid var(--line);
+}
+
+.change-file-row {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: calc(12.5px * var(--text-scale));
+  text-align: left;
+}
+
+.change-file-row .chevron {
+  flex: none;
+  color: var(--quiet);
+  transition: transform var(--fast) var(--ease-out);
+}
+
+.change-file-row[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+}
+
+.change-file-name {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+  overflow-wrap: anywhere;
+}
+
+.change-file-notes {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text-scale));
+}
+
+.change-file-row .change-counts {
+  flex: none;
+  font-size: calc(11.5px * var(--text-scale));
+}
+
+.change-diff {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  border-top: 1px solid var(--line);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.change-comment,
+.change-comment-form {
+  margin: 6px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-family: var(--font-sans);
+  font-size: calc(13px * var(--text-scale));
+  color: var(--ink);
+  white-space: normal;
+}
+
+.change-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.change-comment p {
+  flex: 1;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.change-comment-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  /* 16px stops iOS from zooming into the field. */
+  font-size: max(16px, calc(13px * var(--text-scale)));
+}
+
+.change-comment-form textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.change-comment-form:focus-within {
+  border-color: var(--line-hover);
+}
+
+.change-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.changes-send {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--muted);
+}
+
+.changes-send .pill {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.changes-send .pill .icon {
+  color: var(--bg);
+}

@@ -204,6 +204,11 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  const sendTask = useCallback(
+    (task: string, message: string) => send({ type: "send-task", id: crypto.randomUUID(), task, message }),
+    [send]
+  );
+
   const stopAll = useCallback(
     () => send({ type: "stop-all", id: crypto.randomUUID() }),
     [send]
@@ -233,5 +238,5 @@ export function usePiSession(session: string) {
     [send]
   );
 
-  return { ...state, submit, abort, reset, stopTask, stopAll, setModel, newChat, archiveChat };
+  return { ...state, submit, abort, reset, stopTask, sendTask, stopAll, setModel, newChat, archiveChat };
 }

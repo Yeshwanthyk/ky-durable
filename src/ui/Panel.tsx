@@ -1,6 +1,7 @@
 import { useContext, useState } from "react";
 import type { MachineInfo, SettingsView, Slot, SlotSetting, TaskRow, ToolInfo } from "../protocol";
-import { Attachments, FilesContext } from "./Attachments";
+import { Attachments, FilesContext, isMedia } from "./Attachments";
+import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
@@ -232,7 +233,7 @@ function TaskItem({
 }) {
   const [open, setOpen] = useState(false);
   const opens = task.kind === "cloud" && task.session !== null;
-  const shared = useContext(FilesContext).some((file) => file.task === task.id);
+  const shared = useContext(FilesContext).some((file) => file.task === task.id && isMedia(file));
   const live = isLive(task);
 
   return (
@@ -267,6 +268,11 @@ function TaskItem({
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />
+        </div>
+      ) : null}
+      {task.kind === "machine" ? (
+        <div className="feed-changes">
+          <Changes task={task.id} />
         </div>
       ) : null}
       {live ? (

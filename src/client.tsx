@@ -4,6 +4,7 @@ import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
 import { currentActivity } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
+import { SendTaskContext } from "./ui/Changes";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
@@ -213,28 +214,30 @@ function App() {
 
   return (
     <FilesContext.Provider value={ky.files}>
-      <LightboxProvider>
-        <div className="shell" data-panel={panel.open} data-panel-closing={panel.closing} data-drawer={shell.drawerOpen}>
-          <div className="sidebar-slot">
-            <Sidebar
-              chats={ky.chats}
-              session={session}
-              main={MAIN_SESSION}
-              now={now}
-              onOpen={shell.openSession}
-              onNew={shell.startChat}
-              onSearch={() => shell.setPaletteOpen(true)}
-              onArchive={ky.archiveChat}
-              creating={shell.creating}
-            />
-          </div>
-          {shell.drawerOpen ? <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} /> : null}
+      <SendTaskContext.Provider value={ky.sendTask}>
+        <LightboxProvider>
+          <div className="shell" data-panel={panel.open} data-panel-closing={panel.closing} data-drawer={shell.drawerOpen}>
+            <div className="sidebar-slot">
+              <Sidebar
+                chats={ky.chats}
+                session={session}
+                main={MAIN_SESSION}
+                now={now}
+                onOpen={shell.openSession}
+                onNew={shell.startChat}
+                onSearch={() => shell.setPaletteOpen(true)}
+                onArchive={ky.archiveChat}
+                creating={shell.creating}
+              />
+            </div>
+            {shell.drawerOpen ? <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} /> : null}
 
-          <Stage {...parts} draft={draft} />
-          <KyPanel {...parts} />
-          <Palette {...parts} />
-        </div>
-      </LightboxProvider>
+            <Stage {...parts} draft={draft} />
+            <KyPanel {...parts} />
+            <Palette {...parts} />
+          </div>
+        </LightboxProvider>
+      </SendTaskContext.Provider>
     </FilesContext.Provider>
   );
 }

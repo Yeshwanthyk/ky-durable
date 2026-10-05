@@ -1,12 +1,16 @@
 import { createContext, useContext } from "react";
+import { DIFF_TYPE } from "../files";
 import type { FileRow } from "../protocol";
 import { type Media, useLightbox } from "./Lightbox";
 
 // Files machine tasks shared, from the task feed; the thread and the task list read them here.
 export const FilesContext = createContext<ReadonlyArray<FileRow>>([]);
 
+/** Screenshots and recordings; a task's patches show as its Changes instead. */
+export const isMedia = (file: FileRow) => file.type !== DIFF_TYPE;
+
 export function Attachments({ task, compact = false }: { task: string; compact?: boolean }) {
-  const files = useContext(FilesContext).filter((file) => file.task === task);
+  const files = useContext(FilesContext).filter((file) => file.task === task && isMedia(file));
   const open = useLightbox();
 
   if (files.length === 0) return null;

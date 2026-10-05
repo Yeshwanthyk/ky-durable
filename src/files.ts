@@ -4,6 +4,9 @@
  * `/api/files?task=<id>`; the Worker stores the bytes in R2 first and only
  * then has the agent record it, so no record names missing bytes. The UI
  * shows each file on its task and in the task's report in the chat.
+ *
+ * A task's code changes travel the same way: the runner's `ky-diff` PUTs a
+ * git patch as `text/x-diff`, and the UI renders its newest one as a diff.
  */
 
 export type FileRow = {
@@ -16,16 +19,22 @@ export type FileRow = {
   readonly created_at: number;
 };
 
+export const DIFF_TYPE = "text/x-diff";
+
 export const FILE_TYPES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif",
   "video/webm",
-  "video/mp4"
+  "video/mp4",
+  DIFF_TYPE
 ]);
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+/** Larger patches would not render on a phone anyway. */
+export const MAX_DIFF_BYTES = 2 * 1024 * 1024;
 
 const LIST_LIMIT = 200;
 
@@ -108,11 +117,12 @@ export async function upload(
   if (!task) return reply(400, "Name the task: ?task=<id>");
   const type = request.headers.get("Content-Type") ?? "";
 
-  if (!FILE_TYPES.has(type)) return reply(415, "Type must be png, jpeg, webp, gif, webm or mp4");
+  if (!FILE_TYPES.has(type)) return reply(415, "Type must be png, jpeg, webp, gif, webm, mp4 or x-diff");
   const size = Number(request.headers.get("Content-Length"));
+  const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
 
-  if (!Number.isInteger(size) || size < 1 || size > MAX_FILE_BYTES) {
-    return reply(413, "File must be 1 byte to 25 MB");
+  if (!Number.isInteger(size) || size < 1 || size > max) {
+    return reply(413, `File must be 1 byte to ${max / 1024 / 1024} MB`);
   }
 
   const name = decoded(request.headers.get("X-Ky-Name"), 255);
@@ -152,6 +162,8 @@ export async function download(request: Request, bucket: R2Bucket, id: string): 
   const headers = new Headers({
     "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
     "Accept-Ranges": "bytes",
+    // A patch is the task's text: never let a browser sniff it into a page.
+    "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, max-age=31536000, immutable"
   });
 
