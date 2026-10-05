@@ -90,6 +90,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "the tools asks for a compression, saves it, opens it into its memories, and forgets it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the tools writes and reads a workspace file that outlives the object",
       "outcome": "passed"
     },
@@ -391,6 +396,11 @@
     {
       "check": "web",
       "name": "stops a machine task from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "stops every working task at once from Activity",
       "outcome": "passed"
     },
     {
