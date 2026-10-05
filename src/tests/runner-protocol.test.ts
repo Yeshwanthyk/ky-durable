@@ -360,7 +360,7 @@ describe("runner protocol: the Quint counterexamples", () => {
 });
 
 describe("runner protocol", () => {
-  it.fails("decodes runner frames: a malformed report closes the runner's socket", async () => {
+  it("decodes runner frames: a malformed report closes the runner's socket", async () => {
     const { mac } = await online();
     mac.wire!.socket.send(JSON.stringify({ type: "ack", seq: "one" }));
 
@@ -368,7 +368,7 @@ describe("runner protocol", () => {
     expect(mac.wire!.closedBy).toBe(1008);
   });
 
-  it.fails("decodes commands: the runner ignores a run without a prompt", async () => {
+  it("decodes commands: the runner ignores a run without a prompt", async () => {
     const { mac } = await online();
     mac.runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-x", turn: 1, session: null }));
     await settle();

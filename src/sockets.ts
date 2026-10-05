@@ -16,9 +16,9 @@ import {
   RUNNER_QUERY,
   runnerOf,
   runnerTag,
-  type MachineHub,
-  type RunnerReport
+  type MachineHub
 } from "./machines";
+import { decodeReport } from "./runner-protocol";
 import { checkInput } from "./images";
 import type { ChatList } from "./chats";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
@@ -297,12 +297,12 @@ export class PiSessionSockets {
     const machine = runnerOf(connection.tags);
 
     if (machine) {
-      let report: RunnerReport;
+      const report = decodeReport(raw);
 
-      try {
-        // SAFETY: only an authenticated runner gets a runner socket, and it sends RunnerReports.
-        report = JSON.parse(raw) as RunnerReport;
-      } catch {
+      if (!report) {
+        // A runner of another protocol version, or a broken one: it must be updated, not half-understood.
+        connection.close(1008, "Malformed or outdated ky-runner report; update ky-runner.");
+
         return;
       }
 

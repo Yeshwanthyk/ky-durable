@@ -5,16 +5,7 @@
  * `claude`; the tests give it a socket to a real object and a fake `claude`.
  */
 
-type Command =
-  | { type: "run"; seq: number; task: string; prompt: string; session: string | null }
-  | { type: "stop"; seq: number; task: string };
-
-type Report =
-  | { type: "hello"; active: string[] }
-  | { type: "ack"; seq: number }
-  | { type: "session"; task: string; session: string }
-  | { type: "progress"; task: string; text: string }
-  | { type: "result"; task: string; ok: boolean; text: string; session: string | null };
+import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
 export type Link = { send(text: string): boolean };
@@ -59,7 +50,7 @@ export class Runner {
   readonly #runs = new Map<string, Run>();
   readonly #handled = new Set<number>();
   /** Reports made while disconnected, sent on the next connect. */
-  readonly #outbox: Report[] = [];
+  readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
 
   constructor(spawn: SpawnClaude, log: (line: string) => void) {
@@ -75,7 +66,7 @@ export class Runner {
   /** A socket opened: say hello, then send what was made offline. */
   open(link: Link): void {
     this.#link = link;
-    link.send(JSON.stringify({ type: "hello", active: this.active() } satisfies Report));
+    link.send(JSON.stringify(this.#hello()));
 
     for (const message of this.#outbox.splice(0)) link.send(JSON.stringify(message));
   }
@@ -86,7 +77,7 @@ export class Runner {
 
   /** The 30s hello that keeps the socket alive through idle proxies. */
   keepalive(): void {
-    this.#link?.send(JSON.stringify({ type: "hello", active: this.active() } satisfies Report));
+    this.#link?.send(JSON.stringify(this.#hello()));
   }
 
   /** The process is exiting: end every session. */
@@ -95,29 +86,23 @@ export class Runner {
   }
 
   message(text: string): void {
-    let message: Partial<Command>;
+    // The socket also carries the Agents SDK's own frames; only commands are acted on.
+    const command = decodeCommand(text);
 
-    try {
-      message = JSON.parse(text);
-    } catch {
-      return;
-    }
-
-    // The socket also carries the Agents SDK's own frames; skip those.
-    // JSON has no NaN or Infinity, so a finite seq is any number seq.
-    if ((message.type === "run" || message.type === "stop") && Number.isFinite(message.seq)) {
-      // SAFETY: only the hub sends run and stop frames with a seq, and it sends whole Commands.
-      this.#onCommand(message as Command);
-    }
+    if (command) this.#onCommand(command);
   }
 
-  #report(message: Report): void {
+  #hello(): RunnerReport {
+    return { type: "hello", protocol: PROTOCOL, active: this.active() };
+  }
+
+  #report(message: RunnerReport): void {
     if (this.#link?.send(JSON.stringify(message))) return;
 
     if (message.type !== "progress" && message.type !== "ack") this.#outbox.push(message);
   }
 
-  #onCommand(command: Command): void {
+  #onCommand(command: RunnerCommand): void {
     this.#report({ type: "ack", seq: command.seq });
 
     if (this.#handled.has(command.seq)) return;

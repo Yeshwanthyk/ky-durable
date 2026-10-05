@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
 import type { FileStore } from "./files";
+import type { RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -34,34 +35,6 @@ export function runnerTag(machine: string): string {
 export function runnerOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(RUNNER_TAG_PREFIX))?.slice(RUNNER_TAG_PREFIX.length);
 }
-
-/** Object → runner. */
-export type RunnerCommand =
-  | {
-      readonly type: "run";
-      readonly seq: number;
-      readonly task: string;
-      readonly prompt: string;
-      /** The Claude Code session to resume, once the first turn named one. */
-      readonly session: string | null;
-    }
-  | { readonly type: "stop"; readonly seq: number; readonly task: string };
-
-/** Runner → object. */
-export type RunnerReport =
-  | { readonly type: "hello"; readonly active: readonly string[] }
-  | { readonly type: "ack"; readonly seq: number }
-  | { readonly type: "session"; readonly task: string; readonly session: string }
-  | { readonly type: "progress"; readonly task: string; readonly text: string }
-  | {
-      readonly type: "result";
-      readonly task: string;
-      readonly ok: boolean;
-      readonly text: string;
-      readonly session: string | null;
-    };
-
-type Distributive<T> = T extends unknown ? Omit<T, "seq"> : never;
 
 export class MachineHub {
   readonly #sql: SqlStorage;
@@ -123,7 +96,7 @@ export class MachineHub {
     );
   }
 
-  #enqueue(machine: string, command: Distributive<RunnerCommand>): void {
+  #enqueue(machine: string, command: UnnumberedCommand): void {
     const { seq } = this.#sql
       .exec<{ seq: number }>(
         "INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?) RETURNING seq",
@@ -158,7 +131,7 @@ export class MachineHub {
       .toArray()
       .map((row): RunnerCommand => {
         // SAFETY: only #enqueue writes payloads, each a RunnerCommand without its seq.
-        const command = JSON.parse(row.payload) as Distributive<RunnerCommand>;
+        const command = JSON.parse(row.payload) as UnnumberedCommand;
 
         return { ...command, seq: row.seq };
       });

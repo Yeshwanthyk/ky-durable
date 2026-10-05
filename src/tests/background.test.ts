@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { routeAgentRequest } from "agents";
 import { describe, expect, it } from "vitest";
+import { decodeCommand, PROTOCOL, type RunnerCommand } from "../runner-protocol";
 import type { PiSessionView } from "../view";
 
 /** Resolve once the root session's view has a message whose text contains `text`. */
@@ -22,7 +23,7 @@ async function said(stub: DurableObjectStub<PiHarnessTestObject>, text: string):
 
 type PiHarnessTestObject = import("./worker").PiHarnessTestObject;
 
-type RunCommand = { type: string; seq: number; task: string };
+type RunCommand = Extract<RunnerCommand, { type: "run" }>;
 
 /** Connect as the runner "mac"; returns its socket and the runs it has been sent so far. */
 async function runner(name: string): Promise<{ socket: WebSocket; runs: RunCommand[]; next: () => Promise<RunCommand> }> {
@@ -38,12 +39,12 @@ async function runner(name: string): Promise<{ socket: WebSocket; runs: RunComma
   socket.accept();
   const runs: RunCommand[] = [];
   socket.addEventListener("message", (event) => {
-    // SAFETY: the object sends this socket RunnerCommands and the agents handshake, told apart by type.
-    const command = JSON.parse(String(event.data)) as RunCommand;
+    // The object also sends the Agents SDK's handshake on this socket; decoding skips it.
+    const command = decodeCommand(String(event.data));
 
-    if (command.type === "run") runs.push(command);
+    if (command?.type === "run") runs.push(command);
   });
-  socket.send(JSON.stringify({ type: "hello", active: [] }));
+  socket.send(JSON.stringify({ type: "hello", protocol: PROTOCOL, active: [] }));
 
   const next = async () => {
     for (let i = 0; i < 100 && runs.length === 0; i++) {
