@@ -30,6 +30,9 @@ export type ClaudeEvents = {
 /** Start `claude` for a task, resuming `session` when it is set. */
 export type SpawnClaude = (task: string, session: string | null, events: ClaudeEvents) => ClaudeProcess;
 
+/** A turn to run once the session it came to has stopped. */
+type Turn = { turn: number; prompt: string; session: string | null };
+
 type Run = {
   child: ClaudeProcess;
   session: string | null;
@@ -39,6 +42,10 @@ type Run = {
   pending: number;
   stopped: boolean;
   last: string;
+  /** Turns that came while it was stopping; a new session runs them once it exits. */
+  next: Turn[];
+  /** Its result is reported; it stays only until it exits, so `next` waits for it. */
+  ended: boolean;
 };
 
 const PROGRESS_EVERY_MS = 4_000;
@@ -128,19 +135,22 @@ export class Runner {
     const run = this.#runs.get(command.task);
 
     if (command.type === "stop") {
-      if (run) {
-        run.stopped = true;
-        run.child.interrupt();
-      }
+      if (run) this.#stop(command.task, run);
+
+      return;
+    }
+
+    if (run?.stopped) {
+      // The session is dying and would take this message with it: run it in a new one after.
+      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session });
+      this.#log(`${command.task}: queued behind the stop`);
 
       return;
     }
 
     if (run) {
       // Steer: Claude Code takes it as the next user message in this session.
-      run.pending += 1;
-      run.turn = command.turn;
-      run.child.write(userLine(command.prompt));
+      this.#steer(run, command.turn, command.prompt);
       this.#log(`${command.task}: steer`);
 
       return;
@@ -149,12 +159,48 @@ export class Runner {
     this.#start(command.task, command.turn, command.prompt, command.session);
   }
 
-  #start(task: string, turn: number, prompt: string, session: string | null): void {
+  /**
+   * Stop the session, and drop turns queued behind an earlier stop: this
+   * stop's result speaks for them, so they never run.
+   */
+  #stop(task: string, run: Run): void {
+    const latest = run.next.at(-1)?.turn;
+    run.next = [];
+
+    if (run.ended) {
+      if (latest !== undefined) {
+        this.#report({ type: "result", task, turn: latest, ok: false, text: "Stopped.", session: run.session });
+      }
+
+      return;
+    }
+
+    if (latest !== undefined) run.turn = latest;
+    run.stopped = true;
+    run.child.interrupt();
+  }
+
+  #steer(run: Run, turn: number, prompt: string): void {
+    run.pending += 1;
+    run.turn = turn;
+    run.child.write(userLine(prompt));
+  }
+
+  /** Report the session's last turn over; turns queued behind it start once it exits. */
+  #end(task: string, run: Run, ok: boolean, text: string): void {
+    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session });
+
+    if (run.next.length === 0) this.#runs.delete(task);
+    else run.ended = true;
+  }
+
+  #start(task: string, turn: number, prompt: string, session: string | null): Run {
     this.#log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     let lastProgress = 0;
 
     const child = this.#spawn(task, session, {
       line: (line) => {
+        if (run.ended) return;
         let event: any;
 
         try {
@@ -194,35 +240,37 @@ export class Runner {
 
           // Nothing more to answer: end the session so the result is final.
           run.child.end();
-          this.#report({
-            type: "result",
+          this.#end(
             task,
-            turn: run.turn,
-            ok: !event.is_error && !run.stopped,
-            text: run.stopped ? "Stopped." : run.last || (event.is_error ? "Failed." : "Done."),
-            session: run.session
-          });
-          this.#runs.delete(task);
+            run,
+            !event.is_error && !run.stopped,
+            run.stopped ? "Stopped." : run.last || (event.is_error ? "Failed." : "Done.")
+          );
         }
       },
       exit: (code, stderr) => {
         this.#log(`${task}: exit ${code}`);
 
         if (this.#runs.get(task) !== run) return;
+
+        if (!run.ended) {
+          this.#end(task, run, false, run.stopped ? "Stopped." : `claude exited with ${code}. ${stderr.trim()}`);
+        }
+
         this.#runs.delete(task);
-        this.#report({
-          type: "result",
-          task,
-          turn: run.turn,
-          ok: false,
-          text: run.stopped ? "Stopped." : `claude exited with ${code}. ${stderr.trim()}`,
-          session: run.session
-        });
+
+        if (run.next.length === 0) return;
+        const [first, ...rest] = run.next;
+        const next = this.#start(task, first!.turn, first!.prompt, run.session ?? first!.session);
+
+        for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
       }
     });
 
-    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "" };
+    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false };
     this.#runs.set(task, run);
     child.write(userLine(prompt));
+
+    return run;
   }
 }

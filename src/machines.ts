@@ -68,6 +68,13 @@ export class MachineHub {
       turn INTEGER NOT NULL,
       closed INTEGER NOT NULL,
       sent INTEGER NOT NULL)`);
+    // `sent`: the command went out on an open socket, so the runner may have it.
+    const inbox = sql.exec<{ name: string }>("PRAGMA table_info(ky_machine_inbox)").toArray();
+
+    if (!inbox.some((column) => column.name === "sent")) {
+      sql.exec("ALTER TABLE ky_machine_inbox ADD COLUMN sent INTEGER NOT NULL DEFAULT 0");
+    }
+
     // Commands from before turns were numbered; no runner of this protocol accepts them.
     sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
   }
@@ -148,8 +155,23 @@ export class MachineHub {
           socket.send(JSON.stringify(command));
         } catch {
           // Closed meanwhile; the inbox keeps it for the next connect.
+          continue;
         }
+
+        this.#sent(command);
       }
+    }
+  }
+
+  /**
+   * The runner may have this command now: a run can no longer be withdrawn,
+   * and a stop must wait for the runner to say how the turn ended.
+   */
+  #sent(command: RunnerCommand): void {
+    this.#sql.exec("UPDATE ky_machine_inbox SET sent = 1 WHERE seq = ?", command.seq);
+
+    if (command.type === "run" && command.turn > this.#turns(command.task).sent) {
+      this.#setTurns(command.task, { sent: command.turn });
     }
   }
 
@@ -195,20 +217,24 @@ export class MachineHub {
   }
 
   /**
-   * Stop a task. Runs still waiting in the inbox are withdrawn, so a task the
-   * runner has not picked up yet ends here; a running one gets a stop.
+   * Stop a task. Runs never sent to the runner are withdrawn. If no open
+   * turn ever reached the runner, the task ends here; otherwise the runner
+   * gets a stop and its result ends the task, since a run already sent may
+   * be running whatever the inbox says.
    */
   async stop(task: TaskRow): Promise<void> {
+    if (task.status !== "queued" && task.status !== "working") return;
+
     const withdrawn = this.#sql.exec(
-      `DELETE FROM ky_machine_inbox WHERE machine = ?
+      `DELETE FROM ky_machine_inbox WHERE machine = ? AND sent = 0
          AND json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.task') = ?`,
       task.worker,
       task.id
     ).rowsWritten;
 
-    const { turn } = this.#turns(task.id);
+    const { turn, closed, sent } = this.#turns(task.id);
 
-    if (task.status === "queued" && withdrawn > 0) {
+    if (withdrawn > 0 && sent <= closed) {
       await this.#finish(task.id, false, "Stopped before it started.", turn);
 
       return;

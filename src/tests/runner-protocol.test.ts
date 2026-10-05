@@ -243,7 +243,7 @@ const terminal = (value: string | undefined) => value === "done" || value === "f
 
 describe("runner protocol: the Quint counterexamples", () => {
   // CE1 seqStopRace: stop() while the run's ack is in flight.
-  it.fails("stopRace: a stop racing the ack stops the run, with one report", async () => {
+  it("stopRace: a stop racing the ack stops the run, with one report", async () => {
     const { stub, mac } = await online();
     mac.wire!.mode = "hold";
     const id = await start(stub);
@@ -300,7 +300,7 @@ describe("runner protocol: the Quint counterexamples", () => {
   });
 
   // CE4 seqSteerIntoStop: a send after a stop must not go to the dying session.
-  it.fails("steerIntoStop: a message sent while stopping starts a new session after it", async () => {
+  it("steerIntoStop: a message sent while stopping starts a new session after it", async () => {
     const { stub, mac } = await online();
     const id = await start(stub);
     const first = await mac.claude(0);
@@ -406,6 +406,29 @@ describe("runner protocol", () => {
     await mac.connect();
     await settle();
     expect(mac.claudes).toHaveLength(0);
+  });
+
+  // Beyond the model: a second stop also stops the turn queued behind the first.
+  it("drops a turn queued behind a stop when it is stopped too", async () => {
+    const { stub, mac } = await online();
+    const id = await start(stub);
+    const first = await mac.claude(0);
+    first.session("s1");
+    await until("the task to be working", async () => (await status(stub, id)) === "working");
+
+    await stub.stopTask(id);
+    await until("the stop to be acked", async () => first.interrupted && (await stub.inbox("mac")).length === 0);
+    await stub.sendTask(id, "and this");
+    await until("the message to be acked", async () => (await stub.inbox("mac")).length === 0);
+    await stub.stopTask(id);
+    await until("the second stop to be acked", async () => (await stub.inbox("mac")).length === 0);
+    first.exit(130);
+
+    await until("the task to end", async () => terminal(await status(stub, id)));
+    await settle();
+    expect(mac.claudes).toHaveLength(1);
+    expect(await status(stub, id)).toBe("stopped");
+    expect(await reports(stub, id)).toHaveLength(1);
   });
 
   // The stale keepalive the fixes surfaced: a hello sent before the run arrived must not end that run.
