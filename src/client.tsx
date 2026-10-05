@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
+import { currentActivity } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
@@ -79,6 +81,18 @@ type Parts = {
 function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
   const { open, variantId } = view;
 
+  const activity = useMemo(
+    () =>
+      currentActivity({
+        running: ky.running,
+        live: ky.live,
+        tools: ky.tools,
+        messages: ky.messages,
+        retrying: ky.retry !== null
+      }),
+    [ky.running, ky.live, ky.tools, ky.messages, ky.retry]
+  );
+
   /** While a run is going, Enter steers it; otherwise it starts one. */
   const submit = () => {
     const input = view.sendable ? draft.take() : null;
@@ -94,6 +108,7 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
         running={ky.running}
         status={view.status}
         sub={whoSub(open.where, view.working, view.mainModel)}
+        activity={activity}
         drawer={{ open: shell.drawerOpen, onOpen: () => shell.setDrawerOpen(true) }}
         onBack={() => shell.openSession(MAIN_SESSION)}
         panel={panel}

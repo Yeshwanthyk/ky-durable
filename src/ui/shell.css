@@ -203,10 +203,10 @@
 .who {
   display: flex;
   align-items: center;
-  gap: 9px;
   max-width: min(60vw, 420px);
   height: 44px;
   padding: 0 14px 0 8px;
+  overflow: hidden;
   border-radius: 999px;
   background: var(--surface);
   box-shadow:
@@ -214,11 +214,33 @@
     0 1px 2px rgb(0 0 0 / 0.04),
     0 4px 14px rgb(0 0 0 / 0.05);
   text-align: left;
+  /* useFitWidth sets a pixel width so the pill can grow and shrink with its subtitle. */
+  transition:
+    width 320ms cubic-bezier(0.2, 0.9, 0.3, 1.1),
+    box-shadow 260ms ease,
+    background-color 260ms ease;
+}
+
+/* While it works the pill lifts a little and takes on the working colour, Dynamic Island style. */
+.who[data-busy="true"] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--working) 35%, var(--line)),
+    0 1px 2px rgb(0 0 0 / 0.05),
+    0 6px 20px color-mix(in srgb, var(--working) 18%, transparent);
 }
 
 .who[aria-expanded="true"] {
   background: var(--raised);
   box-shadow: 0 0 0 1px var(--line);
+}
+
+/* Measured at its natural width; the text inside caps itself, so it never needs the pill's room. */
+.who-inner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
 }
 
 .who-text {
@@ -237,12 +259,75 @@
   letter-spacing: -0.01em;
 }
 
+/* Lines stack in one cell so the old one fades out where the new one fades in. */
 .who-sub {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  position: relative;
+  display: grid;
   font-size: calc(11.5px * var(--text-scale));
   color: var(--muted);
+}
+
+.who-sub-line {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.who-sub-line[data-animate="true"] {
+  animation: who-sub-in 220ms ease-out both;
+}
+
+/* The outgoing line takes no room, so the pill sizes to the new one straight away. */
+.who-sub-line[data-out="true"] {
+  position: absolute;
+  inset: 0 auto auto 0;
+  animation: who-sub-out 220ms ease-in both;
+}
+
+.who-sub-line[data-busy="true"] {
+  color: var(--ink);
+}
+
+.who-sub-line .icon {
+  flex: none;
+  color: var(--working);
+}
+
+/* Short enough that the pill stays clear of the buttons either side of it at 390px. */
+.who-sub-text {
+  max-width: min(36vw, 240px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes who-sub-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+    filter: blur(2px);
+  }
+}
+
+@keyframes who-sub-out {
+  to {
+    opacity: 0;
+    transform: translateY(-5px);
+    filter: blur(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .who {
+    transition: none;
+  }
+
+  .who-sub-line[data-animate="true"],
+  .who-sub-line[data-out="true"] {
+    animation-duration: 1ms;
+  }
 }
 
 .pill {

@@ -1,8 +1,11 @@
+import { useRef } from "react";
+import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
 import type { OpenChat } from "./open-chat";
 import type { PanelState } from "./use-panel";
+import { useFitWidth, WhoSub } from "./WhoSub";
 
 /** The chats drawer, below the wide layout. */
 type Drawer = {
@@ -39,13 +42,14 @@ function NavButton({ talksToMain, drawer, onBack }: { talksToMain: boolean; draw
   );
 }
 
-// The agent pill: who is talking and how it is connected. A click shows or hides the panel.
+// The agent pill: who is talking, how it is connected, and what it is doing. A click shows or hides the panel.
 function Who({
   speaker,
   variantId,
   running,
   status,
   sub,
+  activity,
   panel,
 }: {
   speaker: string;
@@ -53,24 +57,31 @@ function Who({
   running: boolean;
   status: Status;
   sub: string;
+  activity: Activity | null;
   panel: PillPanel;
 }) {
+  const innerRef = useRef<HTMLSpanElement>(null);
+  useFitWidth(panel.whoRef, innerRef);
+
   return (
     <button
       type="button"
       ref={panel.whoRef}
       className="who pressable"
+      data-busy={activity !== null}
       aria-expanded={panel.shown}
       aria-label={`${speaker}: ${status.label}. ${panel.open ? "Hide" : "Show"} activity`}
       onClick={panel.toggle}
     >
-      <BotAvatar name={speaker} variantId={variantId} active={running} size={28} />
-      <span className="who-text">
-        <span className="who-name">
-          {speaker}
-          <span className="status-dot" data-connected={status.connected} />
+      <span className="who-inner" ref={innerRef}>
+        <BotAvatar name={speaker} variantId={variantId} active={running} size={28} />
+        <span className="who-text">
+          <span className="who-name">
+            {speaker}
+            <span className="status-dot" data-connected={status.connected} />
+          </span>
+          <WhoSub activity={activity} idle={sub} />
         </span>
-        <span className="who-sub">{sub}</span>
       </span>
     </button>
   );
@@ -83,8 +94,10 @@ export type TopbarProps = {
   variantId: BlobVariantId | undefined;
   running: boolean;
   status: Status;
-  /** The line under the name. */
+  /** The line under the name while idle. */
   sub: string;
+  /** What the agent is doing now, shown in place of `sub`. */
+  activity: Activity | null;
   drawer: Drawer;
   onBack: () => void;
   panel: PillPanel;
@@ -92,13 +105,13 @@ export type TopbarProps = {
   updated: boolean;
 };
 
-export function Topbar({ open, variantId, running, status, sub, drawer, onBack, panel, updated }: TopbarProps) {
+export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="topbar-side">
         <NavButton talksToMain={open.talksToMain} drawer={drawer} onBack={onBack} />
       </div>
-      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} panel={panel} />
+      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} />
       <div className="topbar-side end">
         {updated ? (
           <button type="button" className="pill pressable" onClick={() => location.reload()}>
