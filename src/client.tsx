@@ -224,6 +224,7 @@ function App() {
               onOpen={shell.openSession}
               onNew={shell.startChat}
               onSearch={() => shell.setPaletteOpen(true)}
+              onArchive={ky.archiveChat}
               creating={shell.creating}
             />
           </div>

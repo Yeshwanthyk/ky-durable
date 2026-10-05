@@ -11,6 +11,8 @@ export type ChatRow = {
   readonly title: string;
   readonly created_at: number;
   readonly updated_at: number;
+  /** When it was archived, hiding it from the list; null while it is in the list. */
+  readonly archived_at: number | null;
 };
 
 const TITLE_CHARS = 60;
@@ -34,6 +36,12 @@ export class ChatList {
       title TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL)`);
+
+    const columns = sql.exec<{ name: string }>("PRAGMA table_info(ky_chats)").toArray();
+
+    if (!columns.some((column) => column.name === "archived_at")) {
+      sql.exec("ALTER TABLE ky_chats ADD COLUMN archived_at INTEGER");
+    }
   }
 
   onChange(listener: () => void): () => void {
@@ -88,6 +96,19 @@ export class ChatList {
   /** Swap the title for a better one, unless it was renamed since `was`. */
   retitle(session: string, was: string, title: string): void {
     const cursor = this.#sql.exec("UPDATE ky_chats SET title = ? WHERE session = ? AND title = ?", title, session, was);
+    cursor.toArray();
+
+    if (cursor.rowsWritten > 0) this.#emit();
+  }
+
+  /** Hide the chat from the list, or put it back. Its transcript stays either way. */
+  archive(session: string, archived: boolean): void {
+    const cursor = this.#sql.exec(
+      "UPDATE ky_chats SET archived_at = ? WHERE session = ?",
+      archived ? Date.now() : null,
+      session
+    );
+
     cursor.toArray();
 
     if (cursor.rowsWritten > 0) this.#emit();
