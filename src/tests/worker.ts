@@ -260,6 +260,35 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     return this.feed.list().map(({ kind, worker, status }) => ({ kind, worker, status }));
   }
 
+  /** One task as the task list shows it, or null. */
+  task(id: string): { status: string; summary: string; session: string | null } | null {
+    const task = this.feed.get(id);
+
+    return task ? { status: task.status, summary: task.summary, session: task.session } : null;
+  }
+
+  /** Stop a machine task, as the task list's stop button does. */
+  async stopTask(id: string): Promise<void> {
+    const task = this.feed.get(id);
+
+    if (task) await this.machines.stop(task);
+  }
+
+  /** Send a machine task a message, as the machine tool's send does. */
+  sendTask(id: string, message: string): void {
+    const task = this.feed.get(id);
+
+    if (task) this.machines.send(task, message);
+  }
+
+  /** Commands the object holds for a machine until it acknowledges them. */
+  inbox(machine: string): number[] {
+    return this.ctx.storage.sql
+      .exec<{ seq: number }>("SELECT seq FROM ky_machine_inbox WHERE machine = ? ORDER BY seq", machine)
+      .toArray()
+      .map((row) => row.seq);
+  }
+
   /** The view folded from a fresh snapshot, as a client joining now sees it. */
   async snapshotView(): Promise<string> {
     const stream = await this.harness.session().events();
