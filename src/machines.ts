@@ -89,6 +89,7 @@ export class MachineHub {
   }
 
   #setTurns(task: string, turns: Partial<Turns>): void {
+    // Read, merge, write with no await between: the object runs nothing else meanwhile.
     const next = { ...this.#turns(task), ...turns };
     this.#sql.exec(
       `INSERT INTO ky_machine_turns (task, turn, closed, sent) VALUES (?, ?, ?, ?)

@@ -429,7 +429,9 @@ describe("runner protocol", () => {
     await settle();
     expect(mac.claudes).toHaveLength(1);
     expect(await status(stub, id)).toBe("stopped");
-    expect(await reports(stub, id)).toHaveLength(1);
+    const said = await reports(stub, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
   });
 
   // The stale keepalive the fixes surfaced: a hello sent before the run arrived must not end that run.

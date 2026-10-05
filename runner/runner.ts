@@ -46,9 +46,18 @@ type Run = {
   next: Turn[];
   /** Its result is reported; it stays only until it exits, so `next` waits for it. */
   ended: boolean;
+  /** Queued turns a later stop dropped. */
+  dropped: number;
 };
 
 const PROGRESS_EVERY_MS = 4_000;
+
+/** A stopped session's result, naming the queued messages a second stop dropped. */
+function stoppedText(run: Run): string {
+  if (run.dropped === 0) return "Stopped.";
+
+  return `Stopped. Dropped ${run.dropped} queued message${run.dropped === 1 ? "" : "s"}.`;
+}
 
 function userLine(text: string): string {
   return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
@@ -123,12 +132,23 @@ export class Runner {
    * Record, then ack, then act. The seq is on disk before the ack goes out,
    * so a command the object stops resending is never run twice, even across
    * a restart. A crash between the record and the act loses the command;
-   * the next hello does not list the task, and the object closes it.
+   * the next hello does not list the task, and the object closes it. If the
+   * record fails (disk full, permissions), the command is neither acked nor
+   * run; the object resends it later.
    */
   #onCommand(command: RunnerCommand): void {
     const fresh = !this.#handled.has(command.seq);
 
-    if (fresh) this.#handled.add(command.seq);
+    if (fresh) {
+      try {
+        this.#handled.add(command.seq);
+      } catch (error) {
+        this.#log(`could not record command ${command.seq}, leaving it unacked: ${String(error)}`);
+
+        return;
+      }
+    }
+
     this.#report({ type: "ack", seq: command.seq });
 
     if (!fresh) return;
@@ -165,11 +185,13 @@ export class Runner {
    */
   #stop(task: string, run: Run): void {
     const latest = run.next.at(-1)?.turn;
+    const dropped = run.next.length;
     run.next = [];
+    run.dropped += dropped;
 
     if (run.ended) {
       if (latest !== undefined) {
-        this.#report({ type: "result", task, turn: latest, ok: false, text: "Stopped.", session: run.session });
+        this.#report({ type: "result", task, turn: latest, ok: false, text: stoppedText(run), session: run.session });
       }
 
       return;
@@ -244,7 +266,7 @@ export class Runner {
             task,
             run,
             !event.is_error && !run.stopped,
-            run.stopped ? "Stopped." : run.last || (event.is_error ? "Failed." : "Done.")
+            run.stopped ? stoppedText(run) : run.last || (event.is_error ? "Failed." : "Done.")
           );
         }
       },
@@ -254,7 +276,7 @@ export class Runner {
         if (this.#runs.get(task) !== run) return;
 
         if (!run.ended) {
-          this.#end(task, run, false, run.stopped ? "Stopped." : `claude exited with ${code}. ${stderr.trim()}`);
+          this.#end(task, run, false, run.stopped ? stoppedText(run) : `claude exited with ${code}. ${stderr.trim()}`);
         }
 
         this.#runs.delete(task);
@@ -267,7 +289,7 @@ export class Runner {
       }
     });
 
-    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false };
+    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false, dropped: 0 };
     this.#runs.set(task, run);
     child.write(userLine(prompt));
 

@@ -81,8 +81,11 @@ export type RunnerCommand = Static<typeof RunnerCommandSchema>;
 
 export type RunnerReport = Static<typeof RunnerReportSchema>;
 
+/** `Omit` applied to each member of a union, so the result stays a union. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
 /** A command before the inbox numbers it. */
-export type UnnumberedCommand = RunnerCommand extends infer C ? (C extends unknown ? Omit<C, "seq"> : never) : never;
+export type UnnumberedCommand = DistributiveOmit<RunnerCommand, "seq">;
 
 /** The frame `text` holds if it is JSON that matches `schema`, else undefined. */
 function decode<const S extends TSchema>(schema: S, text: string): Static<S> | undefined {

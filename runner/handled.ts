@@ -10,12 +10,16 @@ const KEEP = 1_000;
  * file (a temp file, then a rename) before it returns, and the runner acks
  * only after it. Seqs are numbered by one object, so the file names it
  * (`owner`: the URL and machine) and is ignored if another object owns it.
+ *
+ * Resetting the object (a new one under the same URL) numbers seqs from 1
+ * again, and this file would skip them: delete ~/.ky/handled-*.json (or the
+ * file in KY_STATE_DIR) when the object is reset.
  */
 export class HandledSeqs {
   readonly #file: string;
   readonly #owner: string;
-  readonly #seqs: number[];
-  readonly #known: Set<number>;
+  #seqs: number[];
+  #known: Set<number>;
 
   constructor(file: string, owner: string) {
     this.#file = file;
@@ -28,16 +32,17 @@ export class HandledSeqs {
     return this.#known.has(seq);
   }
 
+  /** Record `seq` on disk; if that throws, it is not recorded. */
   add(seq: number): void {
     if (this.#known.has(seq)) return;
-    this.#seqs.push(seq);
-    this.#known.add(seq);
-
-    for (const old of this.#seqs.splice(0, Math.max(0, this.#seqs.length - KEEP))) this.#known.delete(old);
+    const seqs = [...this.#seqs, seq].slice(-KEEP);
     mkdirSync(dirname(this.#file), { recursive: true });
     const temp = `${this.#file}.tmp`;
-    writeFileSync(temp, JSON.stringify({ owner: this.#owner, seqs: this.#seqs }), { flush: true });
+    writeFileSync(temp, JSON.stringify({ owner: this.#owner, seqs }), { flush: true });
     replace(temp, this.#file);
+
+    this.#seqs = seqs;
+    this.#known = new Set(seqs);
   }
 }
 
