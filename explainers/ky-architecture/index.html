@@ -584,9 +584,9 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
     // ─── fix progress: keep in step with plan.md. status: todo · doing · review · done <sha>
     const progress = [
       ['L', 'lint and dead code', [
-        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'review'],
-        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'review'],
-        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'review'],
+        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'done c922ed0'],
+        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'done c922ed0'],
+        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'done c922ed0'],
       ]],
       ['G', 'the gate: e2e harnesses and regression baseline', [
         ['G1', 'FEATURES.md: every working feature, tagged local or live-only', 'doing'],
@@ -603,7 +603,7 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
         ['A3', 'UI submits carry an operationId', 'todo'],
       ]],
       ['B', 'runner protocol (Quint)', [
-        ['B0', 'one shared runner-protocol.ts; typecheck the runner', 'todo'],
+        ['B0', 'one shared runner-protocol.ts, decoded with typebox at the socket; typecheck the runner', 'todo'],
         ['B1', 'flush the outbox before hello', 'todo'],
         ['B2', 'fence reports by turn; operationId task:&lt;id&gt;:&lt;turn&gt;', 'todo'],
         ['B3', 'runner persists handled seqs before acking', 'todo'],
