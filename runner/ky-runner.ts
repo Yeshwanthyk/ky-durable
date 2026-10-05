@@ -190,7 +190,7 @@ function connect() {
   ws.addEventListener("message", (event) => runner.message(String(event.data)));
 
   // Once per socket: Node fires only `error`, never `close`, when a connect fails.
-  const lost = (code: number | undefined) => {
+  const lost = (code: number | undefined, reason = "") => {
     if (socket !== ws) return;
     socket = undefined;
     runner.closed(link);
@@ -201,12 +201,13 @@ function connect() {
       process.exit(1);
     }
 
-    log(`disconnected (${code ?? "error"}), retrying in ${backoff / 1000}s`);
+    // The reason tells "update ky-runner" (1008) apart from a flaky network.
+    log(`disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""}), retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 60_000);
   };
 
-  ws.addEventListener("close", (event) => lost(event.code));
+  ws.addEventListener("close", (event) => lost(event.code, event.reason));
   ws.addEventListener("error", () => {
     lost(undefined);
 
