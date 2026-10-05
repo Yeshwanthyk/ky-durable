@@ -431,6 +431,18 @@ export class PiSessionSockets {
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 
         return null;
+      case "send-task": {
+        const task = this.#feed.get(message.task);
+
+        if (task?.kind !== "machine") throw new Error(`No machine task ${message.task}`);
+
+        if (message.message.trim() === "") throw new Error("Write a message first");
+
+        this.#hub.send(task, message.message);
+
+        return null;
+      }
+
       default:
         // SAFETY: the switch covers every known type, so `message` is `never` here; at runtime it is a parsed object.
         throw new Error(

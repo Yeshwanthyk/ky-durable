@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Attachments } from "./Attachments";
+import { Changes } from "./Changes";
 import { useLightbox } from "./Lightbox";
 import type { Item, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
@@ -105,6 +106,7 @@ function Report({ text, from, task }: { text: string; from: string; task: string
         ) : null}
       </div>
       {task ? <Attachments task={task} /> : null}
+      {task ? <Changes task={task} /> : null}
     </>
   );
 }

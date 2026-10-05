@@ -113,7 +113,9 @@ How a task runs: each task is one `claude -p` session in stream-json mode. A mes
 steers it; one sent after it finished resumes it with `--resume`; stop sends SIGINT, then SIGKILL after
 5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
 offline starts when it reconnects. Tasks share files with `ky-attach <file> [caption]`, which the runner
-installs in `~/.ky/bin` and which uploads to `/api/files`.
+installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, installed beside it, uploads
+the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
+comments on it go back to the task as one message.
 
 The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`progress`/`result` reports)
 is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. `hello` carries `PROTOCOL`;

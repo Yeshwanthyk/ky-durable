@@ -13,6 +13,9 @@
  * KY_PERMISSION_MODE  Claude Code permission mode (default: bypassPermissions)
  * KY_CLAUDE       the claude executable (default: claude)
  * KY_CHROME       1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
+ *
+ * Each task finds two commands on its PATH: ky-attach shares an image or
+ * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -80,17 +83,27 @@ const TASK_PROMPT = `You are running a task for ky, the user's agent; the user r
 To show the user a screenshot, a recording or a chart, attach it: ky-attach <file> [caption] (png, jpeg, webp, gif, webm or mp4, at most 25 MB). It appears on this task and in its report. Attach every image or video you make for the user, and mention it in your answer.
 - For web pages use Playwright. The first time, install it in ${CAPTURE}: mkdir -p ${CAPTURE} && cd ${CAPTURE} && echo '{"private":true}' > package.json && npm install playwright && npx playwright install chromium. Run capture scripts from there.
 - Screenshot at a 390x844 viewport unless asked otherwise. Record video with the browser context option recordVideo: { dir, size }; the webm is saved when the context closes.
-- Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.${
+- Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.
+
+When you change code in a git repository, run ky-diff from inside it before you answer, and again after any later change: the user sees the changes on this task and can comment on lines. It shares everything since the branch left the default branch; pass a commit (ky-diff <base>) to start elsewhere.${
   CHROME
     ? "\n\nFor anything that needs the user's logins, use the user's own Chrome through the Claude in Chrome tools; Playwright starts logged out. Never read, copy or report passwords, cookies or tokens."
     : ""
 }`;
 
-function installAttach() {
+// ky-diff [base]: shares the repository's changes; the logic is runner/ky-diff.ts in this checkout.
+const DIFF = `#!/bin/sh
+exec "${process.execPath}" --experimental-strip-types --no-warnings "${join(import.meta.dirname, "ky-diff.ts")}" "$@"
+`;
+
+function installTools() {
   mkdirSync(BIN, { recursive: true });
-  const file = join(BIN, "ky-attach");
-  writeFileSync(file, ATTACH);
-  chmodSync(file, 0o755);
+
+  for (const [name, script] of [["ky-attach", ATTACH], ["ky-diff", DIFF]] as const) {
+    const file = join(BIN, name);
+    writeFileSync(file, script);
+    chmodSync(file, 0o755);
+  }
 }
 
 function required(name: string): string {
@@ -227,6 +240,6 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-installAttach();
+installTools();
 
 connect();

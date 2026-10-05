@@ -407,6 +407,38 @@ describe("machine tasks", () => {
     socket.close();
     mac.socket.close();
   });
+
+  it("shares a task's diff, and sends the user's comments on it to the task", async () => {
+    const mac = await runner("me");
+    await prompt("me", "machine fix the bug");
+    const run = await mac.next();
+    mac.send({ type: "session", task: run.task, turn: run.turn, session: "s-diff" });
+    const patch = new TextEncoder().encode("diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+
+    const upload = (size: number) =>
+      call(`/api/files?task=${run.task}`, {
+        method: "PUT",
+        body: size === patch.byteLength ? patch : new Uint8Array(size),
+        headers: { "Content-Type": "text/x-diff", "Content-Length": String(size), "X-Ky-Name": "ky.diff", "X-Ky-Caption": encodeURIComponent("ky · fix") }
+      });
+
+    expect((await upload(2 * 1024 * 1024 + 1)).status).toBe(413);
+    const uploaded = await upload(patch.byteLength);
+    expect(uploaded.status).toBe(200);
+    const served = await call((await uploaded.json<{ url: string }>()).url);
+    expect(served.headers.get("Content-Type")).toBe("text/x-diff");
+    expect(served.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(await served.text()).toBe(new TextDecoder().decode(patch));
+
+    const { client, socket } = await session("me");
+    expect(latest(client, "tasks")?.files.find((file) => file.task === run.task)).toMatchObject({ type: "text/x-diff", caption: "ky · fix" });
+
+    expect(await command(socket, client, { type: "send-task", task: run.task, message: "a.ts:1\n> b\nUse c." })).toMatchObject({ type: "result" });
+    expect(await mac.next()).toMatchObject({ type: "run", task: run.task, turn: 2, prompt: "a.ts:1\n> b\nUse c.", session: "s-diff" });
+    expect(await command(socket, client, { type: "send-task", task: "not-a-task", message: "hi" })).toMatchObject({ type: "error" });
+    socket.close();
+    mac.socket.close();
+  });
 });
 
 describe("subagents", () => {

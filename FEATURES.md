@@ -117,6 +117,8 @@ A cite points at the code that does the work.
 | task-interrupted | A working task is marked interrupted when its runner restarts without it. | src/machines.ts:247 | local | W features › marks a working task interrupted when its runner restarts without it |
 | task-files | A machine task's file is shared, and served whole or by range. | src/files.ts:100, src/files.ts:142 | local | W features › shares a machine task's file, and serves it whole and by range |
 | task-screenshot | A screenshot taken through ky-attach shows on the task. | runner/ky-runner.ts:64 | local | H screenshot; P shows a task's screenshot and opens it in the lightbox |
+| task-diff | ky-diff shares a repository's changes since the branch forked, untracked files included, and the task shows them as a collapsible file list with +/- counts and Pierre diffs. | runner/diff.ts:38, src/ui/Changes.tsx:97 | local | W review › diffs from where the branch left the default branch, with new untracked files; W features › shares a task's diff, and sends the user's comments on it to the task |
+| task-diff-feedback | Line comments on a task's diff go to the task as one message, with file:line and the code. | src/ui/review.ts:44, src/sockets.ts:428 | local | W review › writes every comment up as one message, in file and line order, with file:line and the code; W features › shares a task's diff, and sends the user's comments on it to the task |
 | runner-reconnect | The runner reconnects after the socket closes and flushes its outbox before hello. | runner/ky-runner.ts:193, runner/runner.ts:92 | local | H reconnect |
 | runner-reconnect-outage | A runner whose retry fails (503, or nothing listening) keeps retrying and reconnects. Node's WebSocket fires only `error` when a handshake fails, and the runner retries on it. | runner/ky-runner.ts:211 | local | H reconnect-outage |
 | runner-stop-race | A stop sent while the run's ack is in flight stops the run, with one report and no "Stopped before it started". | src/machines.ts:224 | local | W runner-protocol › stopRace: a stop racing the ack stops the run, with one report; H trap-stopRace |
@@ -153,6 +155,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 73.
+- Local features: 75.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.
