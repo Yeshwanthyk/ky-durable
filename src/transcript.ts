@@ -1,6 +1,7 @@
 import type {
   AssistantMessage,
   ImageContent,
+  JsonObject,
   JsonValue,
   Message,
   TextContent,
@@ -21,7 +22,7 @@ export type PiMessagePart =
       readonly type: "tool-call";
       readonly id: string;
       readonly name: string;
-      readonly arguments: JsonValue;
+      readonly arguments: JsonObject;
     }
   | {
       readonly type: "tool-result";

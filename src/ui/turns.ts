@@ -1,3 +1,4 @@
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { PiMessage, PiMessagePart } from "../transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
@@ -6,9 +7,7 @@ import type { Tool, Turn } from "./conversation";
 /** Reports from subagents and machines arrive as user messages that start like this. */
 const REPORT = /^\[(subagent|machine) ([^\],\s]+)[^\]]*\]\s*/;
 
-type Args = Record<string, unknown>;
-
-const text = (value: unknown) => (typeof value === "string" ? value : "");
+const text = (value: JsonValue | undefined) => (typeof value === "string" ? value : "");
 
 const short = (value: string, max = 80) =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
@@ -16,7 +15,7 @@ const short = (value: string, max = 80) =>
 const firstLine = (value: string) => value.trim().split("\n")[0] ?? "";
 
 /** Scotty's category and imperative summary for one of ky's tools. */
-function describe(name: string, args: Args): Pick<Tool, "category" | "summary" | "input"> {
+function describe(name: string, args: JsonObject): Pick<Tool, "category" | "summary" | "input"> {
   const path = text(args.path) || text(args.file_path) || text(args.dir);
 
   switch (name) {
@@ -163,13 +162,14 @@ export function buildTurns(
           if (part.text.trim()) turn.items.push({ kind: "thinking", id, text: part.text });
           break;
         case "tool-call": {
-          const args = (part.arguments ?? {}) as Args;
+          // The part arrives over the wire, so a missing arguments object still renders.
+          const args: JsonObject = part.arguments ?? {};
 
           const tool: Tool = {
             kind: "tool",
             id: part.id,
             name: part.name,
-            ...describe(part.name, typeof args === "object" ? args : {}),
+            ...describe(part.name, args),
             status: "running",
             output: "",
             durationMs: null
