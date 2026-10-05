@@ -348,7 +348,7 @@ describe("runner protocol: the Quint counterexamples", () => {
   });
 
   // CE6 seqReorder: started offline, then a follow-up sent before the hello lands.
-  it.fails("reorder: turns reach Claude Code in the order they were sent", async () => {
+  it("reorder: turns reach Claude Code in the order they were sent", async () => {
     const { stub, mac } = fixture();
     const id = await start(stub);
     const wire = await mac.connect("hold");

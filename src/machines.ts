@@ -134,16 +134,14 @@ export class MachineHub {
     );
   }
 
+  /**
+   * Add a command and send every unacked one, in seq order. Sending only the
+   * new one could overtake an older run still waiting for a hello; the
+   * runner skips the seqs it has already handled.
+   */
   #enqueue(machine: string, command: UnnumberedCommand): void {
-    const { seq } = this.#sql
-      .exec<{ seq: number }>(
-        "INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?) RETURNING seq",
-        machine,
-        JSON.stringify(command)
-      )
-      .one();
-
-    this.#deliver(machine, [{ ...command, seq }]);
+    this.#sql.exec("INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?)", machine, JSON.stringify(command));
+    this.#deliver(machine, this.#pending(machine));
   }
 
   #deliver(machine: string, commands: readonly RunnerCommand[]): void {
