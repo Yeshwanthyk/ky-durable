@@ -25,6 +25,56 @@
     },
     {
       "check": "worker-e2e",
+      "name": "browse closes the browser once when the page cannot be opened",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "browse closes a browser that finishes launching after the turn was stopped",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "browse closes a browser that finishes launching after the launch timed out",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "browse ends a call whose page steps outlast the 90s cap, and closes the browser once",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP runs a program once and answers with its result",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP never runs a program again when its response is lost after it ran",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP retries once on a fresh session when Executor expired the old one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP retries once when the connection cannot be made, and reports a second failure",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP does not retry when Executor refuses the token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "executor tools over MCP cancels the call at Executor when the turn is stopped",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "signing in sends pages to the login form and refuses the API and sockets without the token",
       "outcome": "passed"
     },
@@ -115,7 +165,82 @@
     },
     {
       "check": "worker-e2e",
+      "name": "which model each slot uses puts the main agent and titles on Claude while the Mac is online",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "which model each slot uses puts every slot on the cloud model while the Mac is away, and shows Claude as not connected",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "which model each slot uses stores a slot choice, and refuses a provider that is not connected",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "which model each slot uses gives a slot on Claude the fallback slot's model when the Mac has just gone away",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a turn on Claude runs on Claude while the Mac is online",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a turn on Claude runs on the fallback slot's model, with its key, when the Mac has just gone away, and on Claude once it is back",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a turn on Claude sends the main prompt with ky's repo and working copy from config",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks with the titles slot asks Claude's small model without thinking while the Mac is online, and keeps the bare title",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks with the titles slot asks the cloud model, still without thinking, while the Mac is away",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks with the titles slot keeps its light thinking on the stand-in when the Mac has just gone away",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks with the titles slot gives up quietly when the model fails or there is nothing to name",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks with the titles slot trims a long title to fit",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "whether a slot's model reads images checks the model the slot runs on",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "whether a slot's model reads images checks the fallback model while the slot's provider is away",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the session WebSocket protocol sends a snapshot, then pi's events for a run started over the socket",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the session WebSocket protocol dedupes a submit resent with the same operation id after a dropped socket",
       "outcome": "passed"
     },
     {
@@ -281,6 +406,21 @@
     {
       "check": "web",
       "name": "offers a reload when a new deploy is live and a draft would be lost",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "sends a message again after its socket drops before the answer, and pi takes it once",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "keeps an unanswered message for its own chat when the page switches chats",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "refuses an image the stand-in model can't read, never resends it, and warns before sending",
       "outcome": "passed"
     }
   ]
