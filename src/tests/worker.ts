@@ -25,6 +25,7 @@ import {
 } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { browseExtension } from "../browse";
 import { executorExtension } from "../executor";
 import { FileStore } from "../files";
 import { MachineHub, machineExtension } from "../machines";
@@ -34,6 +35,7 @@ import { PiSessionSockets } from "../sockets";
 import { subagentExtension } from "../subagents";
 import { TaskFeed } from "../tasks";
 import { EMPTY_VIEW, reduceEvents } from "../view";
+import { FakeBrowser } from "./fake-browser";
 import { FakeExecutor } from "./fake-executor";
 
 const RELEASE_KEY = "test:gate:release";
@@ -104,6 +106,12 @@ function script(context: TranscriptContext): AssistantMessage {
     return fauxAssistantMessage([fauxToolCall("executor_execute", { code: executor[1] })], { stopReason: "toolUse" });
   }
 
+  const browse = /^browse (.+)$/.exec(prompt);
+
+  if (browse) {
+    return fauxAssistantMessage([fauxToolCall("browse", { url: browse[1] })], { stopReason: "toolUse" });
+  }
+
   if (prompt === "gate" || prompt === "gate-unsafe") {
     return fauxAssistantMessage(
       [fauxToolCall(prompt === "gate" ? "gate" : "gate_unsafe", {})],
@@ -127,6 +135,7 @@ export class PiHarnessTestObject extends DurableObject<Env> {
       this.registry.install(
         executorExtension({ url: "https://executor.test/mcp", token: "test", fetch: this.executor.fetch })
       );
+      this.registry.install(browseExtension(this.browser.binding));
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(machines);
       this.registry.install(
@@ -152,8 +161,9 @@ export class PiHarnessTestObject extends DurableObject<Env> {
     },
     defaults: { model: this.#faux.getModel() }
   });
-  /** Executor, faked at the network boundary. */
+  /** Executor and Browser Rendering, faked at the network boundary. */
   readonly executor = new FakeExecutor();
+  readonly browser = new FakeBrowser();
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -265,6 +275,15 @@ export class PiHarnessTestObject extends DurableObject<Env> {
 
   refuseExecutorConnects(count: number): void {
     this.executor.refuseConnects(count);
+  }
+
+  setLaunchDelay(ms: number): void {
+    this.browser.launchDelayMs = ms;
+  }
+
+  /** What the fake browser binding saw. */
+  browserSaw() {
+    return { requested: this.browser.requested, launched: this.browser.launched, closes: [...this.browser.closes] };
   }
 
   /** Watch the root session's events until a run ends. */
