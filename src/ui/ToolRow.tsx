@@ -13,18 +13,21 @@ const categoryIcon: Record<Tool["category"], IconName> = {
 };
 
 // Summaries start with an imperative verb; rows read it in the tense of the tool's status.
-const tenses: Record<string, [string, string]> = {
-  Read: ["Reading", "Read"],
-  Search: ["Searching", "Searched"],
-  List: ["Listing", "Listed"],
-  Edit: ["Editing", "Edited"],
-  Delete: ["Deleting", "Deleted"],
-  Write: ["Writing", "Wrote"],
-  Start: ["Starting", "Started"],
-  Message: ["Messaging", "Messaged"],
-};
+const tenses = new Map<string, readonly [string, string]>([
+  ["Read", ["Reading", "Read"]],
+  ["Search", ["Searching", "Searched"]],
+  ["List", ["Listing", "Listed"]],
+  ["Edit", ["Editing", "Edited"]],
+  ["Delete", ["Deleting", "Deleted"]],
+  ["Write", ["Writing", "Wrote"]],
+  ["Start", ["Starting", "Started"]],
+  ["Message", ["Messaging", "Messaged"]],
+]);
 
-export function phrase(tool: Tool): { verb: string; target: string; mono: boolean } {
+// How a row reads: a verb, then its target in mono for paths and commands or as prose.
+type Phrase = { verb: string; target: string; mono: boolean };
+
+export function phrase(tool: Tool): Phrase {
   const running = tool.status === "running";
 
   if (tool.category === "run")
@@ -41,7 +44,7 @@ export function phrase(tool: Tool): { verb: string; target: string; mono: boolea
       mono: false,
     };
   const [first = "", ...rest] = tool.summary.split(" ");
-  const tense = tenses[first];
+  const tense = tenses.get(first);
 
   if (tense === undefined) return { verb: tool.summary, target: "", mono: false };
   // File names and paths read in mono; searches and subagent verbs read as prose.

@@ -254,7 +254,7 @@ const DICHOTOMIE = 8
  * reapparaitre 34 debordements. Ici le resultat ne depend pas d'une convergence : chaque
  * direction est resolue exactement, au pas de dichotomie pres.
  */
-function resous(epreuves: Epreuve[]): { x: number; y: number } {
+function resous(epreuves: Epreuve[]): Point {
   if (!epreuves.length) return { x: 0, y: 0 }
 
   /** La marge la plus serree sur toutes les epreuves, pour une translation donnee. */
@@ -397,7 +397,7 @@ function decalagePour(
   def: StateDef,
   radii: number[],
   expr: BotExpression | null
-): { x: number; y: number } {
+): Point {
   const epreuves: Epreuve[] = []
 
   for (const t of dates(def)) {
@@ -448,10 +448,10 @@ const clef = (state: StateId, expr: string | null) => `${state}|${expr ?? ''}`
  * stabilite. Un profil inconnu, ou `null`, ne corrige rien — l'API accepte n'importe quel
  * tableau et le moteur n'a pas a dependre de la prudence de ses appelants.
  */
-function batir(): Map<number[], Map<string, { x: number; y: number }>> {
+function batir(): Map<number[], Map<string, Point>> {
   return new Map(
   OUTLINES.map((forme) => {
-    const par = new Map<string, { x: number; y: number }>()
+    const par = new Map<string, Point>()
 
     for (const def of STATES) {
       if (!def.baseBody) continue
@@ -482,7 +482,7 @@ export function decalageDesYeux(
   radii: number[] | null,
   state: StateId,
   expr: string | null
-): { x: number; y: number } {
+): Point {
   if (!radii) return NUL
   const par = DECALAGES.get(radii)
 

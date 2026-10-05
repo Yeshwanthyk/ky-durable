@@ -24,6 +24,9 @@ import { summarize, type TaskFeed } from "./tasks";
  * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
  */
 
+/** How a subagent's message ended, for its row in the task feed. */
+type Outcome = { status: "done" | "failed" | "stopped"; summary: string };
+
 type Subagent = {
   conversationId: ConversationId;
   /** Answers already reported, so several messages ending in one answer report once. */
@@ -107,7 +110,7 @@ export function subagentExtension(
 
         const settled = await submission.wait(context);
 
-        let outcome: { status: "done" | "failed" | "stopped"; summary: string } = {
+        let outcome: Outcome = {
           status: "done",
           summary: ""
         };
@@ -136,6 +139,7 @@ export function subagentExtension(
           if (agent.reported.includes(settled.answer)) return next();
           agent.reported.push(settled.answer);
 
+          // SAFETY: pi-durable types AssistantEntry as Entry<never>, but documents its `model` as [AssistantMessage].
           const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as
             | AssistantMessage
             | undefined;

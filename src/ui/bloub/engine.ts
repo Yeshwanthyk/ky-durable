@@ -308,7 +308,7 @@ export class BotEngine {
    * profil que rend `outlineAtTime` : celui-la est un tableau neuf alloue a chaque image,
    * donc sans identite, et il n'existe dans aucune table.
    */
-  private decalageAtTime(now: number, state: StateId): { x: number; y: number } {
+  private decalageAtTime(now: number, state: StateId): Point {
     /**
      * Un axe de morph : on lit la table sur ses deux BORNES et on interpole avec sa
      * courbe. Jamais sur la valeur interpolee — celle-la n'a pas d'identite et n'existe
@@ -318,8 +318,8 @@ export class BotEngine {
     const surAxe = (
       debut: number,
       duree: number,
-      a: { x: number; y: number },
-      b: { x: number; y: number }
+      a: Point,
+      b: Point
     ) => {
       if (a === b) return b
       const k = (now - debut) / duree
