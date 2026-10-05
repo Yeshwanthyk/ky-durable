@@ -27,12 +27,12 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` |
-| OpenCode Go | The cheap model (`KY_MODEL`), and the stand-in while the Mac is away. | `src/server.ts` |
+| OpenCode Go | The cheap model (`KY_MODEL`), and the stand-in while the Mac is away. | `src/models.ts` |
 | VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.jsonc` |
 | ky-runner on the Mac | Dials out to the DO and runs each machine task as a `claude -p` session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
-`ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox` and `ky_machines` (`src/machines.ts`),
+`ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
 `ky_chats` (side chats, `src/chats.ts`), `ky_settings` (model slots, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
@@ -51,7 +51,9 @@ gets an HttpOnly cookie for a year. A runner sends the same token as `Authorizat
 ## Setup and deploy
 
 Bindings and vars are in `wrangler.jsonc`: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `VIBEPROXY`
-(the VPC service id of your tunnel), `EXECUTOR_URL` and `KY_MODEL`.
+(the VPC service id of your tunnel), `EXECUTOR_URL`, `KY_MODEL`, `VIBEPROXY_ORIGIN` (VibeProxy's address on
+the Mac, `http://127.0.0.1:8317`), and `KY_REPO`, `KY_WORK_COPY` and `KY_URL` (where ky's own code lives, for
+self-edits in `src/prompt.ts`).
 
 ```sh
 pnpm install
@@ -63,21 +65,30 @@ npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
 pnpm run deploy                           # vite build && wrangler deploy
 ```
 
-For Claude, run VibeProxy on the Mac at `127.0.0.1:8317` and a cloudflared tunnel to it with no public
+For Claude, run VibeProxy on the Mac at `VIBEPROXY_ORIGIN` and a cloudflared tunnel to it with no public
 hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on OpenCode Go.
 Open pages reload by themselves after a deploy (`CF_VERSION_METADATA`), unless you have a draft.
 
 **Models.** Settings has four slots (`src/settings.ts`): main, subagents, fallback (Claude's stand-in
-while the Mac is away) and titles. Claude can be picked only while VibeProxy answers. The model catalog
-and defaults live in `src/server.ts` today; this branch is moving them, with the prompt, into their own
-modules.
+while the Mac is away) and titles. Claude can be picked only while VibeProxy answers. `src/models.ts` owns
+the catalog, the defaults, `resolve(slot)` and the fallback; `src/vibeproxy.ts` makes one provider per tunnel.
+The system prompt is `src/prompt.ts`.
+
+**Deploy order when the runner protocol changes.** Deploy the worker first, then update and restart the
+runner on every machine (`git pull && pnpm install`, then restart). An old runner is refused with close
+code 1008 and keeps retrying, with the reason in its log, until it is updated. A new runner against an old
+worker leaves tasks queued without an error, so never update the runner first.
 
 ## Run a machine
 
 Needs Node 22.6 or later (the runner is TypeScript run directly; before Node 23.6 that takes
 `--experimental-strip-types`), and `claude` installed and signed in on that machine.
 
+The runner imports the shared protocol (`src/runner-protocol.ts`) and `typebox`, so run it from a checkout
+of this repo after `pnpm install`.
+
 ```sh
+pnpm install
 KY_URL=https://ky.<account>.workers.dev \
 KY_TOKEN_FILE=~/.config/ky/token \
 KY_MACHINE=mac \
@@ -93,6 +104,7 @@ node --experimental-strip-types runner/ky-runner.ts
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |
 | `KY_CLAUDE` | `claude` | Path to the Claude Code executable |
 | `KY_CHROME` | off | `1`: tasks drive your Chrome with its logins (`--chrome`) |
+| `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled. Delete it after resetting the object |
 
 `bypassPermissions` lets a task run any command as your user without asking. Run the runner as a
 separate user, in a VM, or with `KY_PERMISSION_MODE=acceptEdits` if that is too much.
@@ -104,8 +116,11 @@ offline starts when it reconnects. Tasks share files with `ky-attach <file> [cap
 installs in `~/.ky/bin` and which uploads to `/api/files`.
 
 The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`progress`/`result` reports)
-is being reworked on this branch for ordered, fenced, durable delivery. Until that lands, its message
-types are copied in `runner/ky-runner.ts` and `src/machines.ts`.
+is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. `hello` carries `PROTOCOL`;
+every report carries its turn, and reports for a closed turn are dropped. The runner records a command
+before acking it, so a command never runs twice. One socket per machine: a newer runner with the same
+name closes the older one (code 4409), and the older one exits. `runner/runner.ts` is the logic and
+`runner/ky-runner.ts` the process.
 
 ## Develop
 
@@ -122,7 +137,14 @@ pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
 | `pnpm start` | `vite dev` |
 | `pnpm build` | `vite build` |
 | `pnpm run deploy` | `vite build && wrangler deploy` |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | vitest in the Workers pool (`src/tests/`, config `src/tests/vitest.config.ts`) |
+| `pnpm typecheck` | `tsc --noEmit`, then `tsconfig.node.json` (the runner and the test harnesses) |
+| `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
+| `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |
+| `pnpm harness` | CLI scenarios against the local stack with the real runner and a fake `claude` (`test/harness/`) |
+| `pnpm test:web` | Playwright over the local stack (`test/web/`) |
+| `pnpm gate` | typecheck, lint, fallow, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
+| `pnpm gate:live` | the checks that need the deployed app and the Mac |
 | `pnpm lint` | oxlint with [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop` (upstream commit in `UPSTREAM`) |
 | `pnpm types` | regenerate `env.d.ts` from `wrangler.jsonc` |
+
+`FEATURES.md` lists every feature with the check that covers it. `FUTURE.md` lists what comes next.

@@ -94,7 +94,7 @@
     th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); }
     th { color: var(--faint); font-weight: 400; }
     td code, li code, p code { color: var(--amber); font: inherit; }
-    .ok { color: var(--green); } .bad { color: var(--coral); } .new { color: var(--blue); } .muted { color: var(--dim); } .doing { color: var(--amber); }
+    .ok { color: var(--green); } .bad { color: var(--coral); } .new { color: var(--blue); } .muted { color: var(--dim); }
     ol.path { padding-left: 1.4em; } ol.path li { margin: 0 0 10px; }
     ol.path li b { font-weight: 400; color: var(--ink); }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
@@ -153,15 +153,6 @@
     <section class="doc" id="watch">
       <h2><span class="k">00</span>the 60-second version</h2>
       <p class="hint">Narrated walkthrough: <a href="video/video.mp4" style="color:var(--amber)">video/video.mp4</a> (MP4, 62s) · scrubbable and inspectable: <a href="video/index.html" style="color:var(--amber)">video/index.html</a></p>
-    </section>
-
-    <section class="doc" id="progress">
-      <h2><span class="k">↻</span>fixing now</h2>
-      <p>Branch <code>fix/lint-and-state-traps</code>, mirrored from <code>plan.md</code>. Lanes run as Opus subagents: L first, then G, A, B, M and U in parallel (each merges only once the G gate passes on it), then S. <code>pnpm gate</code> (typecheck, oxlint, fallow, worker e2e, CLI harness, web e2e) must pass before every merge, and Fable verifies each lane before it is marked done. One PR at the end. <span id="progress-sum"></span></p>
-      <table>
-        <thead><tr><th>id</th><th>item</th><th>status</th></tr></thead>
-        <tbody id="progress-body"></tbody>
-      </table>
     </section>
 
     <section class="doc" id="primitives">
@@ -580,58 +571,6 @@ fire({ id, slot }) → harness.submit(prompt, { operationId: `automation:${id}:$
       if (e.key === ' ') { e.preventDefault(); play(); }
     });
     addEventListener('resize', fit);
-
-    // ─── fix progress: keep in step with plan.md. status: todo · doing · review · done <sha>
-    const progress = [
-      ['L', 'lint and dead code', [
-        ['L1', 'delete dead code: appearance.ts, scotty-era branches, unused CSS, dead anti-slop effect/', 'done c922ed0'],
-        ['L2', 'drop unused deps @cloudflare/kumo, @phosphor-icons/react', 'done c922ed0'],
-        ['L3', 'pnpm lint to zero (387 at baseline), no rules disabled', 'done c922ed0'],
-      ]],
-      ['G', 'the gate: e2e harnesses and regression baseline', [
-        ['G1', 'FEATURES.md: every working feature, tagged local or live-only', 'doing'],
-        ['G2', 'local stack: real worker, fake model / claude binary / Executor', 'doing'],
-        ['G3', 'worker e2e runs the real PiAgent wiring (was S4)', 'doing'],
-        ['G4', 'CLI harness: real ky-runner; Quint traps as scenarios', 'doing'],
-        ['G5', 'web UI e2e (Playwright), one check per local feature', 'doing'],
-        ['G6', 'pnpm gate: typecheck + oxlint + fallow + all e2e; baseline', 'doing'],
-        ['G7', 'verify-ky-cli and verify-ky-web project skills', 'doing'],
-      ]],
-      ['A', 'correctness bugs', [
-        ['A1', 'executor: retry only on connect / expired session; pass the abort signal', 'done'],
-        ['A2', 'browse: no leaked browser when launch is slow and the call times out', 'done'],
-        ['A3', 'UI submits carry an operationId', 'done'],
-      ]],
-      ['B', 'runner protocol (Quint)', [
-        ['B0', 'one shared runner-protocol.ts, decoded with typebox at the socket; typecheck the runner', 'done'],
-        ['B1', 'flush the outbox before hello', 'done'],
-        ['B2', 'fence reports by turn; operationId task:&lt;id&gt;:&lt;turn&gt;', 'done'],
-        ['B3', 'runner persists handled seqs before acking', 'done'],
-        ['B4', 'safe stop', 'done'],
-        ['B5', 'hello reconciles queued and working tasks', 'done'],
-        ['B6', 'ordered delivery of pending inbox rows', 'done'],
-        ['B7', 'one socket per node name', 'done'],
-      ]],
-      ['M', 'models and prompt', [
-        ['M1', 'models.ts owns catalog, slots, resolve(slot) and fallback', 'done'],
-        ['M2', 'vibeProxy takes its origin', 'done'],
-        ['M3', 'PREAMBLE → prompt.ts; the Mac path comes from config', 'done'],
-      ]],
-      ['U', 'UI and docs', [
-        ['U1', 'split App in client.tsx', 'done'],
-        ['U2', 'README matches the system', 'done'],
-      ]],
-      ['S', 'state ownership (after B and M)', [
-        ['S1', 'MachineHub goes through TaskFeed', 'todo'],
-        ['S2', 'ky_tasks kind / target / ref (no migration)', 'todo'],
-        ['S3', 'PiSessionSockets takes a typed deps object', 'todo'],
-      ]],
-    ];
-    const tone = (st) => st.startsWith('done') ? 'ok' : st === 'doing' || st === 'review' ? 'doing' : 'muted';
-    const items = progress.flatMap(([, , rows]) => rows);
-    $('progress-sum').textContent = `${items.filter(([, , st]) => st.startsWith('done')).length} of ${items.length} done.`;
-    $('progress-body').innerHTML = progress.map(([lane, name, rows]) =>
-      `<tr><td colspan="3"><b>${lane}</b> · ${name}</td></tr>` + rows.map(([id, item, st]) => `<tr><td>${id}</td><td>${item}</td><td class="${tone(st)}">${st}</td></tr>`).join('')).join('');
 
     // ─── state traps: filled from the Quint models' README
     const traps = [

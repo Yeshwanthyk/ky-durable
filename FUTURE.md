@@ -1,0 +1,47 @@
+# Future ideas
+
+These are the next things to build. None of them blocks using ky today. For the design behind the
+runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the protocol models, see
+`explainers/ky-architecture/quint/`.
+
+## Structure (no behaviour change)
+- **S1**: MachineHub should stop querying `ky_tasks` directly and go through TaskFeed.
+- **S2**: a `ky_tasks` row overloads `session` and `worker`. Replace them with `kind` (cloud | node | automation),
+  `target`, and `ref` JSON. No migration is needed.
+- **S3**: `PiSessionSockets` takes 10 positional dependencies. Give it one small typed object and split its jobs.
+
+## Small fixes found by the gate
+- **Mac status goes stale.** When VibeProxy goes offline or comes back, open pages aren't told, so the header
+  and Settings stay stale until a reload. Fix: when the cached probe flips, push the new view to UI sockets.
+  The server already refuses what the stand-in model can't do.
+- **The client image check is dead code.** The client branch for a provider that is offline (`src/images.ts`
+  `imageSupport`) almost never runs, because Settings never shows a slot on an offline provider. Either the
+  fix above makes it reachable, or delete it.
+
+## Runners and nodes
+- **Nodes**: rename "machine" to "node". In `hello` the runner sends a manifest:
+  `{ protocol, name, os, tools, models }`. Store it in `ky_machines` together with `last_error`.
+- **Node tools**: a pi tool whose handler runs on a node (example: `apple_reminders` on the Mac). It blocks
+  the turn and has a deadline. If the node is offline, it fails at once and doesn't queue. Open choice: when
+  the node is offline, block, or report later?
+- **Node models**: a node serves a model over its own VPC tunnel. This uses the `vibeProxy({...})` factory,
+  one per tunnel. Model traffic never goes over the runner socket.
+- **Other runners**: a second machine that runs the runner, for its own models or to run code there.
+- **Split `KY_RUNNER_TOKEN`**: one token per node. This needs a new secret.
+
+## Automations (in the worker)
+- Crons that you set from chat run on the DO with the Agents SDK `Scheduler`. Each run submits to the main chat,
+  so updates show up there.
+- They need: create, list, pause and delete from chat; a durable record of each schedule and its last run; and
+  no double run when the DO restarts. The model is in `quint/automations.qnt`.
+
+## Pi extensions (in the worker)
+- Add extensions straight to the pi harness in the DO with pi-durable's `defineExtension` (tools, prompt
+  sections, tasks, hooks). Executor, browse and memory already work this way.
+- Make adding one a single step: one file in `src/extensions/`, registered in one list, with its own e2e test
+  through `drive.ts`.
+- Placement is part of the extension: it runs in the worker by default. Mac-only ones (such as Apple Reminders)
+  use the `nodeTool()` helper and run on a node (see Runners and nodes).
+
+## Other models
+- ChatGPT models through a subscription proxy, as one more `Models` endpoint.
