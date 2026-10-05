@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import {
   defineExtension,
   defineTool,
@@ -40,7 +40,9 @@ class ExecutorClient {
   }
 
   #connect(): Promise<Client> {
-    this.#client ??= (async () => {
+    if (this.#client) return this.#client;
+
+    const connecting = (async () => {
       const client = new Client({ name: "ky", version: "0.1.0" });
 
       const transport = new StreamableHTTPClientTransport(new URL(this.#config.url!), {
@@ -50,15 +52,18 @@ class ExecutorClient {
       await client.connect(transport);
 
       return client;
-    })().catch((error: unknown) => {
-      this.#client = undefined;
-      throw error;
-    });
+    })();
 
-    return this.#client;
+    // A failed connect is not kept; the caller still sees its error.
+    connecting.catch(() => {
+      this.#client = undefined;
+    });
+    this.#client = connecting;
+
+    return connecting;
   }
 
-  async call(name: string, args: Record<string, unknown>): Promise<CallResult> {
+  async call(name: string, args: Record<string, JsonValue | undefined>): Promise<CallResult> {
     if (!this.configured) {
       return {
         content: [{ type: "text", text: "Executor is not configured: EXECUTOR_URL and EXECUTOR_TOKEN are unset." }],

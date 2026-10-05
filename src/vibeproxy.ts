@@ -119,38 +119,40 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
         const out = createAssistantMessageEventStream();
 
         void (async () => {
-          const up = await reachable();
+          try {
+            const up = await reachable();
 
-          if (!up) console.warn("VibeProxy is unreachable; this turn runs on the fallback model.");
+            if (!up) console.warn("VibeProxy is unreachable; this turn runs on the fallback model.");
 
-          const inner = up
-            ? api.streamSimple(target, context, { ...options, fetch: send })
-            : config.fallback(context, options);
+            const inner = up
+              ? api.streamSimple(target, context, { ...options, fetch: send })
+              : config.fallback(context, options);
 
-          for await (const event of inner) out.push(event);
-          out.end(await inner.result());
-        })().catch((error: unknown) => {
-          const message: AssistantMessage = {
-            role: "assistant",
-            content: [],
-            api: target.api,
-            provider: target.provider,
-            model: target.id,
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-            },
-            stopReason: "error",
-            errorMessage: error instanceof Error ? error.message : String(error),
-            timestamp: Date.now()
-          };
+            for await (const event of inner) out.push(event);
+            out.end(await inner.result());
+          } catch (error) {
+            const message: AssistantMessage = {
+              role: "assistant",
+              content: [],
+              api: target.api,
+              provider: target.provider,
+              model: target.id,
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+              },
+              stopReason: "error",
+              errorMessage: error instanceof Error ? error.message : String(error),
+              timestamp: Date.now()
+            };
 
-          out.push({ type: "error", reason: "error", error: message });
-        });
+            out.push({ type: "error", reason: "error", error: message });
+          }
+        })();
 
         return out;
       }
