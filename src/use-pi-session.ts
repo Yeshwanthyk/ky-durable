@@ -90,6 +90,7 @@ export function usePiSession(session: string) {
 
           return;
         }
+
         case "events":
           setState((current) => ({
             ...current,

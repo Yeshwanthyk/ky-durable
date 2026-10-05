@@ -116,6 +116,7 @@ export async function upload(
   }
 
   const name = decoded(request.headers.get("X-Ky-Name"), 255);
+
   const caption = request.headers.has("X-Ky-Caption")
     ? decoded(request.headers.get("X-Ky-Caption"), 2000)
     : null;
@@ -140,6 +141,7 @@ export async function upload(
 /** GET /api/files/<id>, with byte ranges: iOS Safari plays a video only from 206 responses. */
 export async function download(request: Request, bucket: R2Bucket, id: string): Promise<Response> {
   const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") ?? "");
+
   const object = await bucket.get(
     `files/${id}`,
     range ? { range: rangeOf(range[1]!, range[2]!) } : {}

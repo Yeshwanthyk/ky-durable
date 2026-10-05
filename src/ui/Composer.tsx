@@ -18,6 +18,7 @@ let ruler: CanvasRenderingContext2D | null = null;
 // Whether the text fits on one line of a textarea this wide, padding and a little slack included.
 function fitsOneLine(element: HTMLTextAreaElement, text: string, width: number): boolean {
   ruler ??= document.createElement("canvas").getContext("2d");
+
   if (ruler === null) return text === "";
   const style = getComputedStyle(element);
   ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
@@ -71,17 +72,21 @@ export function Composer({
   const pillWidth = useRef(0);
   useLayoutEffect(() => {
     const element = area.current;
+
     if (element === null) return;
     element.style.height = "auto";
     element.style.height = `${element.scrollHeight}px`;
+
     if (!open) {
       pillWidth.current = element.clientWidth;
+
       if (value.includes("\n") || element.scrollHeight > oneLine(element)) setOpen(true);
     } else if (!value.includes("\n") && fitsOneLine(element, value, pillWidth.current)) setOpen(false);
   }, [value, open]);
   const empty = value.trim() === "" && images.length === 0;
   const stop = working && empty && onStop !== undefined;
   const attach = onAddImages !== undefined && !disabled;
+
   return (
     <form
       className="composer"
@@ -89,6 +94,7 @@ export function Composer({
       data-open={open}
       onSubmit={(event) => {
         event.preventDefault();
+
         if (stop) onStop();
         else if (!empty && !busy && !disabled) onSubmit();
       }}
@@ -99,11 +105,13 @@ export function Composer({
       }}
       onDragLeave={(event) => {
         const to = event.relatedTarget;
+
         if (!(to instanceof Node) || !event.currentTarget.contains(to)) setDragging(false);
       }}
       onDrop={(event) => {
         setDragging(false);
         const files = imageFiles(event.dataTransfer.files);
+
         if (!attach || files.length === 0) return;
         event.preventDefault();
         onAddImages(files);
@@ -146,6 +154,7 @@ export function Composer({
             onChange={(event) => {
               const files = imageFiles(event.target.files);
               event.target.value = "";
+
               if (files.length > 0) onAddImages(files);
             }}
           />
@@ -162,6 +171,7 @@ export function Composer({
         onChange={(event) => onChange(event.target.value)}
         onPaste={(event) => {
           const files = imageFiles(event.clipboardData.files);
+
           if (!attach || files.length === 0) return;
           event.preventDefault();
           onAddImages(files);
@@ -169,6 +179,7 @@ export function Composer({
         onKeyDown={(event) => {
           if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
           const send = event.metaKey || event.ctrlKey || (!event.shiftKey && !coarse());
+
           if (!send) return;
           event.preventDefault();
           event.currentTarget.form?.requestSubmit();

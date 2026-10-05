@@ -88,6 +88,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
       (response) => response.ok,
       () => false
     );
+
     probe = { at: Date.now(), up };
 
     void up.then((value) => {
@@ -121,6 +122,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
           const up = await reachable();
 
           if (!up) console.warn("VibeProxy is unreachable; this turn runs on the fallback model.");
+
           const inner = up
             ? api.streamSimple(target, context, { ...options, fetch: send })
             : config.fallback(context, options);
@@ -146,6 +148,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
             errorMessage: error instanceof Error ? error.message : String(error),
             timestamp: Date.now()
           };
+
           out.push({ type: "error", reason: "error", error: message });
         });
 

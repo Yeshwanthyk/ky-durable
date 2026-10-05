@@ -92,6 +92,7 @@ const lerpEye = (a: Pose['eyes'][number], b: Pose['eyes'][number], t: number) =>
 /** Interpolation de deux poses. Le decor se croise en opacite, pas en geometrie. */
 function blendPose(a: Pose, b: Pose, t: number): Pose {
   const out = 1 - t
+
   return {
     sil: blend(a.sil, b.sil, t),
     offX: lerp(a.offX, b.offX, t),
@@ -190,9 +191,12 @@ export class BotEngine {
   private exprAtTime(now: number): BotExpression | null {
     const to = this.expr
     const from = this.exprPrev
+
     if (!to || !from) return to
     const k = (now - this.exprAt) / BotEngine.SHAPE_MORPH
+
     if (k >= 1) return to
+
     return blendExpression(from, to, easings.easeOutQuint(clamp(k)))
   }
 
@@ -221,10 +225,13 @@ export class BotEngine {
   private shapeAtTime(now: number): number[] | null {
     const to = this.shape
     const from = this.shapePrev
+
     if (!to || !from) return to
     const k = (now - this.shapeAt) / BotEngine.SHAPE_MORPH
+
     if (k >= 1) return to
     const t = easings.easeOutQuint(clamp(k))
+
     // alloue seulement pendant le morph ; hors morph on rend le tableau tel quel
     return to.map((r, i) => lerp(from[i] ?? r, r, t))
   }
@@ -253,6 +260,7 @@ export class BotEngine {
     if (look && !Number.isFinite(look.yaw + look.pitch + look.mix + look.spin + look.wander)) {
       return
     }
+
     this.lookPrev = this.lookAtTime(now)
     this.look = look ?? NO_LOOK
     this.lookAt = now
@@ -262,7 +270,9 @@ export class BotEngine {
   /** Regard effectif a l'instant `now`, rattrapage en cours compris. */
   private lookAtTime(now: number): Look {
     const k = (now - this.lookAt) / this.lookMorph
+
     if (k >= 1) return this.look
+
     return lerpLook(this.lookPrev, this.look, easings.easeOutQuint(clamp(k)))
   }
 
@@ -273,13 +283,16 @@ export class BotEngine {
     expr: BotExpression | null
   ): Pose {
     let pose = def.pose(t)
+
     if (def.baseBody && shape) {
       // on garde la pose (rotation, decalage, squash) et on n'echange que le profil
       pose = { ...pose, sil: { ...pose.sil, radii: shape } }
     }
+
     if (def.baseFace && expr) {
       pose = { ...pose, gaze: expr.gaze, split: expr.split, eyes: expr.eyes }
     }
+
     return pose
   }
 
@@ -310,8 +323,10 @@ export class BotEngine {
     ) => {
       if (a === b) return b
       const k = (now - debut) / duree
+
       if (k >= 1) return b
       const t = easings.easeOutQuint(clamp(k))
+
       return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }
     }
 
@@ -368,8 +383,10 @@ export class BotEngine {
     expr: BotExpression | null
   ): Pose | null {
     if (this.departFige) return this.departFige
+
     if (!this.prev) return null
     const prevDef = STATE_BY_ID.get(this.prev)!
+
     return this.posed(prevDef, Math.max(0, now - this.tPrev), shape, expr)
   }
 
@@ -384,9 +401,12 @@ export class BotEngine {
     const expr = this.exprAtTime(now)
     const pose = this.posed(def, Math.max(0, now - this.tCur), shape, expr)
     const since = now - this.tCur
+
     if (since >= def.morph) return pose
     const origine = this.origine(now, shape, expr)
+
     if (!origine) return pose
+
     return blendPose(origine, pose, easings.easeOutQuint(clamp(since / def.morph)))
   }
 
@@ -417,6 +437,7 @@ export class BotEngine {
     this.tPrev = this.tCur
     this.cur = id
     this.tCur = now
+
     // Dans la video, chaque changement de forme est masque par un clignement.
     if (STATE_BY_ID.get(id)?.blinkIn) this.blinkAt = now
   }
@@ -436,6 +457,7 @@ export class BotEngine {
     // rejouable — relire une date d'avant la fin du fondu ne le retrouverait
     // plus. C'est l'optimisation qui parait innocente et qui casse tout.
     const origine = since < def.morph ? this.origine(now, shape, expr) : null
+
     if (origine) {
       // Ease-out exponentiel : c'est la courbe mesuree sur la video. Le corps
       // n'a pas d'overshoot (seuls la pastille et l'ouverture des yeux en ont).
@@ -448,6 +470,7 @@ export class BotEngine {
       // de l'etat quitte, que `setState` renseigne toujours en meme temps que l'origine —
       // le test est la pour le typage, pas pour un cas reel.
       const quitte = this.prev
+
       if (quitte) {
         const avant = this.decalageAtTime(now, quitte)
         decalage = {
@@ -489,6 +512,7 @@ export class BotEngine {
       cy: pose.sil.cy + offY,
       sy: pose.sil.sy * life.breath
     }
+
     const bodyPath = closedPath(toPoints(sil, R, this.pts))
 
     // --- yeux -------------------------------------------------------------
@@ -499,10 +523,13 @@ export class BotEngine {
       radiusAtAngle(pose.sil.radii, Math.atan2(y, x) - pose.sil.rot)
 
     const eyes: RenderedEye[] = []
+
     if (pose.eyeAlpha > 0.01) {
       const poses = eyePoses(gaze, R, pose.split)
+
       for (let i = 0; i < 2; i++) {
         const e = poses[i]!
+
         if (e.depth <= 0.02) continue
         const cfg = pose.eyes[i]!
         const fit = bodyRadius(e.x, e.y)

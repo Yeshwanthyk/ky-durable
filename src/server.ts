@@ -131,22 +131,26 @@ export class PiAgent extends DurableObject<Env> {
         executorExtension({ url: this.env.EXECUTOR_URL, token: this.env.EXECUTOR_TOKEN })
       );
       this.registry.install(this.browse);
+
       const memory = memoryExtension(
         this.memory,
         (session) => session === ROOT_SESSION || this.chats.has(session)
       );
+
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(memory);
       this.registry.install(machines);
       this.registry.install(
         subagentExtension(this.feed, [memory, machines], () => this.settings.get("subagents"))
       );
+
       const models = createModels({
         authContext: {
           env: async (name) => (name === "OPENCODE_API_KEY" ? this.env.OPENCODE_API_KEY || undefined : undefined),
           fileExists: async () => false
         }
       });
+
       models.setProvider(this.claude.provider);
       models.setProvider(this.opencode);
 

@@ -10,6 +10,7 @@ import { BotEngine, type BotFrame } from "./bloub/engine";
 import { DEMI_VIEWBOX, RAYON } from "./bloub/repere";
 
 const IDLE_VIEWBOX_RADIUS = 126;
+
 const FRAME_INTERVAL = 1000 / 60;
 
 // Ziggy's animated blob avatar (../ziggy/clients/web/src/components/bot-avatar.tsx), with `still`
@@ -38,6 +39,7 @@ function useReducedMotion(): boolean {
     const update = () => setReduced(query.matches);
     update();
     query.addEventListener("change", update);
+
     return () => query.removeEventListener("change", update);
   }, []);
 
@@ -55,15 +57,19 @@ export function BotAvatar({
 }: BotAvatarProps) {
   const reducedMotion = useReducedMotion();
   const animated = !reducedMotion && !still;
+
   const variant = useMemo(
     () => (variantId ? blobVariantById(variantId) : undefined) ?? blobVariantForIdentity(identity),
     [identity, variantId],
   );
+
   const phase = useMemo(() => blobPhaseForIdentity(identity), [identity]);
+
   const engine = useMemo(
     () => new BotEngine(RAYON, "idle", variant.shape.radii),
     [identity, variant.id, variant.shape.radii],
   );
+
   const engineTime = useRef(phase);
   const [frame, setFrame] = useState<BotFrame>(() => engine.sample(phase));
   /** A wink while the pointer is on it, so it answers being noticed. */
@@ -79,9 +85,11 @@ export function BotAvatar({
   useEffect(() => {
     engine.setState(active ? "thinking" : poked ? "wink" : "idle", engineTime.current);
     engine.setLook({ yaw: 0, pitch: 0, mix: 0, spin: 0, wander: 1 }, engineTime.current);
+
     if (reducedMotion || still) {
       engineTime.current += 1;
       setFrame(engine.sample(engineTime.current));
+
       return;
     }
 
@@ -93,12 +101,14 @@ export function BotAvatar({
 
     const tick = (now: number) => {
       segmentStartedAt ??= now;
+
       if (now - lastRenderedAt >= FRAME_INTERVAL) {
         engineTime.current += (now - segmentStartedAt) / 1000;
         segmentStartedAt = now;
         lastRenderedAt = now;
         setFrame(engine.sample(engineTime.current));
       }
+
       animationFrame = requestAnimationFrame(tick);
     };
 
@@ -107,12 +117,14 @@ export function BotAvatar({
       segmentStartedAt = undefined;
       animationFrame = requestAnimationFrame(tick);
     };
+
     const stop = () => {
       if (animationFrame === 0) return;
       cancelAnimationFrame(animationFrame);
       animationFrame = 0;
       segmentStartedAt = undefined;
     };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") stop();
       else start();
@@ -120,6 +132,7 @@ export function BotAvatar({
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     start();
+
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       stop();
@@ -238,6 +251,7 @@ function Dots({ dots, fill }: { dots: BotFrame["dots"]; fill: string }) {
     <g>
       {dots.map((dot, index) => {
         const dotFill = dot.color ?? fill;
+
         return dot.d ? (
           <path
             d={dot.d}

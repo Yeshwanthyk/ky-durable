@@ -115,15 +115,18 @@ function App() {
       setPanelOpenState(true);
     } else if (panelOpen) setPanelClosing(true);
   };
+
   // animationend normally ends the genie, but a tab that is not painting never runs it, so
   // settle it anyway a little after it should have finished. A click mid-way restarts the wait.
   useEffect(() => {
     if (!genie) return;
+
     const timer = setTimeout(() => {
       if (panelClosing) {
         setPanelClosing(false);
         setPanelOpenState(false);
       }
+
       setGenie(false);
     }, 600);
 
@@ -184,6 +187,7 @@ function App() {
       setPanelOpen(false);
     }
   };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => keys.current(event);
     addEventListener("keydown", onKey);
@@ -195,6 +199,7 @@ function App() {
   useLayoutEffect(() => {
     const panel = panelRef.current;
     const who = whoRef.current;
+
     if (!panelOpen || !genie || panel === null || who === null) return;
     const from = who.getBoundingClientRect();
     const to = panel.getBoundingClientRect();
@@ -468,10 +473,12 @@ function App() {
               data-genie={genie ? (panelClosing ? "out" : "in") : undefined}
               onAnimationEnd={(event) => {
                 if (event.target !== event.currentTarget) return;
+
                 if (panelClosing) {
                   setPanelClosing(false);
                   setPanelOpenState(false);
                 }
+
                 setGenie(false);
               }}
             >

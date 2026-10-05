@@ -346,6 +346,7 @@ export class PiSessionSockets {
       case "submit": {
         // The main session and side chats run on the main slot; every other session is a subagent's.
         const chat = this.#chats.has(session);
+
         const problem = checkInput(
           message.input,
           this.#settings.view(),
@@ -381,6 +382,7 @@ export class PiSessionSockets {
 
         return { provider, modelId, thinkingLevel };
       }
+
       case "new-chat":
         return { session: await this.#newChat() };
       case "stop-all":

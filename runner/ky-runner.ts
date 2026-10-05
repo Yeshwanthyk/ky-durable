@@ -157,6 +157,7 @@ function start(task: string, prompt: string, session: string | null) {
   ];
 
   log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
+
   const child = spawn(CLAUDE, args, {
     cwd: WORKDIR,
     env: {
@@ -166,6 +167,7 @@ function start(task: string, prompt: string, session: string | null) {
       PATH: `${BIN}:${process.env.PATH ?? ""}`
     }
   });
+
   const run: Run = { child, session, pending: 1, stopped: false, last: "" };
   runs.set(task, run);
   let lastProgress = 0;
@@ -323,4 +325,5 @@ process.on("SIGINT", () => {
 });
 
 installAttach();
+
 connect();

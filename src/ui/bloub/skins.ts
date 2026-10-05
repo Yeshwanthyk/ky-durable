@@ -42,8 +42,10 @@ export interface BotShape {
 /** Ramene le rayon maximal a `max` pour que toutes les formes pesent pareil a l'oeil. */
 function normalize(radii: number[], max = 1): number[] {
   const peak = Math.max(...radii)
+
   if (peak <= 0) return radii
   const k = max / peak
+
   return radii.map((r) => r * k)
 }
 
@@ -94,6 +96,7 @@ export const SHAPES: BotShape[] = [
 // Map indexee par `string` et non par `ShapeId` : les appelants interrogent avec
 // une valeur relue du localStorage ou d'une prop, donc non validee.
 export const SHAPE_BY_ID = new Map<string, BotShape>(SHAPES.map((s) => [s.id, s]))
+
 export const DEFAULT_SHAPE = 'cercle'
 
 export type ColorId =
@@ -132,16 +135,20 @@ export const COLORS: BotColor[] = [
 ]
 
 export const COLOR_BY_ID = new Map<string, BotColor>(COLORS.map((c) => [c.id, c]))
+
 export const DEFAULT_COLOR = 'encre'
 
 /** Melange deux couleurs hex. Sert a la brume de profondeur des particules. */
 export function mixHex(from: string, to: string, t: number): string {
   const parse = (h: string) => {
     const v = parseInt(h.slice(1), 16)
+
     return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
   }
+
   const a = parse(from)
   const b = parse(to)
   const c = a.map((x, i) => Math.round(x + (b[i]! - x) * t))
+
   return `#${c.map((x) => x.toString(16).padStart(2, '0')).join('')}`
 }

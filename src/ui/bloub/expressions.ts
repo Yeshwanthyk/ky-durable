@@ -168,6 +168,7 @@ export const EXPRESSIONS: BotExpression[] = [
 ]
 
 export const EXPRESSION_BY_ID = new Map<string, BotExpression>(EXPRESSIONS.map((e) => [e.id, e]))
+
 export const DEFAULT_EXPRESSION = 'neutre'
 
 const lerpEyeCfg = (a: EyeCfg, b: EyeCfg, t: number): EyeCfg => ({

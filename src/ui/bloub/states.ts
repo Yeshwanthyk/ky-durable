@@ -94,6 +94,7 @@ function base(over: Partial<Pose> = {}): Pose {
  * flancs rectilignes. Elle est donc tronconique (rapport haut/bas 1.76).
  */
 const BAR_UPRIGHT_CY = -0.1875
+
 const BAR_UPRIGHT = profileFromPolygon(
   hullOfCircles(0, -0.505, 0.132, 0, 0.13, 0.075),
   0,
@@ -200,6 +201,7 @@ export interface StateDef {
 function dotPulse(t: number, index: number): number {
   const p = ((((t - index * 0.5) / 1.5) % 1) + 1) % 1
   const k = p < 0.5 ? 0.5 - 0.5 * Math.cos(p * TAU) : 0
+
   return clamp(k * 2)
 }
 
@@ -226,12 +228,14 @@ export const STATES: StateDef[] = [
       // Les points lateraux sortent des flancs de la boule : dans la video ils
       // restent fusionnes avec elle 1-2 frames avant de se detacher.
       const emerge = 0.3 + 0.7 * easings.easeOutCubic(clamp(t / 0.3))
+
       return base({
         // la boule DEVIENT le point du milieu : le morph reste continu
         sil: circle(DOT_R * (1 + (DOT_PEAK - 1) * mid), { cx: DOT_X[1]! }),
         eyeAlpha: 0,
         dots: [0, 2].map((i) => {
           const k = dotPulse(t, i)
+
           return {
             x: DOT_X[i]! * emerge,
             y: 0,
@@ -296,6 +300,7 @@ export const STATES: StateDef[] = [
       // Vibration secondaire a 2.5 Hz, barre et point en opposition de phase.
       const buzz = Math.sin(t * 2.5 * TAU) * 0.005
       const tilt = (17.7 * Math.PI) / 180
+
       return base({
         sil: barItalic({ rot: tilt, cx: x, cy: -0.325 - buzz }),
         eyeAlpha: 0,
@@ -327,6 +332,7 @@ export const STATES: StateDef[] = [
       const pop = 1 + (NOTIF_POP - 1) * Math.sin(p * Math.PI) * (1 - p * 0.35)
       const r = NOTIF_R * (p < 1 ? pop : 1)
       const a = (NOTIF_ANGLE * Math.PI) / 180
+
       return base({
         // le regard part a l'oppose de la pastille
         gaze: { yaw: -21.94, pitch: -5.82, roll: -12.2 },
@@ -415,6 +421,7 @@ export const STATES: StateDef[] = [
     pose: (t) => {
       // Le triangle reste quasi immobile pendant que le bouquet le traverse.
       const fade = clamp(t / 0.35) * clamp((2.2 - t) / 0.5)
+
       return base({
         sil: spinningTriangle(0),
         gaze: { yaw: 12, pitch: -8, roll: -6 },
@@ -448,6 +455,7 @@ export const STATES: StateDef[] = [
       const back = easings.easeInOutCubic(clamp((t - 1.6) / 0.9))
       const tri = spinningTriangle(rot)
       const ball = circle(1, { rot })
+
       const sil: Silhouette = {
         radii: tri.radii.map((r, i) => r + (ball.radii[i]! - r) * back),
         rot,
@@ -456,7 +464,9 @@ export const STATES: StateDef[] = [
         sx: 1,
         sy: 1
       }
+
       const fade = clamp(t / 0.8) * clamp((3.6 - t) / 0.9)
+
       return base({
         sil,
         // les yeux filent autour de la sphere ~3x plus vite que la silhouette
@@ -536,6 +546,7 @@ export const STATES: StateDef[] = [
       // Effondrement mesure : 1.0 -> 0.166 en 0.7 s, ease-out, sans rebond.
       const collapse = 1 - 0.834 * easings.easeOutQuint(clamp(t / 0.7))
       const regrow = easings.easeOutQuint(clamp((t - 1.7) / 0.7))
+
       return base({
         sil: circle(collapse + (1 - collapse) * regrow),
         eyeAlpha: clamp((t - 1.85) / 0.4),
@@ -560,6 +571,7 @@ export const STATES: StateDef[] = [
       const collapse = 1 - (1 - COMET_DOT) * easings.easeOutQuint(clamp(t / 0.55))
       const regrow = easings.easeOutQuint(clamp((t - 1.85) / 0.6))
       const fade = clamp((t - 0.15) / 0.25) * clamp((1.95 - t) / 0.3)
+
       return base({
         // Le point derive de 0.035 vers le bas puis remonte (wobble mesure).
         sil: circle(collapse + (1 - collapse) * regrow, {

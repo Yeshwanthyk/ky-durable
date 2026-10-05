@@ -19,8 +19,10 @@ type Vec3 = [number, number, number]
 
 /** Demi-ecart des yeux sur la sphere, en degres (separation totale ~31deg). */
 export const EYE_SPLIT = 15.46
+
 /** Taille de l'oeil au repos, en unites de rayon de boule. */
 export const EYE_W = 0.186
+
 export const EYE_H = 0.412
 
 /** Orientation de tete au repos, ajustee sur les frames de reference. */
@@ -53,6 +55,7 @@ const deg = (d: number) => (d * Math.PI) / 180
 function spin(u: Vec3, v: Vec3, angle: number): [Vec3, Vec3] {
   const c = Math.cos(angle)
   const s = Math.sin(angle)
+
   return [
     [u[0] * c + v[0] * s, u[1] * c + v[1] * s, u[2] * c + v[2] * s],
     [v[0] * c - u[0] * s, v[1] * c - u[1] * s, v[2] * c - u[2] * s]
@@ -67,6 +70,7 @@ function spin(u: Vec3, v: Vec3, angle: number): [Vec3, Vec3] {
 export function eyePoses(gaze: HeadGaze, scale: number, split = EYE_SPLIT): [EyePose, EyePose] {
   let f: Vec3 = [0, 0, 1]
   let right: Vec3 = [1, 0, 0]
+
   let down: Vec3 = [0, 1, 0]
 
   // lacet : forward bascule vers right
@@ -78,6 +82,7 @@ export function eyePoses(gaze: HeadGaze, scale: number, split = EYE_SPLIT): [Eye
 
   const build = (side: number): EyePose => {
     const [ef, er] = spin(f, right, deg(split * side))
+
     return {
       x: ef[0] * scale,
       y: ef[1] * scale,
@@ -111,19 +116,23 @@ export interface Liveliness {
 }
 
 const BLINK_RNG = createRng(0x5eed)
+
 /** Calendrier de clignements pre-tire : deterministe et sans etat. */
 const BLINKS: number[] = (() => {
   const out: number[] = []
   let t = 1.4
+
   while (t < 900) {
     out.push(t)
     // 1.9 a 4.6 s entre deux clignements, plus un double clignement parfois
     t += 1.9 + BLINK_RNG() * 2.7
+
     if (BLINK_RNG() < 0.18) {
       out.push(t)
       t += 0.24
     }
   }
+
   return out
 })()
 
@@ -133,13 +142,16 @@ const BLINK_DUR = 0.18
 function blinkLid(t: number): number {
   for (let i = 0; i < BLINKS.length; i++) {
     const start = BLINKS[i]!
+
     if (t < start) break
     const k = (t - start) / BLINK_DUR
+
     if (k >= 0 && k <= 1) {
       // fermeture rapide, reouverture un peu plus lente
       return k < 0.45 ? 1 - k / 0.45 : (k - 0.45) / 0.55
     }
   }
+
   return 1
 }
 

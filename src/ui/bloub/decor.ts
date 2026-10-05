@@ -12,6 +12,7 @@ function wheel(hue: number, s = 0.55, l = 0.62): string {
   const c = (1 - Math.abs(2 * l - 1)) * s
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
   const m = l - c / 2
+
   const [r, g, b] =
     h < 60
       ? [c, x, 0]
@@ -24,10 +25,12 @@ function wheel(hue: number, s = 0.55, l = 0.62): string {
             : h < 300
               ? [x, 0, c]
               : [c, 0, x]
+
   const hex = (v: number) =>
     Math.round((v + m) * 255)
       .toString(16)
       .padStart(2, '0')
+
   return `#${hex(r)}${hex(g)}${hex(b)}`
 }
 
@@ -134,6 +137,7 @@ export function arcRender(seed: ArcSeed, t: number, scale: number, id: string, o
     const sx = r2(x * scale)
     const sy = r2(y * scale)
     const cmd = behind !== prev ? 'M' : 'L'
+
     if (behind) back += `${cmd}${sx} ${sy}`
     else front += `${cmd}${sx} ${sy}`
     prev = behind
@@ -141,6 +145,7 @@ export function arcRender(seed: ArcSeed, t: number, scale: number, id: string, o
 
   const gx = Math.cos(seed.tilt) * seed.a * scale
   const gy = Math.sin(seed.tilt) * seed.a * scale
+
   return {
     id,
     front,
@@ -201,7 +206,9 @@ export const SWOOSH: ArcSeed[] = Array.from({ length: 4 }, (_, i) => ({
 
 /** x mesures : -0.557 / -0.013 / +0.532, y = 0. */
 export const DOT_X = [-0.557, -0.013, 0.532] as const
+
 export const DOT_R = 0.165
+
 export const DOT_PEAK = 1.25
 
 /* ------------------------------------------------------------ particules */
@@ -222,8 +229,10 @@ const PARTICLES = Array.from({ length: 5 }, (_, i) => ({
  */
 export function particles(t: number, scale: number): DotRender[] {
   const out: DotRender[] = []
+
   for (const p of PARTICLES) {
     const u = t - p.birth
+
     if (u < 0 || u > 0.62) continue
     const rho = p.rho * Math.pow(0.75, u * 10)
     const a = p.angle + (u * 100 * Math.PI) / 180
@@ -235,6 +244,7 @@ export function particles(t: number, scale: number): DotRender[] {
       opacity: clamp(u / 0.06) * clamp((0.62 - u) / 0.08)
     })
   }
+
   return out
 }
 
@@ -246,8 +256,10 @@ export function particles(t: number, scale: number): DotRender[] {
  * grand axe incline de +34deg, 4 rubans, ~210 deg/s.
  */
 const COMET_RNG = createRng(0xc0e7)
+
 export const COMET_RIBBONS: ArcSeed[] = Array.from({ length: 4 }, (_, i) => {
   const d = i - 1.5
+
   return {
     a: 0.85 * (1 + d * 0.03),
     // meme aplatissement a +-5 % pres : les rubans forment un faisceau serre
@@ -272,12 +284,17 @@ export const COMET_DOT = 0.129
 
 /** Bleu releve au pixel. */
 export const NOTIF_BLUE = '#2496e8'
+
 /** La pastille est posee exactement sur la circonference, a -42deg. */
 export const NOTIF_ANGLE = -42
+
 export const NOTIF_DIST = 1.003
+
 /** Rayon au repos ; le pop culmine 14 % au-dessus. */
 export const NOTIF_R = 0.15
+
 export const NOTIF_POP = 1.14
+
 /**
  * L'encoche est un disque concentrique a la pastille, soustrait du corps.
  * La marge est constante (0.054 R) et suit l'echelle du corps.

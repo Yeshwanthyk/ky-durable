@@ -24,6 +24,7 @@ export function Thread({
 }) {
   const [showAll, setShowAll] = useState(false);
   const hidden = showAll ? 0 : Math.max(0, turns.length - openTurns);
+
   return (
     <>
       {hidden > 0 ? (
@@ -80,6 +81,7 @@ function UserMessage({
 // A subagent's or machine's report arrives as input; it reads as a note, not as the user.
 function Report({ text, from, task }: { text: string; from: string; task: string | null }) {
   const [open, setOpen] = useState(false);
+
   return (
     <>
       <div className="tool">
@@ -110,6 +112,7 @@ function Report({ text, from, task }: { text: string; from: string; task: string
 function UserBubble({ text }: { text: string }) {
   const long = text.split("\n").length > 8 || text.length > 700;
   const [open, setOpen] = useState(false);
+
   return (
     <>
       <div className="user-message" data-clamped={long && !open}>
@@ -128,8 +131,10 @@ function UserBubble({ text }: { text: string }) {
 function split(turn: Turn) {
   const last = turn.items.findLastIndex((item) => item.kind === "text");
   const answer = turn.items[last];
+
   if (answer?.kind === "text" && (answer.final || turn.state !== "streaming"))
     return { log: turn.items.filter((_, index) => index !== last), answer: answer.text };
+
   return { log: turn.items, answer: "" };
 }
 
@@ -139,8 +144,10 @@ function useNow(live: boolean, every = 1000) {
     if (!live) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), every);
+
     return () => clearInterval(timer);
   }, [live, every]);
+
   return now;
 }
 
@@ -160,6 +167,7 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   const errors = log.filter((item) => item.kind === "notice" && item.tone === "error");
   const steps = log.filter((item) => item.kind === "tool").length;
   const [copied, setCopied] = useState(false);
+
   return (
     <article className="turn">
       <UserMessage text={turn.user} images={turn.images} from={turn.from} task={turn.task} />
@@ -249,13 +257,16 @@ type Entry = { kind: "explore"; id: string; tools: Tool[] } | { kind: "item"; it
 // Runs of two or more read-only tools collapse into one explore line.
 function entries(items: ReadonlyArray<Item>): Entry[] {
   const out: Entry[] = [];
+
   for (const item of items) {
     const previous = out.at(-1);
+
     if (item.kind === "tool" && item.category === "inspect" && item.status !== "failed") {
       if (previous?.kind === "explore") previous.tools.push(item);
       else out.push({ kind: "explore", id: item.id, tools: [item] });
     } else out.push({ kind: "item", item });
   }
+
   return out.map((entry) =>
     entry.kind === "explore" && entry.tools.length === 1 && entry.tools[0] !== undefined
       ? { kind: "item", item: entry.tools[0] }
@@ -300,6 +311,7 @@ function Thought({ text }: { text: string }) {
   const match = /^\*\*(.+?)\*\*\s*/.exec(text);
   const title = match?.[1];
   const body = (match === null ? text : text.slice(match[0].length)).replace(/\*\*/g, "");
+
   return (
     <div
       className="log-thought"

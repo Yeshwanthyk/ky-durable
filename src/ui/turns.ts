@@ -59,6 +59,7 @@ function describe(name: string, args: Args): Pick<Tool, "category" | "summary" |
     case "subagent":
     case "machine": {
       const who = text(args.name) || text(args.machine) || text(args.task);
+
       const verb =
         args.action === "spawn" || args.action === "run"
           ? "Start"
@@ -67,6 +68,7 @@ function describe(name: string, args: Args): Pick<Tool, "category" | "summary" |
             : args.action === "stop"
               ? "Stop"
               : "List";
+
       const title = text(args.title);
       const target = [who, title].filter(Boolean).join(" · ") || name;
 
@@ -119,6 +121,7 @@ export function buildTurns(
   const open = (message: PiMessage | null): Turn => {
     const raw = message ? userText(message) : "";
     const report = REPORT.exec(raw);
+
     const turn: Turn = {
       id: message?.id ?? `t${turns.length}`,
       state: "completed",
@@ -130,6 +133,7 @@ export function buildTurns(
       startedAt: message ? iso(message.timestamp) : null,
       endedAt: null
     };
+
     turns.push(turn);
 
     return turn;
@@ -153,12 +157,14 @@ export function buildTurns(
               final: !streaming && message.stopReason !== "toolUse"
             });
           }
+
           break;
         case "thinking":
           if (part.text.trim()) turn.items.push({ kind: "thinking", id, text: part.text });
           break;
         case "tool-call": {
           const args = (part.arguments ?? {}) as Args;
+
           const tool: Tool = {
             kind: "tool",
             id: part.id,
@@ -168,6 +174,7 @@ export function buildTurns(
             output: "",
             durationMs: null
           };
+
           calls.set(part.id, tool);
           started.set(part.id, message.timestamp);
           turn.items.push(tool);

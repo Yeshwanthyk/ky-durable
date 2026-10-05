@@ -258,10 +258,12 @@ export class MachineHub {
 
     if (!this.#harness) return;
     const files = this.#files.forTask(id);
+
     const shared =
       files.length === 0
         ? ""
         : `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
+
     await this.#harness.submit(
       `[machine ${task.worker}, task ${id} "${task.title}" ${ok ? "finished" : stopped ? "stopped" : "failed"}, no reply needed unless the user is waiting on it]\n${text}${shared}`,
       { operationId: `machine-report:${id}:${crypto.randomUUID()}`, whenBusy: "steer" }

@@ -325,9 +325,11 @@ function ModelRow({
 }) {
   const current = settings.slots[slot];
   const connected = settings.providers.filter((provider) => provider.connected);
+
   const model = settings.providers
     .find((provider) => provider.id === current.provider)
     ?.models.find((each) => each.modelId === current.modelId);
+
   const level = model && model.levels.length > 1 ? (LEVELS[current.thinkingLevel] ?? current.thinkingLevel) : null;
 
   return (

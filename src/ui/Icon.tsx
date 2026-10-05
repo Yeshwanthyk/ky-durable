@@ -58,6 +58,7 @@ export function Icon({
   className?: string;
 }) {
   const fill = filled.has(name);
+
   return (
     <svg
       className={className === undefined ? "icon" : `icon ${className}`}
