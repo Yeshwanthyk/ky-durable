@@ -1,6 +1,5 @@
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
+import { Guard } from "typebox/guard";
 import type { PiMessage, PiMessagePart } from "../transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
@@ -9,10 +8,8 @@ import type { Tool, Turn } from "./conversation";
 /** Reports from subagents and machines arrive as user messages that start like this. */
 const REPORT = /^\[(subagent|machine) ([^\],\s]+)[^\]]*\]\s*/;
 
-/** A tool argument shows as text only when it decodes as a string. */
-const Text = Type.String();
-
-const text = (value: JsonValue | undefined) => (Value.Check(Text, value) ? value : "");
+/** A tool argument shows as text only when it is a string. */
+const text = (value: JsonValue | undefined) => (Guard.IsString(value) ? value : "");
 
 const short = (value: string, max = 80) =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;

@@ -28,9 +28,9 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | doing |
-| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | doing |
-| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | doing |
+| L1 | Delete dead code: `src/ui/appearance.ts`, scotty-era branches, unused CSS (~100 lines), the dead anti-slop `effect/` dir | done c922ed0 |
+| L2 | Drop unused deps `@cloudflare/kumo`, `@phosphor-icons/react` | done c922ed0 |
+| L3 | `pnpm lint` to zero: fix all anti-slop errors (387 at baseline: spacing 263, shape-in-names 55, type-assertion comments 28, …), no rules disabled | done c922ed0 |
 
 ## G: the gate (e2e harnesses + regression baseline)
 
@@ -56,7 +56,7 @@ merged here, then the whole lane goes to Fable for verification before it's mark
 
 | id | item | status |
 |---|---|---|
-| B0 | One shared `runner-protocol.ts` for the three copies of the message types; typecheck the runner | todo |
+| B0 | One shared `runner-protocol.ts` for the three copies of the message types, **decoded with typebox at the socket** (replaces the trusted `JSON.parse as` casts in sockets.ts:300-319, use-pi-session.ts:76; Fable L-review); typecheck the runner | todo |
 | B1 | Flush first: runner sends its outbox before `hello` (ky-runner.ts:286-288) | todo |
 | B2 | Fence: reports carry the turn, DO drops reports for a closed turn, operationId `task:<id>:<turn>` (machines.ts:247-269) | todo |
 | B3 | Durable handled: runner persists handled seqs before acking (ky-runner.ts:129) | todo |
