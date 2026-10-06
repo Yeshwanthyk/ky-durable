@@ -47,7 +47,7 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).
-- Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. Activity shows them, with Pause, Resume and Archive.
+- Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
 - Titles: a small model names chats and tasks (`src/titles.ts`).
 
 ## Sign-in

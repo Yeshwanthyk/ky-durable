@@ -6,6 +6,7 @@ import type { MachineChange } from "./machines";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   AutomationAction,
+  AutomationDraft,
   AutomationInfo,
   ChatRow,
   ClientMessage,
@@ -285,7 +286,19 @@ export function usePiSession(session: string) {
     [send]
   );
 
-  /** Pause, resume or archive an automation as the user. */
+  /** Create an automation as the user, or change one; resolves with why it was refused, if it was. */
+  const saveAutomation = useCallback(
+    (automation: string | undefined, draft: AutomationDraft) =>
+      new Promise<string | undefined>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers automation-save with `{ refused? }`.
+        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
+        send({ type: "automation-save", id, automation, draft });
+      }),
+    [send]
+  );
+
+  /** Pause, resume, archive, run or delete an automation as the user. */
   const changeAutomation = useCallback(
     (automation: string, action: AutomationAction) =>
       send({ type: "automation", id: crypto.randomUUID(), automation, action }),
@@ -306,6 +319,7 @@ export function usePiSession(session: string) {
     archiveChat,
     changeSkill,
     skillHistory,
-    changeAutomation
+    changeAutomation,
+    saveAutomation
   };
 }

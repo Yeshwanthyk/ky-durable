@@ -201,7 +201,17 @@ export class PiSessionSockets {
     for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
   }
 
-  /** Pause, resume or archive an automation as the user; the result says what happened. */
+  /** Create or change an automation as the user; `{ refused }` says why it was not saved. */
+  async #saveAutomation(message: Extract<PiClientMessage, { type: "automation-save" }>): Promise<{ refused?: string }> {
+    const saved =
+      message.automation === undefined
+        ? await this.#automations.create(message.draft, "user")
+        : await this.#automations.update(message.automation, message.draft);
+
+    return "refused" in saved ? { refused: saved.refused } : {};
+  }
+
+  /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
   async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
     switch (message.action) {
       case "pause":
@@ -210,6 +220,10 @@ export class PiSessionSockets {
         return await this.#automations.resume(message.automation);
       case "archive":
         return await this.#automations.archive(message.automation);
+      case "run":
+        return await this.#automations.run(message.automation);
+      case "delete":
+        return await this.#automations.delete(message.automation);
       default:
         throw new Error(`Unknown automation action ${JSON.stringify(message.action)}`);
     }
@@ -521,6 +535,8 @@ export class PiSessionSockets {
         return this.#skills.history(message.name);
       case "automation":
         return await this.#automation(message);
+      case "automation-save":
+        return await this.#saveAutomation(message);
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

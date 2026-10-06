@@ -23,13 +23,14 @@ const paths = {
   eye: "M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8ZM8 9.75a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z",
   copy: "M5.75 5.75h7v7h-7zM3.25 10.25v-7h7",
   stop: "M4.5 4.5h7v7h-7z",
-  pause: "M5.75 4.25v7.5M10.25 4.25v7.5",
+  pause: "M4.75 4h2v8h-2zM9.25 4h2v8h-2z",
   play: "M5.25 3.75v8.5L12 8z",
   image:
     "M2.75 3.25h10.5v9.5H2.75zM2.75 10.5l3-3 3.5 3.5M9.25 9.5l1.25-1.25 2.75 2.75M10.25 6a.25.25 0 1 0 0-.5.25.25 0 0 0 0 .5Z",
   list: "M5.75 4.25h7.5M5.75 8h7.5M5.75 11.75h7.5M2.75 4.25h.01M2.75 8h.01M2.75 11.75h.01",
   compress: "M5.25 2.75v2.5h-2.5M10.75 2.75v2.5h2.5M5.25 13.25v-2.5h-2.5M10.75 13.25v-2.5h2.5",
   refresh: "M13.25 8a5.25 5.25 0 1 1-1.54-3.71M13.25 2.75v2.5h-2.5",
+  clock: "M8 13.75a5.75 5.75 0 1 0 0-11.5 5.75 5.75 0 0 0 0 11.5ZM8 5v3l2 1.25",
   circle: "M8 13.25a5.25 5.25 0 1 0 0-10.5 5.25 5.25 0 0 0 0 10.5Z",
   send: "M8 12.75V3.5M4 7.25 8 3.25l4 4",
   moon: "M13.25 9.6A5.5 5.5 0 1 1 6.4 2.75a4.5 4.5 0 0 0 6.85 6.85Z",
@@ -55,7 +56,7 @@ const paths = {
 export type IconName = keyof typeof paths;
 
 // Filled glyphs read better than outlines at this size.
-const filled = new Set<IconName>(["stop", "play"]);
+const filled = new Set<IconName>(["stop", "play", "pause"]);
 
 export function Icon({
   name,

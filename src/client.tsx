@@ -151,7 +151,16 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
 function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
   return (
     <PanelSlot panel={panel}>
-      <AutomationsContext.Provider value={{ automations: ky.automations, onAction: ky.changeAutomation }}>
+      <AutomationsContext.Provider
+        value={{
+          automations: ky.automations,
+          providers: ky.settings?.providers ?? [],
+          machines: ky.machines,
+          chats: ky.chats,
+          onAction: ky.changeAutomation,
+          onSave: ky.saveAutomation,
+        }}
+      >
         <Panel
           name={NAME}
           variantId={KY_BLOB[view.theme]}

@@ -225,15 +225,15 @@ export class Automations {
     return this.get(id)!;
   }
 
-  /** Change what it is or does; a new time re-books an active one. Returns what happened. */
-  async update(id: string, patch: Partial<AutomationDraft>): Promise<string> {
+  /** Change what it is or does; a new time re-books an active one. The changed automation, or why not. */
+  async update(id: string, patch: Partial<AutomationDraft>): Promise<AutomationRow | Refused> {
     const row = this.get(id);
 
-    if (!row) return `No automation ${id}.`;
+    if (!row) return { refused: `No automation ${id}.` };
     const retimed = patch.cron !== undefined || patch.at !== undefined;
     const checked = this.#check({ ...row, ...patch, ...timingOf(patch) });
 
-    if ("refused" in checked) return checked.refused;
+    if ("refused" in checked) return checked;
     let scheduleId = row.schedule_id;
 
     if (row.status === "active" && retimed) {
@@ -245,7 +245,7 @@ export class Automations {
       if (booked.error !== undefined) {
         this.#set(id, { schedule_id: (await this.#tryBook(id, row)).id ?? null });
 
-        return booked.error;
+        return { refused: booked.error };
       }
 
       scheduleId = booked.id ?? null;
@@ -253,7 +253,7 @@ export class Automations {
 
     this.#set(id, { ...checked, schedule_id: scheduleId });
 
-    return `Updated "${checked.title}".`;
+    return this.get(id)!;
   }
 
   async pause(id: string): Promise<string> {
@@ -288,6 +288,18 @@ export class Automations {
     this.#set(id, { status: "active", schedule_id: await this.#book(row.id, row) });
 
     return `Resumed "${row.title}".`;
+  }
+
+  /** Gone for good: no more fires, the run in progress stops, and the row is removed. Its past runs stay in Activity. */
+  async delete(id: string): Promise<string> {
+    const row = this.get(id);
+
+    if (!row) return `No automation ${id}.`;
+    await this.#halt(row, "archived");
+    this.#sql.exec("DELETE FROM ky_automations WHERE id = ?", id);
+    this.#emit();
+
+    return `Deleted "${row.title}".`;
   }
 
   /** Back to paused, so resuming it is a separate choice. */
@@ -492,7 +504,8 @@ export class Automations {
 
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): AutomationDraft | Refused {
-    const problem = timingProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
+    const problem =
+      wordsProblem(draft) ?? timingProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
 
     if (problem !== undefined) return { refused: problem };
 
@@ -600,6 +613,11 @@ export class Automations {
   }
 }
 
+/** A title and a prompt are needed: the list shows one, and a run knows only the other. */
+function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
+  return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
+}
+
 /** What is wrong with when it runs, if anything. */
 function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
   if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
@@ -632,16 +650,17 @@ const parameters = Type.Object({
     Type.Literal("resume"),
     Type.Literal("archive"),
     Type.Literal("unarchive"),
-    Type.Literal("run")
+    Type.Literal("run"),
+    Type.Literal("delete")
   ]),
   id: Type.Optional(Type.String({ description: "An automation id from create or list." })),
   title: Type.Optional(Type.String({ description: "3-6 words for the automations list." })),
   prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),
   cron: Type.Optional(Type.String({ description: "A 5-field cron in UTC, like 0 9 * * 1-5." })),
   at: Type.Optional(Type.String({ description: "A one-off's time, ISO with a zone, like 2026-10-06T09:00:00Z." })),
-  model: Type.Optional(Type.String({ description: "provider/modelId; leave out for the subagents slot." })),
+  model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or subagents to clear it, for the subagents slot." })),
   thinking: Type.Optional(Type.Union(LEVELS.map((level) => Type.Literal(level)))),
-  machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud." })),
+  machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud; cloud to clear it." })),
   chat: Type.Optional(
     Type.String({ description: "Where results are reported: main, or a side chat's session; this chat when left out." })
   ),
@@ -667,6 +686,8 @@ const reply = (text: string) => ({ content: [{ type: "text" as const, text }] })
 
 /** The model the tool asked for, at the level asked for or the subagents slot's. */
 function modelArg(args: Args, fallback: SlotSetting): SlotSetting | null | undefined {
+  if (args.model === "subagents") return null;
+
   if (args.model === undefined) return args.thinking === undefined ? undefined : { ...fallback, thinkingLevel: args.thinking };
   const [provider = "", ...rest] = args.model.split("/");
 
@@ -681,7 +702,7 @@ function patchOf(args: Args, fallback: SlotSetting): Partial<AutomationDraft> {
     cron: args.cron,
     at: args.at === undefined ? undefined : Date.parse(args.at),
     model: modelArg(args, fallback),
-    machine: args.machine,
+    machine: args.machine === "cloud" ? null : args.machine,
     chat: args.chat === "main" ? ROOT_SESSION : args.chat
   };
 
@@ -732,6 +753,8 @@ function act(automations: Automations, action: string, id: string): Promise<stri
 
   if (action === "unarchive") return automations.unarchive(id);
 
+  if (action === "delete") return automations.delete(id);
+
   return automations.run(id);
 }
 
@@ -744,7 +767,11 @@ async function dispatch(automations: Automations, { action, args, fallback, call
 
   if (!args.id) return `${action} needs an id.`;
 
-  if (action === "update") return automations.update(args.id, patchOf(args, fallback));
+  if (action === "update") {
+    const updated = await automations.update(args.id, patchOf(args, fallback));
+
+    return "refused" in updated ? updated.refused : `Updated "${updated.title}".`;
+  }
 
   return act(automations, action, args.id);
 }
@@ -763,7 +790,7 @@ export function automationExtension(automations: Automations, subagents: () => S
           "Actions: create (title, prompt, cron or at, model and thinking optional, machine optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
-          "pause, resume, archive, unarchive, run (id): run fires it now. " +
+          "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed.",
         parameters,
         replay: "unsafe",
