@@ -287,6 +287,34 @@ test("runs a task on a machine and shows its report", async ({ page }) => {
   await expect(page.getByText("Report from").first()).toBeVisible();
 });
 
+test("pauses a machine and notes what it is for in Activity, and the agent is refused it", async ({ page }) => {
+  await open(page);
+  const machine = panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last();
+  const states = machine.getByRole("radiogroup", { name: "Let ky use webmac" });
+  await expect(machine).toContainText(process.platform === "darwin" ? "macOS" : "Linux");
+
+  await states.getByRole("radio", { name: "Paused" }).click();
+  await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
+
+  try {
+    await machine.getByRole("button", { name: "Say what it's for" }).click();
+    await machine.getByRole("textbox", { name: "What webmac is for" }).fill("web builds");
+    await machine.getByRole("textbox", { name: "What webmac is for" }).press("Enter");
+    await expect(machine.getByRole("button", { name: "web builds" })).toBeVisible();
+
+    await send(page, "machine@webmac build while paused");
+    await expect(page.getByText(/webmac is paused/).first()).toBeVisible();
+
+    await page.reload();
+    await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
+    await expect(machine.getByRole("button", { name: "web builds" })).toBeVisible();
+  } finally {
+    // The other tests use webmac.
+    await states.getByRole("radio", { name: "On" }).click();
+    await expect(states.getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
+  }
+});
+
 test("shows what a machine task is doing, then how long it took and what it cost", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [delay=4000] [tools=Bash:pnpm build] build with steps");

@@ -19,14 +19,15 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
   fix above makes it reachable, or delete it.
 
 ## Runners and nodes
-- **Nodes**: rename "machine" to "node". In `hello` the runner sends a manifest:
-  `{ protocol, name, os, tools, models }`. Store it in `ky_machines` together with `last_error`.
+- **Nodes**: rename "machine" to "node". `hello` already carries the machine's OS, Chrome and repos (`facts`);
+  add its tools and models, and keep `last_error` in `ky_machines`.
+- **Machine load limits**: an optional cap on each machine's running tasks, enforced by holding runs in
+  `ky_machine_inbox` until one ends.
 - **Node tools**: a pi tool whose handler runs on a node (example: `apple_reminders` on the Mac). It blocks
   the turn and has a deadline. If the node is offline, it fails at once and doesn't queue. Open choice: when
   the node is offline, block, or report later?
 - **Node models**: a node serves a model over its own VPC tunnel. This uses the `vibeProxy({...})` factory,
   one per tunnel. Model traffic never goes over the runner socket.
-- **Other runners**: a second machine that runs the runner, for its own models or to run code there.
 - **Split `KY_RUNNER_TOKEN`**: one token per node. This needs a new secret.
 
 ## Automations (in the worker)

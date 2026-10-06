@@ -110,6 +110,7 @@ node --experimental-strip-types runner/ky-runner.ts
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |
 | `KY_CLAUDE` | `claude` | Path to the Claude Code executable |
 | `KY_CHROME` | off | `1`: tasks drive your Chrome with its logins (`--chrome`) |
+| `KY_REPOS` | `KY_WORKDIR` | Folders, split by `:`, whose git repositories the runner tells ky about (each folder, and the folders right inside it) |
 | `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled. Delete it after resetting the object |
 
 `bypassPermissions` lets a task run any command as your user without asking. Run the runner as a
@@ -123,8 +124,19 @@ installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, ins
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
 comments on it go back to the task as one message.
 
+**Choosing a machine.** Activity lists every machine with a switch and a note. `On` takes new tasks,
+`Paused` finishes its tasks and takes their follow-ups but no new ones, and `Off` takes nothing from the agent.
+The note says what the machine is for ("builds and long jobs"). The agent can set both too, when you ask it.
+Each runner says in its `hello` what the machine is: its OS, whether `KY_CHROME` is on, and the git repos
+in `KY_REPOS` with their `origin` remotes, credentials removed. The agent reads all of it in `machine list`,
+and chooses among the machines that are on; the tool refuses the rest. With one machine on and online, a
+task goes there; with several, the agent has to name one. A task sent to an offline machine waits for it,
+and `move` sends it to another machine as long as it has not started. Once it has run, its Claude Code session
+lives on that machine, so it stays there.
+
 The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`step`/`result` reports)
-is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. A `step` is one tool Claude
+is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. `hello`'s machine facts are
+optional, so a runner and a worker from either side of that change still work together. A `step` is one tool Claude
 Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the session's
 turns and cost so far. `hello` carries `PROTOCOL`;
 every report carries its turn, and reports for a closed turn are dropped. The runner records a command

@@ -6,7 +6,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
-import type { RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
+import { type MachineInfo, osName } from "./protocol";
+import type { MachineFacts, RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -22,6 +23,10 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * a steer, so it lands after the current tool round, to the conversation
  * that sent the turn: the main one or a side chat. A report is kept until
  * it is posted, so one cut off by a restart is posted when the object starts.
+ *
+ * The user decides which machines ky may use (on, paused, off) and what each
+ * is for (a note); the runner says what each is (its OS, Chrome, repos). The
+ * agent chooses among the machines that are on, and the tool refuses the rest.
  */
 
 export const RUNNER_QUERY = "runner";
@@ -40,11 +45,24 @@ export function runnerOf(tags: readonly string[]): string | undefined {
 
 type Turns = { turn: number; closed: number; sent: number };
 
+/** on: takes new tasks. paused: finishes its tasks and takes their messages, but no new ones. off: takes nothing from the agent. */
+export type MachineState = "on" | "paused" | "off";
+
+const MACHINE_STATES: readonly MachineState[] = ["on", "paused", "off"];
+
+/** What the user changes about a machine: whether ky may use it, and what it is for. */
+export type MachineChange = { state?: MachineState; note?: string };
+
+const NOTE_CHARS = 200;
+
+type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null };
+
 export class MachineHub {
   readonly #sql: SqlStorage;
   readonly #feed: TaskFeed;
   readonly #sockets: (tag: string) => WebSocket[];
   readonly #files: FileStore;
+  readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
 
   constructor(
@@ -88,6 +106,15 @@ export class MachineHub {
 
     if (!inbox.some((column) => column.name === "sent")) {
       sql.exec("ALTER TABLE ky_machine_inbox ADD COLUMN sent INTEGER NOT NULL DEFAULT 0");
+    }
+
+    const known = sql.exec<{ name: string }>("PRAGMA table_info(ky_machines)").toArray();
+
+    if (!known.some((column) => column.name === "state")) {
+      sql.exec("ALTER TABLE ky_machines ADD COLUMN state TEXT NOT NULL DEFAULT 'on'");
+      sql.exec("ALTER TABLE ky_machines ADD COLUMN note TEXT NOT NULL DEFAULT ''");
+      // JSON MachineFacts, as the runner last said them.
+      sql.exec("ALTER TABLE ky_machines ADD COLUMN facts TEXT");
     }
 
     // Commands from before turns were numbered; no runner of this protocol accepts them.
@@ -166,16 +193,48 @@ export class MachineHub {
     return this.#sockets(runnerTag(machine)).some((socket) => socket.readyState === OPEN);
   }
 
-  machines(): Array<{ name: string; online: boolean; seenAt: number; active: number }> {
+  machines(): MachineInfo[] {
     return this.#sql
-      .exec<{ name: string; seen_at: number }>("SELECT name, seen_at FROM ky_machines ORDER BY name")
+      .exec<MachineRow>("SELECT name, seen_at, state, note, facts FROM ky_machines ORDER BY name")
       .toArray()
       .map((row) => ({
         name: row.name,
         online: this.online(row.name),
         seenAt: row.seen_at,
-        active: this.#feed.open("machine", row.name).length
+        active: this.#feed.open("machine", row.name).length,
+        state: row.state,
+        note: row.note,
+        // SAFETY: only #onHello writes facts, each a decoded MachineFacts.
+        facts: row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts)
       }));
+  }
+
+  machine(name: string): MachineInfo | undefined {
+    return this.machines().find((machine) => machine.name === name);
+  }
+
+  /** Call `listener` when the user's choices for a machine change. */
+  onChange(listener: () => void): void {
+    this.#watchers.add(listener);
+  }
+
+  /** Set whether ky may use a machine, or what it is for. Throws for a machine that never connected. */
+  configure(name: string, change: MachineChange): MachineInfo {
+    if (!this.machine(name)) throw new Error(`No machine ${name}.`);
+
+    if (change.state !== undefined && !MACHINE_STATES.includes(change.state)) {
+      throw new Error(`A machine is on, paused or off, not ${JSON.stringify(change.state)}.`);
+    }
+
+    if (change.state !== undefined) this.#sql.exec("UPDATE ky_machines SET state = ? WHERE name = ?", change.state, name);
+
+    if (change.note !== undefined) {
+      this.#sql.exec("UPDATE ky_machines SET note = ? WHERE name = ?", change.note.trim().slice(0, NOTE_CHARS), name);
+    }
+
+    for (const watcher of this.#watchers) watcher();
+
+    return this.machine(name)!;
   }
 
   /** Runners are seen when they connect and when they leave. */
@@ -274,6 +333,37 @@ export class MachineHub {
   }
 
   /**
+   * Move a task the runner has never been sent to another machine; why not,
+   * otherwise. Once a turn reached a runner, its Claude Code session lives
+   * on that machine's disk, so the task stays there.
+   */
+  move(task: TaskRow, to: string): string | null {
+    if (task.worker === to) return `${task.id} is already on ${to}.`;
+
+    if (task.status !== "queued" || this.#turns(task.id).sent > 0) {
+      return `${task.id} has already run on ${task.worker}, and its session lives there, so it stays. Start a new task on ${to} with what it needs.`;
+    }
+
+    const commands = this.#sql
+      .exec<{ seq: number; payload: string }>(
+        "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? AND sent = 0 AND json_extract(payload, '$.task') = ? ORDER BY seq",
+        task.worker,
+        task.id
+      )
+      .toArray();
+
+    for (const command of commands) {
+      this.#sql.exec("DELETE FROM ky_machine_inbox WHERE seq = ?", command.seq);
+      this.#sql.exec("INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?)", to, command.payload);
+    }
+
+    this.#feed.reassign(task.id, to);
+    this.#deliver(to, this.#pending(to));
+
+    return null;
+  }
+
+  /**
    * Stop a task. Runs never sent to the runner are withdrawn. If no open
    * turn ever reached the runner, the task ends here; otherwise the runner
    * gets a stop and its result ends the task, since a run already sent may
@@ -301,7 +391,16 @@ export class MachineHub {
   }
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
-  async #onHello(machine: string, active: readonly string[]): Promise<void> {
+  async #onHello(machine: string, active: readonly string[], facts: MachineFacts | undefined): Promise<void> {
+    if (facts) {
+      this.#sql.exec(
+        "UPDATE ky_machines SET facts = ? WHERE name = ? AND facts IS NOT ?",
+        JSON.stringify(facts),
+        machine,
+        JSON.stringify(facts)
+      );
+    }
+
     // An open task the runner is not running is over, unless one of its runs is still unacked:
     // the socket is in order, so every run the runner had seen when it said hello was acked first.
     const unacked = new Set(
@@ -325,7 +424,7 @@ export class MachineHub {
   }
 
   async onReport(machine: string, report: RunnerReport): Promise<void> {
-    if (report.type === "hello") return this.#onHello(machine, report.active);
+    if (report.type === "hello") return this.#onHello(machine, report.active, report.facts);
 
     if (report.type === "ack") {
       this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
@@ -447,6 +546,180 @@ function sharedLine(files: readonly FileRow[]): string {
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
+/** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
+function describeMachine(machine: MachineInfo): string {
+  const parts = [
+    machine.state,
+    machine.online ? "online" : "offline",
+    `${machine.active} running or queued`,
+    ...(machine.facts
+      ? [osName(machine.facts.os), machine.facts.chrome ? "Chrome with the user's logins" : "no logged-in browser"]
+      : [])
+  ];
+
+  const lines = [`${machine.name}: ${parts.join(", ")}`];
+
+  if (machine.note !== "") lines.push(`  the user says: ${machine.note}`);
+
+  if (machine.facts && machine.facts.repos.length > 0) {
+    lines.push(`  repos: ${machine.facts.repos.map((repo) => (repo.remote ? `${repo.name} (${repo.remote})` : repo.name)).join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+const describeAll = (machines: readonly MachineInfo[]) =>
+  machines.length === 0 ? "No machines have connected yet. The user starts one with runner/ky-runner.ts." : machines.map(describeMachine).join("\n");
+
+/** The machines a task could go to now, for a refusal or an offline start to offer instead. */
+function elsewhere(machines: readonly MachineInfo[], not: string): string {
+  const ready = machines.filter((machine) => machine.name !== not && machine.state === "on" && machine.online);
+
+  return ready.length === 0
+    ? "No other machine is on and online."
+    : `On and online: ${ready.map((machine) => `${machine.name} (${machine.active} running or queued)`).join(", ")}.`;
+}
+
+/** Each machine and its recent tasks. */
+function listAll(machines: readonly MachineInfo[], feed: TaskFeed): string {
+  if (machines.length === 0) return describeAll(machines);
+
+  return machines
+    .map((m) => {
+      const tasks = feed
+        .list(200)
+        .filter((t) => t.kind === "machine" && t.worker === m.name)
+        .slice(0, 8)
+        .map((t) => `  ${t.id} [${t.status}] ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
+
+      return [describeMachine(m), ...tasks].join("\n");
+    })
+    .join("\n");
+}
+
+/** The user's change to a machine, made by the agent when they ask. */
+function setMachine(hub: MachineHub, machines: readonly MachineInfo[], name: string | undefined, change: MachineChange): string {
+  if (!name) return `set needs a machine.\n${describeAll(machines)}`;
+
+  if (change.state === undefined && change.note === undefined) return "set needs a state or a note.";
+
+  try {
+    return `Set. ${describeMachine(hub.configure(name, change))}`;
+  } catch (error) {
+    return `${error instanceof Error ? error.message : String(error)}\n${describeAll(machines)}`;
+  }
+}
+
+/** The machine a new task goes to: the one named, or the only one on and online; else why not. */
+function pickMachine(machines: readonly MachineInfo[], requested: string | undefined): { name: string } | { refusal: string } {
+  const ready = machines.filter((m) => m.state === "on" && m.online);
+  const name = requested ?? (ready.length === 1 ? ready[0]!.name : undefined);
+
+  if (!name) {
+    return {
+      refusal:
+        ready.length === 0
+          ? `No machine is on and online; name one to queue the task for it.\n${describeAll(machines)}`
+          : `Name the machine for this task.\n${describeAll(machines)}`
+    };
+  }
+
+  const target = machines.find((m) => m.name === name);
+
+  if (target && target.state !== "on") {
+    return { refusal: `${name} is ${target.state}: the user is not letting it take new tasks. ${elsewhere(machines, name)}` };
+  }
+
+  return { name };
+}
+
+/** What the agent hears after starting a task: where it runs, or that it waits and where else it could go. */
+function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: string, machine: string): string {
+  if (hub.online(machine)) return `Started task ${task} on ${machine}.`;
+
+  const waiting = machines.some((m) => m.name === machine)
+    ? `offline: it starts when ${machine} connects`
+    : `no machine named ${machine} has connected yet: it starts when one does`;
+
+  return `Started task ${task} on ${machine} (${waiting}). ${elsewhere(machines, machine)} move sends it elsewhere.`;
+}
+
+function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, to: string | undefined): string {
+  if (!to) return `move needs a machine.\n${describeAll(machines)}`;
+  const target = machines.find((m) => m.name === to);
+
+  if (!target) return `No machine ${to}.\n${describeAll(machines)}`;
+
+  if (target.state !== "on") return `${target.name} is ${target.state}: it takes no new tasks. ${elsewhere(machines, task.worker)}`;
+
+  return hub.move(task, target.name) ?? `Moved ${task.id} to ${target.name}${target.online ? "" : " (offline: it starts when it connects)"}.`;
+}
+
+/** What the tool was called with. */
+type MachineArgs = {
+  action: "list" | "run" | "send" | "stop" | "move" | "set";
+  machine?: string;
+  title?: string;
+  prompt?: string;
+  task?: string;
+  message?: string;
+  state?: MachineState;
+  note?: string;
+};
+
+function changeOf(args: MachineArgs): MachineChange {
+  const change: MachineChange = {};
+
+  if (args.state !== undefined) change.state = args.state;
+
+  if (args.note !== undefined) change.note = args.note;
+
+  return change;
+}
+
+function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo[], args: MachineArgs, id: string, conversation: string): string {
+  const picked = pickMachine(machines, args.machine);
+
+  if ("refusal" in picked) return picked.refusal;
+
+  if (!args.prompt) return "run needs a prompt.";
+  const task = hub.start(picked.name, args.title ?? summarize(args.prompt).slice(0, 60), args.prompt, id, conversation);
+
+  if (args.title === undefined) feed.name(task.id, args.prompt);
+
+  return startedOn(hub, machines, task.id, picked.name);
+}
+
+/** Steer or resume a task, unless the user has turned its machine off. */
+function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, conversation: string): string {
+  if (!message) return "send needs a message.";
+
+  if (hub.machine(task.worker)?.state === "off") {
+    return `${task.worker} is off: the user is not letting it take anything. Start a new task elsewhere with what ${task.id} needs.`;
+  }
+
+  hub.send(task, message, conversation);
+
+  return task.status === "working" ? `Steering ${task.id}.` : `Resuming ${task.id} with your message.`;
+}
+
+/** stop, move or send, on a task already started. */
+async function onTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo[], args: MachineArgs, conversation: string): Promise<string> {
+  const task = args.task ? feed.get(args.task) : undefined;
+
+  if (!task || task.kind !== "machine") return `No machine task ${args.task ?? ""}.`;
+
+  if (args.action === "stop") {
+    await hub.stop(task);
+
+    return `Stopping ${task.id}.`;
+  }
+
+  if (args.action === "move") return moveTask(hub, machines, task, args.machine);
+
+  return sendTask(hub, task, args.message, conversation);
+}
+
 export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
   return defineExtension({
     name: "machines",
@@ -456,91 +729,44 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
         description:
           "Run tasks on the user's real computers, each as a Claude Code session with a shell, files, scripts, installed tools and a real browser. " +
           "Use it only when the user asks for a machine, or for what the cloud cannot do: web pages that need the user's logins (have a subagent try Exa search and browse first), running scripts or builds, touching local files. " +
-          "Actions: list (machines and their recent tasks). " +
-          "run (title, prompt, machine optional when one is online): start a task; the prompt must be self-contained. " +
+          "Choose the machine by what the user said about it, which one has the repos the task needs, which one has Chrome with the user's logins when the task needs them, and how busy each is. Only a machine that is on takes new tasks. " +
+          "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; repos; the user's note, and its recent tasks). " +
+          "run (title, prompt, machine): start a task; name the machine unless only one is on and online; the prompt must be self-contained. " +
           "send (task, message): steer a working task, or resume a finished one with its history. " +
           "stop (task): stop it; send resumes it later. " +
+          "move (task, machine): send a task that has not started yet to another machine, such as when its machine is offline. " +
+          "set (machine, state, note): only when the user asks; state on, paused (finishes its tasks, takes no new ones) or off (takes nothing from you); note says what it is for. " +
           "Results are reported back to this conversation as messages when they arrive; do not poll.",
         parameters: Type.Object({
           action: Type.Union([
             Type.Literal("list"),
             Type.Literal("run"),
             Type.Literal("send"),
-            Type.Literal("stop")
+            Type.Literal("stop"),
+            Type.Literal("move"),
+            Type.Literal("set")
           ]),
           machine: Type.Optional(Type.String()),
           title: Type.Optional(Type.String({ description: "3-6 words for the task list." })),
           prompt: Type.Optional(Type.String()),
           task: Type.Optional(Type.String({ description: "A task id from run or list." })),
-          message: Type.Optional(Type.String())
+          message: Type.Optional(Type.String()),
+          state: Type.Optional(Type.Union([Type.Literal("on"), Type.Literal("paused"), Type.Literal("off")])),
+          note: Type.Optional(Type.String({ description: "What the machine is for, in the user's words; empty clears it." }))
         }),
         replay: "unsafe",
         execute: async (args, api) => {
           const machines = hub.machines();
+          const conversation = String(api.conversationId);
 
-          if (args.action === "list") {
-            if (machines.length === 0) {
-              return reply("No machines have connected yet. The user starts one with runner/ky-runner.ts.");
-            }
+          if (args.action === "list") return reply(listAll(machines, feed));
 
-            const lines = machines.map((m) => {
-              const tasks = feed
-                .list(200)
-                .filter((t) => t.kind === "machine" && t.worker === m.name)
-                .slice(0, 8)
-                .map((t) => `  ${t.id} [${t.status}] ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
+          if (args.action === "set") return reply(setMachine(hub, machines, args.machine, changeOf(args)));
 
-              return [`${m.name}: ${m.online ? "online" : "offline"}`, ...tasks].join("\n");
-            });
+          // Model call ids repeat across turns (Kimi: functions.machine:0); pi's task id does not.
+          if (args.action === "run") return reply(runTask(hub, feed, machines, args, `m-${String(api.taskId)}`, conversation));
 
-            return reply(lines.join("\n"));
-          }
-
-          if (args.action === "run") {
-            const online = machines.filter((m) => m.online);
-            const machine = args.machine ?? (online.length === 1 ? online[0]!.name : undefined);
-
-            if (!machine) {
-              return reply(
-                `Name a machine. Known: ${machines.map((m) => `${m.name} (${m.online ? "online" : "offline"})`).join(", ") || "none"}.`
-              );
-            }
-
-            if (!args.prompt) return reply("run needs a prompt.");
-            // Model call ids repeat across turns (Kimi: functions.machine:0); pi's task id does not.
-            const id = `m-${String(api.taskId)}`;
-
-            const task = hub.start(
-              machine,
-              args.title ?? summarize(args.prompt).slice(0, 60),
-              args.prompt,
-              id,
-              String(api.conversationId)
-            );
-
-            if (args.title === undefined) feed.name(task.id, args.prompt);
-
-            return reply(
-              `Started task ${task.id} on ${machine}${hub.online(machine) ? "" : " (offline: it starts when the machine connects)"}.`
-            );
-          }
-
-          const task = args.task ? feed.get(args.task) : undefined;
-
-          if (!task || task.kind !== "machine") return reply(`No machine task ${args.task ?? ""}.`);
-
-          if (args.action === "stop") {
-            await hub.stop(task);
-
-            return reply(`Stopping ${task.id}.`);
-          }
-
-          if (!args.message) return reply("send needs a message.");
-          hub.send(task, args.message, String(api.conversationId));
-
-          return reply(
-            task.status === "working" ? `Steering ${task.id}.` : `Resuming ${task.id} with your message.`
-          );
+          return reply(await onTask(hub, feed, machines, args, conversation));
         }
       })
     ]

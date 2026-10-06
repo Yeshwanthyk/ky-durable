@@ -2,6 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MachineChange } from "./machines";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ChatRow,
@@ -225,6 +226,13 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Set whether ky may use a machine, or what it is for. */
+  const setMachine = useCallback(
+    (machine: string, change: MachineChange) =>
+      send({ type: "set-machine", id: crypto.randomUUID(), machine, ...change }),
+    [send]
+  );
+
   const setModel = useCallback(
     (slot: Slot, setting: SlotSetting) =>
       send({ type: "set-model", id: crypto.randomUUID(), slot, setting }),
@@ -275,6 +283,7 @@ export function usePiSession(session: string) {
     stopTask,
     sendTask,
     stopAll,
+    setMachine,
     setModel,
     newChat,
     archiveChat,

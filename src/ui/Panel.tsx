@@ -1,4 +1,7 @@
 import { useContext, useState } from "react";
+import type { MachineChange, MachineState } from "../machines";
+import type { MachineFacts } from "../runner-protocol";
+import { osName } from "../protocol";
 import type {
   MachineInfo,
   SettingsView,
@@ -54,6 +57,7 @@ export function Panel({
   onOpen,
   onStop,
   onStopAll,
+  onSetMachine,
   onClose,
   tab,
   onTab,
@@ -80,6 +84,7 @@ export function Panel({
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
   onStopAll: () => void;
+  onSetMachine: (machine: string, change: MachineChange) => void;
   onClose: () => void;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -129,6 +134,7 @@ export function Panel({
           onOpen={onOpen}
           onStop={onStop}
           onStopAll={onStopAll}
+          onSetMachine={onSetMachine}
         />
       ) : tab === "skills" ? (
         <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} />
@@ -148,6 +154,7 @@ function Activity({
   onOpen,
   onStop,
   onStopAll,
+  onSetMachine,
 }: {
   tasks: readonly TaskRow[];
   machines: readonly MachineInfo[];
@@ -157,6 +164,7 @@ function Activity({
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
   onStopAll: () => void;
+  onSetMachine: (machine: string, change: MachineChange) => void;
 }) {
   const live = tasks.filter(isLive);
   const groups = new Map<string, TaskRow[]>();
@@ -210,32 +218,146 @@ function Activity({
       {tasks.length === 0 && running.length === 0 ? (
         <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
       ) : null}
-      <section className="feed-group machines">
-        <h3 className="feed-head">Machines</h3>
-        {machines.length === 0 ? (
-          <p className="panel-note">
-            None yet. Run <code>runner/ky-runner.ts</code> on a computer.
-          </p>
-        ) : (
-          <ul className="machine-list">
-            {machines.map((machine) => (
-              <li key={machine.name}>
-                <span className="status-dot" data-connected={machine.online} />
-                <span className="machine-name">{machine.name}</span>
-                <span className="quiet">
-                  {machine.online
-                    ? machine.active > 0
-                      ? `${machine.active} ${machine.active === 1 ? "task" : "tasks"}`
-                      : "idle"
-                    : `offline, seen ${ago(machine.seenAt, now)}${ago(machine.seenAt, now) === "now" ? "" : " ago"}`}
-                  {!machine.online && machine.active > 0 ? ` · ${machine.active} waiting` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <MachineList machines={machines} now={now} onSet={onSetMachine} />
     </div>
+  );
+}
+
+// Your computers, and whether ky may use each.
+function MachineList({
+  machines,
+  now,
+  onSet,
+}: {
+  machines: readonly MachineInfo[];
+  now: number;
+  onSet: (machine: string, change: MachineChange) => void;
+}) {
+  return (
+    <section className="feed-group machines">
+      <h3 className="feed-head">Machines</h3>
+      {machines.length === 0 ? (
+        <p className="panel-note">
+          None yet. Run <code>runner/ky-runner.ts</code> on a computer.
+        </p>
+      ) : (
+        <ul className="machine-list">
+          {machines.map((machine) => (
+            <MachineItem key={machine.name} machine={machine} now={now} onSet={onSet} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string]> = [
+  ["on", "On"],
+  ["paused", "Paused"],
+  ["off", "Off"],
+];
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What the runner says the machine is: its OS, its Chrome, and how many repos. */
+function factsLine(facts: MachineFacts | null): string | null {
+  if (!facts) return null;
+  const parts = [osName(facts.os)];
+
+  if (facts.chrome) parts.push("your Chrome");
+
+  if (facts.repos.length > 0) parts.push(plural(facts.repos.length, "repo"));
+
+  return parts.join(" · ");
+}
+
+/** When an offline machine was last seen, and what waits for it. */
+function offlineStatus(machine: MachineInfo, now: number): string {
+  const seen = ago(machine.seenAt, now);
+  const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
+
+  return `offline, seen ${seen}${seen === "now" ? "" : " ago"}${waiting}`;
+}
+
+/** Whether a machine is busy, or when it was last seen. */
+function machineStatus(machine: MachineInfo, now: number): string {
+  if (!machine.online) return offlineStatus(machine, now);
+
+  return machine.active === 0 ? "idle" : plural(machine.active, "task");
+}
+
+// What you say a machine is for; click to edit, Enter or leaving saves, Escape cancels.
+function MachineNote({ machine, onSave }: { machine: MachineInfo; onSave: (note: string) => void }) {
+  const [editing, setEditing] = useState(false);
+
+  const save = (note: string) => {
+    setEditing(false);
+
+    if (note.trim() !== machine.note) onSave(note);
+  };
+
+  if (!editing) {
+    return (
+      <button type="button" className="machine-note pressable" title="Edit what it's for" onClick={() => setEditing(true)}>
+        {machine.note === "" ? <span className="quiet">Say what it's for</span> : machine.note}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      className="machine-note-input"
+      aria-label={`What ${machine.name} is for`}
+      placeholder="What it's for, e.g. builds and long jobs"
+      defaultValue={machine.note}
+      maxLength={200}
+      autoFocus
+      onBlur={(event) => save(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") save(event.currentTarget.value);
+
+        if (event.key === "Escape") setEditing(false);
+      }}
+    />
+  );
+}
+
+// A machine: whether it is up and busy, whether ky may use it, what it is, and what you say it is for.
+function MachineItem({
+  machine,
+  now,
+  onSet,
+}: {
+  machine: MachineInfo;
+  now: number;
+  onSet: (machine: string, change: MachineChange) => void;
+}) {
+  const facts = factsLine(machine.facts);
+
+  return (
+    <li className="machine" data-state={machine.state}>
+      <div className="machine-head">
+        <span className="status-dot" data-connected={machine.online} />
+        <span className="machine-name">{machine.name}</span>
+        <span className="quiet">{machineStatus(machine, now)}</span>
+      </div>
+      <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
+        {MACHINE_STATES.map(([each, label]) => (
+          <button
+            key={each}
+            type="button"
+            role="radio"
+            aria-checked={machine.state === each}
+            className="pressable"
+            onClick={() => onSet(machine.name, { state: each })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {facts ? <span className="machine-facts quiet">{facts}</span> : null}
+      <MachineNote machine={machine} onSave={(note) => onSet(machine.name, { note })} />
+    </li>
   );
 }
 

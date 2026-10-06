@@ -13,16 +13,17 @@
  * KY_PERMISSION_MODE  Claude Code permission mode (default: bypassPermissions)
  * KY_CLAUDE       the claude executable (default: claude)
  * KY_CHROME       1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
+ * KY_REPOS        folders, split by ":", whose git repositories ky is told about (default: KY_WORKDIR)
  *
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
-import { REPLACED } from "../src/runner-protocol.ts";
+import { REPLACED, type MachineFacts } from "../src/runner-protocol.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
@@ -44,6 +45,8 @@ const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
 
 const CHROME = process.env.KY_CHROME === "1";
+
+const REPO_ROOTS = (process.env.KY_REPOS ?? WORKDIR).split(":").filter((root) => root !== "");
 
 /** Where the runner keeps what must outlive it: the seqs of the commands it has run. */
 const STATE_DIR = process.env.KY_STATE_DIR ?? join(homedir(), ".ky");
@@ -104,6 +107,54 @@ function installTools() {
     writeFileSync(file, script);
     chmodSync(file, 0o755);
   }
+}
+
+/**
+ * The `origin` URL in a repository's `.git/config`, without any credentials
+ * in it, or null (no origin, or `.git` is a worktree file).
+ */
+function originOf(repo: string): string | null {
+  try {
+    const config = readFileSync(join(repo, ".git", "config"), "utf8");
+    const url = /\[remote "origin"\][^[]*?\burl\s*=\s*(\S+)/.exec(config)?.[1];
+
+    return url ? url.replace(/\/\/[^/@]*@/, "//") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A root and the visible folders right inside it; none if it cannot be read. */
+function foldersIn(root: string): string[] {
+  try {
+    const inside = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith("."));
+
+    return [root, ...inside.map((entry) => join(root, entry.name))];
+  } catch {
+    return [];
+  }
+}
+
+/** Each git repository in KY_REPOS: a folder that is one, and the folders right inside it that are. */
+function scanRepos(): MachineFacts["repos"] {
+  return REPO_ROOTS.flatMap(foldersIn)
+    .filter((folder) => existsSync(join(folder, ".git")))
+    .slice(0, 100)
+    .map((folder) => ({ name: basename(folder), remote: originOf(folder) }));
+}
+
+/** How long the repo list is kept before the next hello scans again. */
+const FACTS_EVERY_MS = 5 * 60_000;
+
+let facts: { at: number; value: MachineFacts } | undefined;
+
+/** What this machine is, for ky to choose where work goes; scanned at most every few minutes. */
+function machineFacts(): MachineFacts {
+  if (!facts || Date.now() - facts.at > FACTS_EVERY_MS) {
+    facts = { at: Date.now(), value: { os: process.platform, chrome: CHROME, repos: scanRepos() } };
+  }
+
+  return facts.value;
 }
 
 function required(name: string): string {
@@ -175,7 +226,8 @@ function spawnClaude(task: string, session: string | null, events: ClaudeEvents)
 const runner = new Runner(
   spawnClaude,
   (line) => log(line),
-  new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`)
+  new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`),
+  machineFacts
 );
 
 let socket: WebSocket | undefined;

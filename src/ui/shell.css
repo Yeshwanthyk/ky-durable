@@ -746,10 +746,35 @@
 
 .machine-list li {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.machine-head {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
+
+.machine[data-state="off"] .machine-name,
+.machine[data-state="paused"] .machine-name {
+  color: var(--muted);
+}
+
+.machine .segmented.small > button {
+  height: 26px;
+}
+
+.machine-note {
+  align-self: flex-start;
+  max-width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 
 .machine-name {
   font-weight: 550;
@@ -1516,7 +1541,8 @@
 }
 
 .skill-form input,
-.skill-form textarea {
+.skill-form textarea,
+.machine-note-input {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--line-strong);

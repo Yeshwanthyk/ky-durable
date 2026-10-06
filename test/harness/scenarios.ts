@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import type { TaskRow } from "../../src/protocol.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
@@ -126,6 +128,29 @@ export const SCENARIOS: Scenario[] = [
       check(turns(mac, task).length === 1, "the task ran once");
       await until("the report", () => context.main.heard("fake claude did: build the thing"));
       check(context.main.heard(`task ${task}`), "the report names the task");
+    }
+  },
+  {
+    name: "machine-facts",
+    expect: "pass",
+    about: "the runner tells ky its OS and git repos, with no credentials from a remote URL",
+    async run(context) {
+      const repos = path.join(context.dir, "facts-repos");
+      mkdirSync(path.join(repos, "ky", ".git"), { recursive: true });
+      writeFileSync(path.join(repos, "ky", ".git", "config"), '[remote "origin"]\n\turl = https://user:secret@github.com/me/ky.git\n');
+      mkdirSync(path.join(repos, "notes"), { recursive: true });
+      await context.machine("facts", { KY_REPOS: repos });
+
+      const facts = () => {
+        const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+        return latest?.type === "tasks" ? latest.machines.find((each) => each.name === "facts")?.facts : undefined;
+      };
+
+      await until("the machine's facts", () => facts() !== undefined && facts() !== null);
+      check(facts()?.os === process.platform, `the OS is ${process.platform}, got ${facts()?.os}`);
+      const listed = JSON.stringify(facts()?.repos);
+      check(listed === JSON.stringify([{ name: "ky", remote: "https://github.com/me/ky.git" }]), `one repo, no credentials, got ${listed}`);
     }
   },
   {

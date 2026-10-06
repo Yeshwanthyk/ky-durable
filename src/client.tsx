@@ -172,6 +172,7 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
         onOpen={shell.openSession}
         onStop={ky.stopTask}
         onStopAll={ky.stopAll}
+        onSetMachine={ky.setMachine}
         onClose={() => panel.setOpen(false)}
         tab={panel.tab}
         onTab={panel.setTab}

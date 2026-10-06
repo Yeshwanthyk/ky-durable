@@ -16,6 +16,7 @@ import {
   RUNNER_QUERY,
   runnerOf,
   runnerTag,
+  type MachineChange,
   type MachineHub
 } from "./machines";
 import { decodeReport, REPLACED } from "./runner-protocol";
@@ -155,6 +156,7 @@ export class PiSessionSockets {
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
     feed.onChange(() => this.broadcastTasks());
+    hub.onChange(() => this.broadcastTasks());
     files.onChange(() => this.broadcastTasks());
     models.settings.onChange(() => {
       const message = this.#settingsMessage();
@@ -445,6 +447,17 @@ export class PiSessionSockets {
         const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.slot, message.setting);
 
         return { provider, modelId, thinkingLevel };
+      }
+
+      case "set-machine": {
+        const change: MachineChange = {};
+
+        if (message.state !== undefined) change.state = message.state;
+
+        if (message.note !== undefined) change.note = message.note;
+        this.#hub.configure(message.machine, change);
+
+        return null;
       }
 
       case "new-chat":
