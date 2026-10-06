@@ -90,6 +90,38 @@ function turns(machineOf: Machine, task: string): string[] {
   return machineOf.claude().flatMap((event) => (event.event === "turn" && event.task === task ? [event.prompt ?? ""] : []));
 }
 
+/** Ask the main agent, through the faux model, for an automation; resolves with its id. */
+async function createAutomation(context: Context, draft: Record<string, string>): Promise<string> {
+  // The main chat's history is shared by every scenario: the answer is a new id, not one made before.
+  const ids = () => [...JSON.stringify(context.main.frames).matchAll(/Created automation (\w+),/g)].map((match) => match[1]!);
+  const before = new Set(ids());
+  context.main.send({ type: "submit", input: `tool automation ${JSON.stringify({ action: "create", cron: "0 9 * * *", ...draft })}` });
+  let id: string | undefined;
+
+  await until("the automation to be created", () => {
+    id = ids().find((each) => !before.has(each));
+
+    return id !== undefined;
+  });
+
+  return id!;
+}
+
+/** Run the automation now and resolve with its run's task id, once the task list shows it. */
+async function runAutomation(context: Context, id: string): Promise<string> {
+  context.main.send({ type: "submit", input: `tool automation ${JSON.stringify({ action: "run", id })}` });
+  let task: string | undefined;
+
+  await until(`a run of automation ${id}`, () => {
+    const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+    task = latest?.type === "tasks" ? latest.tasks.find((row) => row.source === `automation:${id}`)?.id : undefined;
+
+    return task !== undefined;
+  });
+
+  return task!;
+}
+
 /** A terminal status followed by another terminal or reopened status. */
 function flipped(history: readonly string[]): boolean {
   const statuses: string[] = [];
@@ -115,6 +147,37 @@ export const SCENARIOS: Scenario[] = [
       await until("the answer", () => context.main.heard("echo: hello from the harness"));
       const hello = context.main.frames.find((frame) => frame.type === "hello");
       check(hello?.type === "hello" && hello.tools.some((tool) => tool.name === "machine"), "hello lists the machine tool");
+    }
+  },
+  {
+    name: "skills",
+    expect: "pass",
+    about: "a skill the agent writes and the user edits is shared by every chat, with each version kept",
+    async run(context) {
+      const latest = () => {
+        const frame = context.main.frames.findLast((each) => each.type === "skills");
+
+        return frame?.type === "skills" ? frame.skills.find((skill) => skill.name === "harness-check") : undefined;
+      };
+
+      const skill = { action: "create", name: "harness-check", description: "How to check the harness", body: "Run step one." };
+      context.main.send({ type: "submit", input: `tool skill_manage ${JSON.stringify(skill)}` });
+      await until("the skill in the list", () => latest()?.body === "Run step one.");
+      await context.main.command({
+        type: "skill-change",
+        change: { action: "patch", name: "harness-check", old: "step one", new: "step two" }
+      });
+      await until("the user's edit in the list", () => latest()?.body === "Run step two.");
+      const { result } = await context.main.command({ type: "new-chat" });
+      const session = decodeNewChat(result);
+
+      if (session === undefined) throw new Error("new-chat answered without a session");
+      const side = await connect(context.url, `?session=${session}`);
+      context.cleanup.push(() => side.close());
+      side.send({ type: "submit", input: 'tool skill_view {"name":"harness-check"}' });
+      await until("the side chat to read the edited skill", () => side.heard("Run step two."));
+      const history = JSON.stringify((await context.main.command({ type: "skill-history", name: "harness-check" })).result);
+      check(history.includes('"actor":"user"') && history.includes('"actor":"agent"'), `both versions are kept, got ${history}`);
     }
   },
   {
@@ -151,6 +214,38 @@ export const SCENARIOS: Scenario[] = [
       check(facts()?.os === process.platform, `the OS is ${process.platform}, got ${facts()?.os}`);
       const listed = JSON.stringify(facts()?.repos);
       check(listed === JSON.stringify([{ name: "ky", remote: "https://github.com/me/ky.git" }]), `one repo, no credentials, got ${listed}`);
+    }
+  },
+  {
+    name: "automation-run",
+    expect: "pass",
+    about: "a cloud automation run now is one task that ends done, and its result reaches the main chat",
+    async run(context) {
+      const id = await createAutomation(context, { title: "Harness digest", prompt: "digest for the harness" });
+      const task = await runAutomation(context, id);
+      check(new RegExp(`^a-${id}-\\d+$`).test(task), `the run's task is a-<id>-<slot>, got ${task}`);
+      await status(context, task, "done");
+      await until("the report", () => context.main.heard('[automation "Harness digest" result: tell the user] echo: digest for the harness'));
+      await sleep(1_000);
+      const runs = context.main.frames.findLast((frame) => frame.type === "tasks");
+      const count = runs?.type === "tasks" ? runs.tasks.filter((row) => row.source === `automation:${id}`).length : 0;
+      check(count === 1, `one run, got ${count}`);
+    }
+  },
+  {
+    name: "automation-machine",
+    expect: "pass",
+    about: "a machine automation runs once on the real runner and its report reaches the main chat",
+    async run(context) {
+      const { machine: mac } = await context.machine("auto");
+      const id = await createAutomation(context, { title: "Harness backups", prompt: "check the backups", machine: "auto" });
+      const task = await runAutomation(context, id);
+      check(context.main.task(task)?.worker === "auto", `the run is on the machine, got ${context.main.task(task)?.worker}`);
+      await status(context, task, "done");
+      await until("the report", () => context.main.heard("fake claude did: check the backups"));
+      check(context.main.heard(`task ${task}`), "the report names the task");
+      await sleep(1_000);
+      check(turns(mac, task).length === 1, `claude ran it once, got ${turns(mac, task).length}`);
     }
   },
   {

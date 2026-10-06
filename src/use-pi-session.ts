@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MachineChange } from "./machines";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
+  AutomationAction,
+  AutomationInfo,
   ChatRow,
   ClientMessage,
   FileRow,
@@ -35,6 +37,8 @@ type State = SessionView & {
   readonly chats: readonly ChatRow[];
   /** ky's skills, active ones first. */
   readonly skills: readonly SkillRow[];
+  /** Active and paused automations, newest first. */
+  readonly automations: readonly AutomationInfo[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** A newer deploy is serving than the one this page loaded from. */
@@ -50,6 +54,7 @@ const INITIAL_STATE: State = {
   files: [],
   chats: [],
   skills: [],
+  automations: [],
   settings: null,
   updated: false
 };
@@ -143,6 +148,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, skills: message.skills }));
 
           return;
+        case "automations":
+          setState((current) => ({ ...current, automations: message.automations }));
+
+          return;
         case "result":
           unanswered.current.delete(message.id);
           waiting.current.get(message.id)?.(message.result);
@@ -173,6 +182,7 @@ export function usePiSession(session: string) {
       files: current.files,
       chats: current.chats,
       skills: current.skills,
+      automations: current.automations,
       settings: current.settings,
       updated: current.updated
     }));
@@ -275,6 +285,13 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Pause, resume or archive an automation as the user. */
+  const changeAutomation = useCallback(
+    (automation: string, action: AutomationAction) =>
+      send({ type: "automation", id: crypto.randomUUID(), automation, action }),
+    [send]
+  );
+
   return {
     ...state,
     submit,
@@ -288,6 +305,7 @@ export function usePiSession(session: string) {
     newChat,
     archiveChat,
     changeSkill,
-    skillHistory
+    skillHistory,
+    changeAutomation
   };
 }

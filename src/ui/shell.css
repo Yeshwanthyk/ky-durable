@@ -795,7 +795,8 @@
   padding-inline: 14px;
 }
 
-.machines .feed-head {
+.machines .feed-head,
+.automations .feed-head {
   font-size: calc(12px * var(--text-scale));
   font-weight: 550;
   color: var(--quiet);
@@ -1516,6 +1517,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.automation-actions {
+  flex: none;
+  display: flex;
+  align-self: flex-start;
+  color: var(--muted);
 }
 
 .skill-versions {

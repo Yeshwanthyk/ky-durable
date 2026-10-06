@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import type { ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, SkillRow, TaskRow } from "../protocol";
+import type { AutomationInfo, ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, SkillRow, TaskRow } from "../protocol";
 
 /**
  * Decoders for what ky sends over the browser's socket, shared by the worker
@@ -27,6 +27,10 @@ const Chat = Type.Unsafe<ChatRow>(Type.Object({ session: Type.String(), title: T
 
 const Skill = Type.Unsafe<SkillRow>(Type.Object({ name: Type.String(), status: Type.String() }));
 
+const Automation = Type.Unsafe<AutomationInfo>(
+  Type.Object({ id: Type.String(), title: Type.String(), status: Type.String() })
+);
+
 const Settings = Type.Unsafe<SettingsView>(
   Type.Object({ providers: Type.Array(Type.Object({ id: Type.String() })), slots: Type.Object({}) })
 );
@@ -49,6 +53,7 @@ const ServerFrame = Type.Union([
   }),
   Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
+  Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation) }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("result"), id: Type.String(), result: Json }),
   Type.Object({ type: Type.Literal("error"), id: Type.Optional(Type.String()), message: Type.String() })

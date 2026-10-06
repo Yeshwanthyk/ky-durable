@@ -45,6 +45,81 @@
     },
     {
       "check": "worker-e2e",
+      "name": "automations creates an automation from chat and books its schedule",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations runs an automation on its own model and reports once to the chat that made it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations runs one task and one report when a slot fires again during its run and after an eviction",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations refuses a model that is not offered and runs a model-less automation on the subagents slot",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations skips a slot while the last run is still working",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations pause stops the live run and books nothing more; resume books from now",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations update rebooks the schedule",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations archive cancels the schedule; unarchive brings it back paused",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations books lost schedules again when the object starts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations a machine automation enqueues its run once when a slot fires twice",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations a machine automation on a machine the user paused fails its run and queues nothing",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations ky schedules a one-off for itself, which runs, reports, and ends done",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations a one-off paused while it fires stays paused and posts no report",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations a one-off whose slot already ran ends done, and resuming it is refused",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations reports to the side chat that made it, unarchiving it if needed",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "delegated work leaves the main chat free answers the user while a subagent is still working",
       "outcome": "passed"
     },
@@ -196,6 +271,11 @@
     {
       "check": "worker-e2e",
       "name": "machine tasks marks a working task interrupted when its runner restarts without it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "machine tasks lets the user choose which machines take work, and tells the agent what each one is",
       "outcome": "passed"
     },
     {
@@ -390,6 +470,26 @@
     },
     {
       "check": "worker-e2e",
+      "name": "runner protocol: reports reach the conversation that sent the work ends a turn that took in a message sent while it ran, with one report",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: reports reach the conversation that sent the work waits for a message sent as a turn ended, which runs as its own turn",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: reports reach the conversation that sent the work reports a task a side chat started to that side chat, not the main conversation",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: reports reach the conversation that sent the work posts a report a restart cut off once the object starts again",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "skills creates, opens, patches and reverts a skill, keeping every version",
       "outcome": "passed"
     },
@@ -450,7 +550,27 @@
     },
     {
       "check": "harness",
+      "name": "skills",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
       "name": "machine-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "machine-facts",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "automation-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "automation-machine",
       "outcome": "PASS"
     },
     {
@@ -461,6 +581,16 @@
     {
       "check": "harness",
       "name": "follow-up",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "side-chat-report",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "steer-folded",
       "outcome": "PASS"
     },
     {
@@ -560,6 +690,11 @@
     },
     {
       "check": "web",
+      "name": "pauses, resumes and archives an automation from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
       "name": "lists the tools ky can use",
       "outcome": "passed"
     },
@@ -571,6 +706,11 @@
     {
       "check": "web",
       "name": "runs a task on a machine and shows its report",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "pauses a machine and notes what it is for in Activity, and the agent is refused it",
       "outcome": "passed"
     },
     {

@@ -258,6 +258,29 @@ test("shows ky's skills, edits one, reverts it and archives it", async ({ page }
   await expect(skill.getByRole("button", { name: "Restore" })).toBeVisible();
 });
 
+test("pauses, resumes and archives an automation from Activity", async ({ page }) => {
+  await open(page);
+  const title = `Check the news ${crypto.randomUUID().slice(0, 8)}`;
+  const create = { action: "create", title, prompt: "Read the news and sum it up.", cron: "0 9 * * 1-5" };
+  await send(page, `tool automation ${JSON.stringify(create)}`);
+  await expect(page.getByText(`"${title}" (cron 0 9 * * 1-5 UTC)`)).toBeVisible();
+
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const automation = panel(page).getByRole("listitem", { name: title });
+  await expect(automation).toContainText("Weekdays 9:00 UTC");
+  await expect(automation).toContainText("Next in");
+
+  await automation.getByRole("button", { name: "Pause" }).click();
+  await expect(automation).toContainText("Paused");
+
+  await automation.getByRole("button", { name: "Resume" }).click();
+  await expect(automation).toContainText("Next in");
+  await expect(automation.getByRole("button", { name: "Pause" })).toBeVisible();
+
+  await automation.getByRole("button", { name: "Archive" }).click();
+  await expect(automation).toBeHidden();
+});
+
 test("lists the tools ky can use", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

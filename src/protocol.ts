@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
+import type { AutomationView } from "./automations";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineState } from "./machines";
@@ -33,6 +34,11 @@ export type MachineInfo = {
   /** What its runner last said it is; null until a runner that says so connects. */
   readonly facts: MachineFacts | null;
 };
+
+/** An automation as Activity shows it: its view, and the chat it reports to by name. */
+export type AutomationInfo = AutomationView & { readonly chat_label: string };
+
+export type AutomationAction = "pause" | "resume" | "archive";
 
 /**
  * This app's WebSocket protocol, served by `sockets.ts`. The harness knows
@@ -79,6 +85,13 @@ export type PiClientMessage =
   | { readonly type: "skill-change"; readonly id?: string; readonly change: SkillChange }
   /** A skill's versions, newest first, as the result. */
   | { readonly type: "skill-history"; readonly id?: string; readonly name: string }
+  /** Pause, resume or archive an automation, by its id; the result is what happened, as text. */
+  | {
+      readonly type: "automation";
+      readonly id?: string;
+      readonly automation: string;
+      readonly action: AutomationAction;
+    }
   /** Choose the model, and its thinking level, for one slot. */
   | {
       readonly type: "set-model";
@@ -118,6 +131,8 @@ export type PiServerMessage =
   | { readonly type: "chats"; readonly chats: readonly ChatRow[] }
   /** Every skill, active ones first; sent on connect and on change. */
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
+  /** The active and paused automations, newest first; sent on connect and on change. */
+  | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }

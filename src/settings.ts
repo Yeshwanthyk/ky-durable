@@ -77,7 +77,7 @@ export class Settings {
       .toArray()[0];
 
     // SAFETY: only set() writes this table, and it writes a validated SlotSetting.
-    const stored = row ? this.#valid(JSON.parse(row.value) as SlotSetting) : undefined;
+    const stored = row ? this.valid(JSON.parse(row.value) as SlotSetting) : undefined;
 
     return stored ?? this.#defaults()[slot];
   }
@@ -96,7 +96,7 @@ export class Settings {
 
   /** Store a choice; an unknown model throws, a level it lacks is moved to the nearest it has. */
   set(slot: Slot, setting: SlotSetting): SlotSetting {
-    const valid = this.#valid(setting);
+    const valid = this.valid(setting);
 
     if (!valid) throw new Error(`${setting.provider}/${setting.modelId} is not available.`);
     this.#sql.exec(
@@ -110,7 +110,8 @@ export class Settings {
     return valid;
   }
 
-  #valid(setting: SlotSetting): SlotSetting | undefined {
+  /** The choice as it can run: a connected provider, a known model, its nearest level; undefined when it cannot. */
+  valid(setting: SlotSetting): SlotSetting | undefined {
     const provider = this.#catalog().find((each) => each.id === setting.provider && each.connected);
     const model = provider?.models.find((each) => each.modelId === setting.modelId);
 
