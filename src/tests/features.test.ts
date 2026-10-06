@@ -315,6 +315,66 @@ describe("skills panel", () => {
   });
 });
 
+describe("soul panel", () => {
+  it("sends SOUL.md on connect and on change, and takes the user's edits and history", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const soul = () => latest(main.client, "soul")?.soul;
+    expect(soul()).toMatchObject({ version: 1 });
+    expect(soul()?.body).toContain("# SOUL.md");
+
+    await command(main.socket, main.client, { type: "soul-change", change: { action: "edit", body: "# SOUL.md\nBe brief." } });
+    await main.client.until(() => soul()?.body === "# SOUL.md\nBe brief.");
+
+    await prompt(name, `tool soul_edit ${JSON.stringify({ action: "patch", old: "brief", new: "kind" })}`);
+    await main.client.until(() => soul()?.body === "# SOUL.md\nBe kind.");
+
+    expect(await command(main.socket, main.client, { type: "soul-history" })).toMatchObject({
+      type: "result",
+      result: [
+        { action: "patch", actor: "agent" },
+        { action: "edit", actor: "user" },
+        { action: "create", actor: "template" }
+      ]
+    });
+    expect(
+      await command(main.socket, main.client, { type: "soul-change", change: { action: "revert", version: 99 } })
+    ).toMatchObject({ type: "error" });
+    main.socket.close();
+  });
+});
+
+describe("memory panel", () => {
+  it("sends the memory on connect and on change, and searches, opens and rebuilds it", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const memory = () => latest(main.client, "memory")?.memory;
+    expect(memory()).toEqual({ count: 0, newest: null, items: [] });
+
+    await prompt(name, `tool memory_note ${JSON.stringify({ text: "the user drinks green tea" })}`);
+    await main.client.until(() => memory()?.count === 1);
+    expect(memory()?.items).toMatchObject([{ kind: "memory", id: 0, text: "the user drinks green tea" }]);
+
+    await prompt(name, `tool memory_note ${JSON.stringify({ text: "ky shipped the soul panel" })}`);
+    await prompt(name, `tool memory_nap ${JSON.stringify({ block: "0-1", text: "tea, and the soul panel" })}`);
+    // Two memories fit the view as written; zoom opens their block.
+
+    expect(await command(main.socket, main.client, { type: "memory-search", query: "GREEN|soul" })).toMatchObject({
+      result: { total: 2, regex: true, matches: [{ id: 1 }, { id: 0 }] }
+    });
+    expect(await command(main.socket, main.client, { type: "memory-zoom", block: "0-1" })).toMatchObject({
+      result: [{ id: 1 }, { id: 0 }]
+    });
+
+    await command(main.socket, main.client, { type: "memory-forget", block: "0-1" });
+    expect(await command(main.socket, main.client, { type: "memory-forget", block: "0-1" })).toMatchObject({
+      type: "error",
+      message: "No summary at 0-1."
+    });
+    main.socket.close();
+  });
+});
+
 describe("settings", () => {
   it("stores a slot's model across restarts and refuses one that does not exist", async () => {
     const name = crypto.randomUUID();

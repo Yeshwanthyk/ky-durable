@@ -21,6 +21,7 @@ import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
+import { Soul, soulExtension } from "./soul";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
@@ -88,6 +89,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
   readonly skills = new Skills(this.ctx.storage.sql);
+  /** SOUL.md, ky's persona. */
+  readonly soul = new Soul(this.ctx.storage.sql);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -143,6 +146,9 @@ export class PiAgent extends DurableObject<Env> {
   readonly browse = browseExtension(this.boundary.browser);
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
+      // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
+      const soul = soulExtension(this.soul);
+      this.registry.install(soul);
       this.registry.install({
         name: "playground",
         sections: [{ key: "preamble", render: () => this.#preamble, tag: false }],
@@ -166,7 +172,7 @@ export class PiAgent extends DurableObject<Env> {
 
       const subagents = subagentExtension(
         this.feed,
-        [memory, machines, automations],
+        [soul, memory, machines, automations],
         () => this.models.settings.get("subagents"),
         (feedId) => this.automations.wanted(feedId)
       );
@@ -214,6 +220,8 @@ export class PiAgent extends DurableObject<Env> {
     this.models,
     this.chats,
     this.skills,
+    this.soul,
+    this.memory,
     this.automations,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id

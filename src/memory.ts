@@ -34,6 +34,37 @@ type Block = readonly [lo: number, hi: number];
 
 export type MemoryRow = { readonly id: number; readonly date: string; readonly text: string };
 
+/** One line of the memory as the panel shows it: a raw memory, or a block and its summary. */
+export type MemoryItem =
+  | ({ readonly kind: "memory" } & MemoryRow)
+  | {
+      readonly kind: "block";
+      /** Its id, like "16-31". */
+      readonly block: string;
+      /** Its summary; null until the agent writes it. */
+      readonly text: string | null;
+      /** The dates of its oldest and newest memory. */
+      readonly from: string;
+      readonly to: string;
+    };
+
+/** What the panel shows first: wake's view of the memory, newest first. */
+export type MemoryView = {
+  readonly count: number;
+  /** The newest memory's date, YYYY-MM-DD; null when there are none. */
+  readonly newest: string | null;
+  readonly items: readonly MemoryItem[];
+};
+
+/** A search's newest matches, and how many there were. */
+export type MemorySearch = { readonly matches: readonly MemoryRow[]; readonly total: number; readonly regex: boolean };
+
+/** Lines the panel's first view holds; the rest opens block by block. */
+const VIEW_LINES = 64;
+
+/** Matches a search returns, newest first. */
+const SEARCH_ROWS = 50;
+
 const encoder = new TextEncoder();
 
 const bytes = (text: string) => encoder.encode(text).length;
@@ -137,8 +168,22 @@ function checkLine(text: string): string {
 
 const label = ([lo, hi]: Block) => `#${lo}-${hi - 1}`;
 
+const blockId = ([lo, hi]: Block) => `${lo}-${hi - 1}`;
+
+/** A case-insensitive regex, as memory_recall reads its pattern. */
+function regexOf(pattern: string): RegExp {
+  try {
+    return new RegExp(pattern, "i");
+  } catch (error) {
+    throw new Error(`Bad regex: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+const lineOf = (m: MemoryRow) => `#${m.id} ${m.date} ${m.text}`;
+
 export class Memory {
   readonly #sql: SqlStorage;
+  readonly #listeners = new Set<() => void>();
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
@@ -147,6 +192,17 @@ export class Memory {
     sql.exec(`CREATE TABLE IF NOT EXISTS memo_tree (
       lo INTEGER NOT NULL, hi INTEGER NOT NULL, text TEXT NOT NULL,
       PRIMARY KEY (lo, hi))`);
+  }
+
+  /** Called after a note, a nap or a forget. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+
+    return () => this.#listeners.delete(listener);
+  }
+
+  #changed(): void {
+    for (const listener of this.#listeners) listener();
   }
 
   count(): number {
@@ -270,6 +326,7 @@ export class Memory {
     const date = new Date().toISOString().slice(0, 10);
     const id = this.count();
     this.#sql.exec("INSERT INTO memo_log (id, date, text) VALUES (?, ?, ?)", id, date, line);
+    this.#changed();
     const nap = this.#napPrompt(id + 1);
 
     return `Saved as #${id}.${nap ? `\n\n${nap}` : ""}`;
@@ -293,6 +350,7 @@ export class Memory {
       block[1],
       checkLine(text)
     );
+    this.#changed();
 
     return `${id} saved.${(() => {
       const nap = this.#napPrompt(total);
@@ -302,20 +360,13 @@ export class Memory {
   }
 
   recall(pattern: string): string {
-    let regex: RegExp;
-
-    try {
-      regex = new RegExp(pattern, "i");
-    } catch (error) {
-      throw new Error(`Bad regex: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
+    const regex = regexOf(pattern);
     const hits: string[] = [];
     let size = 0;
     let matched = 0;
 
     for (const m of this.#sql.exec<MemoryRow>("SELECT id, date, text FROM memo_log ORDER BY id")) {
-      const line = `#${m.id} ${m.date} ${m.text}`;
+      const line = lineOf(m);
 
       if (!regex.test(line)) continue;
       matched++;
@@ -335,22 +386,80 @@ export class Memory {
   }
 
   zoom(id: string): string {
+    return this.children(id)
+      .toReversed()
+      .map((item) =>
+        item.kind === "memory"
+          ? lineOf(item)
+          : `#${item.block} ${item.text ?? "not compressed yet"}`
+      )
+      .join("\n");
+  }
+
+  /** A block's two halves, newest first: memory_zoom for the panel. */
+  children(id: string): MemoryItem[] {
     const [lo, hi] = parseBlock(id);
     const total = this.count();
 
     if (lo >= total) throw new Error(`#${id} is beyond the memory: it holds ${total}.`);
     const mid = (lo + hi) / 2;
-    const lines: string[] = [];
-    const halves: Block[] = [[lo, mid], [mid, hi]];
+    const halves: Block[] = [[mid, hi], [lo, mid]];
 
-    for (const [a, b] of halves) {
-      if (a >= total) continue;
+    return halves.filter(([a]) => a < total).flatMap((half) => this.#item(half));
+  }
 
-      if (b - a === 1) this.#render([a, b], lines);
-      else lines.push(`${label([a, b])} ${this.#summary(a, b) ?? "not compressed yet"}`);
+  /** Wake's blocks, newest first, each as it stands: raw, or a summary that may be pending. */
+  view(): MemoryView {
+    const total = this.count();
+    const items = cover(total, VIEW_LINES).toReversed().flatMap((block) => this.#item(block));
+
+    return { count: total, newest: this.#slice(total - 1, total)[0]?.date ?? null, items };
+  }
+
+  #item(block: Block): MemoryItem[] {
+    const [lo, hi] = block;
+
+    if (hi - lo === 1) return this.#slice(lo, hi).map((m) => ({ kind: "memory", ...m }));
+
+    const dates = this.#sql
+      .exec<{ from: string; to: string }>(
+        `SELECT MIN(date) AS "from", MAX(date) AS "to" FROM memo_log WHERE id >= ? AND id < ?`,
+        lo,
+        hi
+      )
+      .one();
+
+    return [{ kind: "block", block: blockId(block), text: this.#summary(lo, hi) ?? null, ...dates }];
+  }
+
+  /**
+   * memory_recall for the panel: the newest matches of a case-insensitive
+   * regex, or of the plain text when the query is not one.
+   */
+  search(query: string): MemorySearch {
+    let test: (line: string) => boolean;
+    let regex = true;
+
+    try {
+      const pattern = regexOf(query);
+      test = (line) => pattern.test(line);
+    } catch {
+      const needle = query.toLowerCase();
+      test = (line) => line.toLowerCase().includes(needle);
+      regex = false;
     }
 
-    return lines.join("\n");
+    const matches: MemoryRow[] = [];
+    let total = 0;
+
+    for (const m of this.#sql.exec<MemoryRow>("SELECT id, date, text FROM memo_log ORDER BY id DESC")) {
+      if (!test(lineOf(m))) continue;
+      total++;
+
+      if (matches.length < SEARCH_ROWS) matches.push(m);
+    }
+
+    return { matches, total, regex };
   }
 
   forget(id: string): string {
@@ -362,6 +471,7 @@ export class Memory {
       .toArray().length;
 
     if (gone === 0) throw new Error(`No summary at ${id}.`);
+    this.#changed();
 
     const forgot = `Forgot ${gone} summar${gone === 1 ? "y" : "ies"}.`;
     const nap = this.#napPrompt(this.count());

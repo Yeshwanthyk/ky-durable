@@ -37,6 +37,17 @@ const Settings = Type.Unsafe<SettingsView>(
 
 const Json = Type.Unsafe<JsonValue>(Type.Any());
 
+const MemoryItem = Type.Union([
+  Type.Object({ kind: Type.Literal("memory"), id: Type.Number(), date: Type.String(), text: Type.String() }),
+  Type.Object({
+    kind: Type.Literal("block"),
+    block: Type.String(),
+    text: Type.Union([Type.String(), Type.Null()]),
+    from: Type.String(),
+    to: Type.String()
+  })
+]);
+
 const ServerFrame = Type.Union([
   Type.Object({
     type: Type.Literal("hello"),
@@ -53,6 +64,18 @@ const ServerFrame = Type.Union([
   }),
   Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
+  Type.Object({
+    type: Type.Literal("soul"),
+    soul: Type.Object({ body: Type.String(), version: Type.Number(), updated_at: Type.Number() })
+  }),
+  Type.Object({
+    type: Type.Literal("memory"),
+    memory: Type.Object({
+      count: Type.Number(),
+      newest: Type.Union([Type.String(), Type.Null()]),
+      items: Type.Array(MemoryItem)
+    })
+  }),
   Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation) }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("result"), id: Type.String(), result: Json }),

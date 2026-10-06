@@ -102,6 +102,14 @@ function kyCommands(sources: CommandSources): Command[] {
       run: () => openPanel("skills")
     },
     {
+      id: "soul",
+      group: "ky",
+      label: "Soul",
+      icon: "fingerprint",
+      keywords: "persona voice personality soul.md memory remember",
+      run: () => openPanel("soul")
+    },
+    {
       id: "settings",
       group: "ky",
       label: "Settings",

@@ -8,6 +8,10 @@ import type {
   SkillChange,
   SkillRow,
   SkillVersion,
+  MemoryView,
+  SoulChange,
+  SoulVersion,
+  SoulView,
   Slot,
   SlotSetting,
   TaskRow,
@@ -21,7 +25,9 @@ import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
 import { Markdown } from "./Markdown";
 import { plain } from "./plain";
+import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
+import { Soul } from "./Soul";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
 
@@ -35,9 +41,9 @@ const statusIcon: Record<TaskRow["status"], IconName> = {
   stopped: "stop",
 };
 
-export type PanelTab = "activity" | "skills" | "settings";
+export type PanelTab = "activity" | "skills" | "soul" | "settings";
 
-// Who ky is and how it is doing, then everything it is doing and has done, its skills, and its settings.
+// Who ky is and how it is doing, then everything it is doing and has done, its skills, its soul and memory, and its settings.
 export function Panel({
   name,
   variantId,
@@ -52,11 +58,16 @@ export function Panel({
   now,
   settings,
   skills,
+  soul,
+  memory,
+  memoryActions,
   theme,
   onTheme,
   onSetModel,
   onSkillChange,
   onSkillHistory,
+  onSoulChange,
+  onSoulHistory,
   onOpen,
   onStop,
   onStopAll,
@@ -79,11 +90,16 @@ export function Panel({
   now: number;
   settings: SettingsView | null;
   skills: readonly SkillRow[];
+  soul: SoulView | null;
+  memory: MemoryView | null;
+  memoryActions: MemoryActions;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSetModel: (slot: Slot, setting: SlotSetting) => void;
   onSkillChange: (change: SkillChange) => void;
   onSkillHistory: (name: string) => Promise<readonly SkillVersion[]>;
+  onSoulChange: (change: SoulChange) => void;
+  onSoulHistory: () => Promise<readonly SoulVersion[]>;
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
   onStopAll: () => void;
@@ -111,6 +127,7 @@ export function Panel({
           [
             ["activity", "Activity"],
             ["skills", "Skills"],
+            ["soul", "Soul"],
             ["settings", "Settings"],
           ] as const
         ).map(([id, label]) => (
@@ -123,6 +140,7 @@ export function Panel({
             onClick={() => onTab(id)}
           >
             {id === "settings" ? <Icon name="gear" size={14} className="gear" /> : null}
+            {id === "soul" ? <Icon name="fingerprint" size={14} /> : null}
             {label}
           </button>
         ))}
@@ -140,6 +158,15 @@ export function Panel({
         />
       ) : tab === "skills" ? (
         <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} />
+      ) : tab === "soul" ? (
+        <Soul
+          soul={soul}
+          now={now}
+          onChange={onSoulChange}
+          onHistory={onSoulHistory}
+          memory={memory}
+          memoryActions={memoryActions}
+        />
       ) : (
         <Settings
           settings={settings}

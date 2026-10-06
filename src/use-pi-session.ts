@@ -12,11 +12,17 @@ import type {
   ClientMessage,
   FileRow,
   MachineInfo,
+  MemoryItem,
+  MemorySearch,
+  MemoryView,
   ServerMessage,
   SettingsView,
   SkillChange,
   SkillRow,
   SkillVersion,
+  SoulChange,
+  SoulVersion,
+  SoulView,
   Slot,
   SlotSetting,
   TaskRow,
@@ -38,6 +44,10 @@ type State = SessionView & {
   readonly chats: readonly ChatRow[];
   /** ky's skills, active ones first. */
   readonly skills: readonly SkillRow[];
+  /** SOUL.md, ky's persona; null until the server sends it. */
+  readonly soul: SoulView | null;
+  /** ky's memory as wake shows it; null until the server sends it. */
+  readonly memory: MemoryView | null;
   /** Active and paused automations, newest first. */
   readonly automations: readonly AutomationInfo[];
   /** Model choices; null until the server sends them. */
@@ -55,6 +65,8 @@ const INITIAL_STATE: State = {
   files: [],
   chats: [],
   skills: [],
+  soul: null,
+  memory: null,
   automations: [],
   settings: null,
   updated: false
@@ -149,6 +161,14 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, skills: message.skills }));
 
           return;
+        case "soul":
+          setState((current) => ({ ...current, soul: message.soul }));
+
+          return;
+        case "memory":
+          setState((current) => ({ ...current, memory: message.memory }));
+
+          return;
         case "automations":
           setState((current) => ({ ...current, automations: message.automations }));
 
@@ -183,6 +203,8 @@ export function usePiSession(session: string) {
       files: current.files,
       chats: current.chats,
       skills: current.skills,
+      soul: current.soul,
+      memory: current.memory,
       automations: current.automations,
       settings: current.settings,
       updated: current.updated
@@ -286,6 +308,54 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Change SOUL.md as the user. */
+  const changeSoul = useCallback(
+    (change: SoulChange) => send({ type: "soul-change", id: crypto.randomUUID(), change }),
+    [send]
+  );
+
+  /** SOUL.md's versions, newest first. */
+  const soulHistory = useCallback(
+    () =>
+      new Promise<readonly SoulVersion[]>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers soul-history with SOUL.md's versions.
+        waiting.current.set(id, (result) => resolve(result as readonly SoulVersion[]));
+        send({ type: "soul-history", id });
+      }),
+    [send]
+  );
+
+  /** Memories matching a regex, or the plain text when it is not one, newest first. */
+  const searchMemory = useCallback(
+    (query: string) =>
+      new Promise<MemorySearch>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers memory-search with a MemorySearch.
+        waiting.current.set(id, (result) => resolve(result as MemorySearch));
+        send({ type: "memory-search", id, query });
+      }),
+    [send]
+  );
+
+  /** A memory block's two halves, newest first. */
+  const zoomMemory = useCallback(
+    (block: string) =>
+      new Promise<readonly MemoryItem[]>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers memory-zoom with the block's halves.
+        waiting.current.set(id, (result) => resolve(result as readonly MemoryItem[]));
+        send({ type: "memory-zoom", id, block });
+      }),
+    [send]
+  );
+
+  /** Drop a block's summary so ky writes it again. */
+  const forgetMemory = useCallback(
+    (block: string) => send({ type: "memory-forget", id: crypto.randomUUID(), block }),
+    [send]
+  );
+
   /** Create an automation as the user, or change one; resolves with why it was refused, if it was. */
   const saveAutomation = useCallback(
     (automation: string | undefined, draft: AutomationDraft) =>
@@ -319,6 +389,11 @@ export function usePiSession(session: string) {
     archiveChat,
     changeSkill,
     skillHistory,
+    changeSoul,
+    soulHistory,
+    searchMemory,
+    zoomMemory,
+    forgetMemory,
     changeAutomation,
     saveAutomation
   };
