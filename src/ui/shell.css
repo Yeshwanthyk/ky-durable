@@ -528,25 +528,27 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 10px calc(16px + env(safe-area-inset-bottom));
+  padding: 4px 8px calc(16px + env(safe-area-inset-bottom));
 }
 
+/* Two left edges run through the feed: A, 16px in, for headings and status glyphs;
+   B, past the glyph, for everything a row says. Row actions share one right edge. */
 .feed-group + .feed-group {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 
-/* The day reads as a heading, as in a feed; settings use the small label below. */
+/* Every section's heading is the same quiet label: the rows carry the weight. */
 .feed-head {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  margin: 8px 0 6px;
-  padding: 0 8px;
-  font-size: calc(15px * var(--text-scale));
-  font-weight: 600;
-  color: var(--ink);
-  text-wrap: balance;
+  min-height: 28px;
+  margin: 4px 0 2px;
+  padding: 0 4px 0 8px;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 550;
+  color: var(--quiet);
 }
 
 .feed-action {
@@ -554,10 +556,12 @@
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  padding: 2px 6px;
-  border-radius: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
   color: var(--muted);
   font-size: calc(12px * var(--text-scale));
+  font-weight: 500;
 }
 
 .feed {
@@ -566,81 +570,60 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .feed-item {
   position: relative;
-  border-radius: 14px;
-  transition: background-color var(--fast) var(--ease-out);
+  border-radius: 10px;
+  transition: background-color var(--standard) var(--ease-out);
 }
 
 .feed-item[aria-current="page"] {
   background: var(--raised);
 }
 
-@media (hover: hover) {
-  .feed-item:has(.feed-button:hover) {
-    background: var(--raised);
-  }
-}
-
-/* Done is the normal case, so it stays quiet: colour is for working and failed. */
-
-/* Running tools are not buttons, so lay them out like one. */
-.feed-item:not(:has(.feed-button)) {
-  display: flex;
-  gap: 12px;
-  padding: 8px;
-}
-
-.feed-button {
+/* A row's own padding puts its text 8px inside the hover surface, on edges A and B. */
+.feed-button,
+.feed-row {
   width: 100%;
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  padding: 10px 8px;
-  border-radius: 14px;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
   text-align: left;
 }
 
-.feed-item:has(.feed-stop) .feed-button {
-  padding-right: 44px;
+/* Presses settle a touch slower than the app default, and only on what is pressed. */
+.panel .pressable {
+  transition-duration: var(--standard);
 }
 
-/* A soft filled square, like an app icon, so the column of tiles reads as one rhythm. */
-.feed-tile {
+.panel .pressable:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.feed-item:has(.feed-stop) .feed-button {
+  padding-right: 36px;
+}
+
+/* A bare status glyph, as tall as the title's first line so the two centre together. */
+.feed-glyph {
   flex: none;
-  width: 40px;
-  height: 40px;
+  width: 16px;
+  height: calc(13.5px * 1.35 * var(--text-scale));
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  background: var(--raised);
-  color: var(--ink);
+  color: var(--quiet);
 }
 
-.feed-item[aria-current="page"] .feed-tile {
-  background: var(--surface);
-}
-
-@media (hover: hover) {
-  .feed-item:has(.feed-button:hover) .feed-tile {
-    background: var(--surface);
-  }
-}
-
-.feed-tile[data-tone="working"] {
+.feed-glyph[data-tone="working"] {
   color: var(--working);
 }
 
-.feed-tile[data-tone="failed"] {
+.feed-glyph[data-tone="failed"] {
   color: var(--danger);
-}
-
-.feed-tile[data-tone="queued"],
-.feed-tile[data-tone="stopped"] {
-  color: var(--quiet);
 }
 
 .feed-text {
@@ -648,40 +631,33 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .feed-title {
-  font-size: calc(14.5px * var(--text-scale));
-  font-weight: 550;
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 500;
   line-height: 1.35;
+  color: var(--ink);
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.feed-summary {
-  font-size: calc(13px * var(--text-scale));
-  line-height: 1.4;
-  color: var(--muted);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.feed-button[aria-expanded="true"] .feed-title {
+  white-space: normal;
   text-wrap: pretty;
 }
 
-.feed-summary[data-open="true"] {
-  display: block;
-  white-space: pre-wrap;
+.feed-step,
+.feed-summary {
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--muted);
+  overflow: hidden;
 }
 
 .feed-step {
-  font-size: calc(12.5px * var(--text-scale));
-  line-height: 1.35;
-  color: var(--muted);
-  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -691,9 +667,88 @@
   font-style: italic;
 }
 
+.feed-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  text-wrap: pretty;
+}
+
+/* Secondary data: who did it as a token, then figures that wrap only between whole tokens. */
+.feed-meta {
+  margin-top: 3px;
+  font-size: calc(12px * var(--text-scale));
+  line-height: 20px;
+  color: var(--quiet);
+}
+
+.feed-meta .figure {
+  white-space: nowrap;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text-scale));
+  vertical-align: top;
+  margin-top: 1px;
+}
+
+.token .icon {
+  flex: none;
+}
+
+.token-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* What an opened task holds sits on edge B, under its text. */
+.feed-detail,
+.feed-files {
+  padding: 0 8px 10px 34px;
+}
+
+.feed-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--muted);
+}
+
+.feed-detail .markdown {
+  overflow-wrap: anywhere;
+  font-size: inherit;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.feed-detail .markdown :is(p, ul, ol, pre, blockquote, h1, h2, h3, h4) {
+  margin-block: 0 6px;
+  font-size: inherit;
+}
+
+.feed-detail .markdown > :first-child {
+  margin-top: 0;
+}
+
+.feed-detail .markdown > :last-child {
+  margin-bottom: 0;
+}
+
 .feed-steps {
   margin: 0;
-  padding: 0 8px 10px 62px;
+  padding: 0;
   list-style: none;
   font-size: calc(12px * var(--text-scale));
   line-height: 1.5;
@@ -704,24 +759,26 @@
   color: var(--quiet);
 }
 
-.feed-meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 2px;
-  font-size: calc(12px * var(--text-scale));
+/* Row actions: 28px targets whose glyphs end on the same right edge as Stop all. */
+.panel .feed-stop,
+.panel .automation-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   color: var(--quiet);
-}
-
-.feed-files {
-  padding: 0 8px 10px 62px;
 }
 
 .feed-stop {
   position: absolute;
-  top: 8px;
+  top: calc(8px + (13.5px * 1.35 * var(--text-scale) - 28px) / 2);
   right: 4px;
-  color: var(--muted);
+}
+
+.automation-actions {
+  position: absolute;
+  top: calc(8px + (13.5px * 1.35 * var(--text-scale) - 28px) / 2);
+  right: 4px;
+  display: flex;
 }
 
 .panel-empty,
@@ -763,24 +820,42 @@
   min-width: 0;
 }
 
+.machine-head .segmented.small {
+  flex: none;
+  margin-left: auto;
+}
+
+/* Status, facts and note line up with the name, past the dot. */
+.machine-facts,
+.machine-note,
+.machine-note-input {
+  margin-left: 15px;
+}
+
 .machine[data-state="off"] .machine-name,
 .machine[data-state="paused"] .machine-name {
   color: var(--muted);
 }
 
 .machine .segmented.small > button {
-  height: 26px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .machine-note {
   align-self: flex-start;
-  max-width: 100%;
+  max-width: calc(100% - 15px);
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 
 .machine-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-weight: 550;
 }
 
@@ -791,6 +866,14 @@
   text-overflow: ellipsis;
 }
 
+.machine-list .machine-facts {
+  white-space: normal;
+}
+
+.machine .machine-note-input {
+  width: calc(100% - 15px);
+}
+
 /* ---------- Settings ----------
    Grouped cards, as in iOS: a small label over each card, rows split by hairlines inset
    past the label's start, the value at the right in the quiet colour. */
@@ -799,11 +882,6 @@
   padding-inline: 14px;
 }
 
-.automations .feed-head {
-  font-size: calc(12px * var(--text-scale));
-  font-weight: 550;
-  color: var(--quiet);
-}
 
 .group + .group {
   margin-top: 22px;
@@ -898,7 +976,7 @@
 .expand {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 280ms var(--ease-out);
+  transition: grid-template-rows 200ms var(--ease-out);
 }
 
 .model-row[data-open="true"] .expand {
@@ -1048,8 +1126,13 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .disclosure:hover,
+  .disclosure:not(.feed-button):hover,
   .choice:hover {
+    background: var(--hover);
+  }
+
+  /* The whole row lights, Stop included, without stacking a second tint on the button. */
+  .feed-item:not([aria-current="page"]):has(> .feed-button:hover) {
     background: var(--hover);
   }
 
@@ -1062,7 +1145,6 @@
   }
 
   .chat-item:hover:not([aria-current="page"]),
-  .feed-button:hover,
   .feed-action:hover {
     background: var(--hover);
     color: var(--ink);
@@ -1468,6 +1550,18 @@
     animation: none;
   }
 
+  .feed-item,
+  .panel .pressable,
+  .expand,
+  .expand-inner,
+  .disclosure .chevron {
+    transition: none;
+  }
+
+  .panel .pressable:active:not(:disabled) {
+    transform: none;
+  }
+
   .sidebar-slot {
     transition: none;
   }
@@ -1488,7 +1582,7 @@
 }
 
 .feed-changes {
-  padding: 0 8px 8px 14px;
+  padding: 0 8px 8px 34px;
 }
 
 .feed-changes:empty {
@@ -1498,8 +1592,16 @@
 /* ---------- Skills ----------
    Each skill opens in place like a model row: its steps, then edit, history and archive. */
 
+.skill[data-open="true"] .expand {
+  grid-template-rows: 1fr;
+}
+
+.skill[data-open="true"] .expand-inner {
+  opacity: 1;
+}
+
 .skill-detail {
-  padding: 0 14px 12px 52px;
+  padding: 0 8px 12px 34px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1525,20 +1627,18 @@
 /* ---------- Automations ----------
    A row opens its editor in place; run and pause float over it on hover. */
 
+/* Run and pause show on hover over a fade of the lit row, so the title keeps its width until then. */
 .automation-actions {
-  position: absolute;
-  top: 16px;
-  right: 6px;
-  display: flex;
-  gap: 2px;
   padding-left: 28px;
-  background: linear-gradient(to right, transparent, var(--raised) 24px);
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    var(--sidebar);
+  mask-image: linear-gradient(to right, transparent, #000 24px);
   border-radius: 0 10px 10px 0;
   opacity: 0;
   transition: opacity var(--fast) var(--ease-out);
 }
 
-.panel .automation-actions .icon-button,
 .panel .automation-editor-head .icon-button {
   width: 28px;
   height: 28px;
@@ -1546,11 +1646,7 @@
 }
 
 .feed-item.automation:has(:focus-visible) {
-  background: var(--raised);
-}
-
-.feed-item.automation:has(:focus-visible) .feed-tile {
-  background: var(--surface);
+  background: var(--hover);
 }
 
 .feed-item.automation:has(:focus-visible) .automation-actions {
@@ -1559,11 +1655,7 @@
 
 @media (hover: hover) and (pointer: fine) {
   .feed-item.automation:hover {
-    background: var(--raised);
-  }
-
-  .feed-item.automation:hover .feed-tile {
-    background: var(--surface);
+    background: var(--hover);
   }
 
   .feed-item.automation:hover .automation-actions {
@@ -1571,7 +1663,7 @@
   }
 
   .automation-actions .icon-button:hover {
-    background: var(--surface);
+    background: var(--hover);
     color: var(--ink);
   }
 }
@@ -1583,8 +1675,8 @@
     background: none;
   }
 
-  .feed-item.automation .feed-button {
-    padding-right: 68px;
+  .automation .feed-text {
+    padding-right: 56px;
   }
 }
 
@@ -1593,20 +1685,6 @@
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
-}
-
-/* Details apart from what the user wrote: quieter, and never broken mid-word. */
-.token {
-  max-width: 100%;
-  padding: 0 7px;
-  border-radius: 6px;
-  background: var(--hover);
-  color: var(--muted);
-  font-size: calc(11.5px * var(--text-scale));
-  line-height: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .automation-editor {

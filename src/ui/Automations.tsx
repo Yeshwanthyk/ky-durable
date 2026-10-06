@@ -11,6 +11,7 @@ import type {
 } from "../protocol";
 import { Icon } from "./Icon";
 import { MAIN_SESSION } from "./open-chat";
+import { plain } from "./plain";
 import { ago } from "./time";
 
 const DAYS = new Map([
@@ -162,7 +163,7 @@ function lastOf(automation: AutomationInfo): string | null {
   if (!last) return null;
 
   return last.summary
-    ? `Last run ${last.status}: ${last.summary}`
+    ? `Last run ${last.status}: ${plain(last.summary)}`
     : `Last run ${last.status}`;
 }
 
@@ -203,11 +204,11 @@ function AutomationItem({ automation, now, onEdit }: ItemProps) {
         aria-label={`Edit ${automation.title}`}
         onClick={onEdit}
       >
-        <span className="feed-tile" data-tone={state.tone}>
+        <span className="feed-glyph" data-tone={state.tone}>
           <Icon name="clock" size={16} />
         </span>
         <span className="feed-text">
-          <span className="feed-title">{automation.title}</span>
+          <span className="feed-title">{plain(automation.title)}</span>
           <span className="feed-step tabular">
             {scheduleOf(automation)} · {nextOf(automation, now)}
           </span>

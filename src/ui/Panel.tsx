@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { Fragment, useContext, useState } from "react";
 import type { MachineChange, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
@@ -19,8 +19,10 @@ import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { Markdown } from "./Markdown";
+import { plain } from "./plain";
 import { Skills } from "./Skills";
-import { currentStep, elapsed, isLive, quietNote, spendLine } from "./task-progress";
+import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
 
 export type Theme = "light" | "dark";
@@ -196,10 +198,8 @@ function Activity({
           </h3>
           <ul className="feed">
             {running.map((tool, index) => (
-              <li key={`${tool}-${index}`} className="feed-item">
-                <span className="feed-tile" data-tone="working">
-                  <Spinner size={14} />
-                </span>
+              <li key={`${tool}-${index}`} className="feed-item feed-row">
+                <StatusGlyph status="working" />
                 <span className="feed-text">
                   <span className="feed-title">{tool}</span>
                   <span className="feed-meta">This chat</span>
@@ -339,32 +339,40 @@ function MachineItem({
   now: number;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
-  const facts = factsLine(machine.facts);
+  const about = [machineStatus(machine, now), factsLine(machine.facts)].filter(Boolean).join(" · ");
 
   return (
     <li className="machine" data-state={machine.state}>
       <div className="machine-head">
         <span className="status-dot" data-connected={machine.online} />
-        <span className="machine-name">{machine.name}</span>
-        <span className="quiet">{machineStatus(machine, now)}</span>
+        <span className="machine-name" title={machine.name}>
+          {machine.name}
+        </span>
+        <MachineSwitch machine={machine} onSet={onSet} />
       </div>
-      <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
-        {MACHINE_STATES.map(([each, label]) => (
-          <button
-            key={each}
-            type="button"
-            role="radio"
-            aria-checked={machine.state === each}
-            className="pressable"
-            onClick={() => onSet(machine.name, { state: each })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {facts ? <span className="machine-facts quiet">{facts}</span> : null}
+      <span className="machine-facts quiet">{about}</span>
       <MachineNote machine={machine} onSave={(note) => onSet(machine.name, { note })} />
     </li>
+  );
+}
+
+// On, paused or off: whether ky may use the machine.
+function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
+  return (
+    <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
+      {MACHINE_STATES.map(([each, label]) => (
+        <button
+          key={each}
+          type="button"
+          role="radio"
+          aria-checked={machine.state === each}
+          className="pressable"
+          onClick={() => onSet(machine.name, { state: each })}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -378,39 +386,86 @@ function TaskNow({ task, machines, now }: { task: TaskRow; machines: readonly Ma
   return step ? <span className="feed-step">{step}</span> : null;
 }
 
-/** How long a live task has run; when a finished one ended, and what it cost. */
-const metaOf = (task: TaskRow, now: number) =>
-  isLive(task) ? [elapsed(task, now)] : [clock(task.updated_at), spendLine(task, now)];
-
-/** Who did it and when; how long it has run while live, and what it cost once it is over. */
-function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
+/** The status as one bare glyph: a spinner while working, coloured only when it matters. */
+function StatusGlyph({ status }: { status: TaskRow["status"] }) {
   return (
-    <span className="feed-meta">
-      {task.kind === "cloud" ? <BotAvatar name={task.worker} still size={14} /> : <Icon name="monitor" size={12} />}
-      <span>{task.worker}</span>
-      {metaOf(task, now)
-        .filter(Boolean)
-        .map((part) => (
-          <span key={part} className="tabular">
-            · {part}
-          </span>
-        ))}
+    <span className="feed-glyph" data-tone={status}>
+      {status === "working" ? <Spinner size={14} /> : <Icon name={statusIcon[status]} size={16} />}
     </span>
   );
 }
 
-/** The task's last few steps, oldest first, once its card is open. */
-function StepList({ task, open }: { task: TaskRow; open: boolean }) {
-  if (!open || task.steps.length === 0) return null;
+const WORKER_ICON: Record<TaskRow["kind"], IconName> = { cloud: "nodes", machine: "monitor" };
+
+/** How long a live task has run; when a finished one ended, and what it cost. */
+const figuresOf = (task: TaskRow, now: number) =>
+  isLive(task) ? [elapsed(task, now)] : [clock(task.updated_at), ...spendParts(task, now)];
+
+/** Who did it, as a quiet token, then its figures; the line wraps only between whole tokens. */
+function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
+  const figures = figuresOf(task, now).filter((part) => part !== null);
+
+  return (
+    <span className="feed-meta">
+      <span className="token" title={task.worker}>
+        <Icon name={WORKER_ICON[task.kind]} size={12} />
+        <span className="token-text">{task.worker}</span>
+      </span>
+      {figures.map((part, index) => (
+        <Fragment key={`${index}-${part}`}>
+          {index === 0 ? " " : " · "}
+          <span className="figure tabular">{part}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/** The summary's first lines as plain text while the card is closed; opened, it renders below. */
+function SummaryPreview({ summary, open }: { summary: string | null; open: boolean }) {
+  return summary && !open ? <span className="feed-summary">{plain(summary)}</span> : null;
+}
+
+/** An opened task: its summary rendered, then its last few steps, oldest first. */
+function TaskDetail({ task, open }: { task: TaskRow; open: boolean }) {
+  if (!open) return null;
+
+  return (
+    <div className="feed-detail">
+      {task.summary ? <Markdown source={task.summary} /> : null}
+      <StepList task={task} />
+    </div>
+  );
+}
+
+function StepList({ task }: { task: TaskRow }) {
+  if (task.steps.length === 0) return null;
 
   return (
     <ol className="feed-steps" aria-label="Recent steps">
       {task.steps.map((step) => (
         <li key={`${step.at}-${step.text}`}>
-          <span className="tabular">{clock(step.at)}</span> {step.text}
+          <span className="tabular">{clock(step.at)}</span> {plain(step.text)}
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Stop a working task, or cancel a queued one. */
+function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) => void }) {
+  if (!isLive(task)) return null;
+
+  return (
+    <button
+      type="button"
+      className="icon-button pressable feed-stop"
+      aria-label={`Stop ${plain(task.title)}`}
+      title={task.status === "queued" ? "Cancel" : "Stop"}
+      onClick={() => onStop(task.id)}
+    >
+      <Icon name="stop" size={12} />
+    </button>
   );
 }
 
@@ -432,31 +487,24 @@ function TaskItem({
   const [open, setOpen] = useState(false);
   const opens = task.kind === "cloud" && task.session !== null;
   const shared = useContext(FilesContext).some((file) => file.task === task.id && isMedia(file));
-  const live = isLive(task);
 
   return (
     <li className="feed-item" data-status={task.status} aria-current={opens && task.session === session ? "page" : undefined}>
       <button
         type="button"
-        className="feed-button"
+        className="feed-button pressable"
         aria-expanded={opens ? undefined : open}
         onClick={() => (opens ? onOpen(task.session!) : setOpen((value) => !value))}
       >
-        <span className="feed-tile" data-tone={task.status}>
-          {task.status === "working" ? <Spinner size={16} /> : <Icon name={statusIcon[task.status]} size={18} />}
-        </span>
+        <StatusGlyph status={task.status} />
         <span className="feed-text">
-          <span className="feed-title">{task.title}</span>
+          <span className="feed-title">{plain(task.title)}</span>
           <TaskNow task={task} machines={machines} now={now} />
-          {task.summary ? (
-            <span className="feed-summary" data-open={open}>
-              {task.summary}
-            </span>
-          ) : null}
+          <SummaryPreview summary={task.summary} open={open} />
           <TaskMeta task={task} now={now} />
         </span>
       </button>
-      <StepList task={task} open={open} />
+      <TaskDetail task={task} open={open} />
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />
@@ -467,17 +515,7 @@ function TaskItem({
           <Changes task={task.id} />
         </div>
       ) : null}
-      {live ? (
-        <button
-          type="button"
-          className="icon-button pressable feed-stop"
-          aria-label={`Stop ${task.title}`}
-          title={task.status === "queued" ? "Cancel" : "Stop"}
-          onClick={() => onStop(task.id)}
-        >
-          <Icon name="stop" size={10} />
-        </button>
-      ) : null}
+      <StopButton task={task} onStop={onStop} />
     </li>
   );
 }
