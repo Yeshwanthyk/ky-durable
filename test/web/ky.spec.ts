@@ -304,14 +304,16 @@ test("shows a subagent's work in Activity and opens its chat", async ({ page }) 
 
 test("runs a task on a machine and shows its report", async ({ page }) => {
   await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
   await expect(panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last()).toContainText(/idle|task/);
   await send(page, "machine@webmac build the web site");
   await expect(page.getByText("fake claude did: build the web site").first()).toBeVisible();
   await expect(page.getByText("Report from").first()).toBeVisible();
 });
 
-test("pauses a machine and notes what it is for in Activity, and the agent is refused it", async ({ page }) => {
+test("pauses a machine and notes what it is for in Settings, and the agent is refused it", async ({ page }) => {
   await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
   const machine = panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last();
   const states = machine.getByRole("radiogroup", { name: "Let ky use webmac" });
   await expect(machine).toContainText(process.platform === "darwin" ? "macOS" : "Linux");
@@ -329,6 +331,7 @@ test("pauses a machine and notes what it is for in Activity, and the agent is re
     await expect(page.getByText(/webmac is paused/).first()).toBeVisible();
 
     await page.reload();
+    await panel(page).getByRole("tab", { name: "Settings" }).click();
     await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
     await expect(machine.getByRole("button", { name: "web builds" })).toBeVisible();
   } finally {

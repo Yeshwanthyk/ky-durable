@@ -135,12 +135,20 @@ export function Panel({
           onOpen={onOpen}
           onStop={onStop}
           onStopAll={onStopAll}
-          onSetMachine={onSetMachine}
         />
       ) : tab === "skills" ? (
         <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} />
       ) : (
-        <Settings settings={settings} catalog={catalog} theme={theme} onTheme={onTheme} onSet={onSetModel} />
+        <Settings
+          settings={settings}
+          catalog={catalog}
+          machines={machines}
+          now={now}
+          theme={theme}
+          onTheme={onTheme}
+          onSet={onSetModel}
+          onSetMachine={onSetMachine}
+        />
       )}
     </aside>
   );
@@ -155,7 +163,6 @@ function Activity({
   onOpen,
   onStop,
   onStopAll,
-  onSetMachine,
 }: {
   tasks: readonly TaskRow[];
   machines: readonly MachineInfo[];
@@ -165,7 +172,6 @@ function Activity({
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
   onStopAll: () => void;
-  onSetMachine: (machine: string, change: MachineChange) => void;
 }) {
   const live = tasks.filter(isLive);
   const groups = new Map<string, TaskRow[]>();
@@ -220,7 +226,6 @@ function Activity({
         <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
       ) : null}
       <Automations now={now} />
-      <MachineList machines={machines} now={now} onSet={onSetMachine} />
     </div>
   );
 }
@@ -236,14 +241,14 @@ function MachineList({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   return (
-    <section className="feed-group machines">
-      <h3 className="feed-head">Machines</h3>
+    <section className="group machines">
+      <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
         <p className="panel-note">
           None yet. Run <code>runner/ky-runner.ts</code> on a computer.
         </p>
       ) : (
-        <ul className="machine-list">
+        <ul className="card machine-list">
           {machines.map((machine) => (
             <MachineItem key={machine.name} machine={machine} now={now} onSet={onSet} />
           ))}
@@ -605,15 +610,21 @@ function ModelRow({
 function Settings({
   settings,
   catalog,
+  machines,
+  now,
   theme,
   onTheme,
   onSet,
+  onSetMachine,
 }: {
   settings: SettingsView | null;
   catalog: readonly ToolInfo[];
+  machines: readonly MachineInfo[];
+  now: number;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSet: (slot: Slot, setting: SlotSetting) => void;
+  onSetMachine: (machine: string, change: MachineChange) => void;
 }) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
@@ -690,6 +701,7 @@ function Settings({
           </ul>
         </section>
       ) : null}
+      <MachineList machines={machines} now={now} onSet={onSetMachine} />
       <section className="group">
         <h3 className="group-label">Tools</h3>
         <div className="card">
