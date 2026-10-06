@@ -178,7 +178,7 @@ function Activity({
   return (
     <div className="panel-body" data-scroll>
       <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
-      <Automations now={feed.now} />
+      <Automations now={feed.now} session={feed.session} />
       <History past={tasks.filter((task) => !isLive(task))} {...feed} />
       {tasks.length === 0 && running.length === 0 ? (
         <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>

@@ -699,6 +699,9 @@
   font-size: calc(11.5px * var(--text-scale));
   vertical-align: top;
   margin-top: 1px;
+  /* One line, always: a token is a fixed height, so wrapped words would draw over the lines below. */
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .token .icon {
@@ -774,11 +777,14 @@
   right: 4px;
 }
 
+/* Run and pause sit centred on the row's right edge, however many lines it has. */
 .automation-actions {
   position: absolute;
-  top: calc(8px + (13.5px * 1.35 * var(--text-scale) - 28px) / 2);
+  top: 0;
+  bottom: 0;
   right: 4px;
   display: flex;
+  align-items: center;
 }
 
 /* Older work, on request: a quiet row on edge B, below the last day. */
@@ -1714,22 +1720,97 @@
 }
 
 /* No hover on touch: the buttons stay, and the words make room for them. */
+/* No hover on touch: the buttons stay, as 40px targets, and the words make room for them. */
 @media (hover: none) {
   .automation-actions {
     opacity: 1;
     background: none;
   }
 
+  .panel .automation-actions .icon-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
   .automation .feed-text {
-    padding-right: 56px;
+    padding-right: 76px;
   }
 }
 
-.automation-tokens {
+/* Paused: the words and glyph step back; the buttons stay readable to resume it. */
+.feed-item.automation[data-paused] :is(.feed-text, .feed-glyph) {
+  opacity: 0.5;
+}
+
+/* The last run and anything unusual, on one quiet line: each part shrinks to an ellipsis, never wraps. */
+.automation-details {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--quiet);
+  white-space: nowrap;
+}
+
+.automation-last,
+.automation-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.automation-last {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.automation-last::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.automation-last[data-status="done"]::before {
+  background: var(--success);
+}
+
+.automation-last[data-status="failed"] {
+  color: var(--danger);
+}
+
+.automation-last[data-status="failed"]::before {
+  opacity: 1;
+}
+
+.automation-last[data-status="queued"]::before,
+.automation-last[data-status="working"]::before {
+  background: var(--working);
+  opacity: 1;
+}
+
+/* The destination may be a long chat title: it alone gives way; a model or machine keeps up to 40%. */
+.automation-detail {
+  flex: none;
+  max-width: 40%;
+}
+
+.automation-detail[data-detail="chat"] {
+  flex: 0 1 auto;
+  max-width: none;
+}
+
+:is(.automation-last, .automation-detail) + .automation-detail::before {
+  content: "·";
+  margin: 0 5px;
 }
 
 .automation-editor {

@@ -8,50 +8,89 @@ import type {
   MachineInfo,
   ProviderInfo,
   SlotSetting,
+  TaskRow,
 } from "../protocol";
+import { byNextRun } from "./automation-order";
 import { Icon } from "./Icon";
 import { MAIN_SESSION } from "./open-chat";
 import { plain } from "./plain";
 import { ago } from "./time";
 
-const DAYS = new Map([
-  ["*", "Every day"],
-  ["1-5", "Weekdays"],
-  ["0,6", "Weekends"],
-  ["6,0", "Weekends"],
-  ["0", "Sundays"],
-  ["1", "Mondays"],
-  ["2", "Tuesdays"],
-  ["3", "Wednesdays"],
-  ["4", "Thursdays"],
-  ["5", "Fridays"],
-  ["6", "Saturdays"],
-]);
-
 const PLAIN_CRON = /^(\d+) (\d+|\*) \* \* (\S+)$/;
 
-/** "Weekdays 9:00 UTC" or "Hourly at :15", or undefined for any other cron. */
-function plainTime([, minute = "", hour, weekday = ""]: string[]):
-  string | undefined {
-  if (hour === "*")
-    return weekday === "*"
-      ? `Hourly at :${minute.padStart(2, "0")}`
-      : undefined;
-  const days = DAYS.get(weekday);
+const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-  return days && `${days} ${hour}:${minute.padStart(2, "0")} UTC`;
+const EVERY = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"] as const;
+
+/** A cron weekday field as days 0-6, or undefined when it is not a plain list or range. */
+function weekdays(field: string): number[] | undefined {
+  if (field === "*") return [0, 1, 2, 3, 4, 5, 6];
+  const days = new Set<number>();
+
+  for (const part of field.split(",")) {
+    const range = /^(\d)(?:-(\d))?$/.exec(part);
+
+    if (!range) return undefined;
+    const from = Number(range[1]);
+    const to = Number(range[2] ?? range[1]);
+
+    if (to < from || to > 7) return undefined;
+
+    for (let day = from; day <= to; day++) days.add(day % 7);
+  }
+
+  return [...days].sort((a, b) => a - b);
 }
 
-/** A cron in words when it is a plain hourly, daily or weekly time, else as written; crons are UTC. */
-function cronInWords(cron: string): string {
+/** Days 0-6 in words: Daily, Weekdays, Weekends, Mondays, or Mon, Wed, Fri. */
+function daysInWords(days: readonly number[]): string {
+  const key = days.join(",");
+
+  if (days.length === 7) return "Daily";
+
+  if (key === "1,2,3,4,5") return "Weekdays";
+
+  if (key === "0,6") return "Weekends";
+
+  if (days.length === 1) return EVERY[days[0] ?? 0] ?? key;
+
+  // Monday first, as a week reads.
+  return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((day) => WEEK[day]).join(", ");
+}
+
+const clockOf = (date: Date) => date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+/**
+ * A plain hourly, daily or weekly UTC cron in the browser's time: "Daily · 7:00 AM",
+ * "Weekdays · 9:30 AM", "Hourly at :45"; undefined for any other cron.
+ */
+function plainTime([, minute = "", hour = "", weekday = ""]: string[], now: number): string | undefined {
+  const utc = new Date(now);
+
+  utc.setUTCHours(hour === "*" ? 0 : Number(hour), Number(minute), 0, 0);
+
+  if (hour === "*")
+    return weekday === "*" ? `Hourly at :${String(utc.getMinutes()).padStart(2, "0")}` : undefined;
+  const days = weekdays(weekday);
+
+  if (!days) return undefined;
+  // The local day can fall a day either side of the UTC one.
+  const shift = (utc.getDay() - utc.getUTCDay() + 7) % 7;
+  const local = days.map((day) => (day + shift) % 7).sort((a, b) => a - b);
+
+  return `${daysInWords(local)} · ${clockOf(utc)}`;
+}
+
+/** A cron in words, in the browser's time, when it is a plain hourly, daily or weekly time; else as written, in UTC. */
+function cronInWords(cron: string, now = Date.now()): string {
   const parts = PLAIN_CRON.exec(cron);
 
-  return (parts && plainTime([...parts])) ?? `${cron} UTC`;
+  return (parts && plainTime([...parts], now)) ?? `${cron} UTC`;
 }
 
-/** When it runs: a cron, or a one-off's time. */
-function scheduleOf(automation: AutomationInfo): string {
-  if (automation.cron !== null) return cronInWords(automation.cron);
+/** When it runs: a cron, or a one-off's local time. */
+function scheduleOf(automation: AutomationInfo, now: number): string {
+  if (automation.cron !== null) return cronInWords(automation.cron, now);
 
   const at = new Date(automation.at ?? 0).toLocaleString(undefined, {
     month: "short",
@@ -60,31 +99,24 @@ function scheduleOf(automation: AutomationInfo): string {
     minute: "2-digit",
   });
 
-  return `Once, ${at}`;
+  return `Once · ${at}`;
 }
 
-/** Paused, or when it runs next. */
+/** Paused, or how long until it runs next. */
 function nextOf(automation: AutomationInfo, now: number): string {
   if (automation.status === "paused") return "Paused";
 
-  if (automation.next_run === null) return "Nothing booked";
+  if (automation.next_run === null) return "Not booked";
   const wait = ago(now, automation.next_run);
 
-  return wait === "now" ? "Runs now" : `Next in ${wait}`;
+  return wait === "now" ? "due now" : `in ${wait}`;
 }
 
-/** The details worth a line only when they differ from the usual. */
-const META: ((automation: AutomationInfo) => string | null)[] = [
-  (automation) => (automation.created_by === "ky" ? "Made by ky" : null),
-  (automation) =>
-    automation.chat_label === "main" ? null : `to ${automation.chat_label}`,
-  (automation) => automation.model?.modelId ?? null,
-  (automation) => (automation.machine ? `on ${automation.machine}` : null),
-];
+/** The row's one muted line: when it runs, when next, and a quiet "by ky" when ky made it. */
+function metaOf(automation: AutomationInfo, now: number): string {
+  const by = automation.created_by === "ky" ? ["by ky"] : [];
 
-/** Only what differs from the usual: ky made it, it reports elsewhere, its own model, a machine. */
-function metaOf(automation: AutomationInfo): string[] {
-  return META.flatMap((detail) => detail(automation) ?? []);
+  return [scheduleOf(automation, now), nextOf(automation, now), ...by].join(" · ");
 }
 
 /** The automations, what the user can do to one, and what a form offers; provided around the panel. */
@@ -112,7 +144,7 @@ export const AutomationsContext = createContext<{
 const NEW = "new";
 
 // Scheduled work, active and paused: add, edit, run now, pause, resume, archive and delete.
-export function Automations({ now }: { now: number }) {
+export function Automations({ now, session }: { now: number; session: string }) {
   const { automations } = useContext(AutomationsContext);
   const [editing, setEditing] = useState<string | null>(null);
   const close = () => setEditing(null);
@@ -132,7 +164,7 @@ export function Automations({ now }: { now: number }) {
       </h3>
       <ul className="feed">
         {editing === NEW && <AutomationForm onClose={close} />}
-        {automations.map((automation) =>
+        {byNextRun(automations).map((automation) =>
           automation.id === editing ? (
             <AutomationForm
               key={automation.id}
@@ -144,6 +176,7 @@ export function Automations({ now }: { now: number }) {
               key={automation.id}
               automation={automation}
               now={now}
+              session={session}
               onEdit={() => setEditing(automation.id)}
             />
           ),
@@ -156,15 +189,27 @@ export function Automations({ now }: { now: number }) {
   );
 }
 
-/** The last run's status and summary, or null before the first run. */
-function lastOf(automation: AutomationInfo): string | null {
+type TaskStatus = TaskRow["status"];
+
+const RAN: Record<TaskStatus, string> = {
+  queued: "Running",
+  working: "Running",
+  done: "Ran",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+
+/** The last run as a word and how long ago: "Ran 2h ago", "Failed 5m ago", "Running"; null before the first run. */
+function lastOf(automation: AutomationInfo, now: number): { status: TaskStatus; text: string } | null {
   const last = automation.last_run;
 
   if (!last) return null;
+  const word = RAN[last.status];
 
-  return last.summary
-    ? `Last run ${last.status}: ${plain(last.summary)}`
-    : `Last run ${last.status}`;
+  if (last.finished_at === null) return { status: last.status, text: word };
+  const since = ago(last.finished_at, now);
+
+  return { status: last.status, text: since === "now" ? `${word} just now` : `${word} ${since} ago` };
 }
 
 /** What the row shows and offers in each state it can be listed in. */
@@ -188,16 +233,18 @@ const STATES = {
 type ItemProps = {
   automation: AutomationInfo;
   now: number;
+  /** The open chat, so a row names where it reports only when that is elsewhere. */
+  session: string;
   onEdit: () => void;
 };
 
-// The row opens its editor; run and pause sit on top of it, shown on hover.
-function AutomationItem({ automation, now, onEdit }: ItemProps) {
-  const state = STATES[automation.status === "paused" ? "paused" : "active"];
-  const last = lastOf(automation);
+// Title, one muted line of when, and a quiet line of the last run and anything unusual; every line one line.
+function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
+  const paused = automation.status === "paused";
+  const state = STATES[paused ? "paused" : "active"];
 
   return (
-    <li className="feed-item automation" aria-label={automation.title}>
+    <li className="feed-item automation" aria-label={automation.title} data-paused={paused || undefined}>
       <button
         type="button"
         className="feed-button"
@@ -209,11 +256,8 @@ function AutomationItem({ automation, now, onEdit }: ItemProps) {
         </span>
         <span className="feed-text">
           <span className="feed-title">{plain(automation.title)}</span>
-          <span className="feed-step tabular">
-            {scheduleOf(automation)} · {nextOf(automation, now)}
-          </span>
-          {last && <span className="feed-summary">{last}</span>}
-          <Tokens automation={automation} />
+          <span className="feed-step tabular">{metaOf(automation, now)}</span>
+          <Details automation={automation} now={now} session={session} />
         </span>
       </button>
       <AutomationActions id={automation.id} state={state} />
@@ -221,17 +265,29 @@ function AutomationItem({ automation, now, onEdit }: ItemProps) {
   );
 }
 
-/** Its own model, machine or chat, as small tokens apart from the words. */
-function Tokens({ automation }: { automation: AutomationInfo }) {
-  const tokens = metaOf(automation);
+/** The last run, then only what differs from the usual: another chat, its own model, a machine. */
+function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
+  const last = lastOf(automation, now);
+  const chat = automation.chat === MAIN_SESSION ? "Main chat" : plain(automation.chat_label);
 
-  if (tokens.length === 0) return null;
+  const extras = [
+    automation.chat === session ? null : { key: "chat", text: `to ${chat}` },
+    automation.model ? { key: "model", text: automation.model.modelId } : null,
+    automation.machine ? { key: "machine", text: `on ${automation.machine}` } : null,
+  ].flatMap((extra) => extra ?? []);
+
+  if (!last && extras.length === 0) return null;
 
   return (
-    <span className="automation-tokens">
-      {tokens.map((token) => (
-        <span key={token} className="token">
-          {token}
+    <span className="automation-details">
+      {last && (
+        <span className="automation-last" data-status={last.status}>
+          {last.text}
+        </span>
+      )}
+      {extras.map((extra) => (
+        <span key={extra.key} className="automation-detail" data-detail={extra.key}>
+          {extra.text}
         </span>
       ))}
     </span>
@@ -536,7 +592,7 @@ function CronRow({ form, set }: FieldProps) {
     <label className="row">
       <span className="row-text">
         <span className="row-label">Schedule</span>
-        <span className="row-sub">{cronInWords(form.cron.trim())}</span>
+        <span className="row-sub">{cronInWords(form.cron.trim())}, your time</span>
       </span>
       <input
         className="automation-cron"

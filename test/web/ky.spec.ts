@@ -258,63 +258,68 @@ test("shows ky's skills, edits one, reverts it and archives it", async ({ page }
   await expect(skill.getByRole("button", { name: "Restore" })).toBeVisible();
 });
 
-test("pauses, resumes and archives an automation from Activity", async ({ page }) => {
-  await open(page);
-  const title = `Check the news ${crypto.randomUUID().slice(0, 8)}`;
-  const create = { action: "create", title, prompt: "Read the news and sum it up.", cron: "0 9 * * 1-5" };
-  await send(page, `tool automation ${JSON.stringify(create)}`);
-  await expect(page.getByText(`"${title}" (cron 0 9 * * 1-5 UTC)`)).toBeVisible();
+// Crons are UTC and rows show them in the browser's time: India's half-hour offset shows the conversion.
+test.describe("automations in Activity", () => {
+  test.use({ timezoneId: "Asia/Kolkata", locale: "en-US" });
 
-  await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const automation = panel(page).getByRole("listitem", { name: title });
-  await expect(automation).toContainText("Weekdays 9:00 UTC");
-  await expect(automation).toContainText("Next in");
+  test("pauses, resumes and archives an automation from Activity", async ({ page }) => {
+    await open(page);
+    const title = `Check the news ${crypto.randomUUID().slice(0, 8)}`;
+    const create = { action: "create", title, prompt: "Read the news and sum it up.", cron: "0 9 * * 1-5" };
+    await send(page, `tool automation ${JSON.stringify(create)}`);
+    await expect(page.getByText(`"${title}" (cron 0 9 * * 1-5 UTC)`)).toBeVisible();
 
-  await automation.getByRole("button", { name: "Pause" }).click();
-  await expect(automation).toContainText("Paused");
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    const automation = panel(page).getByRole("listitem", { name: title });
+    await expect(automation).toContainText("Weekdays · 2:30 PM");
+    await expect(automation).toContainText(" · in ");
 
-  await automation.getByRole("button", { name: "Resume" }).click();
-  await expect(automation).toContainText("Next in");
-  await expect(automation.getByRole("button", { name: "Pause" })).toBeVisible();
+    await automation.getByRole("button", { name: "Pause" }).click();
+    await expect(automation).toContainText("Paused");
 
-  await automation.getByRole("button", { name: "Edit" }).click();
-  await panel(page).getByRole("form", { name: "Edit automation" }).getByRole("button", { name: "Archive" }).click();
-  await expect(automation).toBeHidden();
-});
+    await automation.getByRole("button", { name: "Resume" }).click();
+    await expect(automation).toContainText(" · in ");
+    await expect(automation.getByRole("button", { name: "Pause" })).toBeVisible();
 
-test("adds, edits, runs and deletes an automation from Activity", async ({ page }) => {
-  await open(page);
-  await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const title = `Water the plants ${crypto.randomUUID().slice(0, 8)}`;
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await panel(page).getByRole("form", { name: "Edit automation" }).getByRole("button", { name: "Archive" }).click();
+    await expect(automation).toBeHidden();
+  });
 
-  await panel(page).getByRole("button", { name: "New", exact: true }).click();
-  const form = panel(page).getByRole("form", { name: "New automation" });
-  await form.getByLabel("Title").fill(title);
-  await form.getByLabel("Prompt").fill("say the plants are watered");
-  await form.getByLabel("Cron").fill("nope");
-  await form.getByRole("button", { name: "Save" }).click();
-  await expect(form.getByRole("alert")).toContainText('Cannot schedule "nope"');
+  test("adds, edits, runs and deletes an automation from Activity", async ({ page }) => {
+    await open(page);
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    const title = `Water the plants ${crypto.randomUUID().slice(0, 8)}`;
 
-  await form.getByLabel("Cron").fill("30 7 * * *");
-  await expect(form).toContainText("Every day 7:30 UTC");
-  await form.getByRole("button", { name: "Save" }).click();
-  const automation = panel(page).getByRole("listitem", { name: title });
-  await expect(automation).toContainText("Every day 7:30 UTC");
+    await panel(page).getByRole("button", { name: "New", exact: true }).click();
+    const form = panel(page).getByRole("form", { name: "New automation" });
+    await form.getByLabel("Title").fill(title);
+    await form.getByLabel("Prompt").fill("say the plants are watered");
+    await form.getByLabel("Cron").fill("nope");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form.getByRole("alert")).toContainText('Cannot schedule "nope"');
 
-  await automation.getByRole("button", { name: "Edit" }).click();
-  const edit = panel(page).getByRole("form", { name: "Edit automation" });
-  await expect(edit.getByLabel("Title")).toHaveValue(title);
-  await edit.getByLabel("Cron").fill("0 8 * * 1");
-  await edit.getByRole("button", { name: "Save" }).click();
-  await expect(automation).toContainText("Mondays 8:00 UTC");
+    await form.getByLabel("Cron").fill("30 7 * * *");
+    await expect(form).toContainText("Daily · 1:00 PM, your time");
+    await form.getByRole("button", { name: "Save" }).click();
+    const automation = panel(page).getByRole("listitem", { name: title });
+    await expect(automation).toContainText("Daily · 1:00 PM");
 
-  await automation.getByRole("button", { name: "Run now" }).click();
-  await expect(automation).toContainText("Last run");
+    await automation.getByRole("button", { name: "Edit" }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit.getByLabel("Title")).toHaveValue(title);
+    await edit.getByLabel("Cron").fill("0 8 * * 1");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(automation).toContainText("Mondays · 1:30 PM");
 
-  await automation.getByRole("button", { name: "Edit" }).click();
-  await edit.getByRole("button", { name: "Delete" }).click();
-  await edit.getByRole("button", { name: "Delete for good" }).click();
-  await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
+    await automation.getByRole("button", { name: "Run now" }).click();
+    await expect(automation).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
+
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByRole("button", { name: "Delete" }).click();
+    await edit.getByRole("button", { name: "Delete for good" }).click();
+    await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
+  });
 });
 
 test("lists the tools ky can use", async ({ page }) => {
