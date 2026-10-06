@@ -156,77 +156,118 @@ export function Panel({
   );
 }
 
-function Activity({
-  tasks,
-  machines,
-  running,
-  session,
-  now,
-  onOpen,
-  onStop,
-  onStopAll,
-}: {
-  tasks: readonly TaskRow[];
-  machines: readonly MachineInfo[];
-  running: readonly string[];
+type FeedProps = {
   session: string;
   now: number;
+  machines: readonly MachineInfo[];
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
+};
+
+// What is running now, then scheduled work, then the most recent finished tasks; older ones on request.
+function Activity({
+  tasks,
+  running,
+  onStopAll,
+  ...feed
+}: FeedProps & {
+  tasks: readonly TaskRow[];
+  running: readonly string[];
   onStopAll: () => void;
 }) {
-  const live = tasks.filter(isLive);
+  return (
+    <div className="panel-body" data-scroll>
+      <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
+      <Automations now={feed.now} />
+      <History past={tasks.filter((task) => !isLive(task))} {...feed} />
+      {tasks.length === 0 && running.length === 0 ? (
+        <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
+      ) : null}
+    </div>
+  );
+}
+
+// The open chat's running tools, and every queued or working task.
+function NowSection({
+  live,
+  running,
+  onStopAll,
+  ...feed
+}: FeedProps & { live: readonly TaskRow[]; running: readonly string[]; onStopAll: () => void }) {
+  if (live.length === 0 && running.length === 0) return null;
+
+  return (
+    <section className="feed-group">
+      <h3 className="feed-head">
+        Now
+        {live.length > 1 ? (
+          <button type="button" className="feed-action pressable" onClick={onStopAll}>
+            Stop all
+          </button>
+        ) : null}
+      </h3>
+      <ul className="feed">
+        {running.map((tool, index) => (
+          <li key={`${tool}-${index}`} className="feed-item feed-row">
+            <StatusGlyph status="working" />
+            <span className="feed-text">
+              <span className="feed-title">{tool}</span>
+              <span className="feed-meta">This chat</span>
+            </span>
+          </li>
+        ))}
+        {live.map((task) => (
+          <TaskItem key={task.id} task={task} {...feed} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** How many finished tasks show at first. */
+const RECENT = 10;
+
+/** How many more each Show earlier adds. */
+const EARLIER = 20;
+
+/** Finished tasks under their day: Today, Yesterday, Monday, Sep 28. */
+function byDay(tasks: readonly TaskRow[], now: number): Map<string, TaskRow[]> {
   const groups = new Map<string, TaskRow[]>();
 
   for (const task of tasks) {
-    if (isLive(task)) continue;
     const label = day(task.updated_at, now);
     groups.set(label, [...(groups.get(label) ?? []), task]);
   }
 
+  return groups;
+}
+
+// The most recent finished tasks by day; Show earlier adds older ones until none are left.
+function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
+  const [shown, setShown] = useState(RECENT);
+  // Only rows Show earlier revealed play an entry; the first screen and new tasks just appear.
+  const earlier = new Set(past.slice(RECENT, shown).map((task) => task.id));
+  const hidden = past.length - shown;
+
   return (
-    <div className="panel-body" data-scroll>
-      {live.length > 0 || running.length > 0 ? (
-        <section className="feed-group">
-          <h3 className="feed-head">
-            Now
-            {live.length > 1 ? (
-              <button type="button" className="feed-action pressable" onClick={onStopAll}>
-                Stop all
-              </button>
-            ) : null}
-          </h3>
-          <ul className="feed">
-            {running.map((tool, index) => (
-              <li key={`${tool}-${index}`} className="feed-item feed-row">
-                <StatusGlyph status="working" />
-                <span className="feed-text">
-                  <span className="feed-title">{tool}</span>
-                  <span className="feed-meta">This chat</span>
-                </span>
-              </li>
-            ))}
-            {live.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} now={now} machines={machines} onOpen={onOpen} onStop={onStop} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {[...groups].map(([label, rows]) => (
-        <section key={label} className="feed-group">
+    <>
+      {[...byDay(past.slice(0, shown), feed.now)].map(([label, rows]) => (
+        <section key={label} className="feed-group" data-earlier={earlier.has(rows[0]!.id)}>
           <h3 className="feed-head">{label}</h3>
           <ul className="feed">
             {rows.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} now={now} machines={machines} onOpen={onOpen} onStop={onStop} />
+              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} {...feed} />
             ))}
           </ul>
         </section>
       ))}
-      {tasks.length === 0 && running.length === 0 ? (
-        <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
+      {hidden > 0 ? (
+        <button type="button" className="feed-more pressable" onClick={() => setShown((count) => count + EARLIER)}>
+          Show earlier
+          <span className="feed-more-count tabular">{hidden} more</span>
+        </button>
       ) : null}
-      <Automations now={now} />
-    </div>
+    </>
   );
 }
 
@@ -471,25 +512,28 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
 
 function TaskItem({
   task,
+  earlier,
   session,
   now,
   machines,
   onOpen,
   onStop,
-}: {
+}: FeedProps & {
   task: TaskRow;
-  session: string;
-  now: number;
-  machines: readonly MachineInfo[];
-  onOpen: (session: string) => void;
-  onStop: (task: string) => void;
+  /** Revealed by Show earlier: it fades in. */
+  earlier?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const opens = task.kind === "cloud" && task.session !== null;
   const shared = useContext(FilesContext).some((file) => file.task === task.id && isMedia(file));
 
   return (
-    <li className="feed-item" data-status={task.status} aria-current={opens && task.session === session ? "page" : undefined}>
+    <li
+      className="feed-item"
+      data-status={task.status}
+      data-earlier={earlier}
+      aria-current={opens && task.session === session ? "page" : undefined}
+    >
       <button
         type="button"
         className="feed-button pressable"

@@ -781,6 +781,44 @@
   display: flex;
 }
 
+/* Older work, on request: a quiet row on edge B, below the last day. */
+.feed-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 8px 0 34px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  text-align: left;
+}
+
+.feed-more-count {
+  color: var(--quiet);
+  font-weight: 450;
+}
+
+/* Rows Show earlier revealed settle in; nothing else in the feed animates in. */
+.feed-group[data-earlier="true"] > .feed-head,
+.feed-item[data-earlier="true"] {
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out),
+    background-color var(--standard) var(--ease-out);
+}
+
+@starting-style {
+  .feed-group[data-earlier="true"] > .feed-head,
+  .feed-item[data-earlier="true"] {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 .panel-empty,
 .panel-note {
   margin: 4px 8px;
@@ -1145,7 +1183,8 @@
   }
 
   .chat-item:hover:not([aria-current="page"]),
-  .feed-action:hover {
+  .feed-action:hover,
+  .feed-more:hover {
     background: var(--hover);
     color: var(--ink);
   }
@@ -1560,6 +1599,12 @@
 
   .panel .pressable:active:not(:disabled) {
     transform: none;
+  }
+
+  /* Revealed rows still fade in, without the rise. */
+  .feed-group[data-earlier="true"] > .feed-head,
+  .feed-item[data-earlier="true"] {
+    transition: opacity 200ms var(--ease-out);
   }
 
   .sidebar-slot {
