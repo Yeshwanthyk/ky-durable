@@ -1,5 +1,6 @@
 import type { TaskRow } from "../../src/protocol.ts";
-import { type Client, until } from "./client.ts";
+import { decodeNewChat } from "../../src/tests/frames.ts";
+import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
 import { machine, type Machine, type Runner } from "./runner.ts";
 import { TOKEN } from "./stack.ts";
@@ -52,10 +53,10 @@ function terminal(row: TaskRow | undefined): boolean {
   return row !== undefined && TERMINAL.has(row.status);
 }
 
-/** Ask the main agent, through the faux model, to start a task on `name`; resolves with its id. */
-async function startTask(context: Context, name: string, prompt: string): Promise<string> {
+/** Ask the main agent (or the chat on `from`), through the faux model, to start a task on `name`; resolves with its id. */
+async function startTask(context: Context, name: string, prompt: string, from = context.main): Promise<string> {
   const known = new Set(context.main.frames.flatMap((frame) => (frame.type === "tasks" ? frame.tasks.map((row) => row.id) : [])));
-  context.main.send({ type: "submit", input: `machine@${name} ${prompt}` });
+  from.send({ type: "submit", input: `machine@${name} ${prompt}` });
   let id: string | undefined;
 
   await until(`a task on ${name}`, () => {
@@ -156,6 +157,41 @@ export const SCENARIOS: Scenario[] = [
       await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2);
       const resumed = mac.claude().findLast((event) => event.event === "start" && event.task === task);
       check(resumed !== undefined && resumed.resume === first?.session, "the follow-up resumed the first session");
+    }
+  },
+  {
+    name: "side-chat-report",
+    expect: "pass",
+    about: "a task started from a side chat reports to that side chat, not the main chat",
+    async run(context) {
+      await context.machine("side");
+      const { result } = await context.main.command({ type: "new-chat" });
+      const session = decodeNewChat(result);
+
+      if (session === undefined) throw new Error("new-chat answered without a session");
+      const side = await connect(context.url, `?session=${session}`);
+      context.cleanup.push(() => side.close());
+      const task = await startTask(context, "side", "build it from the side", side);
+      await status(context, task, "done");
+      await until("the side chat's report", () => side.heard("fake claude did: build it from the side"));
+      await sleep(1_000);
+      check(!context.main.heard("fake claude did: build it from the side"), "the main chat did not get the report");
+    }
+  },
+  {
+    name: "steer-folded",
+    expect: "pass",
+    about: "a message Claude Code folds into the running turn ends with that turn's one result, not stuck working",
+    async run(context) {
+      await context.machine("fold");
+      const task = await startTask(context, "fold", "[fold] [delay=3000] build the thing");
+      await status(context, task, "working");
+      sendTo(context, task, "and test it");
+      await until("the task to end", () => terminal(context.main.task(task)), 20_000);
+      check(context.main.task(task)?.status === "done", `the task ends done, not ${context.main.task(task)?.status}`);
+      await until("the report", () => context.main.heard("fake claude did: [fold] [delay=3000] build the thing + and test it"));
+      await sleep(1_500);
+      check(context.main.task(task)?.status === "done", "the task does not reopen as working");
     }
   },
   {

@@ -1,9 +1,11 @@
+import { evictDurableObject } from "cloudflare:test";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
 import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
 import { REPLACED } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
-import { connect, inside, prompt, snapshotView } from "./drive";
+import { agent, connect, inside, prompt, snapshotView } from "./drive";
 
 /**
  * The machine protocol end to end: the real runner logic (runner/runner.ts)
@@ -36,6 +38,8 @@ class FakeClaude implements ClaudeProcess {
   readonly afterStop: string[] = [];
   interrupted = false;
   #exited = false;
+  /** How many prompts it has taken in. */
+  #taken = 0;
   readonly #events: ClaudeEvents;
 
   constructor(resumed: string | null, events: ClaudeEvents) {
@@ -61,7 +65,15 @@ class FakeClaude implements ClaudeProcess {
     this.#emit({ type: "system", subtype: "init", session_id: id });
   }
 
-  answer(text: string): void {
+  /**
+   * End a turn that took in the prompts up to `upTo` (all written so far by
+   * default): each is echoed, as --replay-user-messages does, then one result.
+   */
+  answer(text: string, upTo = this.prompts.length): void {
+    for (; this.#taken < upTo; this.#taken++) {
+      this.#emit({ type: "user", isReplay: true, message: { role: "user", content: this.prompts[this.#taken]! } });
+    }
+
     this.#emit({ type: "result", subtype: "success", is_error: false, result: text });
   }
 
@@ -76,7 +88,7 @@ class FakeClaude implements ClaudeProcess {
     this.#exited = true;
   }
 
-  #emit(event: Record<string, string | boolean>): void {
+  #emit(event: Record<string, string | boolean | { role: "user"; content: string }>): void {
     if (!this.#exited) this.#events.line(JSON.stringify(event));
   }
 }
@@ -211,9 +223,9 @@ async function start(object: string): Promise<string> {
   return id;
 }
 
-/** The reports the main agent was given about a task, in order. */
-async function reports(object: string, id: string): Promise<string[]> {
-  const view = await snapshotView(object);
+/** The reports a conversation, the main one by default, was given about a task, in order. */
+async function reports(object: string, id: string, session?: string): Promise<string[]> {
+  const view = await snapshotView(object, session);
 
   return view.messages
     .filter((message) => message.role === "user")
@@ -481,5 +493,90 @@ describe("runner protocol", () => {
     await other.claude(0);
     await settle();
     expect(mac.claudes).toHaveLength(0);
+  });
+});
+
+describe("runner protocol: reports reach the conversation that sent the work", () => {
+  it("ends a turn that took in a message sent while it ran, with one report", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const claude = await mac.claude(0);
+    claude.session("s1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    await sendTask(object, id, "and this");
+    await until("the message to reach claude", () => claude.prompts.length === 2);
+    // Claude Code takes the message into the running turn: one result answers both.
+    claude.answer("built it, and this");
+
+    await until("the task to be done", async () => (await status(object, id)) === "done");
+    await until("the session to end", () => mac.runner.active().length === 0);
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("built it, and this");
+  });
+
+  it("waits for a message sent as a turn ended, which runs as its own turn", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    const claude = await mac.claude(0);
+    claude.session("s1");
+    await sendTask(object, id, "and this");
+    await until("the message to reach claude", () => claude.prompts.length === 2);
+
+    claude.answer("built it", 1);
+    await settle();
+    expect(await status(object, id)).toBe("working");
+    expect(await reports(object, id)).toHaveLength(0);
+
+    claude.answer("did this");
+    await until("the task to be done", async () => (await status(object, id)) === "done");
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("did this");
+  });
+
+  it("reports a task a side chat started to that side chat, not the main conversation", async () => {
+    const { object, mac } = await online();
+    const chat = await inside(object, (agent) => agent.newChat());
+    const result = await inside(object, async (agent) => agent.harness.prompt("machine build it", { session: chat }));
+    const id = /Started task (\S+) on mac/.exec(result.text ?? "")?.[1];
+    expect(id).toBeDefined();
+    const claude = await mac.claude(0);
+    claude.session("s1");
+    claude.answer("built");
+
+    await until("the side chat's report", async () => (await reports(object, id!, chat)).length > 0);
+    expect(await reports(object, id!)).toEqual([]);
+
+    // The task list's own message goes to the side chat too: it sent the task's last turn.
+    await sendTask(object, id!, "and this");
+    const second = await mac.claude(1);
+    second.answer("did this");
+    await until("the second report", async () => (await reports(object, id!, chat)).length === 2);
+    expect(await reports(object, id!)).toEqual([]);
+  });
+
+  it("posts a report a restart cut off once the object starts again", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    (await mac.claude(0)).answer("built");
+    await until("the report", async () => (await reports(object, id)).length === 1);
+
+    // A later turn closed, and the object stopped before posting its report.
+    await inside(object, (_agent, state) => {
+      state.storage.sql.exec(
+        "INSERT INTO ky_machine_reports (task, turn, session, text) VALUES (?, 2, ?, ?)",
+        id,
+        ROOT_SESSION,
+        `[machine mac, task ${id} "build it" finished, no reply needed unless the user is waiting on it]\ncut off`
+      );
+    });
+    mac.disconnect();
+    await evictDurableObject(agent(object));
+
+    await until("the cut-off report", async () => (await reports(object, id)).length === 2);
+    expect((await reports(object, id))[1]).toContain("cut off");
+    expect(await inside(object, (_agent, state) => state.storage.sql.exec("SELECT * FROM ky_machine_reports").toArray())).toEqual([]);
   });
 });

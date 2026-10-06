@@ -6,13 +6,17 @@
  * the web e2e hand it to runner/ky-runner.ts as KY_CLAUDE.
  *
  * Each user message is one turn: an assistant message, a pause, then a
- * result `fake claude did: <prompt>`. Messages queue and run in order. The
- * session id is new, or the one given with --resume. stdin closing ends it
- * once its turns are done. Each result carries the process's totals so far,
- * as Claude Code's do: one turn per message, and COST_PER_TURN each.
+ * result `fake claude did: <prompt>`. Messages queue and run in order. With
+ * --replay-user-messages it echoes each message as it takes it in, as Claude
+ * Code does. The session id is new, or the one given with --resume. stdin
+ * closing ends it once its turns are done. Each result carries the
+ * process's totals so far, as Claude Code's do: one turn per result, and
+ * COST_PER_TURN each.
  *
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default FAKE_CLAUDE_DELAY_MS, else 50)
+ *   [fold]       messages that come while this turn runs join it, as Claude Code
+ *                takes a message sent mid-turn: one result answers them all
  *   [attach]     share a 1x1 PNG through `ky-attach`, as a screenshot would be
  *   [fail]       the turn ends in an error result
  *   [tools=Bash:pnpm test,Edit:src/x.ts]
@@ -50,6 +54,8 @@ const resume = args.includes("--resume") ? args[args.indexOf("--resume") + 1] : 
 
 const session = resume ?? crypto.randomUUID();
 
+const replay = args.includes("--replay-user-messages");
+
 const task = process.env.KY_TASK ?? "";
 
 const defaultDelay = Number(process.env.FAKE_CLAUDE_DELAY_MS ?? 50);
@@ -73,6 +79,7 @@ function record(event: string, fields: Record<string, string | number> = {}) {
 /** The stream-json events the runner reads from Claude Code. */
 type StreamEvent =
   | { type: "system"; subtype: "init" }
+  | { type: "user"; message: { role: "user"; content: string }; isReplay: true }
   | { type: "assistant"; message: { role: "assistant"; content: Part[] } }
   | {
       type: "result";
@@ -111,9 +118,19 @@ async function attach(): Promise<string> {
   return stdout.trim();
 }
 
+/** Take a message in: a turn the test can see, and its echo. */
+function take(prompt: string, fields: Record<string, number> = {}) {
+  record("turn", { prompt, ...fields });
+
+  if (replay) emit({ type: "user", message: { role: "user", content: prompt }, isReplay: true });
+}
+
+/** Messages read and not yet taken in. */
+const waiting: string[] = [];
+
 async function turn(prompt: string) {
   if (dying) return;
-  record("turn", { prompt });
+  take(prompt);
   emit({
     type: "assistant",
     message: { role: "assistant", content: [{ type: "text", text: `working on: ${prompt}` }, ...toolUses(prompt)] }
@@ -121,16 +138,23 @@ async function turn(prompt: string) {
 
   const delay = /\[delay=(\d+)\]/.exec(prompt);
   await new Promise((resolve) => setTimeout(resolve, delay ? Number(delay[1]) : defaultDelay));
+  const folded = prompt.includes("[fold]") ? waiting.splice(0) : [];
+
+  for (const each of folded) take(each, { folded: 1 });
   const attached = prompt.includes("[attach]") ? `\n${await attach()}` : "";
 
-  if (dying) return;
+  if (!dying) answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${attached}`);
+}
+
+/** End a turn with its one result. */
+function answer(prompt: string, text: string) {
   const failed = prompt.includes("[fail]");
   turns += 1;
   emit({
     type: "result",
     subtype: failed ? "error_during_execution" : "success",
     is_error: failed,
-    result: `fake claude did: ${prompt}${attached}`,
+    result: text,
     num_turns: turns,
     total_cost_usd: turns * COST_PER_TURN
   });
@@ -162,8 +186,13 @@ createInterface({ input: process.stdin })
     }
 
     if (!Value.Check(UserLine, parsed) || dying) return;
-    const prompt = parsed.message.content;
-    queue = queue.then(() => turn(prompt));
+    waiting.push(parsed.message.content);
+    queue = queue.then(() => {
+      // A folding turn may have taken it already.
+      const next = waiting.shift();
+
+      return next === undefined ? undefined : turn(next);
+    });
   })
   .on("close", () => {
     void queue.then(() => {

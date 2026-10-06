@@ -130,6 +130,8 @@ function spawnClaude(task: string, session: string | null, events: ClaudeEvents)
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
+    // Echo each message as Claude Code takes it in; the runner counts them to know what a result answers.
+    "--replay-user-messages",
     "--permission-mode", PERMISSION_MODE,
     "--append-system-prompt", TASK_PROMPT,
     ...(CHROME ? ["--chrome"] : []),

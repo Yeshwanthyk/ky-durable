@@ -4,7 +4,7 @@ import {
   defineTool,
   type Extension
 } from "@earendil-works/pi-durable";
-import type { PiHarness } from "agents/harness/pi";
+import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
 import type { RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
@@ -18,8 +18,10 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  *
  * What the runner must do is kept in an inbox table until it acknowledges
  * it, so a message sent while the machine is offline is delivered when it
- * reconnects. Each finished turn is recorded in the task feed and posted to
- * the main agent as a steer, so it lands after its current tool round.
+ * reconnects. Each finished turn is recorded in the task feed and posted as
+ * a steer, so it lands after the current tool round, to the conversation
+ * that sent the turn: the main one or a side chat. A report is kept until
+ * it is posted, so one cut off by a restart is posted when the object starts.
  */
 
 export const RUNNER_QUERY = "runner";
@@ -68,6 +70,19 @@ export class MachineHub {
       turn INTEGER NOT NULL,
       closed INTEGER NOT NULL,
       sent INTEGER NOT NULL)`);
+    // The conversation each turn came from: its report goes back there.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_senders (
+      task TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      session TEXT NOT NULL,
+      PRIMARY KEY (task, turn))`);
+    // Reports owed to a conversation, from when a turn closes until it is posted there.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_reports (
+      task TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      session TEXT NOT NULL,
+      text TEXT NOT NULL,
+      PRIMARY KEY (task, turn, session))`);
     // `sent`: the command went out on an open socket, so the runner may have it.
     const inbox = sql.exec<{ name: string }>("PRAGMA table_info(ky_machine_inbox)").toArray();
 
@@ -98,6 +113,47 @@ export class MachineHub {
       next.turn,
       next.closed,
       next.sent
+    );
+  }
+
+  /** Record that `session` sent the task's `turn`. */
+  #sentBy(task: string, turn: number, session: string): void {
+    this.#sql.exec(
+      "INSERT OR REPLACE INTO ky_machine_senders (task, turn, session) VALUES (?, ?, ?)",
+      task,
+      turn,
+      session
+    );
+  }
+
+  /**
+   * Who hears about turns `from` (exclusive) to `to`: everyone who sent one.
+   * With no sender among them (a stop, a lost run), whoever sent the last
+   * turn before; the main conversation for a task from before senders were kept.
+   */
+  #listeners(task: string, from: number, to: number): string[] {
+    const senders = this.#sql
+      .exec<{ session: string }>(
+        "SELECT session FROM ky_machine_senders WHERE task = ? AND turn > ? AND turn <= ? GROUP BY session ORDER BY MIN(turn)",
+        task,
+        from,
+        to
+      )
+      .toArray()
+      .map((row) => row.session);
+
+    return senders.length > 0 ? senders : [this.#lastSender(task, to)];
+  }
+
+  #lastSender(task: string, upTo = Number.MAX_SAFE_INTEGER): string {
+    return (
+      this.#sql
+        .exec<{ session: string }>(
+          "SELECT session FROM ky_machine_senders WHERE task = ? AND turn <= ? ORDER BY turn DESC LIMIT 1",
+          task,
+          upTo
+        )
+        .toArray()[0]?.session ?? ROOT_SESSION
     );
   }
 
@@ -185,7 +241,8 @@ export class MachineHub {
       });
   }
 
-  start(machine: string, title: string, prompt: string, id: string): TaskRow {
+  /** Start a task for the conversation `parent`, which hears how it ends. */
+  start(machine: string, title: string, prompt: string, id: string, parent: string): TaskRow {
     const task = this.#feed.create({
       id,
       kind: "machine",
@@ -197,16 +254,21 @@ export class MachineHub {
 
     if (task.status === "queued") {
       this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
+      this.#sentBy(id, 1, parent);
       this.#enqueue(machine, { type: "run", task: id, turn: 1, prompt, session: null });
     }
 
     return task;
   }
 
-  /** Steer a running task, or resume a finished one, as its next turn. */
-  send(task: TaskRow, message: string): void {
+  /**
+   * Steer a running task, or resume a finished one, as its next turn, for
+   * the conversation `parent`; by default, the one that sent its last turn.
+   */
+  send(task: TaskRow, message: string, parent = this.#lastSender(task.id)): void {
     const turn = this.#turns(task.id).turn + 1;
     this.#setTurns(task.id, { turn });
+    this.#sentBy(task.id, turn, parent);
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
     this.#enqueue(task.worker, { type: "run", task: task.id, turn, prompt: message, session: task.session });
   }
@@ -300,24 +362,70 @@ export class MachineHub {
 
   /**
    * Report every turn up to `turn` as over, once: a turn already closed is
-   * not reported again, and the report's operation id is the turn's.
+   * not reported again. The report is owed to everyone who sent one of
+   * those turns from the moment the turn closes, and posted to each.
    */
   async #finish(id: string, ok: boolean, text: string, turn: number): Promise<void> {
     const task = this.#feed.get(id);
 
     if (!task || this.#closed(id, turn)) return;
+    const from = this.#turns(id).closed;
     this.#setTurns(id, { closed: turn });
     const ended = endOf(ok, text);
     this.#feed.update(id, { status: ended.status, summary: summarize(text) || (ok ? "Done" : "Failed") });
 
     if (ok) this.#feed.describe(id, text);
+    const report = `[machine ${task.worker}, task ${id} "${task.title}" ${ended.word}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(this.#files.forTask(id))}`;
 
+    for (const session of this.#listeners(id, from, turn)) {
+      this.#sql.exec(
+        "INSERT OR IGNORE INTO ky_machine_reports (task, turn, session, text) VALUES (?, ?, ?, ?)",
+        id,
+        turn,
+        session,
+        report
+      );
+    }
+
+    await this.post(id);
+  }
+
+  /**
+   * Post the reports still owed, for one task or all of them, and forget
+   * each once its conversation has it. A report's operation id is its turn
+   * and conversation, so posting one twice adds it once.
+   */
+  async post(task?: string): Promise<void> {
     if (!this.#harness) return;
 
-    await this.#harness.submit(
-      `[machine ${task.worker}, task ${id} "${task.title}" ${ended.word}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(this.#files.forTask(id))}`,
-      { operationId: `task:${id}:${turn}`, whenBusy: "steer" }
-    );
+    type Owed = { task: string; turn: number; session: string; text: string };
+
+    const owed = (
+      task === undefined
+        ? this.#sql.exec<Owed>("SELECT * FROM ky_machine_reports ORDER BY task, turn")
+        : this.#sql.exec<Owed>("SELECT * FROM ky_machine_reports WHERE task = ? ORDER BY turn", task)
+    ).toArray();
+
+    for (const report of owed) {
+      try {
+        await this.#harness.submit(report.text, {
+          session: report.session,
+          operationId: `task:${report.task}:${report.turn}:${report.session}`,
+          whenBusy: "steer"
+        });
+      } catch (error) {
+        // Kept, and posted again when the object next starts.
+        console.warn(`report for ${report.task} turn ${report.turn} not posted`, error);
+        continue;
+      }
+
+      this.#sql.exec(
+        "DELETE FROM ky_machine_reports WHERE task = ? AND turn = ? AND session = ?",
+        report.task,
+        report.turn,
+        report.session
+      );
+    }
   }
 }
 
@@ -352,7 +460,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
           "run (title, prompt, machine optional when one is online): start a task; the prompt must be self-contained. " +
           "send (task, message): steer a working task, or resume a finished one with its history. " +
           "stop (task): stop it; send resumes it later. " +
-          "Results are reported back to you as messages when they arrive; do not poll.",
+          "Results are reported back to this conversation as messages when they arrive; do not poll.",
         parameters: Type.Object({
           action: Type.Union([
             Type.Literal("list"),
@@ -401,7 +509,14 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
             if (!args.prompt) return reply("run needs a prompt.");
             // Model call ids repeat across turns (Kimi: functions.machine:0); pi's task id does not.
             const id = `m-${String(api.taskId)}`;
-            const task = hub.start(machine, args.title ?? summarize(args.prompt).slice(0, 60), args.prompt, id);
+
+            const task = hub.start(
+              machine,
+              args.title ?? summarize(args.prompt).slice(0, 60),
+              args.prompt,
+              id,
+              String(api.conversationId)
+            );
 
             if (args.title === undefined) feed.name(task.id, args.prompt);
 
@@ -421,7 +536,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
           }
 
           if (!args.message) return reply("send needs a message.");
-          hub.send(task, args.message);
+          hub.send(task, args.message, String(api.conversationId));
 
           return reply(
             task.status === "working" ? `Steering ${task.id}.` : `Resuming ${task.id} with your message.`

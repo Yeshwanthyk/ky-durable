@@ -131,10 +131,10 @@ export async function gateStarted(name: string, runs: number): Promise<void> {
   throw new Error("The gate tool never started");
 }
 
-/** The root session's view, folded from a fresh snapshot as a client joining now gets it. */
-export function snapshotView(name: string): Promise<PiSessionView> {
+/** A session's view, the root's by default, folded from a fresh snapshot as a client joining now gets it. */
+export function snapshotView(name: string, session?: string): Promise<PiSessionView> {
   return inside(name, async (instance) => {
-    const stream = await instance.harness.session().events();
+    const stream = await instance.harness.session(session).events();
     await stream.stop();
 
     return reduceEvents(EMPTY_VIEW, [stream.snapshot]);

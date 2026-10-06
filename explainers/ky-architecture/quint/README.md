@@ -21,6 +21,8 @@ Assumptions: FIFO socket; node and DO share a clock; pi-durable re-invokes a too
 | - | Disconnect/RunnerRestart | env | - | drop queues; restart clears `handled` | - | Connect |
 | - | Connect/Keepalive | runner | - | - | hello{active} | fails *working* tasks absent from active |
 
+The model's runner answers each steered message with its own result (`RunResult` counts `pending` down by one). Claude Code may instead fold a message sent mid-turn into the running turn, so one result can answer several. The runner now counts the messages Claude Code echoes back (`--replay-user-messages`) and ends the run on the first result after all of them are taken in.
+
 **Invariants:**
 - AtMostOneTerminalReportPerTurn
 - NoTerminalFlip
