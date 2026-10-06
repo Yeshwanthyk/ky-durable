@@ -34,7 +34,8 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations.ts`), `ky_settings` (model slots, `src/settings.ts`),
-`memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`), `ky_files` (`src/files.ts`), and the workspace files.
+`memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`),
+`ky_dream` (`src/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_nap`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats.
@@ -44,6 +45,15 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
   skill tools. Writes apply at once and every one is kept as a version, so `revert` undoes it. Memory holds facts;
   skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert and archive
   (`src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
+  A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
+  Each skill keeps when it was last opened, and each version the conversation that made it.
+- Dreaming: once a night (04:00 UTC, booked on the automations Scheduler), ky reads what happened since the last
+  dream (new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with memory, and
+  tends the skills: creates one for a task that keeps coming up, merges overlaps, archives ones unused for 60 days,
+  and fixes ones a later correction contradicts (`src/dreaming.ts`). It may call only the skill tools and memory's;
+  it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
+  on the stale summary, is told to note at most five, and pays the compressions its notes make due. It shows in Activity as
+  "Dreaming", and skips the night when nothing happened.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).

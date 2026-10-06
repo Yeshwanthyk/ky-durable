@@ -267,6 +267,16 @@ export class PiAgent extends ProductionAgent {
     await this.applyMain();
   }
 
+  /** Dream now, as the nightly fire does, and wait for it to finish. */
+  async dream(): Promise<void> {
+    await this.dreaming.run();
+  }
+
+  /** Review turns with at least this many tool calls; in memory, so a restart puts back the default. */
+  reviewAfterTools(count: number): void {
+    this.skills.reviewAfter = count;
+  }
+
   /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
   async macLeaves(): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, false);
@@ -292,6 +302,23 @@ const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
     }
   ],
   ["GET /test/gate-runs", async (me) => Response.json({ runs: await me.gateRuns() })],
+  [
+    "POST /test/dream",
+    async (me) => {
+      await me.dream();
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  // n is the tool calls a turn needs to be reviewed for skills; 5 is ky's default.
+  [
+    "POST /test/review-after",
+    async (me, url) => {
+      await me.reviewAfterTools(Number(url.searchParams.get("n") ?? "5"));
+
+      return new Response(null, { status: 204 });
+    }
+  ],
   // up=1 brings the Mac online; up=0 takes it away; up=leaves takes it away unnoticed until ky next asks.
   [
     "POST /test/mac",

@@ -116,9 +116,10 @@ describe("the tools", () => {
     expect(zoomed).toContain("first memory");
     expect(zoomed).toContain("second memory");
 
-    expect((await prompt(name, 'tool memory_forget {"block":"0-1"}')).text).toBe(
-      "tool said: Forgot 1 summary. The next note or nap rebuilds them."
-    );
+    // Forgetting a summary leaves its block owed again, so the answer asks for it.
+    const forgot = (await prompt(name, 'tool memory_forget {"block":"0-1"}')).text;
+    expect(forgot).toMatch(/^tool said: Forgot 1 summary\./);
+    expect(forgot).toContain('Call memory_nap with block "0-1"');
   });
 
   it("writes and reads a workspace file that outlives the object", async () => {

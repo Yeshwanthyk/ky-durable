@@ -1,6 +1,6 @@
 ---
 name: verify-ky-cli
-description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, src/skills.ts, src/automations.ts, runner/, or anything else a machine task, skill, automation or the socket protocol goes through.
+description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, src/skills.ts, src/dreaming.ts, src/automations.ts, runner/, or anything else a machine task, skill, automation or the socket protocol goes through.
 ---
 
 # Verify ky from the CLI
@@ -51,6 +51,8 @@ Run these before driving. None of them changes anything.
   - `POST /test/mac?up=1|0|leaves`: the Mac comes online, goes away, or has just left with no probe.
   - `POST /test/release`: releases the waiting `gate` tool calls. Send the prompt `gate` to start one.
   - `GET /test/gate-runs`: lists the gate tool runs so far.
+  - `POST /test/review-after?n=N`: a turn with N tool calls gets a skill review. The default is 5.
+  - `POST /test/dream`: runs a dream now and answers when it ends.
   ```sh
   curl -fsS -X POST -H 'Authorization: Bearer ky-stack-token' 'http://127.0.0.1:8790/test/mac?up=1'
   ```

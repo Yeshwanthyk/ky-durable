@@ -19,7 +19,8 @@ import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
-import { Skills, skillsExtension } from "./skills";
+import { Dreaming, DREAM_CRON } from "./dreaming";
+import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
@@ -87,6 +88,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
   readonly skills = new Skills(this.ctx.storage.sql);
+  /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
+  readonly reviews = new Reviews(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
   readonly titler = new Titler((system, text) => this.models.complete("titles", system, text));
   readonly machines = new MachineHub(
@@ -113,9 +116,29 @@ export class PiAgent extends DurableObject<Env> {
       abort: async (session) => {
         await this.harness.session(session).abort();
       }
-    }
+    },
+    dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) }
   });
   readonly registry = createRegistry();
+  /** Where skill reviews and dreams run and report. */
+  readonly #background: ReviewHost = {
+    conversation: (session) => this.harness.conversation(session),
+    feed: this.feed,
+    later: (work) => this.ctx.waitUntil(work),
+    context: BACKGROUND
+  };
+  readonly dreaming = new Dreaming(this.ctx.storage.sql, {
+    memory: this.memory,
+    skills: this.skills,
+    reviews: this.reviews,
+    host: this.#background,
+    create: async () => {
+      const { id } = await this.harness.sessions.create();
+      await this.#configureMain(id);
+
+      return id;
+    }
+  });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
   readonly harness = new PiHarness({
@@ -130,22 +153,11 @@ export class PiAgent extends DurableObject<Env> {
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
-      const remembers = (session: string) => session === ROOT_SESSION || this.chats.has(session);
-      this.registry.install(
-        skillsExtension(
-          this.skills,
-          this.ctx.storage.sql,
-          {
-            conversation: (session) => this.harness.conversation(session),
-            feed: this.feed,
-            later: (work) => this.ctx.waitUntil(work),
-            context: BACKGROUND
-          },
-          remembers
-        )
-      );
+      const chat = (session: string) => session === ROOT_SESSION || this.chats.has(session);
+      this.registry.install(skillsExtension(this.skills, this.reviews, this.#background, chat));
 
-      const memory = memoryExtension(this.memory, remembers);
+      // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
+      const memory = memoryExtension(this.memory, (session) => chat(session) || this.reviews.has(session));
       const machines = machineExtension(this.machines, this.feed);
       const automations = automationExtension(this.automations, () => this.models.settings.get("subagents"));
       this.registry.install(memory);
