@@ -188,6 +188,9 @@ export class PiAgent extends DurableObject<Env> {
 
   async onStart(): Promise<void> {
     await this.sockets.reattach();
+    // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
+    // posted once the start is over: a submit waits for the harness, which starts after this.
+    this.ctx.waitUntil(this.machines.post());
     await this.claude.reachable();
     await this.applyMain();
   }

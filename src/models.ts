@@ -167,13 +167,16 @@ export class Models {
   /** One short answer from a slot's model. */
   async complete(slot: Slot, system: string, text: string): Promise<string> {
     const { provider, model, thinkingLevel, apiKey } = await this.resolve(slot);
+    // Cleared once the model answers: a timer still pending keeps the object from stopping until it fires.
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), 30_000);
 
     const options: SimpleStreamOptions = {
       // Room for a model that cannot stop thinking to think, then answer.
       maxTokens: 2_000,
       // OpenCode Go routes by session and refuses requests without one.
       sessionId: `ky-${slot}`,
-      signal: AbortSignal.timeout(30_000)
+      signal: timeout.signal
     };
 
     if (thinkingLevel !== "off") options.reasoning = thinkingLevel;
@@ -185,7 +188,13 @@ export class Models {
       messages: [{ role: "user", content: text, timestamp: Date.now() }]
     });
 
-    const answer = await provider.streamSimple(model, context, options).result();
+    let answer: AssistantMessage;
+
+    try {
+      answer = await provider.streamSimple(model, context, options).result();
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? `The ${slot} model failed.`);
 

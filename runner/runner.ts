@@ -39,8 +39,9 @@ type Run = {
   session: string | null;
   /** The latest turn written to it; its reports speak for every turn up to this one. */
   turn: number;
-  /** Messages written that have no result yet. */
-  pending: number;
+  /** Messages written to it, and how many Claude Code has taken in (it echoes each one as it does). */
+  written: number;
+  taken: number;
   stopped: boolean;
   last: string;
   /** Turns that came while it was stopping; a new session runs them once it exits. */
@@ -241,7 +242,7 @@ export class Runner {
   }
 
   #steer(run: Run, turn: number, prompt: string): void {
-    run.pending += 1;
+    run.written += 1;
     run.turn = turn;
     run.child.write(userLine(prompt));
   }
@@ -255,13 +256,17 @@ export class Runner {
     else run.ended = true;
   }
 
-  /** Claude Code answered one turn: the run ends once it has answered every turn written to it. */
+  /**
+   * Claude Code ended a turn. A message written while a turn runs joins that
+   * turn, so one result can answer several messages: the run ends once every
+   * message written to it has been taken in, and a result before then is
+   * progress.
+   */
   #onResult(task: string, run: Run, event: any): void {
-    run.pending = Math.max(0, run.pending - 1);
     run.last = String(event.result ?? "");
     run.spent = spentBy(event, run.spent);
 
-    if (run.pending > 0) {
+    if (!run.stopped && run.taken < run.written) {
       this.#report({ type: "step", task, turn: run.turn, text: run.last });
 
       return;
@@ -308,6 +313,9 @@ export class Runner {
           this.#report({ type: "session", task, turn: run.turn, session: event.session_id });
         }
 
+        // With --replay-user-messages, Claude Code echoes each message it takes in, whether it starts a turn or joins one.
+        if (event.type === "user" && event.isReplay === true) run.taken += 1;
+
         if (event.type === "assistant") this.#onAssistant(task, run, event);
 
         if (event.type === "result") this.#onResult(task, run, event);
@@ -331,7 +339,7 @@ export class Runner {
       }
     });
 
-    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false, dropped: 0, spent: undefined, saidAt: 0 };
+    const run: Run = { child, session, turn, written: 1, taken: 0, stopped: false, last: "", next: [], ended: false, dropped: 0, spent: undefined, saidAt: 0 };
     this.#runs.set(task, run);
     child.write(userLine(prompt));
 
