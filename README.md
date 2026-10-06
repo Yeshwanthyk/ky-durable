@@ -125,7 +125,7 @@ installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, ins
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
 comments on it go back to the task as one message.
 
-**Choosing a machine.** Activity lists every machine with a switch and a note. `On` takes new tasks,
+**Choosing a machine.** Settings lists every machine with a switch and a note. `On` takes new tasks,
 `Paused` finishes its tasks and takes their follow-ups but no new ones, and `Off` takes nothing from the agent.
 The note says what the machine is for ("builds and long jobs"). The agent can set both too, when you ask it.
 Each runner says in its `hello` what the machine is: its OS, whether `KY_CHROME` is on, and the git repos

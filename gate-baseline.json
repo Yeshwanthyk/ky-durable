@@ -710,7 +710,7 @@
     },
     {
       "check": "web",
-      "name": "pauses a machine and notes what it is for in Activity, and the agent is refused it",
+      "name": "pauses a machine and notes what it is for in Settings, and the agent is refused it",
       "outcome": "passed"
     },
     {
