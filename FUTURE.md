@@ -6,8 +6,8 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
 
 ## Structure (no behaviour change)
 - **S1**: MachineHub should stop querying `ky_tasks` directly and go through TaskFeed.
-- **S2**: a `ky_tasks` row overloads `session` and `worker`. Replace them with `kind` (cloud | node | automation),
-  `target`, and `ref` JSON. No migration is needed.
+- **S2**: a `ky_tasks` row overloads `session` and `worker`. Replace them with `target` and `ref` JSON. No
+  migration is needed.
 - **S3**: `PiSessionSockets` takes 10 positional dependencies. Give it one small typed object and split its jobs.
 
 ## Small fixes found by the gate
@@ -31,10 +31,8 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
 - **Split `KY_RUNNER_TOKEN`**: one token per node. This needs a new secret.
 
 ## Automations (in the worker)
-- Crons that you set from chat run on the DO with the Agents SDK `Scheduler`. Each run submits to the main chat,
-  so updates show up there.
-- They need: create, list, pause and delete from chat; a durable record of each schedule and its last run; and
-  no double run when the DO restarts. The model is in `quint/automations.qnt`.
+- **Edit in the UI.** Today you change an automation by asking ky; Activity only pauses, resumes and archives.
+- **Timezones per automation.** Cron is in UTC.
 
 ## Pi extensions (in the worker)
 - Add extensions straight to the pi harness in the DO with pi-durable's `defineExtension` (tools, prompt

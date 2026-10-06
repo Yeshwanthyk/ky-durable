@@ -13,6 +13,7 @@ import type {
   TaskRow,
   ToolInfo,
 } from "../protocol";
+import { Automations } from "./Automations";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
 import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
@@ -218,6 +219,7 @@ function Activity({
       {tasks.length === 0 && running.length === 0 ? (
         <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
       ) : null}
+      <Automations now={now} />
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
     </div>
   );

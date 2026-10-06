@@ -10,6 +10,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
 import { ChatList } from "./chats";
+import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { type ExecutorConfig, executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
@@ -19,7 +20,7 @@ import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencode
 import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
 import { Skills, skillsExtension } from "./skills";
-import { subagentExtension, subagentProgressExtension } from "./subagents";
+import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
 import { vibeProxy } from "./vibeproxy";
@@ -94,6 +95,26 @@ export class PiAgent extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.files
   );
+  /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
+  #spawn: Spawn | undefined;
+  readonly automations = new Automations(this.ctx.storage.sql, {
+    feed: this.feed,
+    machines: this.machines,
+    chats: this.chats,
+    settings: this.models.settings,
+    catalog: () => this.models.catalog(),
+    runtime: {
+      spawn: (tx, owner, request) => this.#spawn!(tx, owner, request),
+      commit: async (change) => (await this.harness.pi()).commit(change, BACKGROUND),
+      // An outside commit does not wake pi, and in agents 0.26 onStart, which books a wake for every
+      // session with live tasks, is the only way to. Replace it once PiHarness exposes a wake.
+      wake: () => this.harness.onStart({ props: undefined }),
+      // As the UI's Stop does.
+      abort: async (session) => {
+        await this.harness.session(session).abort();
+      }
+    }
+  });
   readonly registry = createRegistry();
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -126,11 +147,20 @@ export class PiAgent extends DurableObject<Env> {
 
       const memory = memoryExtension(this.memory, remembers);
       const machines = machineExtension(this.machines, this.feed);
+      const automations = automationExtension(this.automations, () => this.models.settings.get("subagents"));
       this.registry.install(memory);
       this.registry.install(machines);
-      this.registry.install(
-        subagentExtension(this.feed, [memory, machines], () => this.models.settings.get("subagents"))
+      this.registry.install(automations);
+
+      const subagents = subagentExtension(
+        this.feed,
+        [memory, machines, automations],
+        () => this.models.settings.get("subagents"),
+        (feedId) => this.automations.wanted(feedId)
       );
+
+      this.#spawn = subagents.spawn;
+      this.registry.install(subagents.extension);
       this.registry.install(subagentProgressExtension(this.feed));
 
       return Harness.open(
@@ -172,17 +202,19 @@ export class PiAgent extends DurableObject<Env> {
     this.models,
     this.chats,
     this.skills,
+    this.automations,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );
   readonly webSockets = new WebSockets(this.sockets.options());
   readonly lifecycle = Lifecycle.install(this)
     .use(this.webSockets)
-    .use(this.harness);
+    .use(this.harness)
+    .use(this.automations.scheduler);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.machines.attach(this.harness);
+    this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.#nameThings();
     this.models.settings.onChange((slot) => {
       if (slot === "main") this.ctx.waitUntil(this.applyMain());
@@ -207,6 +239,7 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.machines.post());
     await this.claude.reachable();
     await this.applyMain();
+    await this.automations.recover();
   }
 
   /** Record a file a machine task shared; null, or why it was refused. */

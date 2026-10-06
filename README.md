@@ -33,7 +33,7 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
-`ky_chats` (side chats, `src/chats.ts`), `ky_settings` (model slots, `src/settings.ts`),
+`ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations.ts`), `ky_settings` (model slots, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
@@ -47,6 +47,7 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).
+- Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. Activity shows them, with Pause, Resume and Archive.
 - Titles: a small model names chats and tasks (`src/titles.ts`).
 
 ## Sign-in

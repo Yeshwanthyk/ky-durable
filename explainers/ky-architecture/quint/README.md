@@ -130,56 +130,45 @@ $ quint run ... --main={naive,block_no_resume,report_random_opid,report_no_alarm
 
 **Verdict: prefer (b).** It needs a durable alarm, stable opId and `unposted` flag with retry; no orphan risk. (a) also needs re-invocation on resume and blocks the turn.
 
-## 3. Recurring automations on one DO alarm: `automations.qnt`
+## 3. Automations: `automations.qnt`
 
-**State:**
-- `clock`
-- `auto{exists, enabled, nextSlot}`
-- `alarm{armed, at, refires}`
-- `rows[{slot, state, posted}]` (SQL)
-- `ledger` (slot to `run | skipped:*`)
-- `cont` (in-memory spawn continuations)
-- `restarts`
-- ghosts `g`
+One automation; each SDK `Scheduler` fire carries a slot (the due time in seconds; run-now passes its own). A run is task `a-<id>-<slot>` (cloud subagent or machine); its report goes through the Reporter (requestId `subagent-report:<taskId>`) or the machines report path.
 
-| From | Trigger | Actor | Precondition | Write | Publication | Recovery |
-|---|---|---|---|---|---|---|
-| armed | AlarmFire/Refire | DO | at <= clock | latest due slot `run`, earlier `skipped:missed`, busy `skipped:overlap`; re-arm | - | refire is at-least-once |
-| pending | Spawn(s) | DO | row pending, enabled, exists | row running, keyed by slot | start subagent | recovery scan |
-| running | Finish | subagent | - | row done | - | - |
-| done | Post | DO | exists, unposted | posted, opId `auto:slot` | message | retry |
-| any | Disable/Enable/Delete | user | - | enable: `skipped:disabled`, no backfill, re-arm; delete cancels pending, running and unposted | - | - |
-| any | Restart | env | - | `cont` lost | - | scan pending/unposted rows |
+**State:** `status` (active | paused | archived), `runs[{slot, state, reported}]` (ky_tasks rows), ghosts `g`. `done` (a one-off that has run) acts like paused here and is left out.
+
+| From | Trigger | Actor | Precondition | Write | Publication |
+|---|---|---|---|---|---|
+| any | Fire(s) | SDK | any slot, any number of times | if active, no run for `s`, no live run: run `s` queued | start task |
+| queued/working | Start/Finish | task | - | working, then done | - |
+| done | Report(s) | Reporter | unreported | reported | posted only if still active |
+| active/paused | Pause/Archive | user or ky | - | status; live runs stopped | - |
+| paused/archived | Resume/Unarchive | user or ky | - | active / paused | - |
 
 **Invariants:**
-- AtMostOneRunPerSlot
-- AtMostOnePostPerRun
-- NoStartAfterDisableOrDelete
-- NoPostAfterDelete
-- NoLostSlotWithoutRecord
-- NoStrandedRun
-- NoOverlap
-- LedgerMatchesRows
+- OneRunPerSlot: a duplicate fire or redelivery makes no second run and no second report
+- NoOverlap: at most one run queued or working
+- NothingAfterPause: after pause or archive no run starts and no report posts
+
+Platform-provided, not modelled: missed slots coalesce (the SDK books the next cron fire from now after a callback); restart recovery (the alarm redelivers, which is a duplicate fire here; on start ky re-books any active automation whose schedule is missing); a stable report id (the Reporter's requestId).
 
 ```
-$ quint test automations.qnt --main=design        8 passing (114ms)
-$ quint test automations.qnt --main=naive         7 passing (100ms)
-$ quint test automations.qnt --main=scan_unkeyed  1 passing (19ms)
-$ quint run automations.qnt --main=design --invariant=Design --max-samples=200000 --max-steps=30 --seed=9
-[ok] No violation found (40853ms at 4896 traces/second).
-$ quint run ... --main=no_<each of 8 flags> --invariant=Design --max-samples=50000 --max-steps=25 --seed=9
-[violation] Found an issue   (all eight)
+$ quint typecheck automations.qnt                 ok
+$ quint test automations.qnt --main=design        6 passing (71ms)
+$ quint test automations.qnt --main=naive         6 passing (59ms)
+$ quint run automations.qnt --main=design --invariant=Design --max-samples=100000 --max-steps=25 --seed=9
+[ok] No violation found (15225ms at 6568 traces/second).
+$ quint run automations.qnt --main=<m> --invariant=<inv> --max-samples=50000 --max-steps=20 --seed=9
+naive: all three violated
+no_keyed_spawn:       OneRunPerSlot violated; the other two ok
+no_skip_if_live:      NoOverlap violated; the other two ok
+no_check_on_fire:     NothingAfterPause violated; the other two ok
+no_stop_on_pause:     NothingAfterPause violated; the other two ok
+no_check_before_post: NothingAfterPause violated; the other two ok
 ```
 
-**Counterexamples (naive replays), with corrections and boundary tests:**
-- **Refire.** The alarm fires twice and the slot runs twice. Correction: an idempotent row insert keyed by slot. Test: fire twice and expect one row.
-- **Late alarm.** The alarm fires 3 periods late, which runs 3 times or silently drops 2 slots. Correction: coalesce and record the misses. Test: expect one run plus 2 `skipped:missed`.
-- **Disable race.** A spawn that was already scheduled starts after disable. Correction: spawn re-checks `enabled` in its transaction. Test: disable between fire and spawn; no start.
-- **Delete in flight.** A run finishes after delete and posts. Correction: delete cancels the row, and the post checks that the automation exists.
-- **Stranded.** Eviction between the insert and the spawn leaves the row pending forever. Correction: a recovery scan on alarm and on start. Test: kill the DO there and expect one run.
-- **Unkeyed scan (scan_unkeyed).** Scan and original continuation both spawn. Correction: keyed spawn.
-- **Overlap.** Next slot starts mid-run. Correction: skip, record `skipped:overlap`.
-- **Double post.** A retry after eviction posts twice. Correction: opId `auto:<id>:<slot>`. Test: retry the post and expect one message.
-- **no_dedupe_slot (sim).** After enable, a fire records slot 2 as `run` (pending), and a refire overwrites the ledger to `skipped:overlap`. Keyed spawn alone hides this. Correction: refire is a no-op for a slot that already has a row.
-
-Policy: disable stops future starts (a started run finishes and posts); enable does not backfill.
+Each rule breaks exactly one invariant when switched off:
+- **KEYED_SPAWN.** The task id comes from the slot. Test: fire slot 1 twice, before and after the run ends, and expect one run and one report.
+- **SKIP_IF_LIVE.** Test: fire slot 2 while slot 1 is working; no second run.
+- **CHECK_ON_FIRE.** A fire that was in flight lands after pause. Test: pause, fire; no run.
+- **STOP_ON_PAUSE.** Pause while the run is queued and the task would start anyway. Test: pause, then the run is stopped and cannot start.
+- **CHECK_BEFORE_POST.** The run finished just before pause. Test: finish, pause, report; nothing posted.

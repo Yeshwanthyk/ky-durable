@@ -21,6 +21,7 @@ import {
 } from "./machines";
 import { decodeReport, REPLACED } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
+import type { Automations } from "./automations";
 import type { ChatList } from "./chats";
 import type { Skills } from "./skills";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
@@ -115,6 +116,7 @@ export class PiSessionSockets {
   readonly #models: Models;
   readonly #chats: ChatList;
   readonly #skills: Skills;
+  readonly #automations: Automations;
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -130,6 +132,7 @@ export class PiSessionSockets {
     models: Models,
     chats: ChatList,
     skills: Skills,
+    automations: Automations,
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -143,17 +146,23 @@ export class PiSessionSockets {
     this.#models = models;
     this.#chats = chats;
     this.#skills = skills;
+    this.#automations = automations;
     this.#newChat = newChat;
     this.#version = version;
     chats.onChange(() => {
       const message = this.#chatsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+      // An automation names the chat it reports to by its title.
+      this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
     skills.onChange(() => {
       const message = this.#skillsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    automations.onChange(() => {
+      this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
     feed.onChange(() => this.broadcastTasks());
     hub.onChange(() => this.broadcastTasks());
@@ -167,6 +176,43 @@ export class PiSessionSockets {
 
   #skillsMessage(): PiServerMessage {
     return { type: "skills", skills: this.#skills.all() };
+  }
+
+  /** The active and paused automations, each with the chat it reports to by name. */
+  async #automationsMessage(): Promise<PiServerMessage> {
+    const views = await this.#automations.list(false);
+
+    return {
+      type: "automations",
+      automations: views.map((view) => ({ ...view, chat_label: this.#chatTitle(view.chat) }))
+    };
+  }
+
+  /** "main", or a side chat's title as the sidebar shows it. */
+  #chatTitle(session: string): string {
+    if (session === ROOT_SESSION) return "main";
+
+    return this.#chats.list().find((chat) => chat.session === session)?.title || "a side chat";
+  }
+
+  async #broadcastAutomations(): Promise<void> {
+    const message = await this.#automationsMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+  }
+
+  /** Pause, resume or archive an automation as the user; the result says what happened. */
+  async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
+    switch (message.action) {
+      case "pause":
+        return await this.#automations.pause(message.automation);
+      case "resume":
+        return await this.#automations.resume(message.automation);
+      case "archive":
+        return await this.#automations.archive(message.automation);
+      default:
+        throw new Error(`Unknown automation action ${JSON.stringify(message.action)}`);
+    }
   }
 
   #chatsMessage(): PiServerMessage {
@@ -256,6 +302,7 @@ export class PiSessionSockets {
     send(connection, this.#settingsMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
+    send(connection, await this.#automationsMessage());
     await this.#watch(connection, session);
   }
 
@@ -472,6 +519,8 @@ export class PiSessionSockets {
         return this.#skills.apply(message.change, "user");
       case "skill-history":
         return this.#skills.history(message.name);
+      case "automation":
+        return await this.#automation(message);
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

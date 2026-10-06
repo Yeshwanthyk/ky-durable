@@ -13,7 +13,8 @@ import {
   hook,
   LiveDoc,
   type TaskId,
-  ToolTask
+  ToolTask,
+  type Tx
 } from "@earendil-works/pi-durable";
 import type { SlotSetting } from "./settings";
 import { summarize, type TaskFeed } from "./tasks";
@@ -73,7 +74,26 @@ type ReporterInput = {
   conversationId: ConversationId;
   message: string;
   followUp: boolean;
+  /** The task feed row it updates; the reporter's own id when unset. */
+  feedId?: string;
+  /** Who reports to the main agent when the user wants the result, like `automation "Daily digest"`. */
+  label?: string;
 };
+
+/** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
+export type SpawnRequest = {
+  name: string;
+  message: string;
+  model: SlotSetting;
+  feedId?: string;
+  label?: string;
+};
+
+/** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
+export type Spawn = (tx: Tx, owner: ConversationId, request: SpawnRequest) => Promise<ConversationId>;
+
+/** The subagent tool, and the same spawn for work that starts outside a tool call. */
+type SubagentTools = { extension: Extension; spawn: Spawn };
 
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
 
@@ -85,13 +105,25 @@ function textOf(message: AssistantMessage | undefined): string {
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
+/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
+function reportOf(input: ReporterInput, text: string): string {
+  return input.label === undefined
+    ? `[subagent ${input.name} answered, no reply needed] ${text}`
+    : `[${input.label} result: tell the user] ${text}`;
+}
+
+const background = (conversationId: ConversationId) =>
+  ({ ownership: { kind: "conversation" }, conversationId, background: true }) as const;
+
 export function subagentExtension(
   feed: TaskFeed,
   /** Main-agent-only extensions that subagents do not get, besides this one. */
   mainOnly: readonly Extension[],
   /** The subagent slot, applied to each subagent whenever it is messaged. */
-  model: () => SlotSetting
-): Extension {
+  model: () => SlotSetting,
+  /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
+  wanted: (feedId: string) => boolean
+): SubagentTools {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
     name: "ky.subagent-reporter",
     version: 1,
@@ -99,7 +131,18 @@ export function subagentExtension(
     phases: {
       deliver: async (reporter, runtime, context) => {
         const { name, conversationId, message, followUp } = reporter.input;
-        feed.update(String(reporter.id), { status: "working" });
+        const feedId = reporter.input.feedId ?? String(reporter.id);
+
+        if (!wanted(feedId)) {
+          feed.update(feedId, { status: "stopped", summary: "Stopped" });
+
+          return runtime.commit(
+            () => ({ status: "terminal", outcome: { status: "completed", result: null } }),
+            context
+          );
+        }
+
+        feed.update(feedId, { status: "working", session: String(conversationId) });
         const subagent = (await runtime.conversation(conversationId, context))!;
 
         const submission = await subagent.submit(
@@ -134,7 +177,7 @@ export function subagentExtension(
 
             outcome = { status: "failed", summary: `Failed: ${settled.reason}` };
 
-            return next(`[subagent ${name} failed: ${settled.reason}]`);
+            return next(`[${reporter.input.label ?? `subagent ${name}`} failed: ${settled.reason}]`);
           }
 
           if (settled.type !== "input") return next();
@@ -152,16 +195,16 @@ export function subagentExtension(
           outcome = { status: "done", summary: summarize(text) };
           report = text;
 
-          return next(`[subagent ${name} answered, no reply needed] ${text}`);
+          return next(reportOf(reporter.input, text));
         }, context);
-        feed.update(String(reporter.id), outcome);
+        feed.update(feedId, outcome);
 
-        if (outcome.status === "done") feed.describe(String(reporter.id), report);
+        if (outcome.status === "done") feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
         const report = reporter.state.checkpoint.report;
 
-        if (report !== undefined) {
+        if (report !== undefined && wanted(reporter.input.feedId ?? String(reporter.id))) {
           const main = (await runtime.conversation(runtime.conversationId, context))!;
           await main.submit(
             {
@@ -182,7 +225,7 @@ export function subagentExtension(
       }
     },
     abort: (reporter, runtime, context) => {
-      feed.update(String(reporter.id), { status: "stopped" });
+      feed.update(reporter.input.feedId ?? String(reporter.id), { status: "stopped" });
 
       return runtime.commit(
         () => ({ status: "terminal", outcome: { status: "aborted" } }),
@@ -262,22 +305,11 @@ export function subagentExtension(
 
       const result = await api.commit(async (tx) => {
         const state = await tx.doc(Subagents, api.conversationId);
-        const background = { ownership: { kind: "conversation" }, background: true } as const;
 
-        if (action === "spawn") {
-          if (state.agents[name]) return `${name} already exists; use send.`;
-          const anchor = await tx.createTask(Anchor, null, background);
-          const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
-          await configure(tx, child.id, {
-            extensions: { remove: [extension, ...mainOnly] },
-            instructions: `You are the subagent "${name}", working for the main agent. Do the task you are given and answer with what you found or did. Your answer is reported to the main agent, so make it complete and self-contained.`
-          });
-          state.agents[name] = { conversationId: child.id, reported: [] };
-        }
+        if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
 
-        const conversationId = state.agents[name]!.conversationId;
-        const { provider, modelId, thinkingLevel } = model();
-        await configure(tx, conversationId, { model: { provider, modelId }, thinkingLevel });
+        const conversationId =
+          action === "spawn" ? await register(tx, api.conversationId, name) : state.agents[name]!.conversationId;
 
         const input = {
           name,
@@ -286,7 +318,7 @@ export function subagentExtension(
           followUp: action === "send" && followUp === true
         };
 
-        const reporter = await tx.createTask(Reporter, input, background);
+        const reporter = await deliver(tx, api.conversationId, input, model());
         state.reporters[api.taskId] = reporter;
         reporterId = String(reporter);
 
@@ -319,7 +351,36 @@ export function subagentExtension(
     tools: [tool]
   });
 
-  return extension;
+  /** A fresh child conversation, configured as a subagent and registered under `name`, replacing any before it. */
+  async function register(tx: Tx, owner: ConversationId, name: string): Promise<ConversationId> {
+    const state = await tx.doc(Subagents, owner);
+    const anchor = await tx.createTask(Anchor, null, background(owner));
+    const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+    await configure(tx, child.id, {
+      extensions: { remove: [extension, ...mainOnly] },
+      instructions: `You are the subagent "${name}", working for the main agent. Do the task you are given and answer with what you found or did. Your answer is reported to the main agent, so make it complete and self-contained.`
+    });
+    state.agents[name] = { conversationId: child.id, reported: [] };
+
+    return child.id;
+  }
+
+  /** Message a subagent on `setting`: a reporter task delivers it and reports the answer to `owner`. */
+  async function deliver(tx: Tx, owner: ConversationId, input: ReporterInput, setting: SlotSetting): Promise<TaskId> {
+    const { provider, modelId, thinkingLevel } = setting;
+    await configure(tx, input.conversationId, { model: { provider, modelId }, thinkingLevel });
+
+    return tx.createTask(Reporter, input, background(owner));
+  }
+
+  const spawn: Spawn = async (tx, owner, { name, message, model: setting, feedId, label }) => {
+    const conversationId = await register(tx, owner, name);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label }, setting);
+
+    return conversationId;
+  };
+
+  return { extension, spawn };
 }
 
 /**

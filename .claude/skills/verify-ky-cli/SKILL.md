@@ -1,6 +1,6 @@
 ---
 name: verify-ky-cli
-description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, runner/, or anything else a machine task or the socket protocol goes through.
+description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, src/skills.ts, src/automations.ts, runner/, or anything else a machine task, skill, automation or the socket protocol goes through.
 ---
 
 # Verify ky from the CLI
@@ -55,6 +55,11 @@ Run these before driving. None of them changes anything.
   curl -fsS -X POST -H 'Authorization: Bearer ky-stack-token' 'http://127.0.0.1:8790/test/mac?up=1'
   ```
 - When adding a scenario, write it as a check of what the user sees: task status, history and turns. Don't check internals.
+
+## Features
+
+`features/README.md` maps each feature area (chat, machine tasks, skills, automations) to the scenarios that drive it
+and says what the harness can't reach. After adding a scenario, add its row there.
 
 ## Evidence
 

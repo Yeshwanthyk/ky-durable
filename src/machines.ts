@@ -64,6 +64,7 @@ export class MachineHub {
   readonly #files: FileStore;
   readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
+  #wanted: (task: string) => boolean = () => true;
 
   constructor(
     sql: SqlStorage,
@@ -184,9 +185,10 @@ export class MachineHub {
     );
   }
 
-  /** The harness reports go to; set once it exists. */
-  attach(harness: PiHarness): void {
+  /** The harness reports go to, set once it exists; a task's report is dropped once its work is not `wanted`. */
+  attach(harness: PiHarness, wanted: (task: string) => boolean = () => true): void {
     this.#harness = harness;
+    this.#wanted = wanted;
   }
 
   online(machine: string): boolean {
@@ -300,18 +302,24 @@ export class MachineHub {
       });
   }
 
-  /** Start a task for the conversation `parent`, which hears how it ends. */
-  start(machine: string, title: string, prompt: string, id: string, parent: string): TaskRow {
+  /**
+   * Start a task for the conversation `parent`, which hears how it ends. A
+   * repeated id returns the task it already started, without running it again.
+   */
+  start(machine: string, title: string, prompt: string, id: string, parent: string, source = "chat"): TaskRow {
+    const existed = this.#feed.get(id) !== undefined;
+
     const task = this.#feed.create({
       id,
       kind: "machine",
+      source,
       worker: machine,
       title,
       status: "queued",
       session: null
     });
 
-    if (task.status === "queued") {
+    if (!existed) {
       this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
       this.#sentBy(id, 1, parent);
       this.#enqueue(machine, { type: "run", task: id, turn: 1, prompt, session: null });
@@ -506,16 +514,19 @@ export class MachineHub {
     ).toArray();
 
     for (const report of owed) {
-      try {
-        await this.#harness.submit(report.text, {
-          session: report.session,
-          operationId: `task:${report.task}:${report.turn}:${report.session}`,
-          whenBusy: "steer"
-        });
-      } catch (error) {
-        // Kept, and posted again when the object next starts.
-        console.warn(`report for ${report.task} turn ${report.turn} not posted`, error);
-        continue;
+      // A report nobody wants any more, like a paused automation's, is forgotten unposted.
+      if (this.#wanted(report.task)) {
+        try {
+          await this.#harness.submit(report.text, {
+            session: report.session,
+            operationId: `task:${report.task}:${report.turn}:${report.session}`,
+            whenBusy: "steer"
+          });
+        } catch (error) {
+          // Kept, and posted again when the object next starts.
+          console.warn(`report for ${report.task} turn ${report.turn} not posted`, error);
+          continue;
+        }
       }
 
       this.#sql.exec(

@@ -4,6 +4,7 @@ import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
 import { currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
+import { AutomationsContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/Changes";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
@@ -150,33 +151,35 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
 function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
   return (
     <PanelSlot panel={panel}>
-      <Panel
-        name={NAME}
-        variantId={KY_BLOB[view.theme]}
-        active={ky.running || view.working > 0}
-        status={view.status}
-        model={view.mainModel}
-        tasks={ky.tasks}
-        machines={ky.machines}
-        running={toolLabels(ky.tools, ky.messages)}
-        catalog={ky.catalog}
-        session={view.session}
-        now={now}
-        settings={ky.settings}
-        skills={ky.skills}
-        theme={view.theme}
-        onTheme={setTheme}
-        onSetModel={ky.setModel}
-        onSkillChange={ky.changeSkill}
-        onSkillHistory={ky.skillHistory}
-        onOpen={shell.openSession}
-        onStop={ky.stopTask}
-        onStopAll={ky.stopAll}
-        onSetMachine={ky.setMachine}
-        onClose={() => panel.setOpen(false)}
-        tab={panel.tab}
-        onTab={panel.setTab}
-      />
+      <AutomationsContext.Provider value={{ automations: ky.automations, onAction: ky.changeAutomation }}>
+        <Panel
+          name={NAME}
+          variantId={KY_BLOB[view.theme]}
+          active={ky.running || view.working > 0}
+          status={view.status}
+          model={view.mainModel}
+          tasks={ky.tasks}
+          machines={ky.machines}
+          running={toolLabels(ky.tools, ky.messages)}
+          catalog={ky.catalog}
+          session={view.session}
+          now={now}
+          settings={ky.settings}
+          skills={ky.skills}
+          theme={view.theme}
+          onTheme={setTheme}
+          onSetModel={ky.setModel}
+          onSkillChange={ky.changeSkill}
+          onSkillHistory={ky.skillHistory}
+          onOpen={shell.openSession}
+          onStop={ky.stopTask}
+          onStopAll={ky.stopAll}
+          onSetMachine={ky.setMachine}
+          onClose={() => panel.setOpen(false)}
+          tab={panel.tab}
+          onTab={panel.setTab}
+        />
+      </AutomationsContext.Provider>
     </PanelSlot>
   );
 }

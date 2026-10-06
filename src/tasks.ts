@@ -62,7 +62,8 @@ const STEPS_KEPT = 5;
 
 const LIVE: readonly TaskStatus[] = ["queued", "working"];
 
-const isLive = (status: TaskStatus) => LIVE.includes(status);
+/** Queued or working: not over yet. */
+export const isLive = (status: TaskStatus) => LIVE.includes(status);
 
 /** Columns added after ky_tasks was first made, with their types. */
 const ADDED = [
@@ -155,6 +156,11 @@ export class TaskFeed {
       kind,
       worker
     )[0];
+  }
+
+  /** The newest task started for a reason, such as `automation:<id>`. */
+  latestFrom(source: string): TaskRow | undefined {
+    return this.#rows("SELECT * FROM ky_tasks WHERE source = ? ORDER BY created_at DESC LIMIT 1", source)[0];
   }
 
   /** A worker's queued and working tasks, oldest first. */

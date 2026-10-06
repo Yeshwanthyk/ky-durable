@@ -85,7 +85,7 @@ A cite points at the code that does the work.
 |---|---|---|---|---|
 | memory-note | memory_note remembers a note and memory_recall finds it. | src/memory.ts:375 | local | W features › remembers a note and recalls it |
 | memory-nap | memory_nap saves a compression, memory_zoom opens it, and memory_forget drops it. | src/memory.ts:404, src/memory.ts:421, src/memory.ts:428 | local | W features › asks for a compression, saves it, opens it into its memories, and forgets it |
-| skills-tools | skill_manage creates, patches and reverts a skill, keeping every version, and skill_view opens it and counts the use. | src/skills.ts:454, src/skills.ts:426 | local | W skills › creates, opens, patches and reverts a skill, keeping every version |
+| skills-tools | skill_manage creates, patches and reverts a skill, keeping every version, and skill_view opens it and counts the use. | src/skills.ts:454, src/skills.ts:426 | local | W skills › creates, opens, patches and reverts a skill, keeping every version; H skills |
 | skills-refuse | skill_manage refuses a bad name, a duplicate, and a patch that does not match exactly once. | src/skills.ts:96 | local | W skills › refuses a bad name, a duplicate, and a patch that does not match once |
 | skills-index | Active skills are listed in the system prompt; archived ones are not. | src/skills.ts:396 | local | W skills › lists active skills in the system prompt, and drops archived ones |
 | skills-review | A turn with enough tool calls is reviewed in a fork that may only call the skill tools, shown in the task feed. | src/skills.ts:404, src/skills.ts:418 | local | W skills › reviews a busy turn in a fork that may only touch skills |
@@ -148,6 +148,24 @@ A cite points at the code that does the work.
 | runner-keepalive-race | A keepalive hello sent before a run arrived does not end that run. | src/machines.ts:247 | local | W runner-protocol › keeps a run that a keepalive hello raced |
 | runner-one-socket | One socket per machine: a second runner's hello replaces the first, which exits. | src/sockets.ts:296, runner/ky-runner.ts:197 | local | W runner-protocol › keeps one socket per machine: a second runner's hello replaces the first |
 
+## Automations
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| automation-create | The automation tool makes a recurring automation (cron in UTC) from chat and books its schedule. | src/automations.ts:197 | local | W automations › creates an automation from chat and books its schedule |
+| automation-run | A run is a background subagent task `a-<id>-<slot>` with source `automation:<id>`, on the automation's own model, and its result reaches the chat once. | src/automations.ts:391 | local | W automations › runs an automation on its own model and reports once to the chat that made it; H automation-run |
+| automation-one-per-slot | A slot that fires again, during its run or after an eviction, starts no second task and posts no second report. | src/automations.ts:337, src/automations.ts:361 | local | W automations › runs one task and one report when a slot fires again during its run and after an eviction |
+| automation-model | A model that is not offered is refused with the choices; an automation without one runs on the subagents slot. | src/automations.ts:487, src/automations.ts:494 | local | W automations › refuses a model that is not offered and runs a model-less automation on the subagents slot |
+| automation-overlap | A slot is skipped while the automation's last run is still queued or working. | src/automations.ts:368 | local | W automations › skips a slot while the last run is still working |
+| automation-pause | Pause stops the live run, books nothing more, and keeps its report out of the chat; resume books from now. | src/automations.ts:471, src/subagents.ts:207, src/machines.ts:518 | local | W automations › pause stops the live run and books nothing more; resume books from now; W automations › a one-off paused while it fires stays paused and posts no report |
+| automation-update | Update saves the change and rebooks the schedule; a bad cron is refused and the old booking kept. | src/automations.ts:229 | local | W automations › update rebooks the schedule |
+| automation-archive | Archive cancels the schedule; unarchive brings the automation back paused. | src/automations.ts:268, src/automations.ts:294 | local | W automations › archive cancels the schedule; unarchive brings it back paused |
+| automation-recover | When the object starts, an active automation whose schedule was lost is booked again. | src/automations.ts:325 | local | W automations › books lost schedules again when the object starts |
+| automation-machine | An automation with a machine runs there as a machine task, enqueued once per slot even when the slot fires twice; on a machine the user paused or turned off, the run fails and says why. | src/automations.ts:435, src/machines.ts:322 | local | W automations › a machine automation enqueues its run once when a slot fires twice; W automations › a machine automation on a machine the user paused fails its run and queues nothing; H automation-machine |
+| automation-self | ky can schedule a one-off for itself; it runs once, reports, and ends done. | src/automations.ts:461, src/prompt.ts:24 | local | W automations › ky schedules a one-off for itself, which runs, reports, and ends done; W automations › a one-off whose slot already ran ends done, and resuming it is refused |
+| automation-chat | Runs report to the chat that made the automation, or the one named; an archived side chat is unarchived, and a deleted one falls back to the main chat. | src/automations.ts:378 | local | W automations › reports to the side chat that made it, unarchiving it if needed |
+| automation-activity | Activity lists active and paused automations with their schedule, next and last run, and Pause, Resume and Archive. | src/ui/Automations.tsx:81, src/sockets.ts:187 | local | P pauses, resumes and archives an automation from Activity |
+
 ## Live-only
 
 These need a real outside service, so the local gate can't cover them.
@@ -169,6 +187,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 78.
+- Local features: 102.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.
