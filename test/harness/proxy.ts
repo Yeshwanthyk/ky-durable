@@ -8,8 +8,8 @@ import { freePort } from "./stack.ts";
  * The network between a runner and the stack, which the harness can break
  * on purpose: hold the runner's reports, drop some, cut the connection, or
  * refuse new ones. Everything else passes through untouched, HTTP included
- * (ky-attach uploads through it). This is how the Quint traps' message
- * orders are made deterministic without touching the runner.
+ * (ky-attach uploads through it), so reconnects are tested without touching
+ * the runner.
  */
 
 export type Gate = "accept" | "stall" | "refuse";

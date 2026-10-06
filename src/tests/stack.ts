@@ -13,7 +13,6 @@ import { createProvider } from "@earendil-works/pi-ai/models";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
-import { FakeBrowser } from "./fake-browser";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
 
@@ -26,7 +25,7 @@ import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
  * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
  *   then fake-vibeproxy.ts answers as Claude;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
- * - Browser Rendering is FakeBrowser, a CDP fake.
+ * - Browser Rendering is left out: a launch is refused.
  *
  * The faux model answers from the transcript alone, so it gives the same
  * answer after an eviction as before it:
@@ -35,8 +34,7 @@ import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
  *   tools, which wait until the test releases them.
  * - `spawn NAME MESSAGE` spawns a subagent; `machine PROMPT` runs a task on
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
- * - `executor CODE` runs CODE on Executor; `browse URL` browses it, and
- *   `browse-wait URL N` browses it with N ten-second waits.
+ * - `executor CODE` runs CODE on Executor.
  * - `tool NAME JSON` calls any tool with those arguments.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
@@ -66,7 +64,6 @@ export type FauxCall = { model: string; reasoning: string | null; apiKey: string
 /** The test boundary, with its fakes in reach. */
 export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
-  readonly browserFake: FakeBrowser;
   readonly calls: FauxCall[];
 };
 
@@ -120,11 +117,6 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => AssistantMessage]> = [
   [/^spawn (\S+) (.+)$/s, (match) => call("subagent", { action: "spawn", name: match[1]!, message: match[2]! })],
   [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
   [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
-  [
-    /^browse-wait (\S+) (\d+)$/,
-    (match) => call("browse", { url: match[1]!, steps: Array.from({ length: Number(match[2]) }, () => ({ do: "wait", value: "10000" })) })
-  ],
-  [/^browse (\S+)$/, (match) => call("browse", { url: match[1]! })],
   // SAFETY: the tests write a JSON object after the tool name; a bad one fails the turn loudly.
   [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
   [/^gate$/, () => call("gate", {})],
@@ -207,7 +199,6 @@ export class PiAgent extends ProductionAgent {
     // Runs as the first field initializer: only ctx and env are set.
     const storage = this.ctx.storage;
     const executorFake = new FakeExecutor(EXECUTOR_TOKEN);
-    const browserFake = new FakeBrowser();
     const calls: FauxCall[] = [];
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
@@ -251,11 +242,10 @@ export class PiAgent extends ProductionAgent {
       },
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
       probeTtlMs: 0,
-      browser: browserFake.binding,
+      browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
       executor: { url: "https://executor.test/mcp", token: EXECUTOR_TOKEN, fetch: executorFake.fetch },
       extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       executorFake,
-      browserFake,
       calls
     };
   }
