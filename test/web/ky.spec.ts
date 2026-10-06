@@ -390,6 +390,26 @@ test("shows what a machine task is doing, then how long it took and what it cost
   await expect(panel(page).getByRole("list", { name: "Recent steps" })).toContainText("Running pnpm build");
 });
 
+test("shows a task without its markdown, and its machine and time each on one line", async ({ page }) => {
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+  await send(page, `machine@webmac **Lint** the *web* app ${id}`);
+  const name = new RegExp(`Lint the web app ${id}`);
+  const card = panel(page).getByRole("button", { name }).first();
+  await expect(card).toContainText("1 turn · $0.01");
+  await expect(card).not.toContainText("*");
+
+  // Squeezed, the machine and the time used to wrap mid-word onto two lines.
+  for (const token of [card.getByText("webmac", { exact: true }), card.getByText(/^\d{1,2}:\d{2}/)]) {
+    expect((await token.boundingBox())?.height).toBeLessThan(24);
+  }
+
+  await card.click();
+  const item = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name }) });
+  await expect(item.getByText("web", { exact: true })).toBeVisible();
+  await expect(item).not.toContainText("*");
+});
+
 test("stops a machine task from Activity", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [delay=60000] a long web job");

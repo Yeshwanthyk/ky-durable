@@ -1,13 +1,17 @@
 import type { MachineInfo, TaskRow } from "../protocol";
 import { duration } from "./duration";
+import { plain } from "./plain";
 
 /** How long a working task may go without a step before the card says it has gone quiet. */
 const QUIET_AFTER_MS = 3 * 60_000;
 
 export const isLive = (task: TaskRow) => task.status === "queued" || task.status === "working";
 
+/** The newest step's text, without its markdown. */
+const newestStep = (task: TaskRow) => plain(task.steps.at(-1)?.text ?? "");
+
 /** What the task is doing now: its newest step, while it is live. */
-export const currentStep = (task: TaskRow) => (isLive(task) ? task.steps.at(-1)?.text : undefined);
+export const currentStep = (task: TaskRow) => (isLive(task) ? newestStep(task) || undefined : undefined);
 
 /** How long it has run: to now while it is live, to its finish once it is over. */
 export function elapsed(task: TaskRow, now: number): string | null {
@@ -43,9 +47,9 @@ const turnsOf = (turns: number | null) => (turns === null ? null : `${turns} ${t
 /** Dollars, to the cent, or to a tenth of one below a cent. */
 const dollars = (cost: number | null) => (cost ? `$${cost.toFixed(cost < 0.01 ? 3 : 2)}` : null);
 
-/** What a finished task cost, quietly: how long, how many model turns, and how much. */
-export function spendLine(task: TaskRow, now: number): string {
-  return [elapsed(task, now), turnsOf(task.turns), dollars(task.cost_usd)].filter((part) => part !== null).join(" · ");
+/** What a finished task cost, quietly: how long, how many model turns, and how much, each its own token. */
+export function spendParts(task: TaskRow, now: number): string[] {
+  return [elapsed(task, now), turnsOf(task.turns), dollars(task.cost_usd)].filter((part) => part !== null);
 }
 
 /** The newest step of the work going on in the background, for the topbar: "webmac: Editing x.ts". */
@@ -57,5 +61,5 @@ export function backgroundLine(tasks: readonly TaskRow[]): string | null {
 
   const others = tasks.filter((task) => task.status === "working").length - 1;
 
-  return `${newest.worker}: ${newest.steps.at(-1)!.text}${others > 0 ? ` · ${others} more` : ""}`;
+  return `${newest.worker}: ${newestStep(newest)}${others > 0 ? ` · ${others} more` : ""}`;
 }
