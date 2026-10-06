@@ -8,6 +8,7 @@ import type { MachineState } from "./machines";
 import type { MachineFacts } from "./runner-protocol";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
 import type { SkillChange, SkillRow } from "./skills";
+import type { MemoryView } from "./memory";
 import type { SoulChange, SoulView } from "./soul";
 import type { TaskRow } from "./tasks";
 
@@ -92,6 +93,12 @@ export type PiClientMessage =
   | { readonly type: "soul-change"; readonly id?: string; readonly change: SoulChange }
   /** SOUL.md's versions, newest first, as the result. */
   | { readonly type: "soul-history"; readonly id?: string }
+  /** Answers with a MemorySearch. */
+  | { readonly type: "memory-search"; readonly id?: string; readonly query: string }
+  /** Answers with a block's two halves, as MemoryItems. */
+  | { readonly type: "memory-zoom"; readonly id?: string; readonly block: string }
+  /** Drops a block's summary and those above it, for the agent to rebuild. */
+  | { readonly type: "memory-forget"; readonly id?: string; readonly block: string }
   /** Create an automation as the user, or change one by its id; the result is `{ refused }` when it cannot be saved. */
   | { readonly type: "automation-save"; readonly id?: string; readonly automation?: string; readonly draft: AutomationDraft }
   /** Pause, resume, archive, run or delete an automation, by its id; the result is what happened, as text. */
@@ -142,6 +149,7 @@ export type PiServerMessage =
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** SOUL.md, ky's persona; sent on connect and on change. */
   | { readonly type: "soul"; readonly soul: SoulView }
+  | { readonly type: "memory"; readonly memory: MemoryView }
   /** The active and paused automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
@@ -161,6 +169,7 @@ export type { ChatRow } from "./chats";
 
 export type { SkillChange, SkillRow, SkillVersion } from "./skills";
 
+export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./memory";
 export type { SoulChange, SoulVersion, SoulView } from "./soul";
 
 export type { FileRow } from "./files";

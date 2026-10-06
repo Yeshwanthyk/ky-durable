@@ -147,7 +147,7 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
   );
 }
 
-// ky's panel, activity, skills, soul and settings, in its slot.
+// ky's panel, activity, skills, soul and memory, and settings, in its slot.
 function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
   return (
     <PanelSlot panel={panel}>
@@ -176,6 +176,8 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           settings={ky.settings}
           skills={ky.skills}
           soul={ky.soul}
+          memory={ky.memory}
+          memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
           theme={view.theme}
           onTheme={setTheme}
           onSetModel={ky.setModel}

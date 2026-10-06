@@ -24,6 +24,7 @@ import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations";
 import type { ChatList } from "./chats";
 import type { Skills } from "./skills";
+import type { Memory } from "./memory";
 import type { Soul } from "./soul";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
@@ -118,6 +119,7 @@ export class PiSessionSockets {
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
+  readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
@@ -135,6 +137,7 @@ export class PiSessionSockets {
     chats: ChatList,
     skills: Skills,
     soul: Soul,
+    memory: Memory,
     automations: Automations,
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
@@ -150,6 +153,7 @@ export class PiSessionSockets {
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
+    this.#memory = memory;
     this.#automations = automations;
     this.#newChat = newChat;
     this.#version = version;
@@ -167,6 +171,11 @@ export class PiSessionSockets {
     });
     soul.onChange(() => {
       const message = this.#soulMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    memory.onChange(() => {
+      const message = this.#memoryMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -189,6 +198,10 @@ export class PiSessionSockets {
 
   #soulMessage(): PiServerMessage {
     return { type: "soul", soul: this.#soul.view() };
+  }
+
+  #memoryMessage(): PiServerMessage {
+    return { type: "memory", memory: this.#memory.view() };
   }
 
   /** The active and paused automations, each with the chat it reports to by name. */
@@ -330,6 +343,7 @@ export class PiSessionSockets {
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
+    send(connection, this.#memoryMessage());
     send(connection, await this.#automationsMessage());
     await this.#watch(connection, session);
   }
@@ -551,6 +565,12 @@ export class PiSessionSockets {
         return this.#soul.apply(message.change, "user");
       case "soul-history":
         return this.#soul.history();
+      case "memory-search":
+        return this.#memory.search(message.query);
+      case "memory-zoom":
+        return this.#memory.children(message.block);
+      case "memory-forget":
+        return this.#memory.forget(message.block);
       case "automation":
         return await this.#automation(message);
       case "automation-save":

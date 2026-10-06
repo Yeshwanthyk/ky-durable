@@ -221,6 +221,7 @@ export class PiAgent extends DurableObject<Env> {
     this.chats,
     this.skills,
     this.soul,
+    this.memory,
     this.automations,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id

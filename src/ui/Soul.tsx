@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { SoulChange, SoulVersion, SoulView } from "../protocol";
+import type { MemoryView, SoulChange, SoulVersion, SoulView } from "../protocol";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
+import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
 import { ago } from "./time";
 
 const since = (time: number, now: number) => {
@@ -21,19 +22,24 @@ const stamp = (time: number) => {
 
 type Mode = "read" | "edit" | "history";
 
-// ky's persona: an Edit pill and the SOUL card; either opens SOUL.md in a sheet.
+// ky's persona and memory: an Edit pill, the SOUL card and the MEMORY card, each opening its sheet.
 export function Soul({
   soul,
   now,
   onChange,
   onHistory,
+  memory,
+  memoryActions,
 }: {
   soul: SoulView | null;
   now: number;
   onChange: (change: SoulChange) => void;
   onHistory: () => Promise<readonly SoulVersion[]>;
+  memory: MemoryView | null;
+  memoryActions: MemoryActions;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
+  const [remembering, setRemembering] = useState(false);
 
   return (
     <div className="panel-body soul" data-scroll>
@@ -55,7 +61,11 @@ export function Soul({
             <Icon name="heart" size={18} />
           </span>
         </button>
+        <MemoryCard memory={memory} onOpen={() => setRemembering(true)} />
       </div>
+      {memory !== null && remembering ? (
+        <MemorySheet memory={memory} onClose={() => setRemembering(false)} {...memoryActions} />
+      ) : null}
       {soul !== null && mode !== null ? (
         <SoulSheet
           soul={soul}
