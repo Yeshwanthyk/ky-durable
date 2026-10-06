@@ -111,7 +111,14 @@ const DESCRIBE = new Map<string, (args: Args) => Activity>([
   ["subagent", subagentTool],
   ["machine", machineTool],
   ["skill_view", (args) => ({ icon: "list", label: args.history ? `Checking ${text(args.name)} history` : `Reading ${text(args.name)} skill` })],
-  ["skill_manage", (args) => ({ icon: "pencil", label: `Updating ${text(args.name)} skill` })]
+  ["skill_manage", (args) => ({ icon: "pencil", label: `Updating ${text(args.name)} skill` })],
+  [
+    "soul_edit",
+    (args) => ({
+      icon: "pencil",
+      label: args.action === "view" || args.action === "history" ? "Reading SOUL.md" : "Updating SOUL.md"
+    })
+  ]
 ]);
 
 /** Tools with one fixed label. */

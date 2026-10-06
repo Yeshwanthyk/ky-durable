@@ -315,6 +315,35 @@ describe("skills panel", () => {
   });
 });
 
+describe("soul panel", () => {
+  it("sends SOUL.md on connect and on change, and takes the user's edits and history", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const soul = () => latest(main.client, "soul")?.soul;
+    expect(soul()).toMatchObject({ version: 1 });
+    expect(soul()?.body).toContain("# SOUL.md");
+
+    await command(main.socket, main.client, { type: "soul-change", change: { action: "edit", body: "# SOUL.md\nBe brief." } });
+    await main.client.until(() => soul()?.body === "# SOUL.md\nBe brief.");
+
+    await prompt(name, `tool soul_edit ${JSON.stringify({ action: "patch", old: "brief", new: "kind" })}`);
+    await main.client.until(() => soul()?.body === "# SOUL.md\nBe kind.");
+
+    expect(await command(main.socket, main.client, { type: "soul-history" })).toMatchObject({
+      type: "result",
+      result: [
+        { action: "patch", actor: "agent" },
+        { action: "edit", actor: "user" },
+        { action: "create", actor: "template" }
+      ]
+    });
+    expect(
+      await command(main.socket, main.client, { type: "soul-change", change: { action: "revert", version: 99 } })
+    ).toMatchObject({ type: "error" });
+    main.socket.close();
+  });
+});
+
 describe("settings", () => {
   it("stores a slot's model across restarts and refuses one that does not exist", async () => {
     const name = crypto.randomUUID();

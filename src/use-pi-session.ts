@@ -17,6 +17,9 @@ import type {
   SkillChange,
   SkillRow,
   SkillVersion,
+  SoulChange,
+  SoulVersion,
+  SoulView,
   Slot,
   SlotSetting,
   TaskRow,
@@ -38,6 +41,8 @@ type State = SessionView & {
   readonly chats: readonly ChatRow[];
   /** ky's skills, active ones first. */
   readonly skills: readonly SkillRow[];
+  /** SOUL.md, ky's persona; null until the server sends it. */
+  readonly soul: SoulView | null;
   /** Active and paused automations, newest first. */
   readonly automations: readonly AutomationInfo[];
   /** Model choices; null until the server sends them. */
@@ -55,6 +60,7 @@ const INITIAL_STATE: State = {
   files: [],
   chats: [],
   skills: [],
+  soul: null,
   automations: [],
   settings: null,
   updated: false
@@ -149,6 +155,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, skills: message.skills }));
 
           return;
+        case "soul":
+          setState((current) => ({ ...current, soul: message.soul }));
+
+          return;
         case "automations":
           setState((current) => ({ ...current, automations: message.automations }));
 
@@ -183,6 +193,7 @@ export function usePiSession(session: string) {
       files: current.files,
       chats: current.chats,
       skills: current.skills,
+      soul: current.soul,
       automations: current.automations,
       settings: current.settings,
       updated: current.updated
@@ -286,6 +297,24 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Change SOUL.md as the user. */
+  const changeSoul = useCallback(
+    (change: SoulChange) => send({ type: "soul-change", id: crypto.randomUUID(), change }),
+    [send]
+  );
+
+  /** SOUL.md's versions, newest first. */
+  const soulHistory = useCallback(
+    () =>
+      new Promise<readonly SoulVersion[]>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers soul-history with SOUL.md's versions.
+        waiting.current.set(id, (result) => resolve(result as readonly SoulVersion[]));
+        send({ type: "soul-history", id });
+      }),
+    [send]
+  );
+
   /** Create an automation as the user, or change one; resolves with why it was refused, if it was. */
   const saveAutomation = useCallback(
     (automation: string | undefined, draft: AutomationDraft) =>
@@ -319,6 +348,8 @@ export function usePiSession(session: string) {
     archiveChat,
     changeSkill,
     skillHistory,
+    changeSoul,
+    soulHistory,
     changeAutomation,
     saveAutomation
   };

@@ -53,6 +53,10 @@ const ServerFrame = Type.Union([
   }),
   Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
+  Type.Object({
+    type: Type.Literal("soul"),
+    soul: Type.Object({ body: Type.String(), version: Type.Number(), updated_at: Type.Number() })
+  }),
   Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation) }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("result"), id: Type.String(), result: Json }),

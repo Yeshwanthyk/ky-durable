@@ -82,6 +82,18 @@ function describe(name: string, args: JsonObject): Pick<Tool, "category" | "summ
 
     case "skill_view":
       return { category: "research", summary: `Read skill ${text(args.name)}`, input: JSON.stringify(args, null, 2) };
+    case "soul_edit": {
+      const action = text(args.action);
+
+      return action === "view" || action === "history"
+        ? { category: "research", summary: "Read SOUL.md", input: "" }
+        : {
+            category: "change",
+            summary: `${action.replace(/^./, (c) => c.toUpperCase())} SOUL.md`,
+            input: text(args.body) || text(args.new) || JSON.stringify(args, null, 2)
+          };
+    }
+
     case "skill_manage":
       return {
         category: "change",
