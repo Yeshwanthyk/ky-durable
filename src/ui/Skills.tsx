@@ -9,6 +9,8 @@ const since = (time: number, now: number) => {
   return text === "now" ? text : `${text} ago`;
 };
 
+const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
+
 // ky's skills: what each is for and how it reads, with editing, archiving, and going back a version.
 export function Skills({
   skills,
@@ -100,7 +102,7 @@ function SkillItem({
       <div className="expand" inert={!open}>
         <div className="expand-inner skill-detail">
           <p className="row-sub">
-            Used {skill.uses} {skill.uses === 1 ? "time" : "times"} · changed {since(skill.updated_at, now)}
+            Used {times(skill.uses)} · changed {since(skill.updated_at, now)}
           </p>
           {mode === "edit" ? (
             <SkillForm
@@ -112,64 +114,103 @@ function SkillItem({
               }}
             />
           ) : mode === "history" ? (
-            <ul className="skill-versions" aria-label={`${skill.name} versions`}>
-              {versions === null ? <li className="row-sub">Loading…</li> : null}
-              {versions?.map((version, index) => (
-                <li key={version.id}>
-                  <span className="row-text">
-                    <span>
-                      v{version.id} · {version.action} by {version.actor}
-                    </span>
-                    <span className="row-sub">{since(version.created_at, now)}</span>
-                  </span>
-                  {index === 0 ? (
-                    <span className="row-sub">Current</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="pill"
-                      onClick={() => {
-                        onChange({ action: "revert", name: skill.name, version: version.id });
-                        setMode("read");
-                      }}
-                    >
-                      Revert
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <SkillVersions
+              name={skill.name}
+              versions={versions}
+              now={now}
+              onRevert={(version) => {
+                onChange({ action: "revert", name: skill.name, version });
+                setMode("read");
+              }}
+            />
           ) : (
             <pre className="skill-body">{skill.body}</pre>
           )}
-          {mode === "edit" ? null : (
-            <div className="skill-actions">
-              {mode === "history" ? (
-                <button type="button" className="pill" onClick={() => setMode("read")}>
-                  Back
-                </button>
-              ) : (
-                <>
-                  <button type="button" className="pill" onClick={() => setMode("edit")}>
-                    Edit
-                  </button>
-                  <button type="button" className="pill" onClick={showHistory}>
-                    History
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                className="pill"
-                onClick={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
-              >
-                {archived ? "Restore" : "Archive"}
-              </button>
-            </div>
-          )}
+          <SkillActions
+            mode={mode}
+            archived={archived}
+            onMode={setMode}
+            onHistory={showHistory}
+            onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
+          />
         </div>
       </div>
     </li>
+  );
+}
+
+function SkillActions({
+  mode,
+  archived,
+  onMode,
+  onHistory,
+  onArchive,
+}: {
+  mode: Mode;
+  archived: boolean;
+  onMode: (mode: Mode) => void;
+  onHistory: () => void;
+  onArchive: () => void;
+}) {
+  // The form has its own buttons.
+  if (mode === "edit") return null;
+
+  return (
+    <div className="skill-actions">
+      {mode === "history" ? (
+        <button type="button" className="pill" onClick={() => onMode("read")}>
+          Back
+        </button>
+      ) : (
+        <>
+          <button type="button" className="pill" onClick={() => onMode("edit")}>
+            Edit
+          </button>
+          <button type="button" className="pill" onClick={onHistory}>
+            History
+          </button>
+        </>
+      )}
+      <button type="button" className="pill" onClick={onArchive}>
+        {archived ? "Restore" : "Archive"}
+      </button>
+    </div>
+  );
+}
+
+// A skill's versions, newest first; any but the current one can be restored.
+function SkillVersions({
+  name,
+  versions,
+  now,
+  onRevert,
+}: {
+  name: string;
+  versions: readonly SkillVersion[] | null;
+  now: number;
+  onRevert: (version: number) => void;
+}) {
+  return (
+    <ul className="skill-versions" aria-label={`${name} versions`}>
+      {versions === null ? <li className="row-sub">Loading…</li> : null}
+      {versions?.map((version, index) => (
+        <li key={version.id}>
+          <span className="row-text">
+            <span>
+              v{version.id} · {version.action} by {version.actor}
+            </span>
+            <span className="row-sub">{since(version.created_at, now)}</span>
+          </span>
+          {index === 0 ? (
+            <span className="row-sub">Current</span>
+          ) : (
+            <button type="button" className="pill" onClick={() => onRevert(version.id)}>
+              Revert
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -60,12 +60,38 @@ export type SkillVersion = {
   readonly created_at: number;
 };
 
-export type SkillChange =
-  | { action: "create"; name: string; description: string; body: string }
-  | { action: "edit"; name: string; description?: string; body?: string }
-  | { action: "patch"; name: string; old: string; new: string }
-  | { action: "archive" | "restore"; name: string }
-  | { action: "revert"; name: string; version: number };
+export type SkillAction = "create" | "edit" | "patch" | "archive" | "restore" | "revert";
+
+/** One change to the library; which fields it needs depends on the action. */
+export type SkillChange = {
+  readonly action: SkillAction;
+  readonly name: string;
+  readonly description?: string;
+  readonly body?: string;
+  readonly old?: string;
+  readonly new?: string;
+  readonly version?: number;
+};
+
+/** What a version holds. */
+type Content = { readonly description: string; readonly body: string; readonly status: SkillStatus };
+
+function need<T>(value: T | undefined, message: string): T {
+  if (value === undefined) throw new Error(message);
+
+  return value;
+}
+
+/** The body with one exact passage replaced; the passage must appear exactly once. */
+function patched(skill: SkillRow, old: string, replacement: string): string {
+  const count = skill.body.split(old).length - 1;
+
+  if (old === "" || count === 0) throw new Error(`The text to replace is not in ${skill.name}.`);
+
+  if (count > 1) throw new Error(`The text to replace appears ${count} times in ${skill.name}; quote more of it.`);
+
+  return skill.body.replace(old, () => replacement);
+}
 
 function checkName(name: string): void {
   if (!NAME.test(name)) {
@@ -162,56 +188,44 @@ export class Skills {
 
     if (change.action === "create") {
       if (was) throw new Error(`${change.name} exists; edit or patch it.`);
-      checkText(change.description, change.body);
 
-      return this.#save(change.name, "create", actor, change.description, change.body, "active");
+      return this.#save(change.name, "create", actor, {
+        description: need(change.description, "create needs a description and a body."),
+        body: need(change.body, "create needs a description and a body."),
+        status: "active"
+      });
     }
 
     if (!was) throw new Error(`No skill named ${change.name}.`);
 
+    return this.#save(change.name, change.action, actor, this.#next(change, was));
+  }
+
+  /** What a change to an existing skill makes of it. */
+  #next(change: SkillChange, was: SkillRow): Content {
     switch (change.action) {
-      case "edit": {
-        const description = change.description ?? was.description;
-        const body = change.body ?? was.body;
-        checkText(description, body);
-
-        return this.#save(change.name, "edit", actor, description, body, was.status);
-      }
-
+      case "edit":
+        return { description: change.description ?? was.description, body: change.body ?? was.body, status: was.status };
       case "patch": {
-        const count = was.body.split(change.old).length - 1;
+        const old = need(change.old, "patch needs old and new.");
 
-        if (change.old === "" || count === 0) throw new Error(`The text to replace is not in ${change.name}.`);
-
-        if (count > 1) throw new Error(`The text to replace appears ${count} times in ${change.name}; quote more of it.`);
-        const body = was.body.replace(change.old, () => change.new);
-        checkText(was.description, body);
-
-        return this.#save(change.name, "patch", actor, was.description, body, was.status);
+        return { ...was, body: patched(was, old, need(change.new, "patch needs old and new.")) };
       }
-
-      case "archive":
-      case "restore":
-        return this.#save(
-          change.name,
-          change.action,
-          actor,
-          was.description,
-          was.body,
-          change.action === "archive" ? "archived" : "active"
-        );
 
       case "revert": {
-        const version = this.history(change.name).find((each) => each.id === change.version);
+        const id = need(change.version, "revert needs a version.");
+        const version = this.history(change.name).find((each) => each.id === id);
 
-        if (!version) throw new Error(`${change.name} has no version ${change.version}.`);
-
-        return this.#save(change.name, "revert", actor, version.description, version.body, version.status);
+        return need(version, `${change.name} has no version ${id}.`);
       }
+
+      default:
+        return { ...was, status: change.action === "archive" ? "archived" : "active" };
     }
   }
 
-  #save(name: string, action: string, actor: string, description: string, body: string, status: SkillStatus): string {
+  #save(name: string, action: string, actor: string, { description, body, status }: Content): string {
+    checkText(description, body);
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_skills (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -462,33 +476,7 @@ export function skillsExtension(
         }),
         replay: "unsafe",
         execute: async (args, api) => {
-          const { action, name } = args;
-          let change: SkillChange;
-
-          switch (action) {
-            case "create":
-              if (args.description === undefined || args.body === undefined) {
-                return text("create needs a description and a body.");
-              }
-
-              change = { action, name, description: args.description, body: args.body };
-              break;
-            case "edit":
-              change = { action, name, description: args.description, body: args.body };
-              break;
-            case "patch":
-              if (args.old === undefined || args.new === undefined) return text("patch needs old and new.");
-              change = { action, name, old: args.old, new: args.new };
-              break;
-            case "revert":
-              if (args.version === undefined) return text("revert needs a version.");
-              change = { action, name, version: args.version };
-              break;
-            default:
-              change = { action, name };
-          }
-
-          return text(skills.apply(change, actor(String(api.conversationId))));
+          return text(skills.apply(args, actor(String(api.conversationId))));
         }
       })
     ]
