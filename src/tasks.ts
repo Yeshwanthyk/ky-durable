@@ -221,6 +221,12 @@ export class TaskFeed {
     this.#emit();
   }
 
+  /** The task now runs on `worker`: a machine task moved before it started. */
+  reassign(id: string, worker: string): void {
+    this.#sql.exec("UPDATE ky_tasks SET worker = ?, updated_at = ? WHERE id = ?", worker, Date.now(), id);
+    this.#emit();
+  }
+
   /** The task took a step, such as "Reading tasks.ts"; a task that is over takes none. */
   step(id: string, text: string): void {
     const current = this.get(id);

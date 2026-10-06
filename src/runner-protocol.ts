@@ -54,11 +54,28 @@ const StopCommandSchema = Type.Object({
 
 const RunnerCommandSchema = Type.Union([RunCommandSchema, StopCommandSchema]);
 
-/** Runner → object. `active` lists the tasks with a live session. */
+/** A git repository on the machine: its folder name, and its `origin` remote when it has one. */
+const RepoSchema = Type.Object({ name: Text, remote: Type.Union([Text, Type.Null()]) });
+
+/** What the machine is, for the agent to choose where work goes. */
+const FactsSchema = Type.Object({
+  /** `process.platform`: darwin, linux, win32. */
+  os: Text,
+  /** Tasks drive the user's own Chrome, with its logins. */
+  chrome: Type.Boolean(),
+  repos: Type.Array(RepoSchema)
+});
+
+/**
+ * Runner → object. `active` lists the tasks with a live session. `facts` is
+ * optional, so an older runner and an older object both still understand
+ * each other; the object keeps the last facts it was told.
+ */
 const HelloSchema = Type.Object({
   type: Type.Literal("hello"),
   protocol: Type.Literal(PROTOCOL),
-  active: Type.Array(Text)
+  active: Type.Array(Text),
+  facts: Type.Optional(FactsSchema)
 });
 
 const RunnerReportSchema = Type.Union([
@@ -83,6 +100,8 @@ const RunnerReportSchema = Type.Union([
 export type RunnerCommand = Static<typeof RunnerCommandSchema>;
 
 export type RunnerReport = Static<typeof RunnerReportSchema>;
+
+export type MachineFacts = Static<typeof FactsSchema>;
 
 /** `Omit` applied to each member of a union, so the result stays a union. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

@@ -8,6 +8,7 @@ import {
   follow,
   type Follower,
   gateStarted,
+  inside,
   prompt,
   runner,
   said,
@@ -17,6 +18,7 @@ import {
   TOKEN,
   wait
 } from "./drive";
+import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
 
 /**
@@ -430,6 +432,64 @@ describe("machine tasks", () => {
     await said(name, "Interrupted: the runner restarted.");
     expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "failed" }]);
     restarted.socket.close();
+  });
+
+  it("lets the user choose which machines take work, and tells the agent what each one is", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    const { socket, client } = await session(name);
+    const machine = (who: string) => latest(client, "tasks")?.machines.find((m) => m.name === who);
+
+    // The runner says what it is; the user sees it, and so does the agent.
+    mac.send({
+      type: "hello",
+      protocol: PROTOCOL,
+      active: [],
+      facts: { os: "darwin", chrome: true, repos: [{ name: "ky", remote: "https://github.com/me/ky.git" }] }
+    });
+    await client.until(() => machine("mac")?.facts?.os === "darwin");
+    expect(machine("mac")).toMatchObject({ state: "on", note: "" });
+
+    expect(await command(socket, client, { type: "set-machine", machine: "mac", note: "  logins and Chrome  " })).toMatchObject({ type: "result" });
+    await client.until(() => machine("mac")?.note === "logins and Chrome");
+    const listed = (await prompt(name, `tool machine {"action":"list"}`)).text;
+    expect(listed).toContain("mac: on, online, 0 running or queued, macOS, Chrome with the user's logins");
+    expect(listed).toContain("the user says: logins and Chrome");
+    expect(listed).toContain("repos: ky (https://github.com/me/ky.git)");
+
+    // With two machines on and online, the agent has to choose.
+    const box = await runner(name, "box");
+    await client.until(() => machine("box")?.online === true);
+    expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Name the machine for this task.");
+
+    // A paused machine takes no new task; the agent hears where else it can go.
+    await command(socket, client, { type: "set-machine", machine: "mac", state: "paused" });
+    await client.until(() => machine("mac")?.state === "paused");
+    expect((await prompt(name, "machine build it")).text).toContain("mac is paused: the user is not letting it take new tasks. On and online: box");
+    // Only box is on and online now, so it is chosen.
+    expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Started task");
+    const built = await box.next();
+    expect(built).toMatchObject({ type: "run", prompt: "build it" });
+
+    // A task queued for an offline machine moves before it starts; one that ran stays.
+    expect((await prompt(name, "machine@away later")).text).toContain("it starts when one does). On and online: box");
+    const queued = (await tasks(name)).length;
+    const [waiting] = await inside(name, (instance) => instance.feed.open("machine", "away"));
+    expect((await prompt(name, `tool machine {"action":"move","task":"${waiting!.id}","machine":"box"}`)).text).toContain(`Moved ${waiting!.id} to box.`);
+    expect(await box.next()).toMatchObject({ type: "run", task: waiting!.id, prompt: "later" });
+    expect(await tasks(name)).toHaveLength(queued);
+    expect((await prompt(name, `tool machine {"action":"move","task":"${built.task}","machine":"mac"}`)).text).toContain("mac is paused");
+    await command(socket, client, { type: "set-machine", machine: "mac", state: "on" });
+    expect((await prompt(name, `tool machine {"action":"move","task":"${built.task}","machine":"mac"}`)).text).toContain("its session lives there, so it stays");
+
+    // The agent sets a machine when the user asks; an off machine takes no follow-up.
+    expect((await prompt(name, `tool machine {"action":"set","machine":"box","state":"off"}`)).text).toContain("Set. box: off");
+    expect((await prompt(name, `tool machine {"action":"send","task":"${built.task}","message":"more"}`)).text).toContain("box is off");
+    expect(await command(socket, client, { type: "set-machine", machine: "nowhere", state: "off" })).toMatchObject({ type: "error", message: "No machine nowhere." });
+
+    socket.close();
+    mac.socket.close();
+    box.socket.close();
   });
 
   it("shares a machine task's file, and serves it whole and by range", async () => {

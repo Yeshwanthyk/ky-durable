@@ -6,7 +6,7 @@
  */
 
 import type { HandledSeqs } from "./handled.ts";
-import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
+import { decodeCommand, PROTOCOL, type MachineFacts, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
 import { describeTool } from "../src/tool-labels.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
@@ -107,14 +107,22 @@ export class Runner {
   readonly #log: (line: string) => void;
   readonly #runs = new Map<string, Run>();
   readonly #handled: HandledSeqs;
+  readonly #facts: () => MachineFacts | undefined;
   /** Reports made while disconnected, sent on the next connect. */
   readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
 
-  constructor(spawn: SpawnClaude, log: (line: string) => void, handled: HandledSeqs) {
+  constructor(
+    spawn: SpawnClaude,
+    log: (line: string) => void,
+    handled: HandledSeqs,
+    /** What this machine is, sent with each hello; none when the caller does not say. */
+    facts: () => MachineFacts | undefined = () => undefined
+  ) {
     this.#spawn = spawn;
     this.#log = log;
     this.#handled = handled;
+    this.#facts = facts;
   }
 
   /** Tasks with a live Claude Code session. */
@@ -158,7 +166,11 @@ export class Runner {
   }
 
   #hello(): RunnerReport {
-    return { type: "hello", protocol: PROTOCOL, active: this.active() };
+    const facts = this.#facts();
+
+    return facts
+      ? { type: "hello", protocol: PROTOCOL, active: this.active(), facts }
+      : { type: "hello", protocol: PROTOCOL, active: this.active() };
   }
 
   #report(message: RunnerReport): void {

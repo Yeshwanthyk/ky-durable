@@ -3,9 +3,22 @@ import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
+import type { MachineState } from "./machines";
+import type { MachineFacts } from "./runner-protocol";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
 import type { SkillChange, SkillRow } from "./skills";
 import type { TaskRow } from "./tasks";
+
+/** A machine's OS as people say it; `os` is Node's `process.platform`. */
+export function osName(os: string): string {
+  if (os === "darwin") return "macOS";
+
+  if (os === "linux") return "Linux";
+
+  if (os === "win32") return "Windows";
+
+  return os;
+}
 
 export type MachineInfo = {
   readonly name: string;
@@ -13,6 +26,12 @@ export type MachineInfo = {
   readonly seenAt: number;
   /** Its tasks that are queued or working. */
   readonly active: number;
+  /** Whether the user lets ky give it work. */
+  readonly state: MachineState;
+  /** What the user says it is for, such as "builds and long jobs". */
+  readonly note: string;
+  /** What its runner last said it is; null until a runner that says so connects. */
+  readonly facts: MachineFacts | null;
 };
 
 /**
@@ -44,6 +63,14 @@ export type PiClientMessage =
   | { readonly type: "stop-all"; readonly id?: string }
   /** Send a machine task a message: it steers a working task, or resumes a finished one. */
   | { readonly type: "send-task"; readonly id?: string; readonly task: string; readonly message: string }
+  /** Set whether ky may give a machine work, or what it is for. */
+  | {
+      readonly type: "set-machine";
+      readonly id?: string;
+      readonly machine: string;
+      readonly state?: MachineState;
+      readonly note?: string;
+    }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
