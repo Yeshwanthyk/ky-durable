@@ -143,15 +143,18 @@ async function turn(prompt: string) {
   for (const each of folded) take(each, { folded: 1 });
   const attached = prompt.includes("[attach]") ? `\n${await attach()}` : "";
 
-  if (dying) return;
+  if (!dying) answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${attached}`);
+}
+
+/** End a turn with its one result. */
+function answer(prompt: string, text: string) {
   const failed = prompt.includes("[fail]");
-  const did = [prompt, ...folded].join(" + ");
   turns += 1;
   emit({
     type: "result",
     subtype: failed ? "error_during_execution" : "success",
     is_error: failed,
-    result: `fake claude did: ${did}${attached}`,
+    result: text,
     num_turns: turns,
     total_cost_usd: turns * COST_PER_TURN
   });

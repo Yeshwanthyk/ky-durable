@@ -1,4 +1,5 @@
 import type { TaskRow } from "../../src/protocol.ts";
+import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
 import { machine, type Machine, type Runner } from "./runner.ts";
@@ -165,7 +166,9 @@ export const SCENARIOS: Scenario[] = [
     async run(context) {
       await context.machine("side");
       const { result } = await context.main.command({ type: "new-chat" });
-      const { session } = result as { session: string };
+      const session = decodeNewChat(result);
+
+      if (session === undefined) throw new Error("new-chat answered without a session");
       const side = await connect(context.url, `?session=${session}`);
       context.cleanup.push(() => side.close());
       const task = await startTask(context, "side", "build it from the side", side);

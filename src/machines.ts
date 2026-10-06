@@ -399,6 +399,7 @@ export class MachineHub {
     if (!this.#harness) return;
 
     type Owed = { task: string; turn: number; session: string; text: string };
+
     const owed = (
       task === undefined
         ? this.#sql.exec<Owed>("SELECT * FROM ky_machine_reports ORDER BY task, turn")
@@ -508,6 +509,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
             if (!args.prompt) return reply("run needs a prompt.");
             // Model call ids repeat across turns (Kimi: functions.machine:0); pi's task id does not.
             const id = `m-${String(api.taskId)}`;
+
             const task = hub.start(
               machine,
               args.title ?? summarize(args.prompt).slice(0, 60),

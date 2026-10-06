@@ -88,7 +88,7 @@ class FakeClaude implements ClaudeProcess {
     this.#exited = true;
   }
 
-  #emit(event: Record<string, unknown>): void {
+  #emit(event: Record<string, string | boolean | { role: "user"; content: string }>): void {
     if (!this.#exited) this.#events.line(JSON.stringify(event));
   }
 }
