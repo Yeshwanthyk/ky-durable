@@ -7,5 +7,5 @@ Run a whole area with `pnpm harness <scenario...>`.
 | --- | --- | --- |
 | Chat | [chat.md](chat.md) | `chat`, `side-chat-report` |
 | Machine tasks | [machines.md](machines.md) | `machine-run`, `steps`, `follow-up`, `steer-folded`, `stop`, `screenshot`, `reconnect`, `reconnect-outage`, `trap-*` |
-| Skills | [skills.md](skills.md) | `skills` |
+| Skills | [skills.md](skills.md) | `skills`, `skill-review`, `dreaming` |
 | Automations | [automations.md](automations.md) | `automation-run`, `automation-machine` |

@@ -121,6 +121,20 @@ async function runAutomation(context: Context, id: string): Promise<string> {
   return task!;
 }
 
+/** Ask a test route on the stack, which answers 204 once it is done. */
+async function testRoute(context: Context, route: string): Promise<void> {
+  const response = await fetch(`${context.url}${route}`, { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } });
+
+  if (response.status !== 204) throw new Error(`${route} answered ${response.status}`);
+}
+
+/** The newest task list's rows for a worker. */
+function rowsOf(context: Context, worker: string): TaskRow[] {
+  const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+  return latest?.type === "tasks" ? latest.tasks.filter((row) => row.worker === worker) : [];
+}
+
 /** A terminal status followed by another terminal or reopened status. */
 function flipped(history: readonly string[]): boolean {
   const statuses: string[] = [];
@@ -177,6 +191,53 @@ export const SCENARIOS: Scenario[] = [
       await until("the side chat to read the edited skill", () => side.heard("Run step two."));
       const history = JSON.stringify((await context.main.command({ type: "skill-history", name: "harness-check" })).result);
       check(history.includes('"actor":"user"') && history.includes('"actor":"agent"'), `both versions are kept, got ${history}`);
+    }
+  },
+  {
+    name: "skill-review",
+    expect: "pass",
+    about: "a turn with enough tool calls is reviewed for skills in the background, shown in Activity",
+    async run(context) {
+      const before = new Set(rowsOf(context, "skills").map((row) => row.id));
+      await testRoute(context, "/test/review-after?n=1");
+      context.cleanup.push(() => testRoute(context, "/test/review-after?n=5"));
+      context.main.send({ type: "submit", input: 'tool skill_view {"name":"harness-check"}' });
+      let review: TaskRow | undefined;
+
+      await until("a finished skill review", () => {
+        review = rowsOf(context, "skills").find((row) => !before.has(row.id) && row.status === "done");
+
+        return review !== undefined;
+      });
+
+      check(review!.title === "Skill review", `the row is titled Skill review, got ${review!.title}`);
+      check(review!.session !== null, "the row opens the review's conversation");
+    }
+  },
+  {
+    name: "dreaming",
+    expect: "pass",
+    about: "a dream reads what happened since the last one, shows one Activity row, then has nothing to tend",
+    async run(context) {
+      const before = new Set(rowsOf(context, "dreaming").map((row) => row.id));
+      const note = `the harness dreamed at ${Date.now()}`;
+      context.main.send({ type: "submit", input: `tool memory_note ${JSON.stringify({ text: note })}` });
+      await until("the memory to be saved", () => context.main.heard("Saved as #"));
+      await testRoute(context, "/test/dream");
+      let dream: TaskRow | undefined;
+
+      await until("a finished dream", () => {
+        dream = rowsOf(context, "dreaming").find((row) => !before.has(row.id) && row.status !== "working");
+
+        return dream !== undefined;
+      });
+
+      const rows = rowsOf(context, "dreaming");
+      check(dream!.status === "done", `the dream finished, got ${dream!.status}`);
+      check(dream!.title === "Dreaming", `the row is titled Dreaming, got ${dream!.title}`);
+      check(dream!.summary.startsWith("echo: [dream]"), `the dream answered, got ${dream!.summary}`);
+      await testRoute(context, "/test/dream");
+      check(rowsOf(context, "dreaming").length === rows.length, "a dream with nothing new adds no row");
     }
   },
   {

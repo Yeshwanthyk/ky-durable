@@ -1,4 +1,5 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { inside, prompt, until } from "./drive";
 
@@ -36,7 +37,13 @@ describe("skills", () => {
 
     await prompt(name, tool("skill_manage", { action: "revert", name: "weekly-groceries", version: 1 }));
     expect((await prompt(name, tool("skill_view", { name: "weekly-groceries" }))).text).toContain("Order oat milk");
-    expect(await inside(name, (instance) => instance.skills.get("weekly-groceries")?.uses)).toBe(2);
+    const opened = await inside(name, (instance) => instance.skills.get("weekly-groceries"));
+    expect(opened?.uses).toBe(2);
+    expect(opened?.last_used_at).toBeGreaterThan(0);
+    // Each version keeps the conversation that made it.
+    expect(await inside(name, (instance) => instance.skills.history("weekly-groceries").map((each) => each.conversation))).toEqual(
+      [ROOT_SESSION, ROOT_SESSION, ROOT_SESSION]
+    );
   });
 
   it("refuses a bad name, a duplicate, and a patch that does not match once", async () => {
@@ -67,10 +74,12 @@ describe("skills", () => {
     expect(await system()).toContain("No skills yet.");
   });
 
-  it("reviews a busy turn in a fork that may only touch skills", async () => {
+  it("reviews a busy turn in a fork that remembers and may only touch skills", async () => {
     const name = crypto.randomUUID();
+    // Noted before the chat's first turn, so its memory section shows it: wake renders once per context.
     await inside(name, (instance) => {
       instance.skills.reviewAfter = 2;
+      instance.memory.note("the user likes green tea");
     });
 
     // One tool call is under the threshold.
@@ -82,8 +91,19 @@ describe("skills", () => {
       instance.skills.reviewAfter = 1;
     });
 
+    const before = await inside(name, (instance) => instance.boundary.calls.length);
     await prompt(name, "multiply 3");
     await until(async () => (await reviews(name)).some((task) => task.status === "done"), "the review to finish");
+
+    // The fork keeps the memory its chat was shown, so the review sees the user's preferences.
+    const asked = await inside(name, (instance) => instance.boundary.calls.slice(before).map((call) => call.system));
+    expect(asked.length).toBeGreaterThan(0);
+
+    for (const system of asked) {
+      expect(system).toContain("the user likes green tea");
+      expect(system).not.toContain('"memory":null');
+    }
+
     const [review] = await reviews(name);
     expect(review).toMatchObject({ kind: "cloud", title: "Skill review", status: "done" });
     // The faux model echoes the review's instructions.
@@ -98,7 +118,12 @@ describe("skills", () => {
       return result.text;
     });
 
-    expect(blocked).toContain("Tool call blocked: A skill review may only call skill_view and skill_manage.");
+    expect(blocked).toContain(
+      "Tool call blocked: A skill review may only call skill_view, skill_manage, memory_recall, memory_zoom."
+    );
+    expect(await inside(name, async (instance) => (await instance.harness.session(fork).prompt(tool("memory_recall", { regex: "tea" }))).text)).toContain(
+      "the user likes green tea"
+    );
 
     const made = await inside(name, async (instance) => (await instance.harness.session(fork).prompt(create())).text);
     expect(made).toBe("tool said: Created weekly-groceries (version 1).");
@@ -109,5 +134,78 @@ describe("skills", () => {
     });
     expect((await prompt(name, tool("skill_view", { name: "weekly-groceries", history: true }))).text).toMatch(/create by review/);
     expect(await reviews(name)).toHaveLength(1);
+  });
+});
+
+describe("dreaming", () => {
+  const dreams = (name: string) =>
+    inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "dreaming"));
+
+  it("is booked nightly, and does nothing when nothing happened", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, "hello");
+
+    const booked = await inside(name, async (instance) =>
+      (await instance.automations.scheduler.list()).filter((schedule) => schedule.callback === "dream")
+    );
+
+    expect(booked).toMatchObject([{ type: "cron", cron: "0 4 * * *" }]);
+
+    // A dream booked at a cron ky no longer uses is dropped on the next start, so ky never dreams twice a night.
+    const rebooked = await inside(name, async (instance) => {
+      await instance.automations.scheduler.set("0 3 * * *", "dream", undefined, { idempotent: true });
+      await instance.automations.recover();
+
+      return (await instance.automations.scheduler.list()).filter((schedule) => schedule.callback === "dream");
+    });
+
+    expect(rebooked).toMatchObject([{ type: "cron", cron: "0 4 * * *" }]);
+
+    await inside(name, (instance) => instance.dreaming.run());
+    expect(await dreams(name)).toEqual([]);
+  });
+
+  it("reads what happened since the last dream in a fresh conversation that wakes with memory", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => {
+      instance.skills.reviewAfter = 99;
+    });
+    await prompt(name, tool("memory_note", { text: "the user likes green tea" }));
+    await prompt(name, create());
+
+    const before = await inside(name, (instance) => instance.boundary.calls.length);
+    await inside(name, (instance) => instance.dreaming.run());
+
+    const [dream] = await dreams(name);
+    expect(dream).toMatchObject({ kind: "cloud", title: "Dreaming", status: "done" });
+    // The faux model echoes the dream's instructions and its digest.
+    expect(dream!.summary).toMatch(/^echo: \[dream\]/);
+
+    const asked = await inside(name, (instance) => instance.boundary.calls.slice(before).map((call) => call.system));
+    expect(asked.some((system) => system.includes("the user likes green tea"))).toBe(true);
+
+    const digest = await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }));
+    expect(digest).toContain("#0 ");
+    expect(digest).toContain("the user likes green tea");
+    expect(digest).toContain("weekly-groceries: create by agent in the main chat");
+    expect(digest).toMatch(/- weekly-groceries: 0 uses, last used never, created \d{4}-\d{2}-\d{2}/);
+
+    // The mark moved on: with nothing new, the next dream does not run.
+    expect(await inside(name, (instance) => instance.dreaming.mark().memories)).toBe(1);
+    await inside(name, (instance) => instance.dreaming.run());
+    expect(await dreams(name)).toHaveLength(1);
+
+    // It may tend skills and memory, and nothing else; its writes are by "dream".
+    const session = dream!.session!;
+    const said = (text: string) => inside(name, async (instance) => (await instance.harness.session(session).prompt(text)).text);
+    expect(await said("multiply 4")).toContain("Tool call blocked: A dream may only call skill_view, skill_manage, memory_recall");
+    expect(await said(tool("memory_note", { text: "the user now prefers oolong" }))).toContain("Saved as #1.");
+    await said(tool("skill_manage", { action: "patch", name: "weekly-groceries", old: "oat milk", new: "soy milk" }));
+    expect(await inside(name, (instance) => instance.skills.history("weekly-groceries")[0]?.actor)).toBe("dream");
+
+    // Its own skill changes are left out of the next digest; its notes are memories like any other.
+    const next = await inside(name, (instance) => instance.dreaming.digest(instance.dreaming.mark()));
+    expect(next).toContain("the user now prefers oolong");
+    expect(next).not.toContain("by dream");
   });
 });

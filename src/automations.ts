@@ -89,6 +89,8 @@ export type AutomationDeps = {
   readonly settings: Settings;
   readonly catalog: () => readonly ProviderInfo[];
   readonly runtime: AutomationRuntime;
+  /** ky's own nightly job, Dreaming (src/dreaming.ts): booked here so one Scheduler holds every fire. */
+  readonly dream: { readonly cron: string; readonly run: () => void };
 };
 
 /** Why an automation could not be created or changed. */
@@ -144,8 +146,15 @@ export class Automations {
   readonly #deps: AutomationDeps;
   readonly #listeners = new Set<() => void>();
   /** Install with `Lifecycle.use()`; its alarm fires the automations. */
-  readonly scheduler = new Scheduler<{ automation: (fire: Fire, schedule: Schedule<Fire>) => Promise<void> }>({
-    callbacks: { automation: (fire, schedule) => this.#fire(fire, schedule) }
+  readonly scheduler = new Scheduler<{
+    automation: (fire: Fire, schedule: Schedule<Fire>) => Promise<void>;
+    dream: () => Promise<void>;
+  }>({
+    callbacks: {
+      automation: (fire, schedule) => this.#fire(fire, schedule),
+      // It only starts the dream, so it never holds up the alarm.
+      dream: async () => this.#deps.dream.run()
+    }
   });
 
   constructor(sql: SqlStorage, deps: AutomationDeps) {
@@ -333,8 +342,16 @@ export class Automations {
     return status === "active" || status === "done";
   }
 
-  /** On start: book any active automation whose booking is missing. */
+  /** On start: book the nightly dream, and any active automation whose booking is missing. */
   async recover(): Promise<void> {
+    for (const old of await this.scheduler.list()) {
+      if (old.callback === "dream" && (old.type !== "cron" || old.cron !== this.#deps.dream.cron)) {
+        await this.scheduler.cancel(old.id);
+      }
+    }
+
+    await this.scheduler.set(this.#deps.dream.cron, "dream", undefined, { idempotent: true });
+
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
       this.#set(row.id, { schedule_id: await this.#book(row.id, row) });

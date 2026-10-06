@@ -3,6 +3,7 @@ import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { TaskRow } from "../tasks";
+import type { PiAgent } from "./stack";
 import { agent, connect, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 
 /**
@@ -86,6 +87,10 @@ async function told(name: string, start: string, session?: string): Promise<stri
 
 /** The reports of the automation titled `title` a chat was given. */
 const reports = (name: string, title: string, session?: string) => told(name, `[automation "${title}" result`, session);
+
+/** The Scheduler's automation fires; the nightly dream is booked beside them. */
+const automationFires = async (instance: PiAgent) =>
+  (await instance.automations.scheduler.list()).filter((schedule) => schedule.callback === "automation");
 
 /** The Scheduler's booking for the automation, if any. */
 function booking(name: string, id: string) {
@@ -277,7 +282,7 @@ describe("automations", () => {
 
     expect(await say(name, automation({ action: "archive", id }))).toBe('tool said: Archived "Daily digest".');
     expect(await booking(name, id)).toBeUndefined();
-    expect(await inside(name, (instance) => instance.automations.scheduler.list())).toEqual([]);
+    expect(await inside(name, (instance) => automationFires(instance))).toEqual([]);
     expect(await listed(name, id)).toContain("[archived]");
     expect(await say(name, automation({ action: "list" }))).toBe("tool said: No automations.");
 
@@ -297,7 +302,7 @@ describe("automations", () => {
     await runEnds(name, id);
 
     expect(await say(name, automation({ action: "delete", id }))).toBe('tool said: Deleted "Daily digest".');
-    expect(await inside(name, (instance) => instance.automations.scheduler.list())).toEqual([]);
+    expect(await inside(name, (instance) => automationFires(instance))).toEqual([]);
     expect(await listed(name, id)).toBe("");
     expect(await runs(name, id)).toHaveLength(1);
     expect(await say(name, automation({ action: "resume", id }))).toBe(`tool said: No automation ${id}.`);

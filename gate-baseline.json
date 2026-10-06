@@ -85,6 +85,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "automations delete cancels the schedule and removes the automation, keeping its past runs",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "automations update clears a model and a machine, and refuses an empty prompt",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "automations books lost schedules again when the object starts",
       "outcome": "passed"
     },
@@ -485,7 +495,17 @@
     },
     {
       "check": "worker-e2e",
-      "name": "skills reviews a busy turn in a fork that may only touch skills",
+      "name": "skills reviews a busy turn in a fork that remembers and may only touch skills",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "dreaming is booked nightly, and does nothing when nothing happened",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "dreaming reads what happened since the last dream in a fresh conversation that wakes with memory",
       "outcome": "passed"
     },
     {
@@ -531,6 +551,16 @@
     {
       "check": "harness",
       "name": "skills",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "skill-review",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "dreaming",
       "outcome": "PASS"
     },
     {
@@ -645,6 +675,11 @@
     },
     {
       "check": "web",
+      "name": "adds, edits, runs and deletes an automation from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
       "name": "lists the tools ky can use",
       "outcome": "passed"
     },
@@ -670,12 +705,22 @@
     },
     {
       "check": "web",
+      "name": "shows a task without its markdown, and its machine and time each on one line",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
       "name": "stops a machine task from Activity",
       "outcome": "passed"
     },
     {
       "check": "web",
       "name": "stops every working task at once from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "lists automations above the history, and only recent tasks until Show earlier",
       "outcome": "passed"
     },
     {
