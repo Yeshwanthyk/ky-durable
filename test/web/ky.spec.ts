@@ -431,6 +431,28 @@ test("stops every working task at once from Activity", async ({ page }) => {
   await expect(panel(page).getByRole("button", { name: "Stop all", exact: true })).toBeHidden();
 });
 
+test("lists automations above the history, and only recent tasks until Show earlier", async ({ page }) => {
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+  const jobs = panel(page).getByRole("button", { name: new RegExp(`quick job ${id}`) });
+
+  for (let index = 0; index <= 10; index++) {
+    await send(page, `machine@webmac quick job ${id} ${index}`);
+    await expect(page.getByText(new RegExp(`tool said: .*quick job ${id} ${index}\\b`))).toBeVisible();
+  }
+
+  // Eleven finished jobs, the newest of all: ten show, the first waits behind Show earlier.
+  await expect(panel(page).getByRole("button", { name: new RegExp(`^Stop .*quick job ${id}`) })).toHaveCount(0);
+  await expect(jobs).toHaveCount(10);
+  await expect(panel(page).getByRole("button", { name: new RegExp(`quick job ${id} 0$`) })).toBeHidden();
+
+  const automations = panel(page).getByRole("heading", { name: /^Automations/ });
+  expect((await automations.boundingBox())!.y).toBeLessThan((await jobs.first().boundingBox())!.y);
+
+  await panel(page).getByRole("button", { name: /^Show earlier/ }).click();
+  await expect(jobs).toHaveCount(11);
+});
+
 test("shows a task's screenshot and opens it in the lightbox", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [attach] screenshot the web page");
