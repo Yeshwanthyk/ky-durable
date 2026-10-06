@@ -290,6 +290,35 @@ describe("automations", () => {
     expect(await listed(name, id)).toContain(`next: ${nextDaily(9)}`);
   });
 
+  it("delete cancels the schedule and removes the automation, keeping its past runs", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+    await runNow(name, id);
+    await runEnds(name, id);
+
+    expect(await say(name, automation({ action: "delete", id }))).toBe('tool said: Deleted "Daily digest".');
+    expect(await inside(name, (instance) => instance.automations.scheduler.list())).toEqual([]);
+    expect(await listed(name, id)).toBe("");
+    expect(await runs(name, id)).toHaveLength(1);
+    expect(await say(name, automation({ action: "resume", id }))).toBe(`tool said: No automation ${id}.`);
+  });
+
+  it("update clears a model and a machine, and refuses an empty prompt", async () => {
+    const name = crypto.randomUUID();
+    const first = await runner(name);
+    first.socket.close();
+    const id = await create(name, { model: "faux/faux-text", machine: "mac" });
+    expect(await listed(name, id)).toContain("model: faux/faux-text");
+    expect(await listed(name, id)).toContain("where: mac");
+
+    expect(await say(name, automation({ action: "update", id, model: "subagents", machine: "cloud" }))).toBe(
+      'tool said: Updated "Daily digest".'
+    );
+    expect(await listed(name, id)).toContain("model: subagents slot; where: cloud");
+
+    expect(await say(name, automation({ action: "update", id, prompt: " " }))).toBe("tool said: An automation needs a title and a prompt.");
+  });
+
   it("books lost schedules again when the object starts", async () => {
     const name = crypto.randomUUID();
     const id = await create(name);

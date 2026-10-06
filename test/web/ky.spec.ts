@@ -277,8 +277,44 @@ test("pauses, resumes and archives an automation from Activity", async ({ page }
   await expect(automation).toContainText("Next in");
   await expect(automation.getByRole("button", { name: "Pause" })).toBeVisible();
 
-  await automation.getByRole("button", { name: "Archive" }).click();
+  await automation.getByRole("button", { name: "Edit" }).click();
+  await panel(page).getByRole("form", { name: "Edit automation" }).getByRole("button", { name: "Archive" }).click();
   await expect(automation).toBeHidden();
+});
+
+test("adds, edits, runs and deletes an automation from Activity", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const title = `Water the plants ${crypto.randomUUID().slice(0, 8)}`;
+
+  await panel(page).getByRole("button", { name: "New", exact: true }).click();
+  const form = panel(page).getByRole("form", { name: "New automation" });
+  await form.getByLabel("Title").fill(title);
+  await form.getByLabel("Prompt").fill("say the plants are watered");
+  await form.getByLabel("Cron").fill("nope");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form.getByRole("alert")).toContainText('Cannot schedule "nope"');
+
+  await form.getByLabel("Cron").fill("30 7 * * *");
+  await expect(form).toContainText("Every day 7:30 UTC");
+  await form.getByRole("button", { name: "Save" }).click();
+  const automation = panel(page).getByRole("listitem", { name: title });
+  await expect(automation).toContainText("Every day 7:30 UTC");
+
+  await automation.getByRole("button", { name: "Edit" }).click();
+  const edit = panel(page).getByRole("form", { name: "Edit automation" });
+  await expect(edit.getByLabel("Title")).toHaveValue(title);
+  await edit.getByLabel("Cron").fill("0 8 * * 1");
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(automation).toContainText("Mondays 8:00 UTC");
+
+  await automation.getByRole("button", { name: "Run now" }).click();
+  await expect(automation).toContainText("Last run");
+
+  await automation.getByRole("button", { name: "Edit" }).click();
+  await edit.getByRole("button", { name: "Delete" }).click();
+  await edit.getByRole("button", { name: "Delete for good" }).click();
+  await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
 });
 
 test("lists the tools ky can use", async ({ page }) => {

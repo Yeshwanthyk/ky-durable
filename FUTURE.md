@@ -31,7 +31,6 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
 - **Split `KY_RUNNER_TOKEN`**: one token per node. This needs a new secret.
 
 ## Automations (in the worker)
-- **Edit in the UI.** Today you change an automation by asking ky; Activity only pauses, resumes and archives.
 - **Timezones per automation.** Cron is in UTC.
 
 ## Pi extensions (in the worker)

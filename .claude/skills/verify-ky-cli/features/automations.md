@@ -20,4 +20,4 @@ tool automation {"action":"list","all":true}
 
 Not driven here, because they need control of the Durable Object's alarm or eviction, which only the worker
 tests have (`src/tests/automations.test.ts`): a slot delivered twice, eviction, re-booking on start, skipping
-a slot while the last run works, pause/resume/update/archive, one-offs ending done, and reports to a side chat.
+a slot while the last run works, pause/resume/update/archive/delete, one-offs ending done, and reports to a side chat.

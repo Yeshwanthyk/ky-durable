@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
-import type { AutomationView } from "./automations";
+import type { AutomationDraft, AutomationView } from "./automations";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineState } from "./machines";
@@ -36,9 +36,11 @@ export type MachineInfo = {
 };
 
 /** An automation as Activity shows it: its view, and the chat it reports to by name. */
+export type { AutomationDraft };
+
 export type AutomationInfo = AutomationView & { readonly chat_label: string };
 
-export type AutomationAction = "pause" | "resume" | "archive";
+export type AutomationAction = "pause" | "resume" | "archive" | "run" | "delete";
 
 /**
  * This app's WebSocket protocol, served by `sockets.ts`. The harness knows
@@ -85,7 +87,9 @@ export type PiClientMessage =
   | { readonly type: "skill-change"; readonly id?: string; readonly change: SkillChange }
   /** A skill's versions, newest first, as the result. */
   | { readonly type: "skill-history"; readonly id?: string; readonly name: string }
-  /** Pause, resume or archive an automation, by its id; the result is what happened, as text. */
+  /** Create an automation as the user, or change one by its id; the result is `{ refused }` when it cannot be saved. */
+  | { readonly type: "automation-save"; readonly id?: string; readonly automation?: string; readonly draft: AutomationDraft }
+  /** Pause, resume, archive, run or delete an automation, by its id; the result is what happened, as text. */
   | {
       readonly type: "automation";
       readonly id?: string;

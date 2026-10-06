@@ -550,6 +550,9 @@
 }
 
 .feed-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   padding: 2px 6px;
   border-radius: 6px;
@@ -1519,11 +1522,303 @@
   gap: 6px;
 }
 
+/* ---------- Automations ----------
+   A row opens its editor in place; run and pause float over it on hover. */
+
 .automation-actions {
-  flex: none;
+  position: absolute;
+  top: 16px;
+  right: 6px;
   display: flex;
-  align-self: flex-start;
+  gap: 2px;
+  padding-left: 28px;
+  background: linear-gradient(to right, transparent, var(--raised) 24px);
+  border-radius: 0 10px 10px 0;
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease-out);
+}
+
+.panel .automation-actions .icon-button,
+.panel .automation-editor-head .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.feed-item.automation:has(:focus-visible) {
+  background: var(--raised);
+}
+
+.feed-item.automation:has(:focus-visible) .feed-tile {
+  background: var(--surface);
+}
+
+.feed-item.automation:has(:focus-visible) .automation-actions {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .feed-item.automation:hover {
+    background: var(--raised);
+  }
+
+  .feed-item.automation:hover .feed-tile {
+    background: var(--surface);
+  }
+
+  .feed-item.automation:hover .automation-actions {
+    opacity: 1;
+  }
+
+  .automation-actions .icon-button:hover {
+    background: var(--surface);
+    color: var(--ink);
+  }
+}
+
+/* No hover on touch: the buttons stay, and the words make room for them. */
+@media (hover: none) {
+  .automation-actions {
+    opacity: 1;
+    background: none;
+  }
+
+  .feed-item.automation .feed-button {
+    padding-right: 68px;
+  }
+}
+
+.automation-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Details apart from what the user wrote: quieter, and never broken mid-word. */
+.token {
+  max-width: 100%;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--hover);
   color: var(--muted);
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.automation-editor {
+  padding: 4px 6px 8px;
+  border-radius: 16px;
+  background: var(--raised);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+}
+
+@starting-style {
+  .automation-editor {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automation-editor {
+    transition: opacity 200ms var(--ease-out);
+  }
+}
+
+.automation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.automation-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 8px;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 550;
+  color: var(--quiet);
+}
+
+.automation-form .card {
+  transition: box-shadow var(--fast) var(--ease-out);
+}
+
+.automation-form .card:focus-within {
+  box-shadow:
+    0 0 0 1px var(--line-hover),
+    0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.automation-form .card :focus-visible {
+  outline: 0;
+}
+
+.automation-words {
+  display: flex;
+  flex-direction: column;
+}
+
+.automation-name,
+.automation-prompt {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.automation-name::placeholder,
+.automation-prompt::placeholder {
+  color: var(--quiet);
+}
+
+.automation-name {
+  padding: 11px 14px 2px;
+  font-size: calc(14.5px * var(--text-scale));
+  font-weight: 600;
+}
+
+.automation-prompt {
+  min-height: 66px;
+  padding: 2px 14px 11px;
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.45;
+  resize: none;
+  /* Grows with what is written, up to a point. */
+  field-sizing: content;
+  max-height: 240px;
+}
+
+.automation-when {
+  flex: none;
+  width: 148px;
+}
+
+.automation-when > button {
+  height: 26px;
+  border-radius: 8px;
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.automation-cron,
+.automation-time {
+  flex: none;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(12.5px * var(--text-scale));
+  text-align: right;
+}
+
+.automation-cron {
+  width: 8.5em;
+  font-family: var(--font-mono);
+}
+
+.automation-pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 62%;
+  color: var(--muted);
+}
+
+.automation-pick select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 20px 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: calc(13px * var(--text-scale));
+  text-align: right;
+  text-align-last: right;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+.automation-pick .icon {
+  position: absolute;
+  right: 4px;
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .automation-pick select:hover {
+    background: var(--hover);
+  }
+}
+
+/* 16px stops iOS from zooming into the field. */
+@media (hover: none) {
+  .automation-form input,
+  .automation-form textarea,
+  .automation-form select {
+    font-size: 16px;
+  }
+}
+
+.automation-refused {
+  margin: 0;
+  padding: 0 8px;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--danger);
+  text-wrap: pretty;
+}
+
+/* Leaving it on the left, quiet; saving on the right, filled. */
+.automation-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.automation-foot .primary {
+  margin-left: auto;
+  padding: 0 18px;
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.automation-end {
+  display: flex;
+  gap: 2px;
+}
+
+.automation-text {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.automation-text.danger {
+  color: var(--danger);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .automation-text:hover {
+    background: var(--hover);
+  }
 }
 
 .skill-versions {
