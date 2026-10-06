@@ -34,10 +34,16 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
 `ky_chats` (side chats, `src/chats.ts`), `ky_settings` (model slots, `src/settings.ts`),
-`memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_files` (`src/files.ts`), and the workspace files.
+`memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_nap`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats.
+- Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills.ts`).
+  Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
+  conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
+  skill tools. Writes apply at once and every one is kept as a version, so `revert` undoes it. Memory holds facts;
+  skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert and archive
+  (`src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).

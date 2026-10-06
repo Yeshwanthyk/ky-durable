@@ -231,6 +231,33 @@ test("opens the command palette with the keyboard and runs a command", async ({ 
   await expect(panel(page).getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
 });
 
+test("shows ky's skills, edits one, reverts it and archives it", async ({ page }) => {
+  await open(page);
+  const name = `web-${crypto.randomUUID().slice(0, 8)}`;
+  const create = { action: "create", name, description: "Ordering groceries", body: "Order oat milk." };
+  await send(page, `tool skill_manage ${JSON.stringify(create)}`);
+  await expect(page.getByText(`tool said: Created ${name}`)).toBeVisible();
+
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  const skill = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name: new RegExp(`^${name}`) }) });
+  await skill.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  await expect(skill.getByText("Order oat milk.")).toBeVisible();
+
+  await skill.getByRole("button", { name: "Edit" }).click();
+  await skill.getByRole("textbox", { name: "Steps" }).fill("Order soy milk.");
+  await skill.getByRole("button", { name: "Save" }).click();
+  await expect(skill.getByText("Order soy milk.")).toBeVisible();
+
+  await skill.getByRole("button", { name: "History" }).click();
+  const versions = skill.getByRole("list", { name: `${name} versions` });
+  await expect(versions).toContainText("edit by user");
+  await versions.getByRole("button", { name: "Revert" }).click();
+  await expect(skill.getByText("Order oat milk.")).toBeVisible();
+
+  await skill.getByRole("button", { name: "Archive" }).click();
+  await expect(skill.getByRole("button", { name: "Restore" })).toBeVisible();
+});
+
 test("lists the tools ky can use", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

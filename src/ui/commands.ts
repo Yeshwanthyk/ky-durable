@@ -94,6 +94,14 @@ function kyCommands(sources: CommandSources): Command[] {
       run: () => openPanel("activity")
     },
     {
+      id: "skills",
+      group: "ky",
+      label: "Skills",
+      icon: "list",
+      keywords: "procedures how-to library",
+      run: () => openPanel("skills")
+    },
+    {
       id: "settings",
       group: "ky",
       label: "Settings",

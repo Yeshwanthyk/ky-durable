@@ -1,10 +1,21 @@
 import { useContext, useState } from "react";
-import type { MachineInfo, SettingsView, Slot, SlotSetting, TaskRow, ToolInfo } from "../protocol";
+import type {
+  MachineInfo,
+  SettingsView,
+  SkillChange,
+  SkillRow,
+  SkillVersion,
+  Slot,
+  SlotSetting,
+  TaskRow,
+  ToolInfo,
+} from "../protocol";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
 import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { Skills } from "./Skills";
 import { currentStep, elapsed, isLive, quietNote, spendLine } from "./task-progress";
 import { ago, clock, day } from "./time";
 
@@ -18,9 +29,9 @@ const statusIcon: Record<TaskRow["status"], IconName> = {
   stopped: "stop",
 };
 
-export type PanelTab = "activity" | "settings";
+export type PanelTab = "activity" | "skills" | "settings";
 
-// Who ky is and how it is doing, then everything it is doing and has done, then its settings.
+// Who ky is and how it is doing, then everything it is doing and has done, its skills, and its settings.
 export function Panel({
   name,
   variantId,
@@ -34,9 +45,12 @@ export function Panel({
   session,
   now,
   settings,
+  skills,
   theme,
   onTheme,
   onSetModel,
+  onSkillChange,
+  onSkillHistory,
   onOpen,
   onStop,
   onStopAll,
@@ -57,9 +71,12 @@ export function Panel({
   session: string;
   now: number;
   settings: SettingsView | null;
+  skills: readonly SkillRow[];
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSetModel: (slot: Slot, setting: SlotSetting) => void;
+  onSkillChange: (change: SkillChange) => void;
+  onSkillHistory: (name: string) => Promise<readonly SkillVersion[]>;
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
   onStopAll: () => void;
@@ -85,6 +102,7 @@ export function Panel({
         {(
           [
             ["activity", "Activity"],
+            ["skills", "Skills"],
             ["settings", "Settings"],
           ] as const
         ).map(([id, label]) => (
@@ -112,6 +130,8 @@ export function Panel({
           onStop={onStop}
           onStopAll={onStopAll}
         />
+      ) : tab === "skills" ? (
+        <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} />
       ) : (
         <Settings settings={settings} catalog={catalog} theme={theme} onTheme={onTheme} onSet={onSetModel} />
       )}

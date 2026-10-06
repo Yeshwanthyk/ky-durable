@@ -1465,3 +1465,66 @@
 .feed-changes:empty {
   display: none;
 }
+
+/* ---------- Skills ----------
+   Each skill opens in place like a model row: its steps, then edit, history and archive. */
+
+.skill-detail {
+  padding: 0 14px 12px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-body {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-sans);
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--ink);
+}
+
+.skill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-versions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.skill-versions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-form input,
+.skill-form textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  /* 16px stops iOS from zooming into the field. */
+  font-size: max(16px, calc(12.5px * var(--text-scale)));
+  resize: vertical;
+}

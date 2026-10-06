@@ -146,7 +146,7 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
   );
 }
 
-// ky's panel, activity and settings, in its slot.
+// ky's panel, activity, skills and settings, in its slot.
 function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
   return (
     <PanelSlot panel={panel}>
@@ -163,9 +163,12 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
         session={view.session}
         now={now}
         settings={ky.settings}
+        skills={ky.skills}
         theme={view.theme}
         onTheme={setTheme}
         onSetModel={ky.setModel}
+        onSkillChange={ky.changeSkill}
+        onSkillHistory={ky.skillHistory}
         onOpen={shell.openSession}
         onStop={ky.stopTask}
         onStopAll={ky.stopAll}

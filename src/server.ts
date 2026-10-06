@@ -18,6 +18,7 @@ import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
 import { PiSessionSockets } from "./sockets";
+import { Skills, skillsExtension } from "./skills";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
@@ -84,6 +85,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
   readonly memory = new Memory(this.ctx.storage.sql);
+  readonly skills = new Skills(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
   readonly titler = new Titler((system, text) => this.models.complete("titles", system, text));
   readonly machines = new MachineHub(
@@ -107,11 +109,22 @@ export class PiAgent extends DurableObject<Env> {
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
-      const memory = memoryExtension(
-        this.memory,
-        (session) => session === ROOT_SESSION || this.chats.has(session)
+      const remembers = (session: string) => session === ROOT_SESSION || this.chats.has(session);
+      this.registry.install(
+        skillsExtension(
+          this.skills,
+          this.ctx.storage.sql,
+          {
+            conversation: (session) => this.harness.conversation(session),
+            feed: this.feed,
+            later: (work) => this.ctx.waitUntil(work),
+            context: BACKGROUND
+          },
+          remembers
+        )
       );
 
+      const memory = memoryExtension(this.memory, remembers);
       const machines = machineExtension(this.machines, this.feed);
       this.registry.install(memory);
       this.registry.install(machines);
@@ -158,6 +171,7 @@ export class PiAgent extends DurableObject<Env> {
     this.files,
     this.models,
     this.chats,
+    this.skills,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );

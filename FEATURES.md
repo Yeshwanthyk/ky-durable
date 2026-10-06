@@ -75,7 +75,8 @@ A cite points at the code that does the work.
 | client-reload | A new deploy offers Reload, and only reloads by itself when there is no draft. | src/client.tsx:162 | local | P offers a reload when a new deploy is live and a draft would be lost |
 | client-theme | The theme switch survives a reload. | src/client.tsx:63 | local | P switches the theme and keeps it after a reload |
 | client-palette | The command palette opens from the keyboard and runs commands. | src/ui/CommandPalette.tsx:28 | local | P opens the command palette with the keyboard and runs a command |
-| client-tools | Settings lists the tools ky can use. | src/ui/Panel.tsx:501 | local | P lists the tools ky can use |
+| client-tools | Settings lists the tools ky can use. | src/ui/Panel.tsx:538 | local | P lists the tools ky can use |
+| client-skills | The Skills tab shows each skill, and edits, reverts and archives it. | src/ui/Skills.tsx:13 | local | P shows ky's skills, edits one, reverts it and archives it |
 | client-lightbox | A task's screenshot opens in the lightbox. | src/ui/Lightbox.tsx:16 | local | P shows a task's screenshot and opens it in the lightbox |
 
 ## Tools in the cloud
@@ -84,6 +85,11 @@ A cite points at the code that does the work.
 |---|---|---|---|---|
 | memory-note | memory_note remembers a note and memory_recall finds it. | src/memory.ts:375 | local | W features › remembers a note and recalls it |
 | memory-nap | memory_nap saves a compression, memory_zoom opens it, and memory_forget drops it. | src/memory.ts:404, src/memory.ts:421, src/memory.ts:428 | local | W features › asks for a compression, saves it, opens it into its memories, and forgets it |
+| skills-tools | skill_manage creates, patches and reverts a skill, keeping every version, and skill_view opens it and counts the use. | src/skills.ts:440, src/skills.ts:412 | local | W skills › creates, opens, patches and reverts a skill, keeping every version |
+| skills-refuse | skill_manage refuses a bad name, a duplicate, and a patch that does not match exactly once. | src/skills.ts:70 | local | W skills › refuses a bad name, a duplicate, and a patch that does not match once |
+| skills-index | Active skills are listed in the system prompt; archived ones are not. | src/skills.ts:382 | local | W skills › lists active skills in the system prompt, and drops archived ones |
+| skills-review | A turn with enough tool calls is reviewed in a fork that may only call the skill tools, shown in the task feed. | src/skills.ts:390, src/skills.ts:404 | local | W skills › reviews a busy turn in a fork that may only touch skills |
+| skills-panel | Skills go to the page on connect and on change; the user's edits, reverts and archives apply as "user", and history comes back on request. | src/sockets.ts:444 | local | W skills panel › sends skills on connect and on change, and takes the user's edits, history and reverts |
 | workspace-files | A workspace file written by a tool outlives the object. | src/workspace.ts:101 | local | W features › writes and reads a workspace file that outlives the object |
 | workspace-exec | exec runs JavaScript in the workspace. | src/workspace.ts:70 | local | W features › runs JavaScript in the workspace with exec |
 | executor-tools | executor_skills, executor_execute and executor_resume reach Executor over MCP. | src/executor.ts:181 | local | W features › calls Executor over MCP |

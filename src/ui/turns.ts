@@ -80,6 +80,15 @@ function describe(name: string, args: JsonObject): Pick<Tool, "category" | "summ
       };
     }
 
+    case "skill_view":
+      return { category: "research", summary: `Read skill ${text(args.name)}`, input: JSON.stringify(args, null, 2) };
+    case "skill_manage":
+      return {
+        category: "change",
+        summary: `${text(args.action).replace(/^./, (c) => c.toUpperCase())} skill ${text(args.name)}`,
+        input: text(args.body) || text(args.new) || JSON.stringify(args, null, 2)
+      };
+
     default:
       if (name.startsWith("memory_")) {
         return {
