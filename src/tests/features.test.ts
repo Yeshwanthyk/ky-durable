@@ -308,7 +308,7 @@ describe("settings", () => {
 });
 
 describe("machine tasks", () => {
-  it("runs a task, shows its session and progress, takes a follow-up, and reports its result", async () => {
+  it("runs a task, shows its session and steps, takes a follow-up, and reports its result and spend", async () => {
     const name = crypto.randomUUID();
     const mac = await runner(name);
     const { socket, client } = await session(name);
@@ -318,15 +318,32 @@ describe("machine tasks", () => {
     expect(run).toMatchObject({ type: "run", prompt: "build it", session: null });
 
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "claude-session-1" });
-    mac.send({ type: "progress", task: run.task, turn: run.turn, text: "compiling" });
-    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
+    mac.send({ type: "step", task: run.task, turn: run.turn, text: "Running pnpm build" });
+    mac.send({ type: "step", task: run.task, turn: run.turn, text: "Editing tasks.ts" });
+    const row = () => latest(client, "tasks")?.tasks.find((task) => task.id === run.task);
+    await client.until(() => row()?.steps.at(-1)?.text === "Editing tasks.ts");
+    expect(row()).toMatchObject({ status: "working", source: "chat", finished_at: null, turns: null });
+    expect(row()?.steps.map((step) => step.text)).toEqual(["Running pnpm build", "Editing tasks.ts"]);
+    expect(row()?.started_at).toBeGreaterThan(0);
 
     await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);
     const followUp = await mac.next();
     expect(followUp).toMatchObject({ type: "run", task: run.task, prompt: "also test it", session: "claude-session-1" });
 
-    mac.send({ type: "result", task: run.task, turn: followUp.turn, ok: true, text: "built and tested", session: "claude-session-1" });
+    mac.send({
+      type: "result",
+      task: run.task,
+      turn: followUp.turn,
+      ok: true,
+      text: "built and tested",
+      session: "claude-session-1",
+      turns: 7,
+      costUsd: 0.25
+    });
     await said(name, `build it" finished`);
+    await client.until(() => row()?.status === "done");
+    expect(row()).toMatchObject({ summary: "built and tested", turns: 7, cost_usd: 0.25 });
+    expect(row()?.finished_at).toBeGreaterThanOrEqual(row()?.started_at ?? Infinity);
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.summary.startsWith("Named:") === true);
     expect(latest(client, "tasks")?.machines).toMatchObject([{ name: "mac", online: true }]);
 
@@ -451,6 +468,20 @@ describe("subagents", () => {
     const row = latest(client, "tasks")?.tasks.find((task) => task.kind === "cloud");
     await command(socket, client, { type: "stop-task", task: row?.id ?? "" });
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.kind === "cloud")?.status === "stopped");
+    socket.close();
+  });
+
+  it("shows a subagent's tool steps, turns, and how long it took", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    await prompt(name, "spawn worker multiply 6");
+
+    const row = () => latest(client, "tasks")?.tasks.find((task) => task.kind === "cloud");
+    await client.until(() => row()?.status === "done");
+    expect(row()?.steps.map((step) => step.text)).toEqual(["multiply"]);
+    expect(row()).toMatchObject({ source: "chat", turns: 2 });
+    expect(row()?.cost_usd).toBeGreaterThanOrEqual(0);
+    expect(row()?.finished_at).toBeGreaterThanOrEqual(row()?.started_at ?? Infinity);
     socket.close();
   });
 

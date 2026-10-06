@@ -117,8 +117,10 @@ installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, ins
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
 comments on it go back to the task as one message.
 
-The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`progress`/`result` reports)
-is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. `hello` carries `PROTOCOL`;
+The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`step`/`result` reports)
+is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. A `step` is one tool Claude
+Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the session's
+turns and cost so far. `hello` carries `PROTOCOL`;
 every report carries its turn, and reports for a closed turn are dropped. The runner records a command
 before acking it, so a command never runs twice. One socket per machine: a newer runner with the same
 name closes the older one (code 4409), and the older one exits. `runner/runner.ts` is the logic and

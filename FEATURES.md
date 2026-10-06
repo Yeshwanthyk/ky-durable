@@ -104,13 +104,16 @@ A cite points at the code that does the work.
 |---|---|---|---|---|
 | subagent-activity | A subagent's work shows in Activity, and its chat opens from there. | src/subagents.ts:84 | local | P shows a subagent's work in Activity and opens its chat |
 | subagent-stop | A subagent's work can be stopped from the task list. | src/subagents.ts:84 | local | W features › stops a subagent's work from the task list |
+| subagent-steps | Each tool a subagent uses is a step on its task, and each model response adds a turn and its cost; the task keeps when it started and finished. | src/subagents.ts:331 | local | W features › shows a subagent's tool steps, turns, and how long it took |
 | subagent-follow-up | A message sent as a follow-up waits for the whole run before it is answered. | src/subagents.ts:84 | local | W features › waits for a whole run before answering a message sent as a follow-up |
 
 ## Machine tasks
 
 | id | behaviour | cite | tag | check |
 |---|---|---|---|---|
-| task-run | A task runs on a machine, shows its session and progress, takes a follow-up, and reports its result. | src/machines.ts:192, src/machines.ts:211, runner/runner.ts:139 | local | W features › runs a task, shows its session and progress, takes a follow-up, and reports its result; H machine-run; H follow-up; P runs a task on a machine and shows its report |
+| task-run | A task runs on a machine, shows its session and steps, takes a follow-up, and reports its result with its turns and cost. | src/machines.ts:192, src/machines.ts:211, runner/runner.ts:139 | local | W features › runs a task, shows its session and steps, takes a follow-up, and reports its result and spend; H machine-run; H follow-up; P runs a task on a machine and shows its report |
+| task-steps | Each tool Claude Code uses on a machine is a step on the task ("Running pnpm build"). The card shows the newest step and the elapsed time while it runs, the last few steps when opened, and its duration, turns and cost once it ends. | runner/runner.ts:281, src/tasks.ts:225, src/ui/Panel.tsx:223 | local | H steps; P shows what a machine task is doing, then how long it took and what it cost |
+| topbar-background | While the open chat is idle, the topbar says what the newest background step is ("webmac: Running pnpm build"). | src/ui/task-progress.ts:52, src/ui/open-chat.ts:82 | local | P shows what a machine task is doing, then how long it took and what it cost |
 | task-chat | A plain chat works end to end through the stack. | src/sockets.ts:295 | local | H chat |
 | task-withdraw | A task the runner hasn't picked up is withdrawn. A picked-up task is sent a stop. | src/machines.ts:224 | local | W features › withdraws a task the runner has not picked up, and sends a stop to one it has; H stop; P stops a machine task from Activity |
 | task-stop-all | Stop all in Activity stops every working task at once. | src/sockets.ts:402, src/ui/Panel.tsx:158 | local | P stops every working task at once from Activity |
@@ -128,7 +131,7 @@ A cite points at the code that does the work.
 | runner-lost-reports | A task whose reports were lost with the socket ends as Interrupted instead of staying queued. | src/machines.ts:247 | local | W runner-protocol › stuckQueued: a task whose reports were lost ends instead of staying queued; H trap-stuckQueued |
 | runner-order | Turns reach Claude Code in the order they were sent, even when a follow-up comes before the hello is handled. | src/machines.ts:148 | local | W runner-protocol › reorder: turns reach Claude Code in the order they were sent; H trap-reorder |
 | runner-protocol-version | Every runner frame is decoded against the protocol; a malformed or outdated report closes the runner's socket, and the runner ignores a malformed command. | src/runner-protocol.ts, src/sockets.ts:316 | local | W runner-protocol › decodes runner frames: a malformed report closes the runner's socket; W runner-protocol › decodes commands: the runner ignores a run without a prompt |
-| runner-turn-fence | A repeated result posts once, and a late progress does not reopen the task. | src/machines.ts:299 | local | W runner-protocol › fences turns: a repeated result posts once, and a late progress does not reopen the task |
+| runner-turn-fence | A repeated result posts once, and a late step does not reopen the task. | src/machines.ts:299 | local | W runner-protocol › fences turns: a repeated result posts once, and a late step does not reopen the task |
 | runner-stop-unsent | A task the runner never got is stopped before it starts, and never runs later. | src/machines.ts:224 | local | W runner-protocol › stops a task the runner never got before it starts |
 | runner-stop-queued | A second stop also drops the turn queued behind the first. | src/machines.ts:224 | local | W runner-protocol › drops a turn queued behind a stop when it is stopped too |
 | runner-keepalive-race | A keepalive hello sent before a run arrived does not end that run. | src/machines.ts:247 | local | W runner-protocol › keeps a run that a keepalive hello raced |
@@ -155,6 +158,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 75.
+- Local features: 78.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.

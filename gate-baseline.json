@@ -10,6 +10,41 @@
   "items": [
     {
       "check": "worker-e2e",
+      "name": "the activity island's status is empty while the agent is idle",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status thinks until something streams",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status writes the reply once text streams",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status follows the newest tool call in the streaming message",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status finds a running tool's arguments in the transcript",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status names Executor apps from the program",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the activity island's status maps memory and falls back to the tool's name",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "delegated work leaves the main chat free answers the user while a subagent is still working",
       "outcome": "passed"
     },
@@ -135,12 +170,17 @@
     },
     {
       "check": "worker-e2e",
+      "name": "side chats and titles archives a side chat and puts it back, keeping it across restarts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "settings stores a slot's model across restarts and refuses one that does not exist",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "machine tasks runs a task, shows its session and progress, takes a follow-up, and reports its result",
+      "name": "machine tasks runs a task, shows its session and steps, takes a follow-up, and reports its result and spend",
       "outcome": "passed"
     },
     {
@@ -160,7 +200,17 @@
     },
     {
       "check": "worker-e2e",
+      "name": "machine tasks shares a task's diff, and sends the user's comments on it to the task",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "subagents stops a subagent's work from the task list",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subagents shows a subagent's tool steps, turns, and how long it took",
       "outcome": "passed"
     },
     {
@@ -240,6 +290,36 @@
     },
     {
       "check": "worker-e2e",
+      "name": "capturing a task's diff diffs from where the branch left the default branch, with new untracked files",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "capturing a task's diff falls back to HEAD with no default branch, and to the empty tree with no commits",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "capturing a task's diff takes a base the task names, and refuses one that is not a commit",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "reviewing a task's diff counts each file's added and removed lines",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "reviewing a task's diff shows the task's newest patch, not its screenshots",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "reviewing a task's diff writes every comment up as one message, in file and line order, with file:line and the code",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "runner protocol: the Quint counterexamples stopRace: a stop racing the ack stops the run, with one report",
       "outcome": "passed"
     },
@@ -280,7 +360,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "runner protocol fences turns: a repeated result posts once, and a late progress does not reopen the task",
+      "name": "runner protocol fences turns: a repeated result posts once, and a late step does not reopen the task",
       "outcome": "passed"
     },
     {
@@ -346,6 +426,11 @@
     {
       "check": "harness",
       "name": "machine-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "steps",
       "outcome": "PASS"
     },
     {
@@ -456,6 +541,11 @@
     {
       "check": "web",
       "name": "runs a task on a machine and shows its report",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "shows what a machine task is doing, then how long it took and what it cost",
       "outcome": "passed"
     },
     {

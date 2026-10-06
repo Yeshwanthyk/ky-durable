@@ -398,14 +398,14 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
-  it("fences turns: a repeated result posts once, and a late progress does not reopen the task", async () => {
+  it("fences turns: a repeated result posts once, and a late step does not reopen the task", async () => {
     const { object, mac } = await online();
     const id = await start(object);
     await mac.claude(0);
     const result = JSON.stringify({ type: "result", task: id, turn: 1, ok: true, text: "built", session: null });
     mac.wire!.socket.send(result);
     mac.wire!.socket.send(result);
-    mac.wire!.socket.send(JSON.stringify({ type: "progress", task: id, turn: 1, text: "late" }));
+    mac.wire!.socket.send(JSON.stringify({ type: "step", task: id, turn: 1, text: "late" }));
 
     await until("a report", async () => (await reports(object, id)).length > 0);
     await settle();

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
-import { currentActivity } from "./ui/activity";
+import { currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { SendTaskContext } from "./ui/Changes";
 import type { BlobVariantId } from "./ui/blob-catalog";
@@ -14,6 +14,7 @@ import { LightboxProvider } from "./ui/Lightbox";
 import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
+import { backgroundLine, isLive } from "./ui/task-progress";
 import type { PendingImage } from "./ui/pick-images";
 import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
@@ -62,6 +63,7 @@ function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
     sendable: canSend(connected, draft.reading, cantSee),
     mainModel: mainModelName(ky.settings),
     working: workingCount(ky.tasks),
+    background: backgroundLine(ky.tasks),
     variantId: speakerBlob(open.subagent, theme)
   };
 }
@@ -108,7 +110,7 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
         variantId={variantId}
         running={ky.running}
         status={view.status}
-        sub={whoSub(open.where, view.working, view.mainModel)}
+        sub={whoSub(open.where, view.background, view.working, view.mainModel)}
         activity={activity}
         drawer={{ open: shell.drawerOpen, onOpen: () => shell.setDrawerOpen(true) }}
         onBack={() => shell.openSession(MAIN_SESSION)}
@@ -156,7 +158,7 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
         model={view.mainModel}
         tasks={ky.tasks}
         machines={ky.machines}
-        running={ky.tools.map((tool) => tool.name)}
+        running={toolLabels(ky.tools, ky.messages)}
         catalog={ky.catalog}
         session={view.session}
         now={now}
@@ -204,9 +206,9 @@ function App() {
   const [session, go] = useSessionRoute();
   const draft = useDraft();
   const [theme, setTheme] = useTheme();
-  const now = useNow();
   const panel = usePanel();
   const ky = usePiSession(session);
+  const now = useNow(ky.tasks.some(isLive));
   const shell = useShell(go, panel, ky.newChat);
   const parts: Parts = { ky, view: describe(ky, session, theme, draft), panel, shell, now, setTheme };
 

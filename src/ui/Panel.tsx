@@ -5,11 +5,10 @@ import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { currentStep, elapsed, isLive, quietNote, spendLine } from "./task-progress";
 import { ago, clock, day } from "./time";
 
 export type Theme = "light" | "dark";
-
-const isLive = (task: TaskRow) => task.status === "queued" || task.status === "working";
 
 const statusIcon: Record<TaskRow["status"], IconName> = {
   queued: "circle",
@@ -52,7 +51,7 @@ export function Panel({
   model: string;
   tasks: readonly TaskRow[];
   machines: readonly MachineInfo[];
-  /** Tools running in the open chat right now. */
+  /** What the open chat's running tools are doing right now, labelled. */
   running: readonly string[];
   catalog: readonly ToolInfo[];
   session: string;
@@ -167,13 +166,13 @@ function Activity({
                   <Spinner size={14} />
                 </span>
                 <span className="feed-text">
-                  <span className="feed-title">Using {tool}</span>
+                  <span className="feed-title">{tool}</span>
                   <span className="feed-meta">This chat</span>
                 </span>
               </li>
             ))}
             {live.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} onOpen={onOpen} onStop={onStop} />
+              <TaskItem key={task.id} task={task} session={session} now={now} machines={machines} onOpen={onOpen} onStop={onStop} />
             ))}
           </ul>
         </section>
@@ -183,7 +182,7 @@ function Activity({
           <h3 className="feed-head">{label}</h3>
           <ul className="feed">
             {rows.map((task) => (
-              <TaskItem key={task.id} task={task} session={session} onOpen={onOpen} onStop={onStop} />
+              <TaskItem key={task.id} task={task} session={session} now={now} machines={machines} onOpen={onOpen} onStop={onStop} />
             ))}
           </ul>
         </section>
@@ -220,14 +219,64 @@ function Activity({
   );
 }
 
+/** What a live task is doing now, or that it has gone quiet. */
+function TaskNow({ task, machines, now }: { task: TaskRow; machines: readonly MachineInfo[]; now: number }) {
+  const note = quietNote(task, machines, now);
+  const step = currentStep(task);
+
+  if (note !== null) return <span className="feed-step" data-quiet="true">{step ? `${note} · last: ${step}` : note}</span>;
+
+  return step ? <span className="feed-step">{step}</span> : null;
+}
+
+/** How long a live task has run; when a finished one ended, and what it cost. */
+const metaOf = (task: TaskRow, now: number) =>
+  isLive(task) ? [elapsed(task, now)] : [clock(task.updated_at), spendLine(task, now)];
+
+/** Who did it and when; how long it has run while live, and what it cost once it is over. */
+function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
+  return (
+    <span className="feed-meta">
+      {task.kind === "cloud" ? <BotAvatar name={task.worker} still size={14} /> : <Icon name="monitor" size={12} />}
+      <span>{task.worker}</span>
+      {metaOf(task, now)
+        .filter(Boolean)
+        .map((part) => (
+          <span key={part} className="tabular">
+            · {part}
+          </span>
+        ))}
+    </span>
+  );
+}
+
+/** The task's last few steps, oldest first, once its card is open. */
+function StepList({ task, open }: { task: TaskRow; open: boolean }) {
+  if (!open || task.steps.length === 0) return null;
+
+  return (
+    <ol className="feed-steps" aria-label="Recent steps">
+      {task.steps.map((step) => (
+        <li key={`${step.at}-${step.text}`}>
+          <span className="tabular">{clock(step.at)}</span> {step.text}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function TaskItem({
   task,
   session,
+  now,
+  machines,
   onOpen,
   onStop,
 }: {
   task: TaskRow;
   session: string;
+  now: number;
+  machines: readonly MachineInfo[];
   onOpen: (session: string) => void;
   onStop: (task: string) => void;
 }) {
@@ -249,22 +298,16 @@ function TaskItem({
         </span>
         <span className="feed-text">
           <span className="feed-title">{task.title}</span>
+          <TaskNow task={task} machines={machines} now={now} />
           {task.summary ? (
             <span className="feed-summary" data-open={open}>
               {task.summary}
             </span>
           ) : null}
-          <span className="feed-meta">
-            {task.kind === "cloud" ? (
-              <BotAvatar name={task.worker} still size={14} />
-            ) : (
-              <Icon name="monitor" size={12} />
-            )}
-            <span>{task.worker}</span>
-            {live ? null : <span className="tabular">· {clock(task.updated_at)}</span>}
-          </span>
+          <TaskMeta task={task} now={now} />
         </span>
       </button>
+      <StepList task={task} open={open} />
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />

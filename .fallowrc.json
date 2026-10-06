@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "runner/ky-runner.ts",
+    "runner/ky-diff.ts",
     "test/fakes/claude.ts",
     "test/web/global-setup.ts",
     "test/web/outcomes.ts",

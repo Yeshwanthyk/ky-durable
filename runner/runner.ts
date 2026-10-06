@@ -7,6 +7,7 @@
 
 import type { HandledSeqs } from "./handled.ts";
 import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
+import { describeTool } from "../src/tool-labels.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
 export type Link = { send(text: string): boolean };
@@ -48,9 +49,14 @@ type Run = {
   ended: boolean;
   /** Queued turns a later stop dropped. */
   dropped: number;
+  /** What Claude Code said this process spent, as of its latest result. */
+  spent: { turns: number; costUsd: number } | undefined;
+  /** When what Claude said was last reported as a step. */
+  saidAt: number;
 };
 
-const PROGRESS_EVERY_MS = 4_000;
+/** How often what Claude says between tools is reported as a step; each tool it uses always is. */
+const TEXT_STEP_EVERY_MS = 4_000;
 
 /** A stopped session's result, naming the queued messages a second stop dropped. */
 function stoppedText(run: Run): string {
@@ -59,12 +65,36 @@ function stoppedText(run: Run): string {
   return `Stopped. Dropped ${run.dropped} queued message${run.dropped === 1 ? "" : "s"}.`;
 }
 
-/** What an assistant message says, or the tools it uses, as one progress line. */
-function assistantText(event: any): string {
-  return (event.message?.content ?? [])
-    .flatMap((part: any) => (part.type === "text" ? [part.text] : part.type === "tool_use" ? [`Using ${part.name}`] : []))
-    .join(" ")
-    .trim();
+/** An assistant message's steps: each tool it uses, labelled, and what it says as one line. */
+type Steps = { tools: string[]; text: string };
+
+function stepsOf(event: any): Steps {
+  const parts: any[] = event.message?.content ?? [];
+
+  return {
+    tools: parts.flatMap((part) => (part.type === "tool_use" ? [describeTool(String(part.name), part.input ?? {}).label] : [])),
+    text: parts
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join(" ")
+      .trim()
+  };
+}
+
+/**
+ * What a Claude Code result says the process has spent. Its counters run for
+ * the whole process, so the latest result holds the total; the larger is kept
+ * in case one omits them.
+ */
+function spentBy(event: any, before: Run["spent"]): Run["spent"] {
+  const turns = Number(event.num_turns);
+  const costUsd = Number(event.total_cost_usd);
+
+  if (!Number.isFinite(turns) && !Number.isFinite(costUsd)) return before;
+
+  return {
+    turns: Math.max(before?.turns ?? 0, Number.isFinite(turns) ? turns : 0),
+    costUsd: Math.max(before?.costUsd ?? 0, Number.isFinite(costUsd) ? costUsd : 0)
+  };
 }
 
 function userLine(text: string): string {
@@ -133,7 +163,7 @@ export class Runner {
   #report(message: RunnerReport): void {
     if (this.#link?.send(JSON.stringify(message))) return;
 
-    if (message.type !== "progress" && message.type !== "ack") this.#outbox.push(message);
+    if (message.type !== "step" && message.type !== "ack") this.#outbox.push(message);
   }
 
   /**
@@ -218,7 +248,8 @@ export class Runner {
 
   /** Report the session's last turn over; turns queued behind it start once it exits. */
   #end(task: string, run: Run, ok: boolean, text: string): void {
-    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session });
+    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, ...run.spent });
+    run.spent = undefined;
 
     if (run.next.length === 0) this.#runs.delete(task);
     else run.ended = true;
@@ -228,9 +259,10 @@ export class Runner {
   #onResult(task: string, run: Run, event: any): void {
     run.pending = Math.max(0, run.pending - 1);
     run.last = String(event.result ?? "");
+    run.spent = spentBy(event, run.spent);
 
     if (run.pending > 0) {
-      this.#report({ type: "progress", task, turn: run.turn, text: run.last });
+      this.#report({ type: "step", task, turn: run.turn, text: run.last });
 
       return;
     }
@@ -245,9 +277,20 @@ export class Runner {
     );
   }
 
+  /** Each tool Claude uses is a step; what it says between tools is one too, at most every few seconds. */
+  #onAssistant(task: string, run: Run, event: any): void {
+    const { tools, text } = stepsOf(event);
+
+    if (text && tools.length === 0 && Date.now() - run.saidAt > TEXT_STEP_EVERY_MS) {
+      run.saidAt = Date.now();
+      this.#report({ type: "step", task, turn: run.turn, text });
+    }
+
+    for (const tool of tools) this.#report({ type: "step", task, turn: run.turn, text: tool });
+  }
+
   #start(task: string, turn: number, prompt: string, session: string | null): Run {
     this.#log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
-    let lastProgress = 0;
 
     const child = this.#spawn(task, session, {
       line: (line) => {
@@ -265,14 +308,7 @@ export class Runner {
           this.#report({ type: "session", task, turn: run.turn, session: event.session_id });
         }
 
-        if (event.type === "assistant") {
-          const text = assistantText(event);
-
-          if (text && Date.now() - lastProgress > PROGRESS_EVERY_MS) {
-            lastProgress = Date.now();
-            this.#report({ type: "progress", task, turn: run.turn, text });
-          }
-        }
+        if (event.type === "assistant") this.#onAssistant(task, run, event);
 
         if (event.type === "result") this.#onResult(task, run, event);
       },
@@ -295,7 +331,7 @@ export class Runner {
       }
     });
 
-    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false, dropped: 0 };
+    const run: Run = { child, session, turn, pending: 1, stopped: false, last: "", next: [], ended: false, dropped: 0, spent: undefined, saidAt: 0 };
     this.#runs.set(task, run);
     child.write(userLine(prompt));
 

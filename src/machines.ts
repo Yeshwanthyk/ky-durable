@@ -112,17 +112,13 @@ export class MachineHub {
 
   machines(): Array<{ name: string; online: boolean; seenAt: number; active: number }> {
     return this.#sql
-      .exec<{ name: string; seen_at: number; active: number }>(
-        `SELECT name, seen_at, (SELECT COUNT(*) FROM ky_tasks
-           WHERE kind = 'machine' AND worker = name AND status IN ('queued', 'working')) AS active
-         FROM ky_machines ORDER BY name`
-      )
+      .exec<{ name: string; seen_at: number }>("SELECT name, seen_at FROM ky_machines ORDER BY name")
       .toArray()
       .map((row) => ({
         name: row.name,
         online: this.online(row.name),
         seenAt: row.seen_at,
-        active: row.active
+        active: this.#feed.open("machine", row.name).length
       }));
   }
 
@@ -246,15 +242,13 @@ export class MachineHub {
   async #onHello(machine: string, active: readonly string[]): Promise<void> {
     // An open task the runner is not running is over, unless one of its runs is still unacked:
     // the socket is in order, so every run the runner had seen when it said hello was acked first.
-    const lost = this.#sql
-      .exec<TaskRow>(
-        `SELECT * FROM ky_tasks t WHERE kind = 'machine' AND worker = ? AND status IN ('queued', 'working')
-           AND NOT EXISTS (SELECT 1 FROM ky_machine_inbox i WHERE i.machine = t.worker
-             AND json_extract(i.payload, '$.type') = 'run' AND json_extract(i.payload, '$.task') = t.id)`,
-        machine
-      )
-      .toArray()
-      .filter((task) => !active.includes(task.id));
+    const unacked = new Set(
+      this.#pending(machine).flatMap((command) => (command.type === "run" ? [command.task] : []))
+    );
+
+    const lost = this.#feed
+      .open("machine", machine)
+      .filter((task) => !unacked.has(task.id) && !active.includes(task.id));
 
     for (const task of lost) {
       await this.#finish(
@@ -284,12 +278,17 @@ export class MachineHub {
         this.#feed.update(report.task, { session: report.session, status: "working" });
 
         return;
-      case "progress":
-        this.#feed.update(report.task, { status: "working", summary: summarize(report.text) });
+      case "step":
+        this.#feed.step(report.task, report.text);
 
         return;
       case "result":
         if (report.session) this.#feed.update(report.task, { session: report.session });
+
+        if (report.turns !== undefined || report.costUsd !== undefined) {
+          this.#feed.spend(report.task, report.turns ?? 0, report.costUsd ?? 0);
+        }
+
         await this.#finish(report.task, report.ok, report.text, report.turn);
     }
   }

@@ -178,13 +178,13 @@ test("starts a side chat, names it from its first message, and goes back to the 
 
   await send(page, "Plan a trip to Lisbon");
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeVisible();
-  await expect(chats.getByRole("button", { name: /Named: Plan a trip to Lisbon/ })).toBeVisible();
+  await expect(chats.getByRole("button", { name: /^Named: Plan a trip to Lisbon/ })).toBeVisible();
 
   await chats.getByRole("button", { name: "Main chat" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeHidden();
 
-  await chats.getByRole("button", { name: /Named: Plan a trip to Lisbon/ }).click();
+  await chats.getByRole("button", { name: /^Named: Plan a trip to Lisbon/ }).click();
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeVisible();
 });
 
@@ -258,6 +258,19 @@ test("runs a task on a machine and shows its report", async ({ page }) => {
   await send(page, "machine@webmac build the web site");
   await expect(page.getByText("fake claude did: build the web site").first()).toBeVisible();
   await expect(page.getByText("Report from").first()).toBeVisible();
+});
+
+test("shows what a machine task is doing, then how long it took and what it cost", async ({ page }) => {
+  await open(page);
+  await send(page, "machine@webmac [delay=4000] [tools=Bash:pnpm build] build with steps");
+  const card = panel(page).getByRole("button", { name: /build with steps/ }).first();
+  await expect(card).toContainText("Running pnpm build");
+  await expect(page.getByRole("button", { name: /^ky:/ })).toContainText("webmac: Running pnpm build");
+
+  await expect(card).toContainText("1 turn · $0.01");
+  await expect(card).not.toContainText("Running pnpm build");
+  await card.click();
+  await expect(panel(page).getByRole("list", { name: "Recent steps" })).toContainText("Running pnpm build");
 });
 
 test("stops a machine task from Activity", async ({ page }) => {

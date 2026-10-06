@@ -366,6 +366,43 @@ export class PiSessionSockets {
     }
   }
 
+  /** The user's message to a machine task, such as their comments on its changes. */
+  #sendTask(id: string, text: string): void {
+    const task = this.#feed.get(id);
+
+    if (task?.kind !== "machine") throw new Error(`No machine task ${id}`);
+
+    if (text.trim() === "") throw new Error("Write a message first");
+
+    this.#hub.send(task, text);
+  }
+
+  /** A message for the session's agent, checked first: the slot that runs it must read its images. */
+  async #submit(session: PiSessionId, message: Extract<PiClientMessage, { type: "submit" }>): Promise<JsonValue> {
+    // The main session and side chats run on the main slot; every other session is a subagent's.
+    const chat = this.#chats.has(session);
+
+    const slot = session === ROOT_SESSION || chat ? "main" : "subagents";
+
+    // A submit with images waits for the slot's provider probe: cached for 30s, up to 3s when stale.
+    const problem =
+      checkInput(message.input) ??
+      (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(slot) : null);
+
+    if (problem !== null) throw new Error(problem);
+
+    if (chat) this.#chats.touch(session, textOf(message.input));
+
+    // Pass only the options the client set.
+    const options: SubmitOptions = {};
+
+    if (message.whenBusy) options.whenBusy = message.whenBusy;
+
+    if (message.operationId) options.operationId = message.operationId;
+
+    return await this.#harness.session(session).submit(message.input, options);
+  }
+
   async #dispatch(
     connection: Connection,
     session: PiSessionId,
@@ -374,31 +411,8 @@ export class PiSessionSockets {
     const handle = this.#harness.session(session);
 
     switch (message.type) {
-      case "submit": {
-        // The main session and side chats run on the main slot; every other session is a subagent's.
-        const chat = this.#chats.has(session);
-
-        const slot = session === ROOT_SESSION || chat ? "main" : "subagents";
-
-        // A submit with images waits for the slot's provider probe: cached for 30s, up to 3s when stale.
-        const problem =
-          checkInput(message.input) ??
-          (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(slot) : null);
-
-        if (problem !== null) throw new Error(problem);
-
-        if (chat) this.#chats.touch(session, textOf(message.input));
-
-        // Pass only the options the client set.
-        const options: SubmitOptions = {};
-
-        if (message.whenBusy) options.whenBusy = message.whenBusy;
-
-        if (message.operationId) options.operationId = message.operationId;
-
-        return await handle.submit(message.input, options);
-      }
-
+      case "submit":
+        return await this.#submit(session, message);
       case "abort":
         return await handle.abort();
       case "reset":
@@ -431,17 +445,10 @@ export class PiSessionSockets {
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 
         return null;
-      case "send-task": {
-        const task = this.#feed.get(message.task);
-
-        if (task?.kind !== "machine") throw new Error(`No machine task ${message.task}`);
-
-        if (message.message.trim() === "") throw new Error("Write a message first");
-
-        this.#hub.send(task, message.message);
+      case "send-task":
+        this.#sendTask(message.task, message.message);
 
         return null;
-      }
 
       default:
         // SAFETY: the switch covers every known type, so `message` is `never` here; at runtime it is a parsed object.
