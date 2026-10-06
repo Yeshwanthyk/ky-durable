@@ -135,26 +135,6 @@
     },
     {
       "check": "worker-e2e",
-      "name": "browse closes the browser once when the page cannot be opened",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "browse closes a browser that finishes launching after the turn was stopped",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "browse closes a browser that finishes launching after the launch timed out",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "browse ends a call whose page steps outlast the 90s cap, and closes the browser once",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
       "name": "executor tools over MCP runs a program once and answers with its result",
       "outcome": "passed"
     },
@@ -611,36 +591,6 @@
     {
       "check": "harness",
       "name": "reconnect-outage",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-stopRace",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-helloBeforeOutbox",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-dupExec",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-steerIntoStop",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-stuckQueued",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "trap-reorder",
       "outcome": "PASS"
     },
     {
