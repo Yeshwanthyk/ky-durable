@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import type { ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, TaskRow } from "../protocol";
+import type { ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, SkillRow, TaskRow } from "../protocol";
 
 /**
  * Decoders for what ky sends over the browser's socket, shared by the worker
@@ -25,6 +25,8 @@ const File = Type.Unsafe<FileRow>(Type.Object({ id: Type.String(), task: Type.St
 
 const Chat = Type.Unsafe<ChatRow>(Type.Object({ session: Type.String(), title: Type.String() }));
 
+const Skill = Type.Unsafe<SkillRow>(Type.Object({ name: Type.String(), status: Type.String() }));
+
 const Settings = Type.Unsafe<SettingsView>(
   Type.Object({ providers: Type.Array(Type.Object({ id: Type.String() })), slots: Type.Object({}) })
 );
@@ -46,6 +48,7 @@ const ServerFrame = Type.Union([
     files: Type.Array(File)
   }),
   Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat) }),
+  Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("result"), id: Type.String(), result: Json }),
   Type.Object({ type: Type.Literal("error"), id: Type.Optional(Type.String()), message: Type.String() })
@@ -72,4 +75,11 @@ const NewChat = Type.Object({ session: Type.String() });
 /** The session a `new-chat` command's result names; undefined if it names none. */
 export function decodeNewChat(result: JsonValue): string | undefined {
   return Value.Check(NewChat, result) ? result.session : undefined;
+}
+
+const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Type.String(), actor: Type.String() }));
+
+/** The version ids a `skill-history` command's result lists, newest first. */
+export function decodeSkillVersions(result: JsonValue): number[] {
+  return Value.Check(Versions, result) ? result.map((each) => each.id) : [];
 }

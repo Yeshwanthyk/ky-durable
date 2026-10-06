@@ -109,7 +109,9 @@ const DESCRIBE = new Map<string, (args: Args) => Activity>([
   ["browse", (args) => browsing(text(args.url))],
   ["executor_execute", (args) => executorApp(text(args.code))],
   ["subagent", subagentTool],
-  ["machine", machineTool]
+  ["machine", machineTool],
+  ["skill_view", (args) => ({ icon: "list", label: args.history ? `Checking ${text(args.name)} history` : `Reading ${text(args.name)} skill` })],
+  ["skill_manage", (args) => ({ icon: "pencil", label: `Updating ${text(args.name)} skill` })]
 ]);
 
 /** Tools with one fixed label. */

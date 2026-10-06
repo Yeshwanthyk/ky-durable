@@ -4,6 +4,7 @@ import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
+import type { SkillChange, SkillRow } from "./skills";
 import type { TaskRow } from "./tasks";
 
 export type MachineInfo = {
@@ -47,6 +48,10 @@ export type PiClientMessage =
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
   | { readonly type: "archive-chat"; readonly id?: string; readonly session: string; readonly archived: boolean }
+  /** Change a skill as the user: edit, archive, restore, or revert it. */
+  | { readonly type: "skill-change"; readonly id?: string; readonly change: SkillChange }
+  /** A skill's versions, newest first, as the result. */
+  | { readonly type: "skill-history"; readonly id?: string; readonly name: string }
   /** Choose the model, and its thinking level, for one slot. */
   | {
       readonly type: "set-model";
@@ -84,6 +89,8 @@ export type PiServerMessage =
     }
   /** Side chats, archived ones included, newest first; sent on connect and on change. */
   | { readonly type: "chats"; readonly chats: readonly ChatRow[] }
+  /** Every skill, active ones first; sent on connect and on change. */
+  | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
@@ -98,6 +105,8 @@ export type {
 export type { TaskRow } from "./tasks";
 
 export type { ChatRow } from "./chats";
+
+export type { SkillChange, SkillRow, SkillVersion } from "./skills";
 
 export type { FileRow } from "./files";
 

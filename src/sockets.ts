@@ -21,6 +21,7 @@ import {
 import { decodeReport, REPLACED } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { ChatList } from "./chats";
+import type { Skills } from "./skills";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -112,6 +113,7 @@ export class PiSessionSockets {
   readonly #files: FileStore;
   readonly #models: Models;
   readonly #chats: ChatList;
+  readonly #skills: Skills;
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -126,6 +128,7 @@ export class PiSessionSockets {
     files: FileStore,
     models: Models,
     chats: ChatList,
+    skills: Skills,
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -138,10 +141,16 @@ export class PiSessionSockets {
     this.#files = files;
     this.#models = models;
     this.#chats = chats;
+    this.#skills = skills;
     this.#newChat = newChat;
     this.#version = version;
     chats.onChange(() => {
       const message = this.#chatsMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    skills.onChange(() => {
+      const message = this.#skillsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -152,6 +161,10 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+  }
+
+  #skillsMessage(): PiServerMessage {
+    return { type: "skills", skills: this.#skills.all() };
   }
 
   #chatsMessage(): PiServerMessage {
@@ -240,6 +253,7 @@ export class PiSessionSockets {
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#chatsMessage());
+    send(connection, this.#skillsMessage());
     await this.#watch(connection, session);
   }
 
@@ -441,6 +455,10 @@ export class PiSessionSockets {
         this.#chats.archive(message.session, message.archived === true);
 
         return null;
+      case "skill-change":
+        return this.#skills.apply(message.change, "user");
+      case "skill-history":
+        return this.#skills.history(message.name);
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

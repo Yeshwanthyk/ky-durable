@@ -175,6 +175,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "skills panel sends skills on connect and on change, and takes the user's edits, history and reverts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "settings stores a slot's model across restarts and refuses one that does not exist",
       "outcome": "passed"
     },
@@ -385,6 +390,26 @@
     },
     {
       "check": "worker-e2e",
+      "name": "skills creates, opens, patches and reverts a skill, keeping every version",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "skills refuses a bad name, a duplicate, and a patch that does not match once",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "skills lists active skills in the system prompt, and drops archived ones",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "skills reviews a busy turn in a fork that may only touch skills",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the session WebSocket protocol sends a snapshot, then pi's events for a run started over the socket",
       "outcome": "passed"
     },
@@ -526,6 +551,11 @@
     {
       "check": "web",
       "name": "opens the command palette with the keyboard and runs a command",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "shows ky's skills, edits one, reverts it and archives it",
       "outcome": "passed"
     },
     {

@@ -17,7 +17,7 @@ import {
   TOKEN,
   wait
 } from "./drive";
-import { decodeNewChat } from "./frames";
+import { decodeNewChat, decodeSkillVersions } from "./frames";
 
 /**
  * One check per server-side feature in FEATURES.md that the local stack can
@@ -267,6 +267,48 @@ describe("side chats and titles", () => {
       await command(later.socket, later.client, { type: "archive-chat", session: "not-a-chat", archived: true })
     ).toMatchObject({ type: "error" });
     later.socket.close();
+  });
+});
+
+describe("skills panel", () => {
+  it("sends skills on connect and on change, and takes the user's edits, history and reverts", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const skill = () => latest(main.client, "skills")?.skills.find((each) => each.name === "weekly-groceries");
+    expect(latest(main.client, "skills")?.skills).toEqual([]);
+
+    await prompt(
+      name,
+      `tool skill_manage ${JSON.stringify({ action: "create", name: "weekly-groceries", description: "Groceries", body: "Oat milk." })}`
+    );
+    await main.client.until(() => skill()?.body === "Oat milk.");
+
+    await command(main.socket, main.client, {
+      type: "skill-change",
+      change: { action: "edit", name: "weekly-groceries", body: "Soy milk." }
+    });
+    await main.client.until(() => skill()?.body === "Soy milk.");
+
+    const history = await command(main.socket, main.client, { type: "skill-history", name: "weekly-groceries" });
+    expect(history).toMatchObject({
+      type: "result",
+      result: [
+        { action: "edit", actor: "user" },
+        { action: "create", actor: "agent" }
+      ]
+    });
+    const version = history.type === "result" ? (decodeSkillVersions(history.result)[1] ?? 0) : 0;
+
+    await command(main.socket, main.client, { type: "skill-change", change: { action: "revert", name: "weekly-groceries", version } });
+    await main.client.until(() => skill()?.body === "Oat milk.");
+
+    await command(main.socket, main.client, { type: "skill-change", change: { action: "archive", name: "weekly-groceries" } });
+    await main.client.until(() => skill()?.status === "archived");
+
+    expect(
+      await command(main.socket, main.client, { type: "skill-change", change: { action: "archive", name: "no-such-skill" } })
+    ).toMatchObject({ type: "error" });
+    main.socket.close();
   });
 });
 

@@ -10,6 +10,9 @@ import type {
   MachineInfo,
   ServerMessage,
   SettingsView,
+  SkillChange,
+  SkillRow,
+  SkillVersion,
   Slot,
   SlotSetting,
   TaskRow,
@@ -29,6 +32,8 @@ type State = SessionView & {
   readonly files: readonly FileRow[];
   /** Side chats, newest first. */
   readonly chats: readonly ChatRow[];
+  /** ky's skills, active ones first. */
+  readonly skills: readonly SkillRow[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** A newer deploy is serving than the one this page loaded from. */
@@ -43,6 +48,7 @@ const INITIAL_STATE: State = {
   machines: [],
   files: [],
   chats: [],
+  skills: [],
   settings: null,
   updated: false
 };
@@ -132,6 +138,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, chats: message.chats }));
 
           return;
+        case "skills":
+          setState((current) => ({ ...current, skills: message.skills }));
+
+          return;
         case "result":
           unanswered.current.delete(message.id);
           waiting.current.get(message.id)?.(message.result);
@@ -161,6 +171,7 @@ export function usePiSession(session: string) {
       machines: current.machines,
       files: current.files,
       chats: current.chats,
+      skills: current.skills,
       settings: current.settings,
       updated: current.updated
     }));
@@ -238,5 +249,36 @@ export function usePiSession(session: string) {
     [send]
   );
 
-  return { ...state, submit, abort, reset, stopTask, sendTask, stopAll, setModel, newChat, archiveChat };
+  /** Change a skill as the user. */
+  const changeSkill = useCallback(
+    (change: SkillChange) => send({ type: "skill-change", id: crypto.randomUUID(), change }),
+    [send]
+  );
+
+  /** A skill's versions, newest first. */
+  const skillHistory = useCallback(
+    (name: string) =>
+      new Promise<readonly SkillVersion[]>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers skill-history with the skill's versions.
+        waiting.current.set(id, (result) => resolve(result as readonly SkillVersion[]));
+        send({ type: "skill-history", id, name });
+      }),
+    [send]
+  );
+
+  return {
+    ...state,
+    submit,
+    abort,
+    reset,
+    stopTask,
+    sendTask,
+    stopAll,
+    setModel,
+    newChat,
+    archiveChat,
+    changeSkill,
+    skillHistory
+  };
 }
