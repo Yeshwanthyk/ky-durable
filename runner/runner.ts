@@ -259,8 +259,8 @@ export class Runner {
   /**
    * Claude Code ended a turn. A message written while a turn runs joins that
    * turn, so one result can answer several messages: the run ends once every
-   * message written to it has been taken in, and a result before then is
-   * progress.
+   * message written to it has been taken in, and a result before then is a
+   * step.
    */
   #onResult(task: string, run: Run, event: any): void {
     run.last = String(event.result ?? "");
