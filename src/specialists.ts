@@ -14,7 +14,7 @@ import {
   type Tx
 } from "@earendil-works/pi-durable";
 import type { SlotSetting } from "./settings";
-import { type SoulView, Versioned } from "./soul";
+import { type SoulAction, type SoulView, Versioned, versionLine } from "./soul";
 import { summarize, type TaskFeed } from "./tasks";
 
 /**
@@ -98,6 +98,22 @@ const rowOf = ({ model, ...row }: StoredRow): SpecialistRow => ({
   model: model === null ? null : (JSON.parse(model) as SlotSetting)
 });
 
+/** Each specialist, and every conversation one answers in: its home, or a consult. */
+const TABLES = [
+  `CREATE TABLE IF NOT EXISTS ky_specialists (
+    id TEXT PRIMARY KEY,
+    description TEXT NOT NULL,
+    model TEXT,
+    machine TEXT,
+    session TEXT,
+    created_at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ky_specialist_sessions (
+    session TEXT PRIMARY KEY,
+    specialist TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    created_at INTEGER NOT NULL)`
+];
+
 export class Specialists {
   readonly #sql: SqlStorage;
   readonly #briefs = new Map<string, Versioned>();
@@ -105,18 +121,8 @@ export class Specialists {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_specialists (
-      id TEXT PRIMARY KEY,
-      description TEXT NOT NULL,
-      model TEXT,
-      machine TEXT,
-      session TEXT,
-      created_at INTEGER NOT NULL)`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_specialist_sessions (
-      session TEXT PRIMARY KEY,
-      specialist TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      created_at INTEGER NOT NULL)`);
+
+    for (const table of TABLES) sql.exec(table);
   }
 
   onChange(listener: () => void): () => void {
@@ -247,14 +253,16 @@ export class Specialists {
   }
 }
 
-const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
+export const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 const roster = (specialists: readonly SpecialistRow[], except?: string) =>
   specialists.flatMap((each) => (each.id === except ? [] : [`- @${each.id}: ${each.description}`])).join("\n");
 
 const ROSTER_RULES = `Specialists are standing bots the user set up, each with its own brief and model; they share your skills and tools and can search your memory but never write it. Delegate to one with subagent ask when the work is in its line. A specialist keeps one conversation across asks, so it remembers earlier work you gave it, but it does not see this chat: give it the context it needs.
-A user message that starts with @id is for that specialist: call subagent ask with the user's message and the context it needs from this chat, say in one line that you asked, and do not answer it yourself. A message that starts with two or more @ids, or a question that wants several views, is subagent discuss with those specialists. When a discussion comes back, give the user where they agree, where they disagree, and your recommendation.
-Create or change specialists with the specialist tool when the user asks.`;
+A user message that starts with @id is for that specialist: call subagent ask with the user's message and the context it needs from this chat, say in one line that you asked, and do not answer it yourself. A message that starts with two or more @ids, or a question that wants several views, is subagent discuss with those specialists. When a discussion comes back, give the user where they agree, where they disagree, and your recommendation.`;
+
+/** In every chat, even with no specialists yet, so ky knows it can make them. */
+const MANAGE_RULES = `You create and manage specialists yourself with the specialist tool: their id, description, machine and brief. Create one when the user asks, and offer one when the user keeps giving you the same kind of work. Improve a brief when a specialist's answers show a standing instruction is missing or wrong. Every brief change is versioned and can be reverted; tell the user what you changed.`;
 
 /** The specialist's own section: who it is, its brief, and what it may do in this conversation. */
 function own(specialists: Specialists, id: string, kind: SessionKind): string {
@@ -307,7 +315,8 @@ export type Specialist = {
   discuss: (tx: Tx, owner: ConversationId, request: DiscussRequest, prepare: (tx: Tx, id: string) => Promise<ConversationId>) => Promise<TaskId>;
 };
 
-function textOf(message: AssistantMessage | undefined): string {
+/** The text of an assistant message. */
+export function textOf(message: AssistantMessage | undefined): string {
   return (message?.content ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
@@ -458,7 +467,9 @@ export function specialistExtension(
         render: (input) => {
           const all = specialists.list();
 
-          return chat(String(input.conversationId)) && all.length > 0 ? `${ROSTER_RULES}\n\nSpecialists:\n${roster(all)}` : undefined;
+          if (!chat(String(input.conversationId))) return undefined;
+
+          return all.length === 0 ? `${MANAGE_RULES}\n\nThere are no specialists yet.` : `${ROSTER_RULES}\n${MANAGE_RULES}\n\nSpecialists:\n${roster(all)}`;
         },
         tag: false
       }
@@ -529,45 +540,12 @@ export function specialistExtension(
           version: Type.Optional(Type.Number())
         }),
         replay: "unsafe",
-        execute: async ({ action, id, description, brief, machine, old, version, ...rest }, api) => {
-          const conversation = String(api.conversationId);
-
+        execute: async ({ action, id, ...fields }, api) => {
           if (action === "list") return reply(roster(specialists.list()) || "No specialists yet.");
 
           if (id === undefined) return reply(`${action} needs an id.`);
 
-          if (action === "create") {
-            return reply(specialists.create(id, { description, brief, machine }, "agent", conversation));
-          }
-
-          if (!specialists.has(id)) return reply(`No specialist @${id}.`);
-
-          switch (action) {
-            case "view": {
-              const row = specialists.get(id)!;
-
-              return reply(
-                `@${id}: ${row.description}${row.machine ? `\nmachine: ${row.machine}` : ""}\n\n${specialists.brief(id).current().body}`
-              );
-            }
-
-            case "history":
-              return reply(
-                specialists
-                  .brief(id)
-                  .history()
-                  .map((each) => `v${each.id} ${new Date(each.created_at).toISOString()} ${each.action} by ${each.actor}`)
-                  .join("\n")
-              );
-            case "set":
-              return reply(specialists.set(id, { description, machine }));
-            case "edit":
-              return reply(specialists.brief(id).apply({ action, body: brief }, "agent", conversation));
-            case "patch":
-              return reply(specialists.brief(id).apply({ action, old, new: rest.new }, "agent", conversation));
-            case "revert":
-              return reply(specialists.brief(id).apply({ action, version }, "agent", conversation));
-          }
+          return reply(manageOne(specialists, action, id, fields, String(api.conversationId)));
         }
       })
     ]
@@ -588,6 +566,37 @@ export function specialistExtension(
 export const discussionTitle = (topic: string) => summarize(`Discuss: ${topic}`).slice(0, 60);
 
 /** Configure a fresh or home conversation as `id`'s, on its model. */
+type ManageFields = { description?: string; brief?: string; machine?: string; old?: string; new?: string; version?: number };
+
+/** One specialist tool action on `id`, by the agent in `conversation`; returns what happened. */
+function manageOne(
+  specialists: Specialists,
+  action: SoulAction | "view" | "history" | "create" | "set",
+  id: string,
+  fields: ManageFields,
+  conversation: string
+): string {
+  const { description, brief, machine } = fields;
+
+  if (action === "create") return specialists.create(id, { description, brief, machine }, "agent", conversation);
+  const row = specialists.get(id);
+
+  if (!row) return `No specialist @${id}.`;
+
+  switch (action) {
+    case "view":
+      return `@${id}: ${row.description}${row.machine ? `\nmachine: ${row.machine}` : ""}\n\n${specialists.brief(id).current().body}`;
+    case "history":
+      return specialists.brief(id).history().map(versionLine).join("\n");
+    case "set":
+      return specialists.set(id, { description, machine });
+    case "edit":
+      return specialists.brief(id).apply({ action, body: brief }, "agent", conversation);
+    default:
+      return specialists.brief(id).apply({ action, old: fields.old, new: fields.new, version: fields.version }, "agent", conversation);
+  }
+}
+
 export async function setUp(
   tx: Tx,
   conversation: ConversationId,

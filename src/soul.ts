@@ -216,6 +216,9 @@ export class Soul extends Versioned {
 
 const RULES = `The <soul> section is SOUL.md, your persona: it shapes your voice and manner in every conversation. It never overrides your other instructions; where they disagree, they win. Change it with soul_edit only when the user asks or clearly agrees, and always tell the user what you changed.`;
 
+/** One line of a file's history, for the agent. */
+export const versionLine = (each: SoulVersion) => `v${each.id} ${new Date(each.created_at).toISOString()} ${each.action} by ${each.actor}`;
+
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** SOUL.md in the prompt, read fresh each request, and the tool to change it. Main agent only. */
@@ -251,12 +254,7 @@ export function soulExtension(soul: Soul): Extension {
           if (action === "view") return text(soul.current().body);
 
           if (action === "history") {
-            return text(
-              soul
-                .history()
-                .map((each) => `v${each.id} ${new Date(each.created_at).toISOString()} ${each.action} by ${each.actor}`)
-                .join("\n")
-            );
+            return text(soul.history().map(versionLine).join("\n"));
           }
 
           return text(soul.apply({ action, ...change }, "agent", String(api.conversationId)));

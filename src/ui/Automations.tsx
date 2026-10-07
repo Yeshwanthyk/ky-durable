@@ -437,7 +437,7 @@ export function modelChoices(providers: readonly ProviderInfo[]): ModelChoice[] 
 }
 
 /** The chosen thinking level if the model takes it, else its lowest. */
-export function levelOf(
+function levelOf(
   thinking: string,
   levels: readonly ModelThinkingLevel[],
 ): ModelThinkingLevel {
@@ -650,7 +650,20 @@ export function Pick({
 }
 
 function ModelField({ form, set }: FieldProps) {
-  const choices = modelChoices(useContext(AutomationsContext).providers);
+  return <ModelPicks providers={useContext(AutomationsContext).providers} form={form} set={set} />;
+}
+
+/** The model and, when it has levels, the thinking picks; an empty model is the subagents slot's. */
+export function ModelPicks({
+  providers,
+  form,
+  set,
+}: {
+  providers: readonly ProviderInfo[];
+  form: Pick<Form, "model" | "thinking">;
+  set: (patch: Partial<Pick<Form, "model" | "thinking">>) => void;
+}) {
+  const choices = modelChoices(providers);
   const levels = choices.find((choice) => choice.value === form.model)?.levels ?? [];
 
   return (

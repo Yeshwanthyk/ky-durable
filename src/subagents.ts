@@ -23,9 +23,11 @@ import {
   DISCUSS_MAX,
   DISCUSS_MIN,
   discussionTitle,
+  reply,
   setUp,
   type Specialist,
-  type Specialists
+  type Specialists,
+  textOf
 } from "./specialists";
 import { summarize, type TaskFeed } from "./tasks";
 import { describeTool } from "./tool-labels";
@@ -120,14 +122,6 @@ export type SpecialistDeps = {
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
-
-function textOf(message: AssistantMessage | undefined): string {
-  return (message?.content ?? [])
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
-}
-
-const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 /** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
 function reportOf(input: ReporterInput, text: string): string {

@@ -81,6 +81,10 @@ function sessionOf(tags: readonly string[]): string | undefined {
   return tag?.slice(SESSION_TAG_PREFIX.length);
 }
 
+type SpecialistCommand = Extract<PiClientMessage, { type: "specialist-save" | "specialist-brief" | "specialist-history" }>;
+
+const isSpecialistCommand = (message: PiClientMessage): message is SpecialistCommand => message.type.startsWith("specialist-");
+
 function textOf(input: UserInput): string {
   if (!Array.isArray(input)) return String(input);
 
@@ -251,6 +255,26 @@ export class PiSessionSockets {
   }
 
   /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
+  /** The panel's specialist commands; a save that is refused says why, as an automation's does. */
+  #specialist(message: SpecialistCommand): JsonValue {
+    const id = message.specialist;
+
+    if (message.type === "specialist-save") {
+      try {
+        if (message.create) this.#specialists.create(id, message.draft, "user");
+        else this.#specialists.set(id, message.draft);
+
+        return {};
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : String(error) };
+      }
+    }
+
+    if (!this.#specialists.has(id)) throw new Error(`No specialist @${id}`);
+
+    return message.type === "specialist-brief" ? this.#specialists.brief(id).apply(message.change, "user") : this.#specialists.brief(id).history();
+  }
+
   async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
     switch (message.action) {
       case "pause":
@@ -535,6 +559,7 @@ export class PiSessionSockets {
     session: PiSessionId,
     message: PiClientMessage
   ): Promise<JsonValue> {
+    if (isSpecialistCommand(message)) return this.#specialist(message);
     const handle = this.#harness.session(session);
 
     switch (message.type) {
@@ -587,25 +612,6 @@ export class PiSessionSockets {
         return this.#soul.apply(message.change, "user");
       case "soul-history":
         return this.#soul.history();
-      case "specialist-save":
-        try {
-          if (message.create) this.#specialists.create(message.specialist, message.draft, "user");
-          else this.#specialists.set(message.specialist, message.draft);
-
-          return {};
-        } catch (error) {
-          // The form shows why, as an automation's does.
-          return { refused: error instanceof Error ? error.message : String(error) };
-        }
-
-      case "specialist-brief":
-        if (!this.#specialists.has(message.specialist)) throw new Error(`No specialist @${message.specialist}`);
-
-        return this.#specialists.brief(message.specialist).apply(message.change, "user");
-      case "specialist-history":
-        if (!this.#specialists.has(message.specialist)) throw new Error(`No specialist @${message.specialist}`);
-
-        return this.#specialists.brief(message.specialist).history();
       case "memory-search":
         return this.#memory.search(message.query);
       case "memory-zoom":

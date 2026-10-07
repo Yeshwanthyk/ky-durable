@@ -258,6 +258,34 @@ test("shows ky's skills, edits one, reverts it and archives it", async ({ page }
   await expect(skill.getByRole("button", { name: "Restore" })).toBeVisible();
 });
 
+test("creates a specialist in the Soul tab, edits its brief and reverts it", async ({ page }) => {
+  await open(page);
+  const id = `web-${crypto.randomUUID().slice(0, 8)}`;
+  await panel(page).getByRole("tab", { name: "Soul" }).click();
+  await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+
+  const form = page.getByRole("dialog", { name: "New specialist" });
+  await form.getByRole("textbox", { name: "Id" }).fill(id);
+  await form.getByRole("textbox", { name: "Description" }).fill("Keeps the builds green.");
+  await form.getByRole("textbox", { name: "Brief" }).fill("Run the tests first.");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toBeHidden();
+
+  await panel(page).getByRole("button", { name: new RegExp(`^@${id}`) }).click();
+  const sheet = page.getByRole("dialog", { name: `@${id}` });
+  await expect(sheet.getByText("Run the tests first.")).toBeVisible();
+  await sheet.getByRole("button", { name: `Edit @${id}` }).click();
+  await sheet.getByRole("textbox", { name: `@${id}` }).fill("Run the tests twice.");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(sheet.getByText("Version 2")).toBeVisible();
+
+  await sheet.getByRole("button", { name: "More" }).click();
+  await sheet.getByRole("menuitem", { name: "History and revert" }).click();
+  await sheet.getByRole("list", { name: `@${id} versions` }).getByRole("button", { name: "Revert" }).click();
+  await expect(sheet.getByText("Run the tests first.")).toBeVisible();
+  await expect(sheet.getByText("Version 3")).toBeVisible();
+});
+
 // Crons are UTC and rows show them in the browser's time: India's half-hour offset shows the conversion.
 test.describe("automations in Activity", () => {
   test.use({ timezoneId: "Asia/Kolkata", locale: "en-US" });

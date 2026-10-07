@@ -81,6 +81,13 @@ describe("specialists", () => {
     expect(await said(tool("specialist", { action: "create", id: "Bad Id", description: "x", brief: "x" }))).toMatch(/^tool failed: [\s\S]*lowercase/);
   });
 
+  it("tells ky it can make specialists before there are any", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, "hello");
+    expect(await requests(name, "You create and manage specialists yourself")).not.toHaveLength(0);
+    expect(await requests(name, "There are no specialists yet.")).not.toHaveLength(0);
+  });
+
   it("is listed, saved and edited from the panel", async () => {
     const name = crypto.randomUUID();
     const { socket, client } = await session(name);
