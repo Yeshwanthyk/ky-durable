@@ -38,7 +38,7 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
 `ky_dream` (`src/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
-- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_nap`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats.
+- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
 - Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills.ts`).
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the

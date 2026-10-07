@@ -2,6 +2,7 @@ import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
+  Message,
   Model,
   ModelThinkingLevel,
   SimpleStreamOptions,
@@ -34,6 +35,15 @@ export const CLAUDE_MODEL = "claude-opus-5-5";
 
 /** Small and quick: names chats and tasks. */
 export const CLAUDE_SMALL = "claude-haiku-4-5";
+
+/** The context window pi's harness is told for every model; see `compacting`. */
+export const CONTEXT_WINDOW = 136_000;
+
+/** How long `ask` waits, and how many tokens the answer may take. */
+export type AskLimits = { readonly timeoutMs: number; readonly maxTokens: number };
+
+/** Room for a model that cannot stop thinking to think, then answer. */
+const SHORT: AskLimits = { timeoutMs: 30_000, maxTokens: 2_000 };
 
 /** A pi provider plus what the catalog shows about it. */
 export type Endpoint = {
@@ -166,14 +176,20 @@ export class Models {
 
   /** One short answer from a slot's model. */
   async complete(slot: Slot, system: string, text: string): Promise<string> {
+    const answer = await this.ask(slot, system, [{ role: "user", content: text, timestamp: Date.now() }]);
+
+    return textOf(answer);
+  }
+
+  /** A slot's model's next message after `messages`, outside any conversation; it throws when the model fails. */
+  async ask(slot: Slot, system: string, messages: Message[], limits: AskLimits = SHORT): Promise<AssistantMessage> {
     const { provider, model, thinkingLevel, apiKey } = await this.resolve(slot);
     // Cleared once the model answers: a timer still pending keeps the object from stopping until it fires.
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(), 30_000);
+    const timer = setTimeout(() => timeout.abort(), limits.timeoutMs);
 
     const options: SimpleStreamOptions = {
-      // Room for a model that cannot stop thinking to think, then answer.
-      maxTokens: 2_000,
+      maxTokens: limits.maxTokens,
       // OpenCode Go routes by session and refuses requests without one.
       sessionId: `ky-${slot}`,
       signal: timeout.signal
@@ -183,10 +199,7 @@ export class Models {
 
     if (apiKey) options.apiKey = apiKey;
 
-    const context = normalizeContext({
-      systemPrompt: system,
-      messages: [{ role: "user", content: text, timestamp: Date.now() }]
-    });
+    const context = normalizeContext({ systemPrompt: system, messages });
 
     let answer: AssistantMessage;
 
@@ -198,7 +211,7 @@ export class Models {
 
     if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? `The ${slot} model failed.`);
 
-    return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+    return answer;
   }
 
   /** pi's model registry for the harness. A provider with a probe falls back per turn. */
@@ -210,7 +223,7 @@ export class Models {
       }
     });
 
-    for (const endpoint of this.#endpoints) registry.setProvider(this.#routed(endpoint));
+    for (const endpoint of this.#endpoints) registry.setProvider(compacting(this.#routed(endpoint)));
 
     return registry;
   }
@@ -299,6 +312,29 @@ export class Models {
 
     return provider.streamSimple(model, context, standIn);
   }
+}
+
+/**
+ * The provider as pi's harness sees it, with every context window capped at
+ * CONTEXT_WINDOW. pi reads the window only to decide when to compact, so a
+ * 1M-token model compacts in the background from about 87k tokens and before
+ * a turn from about 120k, with pi's default reserve, instead of near 1M.
+ */
+function compacting(provider: Provider): Provider {
+  const cap = <M extends { readonly contextWindow: number }>(model: M): M =>
+    model.contextWindow > CONTEXT_WINDOW ? { ...model, contextWindow: CONTEXT_WINDOW } : model;
+
+  return {
+    ...provider,
+    getModels: () => provider.getModels().map(cap),
+    // pi-ai's Models reads this list when a provider has one; image models have no window to cap.
+    getAllModels: () =>
+      (provider.getAllModels?.() ?? provider.getModels()).map((model) => ("contextWindow" in model ? cap(model) : model))
+  };
+}
+
+function textOf(answer: AssistantMessage): string {
+  return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
 function option(model: Model<Api>): ModelOption {

@@ -260,7 +260,7 @@ function MemoryBlock({ item, tree }: { item: Extract<MemoryItem, { kind: "block"
             {dates}
           </span>
           {item.text === null ? (
-            <p className="memory-pending">Not summarized yet. ky writes it after its next note.</p>
+            <p className="memory-pending">Not summarized yet. ky is writing it.</p>
           ) : (
             <p>{item.text}</p>
           )}
