@@ -1,3 +1,4 @@
+import type { Context } from "@earendil-works/chord";
 import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
@@ -13,10 +14,21 @@ import {
   hook,
   LiveDoc,
   type TaskId,
+  type ToolExecutionApi,
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
 import type { SlotSetting } from "./settings";
+import {
+  DISCUSS_MAX,
+  DISCUSS_MIN,
+  discussionTitle,
+  reply,
+  setUp,
+  type Specialist,
+  type Specialists,
+  textOf
+} from "./specialists";
 import { summarize, type TaskFeed } from "./tasks";
 import { describeTool } from "./tool-labels";
 
@@ -78,6 +90,8 @@ type ReporterInput = {
   feedId?: string;
   /** Who reports to the main agent when the user wants the result, like `automation "Daily digest"`. */
   label?: string;
+  /** The specialist answering, by id. */
+  specialist?: string;
 };
 
 /** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
@@ -95,18 +109,24 @@ export type Spawn = (tx: Tx, owner: ConversationId, request: SpawnRequest) => Pr
 /** The subagent tool, and the same spawn for work that starts outside a tool call. */
 type SubagentTools = { extension: Extension; spawn: Spawn };
 
+/** What `ask` and `discuss` need: the specialists, their task, what they do without, and their model. */
+export type SpecialistDeps = {
+  readonly store: Specialists;
+  readonly tools: Specialist;
+  /** Extensions a specialist's conversations do not get: the main agent's persona and managers. */
+  readonly remove: readonly Extension[];
+  /** A specialist's model as it can run: its own, or the subagents slot. */
+  readonly model: (setting: SlotSetting | null) => SlotSetting;
+};
+
+const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
+
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
-
-function textOf(message: AssistantMessage | undefined): string {
-  return (message?.content ?? [])
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
-}
-
-const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 /** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
 function reportOf(input: ReporterInput, text: string): string {
+  if (input.specialist !== undefined) return `[specialist @${input.specialist} answered: pass on what matters] ${text}`;
+
   return input.label === undefined
     ? `[subagent ${input.name} answered, no reply needed] ${text}`
     : `[${input.label} result: tell the user] ${text}`;
@@ -122,7 +142,8 @@ export function subagentExtension(
   /** The subagent slot, applied to each subagent whenever it is messaged. */
   model: () => SlotSetting,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
-  wanted: (feedId: string) => boolean
+  wanted: (feedId: string) => boolean,
+  specialists?: SpecialistDeps
 ): SubagentTools {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
     name: "ky.subagent-reporter",
@@ -181,10 +202,11 @@ export function subagentExtension(
           }
 
           if (settled.type !== "input") return next();
-          const agent = (await tx.doc(Subagents, runtime.conversationId)).agents[name]!;
+          // A specialist's fresh conversation is not registered: it answers once.
+          const agent = (await tx.doc(Subagents, runtime.conversationId)).agents[name];
 
-          if (agent.reported.includes(settled.answer)) return next();
-          agent.reported.push(settled.answer);
+          if (agent?.reported.includes(settled.answer)) return next();
+          agent?.reported.push(settled.answer);
 
           // SAFETY: pi-durable types AssistantEntry as Entry<never>, but documents its `model` as [AssistantMessage].
           const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as
@@ -244,23 +266,43 @@ export function subagentExtension(
       "stop (name): abort its current work; it stays usable. " +
       "status (name, or none for all). " +
       "Answers are reported back to you as messages when they arrive; do not wait or poll for them. " +
-      "Subagents know nothing you do not tell them: give them the full context in the message.",
+      "Subagents know nothing you do not tell them: give them the full context in the message. " +
+      "Specialists (see the roster, if any): " +
+      "ask (specialist, title, message): give one specialist a task or a question; its answer is reported back like a subagent's. " +
+      `discuss (specialists: ${DISCUSS_MIN} to ${DISCUSS_MAX} ids, message: the topic, rounds: 1 or 2, default 2): they each answer, then reply to each other; the transcript is reported back for you to sum up.`,
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("spawn"),
         Type.Literal("send"),
         Type.Literal("stop"),
-        Type.Literal("status")
+        Type.Literal("status"),
+        Type.Literal("ask"),
+        Type.Literal("discuss")
       ]),
       name: Type.Optional(Type.String({ description: "Short, like researcher or pharmacy-finder." })),
       title: Type.Optional(Type.String({ description: "3-6 words for the task list, like 'Find compounding pharmacies'." })),
       message: Type.Optional(Type.String()),
-      followUp: Type.Optional(Type.Boolean())
+      followUp: Type.Optional(Type.Boolean()),
+      specialist: Type.Optional(Type.String({ description: "ask: the specialist's id, like engineer." })),
+      specialists: Type.Optional(Type.Array(Type.String(), { description: "discuss: the specialists' ids." })),
+      rounds: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)]))
     }),
     // A rerun after a crash could stop newer work; the model can check status.
     replay: "unsafe",
     execute: async (args, api, context) => {
       const { action, name, title, message, followUp } = args;
+
+      if (action === "ask" || action === "discuss") {
+        if (specialists === undefined) return reply("There are no specialists.");
+
+        return reply(
+          action === "ask"
+            ? await ask(specialists, api, context, handle(args.specialist), message, title)
+            : await discuss(specialists, api, context, (args.specialists ?? []).map(handle), message, args.rounds ?? 2, title)
+        );
+      }
+
+      if (action === "spawn" && name?.startsWith("@")) return reply("Names starting with @ are specialists'; use ask.");
 
       const registry = (await api.snapshot(Subagents, api.conversationId, context)) ?? {
         agents: {},
@@ -344,6 +386,101 @@ export function subagentExtension(
       return reply(result);
     }
   });
+
+  /** A fresh conversation for `id`, set up as its own and recorded as `kind`. */
+  async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss"): Promise<ConversationId> {
+    const child = await tx.createConversation({ ownership: { kind: "ownerless" } });
+    await setUp(tx, child.id, deps.remove, deps.model(deps.store.get(id)!.model));
+    deps.store.attach(String(child.id), id, kind);
+
+    return child.id;
+  }
+
+  /**
+   * One task for a specialist. From a chat it goes to the specialist's home
+   * conversation, queued behind any work it has; from another specialist,
+   * to a fresh conversation, so a consult never steers its own work.
+   */
+  async function ask(deps: SpecialistDeps, api: ToolExecutionApi, context: Context, id: string, message: string | undefined, title: string | undefined): Promise<string> {
+    const row = deps.store.get(id);
+    const known = deps.store.list().map((each) => `@${each.id}`).join(", ") || "none yet";
+
+    if (!row) return `No specialist @${id}. Specialists: ${known}.`;
+
+    if (message === undefined) return "ask needs a message.";
+    const caller = deps.store.bySession(String(api.conversationId))?.specialist.id;
+
+    if (caller === id) return "You cannot ask yourself.";
+    const name = `@${id}`;
+    const feedId = crypto.randomUUID();
+    let conversationId: ConversationId | undefined;
+
+    await api.commit(async (tx) => {
+      if (caller === undefined) {
+        // SAFETY: a specialist's session is the id, as text, of a conversation fresh() made.
+        conversationId = row.session === null ? await fresh(deps, tx, id, "home") : (Number(row.session) as ConversationId);
+        const state = await tx.doc(Subagents, api.conversationId);
+
+        if (state.agents[name]?.conversationId !== conversationId) state.agents[name] = { conversationId, reported: [] };
+      } else {
+        conversationId = await fresh(deps, tx, id, "consult");
+      }
+
+      await deliver(
+        tx,
+        api.conversationId,
+        { name, conversationId, message, followUp: true, feedId, specialist: id },
+        deps.model(row.model)
+      );
+    }, context);
+
+    feed.create({
+      id: feedId,
+      kind: "cloud",
+      worker: caller === undefined ? name : `@${caller} → ${name}`,
+      title: title ?? summarize(message).slice(0, 60),
+      status: "working",
+      session: conversationId === undefined ? null : String(conversationId)
+    });
+
+    if (title === undefined) feed.name(feedId, message);
+
+    return `Asked ${name}.`;
+  }
+
+  /** A discussion among specialists, each in a fresh conversation, reported back to this one. */
+  async function discuss(
+    deps: SpecialistDeps,
+    api: ToolExecutionApi,
+    context: Context,
+    ids: string[],
+    topic: string | undefined,
+    rounds: 1 | 2,
+    title: string | undefined
+  ): Promise<string> {
+    if (deps.store.bySession(String(api.conversationId))) return "Specialists cannot start a discussion.";
+
+    if (ids.length < DISCUSS_MIN || ids.length > DISCUSS_MAX || new Set(ids).size !== ids.length) {
+      return `discuss needs ${DISCUSS_MIN} to ${DISCUSS_MAX} different specialists.`;
+    }
+
+    const missing = ids.find((id) => !deps.store.has(id));
+
+    if (missing !== undefined) return `No specialist @${missing}.`;
+
+    if (topic === undefined || topic.trim() === "") return "discuss needs a message: the topic.";
+    const feedId = crypto.randomUUID();
+
+    await api.commit(
+      (tx) => deps.tools.discuss(tx, api.conversationId, { topic, ids, rounds, feedId }, (inner, id) => fresh(deps, inner, id, "discuss")),
+      context
+    );
+
+    const who = ids.map((id) => `@${id}`).join(", ");
+    feed.create({ id: feedId, kind: "cloud", worker: who, title: title ?? discussionTitle(topic), status: "working", session: null });
+
+    return `Started a discussion with ${who}.`;
+  }
 
   const extension: Extension = defineExtension({
     name: "subagents",

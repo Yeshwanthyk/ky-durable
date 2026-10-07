@@ -178,6 +178,8 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           soul={ky.soul}
           memory={ky.memory}
           memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
+          specialists={ky.specialists}
+          specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
           theme={view.theme}
           onTheme={setTheme}
           onSetModel={ky.setModel}

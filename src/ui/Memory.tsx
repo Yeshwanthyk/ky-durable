@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "../protocol";
 import { Icon } from "./Icon";
+import { Sheet } from "./Sheet";
 
 /** A memory's date, YYYY-MM-DD, as a card's MM.DD.YY. */
 const dayStamp = (date: string) => {
@@ -64,10 +65,6 @@ export function MemorySheet({
   const requested = useRef(new Set<string>());
   const seen = useRef<MemoryView | null>(null);
 
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
-
   // Search as the user types, a beat after they stop; a late answer to an old query is dropped.
   useEffect(() => {
     const text = query.trim();
@@ -121,21 +118,12 @@ export function MemorySheet({
   };
 
   return (
-    <dialog
-      ref={dialog}
-      className="soul-sheet memory-sheet"
-      aria-label="Memory"
+    <Sheet
+      dialog={dialog}
+      label="Memory"
+      className="memory-sheet"
       onClose={onClose}
-      // A click on the backdrop lands on the dialog itself, not on its content.
-      onClick={(event) => {
-        if (event.target === event.currentTarget) dialog.current?.close();
-      }}
-    >
-      <header className="soul-sheet-head">
-        <button type="button" className="soul-round pressable" aria-label="Close" onClick={() => dialog.current?.close()}>
-          <Icon name="chevronDown" size={18} />
-        </button>
-        <h2 className="soul-sheet-title">Memory</h2>
+      tools={
         <div className="soul-tools">
           <button
             type="button"
@@ -162,37 +150,36 @@ export function MemorySheet({
             </div>
           ) : null}
         </div>
-      </header>
-      <div className="soul-sheet-body" data-scroll>
-        <p className="soul-note">
-          What ky remembers about you and your work. ky writes these itself as you talk. Ask ky in chat to remember or
-          correct something.
-        </p>
-        <label className="memory-search">
-          <Icon name="search" size={16} />
-          <input
-            type="search"
-            aria-label="Search memories"
-            placeholder="Search memories"
-            value={query}
-            spellCheck={false}
-            autoCapitalize="off"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        {query.trim() !== "" ? (
-          <SearchResults found={found} />
-        ) : memory.count === 0 ? (
-          <p className="memory-empty">No memories yet. ky writes them as you talk.</p>
-        ) : (
-          <MemoryList items={memory.items} tree={tree} label="Memories, newest first" />
-        )}
-        <p className="soul-meta">
-          {plural(memory.count, "memory", "memories")}
-          {memory.newest ? ` · newest ${dayStamp(memory.newest)}` : ""}
-        </p>
-      </div>
-    </dialog>
+      }
+    >
+      <p className="soul-note">
+        What ky remembers about you and your work. ky writes these itself as you talk. Ask ky in chat to remember or
+        correct something.
+      </p>
+      <label className="memory-search">
+        <Icon name="search" size={16} />
+        <input
+          type="search"
+          aria-label="Search memories"
+          placeholder="Search memories"
+          value={query}
+          spellCheck={false}
+          autoCapitalize="off"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      {query.trim() !== "" ? (
+        <SearchResults found={found} />
+      ) : memory.count === 0 ? (
+        <p className="memory-empty">No memories yet. ky writes them as you talk.</p>
+      ) : (
+        <MemoryList items={memory.items} tree={tree} label="Memories, newest first" />
+      )}
+      <p className="soul-meta">
+        {plural(memory.count, "memory", "memories")}
+        {memory.newest ? ` · newest ${dayStamp(memory.newest)}` : ""}
+      </p>
+    </Sheet>
   );
 }
 

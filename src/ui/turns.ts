@@ -5,8 +5,8 @@ import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
 import type { Tool, Turn } from "./conversation";
 
-/** Reports from subagents and machines arrive as user messages that start like this. */
-const REPORT = /^\[(subagent|machine) ([^\],\s]+)[^\]]*\]\s*/;
+/** Reports from subagents, machines, specialists and discussions arrive as user messages that start like this. */
+const REPORT = /^\[(subagent|machine|specialist|discussion) ([^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
 
 /** A tool argument shows as text only when it is a string. */
 const text = (value: JsonValue | undefined) => (Guard.IsString(value) ? value : "");

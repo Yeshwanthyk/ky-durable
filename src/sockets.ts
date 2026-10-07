@@ -26,6 +26,7 @@ import type { ChatList } from "./chats";
 import type { Skills } from "./skills";
 import type { Memory } from "./memory";
 import type { Soul } from "./soul";
+import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -80,6 +81,10 @@ function sessionOf(tags: readonly string[]): string | undefined {
   return tag?.slice(SESSION_TAG_PREFIX.length);
 }
 
+type SpecialistCommand = Extract<PiClientMessage, { type: "specialist-save" | "specialist-brief" | "specialist-history" }>;
+
+const isSpecialistCommand = (message: PiClientMessage): message is SpecialistCommand => message.type.startsWith("specialist-");
+
 function textOf(input: UserInput): string {
   if (!Array.isArray(input)) return String(input);
 
@@ -119,6 +124,7 @@ export class PiSessionSockets {
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
+  readonly #specialists: Specialists;
   readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #version: string;
@@ -137,6 +143,7 @@ export class PiSessionSockets {
     chats: ChatList,
     skills: Skills,
     soul: Soul,
+    specialists: Specialists,
     memory: Memory,
     automations: Automations,
     newChat: () => Promise<PiSessionId>,
@@ -153,6 +160,7 @@ export class PiSessionSockets {
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
+    this.#specialists = specialists;
     this.#memory = memory;
     this.#automations = automations;
     this.#newChat = newChat;
@@ -171,6 +179,11 @@ export class PiSessionSockets {
     });
     soul.onChange(() => {
       const message = this.#soulMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    specialists.onChange(() => {
+      const message = this.#specialistsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -194,6 +207,10 @@ export class PiSessionSockets {
 
   #skillsMessage(): PiServerMessage {
     return { type: "skills", skills: this.#skills.all() };
+  }
+
+  #specialistsMessage(): PiServerMessage {
+    return { type: "specialists", specialists: this.#specialists.views() };
   }
 
   #soulMessage(): PiServerMessage {
@@ -238,6 +255,26 @@ export class PiSessionSockets {
   }
 
   /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
+  /** The panel's specialist commands; a save that is refused says why, as an automation's does. */
+  #specialist(message: SpecialistCommand): JsonValue {
+    const id = message.specialist;
+
+    if (message.type === "specialist-save") {
+      try {
+        if (message.create) this.#specialists.create(id, message.draft, "user");
+        else this.#specialists.set(id, message.draft);
+
+        return {};
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : String(error) };
+      }
+    }
+
+    if (!this.#specialists.has(id)) throw new Error(`No specialist @${id}`);
+
+    return message.type === "specialist-brief" ? this.#specialists.brief(id).apply(message.change, "user") : this.#specialists.brief(id).history();
+  }
+
   async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
     switch (message.action) {
       case "pause":
@@ -343,6 +380,7 @@ export class PiSessionSockets {
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
+    send(connection, this.#specialistsMessage());
     send(connection, this.#memoryMessage());
     send(connection, await this.#automationsMessage());
     await this.#watch(connection, session);
@@ -496,6 +534,14 @@ export class PiSessionSockets {
 
     if (problem !== null) throw new Error(problem);
 
+    // A leading @id is for a specialist, which ky passes it to; refuse one that does not exist.
+    if (chat || session === ROOT_SESSION) {
+      const all = this.#specialists.list();
+      const unknown = all.length === 0 ? undefined : mentions(textOf(message.input)).find((id) => !this.#specialists.has(id));
+
+      if (unknown !== undefined) throw new Error(`No specialist @${unknown}. Specialists: ${all.map((each) => `@${each.id}`).join(", ")}`);
+    }
+
     if (chat) this.#chats.touch(session, textOf(message.input));
 
     // Pass only the options the client set.
@@ -513,6 +559,7 @@ export class PiSessionSockets {
     session: PiSessionId,
     message: PiClientMessage
   ): Promise<JsonValue> {
+    if (isSpecialistCommand(message)) return this.#specialist(message);
     const handle = this.#harness.session(session);
 
     switch (message.type) {

@@ -24,6 +24,8 @@ import type {
   SoulChange,
   SoulVersion,
   SoulView,
+  SpecialistDraft,
+  SpecialistView,
   Slot,
   SlotSetting,
   TaskRow,
@@ -47,6 +49,8 @@ type State = SessionView & {
   readonly skills: readonly SkillRow[];
   /** SOUL.md, ky's persona; null until the server sends it. */
   readonly soul: SoulView | null;
+  /** The user's specialists and their briefs. */
+  readonly specialists: readonly SpecialistView[];
   /** ky's memory as wake shows it; null until the server sends it. */
   readonly memory: MemoryView | null;
   /** Active and paused automations, newest first. */
@@ -67,6 +71,7 @@ const INITIAL_STATE: State = {
   chats: [],
   skills: [],
   soul: null,
+  specialists: [],
   memory: null,
   automations: [],
   settings: null,
@@ -166,6 +171,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, soul: message.soul }));
 
           return;
+        case "specialists":
+          setState((current) => ({ ...current, specialists: message.specialists }));
+
+          return;
         case "memory":
           setState((current) => ({ ...current, memory: message.memory }));
 
@@ -209,6 +218,7 @@ export function usePiSession(session: string) {
       chats: current.chats,
       skills: current.skills,
       soul: current.soul,
+      specialists: current.specialists,
       memory: current.memory,
       automations: current.automations,
       settings: current.settings,
@@ -331,6 +341,37 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Create a specialist or change its settings; resolves with why it was refused, if it was. */
+  const saveSpecialist = useCallback(
+    (specialist: string, draft: SpecialistDraft, create: boolean) =>
+      new Promise<string | undefined>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers specialist-save with `{ refused? }`.
+        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
+        send({ type: "specialist-save", id, specialist, create, draft });
+      }),
+    [send]
+  );
+
+  /** Change a specialist's brief as the user. */
+  const changeBrief = useCallback(
+    (specialist: string, change: SoulChange) =>
+      send({ type: "specialist-brief", id: crypto.randomUUID(), specialist, change }),
+    [send]
+  );
+
+  /** A specialist's brief versions, newest first. */
+  const briefHistory = useCallback(
+    (specialist: string) =>
+      new Promise<readonly SoulVersion[]>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers specialist-history with the brief's versions.
+        waiting.current.set(id, (result) => resolve(result as readonly SoulVersion[]));
+        send({ type: "specialist-history", id, specialist });
+      }),
+    [send]
+  );
+
   /** Memories matching a regex, or the plain text when it is not one, newest first. */
   const searchMemory = useCallback(
     (query: string) =>
@@ -396,6 +437,9 @@ export function usePiSession(session: string) {
     skillHistory,
     changeSoul,
     soulHistory,
+    saveSpecialist,
+    changeBrief,
+    briefHistory,
     searchMemory,
     zoomMemory,
     forgetMemory,

@@ -110,6 +110,20 @@ A cite points at the code that does the work.
 | subagent-steps | Each tool a subagent uses is a step on its task, and each model response adds a turn and its cost; the task keeps when it started and finished. | src/subagents.ts:331 | local | W features › shows a subagent's tool steps, turns, and how long it took |
 | subagent-follow-up | A message sent as a follow-up waits for the whole run before it is answered. | src/subagents.ts:84 | local | W features › waits for a whole run before answering a message sent as a follow-up |
 
+## Specialists
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| specialist-brief | A brief's versions are numbered apart from SOUL.md's; patch and revert add versions, and a bad id is refused. | src/soul.ts:193, src/specialists.ts:572 | local | W specialists › keeps every brief version apart from SOUL.md's |
+| specialist-manage-rules | Every chat is told ky can make and manage specialists, even before there are any. | src/specialists.ts:265 | local | W specialists › tells ky it can make specialists before there are any |
+| specialist-panel | The Soul tab lists specialists; one is created, its brief edited and reverted there, and a duplicate is refused. | src/sockets.ts:259 | local | W specialists › is listed, saved and edited from the panel; P creates a specialist in the Soul tab, edits its brief and reverts it |
+| specialist-ask | An ask runs in the specialist's home conversation on its brief, without the memory wake or SOUL.md, and reports to the chat. | src/subagents.ts:404, src/specialists.ts:268 | local | W specialists › answers an ask from its home conversation, on its brief, without memory |
+| specialist-home | The main chat and a side chat share one home conversation per specialist. | src/subagents.ts:421 | local | W specialists › shares one home conversation between the main chat and a side chat |
+| specialist-consult | A specialist consults a peer in a fresh conversation, shown as "@a → @b", which cannot ask on. | src/specialists.ts:491, src/subagents.ts:440 | local | W specialists › consults a peer in a fresh conversation, which cannot ask on |
+| specialist-memory | A specialist searches memory but never writes it, and has no specialist or soul_edit tool. | src/specialists.ts:487 | local | W specialists › reads memory but never writes it, and has no persona tools |
+| specialist-discuss | A discussion of 2 to 4 specialists reports every round back to the chat; one specialist is refused. | src/specialists.ts:361, src/subagents.ts:464 | local | W specialists › holds a discussion and reports both rounds back |
+| specialist-mention | An @ that is not a specialist is refused with the list. | src/sockets.ts:540 | local | W specialists › refuses an @ that is not a specialist |
+
 ## Machine tasks
 
 | id | behaviour | cite | tag | check |
@@ -187,6 +201,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 104.
+- Local features: 113.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.

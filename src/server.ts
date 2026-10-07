@@ -22,6 +22,7 @@ import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
 import { Soul, soulExtension } from "./soul";
+import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
@@ -91,6 +92,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly skills = new Skills(this.ctx.storage.sql);
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage.sql);
+  /** The user's standing bots, like @engineer. */
+  readonly specialists = new Specialists(this.ctx.storage.sql);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -170,11 +173,22 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(machines);
       this.registry.install(automations);
 
+      const specialists = specialistExtension(this.specialists, this.feed, chat, (feedId) => this.automations.wanted(feedId));
+      this.registry.install(specialists.extension);
+      this.registry.install(specialists.manage);
+
       const subagents = subagentExtension(
         this.feed,
-        [soul, memory, machines, automations],
+        [soul, memory, machines, automations, specialists.manage],
         () => this.models.settings.get("subagents"),
-        (feedId) => this.automations.wanted(feedId)
+        (feedId) => this.automations.wanted(feedId),
+        {
+          store: this.specialists,
+          tools: specialists,
+          // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
+          remove: [soul, automations, specialists.manage],
+          model: (setting) => (setting && this.models.settings.valid(setting)) ?? this.models.settings.get("subagents")
+        }
       );
 
       this.#spawn = subagents.spawn;
@@ -221,6 +235,7 @@ export class PiAgent extends DurableObject<Env> {
     this.chats,
     this.skills,
     this.soul,
+    this.specialists,
     this.memory,
     this.automations,
     () => this.newChat(),

@@ -56,6 +56,16 @@ Mac: ky-runner ──wss ...?runner=<name>──────────┘     
   "Dreaming", and skips the night when nothing happened.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
+- Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
+  persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/specialists.ts`).
+  `@id message` in the main chat or a side chat goes to that specialist; ky also asks one itself with `subagent ask`.
+  Each specialist keeps one home conversation across asks, so it remembers earlier work. Its brief is versioned like
+  SOUL.md (same table, numbered per file): edits apply at once, and history and revert are in the Soul tab, where you
+  also add specialists and set their model and machine. Specialists share ky's skills and tools, search memory but
+  never write it, and can't edit SOUL.md or specialists. A specialist may consult a peer (up to 3 asks per task;
+  the consult runs in a fresh conversation that can't ask on, shown as "@a → @b" in Activity). `subagent discuss`
+  puts 2 to 4 specialists through 1 or 2 rounds without tools, and ky gives you where they agree, where they
+  disagree, and its recommendation.
 - Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
 - Titles: a small model names chats and tasks (`src/titles.ts`).
