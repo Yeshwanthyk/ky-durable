@@ -18,6 +18,8 @@
  *   [fold]       messages that come while this turn runs join it, as Claude Code
  *                takes a message sent mid-turn: one result answers them all
  *   [attach]     share a 1x1 PNG through `ky-attach`, as a screenshot would be
+ *   [diff]       change a scratch git repository and share it through `ky-diff`:
+ *                a.ts with one line changed and one added, and a new notes.md
  *   [fail]       the turn ends in an error result
  *   [tools=Bash:pnpm test,Edit:src/x.ts]
  *                the assistant message also uses these tools, each with its
@@ -118,6 +120,30 @@ async function attach(): Promise<string> {
   return stdout.trim();
 }
 
+async function diff(): Promise<string> {
+  const repo = mkdtempSync(join(tmpdir(), "fake-repo-"));
+  const run = (command: string, args: string[]) => promisify(execFile)(command, args, { cwd: repo });
+  writeFileSync(join(repo, "a.ts"), "const a = 1;\nconst b = 2;\nexport { a };\n");
+  await run("git", ["init", "-q"]);
+  await run("git", ["add", "."]);
+  await run("git", ["-c", "user.name=fake", "-c", "user.email=fake@example.com", "commit", "-qm", "start"]);
+  writeFileSync(join(repo, "a.ts"), "const a = 1;\nconst b = 3;\nconst c = 4;\nexport { a };\n");
+  writeFileSync(join(repo, "notes.md"), "hello\n");
+  const { stdout } = await run("ky-diff", ["HEAD"]);
+
+  return stdout.trim();
+}
+
+/** What `[attach]` and `[diff]` shared, as the lines the turn's answer ends with. */
+async function share(prompt: string): Promise<string> {
+  const lines = [
+    ...(prompt.includes("[attach]") ? [await attach()] : []),
+    ...(prompt.includes("[diff]") ? [await diff()] : [])
+  ];
+
+  return lines.map((line) => `\n${line}`).join("");
+}
+
 /** Take a message in: a turn the test can see, and its echo. */
 function take(prompt: string, fields: Record<string, number> = {}) {
   record("turn", { prompt, ...fields });
@@ -141,9 +167,9 @@ async function turn(prompt: string) {
   const folded = prompt.includes("[fold]") ? waiting.splice(0) : [];
 
   for (const each of folded) take(each, { folded: 1 });
-  const attached = prompt.includes("[attach]") ? `\n${await attach()}` : "";
+  const shared = await share(prompt);
 
-  if (!dying) answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${attached}`);
+  if (!dying) answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${shared}`);
 }
 
 /** End a turn with its one result. */

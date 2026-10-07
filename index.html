@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <link rel="icon" href="/favicon.ico" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ky" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#ffffff" />
     <title>ky</title>
     <script>
       (() => {
@@ -11,6 +17,7 @@
         const mode = stored || "light";
         document.documentElement.setAttribute("data-mode", mode);
         document.documentElement.style.colorScheme = mode;
+        if (mode === "dark") document.querySelector('meta[name="theme-color"]').content = "#111111";
       })();
     </script>
   </head>

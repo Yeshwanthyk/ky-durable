@@ -330,13 +330,23 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
+/** Answers for anyone, signed in or not: the sign-in page, and what iOS needs to add ky to the Home Screen. */
+function openRoute(request: Request, env: Env, url: URL): Promise<Response> | Response | undefined {
+  if (url.pathname === "/login") return request.method === "POST" ? login(request, env) : loginPage();
+
+  // iOS fetches the manifest and icons without the cookie.
+  if (url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/")) return env.ASSETS.fetch(request);
+
+  return undefined;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/login") {
-      return request.method === "POST" ? login(request, env) : loginPage();
-    }
+    const open = openRoute(request, env, url);
+
+    if (open) return open;
 
     if (!(await authenticate(request, env))) {
       if (request.headers.get("Upgrade") === "websocket" || url.pathname.startsWith("/api/")) {

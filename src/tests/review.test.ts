@@ -2,7 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { describe, expect, it } from "vitest";
 import { captureDiff, type Git } from "../../runner/diff.ts";
 import type { FileRow } from "../files";
-import { countsOf, feedbackMessage, latestDiff } from "../ui/review";
+import { countsOf, feedbackMessage, latestDiff, patchSummary } from "../ui/review";
 
 /**
  * A task's code changes: what ky-diff captures from git, and how the UI
@@ -98,6 +98,27 @@ describe("reviewing a task's diff", () => {
     expect(files.map((file) => file.name)).toEqual(["src/a.ts", "notes.md"]);
     expect(countsOf(files)).toEqual({ additions: 3, deletions: 1 });
     expect(countsOf([files[0]!])).toEqual({ additions: 2, deletions: 1 });
+  });
+
+  it("totals the patch from its text, as the diff library would, before loading it", () => {
+    // Inside a hunk, lines that look like file headers are code.
+    const tricky = `diff --git a/x.md b/x.md
+--- a/x.md
++++ b/x.md
+@@ -1,2 +1,2 @@
+---- old rule
++++++ new rule
+ same
+\\ No newline at end of file
+`;
+
+    for (const patch of [PATCH + NEW_FILE, PATCH, tricky]) {
+      const files = parsePatchFiles(patch).flatMap((parsed) => parsed.files);
+
+      expect(patchSummary(patch)).toEqual({ files: files.length, ...countsOf(files) });
+    }
+
+    expect(patchSummary("")).toEqual({ files: 0, additions: 0, deletions: 0 });
   });
 
   it("shows the task's newest patch, not its screenshots", () => {

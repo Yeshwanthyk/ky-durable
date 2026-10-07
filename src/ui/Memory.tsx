@@ -3,7 +3,7 @@ import type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "../protoco
 import { Icon } from "./Icon";
 
 /** A memory's date, YYYY-MM-DD, as a card's MM.DD.YY. */
-export const dayStamp = (date: string) => {
+const dayStamp = (date: string) => {
   const [year = "", month = "", day = ""] = date.split("-");
 
   return `${month}.${day}.${year.slice(-2)}`;

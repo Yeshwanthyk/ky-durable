@@ -170,6 +170,7 @@ export type { ChatRow } from "./chats";
 export type { SkillChange, SkillRow, SkillVersion } from "./skills";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./memory";
+
 export type { SoulChange, SoulVersion, SoulView } from "./soul";
 
 export type { FileRow } from "./files";

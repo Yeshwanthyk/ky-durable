@@ -606,3 +606,104 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
   await pick(page, "Main agent", /^Faux Faux/);
   await pick(page, "Fallback", /^Faux Faux/);
 });
+
+/** Every URL the page asks for that matches, so a test can see when a lazy chunk loads. */
+function requested(page: Page, pattern: RegExp): string[] {
+  const urls: string[] = [];
+  page.on("request", (request) => {
+    if (pattern.test(request.url())) urls.push(request.url());
+  });
+
+  return urls;
+}
+
+test("highlights a code block, loading the highlighter only with the first fence", async ({ page }) => {
+  const highlighter = requested(page, /streamdown_code|@streamdown\/code|shiki/);
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+  await send(page, `plain words ${id}`);
+  await expect(page.getByText(`echo: plain words ${id}`)).toBeVisible();
+  expect(highlighter).toEqual([]);
+
+  await composer(page).fill(`\`\`\`ts\nconst highlighted${id} = 1;\n\`\`\``);
+  await composer(page).press("Enter");
+  const token = page.getByText(`highlighted${id}`).last();
+  await expect(token).toBeVisible();
+  await expect.poll(() => highlighter.length).toBeGreaterThan(0);
+  // Shiki colors each token inline; plain text has no color of its own.
+  await expect
+    .poll(() => token.evaluate((element) => element.closest("pre")?.querySelector("span[style*='color']") !== null))
+    .toBe(true);
+});
+
+test("totals a machine task's changes before loading the diff viewer, and loads it on open", async ({ page }) => {
+  const viewer = requested(page, /pierre/);
+  await open(page);
+  await send(page, "machine@webmac [diff] change the code");
+  const changes = page.getByRole("button", { name: /^Changes/ }).first();
+  await expect(changes).toContainText("2 files");
+  await expect(changes).toContainText("+3");
+  await expect(changes).toContainText("−1");
+  expect(viewer).toEqual([]);
+
+  await changes.click();
+  await expect.poll(() => viewer.length).toBeGreaterThan(0);
+  const file = page.getByRole("button", { name: /a\.ts/ }).first();
+  await file.click();
+  await expect(page.getByText("const c = 4;").first()).toBeVisible();
+});
+
+test("serves the web app manifest and icons to the Home Screen without signing in", async ({ page, playwright }) => {
+  await open(page);
+  await expect(page.locator("link[rel=manifest]")).toHaveAttribute("href", "/manifest.webmanifest");
+
+  const stranger = await playwright.request.newContext({ baseURL: process.env.KY_STACK_URL });
+
+  try {
+    const manifest = await stranger.get("/manifest.webmanifest", { maxRedirects: 0 });
+    expect(manifest.status()).toBe(200);
+    expect(await manifest.json()).toMatchObject({ name: "ky", display: "standalone" });
+
+    const icon = await stranger.get("/icons/icon-512.png", { maxRedirects: 0 });
+    expect(icon.status()).toBe(200);
+    expect(icon.headers()["content-type"]).toContain("image/png");
+
+    // Everything else still asks to sign in.
+    expect((await stranger.get("/", { maxRedirects: 0 })).status()).toBe(302);
+  } finally {
+    await stranger.dispose();
+  }
+});
+
+/** Hide the page, let `awayMs` pass on its clock, and show it again, as switching apps on a phone does. */
+async function switchAway(page: Page, awayMs: number): Promise<void> {
+  await page.evaluate((away) => {
+    const setVisibility = (state: DocumentVisibilityState) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+
+    setVisibility("hidden");
+    const now = Date.now.bind(Date);
+    Date.now = () => now() + away;
+    setVisibility("visible");
+  }, awayMs);
+}
+
+test("reopens its socket when the page comes back after a while away, not after a glance", async ({ page }) => {
+  const { connections } = await network(page);
+  await open(page);
+  const before = connections.length;
+
+  await switchAway(page, 2_000);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  expect(connections.length).toBe(before);
+
+  await switchAway(page, 20_000);
+  await expect.poll(() => connections.length).toBe(before + 1);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+
+  const id = crypto.randomUUID().slice(0, 8);
+  await send(page, `back again ${id}`);
+  await expect(page.getByText(`echo: back again ${id}`)).toBeVisible();
+});

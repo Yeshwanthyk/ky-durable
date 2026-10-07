@@ -28,6 +28,57 @@ export function countsOf(files: readonly FileDiffMetadata[]): Counts {
   return { additions, deletions };
 }
 
+const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+
+type Tally = { gitFiles: number; plainFiles: number; additions: number; deletions: number; oldLeft: number; newLeft: number };
+
+/** One line inside a hunk: an added, removed or context line, or a "\\ No newline" note. */
+function hunkLine(tally: Tally, line: string) {
+  if (line.startsWith("+")) {
+    tally.additions++;
+    tally.newLeft--;
+  } else if (line.startsWith("-")) {
+    tally.deletions++;
+    tally.oldLeft--;
+  } else if (!line.startsWith("\\")) {
+    tally.oldLeft--;
+    tally.newLeft--;
+  }
+}
+
+/** One line between hunks: a hunk's header, or a file's. */
+function headerLine(tally: Tally, line: string) {
+  const hunk = HUNK.exec(line);
+
+  if (hunk) {
+    tally.oldLeft = Number(hunk[1] ?? 1);
+    tally.newLeft = Number(hunk[2] ?? 1);
+  } else if (line.startsWith("diff --git ")) {
+    tally.gitFiles++;
+  } else if (line.startsWith("+++ ")) {
+    tally.plainFiles++;
+  }
+}
+
+/**
+ * How many files a unified patch touches and its added and removed lines,
+ * read from the text so the collapsed row needs no diff library. Each hunk's
+ * header says how many old and new lines follow, so a line that only looks
+ * like a header (`+++`, `---`, `diff --git`) inside a hunk is counted as code.
+ */
+export function patchSummary(patch: string): Counts & { readonly files: number } {
+  const tally: Tally = { gitFiles: 0, plainFiles: 0, additions: 0, deletions: 0, oldLeft: 0, newLeft: 0 };
+
+  for (const line of patch.split("\n")) {
+    const inHunk = tally.oldLeft > 0 || tally.newLeft > 0;
+
+    if (inHunk) hunkLine(tally, line);
+    else headerLine(tally, line);
+  }
+
+  return { files: tally.gitFiles || tally.plainFiles, additions: tally.additions, deletions: tally.deletions };
+}
+
 /** A comment on one line: `side` is "deletions" for a removed line, numbered in the old file. */
 export type LineComment = {
   readonly file: string;

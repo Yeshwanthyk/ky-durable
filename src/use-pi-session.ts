@@ -195,6 +195,8 @@ export function usePiSession(session: string) {
     live.current = { session, send: (data) => agent.send(data) };
   }, [session, agent]);
 
+  useResumeReconnect(agent);
+
   useEffect(() => {
     setState((current) => ({
       ...INITIAL_STATE,
@@ -397,4 +399,44 @@ export function usePiSession(session: string) {
     changeAutomation,
     saveAutomation
   };
+}
+
+/** Longer away than this and the socket may be a dead one iOS froze without closing. */
+const STALE_AFTER_MS = 15_000;
+
+/**
+ * iOS freezes a backgrounded page's socket without closing it, so on return
+ * the page would sit on a dead connection. Reopen it when the page comes back
+ * after a while away, or from the back-forward cache; the new socket gets a
+ * fresh snapshot, and unanswered submits are sent again on open.
+ */
+function useResumeReconnect(agent: { readonly readyState: number; reconnect(): void }) {
+  useEffect(() => {
+    let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+
+        return;
+      }
+
+      const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+
+      if (away >= STALE_AFTER_MS || agent.readyState !== WebSocket.OPEN) agent.reconnect();
+    };
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) agent.reconnect();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [agent]);
 }

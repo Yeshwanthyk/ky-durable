@@ -5,7 +5,7 @@ import type { SettingsView, TaskRow } from "./protocol";
 import { currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext } from "./ui/Automations";
-import { SendTaskContext } from "./ui/Changes";
+import { SendTaskContext } from "./ui/change-review";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
