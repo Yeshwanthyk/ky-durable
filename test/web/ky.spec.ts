@@ -188,6 +188,27 @@ test("starts a side chat, names it from its first message, and goes back to the 
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeVisible();
 });
 
+test("marks a side chat that ky answered while the user was in another chat, until it is opened", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await send(page, "gate");
+  await expect(composer(page)).toHaveAttribute("placeholder", "Steer the running turn");
+  const side = chats.locator("li", { has: page.getByRole("button", { name: /gate/ }) });
+  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+
+  // The answer lands while the user reads the main chat.
+  await chats.getByRole("button", { name: "Main chat" }).click();
+  await release(page);
+  await expect(side.getByRole("img", { name: "New" })).toBeVisible();
+
+  await side.getByRole("button", { name: /gate/ }).first().click();
+  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+  await chats.getByRole("button", { name: "Main chat" }).click();
+  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+});
+
 test("picks a slot's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();
@@ -585,7 +606,7 @@ test("keeps an unanswered message for its own chat when the page switches chats"
   expect(side.submits).toEqual([]);
 
   // Back in the main chat, its socket sends the message again, and it runs there.
-  await chats.getByRole("button", { name: "Main chat", exact: true }).click();
+  await chats.getByRole("button", { name: /^Main chat/ }).click();
   await expect(page.getByText("echo: held for the main chat")).toBeVisible();
   expect(side.submits).toEqual([]);
 });

@@ -156,8 +156,11 @@ export type PiServerMessage =
       /** Files machine tasks shared, newest first. */
       readonly files: readonly FileRow[];
     }
-  /** Side chats, archived ones included, newest first; sent on connect and on change. */
-  | { readonly type: "chats"; readonly chats: readonly ChatRow[] }
+  /**
+   * Side chats, archived ones included, newest first, and when ky last answered
+   * in the main chat (0 if never); sent on connect and on change.
+   */
+  | { readonly type: "chats"; readonly chats: readonly ChatRow[]; readonly main: number }
   /** Every skill, active ones first; sent on connect and on change. */
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** SOUL.md, ky's persona; sent on connect and on change. */

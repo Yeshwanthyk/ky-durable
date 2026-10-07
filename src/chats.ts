@@ -1,3 +1,6 @@
+import { defineExtension, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
+import { ROOT_SESSION } from "agents/harness/pi";
+
 /**
  * Side chats: top-level conversations the user starts beside the main one.
  * They are full ky conversations, memory included, so everything learned in
@@ -42,6 +45,11 @@ export class ChatList {
     if (!columns.some((column) => column.name === "archived_at")) {
       sql.exec("ALTER TABLE ky_chats ADD COLUMN archived_at INTEGER");
     }
+
+    // The main chat is not in the list, but the sidebar shows when it last heard from ky too.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_main_chat (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      updated_at INTEGER NOT NULL)`);
   }
 
   onChange(listener: () => void): () => void {
@@ -59,6 +67,11 @@ export class ChatList {
 
   list(): ChatRow[] {
     return this.#sql.exec<ChatRow>("SELECT * FROM ky_chats ORDER BY updated_at DESC").toArray();
+  }
+
+  /** When ky last answered in the main chat; 0 if it never has. */
+  mainUpdatedAt(): number {
+    return this.#sql.exec<{ updated_at: number }>("SELECT updated_at FROM ky_main_chat").toArray()[0]?.updated_at ?? 0;
   }
 
   has(session: string): boolean {
@@ -93,6 +106,26 @@ export class ChatList {
     if (unnamed && titleOf(text) !== "") for (const namer of this.#namers) namer(session, text);
   }
 
+  /**
+   * ky answered in the chat, maybe while the user was elsewhere: an automation's
+   * report, a specialist's reply. Move it to the top so the sidebar shows it.
+   */
+  answered(session: string): void {
+    const now = Date.now();
+
+    if (session === ROOT_SESSION) {
+      this.#sql.exec("INSERT OR REPLACE INTO ky_main_chat (id, updated_at) VALUES (1, ?)", now);
+      this.#emit();
+
+      return;
+    }
+
+    const cursor = this.#sql.exec("UPDATE ky_chats SET updated_at = ? WHERE session = ?", now, session);
+    cursor.toArray();
+
+    if (cursor.rowsWritten > 0) this.#emit();
+  }
+
   /** Swap the title for a better one, unless it was renamed since `was`. */
   retitle(session: string, was: string, title: string): void {
     const cursor = this.#sql.exec("UPDATE ky_chats SET title = ? WHERE session = ? AND title = ?", title, session, was);
@@ -117,4 +150,20 @@ export class ChatList {
   #emit(): void {
     for (const listener of this.#listeners) listener();
   }
+}
+
+/** Tells the chat list each time ky finishes an answer in the main chat or a side chat; subagents' are ignored. */
+export function chatActivityExtension(chats: ChatList): Extension {
+  return defineExtension({
+    name: "chat-activity",
+    hooks: [
+      hook(GenerationTask, {
+        onYield(_answer, api) {
+          chats.answered(String(api.conversationId));
+
+          return undefined;
+        }
+      })
+    ]
+  });
 }

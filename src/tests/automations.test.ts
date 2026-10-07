@@ -485,11 +485,16 @@ describe("automations", () => {
     await inside(name, (instance) => instance.chats.archive(chat, true));
     const archived = () => inside(name, (instance) => instance.chats.list().find((row) => row.session === chat)?.archived_at ?? null);
     expect(await archived()).not.toBeNull();
+    const updated = () => inside(name, (instance) => instance.chats.list().find((row) => row.session === chat)?.updated_at ?? 0);
+    const before = await updated();
+    await pause(5);
 
     await runNow(name, id);
     await runEnds(name, id);
     await until(async () => (await reports(name, "Daily digest", chat)).length > 0, "the side chat's report");
     expect(await archived()).toBeNull();
+    // ky's answer to the report moves the chat up the sidebar, though no one wrote in it.
+    await until(async () => (await updated()) > before, "the side chat to move");
     expect(await reports(name, "Daily digest")).toEqual([]);
 
     // Sent to main instead, the next run reports there.
@@ -498,6 +503,7 @@ describe("automations", () => {
     await pause(1_100);
     await runNow(name, id);
     await until(async () => (await reports(name, "Daily digest", ROOT_SESSION)).length > 0, "the main chat's report");
+    await until(async () => (await inside(name, (instance) => instance.chats.mainUpdatedAt())) > 0, "the main chat to move");
     expect(await reports(name, "Daily digest", chat)).toHaveLength(1);
     expect(await runs(name, id)).toHaveLength(2);
   });

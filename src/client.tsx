@@ -21,6 +21,7 @@ import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
 import { useDraft, useReloadOnDeploy, type Draft } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
+import { useSeen } from "./ui/use-seen";
 import { usePanel, type PanelState } from "./ui/use-panel";
 import { useSessionRoute } from "./ui/use-session-route";
 import { useShell, type Shell } from "./ui/use-shell";
@@ -235,6 +236,13 @@ function App() {
   const shell = useShell(go, panel, ky.newChat);
   const parts: Parts = { ky, view: describe(ky, session, theme, draft), panel, shell, now, setTheme };
 
+  const times = useMemo(
+    () => Object.fromEntries([[MAIN_SESSION, ky.mainUpdatedAt], ...ky.chats.map((chat) => [chat.session, chat.updated_at])]),
+    [ky.chats, ky.mainUpdatedAt]
+  );
+
+  const unread = useSeen(session, times);
+
   useReloadOnDeploy(ky.updated, draft);
 
   return (
@@ -247,6 +255,8 @@ function App() {
                 chats={ky.chats}
                 session={session}
                 main={MAIN_SESSION}
+                mainUpdatedAt={ky.mainUpdatedAt}
+                unread={unread}
                 now={now}
                 onOpen={shell.openSession}
                 onNew={shell.startChat}

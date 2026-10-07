@@ -9,7 +9,7 @@ import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { authenticate, loginPage, login } from "./auth";
-import { ChatList } from "./chats";
+import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { type ExecutorConfig, executorExtension } from "./executor";
@@ -194,6 +194,7 @@ export class PiAgent extends DurableObject<Env> {
       this.#spawn = subagents.spawn;
       this.registry.install(subagents.extension);
       this.registry.install(subagentProgressExtension(this.feed));
+      this.registry.install(chatActivityExtension(this.chats));
 
       return Harness.open(
         storage,

@@ -293,7 +293,7 @@ export class PiSessionSockets {
   }
 
   #chatsMessage(): PiServerMessage {
-    return { type: "chats", chats: this.#chats.list() };
+    return { type: "chats", chats: this.#chats.list(), main: this.#chats.mainUpdatedAt() };
   }
 
   #settingsMessage(): PiServerMessage {
