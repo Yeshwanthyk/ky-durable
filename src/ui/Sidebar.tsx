@@ -11,12 +11,14 @@ const UNARCHIVE = { label: "Unarchive", icon: "unarchive" } as const;
 function SideChat({
   chat,
   current,
+  unread,
   now,
   onOpen,
   onArchive,
 }: {
   chat: ChatRow;
   current: boolean;
+  unread: boolean;
   now: number;
   onOpen: (session: string) => void;
   onArchive: (session: string, archived: boolean) => void;
@@ -31,12 +33,13 @@ function SideChat({
         type="button"
         className="chat-item pressable"
         aria-current={current ? "page" : undefined}
+        data-unread={unread}
         onClick={() => onOpen(chat.session)}
       >
         <span className="chat-title" data-untitled={chat.title === ""}>
           {title}
         </span>
-        <span className="chat-time tabular">{ago(chat.updated_at, now)}</span>
+        <ChatTime time={chat.updated_at} unread={unread} now={now} />
       </button>
       <button
         type="button"
@@ -48,6 +51,16 @@ function SideChat({
         <Icon name={action.icon} size={14} />
       </button>
     </li>
+  );
+}
+
+// When the chat last moved, with a dot when it has news the user has not opened.
+function ChatTime({ time, unread, now }: { time: number; unread: boolean; now: number }) {
+  return (
+    <>
+      {unread ? <span className="chat-unread" role="img" aria-label="New" /> : null}
+      {time > 0 ? <span className="chat-time tabular">{ago(time, now)}</span> : null}
+    </>
   );
 }
 
@@ -84,6 +97,8 @@ export function Sidebar({
   chats,
   session,
   main,
+  mainUpdatedAt,
+  unread,
   now,
   onOpen,
   onNew,
@@ -94,6 +109,10 @@ export function Sidebar({
   chats: readonly ChatRow[];
   session: string;
   main: string;
+  /** When ky last answered in the main chat; 0 if never. */
+  mainUpdatedAt: number;
+  /** Whether a chat has news the user has not opened. */
+  unread: (session: string) => boolean;
   now: number;
   onOpen: (session: string) => void;
   onNew: () => void;
@@ -109,6 +128,7 @@ export function Sidebar({
       key={chat.session}
       chat={chat}
       current={session === chat.session}
+      unread={unread(chat.session)}
       now={now}
       onOpen={onOpen}
       onArchive={onArchive}
@@ -128,9 +148,11 @@ export function Sidebar({
             type="button"
             className="chat-item pressable"
             aria-current={session === main ? "page" : undefined}
+            data-unread={unread(main)}
             onClick={() => onOpen(main)}
           >
             <span className="chat-title">Main chat</span>
+            <ChatTime time={mainUpdatedAt} unread={unread(main)} now={now} />
           </button>
         </li>
       </ul>

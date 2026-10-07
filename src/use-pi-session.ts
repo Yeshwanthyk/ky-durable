@@ -45,6 +45,8 @@ type State = SessionView & {
   readonly files: readonly FileRow[];
   /** Side chats, newest first. */
   readonly chats: readonly ChatRow[];
+  /** When ky last answered in the main chat; 0 until it has. */
+  readonly mainUpdatedAt: number;
   /** ky's skills, active ones first. */
   readonly skills: readonly SkillRow[];
   /** SOUL.md, ky's persona; null until the server sends it. */
@@ -69,6 +71,7 @@ const INITIAL_STATE: State = {
   machines: [],
   files: [],
   chats: [],
+  mainUpdatedAt: 0,
   skills: [],
   soul: null,
   specialists: [],
@@ -160,7 +163,7 @@ export function usePiSession(session: string) {
 
           return;
         case "chats":
-          setState((current) => ({ ...current, chats: message.chats }));
+          setState((current) => ({ ...current, chats: message.chats, mainUpdatedAt: message.main }));
 
           return;
         case "skills":
@@ -216,6 +219,7 @@ export function usePiSession(session: string) {
       machines: current.machines,
       files: current.files,
       chats: current.chats,
+      mainUpdatedAt: current.mainUpdatedAt,
       skills: current.skills,
       soul: current.soul,
       specialists: current.specialists,

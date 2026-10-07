@@ -123,6 +123,19 @@
   color: var(--quiet);
 }
 
+/* A chat with news the user has not opened reads in ink, with a dot. */
+.chat-item[data-unread="true"] {
+  color: var(--ink);
+}
+
+.chat-unread {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .sidebar-head {
   display: flex;
   align-items: center;
