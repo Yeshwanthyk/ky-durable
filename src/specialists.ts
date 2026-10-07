@@ -74,7 +74,7 @@ export const DISCUSS_MAX = 4;
 const ANSWER_CHARS = 3_000;
 
 /** Tools that write memory: specialists read it only. */
-const MEMORY_WRITES = new Set(["memory_note", "memory_nap", "memory_forget"]);
+const MEMORY_WRITES = new Set(["memory_note", "memory_forget"]);
 
 /** The leading `@id`s of a message, in order; empty when it starts otherwise. */
 export function mentions(text: string): string[] {

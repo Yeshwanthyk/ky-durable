@@ -16,8 +16,10 @@ import {
   submit,
   tasks,
   TOKEN,
+  until,
   wait
 } from "./drive";
+import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
 
@@ -29,6 +31,15 @@ import { decodeNewChat, decodeSkillVersions } from "./frames";
 type Frame<T extends PiServerMessage["type"]> = Extract<PiServerMessage, { type: T }>;
 
 /** The newest frame of one type. */
+/** The summary of a memory block like "0-1", or null while it is unwritten. */
+async function summarized(name: string, block: string): Promise<string | null> {
+  const [lo = 0, hi = 0] = block.split("-").map(Number);
+
+  return inside(name, (_instance, state) =>
+    state.storage.sql.exec<{ text: string }>("SELECT text FROM memo_tree WHERE lo = ? AND hi = ?", lo, hi + 1).toArray()[0]?.text ?? null
+  );
+}
+
 function latest<T extends PiServerMessage["type"]>(client: Follower, type: T): Frame<T> | undefined {
   const frames = client.frames.filter((frame): frame is Frame<T> => frame.type === type);
 
@@ -102,24 +113,81 @@ describe("the tools", () => {
     expect(recalled.text).toContain("the user likes green tea");
   });
 
-  it("asks for a compression, saves it, opens it into its memories, and forgets it", async () => {
+  it("writes summaries in the background on the main model, opens them, and rewrites a forgotten one", async () => {
     const name = crypto.randomUUID();
     await prompt(name, 'tool memory_note {"text":"first memory"}');
-    const second = await prompt(name, 'tool memory_note {"text":"second memory"}');
-    expect(second.text).toContain('Call memory_nap with block "0-1"');
+    expect((await prompt(name, 'tool memory_note {"text":"second memory"}')).text).toBe("tool said: Saved as #1.");
 
-    expect((await prompt(name, 'tool memory_nap {"block":"0-1","text":"two memories"}')).text).toMatch(
-      /^tool said: 0-1 saved\./
-    );
+    // The two notes owe a summary; the faux main model writes "first to last".
+    await until(async () => (await summarized(name, "0-1")) !== null, "a summary");
+    expect(await summarized(name, "0-1")).toBe("first memory to second memory");
 
     const zoomed = (await prompt(name, 'tool memory_zoom {"block":"0-1"}')).text;
     expect(zoomed).toContain("first memory");
     expect(zoomed).toContain("second memory");
 
-    // Forgetting a summary leaves its block owed again, so the answer asks for it.
     const forgot = (await prompt(name, 'tool memory_forget {"block":"0-1"}')).text;
-    expect(forgot).toMatch(/^tool said: Forgot 1 summary\./);
-    expect(forgot).toContain('Call memory_nap with block "0-1"');
+    expect(forgot).toBe("tool said: Forgot 1 summary; it is rewritten in the background.");
+    await until(async () => (await summarized(name, "0-1")) !== null, "the summary rewritten");
+    expect(await summarized(name, "0-1")).toBe("first memory to second memory");
+  });
+
+  it("finds any message of the main chat and the side chats with chat_search", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, "The deploy broke on wrangler types in Lisbon");
+    await prompt(name, "something in between");
+    await prompt(name, "Groceries from Rainbow on Sunday");
+
+    const search = async (args: { query: string; around?: number }) => (await prompt(name, `tool chat_search ${JSON.stringify(args)}`)).text;
+
+    // Every word: the user's message and ky's echo of it, newest kept out of the way of the order.
+    const all = await search({ query: "wrangler Lisbon" });
+    expect(all).toContain("main chat user: The deploy broke on [wrangler] types in [Lisbon]");
+    expect(all).toContain("main chat ky: echo: The deploy broke on [wrangler] types in [Lisbon]");
+    expect(all).not.toContain("Groceries");
+    expect(all).not.toContain("chat_search");
+    expect(all).toMatch(/2 matches\./);
+
+    // No message has both words: some of them, and it says so.
+    const some = await search({ query: "Rainbow Lisbon" });
+    expect(some).toContain("No message has all those words");
+    expect(some).toContain("[Rainbow]");
+    expect(some).toContain("[Lisbon]");
+
+    // Around shows the neighbors in order.
+    const near = await search({ query: "between", around: 1 });
+    expect(near).toMatch(/ky: echo: The deploy broke[\s\S]*> #\d+ user: something in \[between\][\s\S]*ky: echo: something in between/);
+
+    expect(await search({ query: "zanzibar" })).toBe("tool said: No message matches zanzibar.");
+  });
+
+  it("searches side chats by their title, and leaves subagents out", async () => {
+    const name = crypto.randomUUID();
+    const side = await inside(name, (instance) => instance.newChat());
+    await inside(name, (instance) => instance.harness.session(side).prompt("Plan a trip to Porto"));
+    await inside(name, async (instance) => {
+      // A conversation that is no chat, like a subagent's.
+      const { id } = await instance.harness.sessions.create();
+      await instance.harness.session(String(id)).prompt("Porto from a subagent");
+    });
+
+    const found = (await prompt(name, 'tool chat_search {"query":"Porto"}')).text;
+    expect(found).toMatch(/chat "[^"]*" user: Plan a trip to \[Porto\]/);
+    expect(found).not.toContain("subagent");
+  });
+
+  it("tells pi a window of at most 136k tokens, so it compacts near 87k instead of near the model's 1M", async () => {
+    const windows = await inside(crypto.randomUUID(), (instance) => {
+      const registry = instance.models.registry();
+
+      return [
+        registry.getModel("faux", "faux")?.contextWindow,
+        instance.models.model("faux", "faux").contextWindow
+      ] as const;
+    });
+
+    // pi reads the capped window; the model itself keeps its 1M.
+    expect(windows).toEqual([CONTEXT_WINDOW, 1_000_000]);
   });
 
   it("writes and reads a workspace file that outlives the object", async () => {
@@ -356,7 +424,7 @@ describe("memory panel", () => {
     expect(memory()?.items).toMatchObject([{ kind: "memory", id: 0, text: "the user drinks green tea" }]);
 
     await prompt(name, `tool memory_note ${JSON.stringify({ text: "ky shipped the soul panel" })}`);
-    await prompt(name, `tool memory_nap ${JSON.stringify({ block: "0-1", text: "tea, and the soul panel" })}`);
+    await until(async () => (await summarized(name, "0-1")) !== null, "a summary");
     // Two memories fit the view as written; zoom opens their block.
 
     expect(await command(main.socket, main.client, { type: "memory-search", query: "GREEN|soul" })).toMatchObject({

@@ -96,8 +96,31 @@ function naming(context: TranscriptContext): boolean {
   return system.startsWith("You name things") || system.startsWith("You summarize");
 }
 
+/**
+ * Memory's summary writer, which runs on the main slot: "first to last" of the
+ * notes it compresses, or of the two lines it merges, so "memory 0 to memory 7"
+ * covers the notes 0 to 7.
+ */
+function compressing(context: TranscriptContext): AssistantMessage | undefined {
+  const [first, asked] = context.messages.filter((message) => message.role !== "assistant");
+
+  if (!textOf(first?.content).startsWith("You write the memory of ky")) return undefined;
+
+  const text = textOf(asked?.content);
+
+  // The step's lines follow its "Compress these" or "Merge these" line.
+  const items = text.split(/\n(?:Compress|Merge) these[^\n]*\n/).at(-1)?.split("\n") ?? [];
+  const line = `${items[0]?.split(" to ")[0]} to ${items.at(-1)?.split(" to ").at(-1)}`;
+
+  return fauxAssistantMessage([fauxText(line)]);
+}
+
 function script(context: TranscriptContext): AssistantMessage {
   if (naming(context)) return title(context);
+
+  const summary = compressing(context);
+
+  if (summary) return summary;
 
   // pi places system-prompt changes positionally, so a system message can follow the user's input.
   const last = context.messages.filter((message) => message.role !== "system").at(-1);
@@ -139,7 +162,8 @@ function fauxCloud(calls: FauxCall[]): Endpoint {
   const core = createFauxCore({
     provider: FAUX,
     models: [
-      { id: "faux", name: "Faux", reasoning: true, input: ["text", "image"] },
+      // A 1M window, as the real main models have, so the cap in models.ts shows.
+      { id: "faux", name: "Faux", reasoning: true, input: ["text", "image"], contextWindow: 1_000_000 },
       { id: "faux-text", name: "Faux Text", reasoning: false, input: ["text"] }
     ],
     tokensPerSecond: 200,

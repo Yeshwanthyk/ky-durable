@@ -131,10 +131,10 @@ const FIXED = new Map<string, Activity>([
   ["executor_skills", { icon: "plug", label: "Checking connected apps" }],
   ["executor_resume", { icon: "plug", label: "Resuming app action" }],
   ["memory_note", { icon: "repo", label: "Saving memory" }],
-  ["memory_nap", { icon: "repo", label: "Saving memory" }],
   ["memory_recall", { icon: "repo", label: "Recalling memory" }],
   ["memory_zoom", { icon: "repo", label: "Recalling memory" }],
-  ["memory_forget", { icon: "repo", label: "Tidying memory" }]
+  ["memory_forget", { icon: "repo", label: "Tidying memory" }],
+  ["chat_search", { icon: "search", label: "Searching chats" }]
 ]);
 
 

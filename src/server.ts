@@ -14,6 +14,7 @@ import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { type ExecutorConfig, executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
+import { History } from "./history";
 import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
@@ -88,7 +89,10 @@ export class PiAgent extends DurableObject<Env> {
   });
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
-  readonly memory = new Memory(this.ctx.storage.sql);
+  /** Its summaries are written on the main slot, in the background, as notes come in. */
+  readonly memory = new Memory(this.ctx.storage.sql, (system, messages) =>
+    this.models.ask("main", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
+  );
   readonly skills = new Skills(this.ctx.storage.sql);
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage.sql);
@@ -97,6 +101,12 @@ export class PiAgent extends DurableObject<Env> {
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
+  /** Every message of the main chat and the side chats, searchable. */
+  readonly history = new History(
+    this.ctx.storage.sql,
+    (session) => this.isChat(session),
+    (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
+  );
   readonly titler = new Titler((system, text) => this.models.complete("titles", system, text));
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
@@ -162,11 +172,11 @@ export class PiAgent extends DurableObject<Env> {
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
-      const chat = (session: string) => session === ROOT_SESSION || this.chats.has(session);
+      const chat = (session: string) => this.isChat(session);
       this.registry.install(skillsExtension(this.skills, this.reviews, this.#background, chat));
 
       // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
-      const memory = memoryExtension(this.memory, (session) => chat(session) || this.reviews.has(session));
+      const memory = memoryExtension(this.memory, this.history, (session) => chat(session) || this.reviews.has(session));
       const machines = machineExtension(this.machines, this.feed);
       const automations = automationExtension(this.automations, () => this.models.settings.get("subagents"));
       this.registry.install(memory);
@@ -255,6 +265,12 @@ export class PiAgent extends DurableObject<Env> {
     this.models.settings.onChange((slot) => {
       if (slot === "main") this.ctx.waitUntil(this.applyMain());
     });
+    this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
+  }
+
+  /** The main chat or a side chat, as against a subagent, a review or a dream. */
+  isChat(session: string): boolean {
+    return session === ROOT_SESSION || this.chats.has(session);
   }
 
   /** Production's boundary: OpenCode Go, the Mac's tunnel, Browser Rendering and Executor. */
@@ -276,6 +292,8 @@ export class PiAgent extends DurableObject<Env> {
     await this.claude.reachable();
     await this.applyMain();
     await this.automations.recover();
+    // Summaries a restart or a failed call left unwritten.
+    this.ctx.waitUntil(this.memory.compress());
   }
 
   /** Record a file a machine task shared; null, or why it was refused. */
