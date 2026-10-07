@@ -379,7 +379,7 @@ function localInput(ms: number): string {
     .slice(0, 16);
 }
 
-function modelFields(
+export function modelFields(
   model: SlotSetting | null,
 ): Pick<Form, "model" | "thinking"> {
   return model
@@ -424,7 +424,7 @@ type ModelChoice = {
 };
 
 /** Every model a connected provider offers, as `provider/modelId`. */
-function modelChoices(providers: readonly ProviderInfo[]): ModelChoice[] {
+export function modelChoices(providers: readonly ProviderInfo[]): ModelChoice[] {
   return providers.flatMap((provider) =>
     provider.connected
       ? provider.models.map((model) => ({
@@ -437,15 +437,15 @@ function modelChoices(providers: readonly ProviderInfo[]): ModelChoice[] {
 }
 
 /** The chosen thinking level if the model takes it, else its lowest. */
-function levelOf(
+export function levelOf(
   thinking: string,
   levels: readonly ModelThinkingLevel[],
 ): ModelThinkingLevel {
   return levels.find((level) => level === thinking) ?? levels[0] ?? "off";
 }
 
-function settingOf(
-  form: Form,
+export function settingOf(
+  form: Pick<Form, "model" | "thinking">,
   choices: readonly ModelChoice[],
 ): SlotSetting | null {
   const choice = choices.find((each) => each.value === form.model);
@@ -625,7 +625,7 @@ function TimeRow({ form, set }: FieldProps) {
 }
 
 /** A settings row: its name on the left, a quiet select on the right. */
-function Pick({
+export function Pick({
   label,
   value,
   onChange,

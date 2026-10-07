@@ -12,6 +12,7 @@ import type {
   SoulChange,
   SoulVersion,
   SoulView,
+  SpecialistView,
   Slot,
   SlotSetting,
   TaskRow,
@@ -27,7 +28,7 @@ import { Markdown } from "./Markdown";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
-import { Soul } from "./Soul";
+import { Soul, type SpecialistActions } from "./Soul";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
 
@@ -61,6 +62,8 @@ export function Panel({
   soul,
   memory,
   memoryActions,
+  specialists,
+  specialistActions,
   theme,
   onTheme,
   onSetModel,
@@ -93,6 +96,8 @@ export function Panel({
   soul: SoulView | null;
   memory: MemoryView | null;
   memoryActions: MemoryActions;
+  specialists: readonly SpecialistView[];
+  specialistActions: SpecialistActions;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSetModel: (slot: Slot, setting: SlotSetting) => void;
@@ -166,6 +171,10 @@ export function Panel({
           onHistory={onSoulHistory}
           memory={memory}
           memoryActions={memoryActions}
+          specialists={specialists}
+          specialistActions={specialistActions}
+          providers={settings?.providers ?? []}
+          machines={machines.map((machine) => machine.name)}
         />
       ) : (
         <Settings

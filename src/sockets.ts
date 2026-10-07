@@ -26,6 +26,7 @@ import type { ChatList } from "./chats";
 import type { Skills } from "./skills";
 import type { Memory } from "./memory";
 import type { Soul } from "./soul";
+import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -119,6 +120,7 @@ export class PiSessionSockets {
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
+  readonly #specialists: Specialists;
   readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #version: string;
@@ -137,6 +139,7 @@ export class PiSessionSockets {
     chats: ChatList,
     skills: Skills,
     soul: Soul,
+    specialists: Specialists,
     memory: Memory,
     automations: Automations,
     newChat: () => Promise<PiSessionId>,
@@ -153,6 +156,7 @@ export class PiSessionSockets {
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
+    this.#specialists = specialists;
     this.#memory = memory;
     this.#automations = automations;
     this.#newChat = newChat;
@@ -171,6 +175,11 @@ export class PiSessionSockets {
     });
     soul.onChange(() => {
       const message = this.#soulMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    specialists.onChange(() => {
+      const message = this.#specialistsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -194,6 +203,10 @@ export class PiSessionSockets {
 
   #skillsMessage(): PiServerMessage {
     return { type: "skills", skills: this.#skills.all() };
+  }
+
+  #specialistsMessage(): PiServerMessage {
+    return { type: "specialists", specialists: this.#specialists.views() };
   }
 
   #soulMessage(): PiServerMessage {
@@ -343,6 +356,7 @@ export class PiSessionSockets {
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
+    send(connection, this.#specialistsMessage());
     send(connection, this.#memoryMessage());
     send(connection, await this.#automationsMessage());
     await this.#watch(connection, session);
@@ -496,6 +510,14 @@ export class PiSessionSockets {
 
     if (problem !== null) throw new Error(problem);
 
+    // A leading @id is for a specialist, which ky passes it to; refuse one that does not exist.
+    if (chat || session === ROOT_SESSION) {
+      const all = this.#specialists.list();
+      const unknown = all.length === 0 ? undefined : mentions(textOf(message.input)).find((id) => !this.#specialists.has(id));
+
+      if (unknown !== undefined) throw new Error(`No specialist @${unknown}. Specialists: ${all.map((each) => `@${each.id}`).join(", ")}`);
+    }
+
     if (chat) this.#chats.touch(session, textOf(message.input));
 
     // Pass only the options the client set.
@@ -565,6 +587,25 @@ export class PiSessionSockets {
         return this.#soul.apply(message.change, "user");
       case "soul-history":
         return this.#soul.history();
+      case "specialist-save":
+        try {
+          if (message.create) this.#specialists.create(message.specialist, message.draft, "user");
+          else this.#specialists.set(message.specialist, message.draft);
+
+          return {};
+        } catch (error) {
+          // The form shows why, as an automation's does.
+          return { refused: error instanceof Error ? error.message : String(error) };
+        }
+
+      case "specialist-brief":
+        if (!this.#specialists.has(message.specialist)) throw new Error(`No specialist @${message.specialist}`);
+
+        return this.#specialists.brief(message.specialist).apply(message.change, "user");
+      case "specialist-history":
+        if (!this.#specialists.has(message.specialist)) throw new Error(`No specialist @${message.specialist}`);
+
+        return this.#specialists.brief(message.specialist).history();
       case "memory-search":
         return this.#memory.search(message.query);
       case "memory-zoom":

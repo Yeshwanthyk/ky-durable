@@ -58,13 +58,24 @@ function need<T>(value: T | undefined, message: string): T {
   return value;
 }
 
-/** SOUL.md, with every version kept. */
-export class Soul {
+/**
+ * A markdown file with every version kept: SOUL.md, and each specialist's
+ * brief (src/specialists.ts). All share one table, told apart by `key`.
+ */
+export class Versioned {
   readonly #sql: SqlStorage;
+  readonly #key: string;
+  /** What the file is called in messages, like "SOUL.md". */
+  readonly #label: string;
+  /** Seeds the file the first time it is read; without one, the file must be created first. */
+  readonly #template: string | undefined;
   readonly #listeners = new Set<() => void>();
 
-  constructor(sql: SqlStorage) {
+  constructor(sql: SqlStorage, key: string, label: string, template?: string) {
     this.#sql = sql;
+    this.#key = key;
+    this.#label = label;
+    this.#template = template;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_soul_versions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       action TEXT NOT NULL,
@@ -73,6 +84,18 @@ export class Soul {
       body TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
+
+    const columns = sql.exec<{ name: string }>("PRAGMA table_info(ky_soul_versions)").toArray();
+
+    if (!columns.some((column) => column.name === "key")) {
+      sql.exec("ALTER TABLE ky_soul_versions ADD COLUMN key TEXT NOT NULL DEFAULT 'soul'");
+    }
+
+    // Numbered per file; rows from before were all SOUL.md's, numbered by id.
+    if (!columns.some((column) => column.name === "version")) {
+      sql.exec("ALTER TABLE ky_soul_versions ADD COLUMN version INTEGER");
+      sql.exec("UPDATE ky_soul_versions SET version = id");
+    }
   }
 
   onChange(listener: () => void): () => void {
@@ -81,14 +104,25 @@ export class Soul {
     return () => this.#listeners.delete(listener);
   }
 
-  /** The file as it stands, seeded from the template the first time. */
+  /** The newest version, seeded from the template the first time; undefined for a file with none yet. */
+  #latest(): SoulVersion | undefined {
+    const latest = this.#sql
+      .exec<SoulVersion>("SELECT version AS id, action, actor, conversation, body, created_at FROM ky_soul_versions WHERE key = ? ORDER BY version DESC LIMIT 1", this.#key)
+      .toArray()[0];
+
+    if (latest || this.#template === undefined) return latest;
+    this.#insert("create", "template", null, this.#template);
+
+    return this.#latest();
+  }
+
+  /** The file as it stands. */
   current(): SoulVersion {
-    const latest = this.#sql.exec<SoulVersion>("SELECT * FROM ky_soul_versions ORDER BY id DESC LIMIT 1").toArray()[0];
+    const latest = this.#latest();
 
-    if (latest) return latest;
-    this.#insert("create", "template", null, TEMPLATE);
+    if (!latest) throw new Error(`${this.#label} does not exist.`);
 
-    return this.current();
+    return latest;
   }
 
   view(): SoulView {
@@ -98,26 +132,38 @@ export class Soul {
   }
 
   history(): SoulVersion[] {
-    this.current();
+    this.#latest();
 
-    return this.#sql.exec<SoulVersion>("SELECT * FROM ky_soul_versions ORDER BY id DESC").toArray();
+    return this.#sql
+      .exec<SoulVersion>("SELECT version AS id, action, actor, conversation, body, created_at FROM ky_soul_versions WHERE key = ? ORDER BY version DESC", this.#key)
+      .toArray();
   }
 
-  /** Apply one change and record the result as a new version; returns what happened. */
+  /**
+   * Apply one change and record the result as a new version; returns what
+   * happened. On a file with no versions and no template, an edit creates it.
+   */
   apply(change: SoulChange, actor: string, conversation: string | null = null): string {
-    const was = this.current().body;
+    const latest = this.#latest();
+
+    if (!latest && change.action !== "edit") throw new Error(`${this.#label} does not exist.`);
+    const was = latest?.body ?? "";
     const body = this.#next(change, was);
+    this.#check(body);
 
-    if (body.trim() === "") throw new Error("SOUL.md cannot be empty.");
-
-    if (body.length > SOUL_CHARS) throw new Error(`SOUL.md would be ${body.length} characters; keep it under ${SOUL_CHARS}.`);
-
-    if (body === was) return "SOUL.md is unchanged.";
-    const id = this.#insert(change.action, actor, conversation, body);
+    if (body === was) return `${this.#label} is unchanged.`;
+    const action = latest ? change.action : "create";
+    const id = this.#insert(action, actor, conversation, body);
 
     for (const listener of this.#listeners) listener();
 
-    return `Saved ${change.action} of SOUL.md (version ${id}).`;
+    return `Saved ${action} of ${this.#label} (version ${id}).`;
+  }
+
+  #check(body: string): void {
+    if (body.trim() === "") throw new Error(`${this.#label} cannot be empty.`);
+
+    if (body.length > SOUL_CHARS) throw new Error(`${this.#label} would be ${body.length} characters; keep it under ${SOUL_CHARS}.`);
   }
 
   #next(change: SoulChange, was: string): string {
@@ -129,9 +175,9 @@ export class Soul {
         const replacement = need(change.new, "patch needs old and new.");
         const count = was.split(old).length - 1;
 
-        if (old === "" || count === 0) throw new Error("The text to replace is not in SOUL.md.");
+        if (old === "" || count === 0) throw new Error(`The text to replace is not in ${this.#label}.`);
 
-        if (count > 1) throw new Error(`The text to replace appears ${count} times in SOUL.md; quote more of it.`);
+        if (count > 1) throw new Error(`The text to replace appears ${count} times in ${this.#label}; quote more of it.`);
 
         return was.replace(old, () => replacement);
       }
@@ -139,22 +185,32 @@ export class Soul {
       case "revert": {
         const id = need(change.version, "revert needs a version.");
 
-        return need(this.history().find((each) => each.id === id), `SOUL.md has no version ${id}.`).body;
+        return need(this.history().find((each) => each.id === id), `${this.#label} has no version ${id}.`).body;
       }
     }
   }
 
   #insert(action: string, actor: string, conversation: string | null, body: string): number {
     return this.#sql
-      .exec<{ id: number }>(
-        "INSERT INTO ky_soul_versions (action, actor, conversation, body, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
+      .exec<{ version: number }>(
+        `INSERT INTO ky_soul_versions (key, version, action, actor, conversation, body, created_at)
+         VALUES (?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ky_soul_versions WHERE key = ?), ?, ?, ?, ?, ?) RETURNING version`,
+        this.#key,
+        this.#key,
         action,
         actor,
         conversation,
         body,
         Date.now()
       )
-      .one().id;
+      .one().version;
+  }
+}
+
+/** SOUL.md, with every version kept. */
+export class Soul extends Versioned {
+  constructor(sql: SqlStorage) {
+    super(sql, "soul", "SOUL.md", TEMPLATE);
   }
 }
 

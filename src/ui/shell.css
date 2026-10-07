@@ -1701,6 +1701,16 @@
   gap: 12px;
 }
 
+/* The "+ Specialist" pill sits at the end of its heading. */
+.specialists .feed-head .pill {
+  margin-left: auto;
+}
+
+.specialist-row .row-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .soul-card {
   position: relative;
   display: flex;

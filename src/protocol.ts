@@ -10,6 +10,7 @@ import type { SettingsView, Slot, SlotSetting } from "./settings";
 import type { SkillChange, SkillRow } from "./skills";
 import type { MemoryView } from "./memory";
 import type { SoulChange, SoulView } from "./soul";
+import type { SpecialistDraft, SpecialistView } from "./specialists";
 import type { TaskRow } from "./tasks";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
@@ -93,6 +94,18 @@ export type PiClientMessage =
   | { readonly type: "soul-change"; readonly id?: string; readonly change: SoulChange }
   /** SOUL.md's versions, newest first, as the result. */
   | { readonly type: "soul-history"; readonly id?: string }
+  /** Create a specialist (`create: true`, with a brief) or change its description, model or machine. */
+  | {
+      readonly type: "specialist-save";
+      readonly id?: string;
+      readonly specialist: string;
+      readonly create?: boolean;
+      readonly draft: SpecialistDraft;
+    }
+  /** Change a specialist's brief as the user: edit, patch, or revert it. */
+  | { readonly type: "specialist-brief"; readonly id?: string; readonly specialist: string; readonly change: SoulChange }
+  /** A specialist's brief versions, newest first, as the result. */
+  | { readonly type: "specialist-history"; readonly id?: string; readonly specialist: string }
   /** Answers with a MemorySearch. */
   | { readonly type: "memory-search"; readonly id?: string; readonly query: string }
   /** Answers with a block's two halves, as MemoryItems. */
@@ -149,6 +162,8 @@ export type PiServerMessage =
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** SOUL.md, ky's persona; sent on connect and on change. */
   | { readonly type: "soul"; readonly soul: SoulView }
+  /** The specialists and their briefs; sent on connect and on change. */
+  | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
   /** The active and paused automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
@@ -172,6 +187,8 @@ export type { SkillChange, SkillRow, SkillVersion } from "./skills";
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./memory";
 
 export type { SoulChange, SoulVersion, SoulView } from "./soul";
+
+export type { SpecialistDraft, SpecialistView } from "./specialists";
 
 export type { FileRow } from "./files";
 

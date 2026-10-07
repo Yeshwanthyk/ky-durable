@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import type { AutomationInfo, ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, SkillRow, TaskRow } from "../protocol";
+import type { AutomationInfo, ChatRow, FileRow, MachineInfo, PiServerMessage, SettingsView, SkillRow, SpecialistView, TaskRow } from "../protocol";
 
 /**
  * Decoders for what ky sends over the browser's socket, shared by the worker
@@ -33,6 +33,10 @@ const Automation = Type.Unsafe<AutomationInfo>(
 
 const Settings = Type.Unsafe<SettingsView>(
   Type.Object({ providers: Type.Array(Type.Object({ id: Type.String() })), slots: Type.Object({}) })
+);
+
+const Specialist = Type.Unsafe<SpecialistView>(
+  Type.Object({ id: Type.String(), description: Type.String(), brief: Type.Object({ body: Type.String(), version: Type.Number() }) })
 );
 
 const Json = Type.Unsafe<JsonValue>(Type.Any());
@@ -67,6 +71,10 @@ const ServerFrame = Type.Union([
   Type.Object({
     type: Type.Literal("soul"),
     soul: Type.Object({ body: Type.String(), version: Type.Number(), updated_at: Type.Number() })
+  }),
+  Type.Object({
+    type: Type.Literal("specialists"),
+    specialists: Type.Array(Specialist)
   }),
   Type.Object({
     type: Type.Literal("memory"),

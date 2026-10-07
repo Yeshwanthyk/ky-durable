@@ -1,5 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import type { MemoryView, SoulChange, SoulVersion, SoulView } from "../protocol";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import type {
+  MemoryView,
+  ProviderInfo,
+  SoulChange,
+  SoulVersion,
+  SoulView,
+  SpecialistDraft,
+  SpecialistView,
+} from "../protocol";
+import { levelOf, modelChoices, modelFields, Pick, settingOf } from "./Automations";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
@@ -22,7 +31,19 @@ const stamp = (time: number) => {
 
 type Mode = "read" | "edit" | "history";
 
-// ky's persona and memory: an Edit pill, the SOUL card and the MEMORY card, each opening its sheet.
+export type SpecialistActions = {
+  onSave: (id: string, draft: SpecialistDraft, create: boolean) => Promise<string | undefined>;
+  onBrief: (id: string, change: SoulChange) => void;
+  onHistory: (id: string) => Promise<readonly SoulVersion[]>;
+};
+
+const SOUL_NOTE =
+  "This file shapes how ky talks in every conversation. It starts from a template. ky may refine it over time and tells you when it does. You can edit it at any time. This note is not part of the file.";
+
+const BRIEF_NOTE =
+  "This brief is the specialist's standing instructions, in every conversation it has. ky may refine it and tells you when it does. Ask it in chat with @id. This note is not part of the brief.";
+
+// ky's persona, memory and specialists: an Edit pill, the SOUL and MEMORY cards, and the specialists' rows, each opening its sheet.
 export function Soul({
   soul,
   now,
@@ -30,6 +51,10 @@ export function Soul({
   onHistory,
   memory,
   memoryActions,
+  specialists,
+  specialistActions,
+  providers,
+  machines,
 }: {
   soul: SoulView | null;
   now: number;
@@ -37,9 +62,21 @@ export function Soul({
   onHistory: () => Promise<readonly SoulVersion[]>;
   memory: MemoryView | null;
   memoryActions: MemoryActions;
+  specialists: readonly SpecialistView[];
+  specialistActions: SpecialistActions;
+  providers: readonly ProviderInfo[];
+  machines: readonly string[];
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [remembering, setRemembering] = useState(false);
+  const [brief, setBrief] = useState<{ id: string; mode: Mode } | null>(null);
+  /** The specialist whose settings are open, or "" for a new one. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const open = specialists.find((each) => each.id === brief?.id);
+  const { onHistory: onBriefHistory } = specialistActions;
+  const briefId = brief?.id ?? "";
+  // Stable, so the history sheet loads once per version rather than on every render.
+  const briefHistory = useCallback(() => onBriefHistory(briefId), [onBriefHistory, briefId]);
 
   return (
     <div className="panel-body soul" data-scroll>
@@ -63,11 +100,70 @@ export function Soul({
         </button>
         <MemoryCard memory={memory} onOpen={() => setRemembering(true)} />
       </div>
+      <section className="feed-group specialists">
+        <h3 className="feed-head">
+          Specialists
+          <button type="button" className="pill pressable" onClick={() => setEditing("")}>
+            + Specialist
+          </button>
+        </h3>
+        {specialists.length === 0 ? (
+          <p className="panel-empty">
+            Standing bots with their own brief, like @engineer or @researcher. Ask one in chat with @id.
+          </p>
+        ) : (
+          <ul className="feed">
+            {specialists.map((each) => (
+              <li key={each.id}>
+                <button
+                  type="button"
+                  className="row specialist-row pressable"
+                  onClick={() => setBrief({ id: each.id, mode: "read" })}
+                >
+                  <span className="row-text">
+                    <span>@{each.id}</span>
+                    <span className="row-sub">{each.description}</span>
+                  </span>
+                  <span className="row-sub">v{each.brief.version}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {open !== undefined && brief !== null ? (
+        <SoulSheet
+          label={`@${open.id}`}
+          note={BRIEF_NOTE}
+          soul={open.brief}
+          now={now}
+          mode={brief.mode}
+          onMode={(next) => setBrief({ id: open.id, mode: next })}
+          onClose={() => setBrief(null)}
+          onChange={(change) => specialistActions.onBrief(open.id, change)}
+          onHistory={briefHistory}
+          onDetails={() => {
+            setBrief(null);
+            setEditing(open.id);
+          }}
+        />
+      ) : null}
+      {editing !== null ? (
+        <SpecialistSheet
+          specialist={specialists.find((each) => each.id === editing)}
+          providers={providers}
+          machines={machines}
+          onSave={specialistActions.onSave}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
       {memory !== null && remembering ? (
         <MemorySheet memory={memory} onClose={() => setRemembering(false)} {...memoryActions} />
       ) : null}
       {soul !== null && mode !== null ? (
         <SoulSheet
+          label="SOUL.md"
+          note={SOUL_NOTE}
           soul={soul}
           now={now}
           mode={mode}
@@ -81,8 +177,10 @@ export function Soul({
   );
 }
 
-// SOUL.md in a sheet over the page: rendered, as a plain text editor, or as its versions.
+// SOUL.md or a specialist's brief in a sheet over the page: rendered, as a plain text editor, or as its versions.
 function SoulSheet({
+  label,
+  note,
   soul,
   now,
   mode,
@@ -90,7 +188,10 @@ function SoulSheet({
   onClose,
   onChange,
   onHistory,
+  onDetails,
 }: {
+  label: string;
+  note: string;
   soul: SoulView;
   now: number;
   mode: Mode;
@@ -98,6 +199,8 @@ function SoulSheet({
   onClose: () => void;
   onChange: (change: SoulChange) => void;
   onHistory: () => Promise<readonly SoulVersion[]>;
+  /** Opens a specialist's settings, from the menu. */
+  onDetails?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [menu, setMenu] = useState(false);
@@ -117,7 +220,7 @@ function SoulSheet({
     <dialog
       ref={dialog}
       className="soul-sheet"
-      aria-label="SOUL.md"
+      aria-label={label}
       onClose={onClose}
       // A click on the backdrop lands on the dialog itself, not on its content.
       onClick={(event) => {
@@ -133,12 +236,12 @@ function SoulSheet({
         >
           <Icon name="chevronDown" size={18} />
         </button>
-        <h2 className="soul-sheet-title">SOUL.md</h2>
+        <h2 className="soul-sheet-title">{label}</h2>
         <div className="soul-tools">
           <button
             type="button"
             className="pressable"
-            aria-label="Edit SOUL.md"
+            aria-label={`Edit ${label}`}
             aria-pressed={mode === "edit"}
             onClick={() => onMode(mode === "edit" ? "read" : "edit")}
           >
@@ -163,8 +266,13 @@ function SoulSheet({
                   onMode(mode === "history" ? "read" : "history");
                 }}
               >
-                {mode === "history" ? "Back to SOUL.md" : "History and revert"}
+                {mode === "history" ? `Back to ${label}` : "History and revert"}
               </button>
+              {onDetails ? (
+                <button type="button" role="menuitem" onClick={onDetails}>
+                  Description, model and machine
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -172,6 +280,7 @@ function SoulSheet({
       <div className="soul-sheet-body" data-scroll>
         {mode === "edit" ? (
           <SoulForm
+            label={label}
             body={soul.body}
             onCancel={() => onMode("read")}
             onSave={(body) => {
@@ -181,12 +290,10 @@ function SoulSheet({
           />
         ) : (
           <>
-            <p className="soul-note">
-              This file shapes how ky talks in every conversation. It starts from a template. ky may refine it over time
-              and tells you when it does. You can edit it at any time. This note is not part of the file.
-            </p>
+            <p className="soul-note">{note}</p>
             {mode === "history" ? (
               <SoulVersions
+                label={label}
                 versions={versions}
                 now={now}
                 onRevert={(version) => {
@@ -209,18 +316,20 @@ function SoulSheet({
   );
 }
 
-// SOUL.md's versions, newest first; any but the current one can be restored.
+// The file's versions, newest first; any but the current one can be restored.
 function SoulVersions({
+  label,
   versions,
   now,
   onRevert,
 }: {
+  label: string;
   versions: readonly SoulVersion[] | null;
   now: number;
   onRevert: (version: number) => void;
 }) {
   return (
-    <ul className="skill-versions soul-versions" aria-label="SOUL.md versions">
+    <ul className="skill-versions soul-versions" aria-label={`${label} versions`}>
       {versions === null ? <li className="row-sub">Loading…</li> : null}
       {versions?.map((version, index) => (
         <li key={version.id}>
@@ -243,7 +352,17 @@ function SoulVersions({
   );
 }
 
-function SoulForm({ body, onCancel, onSave }: { body: string; onCancel: () => void; onSave: (body: string) => void }) {
+function SoulForm({
+  label,
+  body,
+  onCancel,
+  onSave,
+}: {
+  label: string;
+  body: string;
+  onCancel: () => void;
+  onSave: (body: string) => void;
+}) {
   const [draft, setDraft] = useState(body);
 
   return (
@@ -254,7 +373,7 @@ function SoulForm({ body, onCancel, onSave }: { body: string; onCancel: () => vo
         onSave(draft);
       }}
     >
-      <textarea aria-label="SOUL.md" value={draft} spellCheck={false} onChange={(event) => setDraft(event.target.value)} />
+      <textarea aria-label={label} value={draft} spellCheck={false} onChange={(event) => setDraft(event.target.value)} />
       <div className="soul-form-actions">
         <button type="button" className="pill" onClick={onCancel}>
           Cancel
@@ -264,5 +383,142 @@ function SoulForm({ body, onCancel, onSave }: { body: string; onCancel: () => vo
         </button>
       </div>
     </form>
+  );
+}
+
+// A new specialist, or one's description, model and machine; its brief is edited in its own sheet.
+function SpecialistSheet({
+  specialist,
+  providers,
+  machines,
+  onSave,
+  onClose,
+}: {
+  specialist: SpecialistView | undefined;
+  providers: readonly ProviderInfo[];
+  machines: readonly string[];
+  onSave: SpecialistActions["onSave"];
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+
+  const [form, setForm] = useState(() => ({
+    id: specialist?.id ?? "",
+    description: specialist?.description ?? "",
+    brief: "",
+    machine: specialist?.machine ?? "",
+    ...modelFields(specialist?.model ?? null),
+  }));
+
+  const [refused, setRefused] = useState<string | undefined>();
+  const set = (patch: Partial<typeof form>) => setForm((current) => ({ ...current, ...patch }));
+  const choices = modelChoices(providers);
+  const levels = choices.find((choice) => choice.value === form.model)?.levels ?? [];
+  const label = specialist ? `@${specialist.id}` : "New specialist";
+
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const settings = { description: form.description.trim(), model: settingOf(form, choices), machine: form.machine || null };
+    // The brief is given only on create; after, it changes in its own sheet.
+    const draft: SpecialistDraft = specialist ? settings : { ...settings, brief: form.brief };
+    const why = await onSave(specialist?.id ?? form.id.trim().replace(/^@/, ""), draft, specialist === undefined);
+    setRefused(why);
+
+    if (why === undefined) dialog.current?.close();
+  };
+
+  return (
+    <dialog
+      ref={dialog}
+      className="soul-sheet"
+      aria-label={label}
+      onClose={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) dialog.current?.close();
+      }}
+    >
+      <header className="soul-sheet-head">
+        <button type="button" className="soul-round pressable" aria-label="Close" onClick={() => dialog.current?.close()}>
+          <Icon name="chevronDown" size={18} />
+        </button>
+        <h2 className="soul-sheet-title">{label}</h2>
+      </header>
+      <div className="soul-sheet-body" data-scroll>
+        <form className="automation-form" aria-label={label} onSubmit={save}>
+          <div className="card automation-words">
+            {specialist ? null : (
+              <input
+                className="automation-name"
+                aria-label="Id"
+                placeholder="engineer"
+                value={form.id}
+                onChange={(event) => set({ id: event.target.value })}
+              />
+            )}
+            <input
+              aria-label="Description"
+              placeholder="One line: what it is for"
+              value={form.description}
+              onChange={(event) => set({ description: event.target.value })}
+            />
+            {specialist ? null : (
+              <textarea
+                className="automation-prompt"
+                aria-label="Brief"
+                placeholder="Its persona and standing instructions: what it knows, how it works, what good looks like."
+                rows={8}
+                value={form.brief}
+                onChange={(event) => set({ brief: event.target.value })}
+              />
+            )}
+          </div>
+          <div className="card">
+            <Pick label="Model" value={form.model} onChange={(model) => set({ model })}>
+              <option value="">Subagents model</option>
+              {choices.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </Pick>
+            {levels.length > 1 ? (
+              <Pick label="Thinking" value={levelOf(form.thinking, levels)} onChange={(thinking) => set({ thinking })}>
+                {levels.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </Pick>
+            ) : null}
+            <Pick label="Machine" value={form.machine} onChange={(machine) => set({ machine })}>
+              <option value="">Any</option>
+              {[...new Set([...machines, ...(form.machine ? [form.machine] : [])])].map((machine) => (
+                <option key={machine} value={machine}>
+                  {machine}
+                </option>
+              ))}
+            </Pick>
+          </div>
+          {refused ? (
+            <p className="automation-refused" role="alert">
+              {refused}
+            </p>
+          ) : null}
+          <div className="automation-foot">
+            <button
+              type="submit"
+              className="pill primary pressable"
+              disabled={form.description.trim() === "" || (!specialist && (form.id.trim() === "" || form.brief.trim() === ""))}
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </dialog>
   );
 }
