@@ -4,6 +4,7 @@ import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MachineChange } from "./machines";
 import { EMPTY_VIEW, reduceEvents } from "./view";
+import { cachedShared, cachedView, saveView } from "./view-cache";
 import type {
   AutomationAction,
   AutomationDraft,
@@ -82,7 +83,7 @@ const OBJECT = "me";
  * snapshot, so there is nothing to resume from.
  */
 export function usePiSession(session: string) {
-  const [state, setState] = useState<State>(INITIAL_STATE);
+  const [state, setState] = useState<State>(() => ({ ...INITIAL_STATE, ...cachedShared(), ...cachedView(session) }));
   const version = useRef<string | null>(null);
   /** Commands waiting for their `result`, by id. */
   const waiting = useRef(new Map<string, (result: JsonValue) => void>());
@@ -196,10 +197,12 @@ export function usePiSession(session: string) {
   }, [session, agent]);
 
   useResumeReconnect(agent);
+  useSaveView(session, state);
 
   useEffect(() => {
     setState((current) => ({
       ...INITIAL_STATE,
+      ...cachedView(session),
       tasks: current.tasks,
       machines: current.machines,
       files: current.files,
@@ -399,6 +402,32 @@ export function usePiSession(session: string) {
     changeAutomation,
     saveAutomation
   };
+}
+
+/** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */
+const SAVE_AFTER_MS = 500;
+
+/** Keep what the chat shows for the next cold start: once it settles, and as the page is hidden. */
+function useSaveView(session: string, state: State) {
+  const latest = useRef(state);
+  latest.current = state;
+
+  useEffect(() => {
+    // Until the socket opens, the state is what the cache painted.
+    const save = () => latest.current.status === "open" && saveView(session, latest.current);
+    const timer = setTimeout(save, SAVE_AFTER_MS);
+
+    const onHide = () => {
+      if (document.visibilityState === "hidden") save();
+    };
+
+    document.addEventListener("visibilitychange", onHide);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [session, state]);
 }
 
 /** Longer away than this and the socket may be a dead one iOS froze without closing. */

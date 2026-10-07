@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vite";
 
+/** Packages only lazy chunks import; see `codeSplitting` below. */
+const LAZY = /\/node_modules\/(\.pnpm\/[^/]+\/node_modules\/)?(shiki|@shikijs|@pierre|@streamdown\/code|oniguruma-[^/]+|diff|mermaid|katex)\//;
+
 export default defineConfig({
   plugins: [
     agents(),
@@ -11,6 +14,24 @@ export default defineConfig({
     cloudflare({ inspectorPort: 9242 }),
     tailwindcss()
   ],
+  environments: {
+    // The browser's bundle only; the Worker's stays one file.
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              // Libraries change far less often than ky does, so they get their own
+              // chunk and a deploy re-downloads only ky's code. What loads lazily
+              // (Shiki with the first code fence, the diff viewer when Changes opens)
+              // stays out of it, or the group would pull it into the first load.
+              groups: [{ name: "vendor", test: (id) => id.includes("/node_modules/") && !LAZY.test(id) }]
+            }
+          }
+        }
+      }
+    }
+  },
   resolve: {
     // The commit-pinned pi artifacts intentionally omit sibling package
     // dependencies. Resolve every internal pi import from this example's

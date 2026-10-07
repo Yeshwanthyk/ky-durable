@@ -270,3 +270,10 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");
 
 createRoot(root).render(<App />);
+
+// Built assets from the cache and the last page offline (public/sw.js). Not in
+// dev, where Vite serves modules unhashed and a cache would serve stale code.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  // Without one (private browsing, say) ky works as it did, from the network.
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}

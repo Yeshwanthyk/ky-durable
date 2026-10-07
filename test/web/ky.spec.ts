@@ -707,3 +707,28 @@ test("reopens its socket when the page comes back after a while away, not after 
   await send(page, `back again ${id}`);
   await expect(page.getByText(`echo: back again ${id}`)).toBeVisible();
 });
+
+test("paints the last chat from the cache before the socket answers, then the snapshot replaces it", async ({ page }) => {
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+  await send(page, `remember me ${id}`);
+  await expect(page.getByText(`echo: remember me ${id}`)).toBeVisible();
+  // The view is saved once the chat settles, and as the page is hidden.
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForTimeout(800);
+
+  // ky is unreachable: every socket the reloaded page opens is closed at once.
+  let reachable = false;
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (route) => {
+    if (reachable) route.connectToServer();
+    else void route.close();
+  });
+  await page.reload();
+  await expect(page.getByText(`echo: remember me ${id}`)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeHidden();
+
+  reachable = true;
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await expect(page.getByText(`echo: remember me ${id}`)).toBeVisible();
+});
