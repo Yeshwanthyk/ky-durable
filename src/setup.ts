@@ -42,18 +42,22 @@ export class Setup {
   }
 
   /**
-   * Set ky's repo, owner/name, and keep `url`, the page's origin, as ky's
-   * address; an empty repo clears it. `refused` says why it was not saved.
+   * Set ky's repo, owner/name, and keep the origin of `page`, the URL of the
+   * page that sets it, as ky's address; an empty repo clears it. `refused`
+   * says why it was not saved.
    */
-  setRepo(repo: string, url: string): RepoSaved {
+  setRepo(repo: string, page: string | null): RepoSaved {
     const value = repo.trim();
 
     if (value === "") {
       this.#sql.exec("DELETE FROM ky_setup WHERE key = 'repo'");
     } else {
       if (!REPO.test(value)) return { refused: `"${value}" is not a GitHub repo; write it as owner/name.` };
+
+      if (!page) return { refused: "This page's address is unknown; reload it and try again." };
+
       this.#set("repo", value);
-      this.#set("url", url);
+      this.#set("url", new URL(page).origin);
     }
 
     for (const listener of this.#listeners) listener();

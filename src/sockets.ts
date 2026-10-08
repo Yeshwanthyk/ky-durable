@@ -618,9 +618,7 @@ export class PiSessionSockets {
 
       case "set-repo":
         // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
-        return connection.uri
-          ? this.#setup.setRepo(message.repo, new URL(connection.uri).origin)
-          : { refused: "This page's address is unknown; reload it and try again." };
+        return this.#setup.setRepo(message.repo, connection.uri);
       case "new-chat":
         return { session: await this.#newChat() };
       case "archive-chat":
