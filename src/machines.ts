@@ -567,7 +567,6 @@ function sharedLine(files: readonly FileRow[]): string {
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
-/** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
 /** Nothing when Claude Code can run tasks here; else why it cannot. */
 function claudeCaveat(claude: MachineFacts["agents"]["claude"]): string[] {
   if (!claude.installed) return ["Claude Code not installed"];
@@ -575,6 +574,7 @@ function claudeCaveat(claude: MachineFacts["agents"]["claude"]): string[] {
   return claude.signedIn ? [] : ["Claude Code not signed in"];
 }
 
+/** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
 function describeMachine(machine: MachineInfo): string {
   const parts = [
     machine.state,
