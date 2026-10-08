@@ -11,6 +11,56 @@
   "items": [
     {
       "check": "node",
+      "name": "ky init and deploy deploys the Worker with its bindings, every migration, ACCESS_* and a KY_TOKEN shown once",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy sets up an Access app for the owner and a bypass app for the C2 paths",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy uploads only the web app's files Cloudflare doesn't have",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses a Worker of that name ky didn't deploy, and writes nothing",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy asks for Zero Trust, a workers.dev subdomain, and a token that can manage Access",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor prints each check and the command that fixes the first one missing",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown removes the Access apps, the Worker with its data and secrets, the emptied bucket, then the overlay",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown leaves a Worker of that name ky didn't deploy alone",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the release pack carries the release the compiled ky deploys",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
       "name": "the owner overlay adds the example overlay's vars and VibeProxy tunnel to wrangler.jsonc and keeps its bindings",
       "outcome": "passed"
     },
