@@ -271,7 +271,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "automations refuses a model that is not offered and runs a model-less automation on the subagents slot",
+      "name": "automations refuses a model that is not offered and runs a model-less automation on the worker's model",
       "outcome": "passed"
     },
     {
@@ -391,6 +391,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "a deploy's config keeps OpenCode Go with its key empty, as not set up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config reads an API key from the deploy's secrets",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "a deploy's config offers OpenCode Go's first model once pi-ai no longer has ky's",
       "outcome": "passed"
     },
@@ -441,7 +451,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the tools writes summaries in the background on the main model, opens them, and rewrites a forgotten one",
+      "name": "the tools writes summaries on the background model, opens them, and rewrites a forgotten one",
       "outcome": "passed"
     },
     {
@@ -491,12 +501,12 @@
     },
     {
       "check": "worker-e2e",
-      "name": "side chats and titles starts a side chat whose title the titles model rewrites from its first message",
+      "name": "side chats and titles starts a side chat whose title the background model rewrites from its first message",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "side chats and titles trims a long title, and keeps the first line when the titles model fails",
+      "name": "side chats and titles trims a long title, and keeps the first line when the background model fails",
       "outcome": "passed"
     },
     {
@@ -521,12 +531,12 @@
     },
     {
       "check": "worker-e2e",
-      "name": "settings stores a slot's model across restarts and refuses one that does not exist",
+      "name": "settings stores a purpose's model across restarts and refuses one that does not exist",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's own setup shows VibeProxy and Executor as not set up on a deploy without them, and runs on the cloud model",
+      "name": "a deploy's own setup shows OpenCode Go, VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI",
       "outcome": "passed"
     },
     {
@@ -641,67 +651,77 @@
     },
     {
       "check": "worker-e2e",
-      "name": "which model each slot uses puts the main agent and titles on Claude while the Mac is online",
+      "name": "which model each purpose uses runs everything on Workers AI on a deploy with no secrets",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "which model each slot uses puts every slot on the cloud model while the Mac is away, and shows Claude as not connected",
+      "name": "which model each purpose uses puts the main agent and the worker on Claude while the Mac is online, with Workers AI as the fallback",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "which model each slot uses stores a slot choice, and refuses a provider that is not connected",
+      "name": "which model each purpose uses puts the main agent on Workers AI while the Mac is away, and shows Claude as not connected",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "which model each slot uses gives a slot on Claude the fallback slot's model when the Mac has just gone away",
+      "name": "which model each purpose uses puts the main agent on OpenCode Go when its key is set, with Workers AI as the fallback",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a turn on Claude runs on Claude while the Mac is online",
+      "name": "which model each purpose uses stores a purpose's choice at a level its model has, and refuses a provider that is not connected",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a turn on Claude runs on the fallback slot's model, with its key, when the Mac has just gone away, and on Claude once it is back",
+      "name": "a turn chats and calls tools on Workers AI through the AI binding, with no key of the user's",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks with the titles slot asks Claude's small model without thinking while the Mac is online, and keeps the bare title",
+      "name": "a turn runs on OpenCode Go with its key when that is set",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks with the titles slot asks the cloud model, still without thinking, while the Mac is away",
+      "name": "a turn runs on Claude while the Mac is online",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks with the titles slot keeps its light thinking on the stand-in when the Mac has just gone away",
+      "name": "a turn runs on the fallback's model when the Mac has just gone away, and on Claude once it is back",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks with the titles slot gives up quietly when the model fails or there is nothing to name",
+      "name": "a turn stands in for a provider whose breaker opened, on another provider",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks with the titles slot trims a long title to fit",
+      "name": "naming chats and tasks on the background purpose asks Workers AI even while the Mac is online, and keeps the bare title",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "whether a slot's model reads images checks the model the slot runs on",
+      "name": "naming chats and tasks on the background purpose gives up quietly when the model fails or there is nothing to name",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "whether a slot's model reads images checks the fallback model while the slot's provider is away",
+      "name": "naming chats and tasks on the background purpose trims a long title to fit",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "whether a purpose's model reads images checks the model the purpose runs on",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "whether a purpose's model reads images checks the fallback's model while the purpose's provider is away",
       "outcome": "passed"
     },
     {
@@ -1396,7 +1416,7 @@
     },
     {
       "check": "web",
-      "name": "picks a slot's model in settings and keeps it after a reload, with VibeProxy off",
+      "name": "picks a purpose's model in settings and keeps it after a reload, with VibeProxy off",
       "outcome": "passed"
     },
     {
