@@ -124,11 +124,13 @@ export class MachineHub {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN facts TEXT");
     }
 
-    // Commands no runner of this protocol accepts: from before turns were numbered, and runs from before
-    // they named an agent. Their tasks end as interrupted at the runner's next hello.
+    // Commands from before turns were numbered, which no runner accepts: their tasks end as interrupted
+    // at the runner's next hello.
+    sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
+    // Runs from before they named an agent were all Claude Code's, with no task token.
     sql.exec(
-      `DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL
-         OR (json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL)`
+      `UPDATE ky_machine_inbox SET payload = json_set(payload, '$.agent', 'claude', '$.taskToken', '')
+       WHERE json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL`
     );
     // Facts from before runners said what kind of machine they are, until the runner says hello again.
     sql.exec("UPDATE ky_machines SET facts = NULL WHERE json_extract(facts, '$.kind') IS NULL");
@@ -251,13 +253,9 @@ export class MachineHub {
     return this.machine(name)!;
   }
 
-  /** Runners are seen when they connect and when they leave. */
+  /** A runner left. Only a machine whose runner said hello has a row to update. */
   seen(machine: string): void {
-    this.#sql.exec(
-      "INSERT INTO ky_machines (name, seen_at) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at",
-      machine,
-      Date.now()
-    );
+    this.#sql.exec("UPDATE ky_machines SET seen_at = ? WHERE name = ?", Date.now(), machine);
   }
 
   /**
@@ -412,10 +410,12 @@ export class MachineHub {
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
   async #onHello(machine: string, active: readonly string[], facts: MachineFacts): Promise<void> {
+    // A valid hello is what makes a machine: a socket that never says one leaves no row.
     this.#sql.exec(
-      "UPDATE ky_machines SET facts = ? WHERE name = ? AND facts IS NOT ?",
-      JSON.stringify(facts),
+      `INSERT INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts`,
       machine,
+      Date.now(),
       JSON.stringify(facts)
     );
 
@@ -568,13 +568,24 @@ function sharedLine(files: readonly FileRow[]): string {
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 /** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
+/** Nothing when Claude Code can run tasks here; else why it cannot. */
+function claudeCaveat(claude: MachineFacts["agents"]["claude"]): string[] {
+  if (!claude.installed) return ["Claude Code not installed"];
+
+  return claude.signedIn ? [] : ["Claude Code not signed in"];
+}
+
 function describeMachine(machine: MachineInfo): string {
   const parts = [
     machine.state,
     machine.online ? "online" : "offline",
     `${machine.active} running or queued`,
     ...(machine.facts
-      ? [osName(machine.facts.os), machine.facts.chrome ? "Chrome with the user's logins" : "no logged-in browser"]
+      ? [
+          osName(machine.facts.os),
+          machine.facts.chrome ? "Chrome with the user's logins" : "no logged-in browser",
+          ...claudeCaveat(machine.facts.agents.claude)
+        ]
       : [])
   ];
 

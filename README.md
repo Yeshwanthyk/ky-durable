@@ -158,8 +158,9 @@ lives on that machine, so it stays there.
 The runner protocol (the `run`/`stop`/`creds` commands, `hello`/`ack`/`session`/`step`/`result` reports, and the
 `http_*` frames for a machine's ports) is shared in `src/runner-protocol.ts` and decoded with typebox at both ends.
 `hello` carries `PROTOCOL`, the runner's version and its machine facts (OS, Chrome, repos, which agents are
-installed and signed in, shared ports, computer or cloud). The object reads `protocol` first: a runner of another
-protocol is told `goodbye` with the one ky speaks, its socket closes with 4426, and it exits. A `step` is one tool
+installed and signed in, shared ports, computer or cloud). The runner says hello before anything it made offline,
+and the object reads `protocol` first: a runner on `/runner/<machine>` that speaks another protocol is told `goodbye`
+with the one ky speaks, its socket closes with 4426, and it exits. A machine is listed once its runner says a valid hello. A `step` is one tool
 Claude Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the agent and the
 session's turns and cost so far. Every report carries its turn, and reports for a closed turn are dropped. The runner records a command
 before acking it, so a command never runs twice. One socket per machine: a newer runner with the same

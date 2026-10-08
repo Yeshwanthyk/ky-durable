@@ -592,6 +592,9 @@ describe("machine tasks", () => {
     // With two machines on and online, the agent has to choose.
     const box = await runner(name, "box");
     await client.until(() => machine("box")?.online === true);
+    box.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: { ...FACTS, agents: { ...FACTS.agents, claude: { installed: true, signedIn: false } } } });
+    await client.until(() => machine("box")?.facts?.agents.claude.signedIn === false);
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("box: on, online, 0 running or queued, macOS, no logged-in browser, Claude Code not signed in");
     expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Name the machine for this task.");
 
     // A paused machine takes no new task; the agent hears where else it can go.

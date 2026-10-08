@@ -1,7 +1,7 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { PROTOCOL } from "../runner-protocol";
-import { agent, call, connect, FACTS, follow, gateStarted, inside, prompt, shows, submit, until, wait } from "./drive";
+import { OUTDATED, PROTOCOL } from "../runner-protocol";
+import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, prompt, shows, submit, until, wait } from "./drive";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
 
@@ -195,6 +195,34 @@ describe("the runner's WebSocket", () => {
 
     await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online on "me"`);
     socket.close();
+  });
+
+  it("turns away a path that names no machine, and a request that is not a socket", async () => {
+    for (const path of ["/runner/Mac", "/runner/mac/", "/runner/mac/x", "/runner/"]) {
+      expect((await call(path, { headers: { Upgrade: "websocket" } })).status, path).toBe(404);
+    }
+
+    expect((await call("/runner/mac")).status).toBe(426);
+  });
+
+  it("keeps no machine for a runner that never says a valid hello", async () => {
+    const name = crypto.randomUUID();
+    const silent = await connectRunner(name, "silent");
+    silent.close();
+    const old = await connectRunner(name, "old");
+
+    const closed = new Promise<number>((resolve) => {
+      old.addEventListener("close", (event) => {
+        resolve(event.code);
+      });
+    });
+
+    old.send(JSON.stringify({ type: "hello", protocol: PROTOCOL - 1, active: [] }));
+    expect(await closed).toBe(OUTDATED);
+
+    await until(async () => (await inside(name, (instance) => instance.machines.online("silent"))) === false, "silent offline");
+
+    expect(await inside(name, (instance) => instance.machines.machines())).toEqual([]);
   });
 
   it("leaves `?runner=` alone: the agent's path opens a session socket, not a machine's", async () => {

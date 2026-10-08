@@ -146,17 +146,17 @@ export class Runner {
   }
 
   /**
-   * A socket opened: first send what was made offline, then hello. The
-   * object reads hello's `active` as "everything else is over", so a result
-   * finished offline must land before it, or the task is first declared
-   * interrupted and then reported again as done.
+   * A socket opened: hello first, so a runner of another protocol is turned
+   * away before it hands over anything, then what was made offline. The
+   * object reads hello's `active` as "everything else is over", so hello
+   * lists the tasks whose results are still in the outbox, or they would be
+   * declared interrupted and then reported again as done.
    */
   open(link: Link): void {
     this.#link = link;
+    link.send(JSON.stringify(this.#hello()));
 
     for (const message of this.#outbox.splice(0)) link.send(JSON.stringify(message));
-
-    link.send(JSON.stringify(this.#hello()));
   }
 
   closed(link: Link): void {
@@ -199,7 +199,15 @@ export class Runner {
   }
 
   #hello(): RunnerReport {
-    return { type: "hello", protocol: PROTOCOL, version: this.#version, active: this.active(), facts: this.#facts() };
+    const owed = this.#outbox.flatMap((message) => (message.type === "result" ? [message.task] : []));
+
+    return {
+      type: "hello",
+      protocol: PROTOCOL,
+      version: this.#version,
+      active: [...new Set([...this.active(), ...owed])],
+      facts: this.#facts()
+    };
   }
 
   #report(message: RunnerReport): void {

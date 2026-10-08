@@ -1,4 +1,4 @@
-import Type, { type Static, type TSchema } from "typebox";
+import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
 
 /**
@@ -155,9 +155,6 @@ const HelloSchema = Type.Object({
   facts: FactsSchema
 });
 
-/** The part of a hello the object reads first, so a runner of another version is told so. */
-const HelloProtocolSchema = Type.Object({ type: Type.Literal("hello"), protocol: Type.Integer() });
-
 /** A runner's answers to an `http_request`, by its id: the head, base64 chunks of the body, then an end or an error. */
 const PipeReportSchema = Type.Union([
   Type.Object({ type: Type.Literal("http_head"), id: Text, status: Type.Integer({ minimum: 100, maximum: 599 }), headers: Headers }),
@@ -202,8 +199,9 @@ export type TaskReport = Exclude<RunnerReport, PipeReport>;
 
 export type MachineFacts = Static<typeof FactsSchema>;
 
-/** A hello of another protocol: the one the runner speaks. */
-export type Outdated = { readonly outdated: number };
+export type RunCreds = Static<typeof RunCredsSchema>;
+
+export type CodexCreds = Static<typeof CodexCredsSchema>;
 
 /** `Omit` applied to each member of a union, so the result stays a union. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -212,11 +210,49 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 export type UnnumberedCommand = DistributiveOmit<RunnerCommand, "seq">;
 
 export function isPipeReport(report: RunnerReport): report is PipeReport {
-  return report.type.startsWith("http_");
+  return Value.Check(PipeReportSchema, report);
 }
 
-/** The frame `text` holds if it is JSON that matches `schema`, else undefined. */
-function decode<const S extends TSchema>(schema: S, text: string): Static<S> | undefined {
+/** A machine's name, as the last segment of its runner's path. */
+const MACHINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/** The machine a runner's path names, or undefined if the path is not `/runner/<machine>`. */
+export function runnerPathMachine(pathname: string): string | undefined {
+  if (!pathname.startsWith(RUNNER_PATH)) return undefined;
+
+  const machine = pathname.slice(RUNNER_PATH.length);
+
+  return MACHINE_NAME.test(machine) ? machine : undefined;
+}
+
+/** A runner's frame, parsed once: what it says, or why the object will not act on it. */
+export type Decoded =
+  | { readonly kind: "report"; readonly report: RunnerReport }
+  | { readonly kind: "outdated"; readonly protocol: number }
+  | { readonly kind: "malformed" };
+
+/**
+ * A frame a runner sent. A hello's `protocol` is read before the rest of it,
+ * so a runner of another protocol is "outdated" whatever else it says.
+ */
+export function decodeReport(text: string): Decoded {
+  let frame;
+
+  try {
+    frame = JSON.parse(text);
+  } catch {
+    return { kind: "malformed" };
+  }
+
+  if (frame?.type === "hello" && Number.isInteger(frame.protocol) && frame.protocol !== PROTOCOL) {
+    return { kind: "outdated", protocol: frame.protocol };
+  }
+
+  return Value.Check(RunnerReportSchema, frame) ? { kind: "report", report: frame } : { kind: "malformed" };
+}
+
+/** A frame the object sent, or undefined if it is not one (the Agents SDK's own frames). */
+export function decodeObjectFrame(text: string): ObjectFrame | undefined {
   let frame;
 
   try {
@@ -225,19 +261,5 @@ function decode<const S extends TSchema>(schema: S, text: string): Static<S> | u
     return undefined;
   }
 
-  return Value.Check(schema, frame) ? frame : undefined;
-}
-
-/** A frame the object sent, or undefined if it is not one (the Agents SDK's own frames). */
-export function decodeObjectFrame(text: string): ObjectFrame | undefined {
-  return decode(ObjectFrameSchema, text);
-}
-
-/** A frame a runner sent; Outdated for a hello of another protocol, whatever the rest says; undefined if malformed. */
-export function decodeReport(text: string): RunnerReport | Outdated | undefined {
-  const hello = decode(HelloProtocolSchema, text);
-
-  if (hello !== undefined && hello.protocol !== PROTOCOL) return { outdated: hello.protocol };
-
-  return decode(RunnerReportSchema, text);
+  return Value.Check(ObjectFrameSchema, frame) ? frame : undefined;
 }

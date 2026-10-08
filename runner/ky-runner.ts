@@ -23,6 +23,8 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
+import Type from "typebox";
+import { Value } from "typebox/value";
 import { OUTDATED, REPLACED, RUNNER_PATH, type MachineFacts } from "../src/runner-protocol.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
@@ -143,41 +145,82 @@ function scanRepos(): MachineFacts["repos"] {
     .map((folder) => ({ name: basename(folder), remote: originOf(folder) }));
 }
 
-/** Whether `claude` runs here, and is signed in, as `claude auth status` says. */
-function claudeFacts(): MachineFacts["agents"]["claude"] {
-  const status = spawnSync(CLAUDE, ["auth", "status", "--json"], { encoding: "utf8", timeout: 10_000 });
-  // SAFETY: a failed spawn's error is a Node system error, which has a code.
-  const installed = (status.error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT";
+type ClaudeFacts = MachineFacts["agents"]["claude"];
 
-  try {
-    return { installed, signedIn: installed && JSON.parse(status.stdout).loggedIn === true };
-  } catch {
-    return { installed, signedIn: false };
-  }
+/** The part of `claude auth status`'s JSON the runner reads. */
+const AuthStatus = Type.Object({ loggedIn: Type.Boolean() });
+
+/**
+ * Whether `claude` runs here, and is signed in, as `claude auth status`
+ * says; undefined if it says nothing readable in time. No `--json`: JSON is
+ * its default, and a CLI without the flag still answers by its exit code,
+ * 0 signed in and 1 not.
+ */
+function askClaude(): Promise<ClaudeFacts | undefined> {
+  return new Promise((resolve) => {
+    const child = spawn(CLAUDE, ["auth", "status"], { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 });
+    let out = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      out += chunk;
+    });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      resolve(error.code === "ENOENT" ? { installed: false, signedIn: false } : undefined);
+    });
+    child.on("close", (code) => {
+      try {
+        const status = JSON.parse(out);
+
+        if (Value.Check(AuthStatus, status)) return resolve({ installed: true, signedIn: status.loggedIn });
+      } catch {
+        // An older CLI's text.
+      }
+
+      // A timeout's kill leaves no code.
+      resolve(code === 0 || code === 1 ? { installed: true, signedIn: code === 0 } : undefined);
+    });
+  });
 }
 
 /** How long the repo list and agent logins are kept before the next hello checks again. */
 const FACTS_EVERY_MS = 5 * 60_000;
 
-let facts: { at: number; value: MachineFacts } | undefined;
+/** Claude's facts as last known. Before any answer it is taken to be here and signed out. */
+let claude: ClaudeFacts = { installed: true, signedIn: false };
+
+let claudeAt = 0;
+
+let claudeCheck: Promise<void> | undefined;
+
+/** Ask `claude` again if its facts are old, in the background: an answer that says nothing keeps the last one. */
+function refreshClaude(): Promise<void> {
+  if (!claudeCheck && Date.now() - claudeAt > FACTS_EVERY_MS) {
+    claudeCheck = askClaude().then((answer) => {
+      if (answer) claude = answer;
+      claudeAt = Date.now();
+      claudeCheck = undefined;
+    });
+  }
+
+  return claudeCheck ?? Promise.resolve();
+}
+
+let repos: { at: number; value: MachineFacts["repos"] } | undefined;
 
 /** What this machine is, for ky to choose where work goes; checked at most every few minutes. Codex comes later. */
 function machineFacts(): MachineFacts {
-  if (!facts || Date.now() - facts.at > FACTS_EVERY_MS) {
-    facts = {
-      at: Date.now(),
-      value: {
-        os: process.platform,
-        chrome: CHROME,
-        repos: scanRepos(),
-        agents: { claude: claudeFacts(), codex: { installed: false, signedIn: false } },
-        ports: [],
-        kind: "computer"
-      }
-    };
-  }
+  void refreshClaude();
 
-  return facts.value;
+  if (!repos || Date.now() - repos.at > FACTS_EVERY_MS) repos = { at: Date.now(), value: scanRepos() };
+
+  return {
+    os: process.platform,
+    chrome: CHROME,
+    repos: repos.value,
+    agents: { claude, codex: { installed: false, signedIn: false } },
+    ports: [],
+    kind: "computer"
+  };
 }
 
 /** This checkout's commit, the runner's version until it ships as a binary. */
@@ -333,5 +376,8 @@ process.on("SIGINT", () => {
 });
 
 installTools();
+
+// The first hello waits for the first answer, so it does not say signed out of a machine that is not.
+await refreshClaude();
 
 connect();

@@ -408,7 +408,9 @@ describe("runner protocol", () => {
     const socket = await connectRunner(crypto.randomUUID(), "old");
     const said: unknown[] = [];
     let closedBy: number | undefined;
-    socket.addEventListener("message", (event) => said.push(decodeObjectFrame(String(event.data))));
+    socket.addEventListener("message", (event) => {
+      said.push(decodeObjectFrame(String(event.data)));
+    });
     socket.addEventListener("close", (event) => {
       closedBy = event.code;
     });
@@ -595,6 +597,29 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     second.answer("did this");
     await until("the second report", async () => (await reports(object, id!, chat)).length === 2);
     expect(await reports(object, id!)).toEqual([]);
+  });
+
+  it("runs a run queued before runs named their agent, as Claude Code's", async () => {
+    const { object, mac } = await online();
+    mac.disconnect();
+    const id = await start(object);
+
+    // The run as an object of the last protocol queued it: no agent, no task token.
+    await inside(object, (_agent, state) => {
+      state.storage.sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.agent', '$.taskToken')");
+    });
+
+    await evictDurableObject(agent(object));
+
+    const queued = await inside(object, (_agent, state) =>
+      state.storage.sql.exec<{ payload: string }>("SELECT payload FROM ky_machine_inbox").toArray().map((row) => JSON.parse(row.payload))
+    );
+
+    expect(queued).toMatchObject([{ type: "run", task: id, agent: "claude", taskToken: "" }]);
+
+    await mac.connect();
+    (await mac.claude(0)).answer("built");
+    await until("the task to be done", async () => (await status(object, id)) === "done");
   });
 
   it("posts a report a restart cut off once the object starts again", async () => {
