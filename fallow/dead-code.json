@@ -42,7 +42,6 @@
     "unused-type:src/protocol.ts:TranscriptMessage",
     "unused-type:src/protocol.ts:TranscriptPart",
     "unused-type:src/runner-protocol.ts:CodexCreds",
-    "unused-type:src/runner-protocol.ts:RunCreds",
     "unused-type:src/ui/bloub/math.ts:Easing",
     "unused-type:src/use-pi-session.ts:ConnectionStatus"
   ],

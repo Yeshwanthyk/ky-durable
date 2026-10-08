@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
+import type { RunCreds } from "./runner-protocol";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -31,18 +32,6 @@ type SecretStatus = {
   readonly updatedAt: number;
   /** Why the last refresh failed, until the secret is next written. */
   readonly error?: string;
-};
-
-/** What a task's `run` frame may carry so the machine needn't be signed in itself (C1). */
-type RunCreds = {
-  readonly claude: { readonly oauthToken: string };
-  readonly codex: {
-    readonly accessToken: string;
-    readonly refreshToken: null;
-    readonly idToken: string;
-    readonly accountId: string;
-    readonly expiresAt: number;
-  };
 };
 
 /** A secret's JSON text, and the write that stored it. */
@@ -154,7 +143,7 @@ export class Vault extends DurableObject<Env> {
   }
 
   /** The credentials a task on a machine runs with; Codex's are refreshed with `refresh`. S fills this in. */
-  sessionCreds<A extends keyof RunCreds>(_agent: A): RunCreds[A] | null {
+  sessionCreds<A extends keyof RunCreds>(_agent: A): NonNullable<RunCreds[A]> | null {
     return null;
   }
 
