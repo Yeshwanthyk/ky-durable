@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../runner-protocol";
-import { call, FACTS, inside, machineToken, pair, pairingCode, prompt, runner, said, TOKEN, until } from "./drive";
+import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, TOKEN, until } from "./drive";
 
 /**
  * Runners' own tokens (src/runners.ts): pairing a machine with a code, its
@@ -15,11 +15,12 @@ const vault = () => env.Vault.getByName("owner");
 
 const named = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
-/** A runner socket through the Worker, as `machine` with `token`, that has said hello. */
-async function dial(machine: string, token: string): Promise<{ socket: WebSocket; frames: unknown[]; closed: Promise<number> }> {
-  const response = await call(`/runner/${machine}`, { headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` } });
-  expect(response.status).toBe(101);
-  const socket = response.webSocket!;
+const HELLO = JSON.stringify({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: FACTS });
+
+type Heard = { socket: WebSocket; frames: unknown[]; closed: Promise<number> };
+
+/** What the object says on a runner socket, and the code it closes with. */
+function hear(socket: WebSocket): Heard {
   const frames: unknown[] = [];
   const closed = new Promise<number>((resolve) => socket.addEventListener("close", (event) => resolve(event.code)));
   socket.addEventListener("message", (event) => {
@@ -27,11 +28,30 @@ async function dial(machine: string, token: string): Promise<{ socket: WebSocket
 
     if (frame !== undefined) frames.push(frame);
   });
-  socket.accept();
-  socket.send(JSON.stringify({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: FACTS }));
-  await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online`);
 
   return { socket, frames, closed };
+}
+
+/** A runner socket through the Worker, as `machine` with `token`, that has said hello. */
+async function dial(machine: string, token: string): Promise<Heard> {
+  const response = await call(`/runner/${machine}`, { headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` } });
+  expect(response.status).toBe(101);
+  const socket = response.webSocket!;
+  socket.accept();
+  const heard = hear(socket);
+  socket.send(HELLO);
+  await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online`);
+
+  return heard;
+}
+
+/** Whether the agent "me" lists the machine. */
+const listed = (machine: string) => inside("me", (instance) => instance.machines.machines().some((row) => row.name === machine));
+
+/** The socket was told its pairing is over, and closed with REVOKED. */
+async function turnedAway({ frames, closed }: Heard): Promise<void> {
+  expect(await closed).toBe(REVOKED);
+  expect(frames).toContainEqual({ type: "goodbye", reason: "This machine is not paired with ky; pair it again." });
 }
 
 describe("pairing a machine", () => {
@@ -120,11 +140,55 @@ describe("removing a machine", () => {
 
     const runner = await call(`/runner/${machine}`, { headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` } });
     expect(runner.status).toBe(401);
-    expect(await inside("me", (instance) => instance.machines.machines().some((row) => row.name === machine))).toBe(false);
+    expect(await listed(machine)).toBe(false);
     expect(await inside("me", (instance) => instance.feed.open("machine", machine))).toEqual([]);
     await said("me", `${machine} was removed from ky.`);
 
     expect((await call(`/api/runners/${machine}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("turns away a socket whose token the Worker took just before the remove, and keeps no machine", async () => {
+    const machine = named("late");
+    await machineToken(machine);
+    const before = await pairing("me", machine);
+
+    // The Worker checked the token, then the remove landed, then the socket reaches the agent.
+    expect((await call(`/api/runners/${machine}`, { method: "DELETE" })).status).toBe(204);
+    await turnedAway(hear(await connectRunner("me", machine, before)));
+    expect(await listed(machine)).toBe(false);
+  });
+
+  it("turns away a hello that comes after the remove on a socket taken before it, and keeps no machine", async () => {
+    const machine = named("between");
+    await machineToken(machine);
+    const heard = hear(await connectRunner("me", machine));
+
+    // Removed after the socket was taken, with nothing closing it: only its hello is left to refuse.
+    await inside("me", (instance) => instance.machines.remove(machine));
+    heard.socket.send(HELLO);
+    await turnedAway(heard);
+    expect(await listed(machine)).toBe(false);
+  });
+
+  it("turns away the last pairing's socket once the machine pairs again, and takes the new one", async () => {
+    const machine = named("again");
+    const old = await machineToken(machine);
+    const before = await pairing("me", machine);
+    const token = await machineToken(machine);
+
+    expect((await call(`/runner/${machine}`, { headers: { Authorization: `Bearer ${old}` } })).status).toBe(401);
+    await turnedAway(hear(await connectRunner("me", machine, before)));
+
+    const { socket } = await dial(machine, token);
+    socket.close();
+  });
+});
+
+describe("the methods of the runner routes", () => {
+  it("answers 405 to anything but POST on the codes path, and never takes it for a machine", async () => {
+    for (const method of ["GET", "DELETE", "PUT"]) {
+      expect((await call("/api/runners/codes", { method })).status, method).toBe(405);
+    }
   });
 });
 
@@ -173,6 +237,37 @@ describe("task tokens", () => {
     mac.send({ type: "result", task: first.task, turn: first.turn, ok: false, text: "gave up", session: null, agent: "claude" });
     await until(async () => (await upload(first.task, first.taskToken)).status === 401, "the ended task's token is refused");
     expect((await upload(second.task, second.taskToken)).status).toBe(200);
+    mac.socket.close();
+  });
+
+  it("are revoked when the agent starts, for a task that ended and whose revoke was lost", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await prompt(name, "machine build it");
+    const run = await mac.run();
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null, agent: "claude" });
+    await until(async () => (await vault().check("task", run.taskToken)) === null, "the token stopped with the task");
+    mac.socket.close();
+
+    // The revoke as if lost: the ended task has a live token again.
+    const lost = await vault().issue("task", run.task);
+    expect(await vault().check("task", lost)).toBe(run.task);
+
+    await evictDurableObject(env.PiAgent.getByName(name));
+    // A page opening the agent starts it.
+    (await connect(name)).close();
+    await until(async () => (await vault().check("task", lost)) === null, "the start revoked the lost token");
+  });
+
+  it("deliver a run again, a moment later, after the Vault failed to issue its token", async () => {
+    const mac = await runner("me");
+    expect((await call("/test/vault-fail-issues?count=1", { method: "POST" })).status).toBe(204);
+
+    await prompt("me", "machine retry the delivery");
+    const run = await mac.run();
+    expect(await vault().check("task", run.taskToken)).toBe(run.task);
+
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "done", session: null, agent: "claude" });
     mac.socket.close();
   });
 

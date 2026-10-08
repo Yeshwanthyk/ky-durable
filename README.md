@@ -74,8 +74,10 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 
 Every request needs the `KY_TOKEN` secret (`src/auth.ts`). The browser signs in once at `/login` and
 gets an HttpOnly cookie for a year. Runners never use it: each machine pairs once and gets its own
-machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`); the Vault
-keeps only their hashes.
+machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`). The Vault
+keeps a machine token's hash only. For a task token it keeps the hash and the nonce the token is derived
+from, with the key in the same storage, so it can derive the token again; task tokens expire a day after
+they were last issued.
 
 ## Setup and deploy
 

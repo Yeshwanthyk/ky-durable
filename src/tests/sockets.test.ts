@@ -1,6 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OUTDATED, PROTOCOL } from "../runner-protocol";
+import { OUTDATED, PROTOCOL, REVOKED } from "../runner-protocol";
 import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, TOKEN, until, wait } from "./drive";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
@@ -215,8 +215,12 @@ describe("the runner's WebSocket", () => {
     expect((await call(`/runner/${machine}`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(426);
   });
 
-  it("keeps no machine for a runner that never says a valid hello", async () => {
+  it("keeps no machine for a socket whose machine was never paired, or that never says a valid hello", async () => {
     const name = crypto.randomUUID();
+    const stranger = await connectRunner(name, "stranger", crypto.randomUUID());
+    const turnedAway = new Promise<number>((resolve) => stranger.addEventListener("close", (event) => resolve(event.code)));
+    expect(await turnedAway).toBe(REVOKED);
+
     const silent = await connectRunner(name, "silent");
     silent.close();
     const old = await connectRunner(name, "old");
@@ -232,7 +236,12 @@ describe("the runner's WebSocket", () => {
 
     await until(async () => (await inside(name, (instance) => instance.machines.online("silent"))) === false, "silent offline");
 
-    expect(await inside(name, (instance) => instance.machines.machines())).toEqual([]);
+    // Only pairing makes a machine: the two paired ones are listed, offline, and the stranger is not.
+    const machines = await inside(name, (instance) => instance.machines.machines());
+    expect(machines.map((machine) => [machine.name, machine.online])).toEqual([
+      ["old", false],
+      ["silent", false]
+    ]);
   });
 
   it("leaves `?runner=` alone: the agent's path opens a session socket, not a machine's", async () => {

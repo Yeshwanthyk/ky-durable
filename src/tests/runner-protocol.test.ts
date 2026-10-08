@@ -767,9 +767,9 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     mac.disconnect();
     const id = await start(object);
 
-    // The run as an object of the last protocol queued it: no agent, and an empty task token.
+    // The run as an object of the last protocol queued it: no agent.
     await inside(object, (_agent, state) => {
-      state.storage.sql.exec("UPDATE ky_machine_inbox SET payload = json_set(json_remove(payload, '$.agent'), '$.taskToken', '')");
+      state.storage.sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.agent')");
     });
 
     await evictDurableObject(agent(object));
@@ -779,7 +779,6 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     );
 
     expect(queued).toMatchObject([{ type: "run", task: id, agent: "claude" }]);
-    expect(queued[0]).not.toHaveProperty("taskToken");
 
     await mac.connect();
     (await mac.claude(0)).answer("built");

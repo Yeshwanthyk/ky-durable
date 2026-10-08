@@ -15,12 +15,29 @@ import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
-import { Vault as ProductionVault } from "../vault";
+import { Vault as ProductionVault, type ReissuedKind } from "../vault";
 
-/** The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes. */
+/**
+ * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes,
+ * and issues it can make fail (`POST /test/vault-fail-issues?count=<n>`), to lose a delivery's token.
+ */
 export class Vault extends ProductionVault {
+  #failing = 0;
+
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;
+  }
+
+  /** Fail the next `count` issues. */
+  failIssues(count: number): void {
+    this.#failing = count;
+  }
+
+  override issue(kind: ReissuedKind, subject: string): Promise<string> {
+    if (this.#failing === 0) return super.issue(kind, subject);
+    this.#failing -= 1;
+
+    return Promise.reject(new Error("The test Vault failed this issue."));
   }
 }
 
@@ -379,6 +396,15 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
     async (_me, url, env) => {
       // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
       await (env.Vault as DurableObjectNamespace<Vault>).getByName("owner").ahead(Number(url.searchParams.get("ahead") ?? "0"));
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  [
+    "POST /test/vault-fail-issues",
+    async (_me, url, env) => {
+      // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
+      await (env.Vault as DurableObjectNamespace<Vault>).getByName("owner").failIssues(Number(url.searchParams.get("count") ?? "0"));
 
       return new Response(null, { status: 204 });
     }

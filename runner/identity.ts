@@ -3,7 +3,7 @@
  * gave it, kept in a file only its user can read. runner/pair.ts writes the
  * token; runner/ky-runner.ts reads it.
  */
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -49,6 +49,9 @@ export function readToken(file: string): string {
 export function writeToken(file: string, token: string): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const next = `${file}.${process.pid}`;
-  writeFileSync(next, `${token}\n`, { mode: 0o600 });
+  // `mode` applies only to a file the write creates: a file left at this path by a crashed run is gone first, and the chmod sets the mode whatever was there.
+  rmSync(next, { force: true });
+  writeFileSync(next, `${token}\n`, { mode: 0o600, flag: "wx" });
+  chmodSync(next, 0o600);
   renameSync(next, file);
 }

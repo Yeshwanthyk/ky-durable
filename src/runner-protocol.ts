@@ -221,6 +221,21 @@ export function isPipeReport(report: RunnerReport): report is PipeReport {
   return Value.Check(PipeReportSchema, report);
 }
 
+/**
+ * How long a task token the Vault issues lives past its last issue. Each run of a task the
+ * runner is sent issues it again, so the token outlives any one turn of
+ * Claude Code, which runs minutes to a few hours; and a token whose revoke
+ * was lost lives a day at most, if the agent's sweep at start missed it.
+ */
+export const ISSUED_TTL_MS = 24 * 60 * 60_000;
+
+/**
+ * The header the Worker adds to a runner's socket request: the pairing its
+ * machine token belongs to, which the agent compares with its machine's.
+ * Not a secret; the Worker sets it over whatever the runner sent.
+ */
+export const PAIRING_HEADER = "X-Ky-Pairing";
+
 /** A machine's name, as the last segment of its runner's path: lowercase letters, digits and dashes, up to 32. */
 const MachineNameSchema = Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,31}$" });
 

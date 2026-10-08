@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { RunCreds } from "./runner-protocol";
+import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -12,10 +12,12 @@ import type { RunCreds } from "./runner-protocol";
  * - Tokens are what ky hands out: pairing codes, machine tokens, task tokens.
  *   `mint` returns the raw token once and keeps only its sha-256; a subject
  *   has one live token per kind, so minting again replaces it. `issue` gives
- *   a task its live token again, for every run of it the runner is sent.
+ *   a task its live token again, for every run of it the runner is sent: the
+ *   Vault keeps what it derives that token from, so it can make it again.
  *
- * Settings doesn't call the secrets yet, and fallow doesn't count the tests'
- * calls through a stub, so fallow/dead-code.json lists those members.
+ * Settings doesn't call the secrets yet, and fallow follows no call through
+ * a stub, the Worker's and the agent's included, so fallow/dead-code.json
+ * lists the members.
  */
 
 type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
@@ -23,7 +25,7 @@ type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
 type TokenKind = "pair" | "machine" | "task";
 
 /** The kinds `issue` can give out again: a task's runs all carry its one token. */
-type ReissuedKind = "task";
+export type ReissuedKind = "task";
 
 /** What Settings may show about a secret, like its label, account or repos. Flat, so it crosses RPC typed. */
 type SecretMeta = { readonly [field: string]: string | number | boolean | null | readonly string[] };
@@ -182,7 +184,7 @@ export class Vault extends DurableObject<Env> {
     }
 
     const token = hex(crypto.getRandomValues(new Uint8Array(32)));
-    await this.#store(kind, subject, token, ttlMs === undefined ? null : this.now() + ttlMs, null);
+    this.#store(kind, subject, await sha256(token), ttlMs === undefined ? null : this.now() + ttlMs, null);
 
     return token;
   }
@@ -193,9 +195,11 @@ export class Vault extends DurableObject<Env> {
    * first run started, and every later run of it, a resend or a steer into
    * that process, must carry the same token, so the caller keeps nothing.
    *
-   * It is an HMAC of a random nonce under a key only the Vault holds, so the
-   * Vault keeps the nonce rather than the token. Callers racing for one
-   * subject share one issue.
+   * It is an HMAC of a random nonce under a key only the Vault holds. The
+   * Vault keeps the nonce and the token's hash, not the token; but with the
+   * key, in the same storage, it can derive the token again, which is what
+   * `issue` does. Each issue moves the token's expiry to ISSUED_TTL_MS from
+   * now. Callers racing for one subject share one issue.
    */
   issue(kind: ReissuedKind, subject: string): Promise<string> {
     const key = JSON.stringify([kind, subject]);
@@ -250,28 +254,42 @@ export class Vault extends DurableObject<Env> {
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = ? AND subject = ?", kind, subject);
   }
 
+  /** Revoke the tokens of all of `subjects`: an agent's sweep, for revokes a failure lost. */
+  revokeAll(kind: ReissuedKind, subjects: readonly string[]): void {
+    this.#sql.exec(
+      "DELETE FROM ky_vault_tokens WHERE kind = ? AND subject IN (SELECT value FROM json_each(?))",
+      kind,
+      JSON.stringify(subjects)
+    );
+  }
+
   async #issue(kind: ReissuedKind, subject: string): Promise<string> {
+    // Every await comes first, so nothing, a revoke least of all, runs between reading the live token and storing a new one.
+    const nonce = hex(crypto.getRandomValues(new Uint8Array(32)));
+    const token = await this.#derive(nonce);
+    const hash = await sha256(token);
+    const now = this.now();
+
     const live = this.#sql
       .exec<{ nonce: string }>(
-        `SELECT nonce FROM ky_vault_tokens
-         WHERE kind = ? AND subject = ? AND nonce IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)`,
+        `UPDATE ky_vault_tokens SET expires_at = ?
+         WHERE kind = ? AND subject = ? AND nonce IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)
+         RETURNING nonce`,
+        now + ISSUED_TTL_MS,
         kind,
         subject,
-        this.now()
+        now
       )
       .toArray()[0];
 
     if (live) return this.#derive(live.nonce);
-    const nonce = hex(crypto.getRandomValues(new Uint8Array(32)));
-    const token = await this.#derive(nonce);
-    await this.#store(kind, subject, token, null, nonce);
+    this.#store(kind, subject, hash, now + ISSUED_TTL_MS, nonce);
 
     return token;
   }
 
-  /** Keep `token`'s hash as the subject's one live token of this kind. */
-  async #store(kind: TokenKind, subject: string, token: string, expiresAt: number | null, nonce: string | null): Promise<void> {
-    const hash = await sha256(token);
+  /** Keep `hash` as the subject's one live token of this kind. */
+  #store(kind: TokenKind, subject: string, hash: string, expiresAt: number | null, nonce: string | null): void {
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE expires_at <= ?", this.now());
     this.#sql.exec(
       `INSERT INTO ky_vault_tokens (kind, subject, hash, expires_at, nonce) VALUES (?, ?, ?, ?, ?)

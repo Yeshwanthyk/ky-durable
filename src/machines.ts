@@ -7,7 +7,7 @@ import {
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
 import { type MachineInfo, osName } from "./protocol";
-import { type Agent, AGENT_NAMES, type MachineFacts, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
+import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -20,7 +20,15 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * What the runner must do is kept in an inbox table until it acknowledges
  * it, so a message sent while the machine is offline is delivered when it
  * reconnects. Each run carries its task's token, which the Vault issues as
- * the run is sent and revokes when the task ends; the inbox keeps no token. Each finished turn is recorded in the task feed and posted as
+ * the run is sent and revokes when the task ends; the inbox keeps no token.
+ *
+ * A machine is paired when its row has a pairing: the id the Worker's pair
+ * route made when it minted the machine's token. Removing the machine
+ * deletes the row and pairing it again replaces the id, so a runner whose
+ * token the Worker checked before either is refused by the object, however
+ * the two interleave. A hello never adds a machine.
+ *
+ * Each finished turn is recorded in the task feed and posted as
  * a steer, so it lands after the current tool round, to the conversation
  * that sent the turn: the main one or a side chat. A report is kept until
  * it is posted, so one cut off by a restart is posted when the object starts.
@@ -64,10 +72,15 @@ type Pending = Queued & { seq: number };
 
 /** The Vault's task tokens, for the runs the hub sends. */
 export type TaskTokens = {
-  /** The task's live token, the same for every run of it until it is revoked. */
+  /** The task's live token, the same for every run of it until it is revoked or expires. */
   issue: (task: string) => Promise<string>;
   revoke: (task: string) => Promise<void>;
+  /** Revoke the tokens of all of `tasks`. */
+  revokeAll: (tasks: readonly string[]) => Promise<void>;
 };
+
+/** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
+const DELIVERY_RETRIES = 5;
 
 /** A turn for the runner to run, as `agent`. */
 function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent): Queued {
@@ -114,6 +127,10 @@ export class MachineHub {
   readonly #tokens: TaskTokens;
   /** Token work in call order, so a task's token is never issued for a run after its revoke was asked for. */
   #tokenWork: Promise<void> = Promise.resolve();
+  /** The retries of each machine's failed delivery so far. */
+  readonly #retries = new Map<string, number>();
+  /** The machines with a retry waiting. */
+  readonly #waiting = new Set<string>();
   readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
   #wanted: (task: string) => boolean = () => true;
@@ -172,6 +189,9 @@ export class MachineHub {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN facts TEXT");
     }
 
+    // The id of the machine's live pairing; null for a machine from before pairing, whose runner must pair.
+    if (!known.some((column) => column.name === "pairing")) sql.exec("ALTER TABLE ky_machines ADD COLUMN pairing TEXT");
+
     // Commands from before turns were numbered, which no runner accepts: their tasks end as interrupted
     // at the runner's next hello.
     sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
@@ -180,8 +200,6 @@ export class MachineHub {
       `UPDATE ky_machine_inbox SET payload = json_set(payload, '$.agent', 'claude')
        WHERE json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL`
     );
-    // Runs from before tokens were issued as they are sent, which kept an empty one.
-    sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.taskToken')");
     // Facts from before runners said what kind of machine they are, until the runner says hello again.
     sql.exec("UPDATE ky_machines SET facts = NULL WHERE json_extract(facts, '$.kind') IS NULL");
   }
@@ -319,11 +337,39 @@ export class MachineHub {
     return this.#deliver(machine);
   }
 
-  /** Run `work` after the token work asked for before it; a failure is logged, and the inbox keeps what was not sent. */
-  #afterTokens(what: string, work: () => Promise<void>): Promise<void> {
-    this.#tokenWork = this.#tokenWork.then(work).catch((error) => console.warn(`${what} failed`, error));
+  /** Run `work` after the token work asked for before it; a failure is logged, then handed to `failed`. */
+  #afterTokens(what: string, work: () => Promise<void>, failed: () => void = () => {}): Promise<void> {
+    this.#tokenWork = this.#tokenWork.then(work).catch((error) => {
+      console.warn(`${what} failed`, error);
+      failed();
+    });
 
     return this.#tokenWork;
+  }
+
+  /**
+   * Deliver again after a failed issue, a few times, further apart each time;
+   * the inbox keeps the runs meanwhile. A pending timer keeps the object from
+   * hibernating, and a restart closes the socket, whose next hello delivers.
+   * Past the last retry, the next hello or command delivers.
+   */
+  #retry(machine: string): void {
+    // One retry waits at a time: a delivery that fails meanwhile is the one it makes.
+    if (this.#waiting.has(machine)) return;
+    const tries = this.#retries.get(machine) ?? 0;
+
+    if (tries >= DELIVERY_RETRIES) {
+      this.#retries.delete(machine);
+
+      return;
+    }
+
+    this.#retries.set(machine, tries + 1);
+    this.#waiting.add(machine);
+    setTimeout(() => {
+      this.#waiting.delete(machine);
+      void this.#deliver(machine);
+    }, 1_000 * 2 ** tries);
   }
 
   /**
@@ -346,7 +392,8 @@ export class MachineHub {
       }
 
       this.#send(machine, commands);
-    });
+      this.#retries.delete(machine);
+    }, () => this.#retry(machine));
   }
 
   #send(machine: string, commands: readonly RunnerCommand[]): void {
@@ -364,6 +411,20 @@ export class MachineHub {
         this.#sent(command);
       }
     }
+  }
+
+  /**
+   * Revoke the tokens of the tasks that ended, for a revoke a failure or a
+   * restart lost. A task that ended longer than ISSUED_TTL_MS ago was last
+   * issued its token before that, so the token has expired. Only this
+   * agent's tasks: the Vault serves every agent object. Queued after the
+   * token work asked for before it, and it reads the tasks when it runs, so
+   * it never revokes a token that a run queued after it needs.
+   */
+  sweepTokens(): Promise<void> {
+    return this.#afterTokens("sweeping task tokens", () =>
+      this.#tokens.revokeAll(this.#feed.closedSince("machine", Date.now() - ISSUED_TTL_MS))
+    );
   }
 
   /** The task's token stops working, once no turn of it is left to run. */
@@ -521,41 +582,58 @@ export class MachineHub {
    * Forget a machine the user removed: its tasks end, their tokens stop
    * working, and what waited for it is dropped. Its runner must pair again.
    */
-  async remove(machine: string): Promise<void> {
+  async remove(machine: string): Promise<string | null> {
+    // First, before any await: from here a runner of this machine is refused.
+    const pairing = this.#sql
+      .exec<{ pairing: string | null }>("DELETE FROM ky_machines WHERE name = ? RETURNING pairing", machine)
+      .toArray()[0]?.pairing ?? null;
+
     this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ?", machine);
 
     for (const task of this.#feed.open("machine", machine)) {
       await this.#finish(task.id, false, `${machine} was removed from ky.`, this.#turns(task.id).turn);
     }
 
-    this.#sql.exec("DELETE FROM ky_machines WHERE name = ?", machine);
-
     for (const watcher of this.#watchers) watcher();
+
+    return pairing;
   }
 
-  /** A runner paired as `machine`: it is listed from now, with what it said it is. */
-  paired(machine: string, facts: MachineFacts): void {
+  /**
+   * A runner paired as `machine` with the pairing id `pairing`: it is listed
+   * from now, with what it said it is, keeping what the user chose for it.
+   * Returns the pairing it replaces, whose token the caller revokes.
+   */
+  paired(machine: string, facts: MachineFacts, pairing: string): string | null {
+    const previous = this.#pairing(machine);
+
     this.#sql.exec(
-      `INSERT INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)
-       ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts`,
+      `INSERT INTO ky_machines (name, seen_at, facts, pairing) VALUES (?, ?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts, pairing = excluded.pairing`,
       machine,
       Date.now(),
-      JSON.stringify(facts)
+      JSON.stringify(facts),
+      pairing
     );
 
     for (const watcher of this.#watchers) watcher();
+
+    return previous;
+  }
+
+  /** Whether `machine` is paired, and `pairing` is its live pairing: a runner's socket is the machine's only then. */
+  pairedAs(machine: string, pairing: string | undefined): boolean {
+    return pairing !== undefined && this.#pairing(machine) === pairing;
+  }
+
+  #pairing(machine: string): string | null {
+    return this.#sql.exec<{ pairing: string | null }>("SELECT pairing FROM ky_machines WHERE name = ?", machine).toArray()[0]?.pairing ?? null;
   }
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
   async #onHello(machine: string, active: readonly string[], facts: MachineFacts): Promise<void> {
-    // Pairing or a valid hello makes a machine: a socket that never says one leaves no row.
-    this.#sql.exec(
-      `INSERT INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)
-       ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts`,
-      machine,
-      Date.now(),
-      JSON.stringify(facts)
-    );
+    // Only pairing makes a machine; the socket checked the pairing before this hello came.
+    this.#sql.exec("UPDATE ky_machines SET seen_at = ?, facts = ? WHERE name = ?", Date.now(), JSON.stringify(facts), machine);
 
     // An open task the runner is not running is over, unless one of its runs is still unacked:
     // the socket is in order, so every run the runner had seen when it said hello was acked first.

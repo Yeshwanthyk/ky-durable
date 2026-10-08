@@ -79,6 +79,7 @@
     "unused-class-member:src/vault.ts:Vault:refresh",
     "unused-class-member:src/vault.ts:Vault:remove",
     "unused-class-member:src/vault.ts:Vault:revoke",
+    "unused-class-member:src/vault.ts:Vault:revokeAll",
     "unused-class-member:src/vault.ts:Vault:sessionCreds",
     "unused-class-member:src/vault.ts:Vault:status"
   ],

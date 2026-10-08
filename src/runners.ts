@@ -1,5 +1,5 @@
 import { upload } from "./files";
-import { isMachineFacts, isMachineName, isPairRequest, RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
+import { isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
 
 /**
  * Runners' routes. A machine pairs once with a code the user makes in ky,
@@ -7,6 +7,11 @@ import { isMachineFacts, isMachineName, isPairRequest, RUNNER_PATH, runnerPathMa
  * token for the task's uploads. All three are the Vault's: it keeps only
  * their hashes and checks them, so these routes never compare or keep a
  * token themselves.
+ *
+ * A machine token's subject is `<machine>:<pairing>`: each pairing gets a
+ * new id, which the agent keeps as the machine's, so a token of an earlier
+ * pairing, or of a removed machine, opens no socket even in the moment
+ * between the Worker checking it and the agent taking the socket.
  *
  * `tokenRoute` answers before the user's sign-in, and takes only these
  * tokens; `ownerRoute` comes after it.
@@ -28,20 +33,26 @@ function bearer(request: Request): string | undefined {
 
 const unauthorized = () => new Response("Unauthorized", { status: 401 });
 
+/** The subject of the machine token minted for a pairing. Machine names have no colon. */
+const machineSubject = (machine: string, pairing: string) => `${machine}:${pairing}`;
+
 /** A runner's socket, for the machine its token was minted for; the agent tags it as that machine. */
 async function runnerSocket(request: Request, env: Env, url: URL): Promise<Response> {
   const machine = runnerPathMachine(url.pathname);
 
   if (!machine) return new Response("Not found", { status: 404 });
   const token = bearer(request);
+  const subject = token ? await vault(env).check("machine", token) : null;
+  const [owner, pairing] = subject?.split(":") ?? [];
 
   // Before the upgrade check, so a plain GET tells a runner whether ky still takes its token.
-  if (!token || (await vault(env).check("machine", token)) !== machine) return unauthorized();
+  if (owner !== machine || pairing === undefined) return unauthorized();
 
   if (request.headers.get("Upgrade") !== "websocket") return new Response("Upgrade Required", { status: 426 });
-  // The token has done its job; the agent never sees it.
+  // The token has done its job; the agent never sees it, only which pairing it was minted for.
   const headers = new Headers(request.headers);
   headers.delete("Authorization");
+  headers.set(PAIRING_HEADER, pairing);
 
   return agent(env).fetch(new Request(request, { headers }));
 }
@@ -81,9 +92,12 @@ async function pair(request: Request, env: Env): Promise<Response> {
     return new Response("That code is wrong, used or expired. Make a new one in ky.", { status: 401 });
   }
 
-  // A name paired before gets a new token, and the old one stops working.
-  const token = await vault(env).mint("machine", body.name);
-  await agent(env).pairMachine(body.name, body.facts);
+  // The agent takes the new pairing first: from then on, a token of the name's last pairing opens nothing.
+  const pairing = crypto.randomUUID();
+  const previous = await agent(env).pairMachine(body.name, body.facts, pairing);
+
+  if (previous !== null) await vault(env).revoke("machine", machineSubject(body.name, previous));
+  const token = await vault(env).mint("machine", machineSubject(body.name, pairing));
 
   return Response.json({ machine: body.name, token });
 }
@@ -101,7 +115,9 @@ export function tokenRoute(request: Request, env: Env, url: URL): Promise<Respon
 
 /** The signed-in user's routes for machines: a pairing code, and removing a machine; undefined for any other. */
 export function ownerRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
-  if (url.pathname === "/api/runners/codes" && request.method === "POST") return newCode(env);
+  if (url.pathname === "/api/runners/codes") {
+    return request.method === "POST" ? newCode(env) : Promise.resolve(new Response("Method not allowed", { status: 405 }));
+  }
 
   const machine = /^\/api\/runners\/([^/]+)$/.exec(url.pathname)?.[1];
 
@@ -118,12 +134,14 @@ async function newCode(env: Env): Promise<Response> {
   return Response.json({ code, expiresAt });
 }
 
-/** Revoke the machine's token, then forget it: its socket closes, and its runner must pair again. */
+/** Forget the machine, then revoke its token: its socket closes, and its runner must pair again. */
 async function remove(env: Env, machine: string): Promise<Response> {
   if (!isMachineName(machine)) return new Response("Not found", { status: 404 });
-  await vault(env).revoke("machine", machine);
+  const removed = await agent(env).removeMachine(machine);
 
-  return (await agent(env).removeMachine(machine))
-    ? new Response(null, { status: 204 })
-    : new Response(`No machine ${machine}.`, { status: 404 });
+  if (!removed) return new Response(`No machine ${machine}.`, { status: 404 });
+
+  if (removed.pairing !== null) await vault(env).revoke("machine", machineSubject(machine, removed.pairing));
+
+  return new Response(null, { status: 204 });
 }

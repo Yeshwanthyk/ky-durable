@@ -131,7 +131,8 @@ export class PiAgent extends DurableObject<Env> {
     this.files,
     {
       issue: (task) => this.env.Vault.getByName("owner").issue("task", task),
-      revoke: (task) => this.env.Vault.getByName("owner").revoke("task", task)
+      revoke: (task) => this.env.Vault.getByName("owner").revoke("task", task),
+      revokeAll: (tasks) => this.env.Vault.getByName("owner").revokeAll("task", tasks)
     }
   );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
@@ -323,6 +324,8 @@ export class PiAgent extends DurableObject<Env> {
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.
     this.ctx.waitUntil(this.machines.post());
+    // Task tokens whose revoke a failure or a restart lost.
+    this.ctx.waitUntil(this.machines.sweepTokens());
     await this.claude?.reachable();
     await this.applyMain();
     await this.automations.recover();
@@ -340,19 +343,24 @@ export class PiAgent extends DurableObject<Env> {
     return null;
   }
 
-  /** A runner paired as `machine`; a runner already connected under that name had the old token, so it goes. */
-  pairMachine(machine: string, facts: MachineFacts): void {
+  /**
+   * A runner paired as `machine`, with the pairing id its new token names;
+   * a runner already connected under that name has an old token, so it goes.
+   * Returns the pairing replaced, whose token the caller revokes.
+   */
+  pairMachine(machine: string, facts: MachineFacts, pairing: string): string | null {
+    const previous = this.machines.paired(machine, facts, pairing);
     this.sockets.revokeRunner(machine, `${machine} was paired again, so this runner's token no longer works; pair it again.`);
-    this.machines.paired(machine, facts);
+
+    return previous;
   }
 
-  /** Forget a machine the user removed, after its token was revoked; false if ky never knew it. */
-  async removeMachine(machine: string): Promise<boolean> {
-    const known = this.machines.machine(machine) !== undefined;
+  /** Forget a machine the user removed; its pairing, whose token the caller revokes, or undefined if ky never knew it. */
+  async removeMachine(machine: string): Promise<{ pairing: string | null } | undefined> {
+    if (this.machines.machine(machine) === undefined) return undefined;
     this.sockets.revokeRunner(machine, `${machine} was removed from ky; pair it again to use it.`);
-    await this.machines.remove(machine);
 
-    return known;
+    return { pairing: await this.machines.remove(machine) };
   }
 
   /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
