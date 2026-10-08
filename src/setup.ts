@@ -1,12 +1,8 @@
 /**
- * What this deploy knows about itself that is not config: the address it
- * answers on, and the GitHub repo of ky's own code. Both live in this
- * object's SQLite. The address is the origin of the first page that
- * connects; the user sets the repo in Settings, and the main prompt offers
- * self-edits only once it is set.
- *
- * It also lists the add-ons this deploy has no binding or secret for, so
- * Settings can show them as not set up.
+ * Where self-edits happen: the GitHub repo of ky's own code and the address
+ * ky answers on, both in this object's SQLite. The user sets the repo in
+ * Settings, and the page that sets it gives the address; the main prompt
+ * offers self-edits only once both are known.
  */
 
 /** An add-on this deploy has no binding or secret for: Settings shows what it needs, and nothing runs on it. */
@@ -15,9 +11,14 @@ export type NotSetUp = { readonly id: string; readonly name: string; readonly ne
 export type SetupView = {
   /** ky's GitHub repo, owner/name; null until the user sets it. */
   readonly repo: string | null;
-  /** Tools this deploy has no binding or secret for. Providers that are not set up are in the settings' catalog. */
+  /** The origin of the page that last set the repo; null until then. */
+  readonly url: string | null;
+  /** The providers and tools this deploy has no config for. */
   readonly missing: readonly NotSetUp[];
 };
+
+/** A repo saved, or why it was not. */
+export type RepoSaved = { readonly refused?: string };
 
 /** Where self-edits happen and what they check after a deploy. */
 export type SelfEdit = { readonly repo: string; readonly url: string };
@@ -26,12 +27,10 @@ const REPO = /^[\w.-]+\/[\w.-]+$/;
 
 export class Setup {
   readonly #sql: SqlStorage;
-  readonly #missing: readonly NotSetUp[];
   readonly #listeners = new Set<() => void>();
 
-  constructor(sql: SqlStorage, missing: readonly NotSetUp[]) {
+  constructor(sql: SqlStorage) {
     this.#sql = sql;
-    this.#missing = missing;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_setup (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   }
@@ -42,30 +41,28 @@ export class Setup {
     return () => this.#listeners.delete(listener);
   }
 
-  /** Keep a page's origin as ky's address, unless one is already kept. */
-  seen(origin: string): void {
-    this.#sql.exec("INSERT INTO ky_setup (key, value) VALUES ('url', ?) ON CONFLICT(key) DO NOTHING", origin);
-  }
-
-  /** Set ky's repo, owner/name; an empty one clears it. */
-  setRepo(repo: string): void {
+  /**
+   * Set ky's repo, owner/name, and keep `url`, the page's origin, as ky's
+   * address; an empty repo clears it. `refused` says why it was not saved.
+   */
+  setRepo(repo: string, url: string): RepoSaved {
     const value = repo.trim();
 
     if (value === "") {
       this.#sql.exec("DELETE FROM ky_setup WHERE key = 'repo'");
     } else {
-      if (!REPO.test(value)) throw new Error(`"${value}" is not a GitHub repo; write it as owner/name.`);
-      this.#sql.exec(
-        "INSERT INTO ky_setup (key, value) VALUES ('repo', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        value
-      );
+      if (!REPO.test(value)) return { refused: `"${value}" is not a GitHub repo; write it as owner/name.` };
+      this.#set("repo", value);
+      this.#set("url", url);
     }
 
     for (const listener of this.#listeners) listener();
+
+    return {};
   }
 
-  view(): SetupView {
-    return { repo: this.#get("repo") ?? null, missing: this.#missing };
+  view(): Omit<SetupView, "missing"> {
+    return { repo: this.#get("repo") ?? null, url: this.#get("url") ?? null };
   }
 
   /** The repo and address, once both are known. */
@@ -74,6 +71,14 @@ export class Setup {
     const url = this.#get("url");
 
     return repo && url ? { repo, url } : undefined;
+  }
+
+  #set(key: "repo" | "url", value: string): void {
+    this.#sql.exec(
+      "INSERT INTO ky_setup (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      key,
+      value
+    );
   }
 
   #get(key: "repo" | "url"): string | undefined {

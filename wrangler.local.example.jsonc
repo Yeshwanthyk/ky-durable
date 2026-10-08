@@ -1,7 +1,8 @@
 {
   // Copy to wrangler.local.jsonc (gitignored) and fill in what you use. vite.config.ts merges it over
-  // wrangler.jsonc for `pnpm start` and `pnpm deploy`; objects merge, arrays are added to. Anything left
-  // out shows as "Not set up" in Settings. Secrets stay secrets: see .dev.vars.example.
+  // wrangler.jsonc for `pnpm start` and `pnpm run deploy`: vars merge, VPC services are added, and anything else
+  // replaces wrangler.jsonc's. Anything left out shows as "Not set up" in Settings. Secrets stay secrets:
+  // see .dev.vars.example.
   "vars": {
     // Executor's MCP endpoint for your organization, with approvals in the browser. Needs EXECUTOR_TOKEN.
     "EXECUTOR_URL": "https://v2.executor.sh/org/<org>/mcp?elicitation_mode=browser",

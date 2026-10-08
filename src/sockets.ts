@@ -24,7 +24,7 @@ import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
-import type { Setup } from "./setup";
+import type { NotSetUp, Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -116,6 +116,7 @@ export class PiSessionSockets {
   readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #setup: Setup;
+  readonly #notSetUp: readonly NotSetUp[];
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -136,6 +137,8 @@ export class PiSessionSockets {
     memory: Memory,
     automations: Automations,
     setup: Setup,
+    /** What this deploy has no config for, sent with the setup. */
+    notSetUp: readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -154,6 +157,7 @@ export class PiSessionSockets {
     this.#memory = memory;
     this.#automations = automations;
     this.#setup = setup;
+    this.#notSetUp = notSetUp;
     this.#newChat = newChat;
     this.#version = version;
     chats.onChange(() => {
@@ -297,7 +301,7 @@ export class PiSessionSockets {
   }
 
   #setupMessage(): PiServerMessage {
-    return { type: "setup", setup: this.#setup.view() };
+    return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp } };
   }
 
   /** Send the task feed to every UI socket. */
@@ -360,7 +364,6 @@ export class PiSessionSockets {
     // A runner is a machine once it says hello.
     if (machine) return;
 
-    this.#setup.seen(new URL(ctx.request.url).origin);
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
     send(connection, {
@@ -614,9 +617,10 @@ export class PiSessionSockets {
       }
 
       case "set-repo":
-        this.#setup.setRepo(message.repo);
-
-        return null;
+        // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
+        return connection.uri
+          ? this.#setup.setRepo(message.repo, new URL(connection.uri).origin)
+          : { refused: "This page's address is unknown; reload it and try again." };
       case "new-chat":
         return { session: await this.#newChat() };
       case "archive-chat":

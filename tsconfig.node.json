@@ -1,6 +1,6 @@
 {
   // The code that runs in Node rather than the Worker: the machine runner,
-  // and the gate's harnesses, fakes and Playwright suite. `pnpm typecheck`
+  // the build's config, and the gate's harnesses, fakes and Playwright suite. `pnpm typecheck`
   // checks it after the Worker's tsconfig.json.
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -8,5 +8,5 @@
     "types": ["node", "@cloudflare/workers-types"],
     "erasableSyntaxOnly": true
   },
-  "include": ["runner/**/*.ts", "test/**/*.ts", "src/tests/frames.ts"]
+  "include": ["runner/**/*.ts", "test/**/*.ts", "src/tests/frames.ts", "vite.config.ts", "wrangler-overlay.ts"]
 }

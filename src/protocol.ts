@@ -83,7 +83,10 @@ export type PiClientMessage =
       readonly state?: MachineState;
       readonly note?: string;
     }
-  /** Set ky's GitHub repo, owner/name, for self-edits; an empty one clears it. */
+  /**
+   * Set ky's GitHub repo, owner/name, for self-edits, and this page's origin as ky's address; an empty repo
+   * clears it. The result is `{ refused }` when it cannot be saved.
+   */
   | { readonly type: "set-repo"; readonly id?: string; readonly repo: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
@@ -175,7 +178,7 @@ export type PiServerMessage =
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
-  /** ky's repo and the tools this deploy lacks; sent on connect and on change. */
+  /** ky's repo and address, and what this deploy has no config for; sent on connect and on change. */
   | { readonly type: "setup"; readonly setup: SetupView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };

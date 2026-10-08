@@ -300,8 +300,15 @@ export function usePiSession(session: string) {
     [send]
   );
 
+  /** Set ky's repo for self-edits; resolves with why it was refused, if it was. */
   const setRepo = useCallback(
-    (repo: string) => send({ type: "set-repo", id: crypto.randomUUID(), repo }),
+    (repo: string) =>
+      new Promise<string | undefined>((resolve) => {
+        const id = crypto.randomUUID();
+        // SAFETY: the server answers set-repo with `{ refused? }`.
+        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
+        send({ type: "set-repo", id, repo });
+      }),
     [send]
   );
 

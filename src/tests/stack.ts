@@ -214,7 +214,6 @@ function fauxCloud(calls: FauxCall[]): Endpoint {
     provider,
     name: "Faux",
     needs: "nothing",
-    setUp: true,
     models: provider.getModels(),
     connected: () => true,
     apiKey: { name: "FAUX_KEY", value: FAUX_KEY }

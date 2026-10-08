@@ -114,7 +114,7 @@ export function Panel({
   onStop: (task: string) => void;
   onStopAll: () => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
-  onSetRepo: (repo: string) => void;
+  onSetRepo: (repo: string) => Promise<string | undefined>;
   onClose: () => void;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -762,29 +762,72 @@ function ModelRow({
   );
 }
 
-// A model provider: how many models it offers, or what it needs.
-function ProviderRow({ provider }: { provider: ProviderInfo }) {
-  const off = provider.setUp ? "Off" : "Not set up";
-
+// A provider or tool: what it needs while it is off, and how it stands.
+function ServiceRow({ name, needs, value, on }: { name: string; needs?: string; value: string; on: boolean }) {
   return (
     <li className="row">
       <span className="row-tile">
         <Icon name="plug" size={15} />
       </span>
       <span className="row-text">
-        <span className="row-label">{provider.name}</span>
-        {provider.connected ? null : <span className="row-sub">Needs {provider.needs ?? "a key"}</span>}
+        <span className="row-label">{name}</span>
+        {needs ? <span className="row-sub">Needs {needs}</span> : null}
       </span>
-      <span className="row-value tabular">
-        {provider.connected ? `${provider.models.length} ${provider.models.length === 1 ? "model" : "models"}` : off}
-      </span>
-      <span className="status-dot" data-connected={provider.connected} />
+      <span className="row-value tabular">{value}</span>
+      <span className="status-dot" data-connected={on} />
     </li>
   );
 }
 
-// ky's GitHub repo, where self-edits go; the main prompt offers them only once it is set.
-function SelfEdits({ repo, onSet }: { repo: string | null; onSet: (repo: string) => void }) {
+// The model providers this deploy has, then the providers and tools it has no config for.
+function Services({ providers, setup }: { providers: readonly ProviderInfo[]; setup: SetupView | null }) {
+  const missing = setup?.missing ?? [];
+  const configured = providers.filter((provider) => !missing.some((each) => each.id === provider.id));
+
+  return (
+    <>
+      {configured.length > 0 ? (
+        <section className="group">
+          <h3 className="group-label">Providers</h3>
+          <ul className="card">
+            {configured.map((provider) => (
+              <ServiceRow
+                key={provider.id}
+                name={provider.name}
+                {...(provider.connected ? {} : { needs: provider.needs ?? "a key" })}
+                value={provider.connected ? plural(provider.models.length, "model") : "Off"}
+                on={provider.connected}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {missing.length > 0 ? (
+        <section className="group">
+          <h3 className="group-label">Not set up</h3>
+          <ul className="card">
+            {missing.map((each) => (
+              <ServiceRow key={each.id} name={each.name} needs={each.needs} value="Not set up" on={false} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+// ky's GitHub repo, where self-edits go, and the address of the page that set it, which ky checks after a deploy.
+function SelfEdits({
+  repo,
+  url,
+  onSet,
+}: {
+  repo: string | null;
+  url: string | null;
+  onSet: (repo: string) => Promise<string | undefined>;
+}) {
+  const [refused, setRefused] = useState<string>();
+
   return (
     <section className="group">
       <h3 className="group-label">Self-edits</h3>
@@ -805,9 +848,55 @@ function SelfEdits({ repo, onSet }: { repo: string | null; onSet: (repo: string)
             label="ky's GitHub repo"
             placeholder="owner/name"
             maxLength={200}
-            onSave={onSet}
+            onSave={(next) => void onSet(next).then(setRefused)}
           />
         </div>
+        {refused ? (
+          <p className="automation-refused" role="alert">
+            {refused}
+          </p>
+        ) : null}
+        <div className="row">
+          <span className="row-tile">
+            <Icon name="globe" size={15} />
+          </span>
+          <span className="row-text">
+            <span className="row-label">ky's address</span>
+            <span className="row-sub">Taken from the page that sets the repo</span>
+          </span>
+          <span className="row-value repo-edit">{url ?? <span className="quiet">Set with the repo</span>}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// The tools ky can use, listed on request.
+function ToolsGroup({ catalog }: { catalog: readonly ToolInfo[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="group">
+      <h3 className="group-label">Tools</h3>
+      <div className="card">
+        <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          <span className="row-tile">
+            <Icon name="terminal" size={15} />
+          </span>
+          <span className="row-label">What ky can use</span>
+          <span className="row-value tabular">{catalog.length}</span>
+          <Icon name="chevronRight" size={14} className="row-chevron chevron" />
+        </button>
+        {open ? (
+          <ul className="tool-list">
+            {catalog.map((tool) => (
+              <li key={tool.name}>
+                <code>{tool.name}</code>
+                <p>{tool.description}</p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </section>
   );
@@ -834,9 +923,8 @@ function Settings({
   onTheme: (theme: Theme) => void;
   onSet: (slot: Slot, setting: SlotSetting) => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
-  onSetRepo: (repo: string) => void;
+  onSetRepo: (repo: string) => Promise<string | undefined>;
 }) {
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
 
   return (
@@ -887,59 +975,10 @@ function Settings({
           </ul>
         )}
       </section>
-      {settings ? (
-        <section className="group">
-          <h3 className="group-label">Providers</h3>
-          <ul className="card">
-            {settings.providers.map((provider) => (
-              <ProviderRow key={provider.id} provider={provider} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {settings ? <Services providers={settings.providers} setup={setup} /> : null}
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
-      <section className="group">
-        <h3 className="group-label">Tools</h3>
-        <div className="card">
-          <button
-            type="button"
-            className="row disclosure"
-            aria-expanded={toolsOpen}
-            onClick={() => setToolsOpen((value) => !value)}
-          >
-            <span className="row-tile">
-              <Icon name="terminal" size={15} />
-            </span>
-            <span className="row-label">What ky can use</span>
-            <span className="row-value tabular">{catalog.length}</span>
-            <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-          </button>
-          {toolsOpen ? (
-            <ul className="tool-list">
-              {catalog.map((tool) => (
-                <li key={tool.name}>
-                  <code>{tool.name}</code>
-                  <p>{tool.description}</p>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {setup?.missing.map((tool) => (
-            <div key={tool.id} className="row">
-              <span className="row-tile">
-                <Icon name="plug" size={15} />
-              </span>
-              <span className="row-text">
-                <span className="row-label">{tool.name}</span>
-                <span className="row-sub">Needs {tool.needs}</span>
-              </span>
-              <span className="row-value tabular">Not set up</span>
-              <span className="status-dot" data-connected={false} />
-            </div>
-          ))}
-        </div>
-      </section>
-      {setup ? <SelfEdits repo={setup.repo} onSet={onSetRepo} /> : null}
+      <ToolsGroup catalog={catalog} />
+      {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}
     </div>
   );
 }

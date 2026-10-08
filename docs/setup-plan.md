@@ -218,7 +218,7 @@ revoke(kind, subject): void
 
 - `wrangler.jsonc` is generic.
 - `wrangler.local.jsonc` (gitignored) holds the owner's vars, the VPC binding and routes.
-- `pnpm deploy` uses it when present; the CLI deployer writes the equivalent for CLI users.
+- `pnpm run deploy` uses it when present; the CLI deployer writes the equivalent for CLI users.
 
 ## DAG
 
@@ -277,7 +277,7 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **wrangler.jsonc:**
   - Remove owner values from it and `server.ts`.
   - Add `"ai": { "binding": "AI" }`.
-  - Create the C6 overlay with today's values. `pnpm deploy` and `pnpm start` use it when present. Add it to
+  - Create the C6 overlay with today's values. `pnpm run deploy` and `pnpm start` use it when present. Add it to
     `.gitignore`.
   - Add `.dev.vars.example`.
 - **Soft-fail:**
@@ -287,7 +287,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - `boundaryFor` builds VibeProxy and Executor only when they're configured. OpenCode Go stays in the catalog
     without its key, marked not set up, because the slot defaults end on it; M replaces that default.
 - **Derived values:**
-  - `KY_URL` from the request origin, stored the first time it's seen.
+  - `KY_URL` from the request origin: the origin of the page that sets the repo, saved with it and shown in
+    Settings › Self-edits.
   - `KY_REPO` becomes a DO setting, set in Settings › Self-edits (`src/setup.ts`).
   - `KY_WORK_COPY` is gone.
 - **Prompt:**

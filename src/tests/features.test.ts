@@ -48,8 +48,8 @@ function latest<T extends PiServerMessage["type"]>(client: Follower, type: T): F
   return frames.at(-1);
 }
 
-async function session(name: string, query = ""): Promise<{ socket: WebSocket; client: Follower }> {
-  const socket = await connect(name, query);
+async function session(name: string, query = "", origin?: string): Promise<{ socket: WebSocket; client: Follower }> {
+  const socket = await connect(name, query, origin);
   const client = follow(socket);
   await client.until(() => client.frames.some((frame) => frame.type === "events"));
 
@@ -487,14 +487,18 @@ describe("a deploy's own setup", () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);
 
-    expect(latest(client, "settings")?.settings.providers.find((each) => each.id === "vibeproxy")).toMatchObject({
-      setUp: false,
-      connected: false,
-      models: []
-    });
+    expect(latest(client, "settings")?.settings.providers.map((each) => each.id)).toEqual(["faux"]);
     expect(latest(client, "setup")?.setup).toEqual({
       repo: null,
-      missing: [{ id: "executor", name: "Executor", needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret" }]
+      url: null,
+      missing: [
+        {
+          id: "vibeproxy",
+          name: "Claude via VibeProxy",
+          needs: "the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
+        },
+        { id: "executor", name: "Executor", needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret" }
+      ]
     });
 
     const hello = latest(client, "hello");
@@ -506,7 +510,26 @@ describe("a deploy's own setup", () => {
     socket.close();
   });
 
-  it("offers self-edits in the main prompt once Settings has ky's repo, with the address the first page came from", async () => {
+  it("falls back to the defaults when a saved model's provider is no longer set up", async () => {
+    const name = `${BARE}${crypto.randomUUID()}`;
+    const stale = JSON.stringify({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
+
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("INSERT INTO ky_settings (slot, value) VALUES ('main', ?)", stale);
+    });
+    await evictDurableObject(agent(name));
+
+    const { socket, client } = await session(name);
+    expect(latest(client, "settings")?.settings.slots.main).toEqual({
+      provider: "faux",
+      modelId: "faux",
+      thinkingLevel: "high"
+    });
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    socket.close();
+  });
+
+  it("offers self-edits in the main prompt once Settings has ky's repo, at the address of the page that set it", async () => {
     const name = crypto.randomUUID();
     const { socket, client } = await session(name);
     const systems = () => inside(name, (instance) => instance.boundary.calls.map((each) => each.system));
@@ -517,20 +540,14 @@ describe("a deploy's own setup", () => {
     expect(before).not.toContain("Changing yourself");
     expect(before).not.toMatch(/\bMac\b|Yeshwanthyk|ky-durable|workers\.dev/);
 
-    const refused = await command(socket, client, { type: "set-repo", repo: "not a repo" });
-    expect(refused).toMatchObject({ type: "error", message: '"not a repo" is not a GitHub repo; write it as owner/name.' });
+    expect(await command(socket, client, { type: "set-repo", repo: "not a repo" })).toMatchObject({
+      type: "result",
+      result: { refused: '"not a repo" is not a GitHub repo; write it as owner/name.' }
+    });
+    expect(latest(client, "setup")?.setup).toMatchObject({ repo: null, url: null });
 
     await command(socket, client, { type: "set-repo", repo: " test-owner/test-repo " });
-    expect(latest(client, "setup")?.setup.repo).toBe("test-owner/test-repo");
-
-    // A later page from elsewhere does not move ky's address.
-    const elsewhere = await inside(name, (instance) => {
-      instance.setup.seen("https://elsewhere.test");
-
-      return instance.setup.selfEdit();
-    });
-
-    expect(elsewhere).toEqual({ repo: "test-owner/test-repo", url: "https://ky.test" });
+    expect(latest(client, "setup")?.setup).toMatchObject({ repo: "test-owner/test-repo", url: "https://ky.test" });
 
     await prompt(name, "again");
     const after = (await systems()).at(-1);
@@ -540,8 +557,18 @@ describe("a deploy's own setup", () => {
     expect(after).toContain("4. Check that https://ky.test/login answers 200.");
     expect(after).not.toMatch(/\bMac\b/);
 
+    // Only setting the repo moves ky's address: a page opened elsewhere leaves it, and setting the repo there takes it.
+    const elsewhere = await session(name, "", "https://preview.ky.test");
+    expect(latest(elsewhere.client, "setup")?.setup.url).toBe("https://ky.test");
+    await command(elsewhere.socket, elsewhere.client, { type: "set-repo", repo: "test-owner/test-repo" });
+    expect(latest(client, "setup")?.setup.url).toBe("https://preview.ky.test");
+
+    await prompt(name, "moved");
+    expect((await systems()).at(-1)).toContain("4. Check that https://preview.ky.test/login answers 200.");
+
     await command(socket, client, { type: "set-repo", repo: "" });
     expect(latest(client, "setup")?.setup.repo).toBeNull();
+    elsewhere.socket.close();
     socket.close();
   });
 });

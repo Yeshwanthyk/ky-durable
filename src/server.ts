@@ -20,7 +20,7 @@ import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
 import { RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
-import { Setup } from "./setup";
+import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
@@ -60,6 +60,15 @@ export type Boundary = {
   readonly extensions: readonly Extension[];
 };
 
+/** What a boundary lacks. The cloud has no probe, so it is connected exactly while it has its key. */
+export function notSetUp({ cloud, vibeProxy, executor }: Boundary): readonly NotSetUp[] {
+  return [
+    ...(cloud.connected() ? [] : [{ id: cloud.provider.id, name: cloud.name, needs: cloud.needs }]),
+    ...(vibeProxy ? [] : [VIBEPROXY_NOT_SET_UP]),
+    ...(executor ? [] : [EXECUTOR_NOT_SET_UP])
+  ];
+}
+
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
@@ -75,11 +84,10 @@ export class PiAgent extends DurableObject<Env> {
   readonly models = new Models(
     this.ctx.storage.sql,
     this.claude ? [this.claude, this.boundary.cloud] : [this.boundary.cloud],
-    this.claude ? [] : [VIBEPROXY_NOT_SET_UP],
     kyDefaults({ provider: this.boundary.cloud.provider.id, modelId: this.boundary.cloud.models[0]!.id })
   );
-  /** ky's address and repo, and the tools this deploy lacks. */
-  readonly setup = new Setup(this.ctx.storage.sql, this.boundary.executor ? [] : [EXECUTOR_NOT_SET_UP]);
+  /** ky's repo and address, for self-edits. */
+  readonly setup = new Setup(this.ctx.storage.sql);
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
     storage: this.ctx.storage as DurableObjectStorageLike,
@@ -264,6 +272,7 @@ export class PiAgent extends DurableObject<Env> {
     this.memory,
     this.automations,
     this.setup,
+    notSetUp(this.boundary),
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );

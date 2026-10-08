@@ -38,6 +38,7 @@ const Settings = Type.Unsafe<SettingsView>(
 const Setup = Type.Unsafe<SetupView>(
   Type.Object({
     repo: Type.Union([Type.String(), Type.Null()]),
+    url: Type.Union([Type.String(), Type.Null()]),
     missing: Type.Array(Type.Object({ id: Type.String(), name: Type.String(), needs: Type.String() }))
   })
 );

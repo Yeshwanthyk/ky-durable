@@ -85,8 +85,9 @@ computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunne
 required. Executor and VibeProxy each show as "Not set up" in Settings until their config and secret are
 there, and ky runs without them.
 
-ky's address is the origin of the first page that opens it. For self-edits, set ky's repo (`owner/name`)
-in Settings › Self-edits; until then the system prompt (`src/prompt.ts`) leaves them out.
+For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from the address ky answers on:
+setting it also saves that page's origin as ky's address, shown under it. Until then the system prompt
+(`src/prompt.ts`) leaves self-edits out.
 
 ```sh
 pnpm install
@@ -194,8 +195,9 @@ pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
 | `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
 | `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |
 | `pnpm harness` | CLI scenarios against the local stack with the real runner and a fake `claude` (`test/harness/`) |
+| `pnpm test:node` | vitest in Node on the build's config, such as the owner overlay merge (`test/node/`) |
 | `pnpm test:web` | Playwright over the local stack (`test/web/`) |
-| `pnpm gate` | typecheck, lint, fallow, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
+| `pnpm gate` | typecheck, lint, fallow, node, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
 | `pnpm gate:live` | the checks that need the deployed app and the Mac |
 | `pnpm lint` | oxlint with [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop` (upstream commit in `UPSTREAM`) |
 | `pnpm types` | regenerate `env.d.ts` from `wrangler.jsonc` and `.dev.vars.example`; optional config is typed in `env.optional.d.ts` |

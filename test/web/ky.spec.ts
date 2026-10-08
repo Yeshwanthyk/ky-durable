@@ -249,6 +249,20 @@ test("sets ky's repo for self-edits in Settings and keeps it after a reload", as
   }
 });
 
+test("shows why Settings refused ky's repo in its row, and keeps the repo unset", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+
+  await panel(page).getByRole("button", { name: "Not set" }).click();
+  await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("not a repo");
+  await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+
+  const selfEdits = panel(page).locator(".group").filter({ hasText: "Self-edits" });
+  await expect(selfEdits.getByRole("alert")).toHaveText('"not a repo" is not a GitHub repo; write it as owner/name.');
+  await expect(selfEdits.getByRole("button", { name: "Not set" })).toBeVisible();
+  await expect(page.locator(".composer-note[data-tone='error']")).toHaveCount(0);
+});
+
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

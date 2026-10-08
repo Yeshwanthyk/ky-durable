@@ -129,7 +129,6 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
     provider,
     name: config.name ?? NAME,
     needs: config.needs ?? "the computer online with VibeProxy",
-    setUp: true,
     models,
     // Direct requests (titles) need the key in their options; pi's registry resolves it through `auth` above.
     apiKey: { name: "VIBEPROXY_KEY", value: config.key },
