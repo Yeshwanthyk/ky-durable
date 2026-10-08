@@ -25,14 +25,14 @@ describe("delegated work leaves the main chat free", () => {
 
     const started = await prompt(name, "machine build it");
     expect(started.text).toMatch(/^tool said: Started task \S+ on mac\.$/);
-    const run = await mac.next();
+    const run = await mac.run();
 
     // The runner has not answered; the main agent must still answer.
     const reply = await prompt(name, "hello");
     expect(reply.text).toBe("echo: hello");
     expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "queued" }]);
 
-    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null });
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null, agent: "claude" });
     await said(name, `build it" finished`);
     expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "done" }]);
     mac.socket.close();
@@ -42,12 +42,12 @@ describe("delegated work leaves the main chat free", () => {
     const name = crypto.randomUUID();
     const mac = await runner(name);
     await prompt(name, "machine build it");
-    const run = await mac.next();
+    const run = await mac.run();
 
     // The main agent is stuck in a tool when the report arrives.
     const busy = await submit(name, "gate");
     await gateStarted(name, 1);
-    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null });
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null, agent: "claude" });
     await new Promise((resolve) => setTimeout(resolve, 100));
     await agent(name).release();
 

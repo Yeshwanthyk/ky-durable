@@ -7,13 +7,13 @@ import {
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
 import { type MachineInfo, osName } from "./protocol";
-import type { MachineFacts, RunnerCommand, RunnerReport, UnnumberedCommand } from "./runner-protocol";
+import type { MachineFacts, RunnerCommand, TaskReport, UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's
  * Mac. A machine runs `runner/ky-runner.ts`, which dials into this object
- * over a WebSocket (`?runner=<name>`), so nothing on the machine listens on
+ * over a WebSocket (`/runner/<name>`), so nothing on the machine listens on
  * a port. Each task runs as a Claude Code session on that machine, with its
  * shell, browser, files and the user's own Claude login.
  *
@@ -28,8 +28,6 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * is for (a note); the runner says what each is (its OS, Chrome, repos). The
  * agent chooses among the machines that are on, and the tool refuses the rest.
  */
-
-export const RUNNER_QUERY = "runner";
 
 const RUNNER_TAG_PREFIX = "runner:";
 
@@ -56,6 +54,14 @@ export type MachineChange = { state?: MachineState; note?: string };
 const NOTE_CHARS = 200;
 
 type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null };
+
+/** A run's `taskToken` until runner-auth mints one per task; the runner does not read it yet. */
+const NO_TASK_TOKEN = "";
+
+/** A turn for the runner to run. Every task is a Claude Code session for now. */
+function runCommand(task: string, turn: number, prompt: string, session: string | null): UnnumberedCommand {
+  return { type: "run", task, turn, prompt, session, agent: "claude", taskToken: NO_TASK_TOKEN };
+}
 
 export class MachineHub {
   readonly #sql: SqlStorage;
@@ -118,8 +124,14 @@ export class MachineHub {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN facts TEXT");
     }
 
-    // Commands from before turns were numbered; no runner of this protocol accepts them.
-    sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
+    // Commands no runner of this protocol accepts: from before turns were numbered, and runs from before
+    // they named an agent. Their tasks end as interrupted at the runner's next hello.
+    sql.exec(
+      `DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL
+         OR (json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL)`
+    );
+    // Facts from before runners said what kind of machine they are, until the runner says hello again.
+    sql.exec("UPDATE ky_machines SET facts = NULL WHERE json_extract(facts, '$.kind') IS NULL");
   }
 
   /** A task's turns; a task from before they were kept is on its first. */
@@ -322,7 +334,7 @@ export class MachineHub {
     if (!existed) {
       this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
       this.#sentBy(id, 1, parent);
-      this.#enqueue(machine, { type: "run", task: id, turn: 1, prompt, session: null });
+      this.#enqueue(machine, runCommand(id, 1, prompt, null));
     }
 
     return task;
@@ -337,7 +349,7 @@ export class MachineHub {
     this.#setTurns(task.id, { turn });
     this.#sentBy(task.id, turn, parent);
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-    this.#enqueue(task.worker, { type: "run", task: task.id, turn, prompt: message, session: task.session });
+    this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session));
   }
 
   /**
@@ -399,15 +411,13 @@ export class MachineHub {
   }
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
-  async #onHello(machine: string, active: readonly string[], facts: MachineFacts | undefined): Promise<void> {
-    if (facts) {
-      this.#sql.exec(
-        "UPDATE ky_machines SET facts = ? WHERE name = ? AND facts IS NOT ?",
-        JSON.stringify(facts),
-        machine,
-        JSON.stringify(facts)
-      );
-    }
+  async #onHello(machine: string, active: readonly string[], facts: MachineFacts): Promise<void> {
+    this.#sql.exec(
+      "UPDATE ky_machines SET facts = ? WHERE name = ? AND facts IS NOT ?",
+      JSON.stringify(facts),
+      machine,
+      JSON.stringify(facts)
+    );
 
     // An open task the runner is not running is over, unless one of its runs is still unacked:
     // the socket is in order, so every run the runner had seen when it said hello was acked first.
@@ -431,7 +441,7 @@ export class MachineHub {
     this.#deliver(machine, this.#pending(machine));
   }
 
-  async onReport(machine: string, report: RunnerReport): Promise<void> {
+  async onReport(machine: string, report: TaskReport): Promise<void> {
     if (report.type === "hello") return this.#onHello(machine, report.active, report.facts);
 
     if (report.type === "ack") {

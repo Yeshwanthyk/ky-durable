@@ -4,14 +4,24 @@ import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
 import type { PiServerMessage } from "../protocol";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
-import { decodeCommand, PROTOCOL, type RunnerCommand, type RunnerReport } from "../runner-protocol";
+import {
+  decodeObjectFrame,
+  type MachineFacts,
+  PROTOCOL,
+  RUNNER_PATH,
+  type RunCommand,
+  type RunnerCommand,
+  type RunnerReport
+} from "../runner-protocol";
 import { decodeServerFrame } from "./frames";
 import { agents, type PiAgent } from "./stack";
 
 /**
- * Drives ky's real Worker the way its clients do: the browser's and the
- * runner's WebSockets through the Worker's fetch, signed in with the test
- * token, and pi's harness inside the object for what only the server sees.
+ * Drives ky's real Worker the way its clients do: the browser's WebSocket
+ * through the Worker's fetch, signed in with the test token, and pi's harness
+ * inside the object for what only the server sees. The Worker sends every
+ * runner to the one agent "me", so a test's runner dials its own agent
+ * object straight; sockets.test.ts checks the Worker's route.
  */
 
 export const TOKEN = "ky-stack-token";
@@ -27,16 +37,36 @@ export function call(path: string, init: RequestInit = {}): Promise<Response> {
   return SELF.fetch(`${ORIGIN}${path}`, { ...init, headers });
 }
 
-/** A WebSocket to the agent `name`, as the browser (`?session=`) or a runner (`?runner=`) opens it. */
-export async function connect(name: string, query = ""): Promise<WebSocket> {
-  const response = await call(`/agents/pi-agent/${name}${query}`, { headers: { Upgrade: "websocket" } });
-
+/** Accept the WebSocket a fetch upgraded to. */
+function accepted(response: Response): WebSocket {
   expect(response.status).toBe(101);
   const socket = response.webSocket!;
   socket.accept();
 
   return socket;
 }
+
+/** A WebSocket to the agent `name`, as the browser opens it (`?session=`). */
+export async function connect(name: string, query = ""): Promise<WebSocket> {
+  return accepted(await call(`/agents/pi-agent/${name}${query}`, { headers: { Upgrade: "websocket" } }));
+}
+
+/** A runner's WebSocket to the agent `name`, as the machine `machine`, past the Worker's route to "me". */
+export async function connectRunner(name: string, machine: string): Promise<WebSocket> {
+  const request = new Request(`${ORIGIN}${RUNNER_PATH}${machine}`, { headers: { Upgrade: "websocket" } });
+
+  return accepted(await agent(name).fetch(request));
+}
+
+/** A Mac with Claude Code signed in, as ky-runner reports one. */
+export const FACTS: MachineFacts = {
+  os: "darwin",
+  chrome: false,
+  repos: [],
+  agents: { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } },
+  ports: [],
+  kind: "computer"
+};
 
 export type Follower = {
   view: () => PiSessionView;
@@ -163,6 +193,8 @@ export type FakeRunner = {
   commands: RunnerCommand[];
   /** The next command, acknowledged as the runner does. */
   next: () => Promise<RunnerCommand>;
+  /** The next command, which must be a run. */
+  run: () => Promise<RunCommand>;
   send: (report: RunnerReport) => void;
 };
 
@@ -171,18 +203,18 @@ export type FakeRunner = {
  * of machine tasks. The CLI harness drives the real runner/ky-runner.ts.
  */
 export async function runner(name: string, machine = "mac"): Promise<FakeRunner> {
-  const socket = await connect(name, `?runner=${machine}`);
+  const socket = await connectRunner(name, machine);
   const commands: RunnerCommand[] = [];
 
   socket.addEventListener("message", (event) => {
     // The object also sends the Agents SDK's handshake on this socket; decoding skips it.
-    const command = decodeCommand(String(event.data));
+    const frame = decodeObjectFrame(String(event.data));
 
-    if (command !== undefined) commands.push(command);
+    if (frame !== undefined && "seq" in frame) commands.push(frame);
   });
 
   const send: FakeRunner["send"] = (report) => socket.send(JSON.stringify(report));
-  send({ type: "hello", protocol: PROTOCOL, active: [] });
+  send({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: FACTS });
 
   const next = async () => {
     for (let i = 0; i < 250 && commands.length === 0; i++) {
@@ -197,5 +229,13 @@ export async function runner(name: string, machine = "mac"): Promise<FakeRunner>
     return command;
   };
 
-  return { socket, commands, next, send };
+  const run = async () => {
+    const command = await next();
+
+    if (command.type !== "run") throw new Error(`The runner was sent ${command.type}, not run`);
+
+    return command;
+  };
+
+  return { socket, commands, next, run, send };
 }

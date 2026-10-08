@@ -12,14 +12,8 @@ import {
   type PiSessionId,
   type PiWhenBusy
 } from "agents/harness/pi";
-import {
-  RUNNER_QUERY,
-  runnerOf,
-  runnerTag,
-  type MachineChange,
-  type MachineHub
-} from "./machines";
-import { decodeReport, REPLACED } from "./runner-protocol";
+import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
+import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PROTOCOL, REPLACED, RUNNER_PATH } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations";
 import type { ChatList } from "./chats";
@@ -61,10 +55,12 @@ function sessionFromRequest(request: Request, fallback: PiSessionId): string {
   return session;
 }
 
+/** The machine a runner's socket names in its path, `/runner/<machine>`; undefined for a browser's socket. */
 function runnerFromRequest(request: Request): string | undefined {
-  const machine = new URL(request.url).searchParams.get(RUNNER_QUERY);
+  const { pathname } = new URL(request.url);
 
-  if (machine === null || machine === "") return undefined;
+  if (!pathname.startsWith(RUNNER_PATH)) return undefined;
+  const machine = pathname.slice(RUNNER_PATH.length);
 
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(machine)) {
     throw new Error(`Invalid machine name ${JSON.stringify(machine)}`);
@@ -254,7 +250,6 @@ export class PiSessionSockets {
     return "refused" in saved ? { refused: saved.refused } : {};
   }
 
-  /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
   /** The panel's specialist commands; a save that is refused says why, as an automation's does. */
   #specialist(message: SpecialistCommand): JsonValue {
     const id = message.specialist;
@@ -275,6 +270,7 @@ export class PiSessionSockets {
     return message.type === "specialist-brief" ? this.#specialists.brief(id).apply(message.change, "user") : this.#specialists.brief(id).history();
   }
 
+  /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
   async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
     switch (message.action) {
       case "pause":
@@ -456,11 +452,28 @@ export class PiSessionSockets {
     const report = decodeReport(raw);
 
     if (!report) {
-      // A runner of another protocol version, or a broken one: it must be updated, not half-understood.
-      connection.close(1008, "Malformed or outdated ky-runner report; update ky-runner.");
+      // A broken runner: it must be fixed, not half-understood.
+      connection.close(1008, "Malformed ky-runner report.");
 
       return;
     }
+
+    if ("outdated" in report) {
+      // A runner of another version: tell it which one ky speaks, so it can say to update it.
+      const goodbye: ObjectFrame = {
+        type: "goodbye",
+        reason: `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${report.outdated}; update ky-runner.`,
+        expected: PROTOCOL
+      };
+
+      connection.send(JSON.stringify(goodbye));
+      connection.close(OUTDATED, "Outdated ky-runner; update it.");
+
+      return;
+    }
+
+    // Answers to http_request, which nothing sends until the runner pipe does.
+    if (isPipeReport(report)) return;
 
     if (report.type === "hello") this.#replaceRunner(connection, machine);
     await this.#hub.onReport(machine, report);

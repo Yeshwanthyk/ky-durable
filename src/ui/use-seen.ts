@@ -26,7 +26,7 @@ function read(): Seen {
 }
 
 /** Whether a chat last active at `time` has news since it was last seen. */
-export const isUnread = (seen: Seen, session: string, time: number) => time > (seen.at[session] ?? seen.since);
+const isUnread = (seen: Seen, session: string, time: number) => time > (seen.at[session] ?? seen.since);
 
 /** Marks the open chat seen as its activity time moves; says which others are unread. */
 export function useSeen(open: string, times: Readonly<Record<string, number>>): (session: string) => boolean {

@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { WebSocket as Socket } from "ws";
 import type { TaskRow } from "../../src/protocol.ts";
+import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import type { Proxy } from "./proxy.ts";
@@ -256,7 +258,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "machine-facts",
     expect: "pass",
-    about: "the runner tells ky its OS and git repos, with no credentials from a remote URL",
+    about: "the runner tells ky its OS, git repos with no credentials from a remote URL, and which agents it runs",
     async run(context) {
       const repos = path.join(context.dir, "facts-repos");
       mkdirSync(path.join(repos, "ky", ".git"), { recursive: true });
@@ -274,6 +276,35 @@ export const SCENARIOS: Scenario[] = [
       check(facts()?.os === process.platform, `the OS is ${process.platform}, got ${facts()?.os}`);
       const listed = JSON.stringify(facts()?.repos);
       check(listed === JSON.stringify([{ name: "ky", remote: "https://github.com/me/ky.git" }]), `one repo, no credentials, got ${listed}`);
+      const { agents, ports, kind } = facts()!;
+      const said = JSON.stringify({ agents, ports, kind });
+      const agentsHere = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } };
+      check(said === JSON.stringify({ agents: agentsHere, ports: [], kind: "computer" }), `a computer with claude signed in, no codex and no ports, got ${said}`);
+    }
+  },
+  {
+    name: "outdated-runner",
+    expect: "pass",
+    about: "a runner of another protocol is told goodbye with the protocol ky speaks, and its socket closes as outdated",
+    async run(context) {
+      const socket = new Socket(`${context.url.replace(/^http/, "ws")}${RUNNER_PATH}old`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      const frames: ObjectFrame[] = [];
+      let closedBy: number | undefined;
+      context.cleanup.push(() => socket.close());
+      socket.on("message", (data) => {
+        const frame = decodeObjectFrame(String(data));
+
+        if (frame) frames.push(frame);
+      });
+      socket.on("close", (code) => {
+        closedBy = code;
+      });
+      socket.on("open", () => socket.send(JSON.stringify({ type: "hello", protocol: PROTOCOL - 1, active: [] })));
+
+      await until("the socket to close", () => closedBy !== undefined);
+      check(closedBy === OUTDATED, `closed with ${OUTDATED}, got ${closedBy}`);
+      const goodbye = frames.find((frame) => frame.type === "goodbye");
+      check(goodbye?.type === "goodbye" && goodbye.expected === PROTOCOL, `a goodbye expecting ${PROTOCOL}, got ${JSON.stringify(frames)}`);
     }
   },
   {

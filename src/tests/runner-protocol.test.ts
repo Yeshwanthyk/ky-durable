@@ -3,13 +3,13 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
 import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
-import { REPLACED } from "../runner-protocol";
+import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
-import { agent, connect, inside, prompt, snapshotView } from "./drive";
+import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
 
 /**
  * The machine protocol end to end: the real runner logic (runner/runner.ts)
- * on a real WebSocket through ky's Worker to the real PiAgent, with a
+ * on a real WebSocket to the real PiAgent, with a
  * scripted `claude` in place of the binary. The wire between them can hold or drop the runner's frames,
  * so each test replays one counterexample from
  * explainers/ky-architecture/quint/runner_protocol.qnt step by step.
@@ -147,13 +147,15 @@ class Mac {
       },
       () => {},
       // The same file across restarts, as on a real machine.
-      new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`)
+      new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`),
+      "test",
+      () => FACTS
     );
   }
 
   /** Dial the object; `mode` decides what happens to what the runner sends. */
   async connect(mode: "pass" | "hold" | "drop" = "pass"): Promise<Wire> {
-    const socket = await connect(this.#object, "?runner=mac");
+    const socket = await connectRunner(this.#object, "mac");
     const wire = new Wire(socket, mode);
     const runner = this.runner;
     socket.addEventListener("message", (event) => {
@@ -402,6 +404,22 @@ describe("runner protocol", () => {
     expect(mac.wire!.closedBy).toBe(1008);
   });
 
+  it("says goodbye to a runner of another protocol, and closes its socket as outdated", async () => {
+    const socket = await connectRunner(crypto.randomUUID(), "old");
+    const said: unknown[] = [];
+    let closedBy: number | undefined;
+    socket.addEventListener("message", (event) => said.push(decodeObjectFrame(String(event.data))));
+    socket.addEventListener("close", (event) => {
+      closedBy = event.code;
+    });
+    // A protocol 2 hello: no version, no facts.
+    socket.send(JSON.stringify({ type: "hello", protocol: 2, active: [] }));
+
+    await until("the object to close the socket", () => closedBy !== undefined);
+    expect(closedBy).toBe(OUTDATED);
+    expect(said).toContainEqual({ type: "goodbye", reason: expect.stringContaining("update ky-runner"), expected: PROTOCOL });
+  });
+
   it("decodes commands: the runner ignores a run without a prompt", async () => {
     const { mac } = await online();
     mac.runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-x", turn: 1, session: null }));
@@ -410,11 +428,33 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
+  it("refuses a run for an agent it does not run", async () => {
+    const { mac } = await online();
+    mac.wire!.mode = "hold";
+    const run = { type: "run", seq: 1, task: "m-x", turn: 1, prompt: "go", session: null, agent: "codex", taskToken: "" };
+    mac.runner.message(JSON.stringify(run));
+
+    expect(mac.claudes).toHaveLength(0);
+    expect(mac.wire!.held.map((text) => JSON.parse(text))).toContainEqual(
+      expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex" })
+    );
+  });
+
+  it("answers a request to a port with an error: the machine shares none", async () => {
+    const { mac } = await online();
+    mac.wire!.mode = "hold";
+    mac.runner.message(JSON.stringify({ type: "http_request", id: "r1", port: 3000, method: "GET", path: "/", headers: {} }));
+
+    expect(mac.wire!.held.map((text) => JSON.parse(text))).toEqual([
+      { type: "http_error", id: "r1", message: "This machine shares no ports." }
+    ]);
+  });
+
   it("fences turns: a repeated result posts once, and a late step does not reopen the task", async () => {
     const { object, mac } = await online();
     const id = await start(object);
     await mac.claude(0);
-    const result = JSON.stringify({ type: "result", task: id, turn: 1, ok: true, text: "built", session: null });
+    const result = JSON.stringify({ type: "result", task: id, turn: 1, ok: true, text: "built", session: null, agent: "claude" });
     mac.wire!.socket.send(result);
     mac.wire!.socket.send(result);
     mac.wire!.socket.send(JSON.stringify({ type: "step", task: id, turn: 1, text: "late" }));

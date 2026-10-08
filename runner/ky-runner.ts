@@ -18,12 +18,12 @@
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
-import { REPLACED, type MachineFacts } from "../src/runner-protocol.ts";
+import { OUTDATED, REPLACED, RUNNER_PATH, type MachineFacts } from "../src/runner-protocol.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
@@ -143,18 +143,48 @@ function scanRepos(): MachineFacts["repos"] {
     .map((folder) => ({ name: basename(folder), remote: originOf(folder) }));
 }
 
-/** How long the repo list is kept before the next hello scans again. */
+/** Whether `claude` runs here, and is signed in, as `claude auth status` says. */
+function claudeFacts(): MachineFacts["agents"]["claude"] {
+  const status = spawnSync(CLAUDE, ["auth", "status", "--json"], { encoding: "utf8", timeout: 10_000 });
+  // SAFETY: a failed spawn's error is a Node system error, which has a code.
+  const installed = (status.error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT";
+
+  try {
+    return { installed, signedIn: installed && JSON.parse(status.stdout).loggedIn === true };
+  } catch {
+    return { installed, signedIn: false };
+  }
+}
+
+/** How long the repo list and agent logins are kept before the next hello checks again. */
 const FACTS_EVERY_MS = 5 * 60_000;
 
 let facts: { at: number; value: MachineFacts } | undefined;
 
-/** What this machine is, for ky to choose where work goes; scanned at most every few minutes. */
+/** What this machine is, for ky to choose where work goes; checked at most every few minutes. Codex comes later. */
 function machineFacts(): MachineFacts {
   if (!facts || Date.now() - facts.at > FACTS_EVERY_MS) {
-    facts = { at: Date.now(), value: { os: process.platform, chrome: CHROME, repos: scanRepos() } };
+    facts = {
+      at: Date.now(),
+      value: {
+        os: process.platform,
+        chrome: CHROME,
+        repos: scanRepos(),
+        agents: { claude: claudeFacts(), codex: { installed: false, signedIn: false } },
+        ports: [],
+        kind: "computer"
+      }
+    };
   }
 
   return facts.value;
+}
+
+/** This checkout's commit, the runner's version until it ships as a binary. */
+function version(): string {
+  const head = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: import.meta.dirname, encoding: "utf8" });
+
+  return head.status === 0 ? head.stdout.trim() : "unknown";
 }
 
 function required(name: string): string {
@@ -227,6 +257,7 @@ const runner = new Runner(
   spawnClaude,
   (line) => log(line),
   new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`),
+  version(),
   machineFacts
 );
 
@@ -235,7 +266,7 @@ let socket: WebSocket | undefined;
 let backoff = 1_000;
 
 function connect() {
-  const url = `${URL_BASE.replace(/^http/, "ws")}/agents/pi-agent/me?runner=${MACHINE}`;
+  const url = `${URL_BASE.replace(/^http/, "ws")}${RUNNER_PATH}${MACHINE}`;
   // SAFETY: Node's WebSocket (undici) takes headers as a non-standard option its types leave out.
   const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${TOKEN}` } } as any);
 
@@ -268,7 +299,14 @@ function connect() {
       process.exit(1);
     }
 
-    // The reason tells "update ky-runner" (1008) apart from a flaky network.
+    // Its goodbye, logged as it came, said which protocol ky speaks.
+    if (code === OUTDATED) {
+      log("this ky-runner speaks another protocol than ky; exiting. Update it.");
+      runner.shutdown();
+      process.exit(1);
+    }
+
+    // The reason tells a malformed report (1008) apart from a flaky network.
     log(`disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""}), retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 60_000);

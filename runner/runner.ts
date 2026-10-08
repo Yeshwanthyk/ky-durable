@@ -6,7 +6,15 @@
  */
 
 import type { HandledSeqs } from "./handled.ts";
-import { decodeCommand, PROTOCOL, type MachineFacts, type RunnerCommand, type RunnerReport } from "../src/runner-protocol.ts";
+import {
+  decodeObjectFrame,
+  PROTOCOL,
+  type MachineFacts,
+  type ObjectFrame,
+  type RunCommand,
+  type RunnerCommand,
+  type RunnerReport
+} from "../src/runner-protocol.ts";
 import { describeTool } from "../src/tool-labels.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
@@ -55,6 +63,9 @@ type Run = {
   /** When what Claude said was last reported as a step. */
   saidAt: number;
 };
+
+/** The one agent this runner runs. */
+const AGENT = "claude";
 
 /** How often what Claude says between tools is reported as a step; each tool it uses always is. */
 const TEXT_STEP_EVERY_MS = 4_000;
@@ -107,7 +118,8 @@ export class Runner {
   readonly #log: (line: string) => void;
   readonly #runs = new Map<string, Run>();
   readonly #handled: HandledSeqs;
-  readonly #facts: () => MachineFacts | undefined;
+  readonly #version: string;
+  readonly #facts: () => MachineFacts;
   /** Reports made while disconnected, sent on the next connect. */
   readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
@@ -116,12 +128,15 @@ export class Runner {
     spawn: SpawnClaude,
     log: (line: string) => void,
     handled: HandledSeqs,
-    /** What this machine is, sent with each hello; none when the caller does not say. */
-    facts: () => MachineFacts | undefined = () => undefined
+    /** The runner's build, sent with each hello. */
+    version: string,
+    /** What this machine is, sent with each hello. */
+    facts: () => MachineFacts
   ) {
     this.#spawn = spawn;
     this.#log = log;
     this.#handled = handled;
+    this.#version = version;
     this.#facts = facts;
   }
 
@@ -159,18 +174,32 @@ export class Runner {
   }
 
   message(text: string): void {
-    // The socket also carries the Agents SDK's own frames; only commands are acted on.
-    const command = decodeCommand(text);
+    // The socket also carries the Agents SDK's own frames; only the object's are acted on.
+    const frame = decodeObjectFrame(text);
 
-    if (command) this.#onCommand(command);
+    if (frame) this.#onFrame(frame);
+  }
+
+  #onFrame(frame: ObjectFrame): void {
+    switch (frame.type) {
+      case "goodbye":
+        this.#log(`ky said goodbye: ${frame.reason}`);
+
+        return;
+      case "http_request":
+        // Its facts share no ports, so no request is for an allowed one. Not kept for a reconnect: the request dies with the socket.
+        this.#link?.send(JSON.stringify({ type: "http_error", id: frame.id, message: "This machine shares no ports." } satisfies RunnerReport));
+
+        return;
+      case "http_cancel":
+        return;
+      default:
+        this.#onCommand(frame);
+    }
   }
 
   #hello(): RunnerReport {
-    const facts = this.#facts();
-
-    return facts
-      ? { type: "hello", protocol: PROTOCOL, active: this.active(), facts }
-      : { type: "hello", protocol: PROTOCOL, active: this.active() };
+    return { type: "hello", protocol: PROTOCOL, version: this.#version, active: this.active(), facts: this.#facts() };
   }
 
   #report(message: RunnerReport): void {
@@ -203,13 +232,28 @@ export class Runner {
     this.#report({ type: "ack", seq: command.seq });
 
     if (!fresh) return;
-    const run = this.#runs.get(command.task);
 
-    if (command.type === "stop") {
-      if (run) this.#stop(command.task, run);
+    if (command.type === "run") {
+      this.#onRun(command);
 
       return;
     }
+
+    const run = this.#runs.get(command.task);
+
+    // Fresh credentials are for Codex tasks, and this runner runs none.
+    if (command.type === "stop" && run) this.#stop(command.task, run);
+  }
+
+  #onRun(command: RunCommand): void {
+    if (command.agent !== AGENT) {
+      const text = `This runner runs only ${AGENT}, not ${command.agent}.`;
+      this.#report({ type: "result", task: command.task, turn: command.turn, ok: false, text, session: command.session, agent: command.agent });
+
+      return;
+    }
+
+    const run = this.#runs.get(command.task);
 
     if (run?.stopped) {
       // The session is dying and would take this message with it: run it in a new one after.
@@ -242,7 +286,7 @@ export class Runner {
 
     if (run.ended) {
       if (latest !== undefined) {
-        this.#report({ type: "result", task, turn: latest, ok: false, text: stoppedText(run), session: run.session });
+        this.#report({ type: "result", task, turn: latest, ok: false, text: stoppedText(run), session: run.session, agent: AGENT });
       }
 
       return;
@@ -261,7 +305,7 @@ export class Runner {
 
   /** Report the session's last turn over; turns queued behind it start once it exits. */
   #end(task: string, run: Run, ok: boolean, text: string): void {
-    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, ...run.spent });
+    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, agent: AGENT, ...run.spent });
     run.spent = undefined;
 
     if (run.next.length === 0) this.#runs.delete(task);

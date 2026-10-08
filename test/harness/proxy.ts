@@ -36,6 +36,13 @@ export type Proxy = {
   close: () => Promise<void>;
 };
 
+/** The report a runner's frame holds. An outdated hello is none: it passes untouched, for the object to turn away. */
+function reportIn(frame: string): RunnerReport | undefined {
+  const report = decodeReport(frame);
+
+  return report !== undefined && "type" in report ? report : undefined;
+}
+
 export async function startProxy(target: string): Promise<Proxy> {
   const port = await freePort();
   const reports: RunnerReport[] = [];
@@ -101,7 +108,7 @@ export async function startProxy(target: string): Promise<Proxy> {
 
       runner.on("message", (data) => {
         const frame = String(data);
-        const report = decodeReport(frame);
+        const report = reportIn(frame);
 
         if (report) reports.push(report);
 

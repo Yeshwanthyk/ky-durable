@@ -19,6 +19,7 @@ import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
+import { RUNNER_PATH } from "./runner-protocol";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
@@ -389,6 +390,9 @@ export default {
 
       return Response.redirect(new URL("/login", url).toString(), 302);
     }
+
+    // A runner's socket goes to the user's one agent, which tags it as the machine its path names.
+    if (url.pathname.startsWith(RUNNER_PATH)) return env.PiAgent.getByName("me").fetch(request);
 
     if (url.pathname === "/api/files") {
       return upload(request, env.FILES, (file) => env.PiAgent.getByName("me").attachFile(file));

@@ -370,7 +370,7 @@ describe("automations", () => {
     await settle();
     expect(mac.commands).toEqual([]);
 
-    mac.send({ type: "result", task: run!.id, turn: 1, ok: true, text: "backups are fine", session: "s-backups" });
+    mac.send({ type: "result", task: run!.id, turn: 1, ok: true, text: "backups are fine", session: "s-backups", agent: "claude" });
     await runEnds(name, id);
 
     const machineReports = () => told(name, `[machine mac, task ${run!.id} `);

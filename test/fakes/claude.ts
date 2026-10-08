@@ -11,7 +11,8 @@
  * Code does. The session id is new, or the one given with --resume. stdin
  * closing ends it once its turns are done. Each result carries the
  * process's totals so far, as Claude Code's do: one turn per result, and
- * COST_PER_TURN each.
+ * COST_PER_TURN each. `claude auth status` says it is signed in, as the
+ * runner asks for its facts.
  *
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default FAKE_CLAUDE_DELAY_MS, else 50)
@@ -51,6 +52,11 @@ const PIXEL = Buffer.from(
 );
 
 const args = process.argv.slice(2);
+
+if (args[0] === "auth") {
+  process.stdout.write(`${JSON.stringify({ loggedIn: true })}\n`);
+  process.exit(0);
+}
 
 const resume = args.includes("--resume") ? args[args.indexOf("--resume") + 1] : undefined;
 
