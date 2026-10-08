@@ -150,6 +150,23 @@ type ClaudeFacts = MachineFacts["agents"]["claude"];
 /** The part of `claude auth status`'s JSON the runner reads. */
 const AuthStatus = Type.Object({ loggedIn: Type.Boolean() });
 
+/** What `claude auth status` exits with, signed in or not, when its output is not JSON. */
+const SIGNED_IN_BY_EXIT = new Map([
+  [0, true],
+  [1, false]
+]);
+
+/** `loggedIn` from `claude auth status`'s JSON; undefined for an older CLI's text. */
+function loggedIn(out: string): boolean | undefined {
+  try {
+    const status = JSON.parse(out);
+
+    return Value.Check(AuthStatus, status) ? status.loggedIn : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Whether `claude` runs here, and is signed in, as `claude auth status`
  * says; undefined if it says nothing readable in time. No `--json`: JSON is
@@ -168,16 +185,10 @@ function askClaude(): Promise<ClaudeFacts | undefined> {
       resolve(error.code === "ENOENT" ? { installed: false, signedIn: false } : undefined);
     });
     child.on("close", (code) => {
-      try {
-        const status = JSON.parse(out);
-
-        if (Value.Check(AuthStatus, status)) return resolve({ installed: true, signedIn: status.loggedIn });
-      } catch {
-        // An older CLI's text.
-      }
-
       // A timeout's kill leaves no code.
-      resolve(code === 0 || code === 1 ? { installed: true, signedIn: code === 0 } : undefined);
+      const signedIn = loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1);
+
+      resolve(signedIn === undefined ? undefined : { installed: true, signedIn });
     });
   });
 }
@@ -304,6 +315,13 @@ const runner = new Runner(
   machineFacts
 );
 
+/** Close codes after which retrying cannot help, and what to log before exiting. */
+const FATAL = new Map<number | undefined, string>([
+  [REPLACED, `another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`],
+  // Its goodbye, logged as it came, said which protocol ky speaks.
+  [OUTDATED, "this ky-runner speaks another protocol than ky; exiting. Update it."]
+]);
+
 let socket: WebSocket | undefined;
 
 let backoff = 1_000;
@@ -336,15 +354,10 @@ function connect() {
     socket = undefined;
     runner.closed(link);
 
-    if (code === REPLACED) {
-      log(`another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`);
-      runner.shutdown();
-      process.exit(1);
-    }
+    const fatal = FATAL.get(code);
 
-    // Its goodbye, logged as it came, said which protocol ky speaks.
-    if (code === OUTDATED) {
-      log("this ky-runner speaks another protocol than ky; exiting. Update it.");
+    if (fatal) {
+      log(fatal);
       runner.shutdown();
       process.exit(1);
     }
