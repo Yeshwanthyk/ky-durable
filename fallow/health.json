@@ -1,15 +1,14 @@
 {
   "kind": "health",
   "finding_counts": {
-    "runner/ky-runner.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
+    "public/sw.js": {
       "crap_moderate": {
-        "count": 4
+        "count": 3
+      }
+    },
+    "runner/ky-runner.ts": {
+      "crap_moderate": {
+        "count": 1
       }
     },
     "src/browse.ts": {
@@ -17,27 +16,7 @@
         "count": 1
       }
     },
-    "src/client.tsx": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 3
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "src/machines.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
       "crap_moderate": {
         "count": 1
       }
@@ -48,11 +27,14 @@
       }
     },
     "src/sockets.ts": {
-      "crap_high": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
         "count": 1
       },
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/subagents.ts": {
@@ -64,6 +46,14 @@
       }
     },
     "src/ui/Attachments.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/Automations.tsx": {
+      "crap_high": {
+        "count": 3
+      },
       "crap_moderate": {
         "count": 1
       }
@@ -98,26 +88,34 @@
         "count": 1
       }
     },
-    "src/ui/Icon.tsx": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "src/ui/Lightbox.tsx": {
       "crap_high": {
         "count": 1
       }
     },
-    "src/ui/Panel.tsx": {
+    "src/ui/Memory.tsx": {
       "complexity_moderate": {
         "count": 1
       },
-      "crap_critical": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
         "count": 2
+      }
+    },
+    "src/ui/Panel.tsx": {
+      "complexity_high": {
+        "count": 1
       },
       "crap_high": {
-        "count": 2
+        "count": 3
       },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/ui/Soul.tsx": {
       "crap_moderate": {
         "count": 2
       }
@@ -207,10 +205,18 @@
       }
     },
     "src/use-pi-session.ts": {
-      "complexity_moderate": {
+      "complexity_high": {
         "count": 1
       },
       "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/view-cache.ts": {
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -322,18 +328,22 @@
   "runtime_coverage_findings": [],
   "target_keys": [
     "src/ui/turns.ts:complexity",
-    "src/ui/Thread.tsx:complexity",
-    "src/ui/ToolRow.tsx:untested risk",
     "src/ui/blob-catalog.ts:dead code",
+    "src/ui/Thread.tsx:complexity",
+    "src/tool-labels.ts:high impact",
+    "src/ui/ToolRow.tsx:untested risk",
     "src/ui/bloub/skins.ts:dead code",
-    "src/client.tsx:complexity",
-    "test/harness/client.ts:high impact",
+    "src/ui/activity.ts:high impact",
+    "src/ui/open-chat.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
+    "test/harness/client.ts:high impact",
+    "src/images.ts:high impact",
     "src/ui/bloub/expressions.ts:dead code",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
-    "src/images.ts:high impact",
+    "src/ui/Panel.tsx:complexity",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
     "src/ui/bloub/states.ts:dead code",
+    "src/use-pi-session.ts:complexity",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk",
     "src/subagents.ts:complexity"
   ]

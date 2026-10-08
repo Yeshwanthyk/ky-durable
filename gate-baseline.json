@@ -45,6 +45,21 @@
     },
     {
       "check": "worker-e2e",
+      "name": "the automations list's order puts the soonest next run first",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the automations list's order puts paused, finished and unbooked ones last, in the order they came",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the automations list's order leaves the list it was given alone",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "automations creates an automation from chat and books its schedule",
       "outcome": "passed"
     },
@@ -190,7 +205,22 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the tools asks for a compression, saves it, opens it into its memories, and forgets it",
+      "name": "the tools writes summaries in the background on the main model, opens them, and rewrites a forgotten one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools finds any message of the main chat and the side chats with chat_search",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools searches side chats by their title, and leaves subagents out",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the tools tells pi a window of at most 136k tokens, so it compacts near 87k instead of near the model's 1M",
       "outcome": "passed"
     },
     {
@@ -245,6 +275,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "soul panel sends SOUL.md on connect and on change, and takes the user's edits and history",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel sends the memory on connect and on change, and searches, opens and rebuilds it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "settings stores a slot's model across restarts and refuses one that does not exist",
       "outcome": "passed"
     },
@@ -291,6 +331,56 @@
     {
       "check": "worker-e2e",
       "name": "subagents waits for a whole run before answering a message sent as a follow-up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel shows nothing before the first memory",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel shows recent memories as written and older ones as summaries, newest first",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel opens a block into its two halves, newest first, down to memories",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel searches like memory_recall, and as plain text when the query is no regex",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel returns at most the newest 50 matches, with the total",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel rebuilds a summary by forgetting it and those above it, and says so",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel asks again when a summary is over 280 bytes, showing where it must end, and keeps the shortest try",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel saves the shortest try as the summary",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel stops at a failed summary and writes it on the next call",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "memory panel gives the writer the older memory as context, and no block ids",
       "outcome": "passed"
     },
     {
@@ -385,6 +475,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "reviewing a task's diff totals the patch from its text, as the diff library would, before loading it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "reviewing a task's diff shows the task's newest patch, not its screenshots",
       "outcome": "passed"
     },
@@ -430,7 +525,22 @@
     },
     {
       "check": "worker-e2e",
+      "name": "runner protocol says goodbye to a runner of another protocol, and closes its socket as outdated",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "runner protocol decodes commands: the runner ignores a run without a prompt",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol refuses a run for an agent it does not run",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol answers a request to a port with an error: the machine shares none",
       "outcome": "passed"
     },
     {
@@ -471,6 +581,11 @@
     {
       "check": "worker-e2e",
       "name": "runner protocol: reports reach the conversation that sent the work reports a task a side chat started to that side chat, not the main conversation",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol: reports reach the conversation that sent the work runs a run queued before runs named their agent, as Claude Code's",
       "outcome": "passed"
     },
     {
@@ -540,6 +655,96 @@
     },
     {
       "check": "worker-e2e",
+      "name": "the runner's WebSocket goes through the Worker, signed in, to the one agent, as the machine its path names",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the runner's WebSocket turns away a path that names no machine, and a request that is not a socket",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the runner's WebSocket keeps no machine for a runner that never says a valid hello",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the runner's WebSocket leaves `?runner=` alone: the agent's path opens a session socket, not a machine's",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "SOUL.md is seeded from the template on first read, once",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "SOUL.md sits in its own section before the preamble's rules, read fresh each turn",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "SOUL.md edits, patches and reverts through soul_edit, keeping every version",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "SOUL.md refuses a patch that does not match once, and an empty file",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "SOUL.md tells ky when to change it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists keeps every brief version apart from SOUL.md's",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists tells ky it can make specialists before there are any",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists is listed, saved and edited from the panel",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists answers an ask from its home conversation, on its brief, without memory",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists shares one home conversation between the main chat and a side chat",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists consults a peer in a fresh conversation, which cannot ask on",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists reads memory but never writes it, and has no persona tools",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists holds a discussion and reports both rounds back",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "specialists refuses an @ that is not a specialist",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the session view folds a run's events into the same view a late joiner gets",
       "outcome": "passed"
     },
@@ -571,6 +776,16 @@
     {
       "check": "harness",
       "name": "machine-facts",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "outdated-runner",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "outdated-runner-exits",
       "outcome": "PASS"
     },
     {
@@ -650,6 +865,11 @@
     },
     {
       "check": "web",
+      "name": "marks a side chat that ky answered while the user was in another chat, until it is opened",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
       "name": "picks a slot's model in settings and keeps it after a reload, with VibeProxy off",
       "outcome": "passed"
     },
@@ -670,12 +890,17 @@
     },
     {
       "check": "web",
-      "name": "pauses, resumes and archives an automation from Activity",
+      "name": "creates a specialist in the Soul tab, edits its brief and reverts it",
       "outcome": "passed"
     },
     {
       "check": "web",
-      "name": "adds, edits, runs and deletes an automation from Activity",
+      "name": "automations in Activity > pauses, resumes and archives an automation from Activity",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "automations in Activity > adds, edits, runs and deletes an automation from Activity",
       "outcome": "passed"
     },
     {
@@ -751,6 +976,31 @@
     {
       "check": "web",
       "name": "refuses an image the stand-in model can't read, never resends it, and warns before sending",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "highlights a code block, loading the highlighter only with the first fence",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "totals a machine task's changes before loading the diff viewer, and loads it on open",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "serves the web app manifest and icons to the Home Screen without signing in",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "reopens its socket when the page comes back after a while away, not after a glance",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "paints the last chat from the cache before the socket answers, then the snapshot replaces it",
       "outcome": "passed"
     }
   ]
