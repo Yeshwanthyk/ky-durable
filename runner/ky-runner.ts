@@ -18,12 +18,14 @@
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
-import { REPLACED, type MachineFacts } from "../src/runner-protocol.ts";
+import Type from "typebox";
+import { Value } from "typebox/value";
+import { OUTDATED, REPLACED, RUNNER_PATH, type MachineFacts } from "../src/runner-protocol.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
 
@@ -143,18 +145,100 @@ function scanRepos(): MachineFacts["repos"] {
     .map((folder) => ({ name: basename(folder), remote: originOf(folder) }));
 }
 
-/** How long the repo list is kept before the next hello scans again. */
+type ClaudeFacts = MachineFacts["agents"]["claude"];
+
+/** The part of `claude auth status`'s JSON the runner reads. */
+const AuthStatus = Type.Object({ loggedIn: Type.Boolean() });
+
+/** What `claude auth status` exits with, signed in or not, when its output is not JSON. */
+const SIGNED_IN_BY_EXIT = new Map([
+  [0, true],
+  [1, false]
+]);
+
+/** `loggedIn` from `claude auth status`'s JSON; undefined for an older CLI's text. */
+function loggedIn(out: string): boolean | undefined {
+  try {
+    const status = JSON.parse(out);
+
+    return Value.Check(AuthStatus, status) ? status.loggedIn : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether `claude` runs here, and is signed in, as `claude auth status`
+ * says; undefined if it says nothing readable in time. No `--json`: JSON is
+ * its default, and a CLI without the flag still answers by its exit code,
+ * 0 signed in and 1 not.
+ */
+function askClaude(): Promise<ClaudeFacts | undefined> {
+  return new Promise((resolve) => {
+    const child = spawn(CLAUDE, ["auth", "status"], { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 });
+    let out = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      out += chunk;
+    });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      resolve(error.code === "ENOENT" ? { installed: false, signedIn: false } : undefined);
+    });
+    child.on("close", (code) => {
+      // A timeout's kill leaves no code.
+      const signedIn = loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1);
+
+      resolve(signedIn === undefined ? undefined : { installed: true, signedIn });
+    });
+  });
+}
+
+/** How long the repo list and agent logins are kept before the next hello checks again. */
 const FACTS_EVERY_MS = 5 * 60_000;
 
-let facts: { at: number; value: MachineFacts } | undefined;
+/** Claude's facts as last known. Before any answer it is taken to be here and signed out. */
+let claude: ClaudeFacts = { installed: true, signedIn: false };
 
-/** What this machine is, for ky to choose where work goes; scanned at most every few minutes. */
-function machineFacts(): MachineFacts {
-  if (!facts || Date.now() - facts.at > FACTS_EVERY_MS) {
-    facts = { at: Date.now(), value: { os: process.platform, chrome: CHROME, repos: scanRepos() } };
+let claudeAt = 0;
+
+let claudeCheck: Promise<void> | undefined;
+
+/** Ask `claude` again if its facts are old, in the background: an answer that says nothing keeps the last one. */
+function refreshClaude(): Promise<void> {
+  if (!claudeCheck && Date.now() - claudeAt > FACTS_EVERY_MS) {
+    claudeCheck = askClaude().then((answer) => {
+      if (answer) claude = answer;
+      claudeAt = Date.now();
+      claudeCheck = undefined;
+    });
   }
 
-  return facts.value;
+  return claudeCheck ?? Promise.resolve();
+}
+
+let repos: { at: number; value: MachineFacts["repos"] } | undefined;
+
+/** What this machine is, for ky to choose where work goes; checked at most every few minutes. Codex comes later. */
+function machineFacts(): MachineFacts {
+  void refreshClaude();
+
+  if (!repos || Date.now() - repos.at > FACTS_EVERY_MS) repos = { at: Date.now(), value: scanRepos() };
+
+  return {
+    os: process.platform,
+    chrome: CHROME,
+    repos: repos.value,
+    agents: { claude, codex: { installed: false, signedIn: false } },
+    ports: [],
+    kind: "computer"
+  };
+}
+
+/** This checkout's commit, the runner's version until it ships as a binary. */
+function version(): string {
+  const head = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: import.meta.dirname, encoding: "utf8" });
+
+  return head.status === 0 ? head.stdout.trim() : "unknown";
 }
 
 function required(name: string): string {
@@ -227,15 +311,23 @@ const runner = new Runner(
   spawnClaude,
   (line) => log(line),
   new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`),
+  version(),
   machineFacts
 );
+
+/** Close codes after which retrying cannot help, and what to log before exiting. */
+const FATAL = new Map<number | undefined, string>([
+  [REPLACED, `another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`],
+  // Its goodbye, logged as it came, said which protocol ky speaks.
+  [OUTDATED, "this ky-runner speaks another protocol than ky; exiting. Update it."]
+]);
 
 let socket: WebSocket | undefined;
 
 let backoff = 1_000;
 
 function connect() {
-  const url = `${URL_BASE.replace(/^http/, "ws")}/agents/pi-agent/me?runner=${MACHINE}`;
+  const url = `${URL_BASE.replace(/^http/, "ws")}${RUNNER_PATH}${MACHINE}`;
   // SAFETY: Node's WebSocket (undici) takes headers as a non-standard option its types leave out.
   const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${TOKEN}` } } as any);
 
@@ -262,13 +354,15 @@ function connect() {
     socket = undefined;
     runner.closed(link);
 
-    if (code === REPLACED) {
-      log(`another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`);
+    const fatal = FATAL.get(code);
+
+    if (fatal) {
+      log(fatal);
       runner.shutdown();
       process.exit(1);
     }
 
-    // The reason tells "update ky-runner" (1008) apart from a flaky network.
+    // The reason tells a malformed report (1008) apart from a flaky network.
     log(`disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""}), retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 60_000);
@@ -295,5 +389,8 @@ process.on("SIGINT", () => {
 });
 
 installTools();
+
+// The first hello waits for the first answer, so it does not say signed out of a machine that is not.
+await refreshClaude();
 
 connect();

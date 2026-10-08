@@ -1,6 +1,7 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { agent, connect, follow, gateStarted, prompt, shows, submit, wait } from "./drive";
+import { OUTDATED, PROTOCOL } from "../runner-protocol";
+import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, prompt, shows, submit, until, wait } from "./drive";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
 
@@ -176,6 +177,61 @@ describe("the session WebSocket protocol", () => {
     expect(result.text).toBe("echo: after hibernation");
     await client.until(() => shows(client.view(), "echo: after hibernation"));
     expect(snapshots()).toBe(before + 1);
+    socket.close();
+  });
+});
+
+describe("the runner's WebSocket", () => {
+  it("goes through the Worker, signed in, to the one agent, as the machine its path names", async () => {
+    const machine = `route-${crypto.randomUUID().slice(0, 8)}`;
+    const upgrade = { Upgrade: "websocket" };
+    expect((await call(`/runner/${machine}`, { headers: { ...upgrade, Authorization: "" } })).status).toBe(401);
+
+    const response = await call(`/runner/${machine}`, { headers: upgrade });
+    expect(response.status).toBe(101);
+    const socket = response.webSocket!;
+    socket.accept();
+    socket.send(JSON.stringify({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: FACTS }));
+
+    await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online on "me"`);
+    socket.close();
+  });
+
+  it("turns away a path that names no machine, and a request that is not a socket", async () => {
+    for (const path of ["/runner/Mac", "/runner/mac/", "/runner/mac/x", "/runner/"]) {
+      expect((await call(path, { headers: { Upgrade: "websocket" } })).status, path).toBe(404);
+    }
+
+    expect((await call("/runner/mac")).status).toBe(426);
+  });
+
+  it("keeps no machine for a runner that never says a valid hello", async () => {
+    const name = crypto.randomUUID();
+    const silent = await connectRunner(name, "silent");
+    silent.close();
+    const old = await connectRunner(name, "old");
+
+    const closed = new Promise<number>((resolve) => {
+      old.addEventListener("close", (event) => {
+        resolve(event.code);
+      });
+    });
+
+    old.send(JSON.stringify({ type: "hello", protocol: PROTOCOL - 1, active: [] }));
+    expect(await closed).toBe(OUTDATED);
+
+    await until(async () => (await inside(name, (instance) => instance.machines.online("silent"))) === false, "silent offline");
+
+    expect(await inside(name, (instance) => instance.machines.machines())).toEqual([]);
+  });
+
+  it("leaves `?runner=` alone: the agent's path opens a session socket, not a machine's", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name, "?runner=mac");
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "hello"));
+
+    expect(await inside(name, (instance) => instance.machines.machines())).toEqual([]);
     socket.close();
   });
 });

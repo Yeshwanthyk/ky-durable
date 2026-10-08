@@ -129,7 +129,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 
 | Frame | Fields | Notes |
 |---|---|---|
-| `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt } }`. Absent means use the machine's own login. |
+| `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt } }`, `expiresAt` in epoch milliseconds. Absent means use the machine's own login. |
 | `stop` | `seq, task, turn` | |
 | `creds` | `seq, task, codex` | Mid-task Codex token refresh. |
 | `http_request` | `id, port, method, path, headers, body?` | `body` is base64. Only to an allowed port. |

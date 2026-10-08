@@ -19,6 +19,7 @@ import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
+import { RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
@@ -364,6 +365,15 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
+/** A runner's socket goes to the user's one agent, which tags it as the machine its path names. */
+function runnerRoute(request: Request, env: Env, url: URL): Promise<Response> | Response {
+  if (!runnerPathMachine(url.pathname)) return new Response("Not found", { status: 404 });
+
+  if (request.headers.get("Upgrade") !== "websocket") return new Response("Upgrade Required", { status: 426 });
+
+  return env.PiAgent.getByName("me").fetch(request);
+}
+
 /** Answers for anyone, signed in or not: the sign-in page, and what iOS needs to add ky to the Home Screen. */
 function openRoute(request: Request, env: Env, url: URL): Promise<Response> | Response | undefined {
   if (url.pathname === "/login") return request.method === "POST" ? login(request, env) : loginPage();
@@ -389,6 +399,8 @@ export default {
 
       return Response.redirect(new URL("/login", url).toString(), 302);
     }
+
+    if (url.pathname.startsWith(RUNNER_PATH)) return runnerRoute(request, env, url);
 
     if (url.pathname === "/api/files") {
       return upload(request, env.FILES, (file) => env.PiAgent.getByName("me").attachFile(file));

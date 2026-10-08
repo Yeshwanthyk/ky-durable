@@ -9,7 +9,7 @@ One user, one secret, one object.
 ```
 browser ──wss /agents/pi-agent/me?session=<id>──┐
                                                 ├─ Worker ── PiAgent DO "me" (SQLite)
-Mac: ky-runner ──wss ...?runner=<name>──────────┘      │
+Mac: ky-runner ──wss /runner/<name>─────────────┘      │
                                                        ├─ LOADER   exec sandbox (Dynamic Workers)
                                                        ├─ BROWSER  Kitesurf browser (browse tool)
                                                        ├─ FILES    R2 bucket ky-files
@@ -155,12 +155,14 @@ task goes there; with several, the agent has to name one. A task sent to an offl
 and `move` sends it to another machine as long as it has not started. Once it has run, its Claude Code session
 lives on that machine, so it stays there.
 
-The runner protocol (the `run`/`stop` commands and `hello`/`ack`/`session`/`step`/`result` reports)
-is shared in `src/runner-protocol.ts` and decoded with typebox at both ends. `hello`'s machine facts are
-optional, so a runner and a worker from either side of that change still work together. A `step` is one tool Claude
-Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the session's
-turns and cost so far. `hello` carries `PROTOCOL`;
-every report carries its turn, and reports for a closed turn are dropped. The runner records a command
+The runner protocol (the `run`/`stop`/`creds` commands, `hello`/`ack`/`session`/`step`/`result` reports, and the
+`http_*` frames for a machine's ports) is shared in `src/runner-protocol.ts` and decoded with typebox at both ends.
+`hello` carries `PROTOCOL`, the runner's version and its machine facts (OS, Chrome, repos, which agents are
+installed and signed in, shared ports, computer or cloud). The runner says hello before anything it made offline,
+and the object reads `protocol` first: a runner on `/runner/<machine>` that speaks another protocol is told `goodbye`
+with the one ky speaks, its socket closes with 4426, and it exits. A machine is listed once its runner says a valid hello. A `step` is one tool
+Claude Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the agent and the
+session's turns and cost so far. Every report carries its turn, and reports for a closed turn are dropped. The runner records a command
 before acking it, so a command never runs twice. One socket per machine: a newer runner with the same
 name closes the older one (code 4409), and the older one exits. `runner/runner.ts` is the logic and
 `runner/ky-runner.ts` the process.

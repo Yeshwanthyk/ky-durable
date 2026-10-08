@@ -5,6 +5,7 @@ import {
   agent,
   call,
   connect,
+  FACTS,
   follow,
   type Follower,
   gateStarted,
@@ -487,7 +488,7 @@ describe("machine tasks", () => {
     const { socket, client } = await session(name);
 
     await prompt(name, "machine build it");
-    const run = await mac.next();
+    const run = await mac.run();
     expect(run).toMatchObject({ type: "run", prompt: "build it", session: null });
 
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "claude-session-1" });
@@ -500,7 +501,7 @@ describe("machine tasks", () => {
     expect(row()?.started_at).toBeGreaterThan(0);
 
     await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);
-    const followUp = await mac.next();
+    const followUp = await mac.run();
     expect(followUp).toMatchObject({ type: "run", task: run.task, prompt: "also test it", session: "claude-session-1" });
 
     mac.send({
@@ -510,6 +511,7 @@ describe("machine tasks", () => {
       ok: true,
       text: "built and tested",
       session: "claude-session-1",
+      agent: "claude",
       turns: 7,
       costUsd: 0.25
     });
@@ -539,7 +541,7 @@ describe("machine tasks", () => {
 
     const mac = await runner(name);
     await prompt(name, "machine second");
-    const run = await mac.next();
+    const run = await mac.run();
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "s2" });
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.status === "working");
 
@@ -553,7 +555,7 @@ describe("machine tasks", () => {
     const name = crypto.randomUUID();
     const mac = await runner(name);
     await prompt(name, "machine long job");
-    const run = await mac.next();
+    const run = await mac.run();
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "s3" });
     mac.socket.close();
 
@@ -573,8 +575,9 @@ describe("machine tasks", () => {
     mac.send({
       type: "hello",
       protocol: PROTOCOL,
+      version: "test",
       active: [],
-      facts: { os: "darwin", chrome: true, repos: [{ name: "ky", remote: "https://github.com/me/ky.git" }] }
+      facts: { ...FACTS, chrome: true, repos: [{ name: "ky", remote: "https://github.com/me/ky.git" }] }
     });
     await client.until(() => machine("mac")?.facts?.os === "darwin");
     expect(machine("mac")).toMatchObject({ state: "on", note: "" });
@@ -589,6 +592,9 @@ describe("machine tasks", () => {
     // With two machines on and online, the agent has to choose.
     const box = await runner(name, "box");
     await client.until(() => machine("box")?.online === true);
+    box.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: { ...FACTS, agents: { ...FACTS.agents, claude: { installed: true, signedIn: false } } } });
+    await client.until(() => machine("box")?.facts?.agents.claude.signedIn === false);
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("box: on, online, 0 running or queued, macOS, no logged-in browser, Claude Code not signed in");
     expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Name the machine for this task.");
 
     // A paused machine takes no new task; the agent hears where else it can go.
@@ -625,7 +631,7 @@ describe("machine tasks", () => {
     // Uploads go to the user's one agent, "me".
     const mac = await runner("me");
     await prompt("me", "machine take a screenshot");
-    const run = await mac.next();
+    const run = await mac.run();
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
 
     const upload = (task: string, type = "image/png") =>
@@ -659,7 +665,7 @@ describe("machine tasks", () => {
   it("shares a task's diff, and sends the user's comments on it to the task", async () => {
     const mac = await runner("me");
     await prompt("me", "machine fix the bug");
-    const run = await mac.next();
+    const run = await mac.run();
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "s-diff" });
     const patch = new TextEncoder().encode("diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
 

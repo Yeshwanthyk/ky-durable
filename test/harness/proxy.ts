@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket as Socket, WebSocketServer } from "ws";
-import { decodeReport, type RunnerReport } from "../../src/runner-protocol.ts";
+import { decodeReport, type ObjectFrame, OUTDATED, type RunnerReport } from "../../src/runner-protocol.ts";
 import { freePort } from "./stack.ts";
 
 /**
@@ -25,6 +25,8 @@ export type Proxy = {
   release: () => void;
   /** Drop the runner's frames for which `drop` is true. */
   dropWhen: (drop: (report: RunnerReport) => boolean) => void;
+  /** Answer the runner's hello as an object of protocol `protocol` would: goodbye, then close as outdated. */
+  speak: (protocol: number) => void;
   /**
    * Close the runner's connection. Then new ones are accepted, stalled
    * (their handshake waits for `open`) or refused with a 503, as during a
@@ -36,15 +38,43 @@ export type Proxy = {
   close: () => Promise<void>;
 };
 
+/** The report a runner's frame holds. An outdated hello is none: it passes untouched, for the object to turn away. */
+function reportIn(frame: string): RunnerReport | undefined {
+  const decoded = decodeReport(frame);
+
+  return decoded.kind === "report" ? decoded.report : undefined;
+}
+
+/** Answer a hello as an object of protocol `protocol` would. */
+function turnAway(runner: Socket, protocol: number): void {
+  const goodbye: ObjectFrame = { type: "goodbye", reason: `ky speaks runner protocol ${protocol}.`, expected: protocol };
+  runner.send(JSON.stringify(goodbye));
+  runner.close(OUTDATED, "Outdated ky-runner; update it.");
+}
+
 export async function startProxy(target: string): Promise<Proxy> {
   const port = await freePort();
   const reports: RunnerReport[] = [];
   const live = new Set<{ runner: Socket; upstream: Socket }>();
   let held: Array<() => void> | undefined;
   let drop: (report: RunnerReport) => boolean = () => false;
+  let speaks: number | undefined;
   let gate: Gate = "accept";
   const stalled: Array<() => void> = [];
   let connections = 0;
+
+  /** Record a runner's report; whether the proxy keeps it from the object, dropped or a hello it answers itself. */
+  const kept = (runner: Socket, report: RunnerReport | undefined): boolean => {
+    if (!report) return false;
+    reports.push(report);
+
+    if (drop(report)) return true;
+
+    if (speaks === undefined || report.type !== "hello") return false;
+    turnAway(runner, speaks);
+
+    return true;
+  };
 
   const server: Server = createServer(async (incoming, outgoing) => {
     const chunks: Buffer[] = [];
@@ -101,11 +131,8 @@ export async function startProxy(target: string): Promise<Proxy> {
 
       runner.on("message", (data) => {
         const frame = String(data);
-        const report = decodeReport(frame);
 
-        if (report) reports.push(report);
-
-        if (report && drop(report)) return;
+        if (kept(runner, reportIn(frame))) return;
 
         const forward = () => {
           if (upstream.readyState === Socket.OPEN) upstream.send(frame);
@@ -145,6 +172,9 @@ export async function startProxy(target: string): Promise<Proxy> {
     },
     dropWhen: (predicate) => {
       drop = predicate;
+    },
+    speak: (protocol) => {
+      speaks = protocol;
     },
     cut: (then = "accept") => {
       gate = then;

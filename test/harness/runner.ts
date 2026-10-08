@@ -32,6 +32,10 @@ export type Runner = {
   kill: () => Promise<void>;
   /** Stop it with SIGINT, as Ctrl-C does. */
   stop: () => Promise<void>;
+  /** Its exit code once it has exited by itself, else null. */
+  exitCode: () => number | null;
+  /** What it has logged so far. */
+  output: () => string;
 };
 
 export type Machine = {
@@ -64,7 +68,8 @@ export function machine(name: string, root: string): Machine {
 
   const launch = (url: string, env: Record<string, string> = {}): Runner => {
     launches++;
-    const out = createWriteStream(path.join(dir, `runner-${launches}.log`));
+    const logFile = path.join(dir, `runner-${launches}.log`);
+    const out = createWriteStream(logFile);
 
     const child: ChildProcess = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(REPO, "runner/ky-runner.ts")], {
       cwd: dir,
@@ -94,7 +99,13 @@ export function machine(name: string, root: string): Machine {
       await exited;
     };
 
-    return { machine: name, kill: () => end("SIGKILL"), stop: () => end("SIGINT") };
+    return {
+      machine: name,
+      kill: () => end("SIGKILL"),
+      stop: () => end("SIGINT"),
+      exitCode: () => child.exitCode,
+      output: () => (existsSync(logFile) ? readFileSync(logFile, "utf8") : "")
+    };
   };
 
   return { name, dir, claude, launch };
