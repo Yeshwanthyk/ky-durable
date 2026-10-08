@@ -7,15 +7,15 @@ import {
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
 import { type MachineInfo, osName } from "./protocol";
-import type { MachineFacts, RunnerCommand, TaskReport, UnnumberedCommand } from "./runner-protocol";
+import { type Agent, AGENT_NAMES, type MachineFacts, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's
  * Mac. A machine runs `runner/ky-runner.ts`, which dials into this object
  * over a WebSocket (`/runner/<name>`), so nothing on the machine listens on
- * a port. Each task runs as a Claude Code session on that machine, with its
- * shell, browser, files and the user's own Claude login.
+ * a port. Each task runs as a Claude Code or Codex session on that machine,
+ * with its shell, browser, files and the user's own login to that agent.
  *
  * What the runner must do is kept in an inbox table until it acknowledges
  * it, so a message sent while the machine is offline is delivered when it
@@ -58,9 +58,34 @@ type MachineRow = { name: string; seen_at: number; state: MachineState; note: st
 /** A run's `taskToken` until runner-auth mints one per task; the runner does not read it yet. */
 const NO_TASK_TOKEN = "";
 
-/** A turn for the runner to run. Every task is a Claude Code session for now. */
-function runCommand(task: string, turn: number, prompt: string, session: string | null): UnnumberedCommand {
-  return { type: "run", task, turn, prompt, session, agent: "claude", taskToken: NO_TASK_TOKEN };
+/** A turn for the runner to run, as `agent`. */
+function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent): UnnumberedCommand {
+  return { type: "run", task, turn, prompt, session, agent, taskToken: NO_TASK_TOKEN };
+}
+
+/** The agents, in the order a task takes one when none is named. */
+const PREFERRED: readonly Agent[] = ["claude", "codex"];
+
+/** Agents that take a message mid-turn; Codex runs one once its turn ends. */
+const STEERS: ReadonlySet<Agent> = new Set(["claude"]);
+
+/** Whether a machine can run `agent`: installed and signed in, as it last said; one that never said is taken to. */
+function runs(facts: MachineFacts | null, agent: Agent): boolean {
+  return facts === null || (facts.agents[agent].installed && facts.agents[agent].signedIn);
+}
+
+/** The agent a task on a machine runs as when none is named: the first it runs, Claude Code first. */
+function defaultAgent(facts: MachineFacts | null): Agent {
+  return PREFERRED.find((agent) => runs(facts, agent)) ?? "claude";
+}
+
+/** Why a machine cannot run `agent`, or null if it can. */
+function cannotRun(machine: MachineInfo | undefined, agent: Agent): string | null {
+  const facts = machine?.facts ?? null;
+
+  if (!machine || runs(facts, agent)) return null;
+
+  return `${machine.name} cannot run ${AGENT_NAMES[agent]}: it is not ${facts!.agents[agent].installed ? "signed in" : "installed"} there.`;
 }
 
 export class MachineHub {
@@ -312,11 +337,24 @@ export class MachineHub {
       });
   }
 
+  /** The agent a new task on `machine` runs as when none is named. */
+  defaultAgent(machine: string): Agent {
+    return defaultAgent(this.machine(machine)?.facts ?? null);
+  }
+
   /**
    * Start a task for the conversation `parent`, which hears how it ends. A
    * repeated id returns the task it already started, without running it again.
    */
-  start(machine: string, title: string, prompt: string, id: string, parent: string, source = "chat"): TaskRow {
+  start(
+    machine: string,
+    title: string,
+    prompt: string,
+    id: string,
+    parent: string,
+    source = "chat",
+    agent = this.defaultAgent(machine)
+  ): TaskRow {
     const existed = this.#feed.get(id) !== undefined;
 
     const task = this.#feed.create({
@@ -326,13 +364,14 @@ export class MachineHub {
       worker: machine,
       title,
       status: "queued",
-      session: null
+      session: null,
+      agent
     });
 
     if (!existed) {
       this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
       this.#sentBy(id, 1, parent);
-      this.#enqueue(machine, runCommand(id, 1, prompt, null));
+      this.#enqueue(machine, runCommand(id, 1, prompt, null, agent));
     }
 
     return task;
@@ -347,13 +386,14 @@ export class MachineHub {
     this.#setTurns(task.id, { turn });
     this.#sentBy(task.id, turn, parent);
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-    this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session));
+    // SAFETY: every machine task names its agent: start sets it, and the feed set it on older ones.
+    this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session, task.agent!));
   }
 
   /**
-   * Move a task the runner has never been sent to another machine; why not,
-   * otherwise. Once a turn reached a runner, its Claude Code session lives
-   * on that machine's disk, so the task stays there.
+   * Move a task the runner has never been sent to another machine, which
+   * must run its agent; why not, otherwise. Once a turn reached a runner,
+   * its session lives on that machine's disk, so the task stays there.
    */
   move(task: TaskRow, to: string): string | null {
     if (task.worker === to) return `${task.id} is already on ${to}.`;
@@ -361,6 +401,11 @@ export class MachineHub {
     if (task.status !== "queued" || this.#turns(task.id).sent > 0) {
       return `${task.id} has already run on ${task.worker}, and its session lives there, so it stays. Start a new task on ${to} with what it needs.`;
     }
+
+    // SAFETY: as in send.
+    const refusal = cannotRun(this.machine(to), task.agent!);
+
+    if (refusal) return `${refusal} ${task.id} runs as ${AGENT_NAMES[task.agent!]}, so it stays.`;
 
     const commands = this.#sql
       .exec<{ seq: number; payload: string }>(
@@ -567,11 +612,15 @@ function sharedLine(files: readonly FileRow[]): string {
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
-/** Nothing when Claude Code can run tasks here; else why it cannot. */
-function claudeCaveat(claude: MachineFacts["agents"]["claude"]): string[] {
-  if (!claude.installed) return ["Claude Code not installed"];
+/** Which agents a machine runs, and each it has but is not signed in to: "runs Codex, Claude Code not signed in". */
+function agentsOf(facts: MachineFacts): string[] {
+  const running = PREFERRED.flatMap((agent) => (runs(facts, agent) ? [AGENT_NAMES[agent]] : []));
 
-  return claude.signedIn ? [] : ["Claude Code not signed in"];
+  const signedOut = PREFERRED.flatMap((agent) =>
+    facts.agents[agent].installed && !facts.agents[agent].signedIn ? [`${AGENT_NAMES[agent]} not signed in`] : []
+  );
+
+  return [running.length > 0 ? `runs ${running.join(" and ")}` : "runs no agent", ...signedOut];
 }
 
 /** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
@@ -584,7 +633,7 @@ function describeMachine(machine: MachineInfo): string {
       ? [
           osName(machine.facts.os),
           machine.facts.chrome ? "Chrome with the user's logins" : "no logged-in browser",
-          ...claudeCaveat(machine.facts.agents.claude)
+          ...agentsOf(machine.facts)
         ]
       : [])
   ];
@@ -622,7 +671,8 @@ function listAll(machines: readonly MachineInfo[], feed: TaskFeed): string {
         .list(200)
         .filter((t) => t.kind === "machine" && t.worker === m.name)
         .slice(0, 8)
-        .map((t) => `  ${t.id} [${t.status}] ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
+        // SAFETY: as in MachineHub.send.
+        .map((t) => `  ${t.id} [${t.status}] ${AGENT_NAMES[t.agent!]}: ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
 
       return [describeMachine(m), ...tasks].join("\n");
     })
@@ -665,15 +715,18 @@ function pickMachine(machines: readonly MachineInfo[], requested: string | undef
   return { name };
 }
 
-/** What the agent hears after starting a task: where it runs, or that it waits and where else it could go. */
-function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: string, machine: string): string {
-  if (hub.online(machine)) return `Started task ${task} on ${machine}.`;
+/** What the agent hears after starting a task: where it runs and as what, or that it waits and where else it could go. */
+function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow): string {
+  // SAFETY: start names the agent.
+  const started = `Started task ${task.id} on ${task.worker} as ${AGENT_NAMES[task.agent!]}`;
 
-  const waiting = machines.some((m) => m.name === machine)
-    ? `offline: it starts when ${machine} connects`
-    : `no machine named ${machine} has connected yet: it starts when one does`;
+  if (hub.online(task.worker)) return `${started}.`;
 
-  return `Started task ${task} on ${machine} (${waiting}). ${elsewhere(machines, machine)} move sends it elsewhere.`;
+  const waiting = machines.some((m) => m.name === task.worker)
+    ? `offline: it starts when ${task.worker} connects`
+    : `no machine named ${task.worker} has connected yet: it starts when one does`;
+
+  return `${started} (${waiting}). ${elsewhere(machines, task.worker)} move sends it elsewhere.`;
 }
 
 function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, to: string | undefined): string {
@@ -691,6 +744,7 @@ function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskR
 type MachineArgs = {
   action: "list" | "run" | "send" | "stop" | "move" | "set";
   machine?: string;
+  agent?: Agent;
   title?: string;
   prompt?: string;
   task?: string;
@@ -715,11 +769,15 @@ function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo
   if ("refusal" in picked) return picked.refusal;
 
   if (!args.prompt) return "run needs a prompt.";
-  const task = hub.start(picked.name, args.title ?? summarize(args.prompt).slice(0, 60), args.prompt, id, conversation);
+  const agent = args.agent ?? hub.defaultAgent(picked.name);
+  const refusal = cannotRun(machines.find((m) => m.name === picked.name), agent);
+
+  if (refusal) return `${refusal} ${elsewhere(machines, picked.name)}`;
+  const task = hub.start(picked.name, args.title ?? summarize(args.prompt).slice(0, 60), args.prompt, id, conversation, "chat", agent);
 
   if (args.title === undefined) feed.name(task.id, args.prompt);
 
-  return startedOn(hub, machines, task.id, picked.name);
+  return startedOn(hub, machines, task);
 }
 
 /** Steer or resume a task, unless the user has turned its machine off. */
@@ -732,7 +790,10 @@ function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, c
 
   hub.send(task, message, conversation);
 
-  return task.status === "working" ? `Steering ${task.id}.` : `Resuming ${task.id} with your message.`;
+  if (task.status !== "working") return `Resuming ${task.id} with your message.`;
+
+  // SAFETY: as in MachineHub.send.
+  return STEERS.has(task.agent!) ? `Steering ${task.id}.` : `Queued for ${task.id}: ${AGENT_NAMES[task.agent!]} takes it once its turn ends.`;
 }
 
 /** stop, move or send, on a task already started. */
@@ -759,14 +820,14 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
       defineTool({
         name: "machine",
         description:
-          "Run tasks on the user's real computers, each as a Claude Code session with a shell, files, scripts, installed tools and a real browser. " +
+          "Run tasks on the user's real computers, each as a Claude Code or Codex session with a shell, files, scripts, installed tools and a real browser. " +
           "Use it only when the user asks for a machine, or for what the cloud cannot do: web pages that need the user's logins (have a subagent try Exa search and browse first), running scripts or builds, touching local files. " +
           "Choose the machine by what the user said about it, which one has the repos the task needs, which one has Chrome with the user's logins when the task needs them, and how busy each is. Only a machine that is on takes new tasks. " +
-          "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; repos; the user's note, and its recent tasks). " +
-          "run (title, prompt, machine): start a task; name the machine unless only one is on and online; the prompt must be self-contained. " +
-          "send (task, message): steer a working task, or resume a finished one with its history. " +
+          "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; which agents it runs; repos; the user's note, and its recent tasks). " +
+          "run (title, prompt, machine, agent): start a task; name the machine unless only one is on and online; the prompt must be self-contained; agent only when the user asks for one, else the machine's own, Claude Code first. " +
+          "send (task, message): steer a working task, or resume a finished one with its history; it goes to the task's own agent. Codex takes no message mid-turn: one sent to a working Codex task runs once its turn ends. " +
           "stop (task): stop it; send resumes it later. " +
-          "move (task, machine): send a task that has not started yet to another machine, such as when its machine is offline. " +
+          "move (task, machine): send a task that has not started yet to another machine that runs its agent, such as when its machine is offline. " +
           "set (machine, state, note): only when the user asks; state on, paused (finishes its tasks, takes no new ones) or off (takes nothing from you); note says what it is for. " +
           "Results are reported back to this conversation as messages when they arrive; do not poll.",
         parameters: Type.Object({
@@ -779,6 +840,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
             Type.Literal("set")
           ]),
           machine: Type.Optional(Type.String()),
+          agent: Type.Optional(Type.Union([Type.Literal("claude"), Type.Literal("codex")], { description: "claude (Claude Code) or codex (Codex)." })),
           title: Type.Optional(Type.String({ description: "3-6 words for the task list." })),
           prompt: Type.Optional(Type.String()),
           task: Type.Optional(Type.String({ description: "A task id from run or list." })),

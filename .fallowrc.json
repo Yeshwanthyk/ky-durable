@@ -6,6 +6,7 @@
     "runner/ky-runner.ts",
     "runner/ky-diff.ts",
     "test/fakes/claude.ts",
+    "test/fakes/codex.ts",
     "test/web/global-setup.ts",
     "test/web/outcomes.ts",
     "test/gate.ts",

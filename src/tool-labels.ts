@@ -5,7 +5,8 @@ import type { IconName } from "./ui/Icon";
 /**
  * Tool calls in a few human words, such as "Reading tasks.ts" or "Browsing
  * github.com": for the activity pill, a task's steps, and the machine runner,
- * which labels Claude Code's tools with it. No runtime imports beyond
+ * which labels Claude Code's tools, and Codex's as the Claude Code tool each
+ * is most like, with it. No runtime imports beyond
  * typebox, so the runner can load it as it is.
  */
 

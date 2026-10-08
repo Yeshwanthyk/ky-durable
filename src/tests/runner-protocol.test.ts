@@ -2,15 +2,15 @@ import { evictDurableObject } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
-import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
-import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED } from "../runner-protocol";
+import { Runner, type AgentProcess, type Link, type ProcessEvents } from "../../runner/runner.ts";
+import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
 
 /**
  * The machine protocol end to end: the real runner logic (runner/runner.ts)
  * on a real WebSocket to the real PiAgent, with a
- * scripted `claude` in place of the binary. The wire between them can hold or drop the runner's frames,
+ * scripted `claude` or `codex` in place of the binary. The wire between them can hold or drop the runner's frames,
  * so each test replays one counterexample from
  * explainers/ky-architecture/quint/runner_protocol.qnt step by step.
  */
@@ -31,7 +31,7 @@ async function until(what: string, probe: () => boolean | Promise<boolean>): Pro
 const settle = () => pause(300);
 
 /** A `claude -p` stand-in: the test decides what it says and when it exits. */
-class FakeClaude implements ClaudeProcess {
+class FakeClaude implements AgentProcess {
   readonly resumed: string | null;
   readonly prompts: string[] = [];
   /** Prompts written after it was told to stop; they die with it. */
@@ -40,9 +40,9 @@ class FakeClaude implements ClaudeProcess {
   #exited = false;
   /** How many prompts it has taken in. */
   #taken = 0;
-  readonly #events: ClaudeEvents;
+  readonly #events: ProcessEvents;
 
-  constructor(resumed: string | null, events: ClaudeEvents) {
+  constructor(resumed: string | null, events: ProcessEvents) {
     this.resumed = resumed;
     this.#events = events;
   }
@@ -93,6 +93,54 @@ class FakeClaude implements ClaudeProcess {
   }
 }
 
+/** A `codex exec --json` stand-in: one turn, on the prompt it was given before stdin closed. */
+class FakeCodex implements AgentProcess {
+  readonly resumed: string | null;
+  prompt = "";
+  interrupted = false;
+  #exited = false;
+  readonly #events: ProcessEvents;
+
+  constructor(resumed: string | null, events: ProcessEvents) {
+    this.resumed = resumed;
+    this.#events = events;
+  }
+
+  write(text: string): void {
+    this.prompt += text;
+  }
+
+  end(): void {}
+
+  interrupt(): void {
+    this.interrupted = true;
+    this.exit(130);
+  }
+
+  /** Start its turn in `thread`. */
+  start(thread: string): void {
+    this.#emit({ type: "thread.started", thread_id: thread });
+    this.#emit({ type: "turn.started" });
+  }
+
+  /** End its turn saying `text`, and exit, as `codex exec` does. */
+  answer(text: string): void {
+    this.#emit({ type: "item.completed", item: { id: "item_0", type: "agent_message", text } });
+    this.#emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    this.exit(0);
+  }
+
+  exit(code: number): void {
+    if (this.#exited) return;
+    this.#exited = true;
+    this.#events.exit(code, "");
+  }
+
+  #emit(event: Record<string, string | { id: string; type: string; text: string } | Record<string, number>>): void {
+    if (!this.#exited) this.#events.line(JSON.stringify(event));
+  }
+}
+
 /** One socket from the runner to the object; it can hold or drop what the runner sends. */
 class Wire {
   readonly socket: WebSocket;
@@ -128,18 +176,28 @@ class Wire {
 /** A machine named "mac": a runner, its sessions, and its socket when connected. */
 class Mac {
   readonly #object: string;
+  readonly #facts: MachineFacts;
   readonly claudes: FakeClaude[] = [];
+  readonly codexes: FakeCodex[] = [];
   runner: Runner;
   wire: Wire | undefined;
 
-  constructor(object: string) {
+  constructor(object: string, facts: MachineFacts = FACTS) {
     this.#object = object;
+    this.#facts = facts;
     this.runner = this.#boot();
   }
 
   #boot(): Runner {
     return new Runner(
-      (_task, session, events) => {
+      (agent, _task, session, events) => {
+        if (agent === "codex") {
+          const codex = new FakeCodex(session, events);
+          this.codexes.push(codex);
+
+          return codex;
+        }
+
         const claude = new FakeClaude(session, events);
         this.claudes.push(claude);
 
@@ -149,7 +207,7 @@ class Mac {
       // The same file across restarts, as on a real machine.
       new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`),
       "test",
-      () => FACTS
+      () => this.#facts
     );
   }
 
@@ -196,20 +254,26 @@ class Mac {
 
     return this.claudes[index]!;
   }
+
+  async codex(index: number): Promise<FakeCodex> {
+    await until(`codex #${index + 1} to start`, () => this.codexes.length > index);
+
+    return this.codexes[index]!;
+  }
 }
 
 /** A fresh object and its machine, not yet connected. */
 type Fixture = { readonly object: string; readonly mac: Mac };
 
-function fixture(): Fixture {
+function fixture(facts?: MachineFacts): Fixture {
   const object = crypto.randomUUID();
 
-  return { object, mac: new Mac(object) };
+  return { object, mac: new Mac(object, facts) };
 }
 
 /** A fresh object with its machine connected. */
-async function online(): Promise<Fixture> {
-  const machine = fixture();
+async function online(facts?: MachineFacts): Promise<Fixture> {
+  const machine = fixture(facts);
   await machine.mac.connect();
 
   return machine;
@@ -430,15 +494,26 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
-  it("refuses a run for an agent it does not run", async () => {
-    const { mac } = await online();
+  it("refuses a run for an agent this machine does not have, or has signed out", async () => {
+    const { mac } = await online({ ...FACTS, agents: { claude: { installed: true, signedIn: false }, codex: { installed: false, signedIn: false } } });
     mac.wire!.mode = "hold";
-    const run = { type: "run", seq: 1, task: "m-x", turn: 1, prompt: "go", session: null, agent: "codex", taskToken: "" };
-    mac.runner.message(JSON.stringify(run));
+    const run = { type: "run", task: "m-x", turn: 1, prompt: "go", session: null, taskToken: "" };
+    mac.runner.message(JSON.stringify({ ...run, seq: 1, agent: "codex" }));
+    mac.runner.message(JSON.stringify({ ...run, seq: 2, task: "m-y", agent: "claude" }));
 
     expect(mac.claudes).toHaveLength(0);
-    expect(mac.wire!.held.map((text) => JSON.parse(text))).toContainEqual(
-      expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex" })
+    expect(mac.codexes).toHaveLength(0);
+    expect(mac.wire!.held.map((text) => JSON.parse(text))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex", text: "Codex is not installed on this machine." }),
+        expect.objectContaining({
+          type: "result",
+          task: "m-y",
+          ok: false,
+          agent: "claude",
+          text: "Claude Code is not signed in on this machine: run `claude` there and sign in."
+        })
+      ])
     );
   });
 

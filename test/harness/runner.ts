@@ -7,13 +7,17 @@ import { REPO, TOKEN } from "./stack.ts";
 
 /**
  * The real runner (runner/ky-runner.ts) as its own process, with the fake
- * claude (test/fakes/claude.ts) as KY_CLAUDE and a throwaway HOME and
- * workdir, so it never touches the user's ~/.ky or ~/ky-work.
+ * claude and codex (test/fakes/) as KY_CLAUDE and KY_CODEX and a throwaway
+ * HOME and workdir, so it never touches the user's ~/.ky, ~/.codex or
+ * ~/ky-work.
  */
 
 const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
 
-const ClaudeEvent = Type.Object({
+const FAKE_CODEX = path.join(REPO, "test/fakes/codex.ts");
+
+/** What a fake agent CLI logged: a start, a turn, a SIGINT or an exit. */
+const FakeEvent = Type.Object({
   event: Type.String(),
   task: Type.String(),
   session: Type.String(),
@@ -21,10 +25,28 @@ const ClaudeEvent = Type.Object({
   at: Type.Number(),
   prompt: Type.Optional(Type.String()),
   resume: Type.Optional(Type.String()),
-  code: Type.Optional(Type.Number())
+  code: Type.Optional(Type.Number()),
+  /** Codex's start: its CODEX_HOME, where its auth.json links to, and whether it was given developer instructions. */
+  home: Type.Optional(Type.String()),
+  auth: Type.Optional(Type.String()),
+  instructions: Type.Optional(Type.Number())
 });
 
-export type ClaudeEvent = Static<typeof ClaudeEvent>;
+export type FakeEvent = Static<typeof FakeEvent>;
+
+/** The events in a fake CLI's log, in order. */
+function eventsIn(log: string): FakeEvent[] {
+  if (!existsSync(log)) return [];
+
+  return readFileSync(log, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .flatMap((line) => {
+      const value = JSON.parse(line);
+
+      return Value.Check(FakeEvent, value) ? [value] : [];
+    });
+}
 
 export type Runner = {
   machine: string;
@@ -42,29 +64,19 @@ export type Machine = {
   name: string;
   dir: string;
   /** What every fake claude on this machine has done, in order. */
-  claude: () => ClaudeEvent[];
+  claude: () => FakeEvent[];
+  /** What every fake codex on this machine has done, in order. */
+  codex: () => FakeEvent[];
   launch: (url: string, env?: Record<string, string>) => Runner;
 };
 
-/** A machine: a name and a directory for its HOME, workdir, logs and fake claude log. */
+/** A machine: a name and a directory for its HOME, workdir, logs and fake claude and codex logs. */
 export function machine(name: string, root: string): Machine {
   const dir = path.join(root, name);
   mkdirSync(path.join(dir, "home"), { recursive: true });
-  const log = path.join(dir, "claude.jsonl");
+  const claudeLog = path.join(dir, "claude.jsonl");
+  const codexLog = path.join(dir, "codex.jsonl");
   let launches = 0;
-
-  const claude = () => {
-    if (!existsSync(log)) return [];
-
-    return readFileSync(log, "utf8")
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .flatMap((line) => {
-        const value = JSON.parse(line);
-
-        return Value.Check(ClaudeEvent, value) ? [value] : [];
-      });
-  };
 
   const launch = (url: string, env: Record<string, string> = {}): Runner => {
     launches++;
@@ -83,7 +95,9 @@ export function machine(name: string, root: string): Machine {
         // The runner's state dir (default ~/.ky), kept with the machine so a relaunch finds it and the user's is never touched.
         KY_STATE_DIR: path.join(dir, "state"),
         KY_CLAUDE: FAKE_CLAUDE,
-        FAKE_CLAUDE_LOG: log,
+        FAKE_CLAUDE_LOG: claudeLog,
+        KY_CODEX: FAKE_CODEX,
+        FAKE_CODEX_LOG: codexLog,
         ...env
       },
       stdio: ["ignore", "pipe", "pipe"]
@@ -108,5 +122,5 @@ export function machine(name: string, root: string): Machine {
     };
   };
 
-  return { name, dir, claude, launch };
+  return { name, dir, claude: () => eventsIn(claudeLog), codex: () => eventsIn(codexLog), launch };
 }

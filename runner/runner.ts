@@ -1,73 +1,79 @@
 /**
  * The runner's protocol logic, apart from the process around it: which
- * commands it has handled, which Claude Code sessions are live, and what it
- * reports back. `ky-runner.ts` gives it a socket and a way to start
- * `claude`; the tests give it a socket to a real object and a fake `claude`.
+ * commands it has handled, which agent sessions are live, and what it
+ * reports back. `ky-runner.ts` gives it a socket and a way to start each
+ * agent's CLI; the tests give it a socket to a real object and fake CLIs.
  */
 
+import type { Adapter, AgentEvent } from "./agent.ts";
+import { claude } from "./claude.ts";
+import { codex } from "./codex.ts";
 import type { HandledSeqs } from "./handled.ts";
 import {
+  AGENT_NAMES,
   decodeObjectFrame,
   PROTOCOL,
+  type Agent,
   type MachineFacts,
   type ObjectFrame,
   type RunCommand,
   type RunnerCommand,
   type RunnerReport
 } from "../src/runner-protocol.ts";
-import { describeTool } from "../src/tool-labels.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send. */
 export type Link = { send(text: string): boolean };
 
-/** A running `claude -p --input-format stream-json` process. */
-export type ClaudeProcess = {
-  /** Write a line to its stdin. */
-  write(line: string): void;
+/** A running agent CLI. */
+export type AgentProcess = {
+  /** Write to its stdin. */
+  write(text: string): void;
   /** Close its stdin, so it exits once it has answered. */
   end(): void;
   /** SIGINT, then SIGKILL if it lingers. */
   interrupt(): void;
 };
 
-/** What a `claude` process says: each stdout line, then its exit. */
-export type ClaudeEvents = {
+/** What an agent process says: each stdout line, then its exit. */
+export type ProcessEvents = {
   line(text: string): void;
   exit(code: number | null, stderr: string): void;
 };
 
-/** Start `claude` for a task, resuming `session` when it is set. */
-export type SpawnClaude = (task: string, session: string | null, events: ClaudeEvents) => ClaudeProcess;
+/** Start `agent`'s CLI for a task, resuming `session` when it is set. */
+export type SpawnAgent = (agent: Agent, task: string, session: string | null, events: ProcessEvents) => AgentProcess;
 
-/** A turn to run once the session it came to has stopped. */
+const ADAPTERS: Readonly<Record<Agent, Adapter>> = { claude, codex };
+
+/** A turn to run once the process it came to has exited. */
 type Turn = { turn: number; prompt: string; session: string | null };
 
 type Run = {
-  child: ClaudeProcess;
+  agent: Agent;
+  child: AgentProcess;
   session: string | null;
+  /** Whether this process's session has been reported yet. */
+  announced: boolean;
   /** The latest turn written to it; its reports speak for every turn up to this one. */
   turn: number;
-  /** Messages written to it, and how many Claude Code has taken in (it echoes each one as it does). */
+  /** Messages written to it, and how many the agent has taken in. */
   written: number;
   taken: number;
   stopped: boolean;
   last: string;
-  /** Turns that came while it was stopping; a new session runs them once it exits. */
+  /** Turns that came while it was stopping, or while an agent that takes no prompt mid-turn ran one; a new process runs them once it exits. */
   next: Turn[];
   /** Its result is reported; it stays only until it exits, so `next` waits for it. */
   ended: boolean;
   /** Queued turns a later stop dropped. */
   dropped: number;
-  /** What Claude Code said this process spent, as of its latest result. */
+  /** What the agent said this process spent, as of its latest result. */
   spent: { turns: number; costUsd: number } | undefined;
-  /** When what Claude said was last reported as a step. */
+  /** When what the agent said was last reported as a step. */
   saidAt: number;
 };
 
-/** The one agent this runner runs. */
-const AGENT = "claude";
-
-/** How often what Claude says between tools is reported as a step; each tool it uses always is. */
+/** How often what the agent says between tools is reported as a step; each tool it uses always is. */
 const TEXT_STEP_EVERY_MS = 4_000;
 
 /** A stopped session's result, naming the queued messages a second stop dropped. */
@@ -77,44 +83,30 @@ function stoppedText(run: Run): string {
   return `Stopped. Dropped ${run.dropped} queued message${run.dropped === 1 ? "" : "s"}.`;
 }
 
-/** An assistant message's steps: each tool it uses, labelled, and what it says as one line. */
-type Steps = { tools: string[]; text: string };
-
-function stepsOf(event: any): Steps {
-  const parts: any[] = event.message?.content ?? [];
-
-  return {
-    tools: parts.flatMap((part) => (part.type === "tool_use" ? [describeTool(String(part.name), part.input ?? {}).label] : [])),
-    text: parts
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join(" ")
-      .trim()
-  };
-}
-
 /**
- * What a Claude Code result says the process has spent. Its counters run for
- * the whole process, so the latest result holds the total; the larger is kept
- * in case one omits them.
+ * What a process has spent, by its latest result: the totals so far, and
+ * the larger kept in case one omits them.
  */
-function spentBy(event: any, before: Run["spent"]): Run["spent"] {
-  const turns = Number(event.num_turns);
-  const costUsd = Number(event.total_cost_usd);
+function spentBy({ spent }: Extract<AgentEvent, { type: "result" }>, before: Run["spent"]): Run["spent"] {
+  if (!spent) return before;
 
-  if (!Number.isFinite(turns) && !Number.isFinite(costUsd)) return before;
-
-  return {
-    turns: Math.max(before?.turns ?? 0, Number.isFinite(turns) ? turns : 0),
-    costUsd: Math.max(before?.costUsd ?? 0, Number.isFinite(costUsd) ? costUsd : 0)
-  };
+  return { turns: most(before?.turns, spent.turns), costUsd: most(before?.costUsd, spent.costUsd) };
 }
 
-function userLine(text: string): string {
-  return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
+/** The larger of two counts, either of which may be missing. */
+const most = (a: number | undefined, b: number | undefined) => Math.max(a ?? 0, b ?? 0);
+
+/** Why this machine cannot run `agent` now, as its facts say; undefined if it can. */
+function unable(agent: Agent, facts: MachineFacts): string | undefined {
+  const { installed, signedIn } = facts.agents[agent];
+
+  if (!installed) return `${AGENT_NAMES[agent]} is not installed on this machine.`;
+
+  return signedIn ? undefined : `${AGENT_NAMES[agent]} is not signed in on this machine: ${ADAPTERS[agent].signIn}.`;
 }
 
 export class Runner {
-  readonly #spawn: SpawnClaude;
+  readonly #spawn: SpawnAgent;
   readonly #log: (line: string) => void;
   readonly #runs = new Map<string, Run>();
   readonly #handled: HandledSeqs;
@@ -125,7 +117,7 @@ export class Runner {
   #link: Link | undefined;
 
   constructor(
-    spawn: SpawnClaude,
+    spawn: SpawnAgent,
     log: (line: string) => void,
     handled: HandledSeqs,
     /** The runner's build, sent with each hello. */
@@ -140,7 +132,7 @@ export class Runner {
     this.#facts = facts;
   }
 
-  /** Tasks with a live Claude Code session. */
+  /** Tasks with a live agent process. */
   active(): string[] {
     return [...this.#runs.keys()];
   }
@@ -249,37 +241,38 @@ export class Runner {
 
     const run = this.#runs.get(command.task);
 
-    // Fresh credentials are for Codex tasks, and this runner runs none.
+    // Fresh credentials are not handed to a running agent yet: each task signs in with the machine's own login.
     if (command.type === "stop" && run) this.#stop(command.task, run);
   }
 
   #onRun(command: RunCommand): void {
-    if (command.agent !== AGENT) {
-      const text = `This runner runs only ${AGENT}, not ${command.agent}.`;
-      this.#report({ type: "result", task: command.task, turn: command.turn, ok: false, text, session: command.session, agent: command.agent });
-
-      return;
-    }
-
     const run = this.#runs.get(command.task);
 
-    if (run?.stopped) {
-      // The session is dying and would take this message with it: run it in a new one after.
+    if (run && (run.stopped || run.ended || !ADAPTERS[run.agent].steers)) {
+      // The process is dying, or takes nothing more: run it in a new one after.
       run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session });
-      this.#log(`${command.task}: queued behind the stop`);
+      this.#log(`${command.task}: queued behind ${run.stopped ? "the stop" : "its turn"}`);
 
       return;
     }
 
     if (run) {
-      // Steer: Claude Code takes it as the next user message in this session.
+      // Steer: the agent takes it as the next user message in this session.
       this.#steer(run, command.turn, command.prompt);
       this.#log(`${command.task}: steer`);
 
       return;
     }
 
-    this.#start(command.task, command.turn, command.prompt, command.session);
+    const refused = unable(command.agent, this.#facts());
+
+    if (refused) {
+      this.#report({ type: "result", task: command.task, turn: command.turn, ok: false, text: refused, session: command.session, agent: command.agent });
+
+      return;
+    }
+
+    this.#start(command.task, command.agent, command.turn, command.prompt, command.session);
   }
 
   /**
@@ -294,7 +287,7 @@ export class Runner {
 
     if (run.ended) {
       if (latest !== undefined) {
-        this.#report({ type: "result", task, turn: latest, ok: false, text: stoppedText(run), session: run.session, agent: AGENT });
+        this.#report({ type: "result", task, turn: latest, ok: false, text: stoppedText(run), session: run.session, agent: run.agent });
       }
 
       return;
@@ -308,12 +301,12 @@ export class Runner {
   #steer(run: Run, turn: number, prompt: string): void {
     run.written += 1;
     run.turn = turn;
-    run.child.write(userLine(prompt));
+    run.child.write(ADAPTERS[run.agent].prompt(prompt));
   }
 
   /** Report the session's last turn over; turns queued behind it start once it exits. */
   #end(task: string, run: Run, ok: boolean, text: string): void {
-    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, agent: AGENT, ...run.spent });
+    this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, agent: run.agent, ...run.spent });
     run.spent = undefined;
 
     if (run.next.length === 0) this.#runs.delete(task);
@@ -321,14 +314,14 @@ export class Runner {
   }
 
   /**
-   * Claude Code ended a turn. A message written while a turn runs joins that
+   * The agent ended a turn. A message written while a turn runs joins that
    * turn, so one result can answer several messages: the run ends once every
    * message written to it has been taken in, and a result before then is a
    * step.
    */
-  #onResult(task: string, run: Run, event: any): void {
-    run.last = String(event.result ?? "");
-    run.spent = spentBy(event, run.spent);
+  #onResult(task: string, run: Run, result: Extract<AgentEvent, { type: "result" }>): void {
+    run.last = result.text;
+    run.spent = spentBy(result, run.spent);
 
     if (!run.stopped && run.taken < run.written) {
       this.#report({ type: "step", task, turn: run.turn, text: run.last });
@@ -341,15 +334,13 @@ export class Runner {
     this.#end(
       task,
       run,
-      !event.is_error && !run.stopped,
-      run.stopped ? stoppedText(run) : run.last || (event.is_error ? "Failed." : "Done.")
+      result.ok && !run.stopped,
+      run.stopped ? stoppedText(run) : run.last || (result.ok ? "Done." : "Failed.")
     );
   }
 
-  /** Each tool Claude uses is a step; what it says between tools is one too, at most every few seconds. */
-  #onAssistant(task: string, run: Run, event: any): void {
-    const { tools, text } = stepsOf(event);
-
+  /** Each tool the agent uses is a step; what it says between tools is one too, at most every few seconds. */
+  #onMessage(task: string, run: Run, { text, tools }: Extract<AgentEvent, { type: "message" }>): void {
     if (text && tools.length === 0 && Date.now() - run.saidAt > TEXT_STEP_EVERY_MS) {
       run.saidAt = Date.now();
       this.#report({ type: "step", task, turn: run.turn, text });
@@ -358,31 +349,40 @@ export class Runner {
     for (const tool of tools) this.#report({ type: "step", task, turn: run.turn, text: tool });
   }
 
-  #start(task: string, turn: number, prompt: string, session: string | null): Run {
-    this.#log(`${task}: start${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
+  #onEvent(task: string, run: Run, event: AgentEvent): void {
+    switch (event.type) {
+      case "session":
+        // Each process says it, so a resumed task shows as working again.
+        if (run.announced && event.session === run.session) return;
+        run.session = event.session;
+        run.announced = true;
+        this.#report({ type: "session", task, turn: run.turn, session: event.session });
 
-    const child = this.#spawn(task, session, {
+        return;
+      case "taken":
+        run.taken += 1;
+
+        return;
+      case "message":
+        this.#onMessage(task, run, event);
+
+        return;
+      case "result":
+        this.#onResult(task, run, event);
+    }
+  }
+
+  #start(task: string, agent: Agent, turn: number, prompt: string, session: string | null): Run {
+    this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
+    const adapter = ADAPTERS[agent];
+    const read = adapter.reader();
+
+    const child = this.#spawn(agent, task, session, {
       line: (line) => {
-        if (run.ended) return;
-        let event: any;
-
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return;
+        for (const event of read(line)) {
+          if (run.ended) return;
+          this.#onEvent(task, run, event);
         }
-
-        if (event.session_id && event.session_id !== run.session) {
-          run.session = event.session_id;
-          this.#report({ type: "session", task, turn: run.turn, session: event.session_id });
-        }
-
-        // With --replay-user-messages, Claude Code echoes each message it takes in, whether it starts a turn or joins one.
-        if (event.type === "user" && event.isReplay === true) run.taken += 1;
-
-        if (event.type === "assistant") this.#onAssistant(task, run, event);
-
-        if (event.type === "result") this.#onResult(task, run, event);
       },
       exit: (code, stderr) => {
         this.#log(`${task}: exit ${code}`);
@@ -390,22 +390,42 @@ export class Runner {
         if (this.#runs.get(task) !== run) return;
 
         if (!run.ended) {
-          this.#end(task, run, false, run.stopped ? stoppedText(run) : `claude exited with ${code}. ${stderr.trim()}`);
+          this.#end(task, run, false, run.stopped ? stoppedText(run) : `${agent} exited with ${code}. ${stderr.trim()}`);
         }
 
         this.#runs.delete(task);
 
         if (run.next.length === 0) return;
         const [first, ...rest] = run.next;
-        const next = this.#start(task, first!.turn, first!.prompt, run.session ?? first!.session);
+        const next = this.#start(task, agent, first!.turn, first!.prompt, run.session ?? first!.session);
 
-        for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
+        if (adapter.steers) for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
+        else next.next = rest;
       }
     });
 
-    const run: Run = { child, session, turn, written: 1, taken: 0, stopped: false, last: "", next: [], ended: false, dropped: 0, spent: undefined, saidAt: 0 };
+    const run: Run = {
+      agent,
+      child,
+      session,
+      announced: false,
+      turn,
+      written: 1,
+      taken: 0,
+      stopped: false,
+      last: "",
+      next: [],
+      ended: false,
+      dropped: 0,
+      spent: undefined,
+      saidAt: 0
+    };
+
     this.#runs.set(task, run);
-    child.write(userLine(prompt));
+    child.write(adapter.prompt(prompt));
+
+    // Each turn is its own process: closing stdin tells it the prompt is all there is.
+    if (!adapter.steers) child.end();
 
     return run;
   }

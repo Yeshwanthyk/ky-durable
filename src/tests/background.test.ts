@@ -24,7 +24,7 @@ describe("delegated work leaves the main chat free", () => {
     const mac = await runner(name);
 
     const started = await prompt(name, "machine build it");
-    expect(started.text).toMatch(/^tool said: Started task \S+ on mac\.$/);
+    expect(started.text).toMatch(/^tool said: Started task \S+ on mac as Claude Code\.$/);
     const run = await mac.run();
 
     // The runner has not answered; the main agent must still answer.

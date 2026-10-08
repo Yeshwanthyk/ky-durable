@@ -684,29 +684,40 @@ describe("machine tasks", () => {
     // With two machines on and online, the agent has to choose.
     const box = await runner(name, "box");
     await client.until(() => machine("box")?.online === true);
-    box.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: { ...FACTS, agents: { ...FACTS.agents, claude: { installed: true, signedIn: false } } } });
+    box.send({
+      type: "hello",
+      protocol: PROTOCOL,
+      version: "test",
+      active: [],
+      facts: { ...FACTS, agents: { claude: { installed: true, signedIn: false }, codex: { installed: true, signedIn: true } } }
+    });
     await client.until(() => machine("box")?.facts?.agents.claude.signedIn === false);
-    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("box: on, online, 0 running or queued, macOS, no logged-in browser, Claude Code not signed in");
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain(
+      "box: on, online, 0 running or queued, macOS, no logged-in browser, runs Codex, Claude Code not signed in"
+    );
     expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Name the machine for this task.");
 
     // A paused machine takes no new task; the agent hears where else it can go.
     await command(socket, client, { type: "set-machine", machine: "mac", state: "paused" });
     await client.until(() => machine("mac")?.state === "paused");
     expect((await prompt(name, "machine build it")).text).toContain("mac is paused: the user is not letting it take new tasks. On and online: box");
-    // Only box is on and online now, so it is chosen.
-    expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Started task");
+    // Only box is on and online now, so it is chosen, and runs it as the agent it has.
+    expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("on box as Codex.");
     const built = await box.next();
-    expect(built).toMatchObject({ type: "run", prompt: "build it" });
+    expect(built).toMatchObject({ type: "run", prompt: "build it", agent: "codex" });
 
-    // A task queued for an offline machine moves before it starts; one that ran stays.
+    // A task queued for an offline machine moves before it starts, to one that runs its agent; one that ran stays.
     expect((await prompt(name, "machine@away later")).text).toContain("it starts when one does). On and online: box");
     const queued = (await tasks(name)).length;
     const [waiting] = await inside(name, (instance) => instance.feed.open("machine", "away"));
-    expect((await prompt(name, `tool machine {"action":"move","task":"${waiting!.id}","machine":"box"}`)).text).toContain(`Moved ${waiting!.id} to box.`);
-    expect(await box.next()).toMatchObject({ type: "run", task: waiting!.id, prompt: "later" });
-    expect(await tasks(name)).toHaveLength(queued);
+    expect((await prompt(name, `tool machine {"action":"move","task":"${waiting!.id}","machine":"box"}`)).text).toContain(
+      `box cannot run Claude Code: it is not signed in there. ${waiting!.id} runs as Claude Code, so it stays.`
+    );
     expect((await prompt(name, `tool machine {"action":"move","task":"${built.task}","machine":"mac"}`)).text).toContain("mac is paused");
     await command(socket, client, { type: "set-machine", machine: "mac", state: "on" });
+    expect((await prompt(name, `tool machine {"action":"move","task":"${waiting!.id}","machine":"mac"}`)).text).toContain(`Moved ${waiting!.id} to mac.`);
+    expect(await mac.next()).toMatchObject({ type: "run", task: waiting!.id, prompt: "later", agent: "claude" });
+    expect(await tasks(name)).toHaveLength(queued);
     expect((await prompt(name, `tool machine {"action":"move","task":"${built.task}","machine":"mac"}`)).text).toContain("its session lives there, so it stays");
 
     // The agent sets a machine when the user asks; an off machine takes no follow-up.
@@ -717,6 +728,43 @@ describe("machine tasks", () => {
     socket.close();
     mac.socket.close();
     box.socket.close();
+  });
+
+  it("runs a task as the agent asked for, else the machine's own, and its follow-ups as the same one", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    const agentOf = (id: string) => inside(name, (instance) => instance.feed.get(id)?.agent);
+
+    // Claude Code first, when the machine runs it.
+    expect((await prompt(name, "machine build it")).text).toMatch(/^tool said: Started task \S+ on mac as Claude Code\.$/);
+    const building = await mac.next();
+    expect(building).toMatchObject({ type: "run", prompt: "build it", agent: "claude" });
+
+    // An agent the machine cannot run is refused before anything is queued.
+    const asCodex = `tool machine {"action":"run","machine":"mac","agent":"codex","prompt":"review it"}`;
+    expect((await prompt(name, asCodex)).text).toContain("mac cannot run Codex: it is not installed there.");
+    const before = (await tasks(name)).length;
+
+    // Signed in to Codex too, by its next hello.
+    const both = { ...FACTS, agents: { ...FACTS.agents, codex: { installed: true, signedIn: true } } };
+    mac.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [building.task], facts: both });
+    await until(async () => (await inside(name, (instance) => instance.machines.machine("mac")?.facts?.agents.codex.signedIn)) === true, "codex signed in");
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("mac: on, online, 1 running or queued, macOS, no logged-in browser, runs Claude Code and Codex");
+    expect((await prompt(name, asCodex)).text).toContain("on mac as Codex.");
+    const reviewing = await mac.next();
+    expect(reviewing).toMatchObject({ type: "run", prompt: "review it", agent: "codex", turn: 1 });
+    expect(await tasks(name)).toHaveLength(before + 1);
+    expect(await agentOf(reviewing.task)).toBe("codex");
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain(`${reviewing.task} [queued] Codex: `);
+
+    // A follow-up goes to the task's own agent, whatever the machine would pick now.
+    mac.send({ type: "session", task: reviewing.task, turn: 1, session: "thread-1" });
+    await until(async () => (await tasks(name)).some((task) => task.status === "working"), "the Codex task working");
+    expect((await prompt(name, `tool machine {"action":"send","task":"${reviewing.task}","message":"and the tests"}`)).text).toContain(
+      `Queued for ${reviewing.task}: Codex takes it once its turn ends.`
+    );
+    expect(await mac.next()).toMatchObject({ type: "run", task: reviewing.task, turn: 2, prompt: "and the tests", session: "thread-1", agent: "codex" });
+    mac.socket.close();
   });
 
   it("shares a machine task's file, and serves it whole and by range", async () => {

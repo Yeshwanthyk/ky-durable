@@ -1,9 +1,9 @@
 #!/usr/bin/env -S node --experimental-strip-types --no-warnings
 /**
  * ky's machine runner. Run it on a computer you want ky to use: it dials
- * into your agent over a WebSocket and runs each task as a Claude Code
- * session on this machine, with your own `claude` login, shell, files and
- * browser. Nothing listens on a port.
+ * into your agent over a WebSocket and runs each task as a Claude Code or
+ * Codex session on this machine, with your own `claude` or `codex` login,
+ * shell, files and browser. Nothing listens on a port.
  *
  *   KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... node runner/ky-runner.ts
  *
@@ -12,22 +12,26 @@
  * KY_WORKDIR      where tasks run (default: ~/ky-work)
  * KY_PERMISSION_MODE  Claude Code permission mode (default: bypassPermissions)
  * KY_CLAUDE       the claude executable (default: claude)
+ * KY_CODEX        the codex executable (default: codex)
  * KY_CHROME       1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
  * KY_REPOS        folders, split by ":", whose git repositories ky is told about (default: KY_WORKDIR)
+ * KY_STATE_DIR    what must outlive the runner, and each Codex task's home (default: ~/.ky)
  *
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import { OUTDATED, REPLACED, RUNNER_PATH, type MachineFacts } from "../src/runner-protocol.ts";
+import { OUTDATED, REPLACED, RUNNER_PATH, type Agent, type MachineFacts } from "../src/runner-protocol.ts";
+import { claudeArgs } from "./claude.ts";
+import { codexArgs } from "./codex.ts";
 import { HandledSeqs } from "./handled.ts";
-import { Runner, type ClaudeProcess, type ClaudeEvents, type Link } from "./runner.ts";
+import { Runner, type AgentProcess, type Link, type ProcessEvents } from "./runner.ts";
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
 
@@ -46,11 +50,16 @@ const PERMISSION_MODE = process.env.KY_PERMISSION_MODE ?? "bypassPermissions";
 
 const CLAUDE = process.env.KY_CLAUDE ?? "claude";
 
+const CODEX = process.env.KY_CODEX ?? "codex";
+
+/** Where the machine's own Codex keeps its login. */
+const MACHINE_CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+
 const CHROME = process.env.KY_CHROME === "1";
 
 const REPO_ROOTS = (process.env.KY_REPOS ?? WORKDIR).split(":").filter((root) => root !== "");
 
-/** Where the runner keeps what must outlive it: the seqs of the commands it has run. */
+/** Where the runner keeps what must outlive it: the seqs of the commands it has run, and each Codex task's home. */
 const STATE_DIR = process.env.KY_STATE_DIR ?? join(homedir(), ".ky");
 
 /** Where `ky-attach` is installed; each task finds it on its PATH. */
@@ -82,7 +91,7 @@ const [path, caption] = process.argv.slice(2);
 })().catch((error) => { console.error("ky-attach: " + error.message); process.exitCode = 1; });
 `;
 
-/** Added to Claude Code's system prompt in every task. */
+/** Added to the agent's own instructions in every task: Claude Code's system prompt, Codex's developer instructions. */
 const TASK_PROMPT = `You are running a task for ky, the user's agent; the user reads the result in ky, often on a phone.
 
 To show the user a screenshot, a recording or a chart, attach it: ky-attach <file> [caption] (png, jpeg, webp, gif, webm or mp4, at most 25 MB). It appears on this task and in its report. Attach every image or video you make for the user, and mention it in your answer.
@@ -90,11 +99,12 @@ To show the user a screenshot, a recording or a chart, attach it: ky-attach <fil
 - Screenshot at a 390x844 viewport unless asked otherwise. Record video with the browser context option recordVideo: { dir, size }; the webm is saved when the context closes.
 - Save captures under ${join(WORKDIR, ".captures")}, never inside a repository.
 
-When you change code in a git repository, run ky-diff from inside it before you answer, and again after any later change: the user sees the changes on this task and can comment on lines. It shares everything since the branch left the default branch; pass a commit (ky-diff <base>) to start elsewhere.${
-  CHROME
-    ? "\n\nFor anything that needs the user's logins, use the user's own Chrome through the Claude in Chrome tools; Playwright starts logged out. Never read, copy or report passwords, cookies or tokens."
-    : ""
-}`;
+When you change code in a git repository, run ky-diff from inside it before you answer, and again after any later change: the user sees the changes on this task and can comment on lines. It shares everything since the branch left the default branch; pass a commit (ky-diff <base>) to start elsewhere.`;
+
+/** Added for Claude Code with KY_CHROME, which gives it the user's Chrome. */
+const CHROME_PROMPT = `
+
+For anything that needs the user's logins, use the user's own Chrome through the Claude in Chrome tools; Playwright starts logged out. Never read, copy or report passwords, cookies or tokens.`;
 
 // ky-diff [base]: shares the repository's changes; the logic is runner/ky-diff.ts in this checkout.
 const DIFF = `#!/bin/sh
@@ -145,12 +155,12 @@ function scanRepos(): MachineFacts["repos"] {
     .map((folder) => ({ name: basename(folder), remote: originOf(folder) }));
 }
 
-type ClaudeFacts = MachineFacts["agents"]["claude"];
+type AgentFacts = MachineFacts["agents"][Agent];
 
 /** The part of `claude auth status`'s JSON the runner reads. */
 const AuthStatus = Type.Object({ loggedIn: Type.Boolean() });
 
-/** What `claude auth status` exits with, signed in or not, when its output is not JSON. */
+/** What `claude auth status` and `codex login status` exit with, signed in or not. */
 const SIGNED_IN_BY_EXIT = new Map([
   [0, true],
   [1, false]
@@ -168,14 +178,17 @@ function loggedIn(out: string): boolean | undefined {
 }
 
 /**
- * Whether `claude` runs here, and is signed in, as `claude auth status`
- * says; undefined if it says nothing readable in time. No `--json`: JSON is
- * its default, and a CLI without the flag still answers by its exit code,
- * 0 signed in and 1 not.
+ * Whether an agent's CLI runs here, and is signed in, as its status
+ * command says: `signedIn` reads what it printed and how it exited.
+ * Undefined if it says nothing readable in time.
  */
-function askClaude(): Promise<ClaudeFacts | undefined> {
+function askAgent(
+  command: string,
+  args: string[],
+  signedIn: (out: string, code: number | null) => boolean | undefined
+): Promise<AgentFacts | undefined> {
   return new Promise((resolve) => {
-    const child = spawn(CLAUDE, ["auth", "status"], { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 });
     let out = "";
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -186,9 +199,9 @@ function askClaude(): Promise<ClaudeFacts | undefined> {
     });
     child.on("close", (code) => {
       // A timeout's kill leaves no code.
-      const signedIn = loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1);
+      const answer = signedIn(out, code);
 
-      resolve(signedIn === undefined ? undefined : { installed: true, signedIn });
+      resolve(answer === undefined ? undefined : { installed: true, signedIn: answer });
     });
   });
 }
@@ -196,31 +209,44 @@ function askClaude(): Promise<ClaudeFacts | undefined> {
 /** How long the repo list and agent logins are kept before the next hello checks again. */
 const FACTS_EVERY_MS = 5 * 60_000;
 
-/** Claude's facts as last known. Before any answer it is taken to be here and signed out. */
-let claude: ClaudeFacts = { installed: true, signedIn: false };
+/**
+ * An agent's facts as last known, asked again in the background once they
+ * are old: an answer that says nothing keeps the last one. Before any answer
+ * it is taken to be here and signed out.
+ */
+function lastKnown(ask: () => Promise<AgentFacts | undefined>) {
+  let facts: AgentFacts = { installed: true, signedIn: false };
+  let at = 0;
+  let check: Promise<void> | undefined;
 
-let claudeAt = 0;
+  return {
+    facts: () => facts,
+    refresh(): Promise<void> {
+      if (!check && Date.now() - at > FACTS_EVERY_MS) {
+        check = ask().then((answer) => {
+          if (answer) facts = answer;
+          at = Date.now();
+          check = undefined;
+        });
+      }
 
-let claudeCheck: Promise<void> | undefined;
-
-/** Ask `claude` again if its facts are old, in the background: an answer that says nothing keeps the last one. */
-function refreshClaude(): Promise<void> {
-  if (!claudeCheck && Date.now() - claudeAt > FACTS_EVERY_MS) {
-    claudeCheck = askClaude().then((answer) => {
-      if (answer) claude = answer;
-      claudeAt = Date.now();
-      claudeCheck = undefined;
-    });
-  }
-
-  return claudeCheck ?? Promise.resolve();
+      return check ?? Promise.resolve();
+    }
+  };
 }
+
+const AGENTS = {
+  // No `--json`: JSON is its default, and a CLI without the flag still answers by its exit code.
+  claude: lastKnown(() => askAgent(CLAUDE, ["auth", "status"], (out, code) => loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1))),
+  // It says which login in words, on stderr; its exit code is what to read.
+  codex: lastKnown(() => askAgent(CODEX, ["login", "status"], (_out, code) => SIGNED_IN_BY_EXIT.get(code ?? -1)))
+} satisfies Record<Agent, ReturnType<typeof lastKnown>>;
 
 let repos: { at: number; value: MachineFacts["repos"] } | undefined;
 
-/** What this machine is, for ky to choose where work goes; checked at most every few minutes. Codex comes later. */
+/** What this machine is, for ky to choose where work goes; checked at most every few minutes. */
 function machineFacts(): MachineFacts {
-  void refreshClaude();
+  for (const agent of Object.values(AGENTS)) void agent.refresh();
 
   if (!repos || Date.now() - repos.at > FACTS_EVERY_MS) repos = { at: Date.now(), value: scanRepos() };
 
@@ -228,7 +254,7 @@ function machineFacts(): MachineFacts {
     os: process.platform,
     chrome: CHROME,
     repos: repos.value,
-    agents: { claude, codex: { installed: false, signedIn: false } },
+    agents: { claude: AGENTS.claude.facts(), codex: AGENTS.codex.facts() },
     ports: [],
     kind: "computer"
   };
@@ -256,27 +282,48 @@ function log(...parts: unknown[]) {
   console.log(new Date().toISOString().slice(11, 19), ...parts);
 }
 
-/** Start `claude -p` with stream-json on both ends, in the work dir. */
-function spawnClaude(task: string, session: string | null, events: ClaudeEvents): ClaudeProcess {
+/**
+ * A Codex task's own CODEX_HOME, which keeps its threads for follow-ups to
+ * resume. Nothing of the user's own Codex config (models, MCP servers,
+ * profiles) comes in, and its threads stay out of the user's history. It
+ * signs in with the machine's login: auth.json links to the machine's, so a
+ * token Codex refreshes is refreshed for both.
+ */
+function codexHome(task: string): string {
+  const home = join(STATE_DIR, "codex", task);
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+
+  try {
+    symlinkSync(join(MACHINE_CODEX_HOME, "auth.json"), join(home, "auth.json"));
+  } catch (error) {
+    // Linked by its first turn.
+    // SAFETY: symlinkSync throws only system errors, each with a code.
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+
+  return home;
+}
+
+/** How each agent's CLI is started for a task: its executable, arguments, and what it adds to the environment. */
+const LAUNCH: Record<Agent, (task: string, session: string | null) => { command: string; args: string[]; env: Record<string, string> }> = {
+  claude: (_task, session) => ({
+    command: CLAUDE,
+    args: claudeArgs({ permissionMode: PERMISSION_MODE, systemPrompt: TASK_PROMPT + (CHROME ? CHROME_PROMPT : ""), chrome: CHROME, session }),
+    env: {}
+  }),
+  codex: (task, session) => ({ command: CODEX, args: codexArgs(session, TASK_PROMPT), env: { CODEX_HOME: codexHome(task) } })
+};
+
+/** Start a task's agent in the work dir. */
+function spawnAgent(agent: Agent, task: string, session: string | null, events: ProcessEvents): AgentProcess {
   mkdirSync(WORKDIR, { recursive: true });
+  const { command, args, env } = LAUNCH[agent](task, session);
 
-  const args = [
-    "-p",
-    "--input-format", "stream-json",
-    "--output-format", "stream-json",
-    "--verbose",
-    // Echo each message as Claude Code takes it in; the runner counts them to know what a result answers.
-    "--replay-user-messages",
-    "--permission-mode", PERMISSION_MODE,
-    "--append-system-prompt", TASK_PROMPT,
-    ...(CHROME ? ["--chrome"] : []),
-    ...(session ? ["--resume", session] : [])
-  ];
-
-  const child: ChildProcessWithoutNullStreams = spawn(CLAUDE, args, {
+  const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     cwd: WORKDIR,
     env: {
       ...process.env,
+      ...env,
       KY_TOKEN: TOKEN,
       KY_TASK: task,
       PATH: `${BIN}:${process.env.PATH ?? ""}`
@@ -294,8 +341,8 @@ function spawnClaude(task: string, session: string | null, events: ClaudeEvents)
   });
 
   return {
-    write: (line) => {
-      child.stdin.write(line);
+    write: (text) => {
+      child.stdin.write(text);
     },
     end: () => {
       child.stdin.end();
@@ -308,7 +355,7 @@ function spawnClaude(task: string, session: string | null, events: ClaudeEvents)
 }
 
 const runner = new Runner(
-  spawnClaude,
+  spawnAgent,
   (line) => log(line),
   new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`),
   version(),
@@ -390,7 +437,7 @@ process.on("SIGINT", () => {
 
 installTools();
 
-// The first hello waits for the first answer, so it does not say signed out of a machine that is not.
-await refreshClaude();
+// The first hello waits for the first answers, so it does not say signed out of a machine that is not.
+await Promise.all(Object.values(AGENTS).map((agent) => agent.refresh()));
 
 connect();

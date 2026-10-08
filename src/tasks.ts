@@ -5,6 +5,8 @@
  * and what the main agent's `status` reads.
  */
 
+import type { Agent } from "./runner-protocol";
+
 export type TaskKind = "cloud" | "machine";
 
 export type TaskStatus = "queued" | "working" | "done" | "failed" | "stopped";
@@ -26,8 +28,10 @@ export type TaskRow = {
   readonly summary: string;
   /** Its last few steps, oldest first: the last is what it is doing now. */
   readonly steps: readonly TaskStep[];
-  /** Cloud: the pi session to open. Machine: the Claude Code session id. */
+  /** Cloud: the pi session to open. Machine: the agent's session id (Claude Code's session, Codex's thread). */
   readonly session: string | null;
+  /** Machine: the coding agent it runs as, which each follow-up goes to. Cloud: null. */
+  readonly agent: Agent | null;
   readonly created_at: number;
   readonly updated_at: number;
   /** When its latest stretch of work began: its start, or the message that resumed it. */
@@ -72,7 +76,8 @@ const ADDED = [
   ["started_at", "INTEGER"],
   ["finished_at", "INTEGER"],
   ["turns", "INTEGER"],
-  ["cost_usd", "REAL"]
+  ["cost_usd", "REAL"],
+  ["agent", "TEXT"]
 ] as const;
 
 type StoredRow = Omit<TaskRow, "steps"> & { steps: string };
@@ -115,6 +120,9 @@ export class TaskFeed {
     for (const [name, type] of ADDED) {
       if (!columns.some((column) => column.name === name)) sql.exec(`ALTER TABLE ky_tasks ADD COLUMN ${name} ${type}`);
     }
+
+    // Machine tasks from before they named their agent all ran as Claude Code.
+    sql.exec("UPDATE ky_tasks SET agent = 'claude' WHERE kind = 'machine' AND agent IS NULL");
   }
 
   onChange(listener: (tasks: TaskRow[]) => void): () => void {
@@ -182,13 +190,17 @@ export class TaskFeed {
 
   /** Insert the task, or leave an existing one alone: ids are idempotency keys. */
   create(
-    task: Pick<TaskRow, "id" | "kind" | "worker" | "title" | "status" | "session"> & { summary?: string; source?: string }
+    task: Pick<TaskRow, "id" | "kind" | "worker" | "title" | "status" | "session"> & {
+      summary?: string;
+      source?: string;
+      agent?: Agent;
+    }
   ): TaskRow {
     const now = Date.now();
     this.#sql.exec(
       `INSERT OR IGNORE INTO ky_tasks
-        (id, kind, source, worker, title, status, summary, session, created_at, updated_at, started_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, kind, source, worker, title, status, summary, session, agent, created_at, updated_at, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       task.id,
       task.kind,
       task.source ?? "chat",
@@ -197,6 +209,7 @@ export class TaskFeed {
       task.status,
       task.summary ?? "",
       task.session,
+      task.agent ?? null,
       now,
       now,
       task.status === "working" ? now : null

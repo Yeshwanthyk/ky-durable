@@ -203,6 +203,11 @@ export type RunCreds = Static<typeof RunCredsSchema>;
 
 export type CodexCreds = Static<typeof CodexCredsSchema>;
 
+export type Agent = Static<typeof AgentSchema>;
+
+/** Each agent by the name the user knows it by. */
+export const AGENT_NAMES: Readonly<Record<Agent, string>> = { claude: "Claude Code", codex: "Codex" };
+
 /** `Omit` applied to each member of a union, so the result stays a union. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 

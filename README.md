@@ -29,7 +29,7 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` in `wrangler.local.jsonc` |
 | OpenCode Go | The cheap model (`OPENCODE_MODEL` in `src/models.ts`), and the stand-in while the Mac is away. | `src/models.ts` |
 | VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
-| ky-runner on the Mac | Dials out to the DO and runs each machine task as a `claude -p` session. Nothing listens on a port. | `runner/ky-runner.ts` |
+| ky-runner on the Mac | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
@@ -66,7 +66,7 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
   the consult runs in a fresh conversation that can't ask on, shown as "@a → @b" in Activity). `subagent discuss`
   puts 2 to 4 specialists through 1 or 2 rounds without tools, and ky gives you where they agree, where they
   disagree, and its recommendation.
-- Machines: Claude Code on a real computer (`machine` tool, `src/machines.ts`).
+- Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
 - Titles: a small model names chats and tasks (`src/titles.ts`).
 
@@ -117,7 +117,7 @@ worker leaves tasks queued without an error, so never update the runner first.
 ## Run a machine
 
 Needs Node 22.6 or later (the runner is TypeScript run directly; before Node 23.6 that takes
-`--experimental-strip-types`), and `claude` installed and signed in on that machine.
+`--experimental-strip-types`), and `claude` or `codex` (or both) installed and signed in on that machine.
 
 The runner imports the shared protocol (`src/runner-protocol.ts`) and `typebox`, so run it from a checkout
 of this repo after `pnpm install`.
@@ -138,16 +138,22 @@ node --experimental-strip-types runner/ky-runner.ts
 | `KY_WORKDIR` | `~/ky-work` | Working directory for tasks |
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |
 | `KY_CLAUDE` | `claude` | Path to the Claude Code executable |
+| `KY_CODEX` | `codex` | Path to the Codex executable |
+| `CODEX_HOME` | `~/.codex` | The machine's Codex home, whose `auth.json` (from `codex login`) every Codex task signs in with |
 | `KY_CHROME` | off | `1`: tasks drive your Chrome with its logins (`--chrome`) |
 | `KY_REPOS` | `KY_WORKDIR` | Folders, split by `:`, whose git repositories the runner tells ky about (each folder, and the folders right inside it) |
-| `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled. Delete it after resetting the object |
+| `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled, and `codex/<task>`, each Codex task's own `CODEX_HOME`. Delete it after resetting the object |
 
 `bypassPermissions` lets a task run any command as your user without asking. Run the runner as a
 separate user, in a VM, or with `KY_PERMISSION_MODE=acceptEdits` if that is too much.
 
-How a task runs: each task is one `claude -p` session in stream-json mode. A message sent while it works
-steers it; one sent after it finished resumes it with `--resume`; stop sends SIGINT, then SIGKILL after
-5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
+How a task runs: a task runs as the agent the `machine` tool asked for, or the one the machine has,
+Claude Code first, and keeps it; a machine without that agent installed and signed in refuses it. A
+Claude Code task is one `claude -p` session in stream-json mode. A message sent while it works steers it;
+one sent after it finished resumes it with `--resume`. A Codex task is one `codex exec --json` per turn,
+in its own `CODEX_HOME` (`KY_STATE_DIR/codex/<task>`) whose `auth.json` links to the machine's, so none of
+your Codex config or history comes in. A message sent while it works waits for the turn to end; each
+follow-up resumes the thread with `codex exec resume`. Stop sends SIGINT, then SIGKILL after 5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
 offline starts when it reconnects. Tasks share files with `ky-attach <file> [caption]`, which the runner
 installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, installed beside it, uploads
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
@@ -160,8 +166,8 @@ Each runner says in its `hello` what the machine is: its OS, whether `KY_CHROME`
 in `KY_REPOS` with their `origin` remotes, credentials removed. The agent reads all of it in `machine list`,
 and chooses among the machines that are on; the tool refuses the rest. With one machine on and online, a
 task goes there; with several, the agent has to name one. A task sent to an offline machine waits for it,
-and `move` sends it to another machine as long as it has not started. Once it has run, its Claude Code session
-lives on that machine, so it stays there.
+and `move` sends it to another machine that runs its agent, as long as it has not started. Once it has run, its
+session lives on that machine, so it stays there.
 
 The runner protocol (the `run`/`stop`/`creds` commands, `hello`/`ack`/`session`/`step`/`result` reports, and the
 `http_*` frames for a machine's ports) is shared in `src/runner-protocol.ts` and decoded with typebox at both ends.
@@ -169,7 +175,7 @@ The runner protocol (the `run`/`stop`/`creds` commands, `hello`/`ack`/`session`/
 installed and signed in, shared ports, computer or cloud). The runner says hello before anything it made offline,
 and the object reads `protocol` first: a runner on `/runner/<machine>` that speaks another protocol is told `goodbye`
 with the one ky speaks, its socket closes with 4426, and it exits. A machine is listed once its runner says a valid hello. A `step` is one tool
-Claude Code used, labelled ("Editing tasks.ts"), or what it said between tools; a `result` carries the agent and the
+the agent used, labelled ("Editing tasks.ts"; a Codex command or file change reads as Bash, Write or Edit), or what it said between tools; a `result` carries the agent and the
 session's turns and cost so far. Every report carries its turn, and reports for a closed turn are dropped. The runner records a command
 before acking it, so a command never runs twice. One socket per machine: a newer runner with the same
 name closes the older one (code 4409), and the older one exits. `runner/runner.ts` is the logic and
@@ -194,7 +200,7 @@ pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
 | `pnpm typecheck` | `tsc --noEmit`, then `tsconfig.node.json` (the runner and the test harnesses) |
 | `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
 | `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |
-| `pnpm harness` | CLI scenarios against the local stack with the real runner and a fake `claude` (`test/harness/`) |
+| `pnpm harness` | CLI scenarios against the local stack with the real runner and fake `claude` and `codex` (`test/harness/`) |
 | `pnpm test:node` | vitest in Node on the build's config, such as the owner overlay merge (`test/node/`) |
 | `pnpm test:web` | Playwright over the local stack (`test/web/`) |
 | `pnpm gate` | typecheck, lint, fallow, node, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
