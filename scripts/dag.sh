@@ -31,7 +31,7 @@ deps() {
 NODES="R1 R2 R3 M T X D A P K S C F CM RT REL"
 
 ref() { git -C "$ROOT" rev-parse --verify -q "origin/$BASE" >/dev/null && echo "origin/$BASE" || echo "$BASE"; }
-done_() { git -C "$ROOT" log "$(ref)" --format=%s | grep -q "^\[$1\]"; }
+done_() { git -C "$ROOT" log "$(ref)" --format=%s | grep "^\[$1\]" >/dev/null; }  # no -q: an early exit SIGPIPEs git log under pipefail
 ready() { for d in $(deps "$1"); do done_ "$d" || return 1; done; }
 
 status() {
