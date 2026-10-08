@@ -22,7 +22,7 @@ describe("executor tools over MCP", () => {
     const name = crypto.randomUUID();
 
     const { text } = await prompt(name, "executor lose-response");
-    expect(text).toMatch(/^tool failed: Executor call failed: .*Network connection lost/);
+    expect(text).toMatch(/^tool said: Executor call failed: .*Network connection lost/);
     expect((await executorSaw(name, "lose-response")).runs).toBe(1);
   });
 
@@ -46,7 +46,7 @@ describe("executor tools over MCP", () => {
     await inside(never, (agent) => {
       agent.boundary.executorFake.refuseConnects = 2;
     });
-    expect((await prompt(never, "executor never")).text).toMatch(/^tool failed: Executor call failed:/);
+    expect((await prompt(never, "executor never")).text).toMatch(/^tool said: Executor call failed:/);
     expect((await executorSaw(never, "never")).runs).toBe(0);
   });
 
@@ -56,7 +56,7 @@ describe("executor tools over MCP", () => {
       agent.boundary.executorFake.token = "another-token";
     });
 
-    expect((await prompt(name, "executor refused")).text).toMatch(/^tool failed: Executor call failed:/);
+    expect((await prompt(name, "executor refused")).text).toMatch(/^tool said: Executor call failed:/);
     expect(await inside(name, (agent) => agent.boundary.executorFake.unauthorized)).toBe(1);
     expect((await executorSaw(name, "refused")).runs).toBe(0);
   });

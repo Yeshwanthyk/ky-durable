@@ -316,7 +316,7 @@ export class PiSessionSockets {
   }
 
   #settingsMessage(): PiServerMessage {
-    return { type: "settings", settings: this.#models.settings.view() };
+    return { type: "settings", settings: this.#models.view() };
   }
 
   #setupMessage(): PiServerMessage {
@@ -574,17 +574,17 @@ export class PiSessionSockets {
     this.#hub.send(task, text);
   }
 
-  /** A message for the session's agent, checked first: the slot that runs it must read its images. */
+  /** A message for the session's agent, checked first: the purpose that runs it must read its images. */
   async #submit(session: PiSessionId, message: Extract<PiClientMessage, { type: "submit" }>): Promise<JsonValue> {
-    // The main session and side chats run on the main slot; every other session is a subagent's.
+    // The main session and side chats run on the main purpose; every other session is the worker's.
     const chat = this.#chats.has(session);
 
-    const slot = session === ROOT_SESSION || chat ? "main" : "subagents";
+    const purpose = session === ROOT_SESSION || chat ? "main" : "worker";
 
-    // A submit with images waits for the slot's provider probe: cached for 30s, up to 3s when stale.
+    // A submit with images waits for the purpose's provider probe: cached for 30s, up to 3s when stale.
     const problem =
       checkInput(message.input) ??
-      (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(slot) : null);
+      (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(purpose) : null);
 
     if (problem !== null) throw new Error(problem);
 
@@ -634,7 +634,7 @@ export class PiSessionSockets {
 
         return null;
       case "set-model": {
-        const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.slot, message.setting);
+        const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.purpose, message.choice);
 
         return { provider, modelId, thinkingLevel };
       }

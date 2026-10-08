@@ -1,12 +1,12 @@
 /**
- * Names for chats and tasks, written by the titles slot: a small, cheap model.
+ * Names for chats and tasks, written on the background purpose: a small, cheap model.
  *
  * Nothing waits on it. A chat or task shows its first line at once, and the
  * name replaces that line when the model answers, only if nothing else has
  * renamed it meanwhile. When the model fails, the first line stays.
  */
 
-/** One short request to the titles model: a system prompt and a text, back comes its answer. */
+/** One short request to the background model: a system prompt and a text, back comes its answer. */
 export type Complete = (system: string, text: string) => Promise<string>;
 
 const TITLE_CHARS = 60;

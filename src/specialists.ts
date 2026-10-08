@@ -13,7 +13,8 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import type { SlotSetting } from "./settings";
+import { agentModel } from "./models";
+import type { ModelChoice } from "./settings";
 import { type SoulAction, type SoulView, Versioned, versionLine } from "./soul";
 import { summarize, type TaskFeed } from "./tasks";
 
@@ -37,8 +38,8 @@ export type SessionKind = "home" | "consult" | "discuss";
 export type SpecialistRow = {
   readonly id: string;
   readonly description: string;
-  /** Its model; the subagents slot when null or no longer available. */
-  readonly model: SlotSetting | null;
+  /** Its model; the worker's when null or no longer available. */
+  readonly model: ModelChoice | null;
   /** The machine it prefers for machine work; null for none. */
   readonly machine: string | null;
   /** Its home conversation, made on its first ask. */
@@ -52,7 +53,7 @@ export type SpecialistView = Omit<SpecialistRow, "session"> & { readonly session
 /** A specialist's settings as the user or ky saves them; the brief only on create. */
 export type SpecialistDraft = {
   readonly description?: string;
-  readonly model?: SlotSetting | null;
+  readonly model?: ModelChoice | null;
   readonly machine?: string | null;
   readonly brief?: string;
 };
@@ -94,8 +95,8 @@ type StoredRow = Omit<SpecialistRow, "model"> & { model: string | null };
 
 const rowOf = ({ model, ...row }: StoredRow): SpecialistRow => ({
   ...row,
-  // SAFETY: only #save writes model, each a JSON SlotSetting.
-  model: model === null ? null : (JSON.parse(model) as SlotSetting)
+  // SAFETY: only #save writes model, each a JSON ModelChoice.
+  model: model === null ? null : (JSON.parse(model) as ModelChoice)
 });
 
 /** Each specialist, and every conversation one answers in: its home, or a consult. */
@@ -601,8 +602,7 @@ export async function setUp(
   tx: Tx,
   conversation: ConversationId,
   remove: readonly Extension[],
-  model: SlotSetting
+  model: ModelChoice
 ): Promise<void> {
-  const { provider, modelId, thinkingLevel } = model;
-  await configure(tx, conversation, { extensions: { remove: [...remove] }, model: { provider, modelId }, thinkingLevel });
+  await configure(tx, conversation, { extensions: { remove: [...remove] }, ...agentModel(model) });
 }

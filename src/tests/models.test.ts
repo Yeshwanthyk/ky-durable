@@ -1,40 +1,44 @@
 import { describe, expect, it } from "vitest";
-import type { Slot, SlotSetting } from "../settings";
+import type { ModelChoice, Purpose } from "../settings";
 import { agent, inside, prompt } from "./drive";
-import type { FauxCall } from "./stack";
+import type { AiCall } from "../../test/fakes/ai";
+import { BARE, GLM, GPT_OSS, KEYED, KIMI, OPENCODE_KEY } from "./stack";
 
 /**
- * Which model each slot runs on, on ky's real composition: Claude through the
- * fake VibeProxy on the Mac, and the faux cloud provider where OpenCode Go
- * stands. Each test gets a fresh object with the Mac online or away.
+ * Which model each purpose runs on, on ky's real composition: Workers AI
+ * behind the fake AI binding on every object, Claude through the fake
+ * VibeProxy on the Mac where the overlay is, and OpenCode Go behind the fake
+ * fetch on a keyed object. Each test gets a fresh object.
  */
-async function fresh(macUp: boolean): Promise<string> {
-  const name = crypto.randomUUID();
-  await agent(name).mac(macUp);
+
+const WORKERS_AI_URL = "https://workers-binding.ai/ai-gateway/gateways/default/compat/chat/completions";
+
+const CLAUDE = 'Title: "Claude claude-opus-5-5 (thinking adaptive)"';
+
+/** A fresh object: a deploy with no overlay or secrets, or with the overlay and the Mac online or away, or with OpenCode Go's key. */
+async function fresh(deploy: "bare" | "mac-up" | "mac-away" | "keyed"): Promise<string> {
+  const name = `${deploy === "bare" ? BARE : deploy === "keyed" ? KEYED : ""}${crypto.randomUUID()}`;
+  await agent(name).mac(deploy === "mac-up");
 
   return name;
 }
 
-function resolve(name: string, slot: Slot) {
-  return inside(name, async (instance) => {
-    const { provider, model, thinkingLevel, fellBack } = await instance.models.resolve(slot);
-
-    return { provider: provider.id, modelId: model.id, thinkingLevel, fellBack };
-  });
+function resolve(name: string, purpose: Purpose): Promise<ModelChoice> {
+  return inside(name, (instance) => instance.models.resolve(purpose).choice);
 }
 
-/** Store a slot choice; the stored setting, or why it was refused. */
-function set(name: string, slot: Slot, setting: SlotSetting): Promise<SlotSetting | string> {
+/** Store a purpose's choice; the stored choice, or why it was refused. */
+function set(name: string, purpose: Purpose, choice: ModelChoice): Promise<ModelChoice | string> {
   return inside(name, (instance) => {
     try {
-      return instance.models.settings.set(slot, setting);
+      return instance.models.settings.set(purpose, choice);
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
   });
 }
 
-function calls(name: string): Promise<FauxCall[]> {
+function calls(name: string): Promise<AiCall[]> {
   return inside(name, (instance) => [...instance.boundary.calls]);
 }
 
@@ -42,44 +46,40 @@ function title(name: string, text: string): Promise<string | null> {
   return inside(name, (instance) => instance.titler.title(text));
 }
 
-function imageSupport(name: string, slot: Slot): Promise<string | null> {
-  return inside(name, (instance) => instance.models.imageSupport(slot));
+function imageSupport(name: string, purpose: Purpose): Promise<string | null> {
+  return inside(name, (instance) => instance.models.imageSupport(purpose));
 }
 
-describe("which model each slot uses", () => {
-  it("puts the main agent and titles on Claude while the Mac is online", async () => {
-    const name = await fresh(true);
+describe("which model each purpose uses", () => {
+  it("runs everything on Workers AI on a deploy with no secrets", async () => {
+    const name = await fresh("bare");
 
-    expect(await resolve(name, "main")).toEqual({
-      provider: "vibeproxy",
-      modelId: "claude-opus-5-5",
-      thinkingLevel: "medium",
-      fellBack: false
-    });
-    expect(await resolve(name, "titles")).toMatchObject({
-      provider: "vibeproxy",
-      modelId: "claude-haiku-4-5",
-      thinkingLevel: "off"
-    });
-    expect(await resolve(name, "subagents")).toEqual({
-      provider: "faux",
-      modelId: "faux",
-      thinkingLevel: "high",
-      fellBack: false
-    });
-    expect(await resolve(name, "fallback")).toMatchObject({ provider: "faux", modelId: "faux", thinkingLevel: "high" });
+    expect(await resolve(name, "main")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    expect(await resolve(name, "worker")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    expect(await resolve(name, "background")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+    // No other provider, so the fallback is Workers AI's next model.
+    expect(await resolve(name, "fallback")).toMatchObject({ provider: "workers-ai", modelId: KIMI });
+
+    const catalog = await inside(name, (instance) =>
+      instance.models.catalog().map(({ id, connected, models }) => ({ id, connected, models: models.map((model) => model.modelId) }))
+    );
+
+    expect(catalog).toEqual([{ id: "workers-ai", connected: true, models: [GLM, KIMI, GPT_OSS] }]);
   });
 
-  it("puts every slot on the cloud model while the Mac is away, and shows Claude as not connected", async () => {
-    const name = await fresh(false);
+  it("puts the main agent and the worker on Claude while the Mac is online, with Workers AI as the fallback", async () => {
+    const name = await fresh("mac-up");
 
-    expect(await resolve(name, "main")).toEqual({
-      provider: "faux",
-      modelId: "faux",
-      thinkingLevel: "high",
-      fellBack: false
-    });
-    expect(await resolve(name, "titles")).toMatchObject({ provider: "faux", modelId: "faux", thinkingLevel: "off" });
+    expect(await resolve(name, "main")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
+    expect(await resolve(name, "worker")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
+    expect(await resolve(name, "background")).toMatchObject({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+  });
+
+  it("puts the main agent on Workers AI while the Mac is away, and shows Claude as not connected", async () => {
+    const name = await fresh("mac-away");
+
+    expect(await resolve(name, "main")).toMatchObject({ provider: "workers-ai", modelId: GLM });
 
     const connected = await inside(name, (instance) =>
       instance.models.catalog().map(({ id, connected }) => ({ id, connected }))
@@ -87,99 +87,114 @@ describe("which model each slot uses", () => {
 
     expect(connected).toEqual([
       { id: "vibeproxy", connected: false },
-      { id: "faux", connected: true }
+      { id: "workers-ai", connected: true }
     ]);
   });
 
-  it("stores a slot choice, and refuses a provider that is not connected", async () => {
-    const name = await fresh(false);
+  it("puts the main agent on OpenCode Go when its key is set, with Workers AI as the fallback", async () => {
+    const name = await fresh("keyed");
 
-    expect(await set(name, "subagents", { provider: "faux", modelId: "faux-text", thinkingLevel: "high" })).toEqual({
-      provider: "faux",
-      modelId: "faux-text",
-      thinkingLevel: "off"
+    expect(await resolve(name, "main")).toEqual({ provider: "opencode-go", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" });
+    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+  });
+
+  it("stores a purpose's choice at a level its model has, and refuses a provider that is not connected", async () => {
+    const name = await fresh("mac-away");
+
+    expect(await set(name, "worker", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "xhigh" })).toEqual({
+      provider: "workers-ai",
+      modelId: GPT_OSS,
+      thinkingLevel: "high"
     });
-    expect(await resolve(name, "subagents")).toMatchObject({ modelId: "faux-text", thinkingLevel: "off" });
+    expect(await resolve(name, "worker")).toMatchObject({ modelId: GPT_OSS });
     expect(await set(name, "main", { provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" })).toBe(
       "vibeproxy/claude-opus-5-5 is not available."
     );
   });
-
-  it("gives a slot on Claude the fallback slot's model when the Mac has just gone away", async () => {
-    const name = await fresh(true);
-    expect(await resolve(name, "main")).toMatchObject({ provider: "vibeproxy" });
-    await agent(name).macLeaves();
-
-    expect(await resolve(name, "main")).toEqual({
-      provider: "faux",
-      modelId: "faux",
-      thinkingLevel: "high",
-      fellBack: true
-    });
-  });
 });
 
-describe("a turn on Claude", () => {
-  it("runs on Claude while the Mac is online", async () => {
-    const name = await fresh(true);
+describe("a turn", () => {
+  it("chats and calls tools on Workers AI through the AI binding, with no key of the user's", async () => {
+    const name = await fresh("bare");
 
-    expect((await prompt(name, "hello")).text).toBe('Title: "Claude claude-opus-5-5 (thinking adaptive)"\nhello');
+    expect((await prompt(name, "multiply 4")).text).toBe("tool said: 12");
+
+    const sent = await calls(name);
+    expect(sent.map(({ url, model }) => ({ url, model }))).toEqual([
+      { url: WORKERS_AI_URL, model: GLM },
+      { url: WORKERS_AI_URL, model: GLM }
+    ]);
+    // The gateway's placeholder, and no Authorization it would take as a key of the caller's.
+    expect(sent[0]!.headers).toMatchObject({ "cf-aig-authorization": "Bearer cloudflare-gateway-binding" });
+    expect(sent[0]!.headers.authorization).toBeUndefined();
+  });
+
+  it("runs on OpenCode Go with its key when that is set", async () => {
+    const name = await fresh("keyed");
+
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+
+    const [sent] = await calls(name);
+    expect(sent).toMatchObject({ url: "https://opencode.ai/zen/go/v1/chat/completions", model: "deepseek-v4.1-flash" });
+    expect(sent!.headers.authorization).toBe(`Bearer ${OPENCODE_KEY}`);
+  });
+
+  it("runs on Claude while the Mac is online", async () => {
+    const name = await fresh("mac-up");
+
+    expect((await prompt(name, "hello")).text).toBe(`${CLAUDE}\nhello`);
     expect(await calls(name)).toEqual([]);
   });
 
-  it("runs on the fallback slot's model, with its key, when the Mac has just gone away, and on Claude once it is back", async () => {
-    const name = await fresh(true);
+  it("runs on the fallback's model when the Mac has just gone away, and on Claude once it is back", async () => {
+    const name = await fresh("mac-up");
     await agent(name).macLeaves();
 
-    // VIBEPROXY refuses the probe, so the whole turn streams from the cloud model alone, with the cloud's key.
+    // VIBEPROXY refuses the probe, so the whole turn streams from Workers AI alone.
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
-    expect((await calls(name)).map(({ model, reasoning, apiKey }) => ({ model, reasoning, apiKey }))).toEqual([
-      { model: "faux", reasoning: "high", apiKey: "faux-key" }
-    ]);
+    expect((await calls(name)).map(({ model }) => model)).toEqual([GLM]);
 
     await agent(name).mac(true);
-    expect((await prompt(name, "again")).text).toBe('Title: "Claude claude-opus-5-5 (thinking adaptive)"\nagain');
+    expect((await prompt(name, "again")).text).toBe(`${CLAUDE}\nagain`);
     expect(await calls(name)).toHaveLength(1);
+  });
+
+  it("stands in for a provider whose breaker opened, on another provider", async () => {
+    const name = await fresh("keyed");
+    await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    await inside(name, (instance) => instance.applyMain());
+    await agent(name).workersAI(false);
+
+    // Workers AI answers 429, which opens its breaker; from then on calls run on OpenCode Go.
+    await prompt(name, "first");
+    expect((await prompt(name, "second")).text).toBe("echo: second");
+
+    const sent = await calls(name);
+    expect(sent[0]).toMatchObject({ model: GLM });
+    expect(sent.at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
   });
 });
 
-describe("naming chats and tasks with the titles slot", () => {
-  it("asks Claude's small model without thinking while the Mac is online, and keeps the bare title", async () => {
-    const name = await fresh(true);
-
-    expect(await title(name, "Plan a trip to Lisbon")).toBe("Claude claude-haiku-4-5 (thinking disabled)");
-    expect(await calls(name)).toEqual([]);
-  });
-
-  it("asks the cloud model, still without thinking, while the Mac is away", async () => {
-    const name = await fresh(false);
+describe("naming chats and tasks on the background purpose", () => {
+  it("asks Workers AI even while the Mac is online, and keeps the bare title", async () => {
+    const name = await fresh("mac-up");
 
     expect(await title(name, "Plan a trip to Lisbon")).toBe("Named: Plan a trip to Lisbon");
-    expect((await calls(name)).map(({ model, reasoning }) => ({ model, reasoning }))).toEqual([
-      { model: "faux", reasoning: null }
+    expect((await calls(name)).map(({ model, system }) => ({ model, named: system.startsWith("You name things") }))).toEqual([
+      { model: GLM, named: true }
     ]);
-  });
-
-  it("keeps its light thinking on the stand-in when the Mac has just gone away", async () => {
-    const name = await fresh(true);
-    await agent(name).macLeaves();
-
-    expect(await title(name, "Plan a trip")).toBe("Named: Plan a trip");
-    expect((await calls(name)).map(({ reasoning }) => reasoning)).toEqual([null]);
   });
 
   it("gives up quietly when the model fails or there is nothing to name", async () => {
-    const online = await fresh(true);
-    const away = await fresh(false);
+    const name = await fresh("bare");
 
-    // fake-vibeproxy.ts fails on "fail", the faux model on "no-title".
-    expect(await title(online, "fail no-title")).toBeNull();
-    expect(await title(away, "fail no-title")).toBeNull();
-    expect(await title(online, "   ")).toBeNull();
+    // The fake AI script refuses "no-title" with a 400.
+    expect(await title(name, "no-title")).toBeNull();
+    expect(await title(name, "   ")).toBeNull();
   });
 
   it("trims a long title to fit", async () => {
-    const name = await fresh(false);
+    const name = await fresh("bare");
     const named = await title(name, "a".repeat(80));
 
     expect(named).toHaveLength(60);
@@ -187,24 +202,24 @@ describe("naming chats and tasks with the titles slot", () => {
   });
 });
 
-describe("whether a slot's model reads images", () => {
-  it("checks the model the slot runs on", async () => {
-    const name = await fresh(false);
+describe("whether a purpose's model reads images", () => {
+  it("checks the model the purpose runs on", async () => {
+    const name = await fresh("bare");
 
     expect(await imageSupport(name, "main")).toBeNull();
-    await set(name, "subagents", { provider: "faux", modelId: "faux-text", thinkingLevel: "off" });
-    expect(await imageSupport(name, "subagents")).toMatch(/^Faux Text can't read images/);
+    await set(name, "worker", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" });
+    expect(await imageSupport(name, "worker")).toMatch(/^GPT OSS 120B can't read images/);
   });
 
-  it("checks the fallback model while the slot's provider is away", async () => {
-    const name = await fresh(true);
-    expect(await set(name, "fallback", { provider: "faux", modelId: "faux-text", thinkingLevel: "off" })).toMatchObject({
-      modelId: "faux-text"
+  it("checks the fallback's model while the purpose's provider is away", async () => {
+    const name = await fresh("mac-up");
+    expect(await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" })).toMatchObject({
+      modelId: GPT_OSS
     });
     // Claude reads images.
     expect(await imageSupport(name, "main")).toBeNull();
 
     await agent(name).macLeaves();
-    expect(await imageSupport(name, "main")).toMatch(/^Faux Text can't read images/);
+    expect(await imageSupport(name, "main")).toMatch(/^GPT OSS 120B can't read images/);
   });
 });

@@ -2,42 +2,48 @@ import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
+  FetchFunction,
   Message,
   Model,
   ModelThinkingLevel,
   SimpleStreamOptions,
   TranscriptContext
 } from "@earendil-works/pi-ai";
+import type { AiBinding } from "@earendil-works/pi-ai/api/cloudflare-ai-binding";
 import {
   createModels,
   getSupportedThinkingLevels,
   type MutableModels,
   type Provider
 } from "@earendil-works/pi-ai/models";
-import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
-import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
-import { type ModelOption, type ProviderInfo, Settings, type Slot, type SlotSetting } from "./settings";
-import { VIBEPROXY_PROVIDER } from "./vibeproxy";
+import type { AgentChange } from "@earendil-works/pi-durable";
+import { type ApiKeySecret, apiKey, apiKeyRecord, VENDORS } from "./providers/api-key";
+import type { Breaker } from "./providers/breaker";
+import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
+import { type VibeProxyConfig, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
+import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./providers/workers-ai";
+import {
+  type ModelChoice,
+  type ModelOption,
+  nearestLevel,
+  type ProviderInfo,
+  type Purpose,
+  Settings,
+  type SettingsView
+} from "./settings";
 
 /**
- * Which model does what. This owns the catalog of providers, the four slots
- * (kept by Settings), `resolve(slot)`, the stand-in when a provider is
- * unreachable, and whether a slot's model reads images.
+ * Which model does what (C5). This owns the providers this deploy has (their
+ * records, and each made live by its module in providers/), the one pi
+ * registry every call goes through, the user's choice per purpose (kept by
+ * Settings), and `resolve(purpose, need)`, the only way a model is picked.
  *
- * A provider that can go away (Claude on the user's Mac) has a probe. A turn
- * on such a provider asks the probe once when it starts, then streams from
- * exactly one provider: that one when it answers, else the fallback slot's.
+ * A provider is healthy while it is connected (VibeProxy's probe answers)
+ * and its circuit breaker is closed. Each call asks once when it starts,
+ * then streams from exactly one provider: the one asked for while it is
+ * healthy, else the fallback purpose's.
  */
-
-/** The model the main agent uses on Claude. */
-export const CLAUDE_MODEL = "claude-opus-5-5";
-
-/** Small and quick: names chats and tasks. */
-export const CLAUDE_SMALL = "claude-haiku-4-5";
-
-/** The one OpenCode Go model the catalog offers: subagents, and the main agent while Claude is away. */
-const OPENCODE_MODEL = "deepseek-v4.1-flash";
 
 /** The context window pi's harness is told for every model; see `compacting`. */
 export const CONTEXT_WINDOW = 136_000;
@@ -48,94 +54,95 @@ export type AskLimits = { readonly timeoutMs: number; readonly maxTokens: number
 /** Room for a model that cannot stop thinking to think, then answer. */
 const SHORT: AskLimits = { timeoutMs: 30_000, maxTokens: 2_000 };
 
-/** A pi provider plus what the catalog shows about it. */
+/** A provider record made live: pi's provider, sending through its transport, and what the catalog shows about it. */
 export type Endpoint = {
   readonly provider: Provider;
-  /** The name the Models settings show. */
+  /** The name Settings shows. */
   readonly name: string;
   /** What connects it, when it is not. */
   readonly needs: string;
-  /** The models offered in the catalog. */
+  /** The models offered; the first is the provider's default. */
   readonly models: readonly Model<Api>[];
+  /** The thinking level its models run at by default. */
+  readonly thinkingLevel: ModelThinkingLevel;
+  /** Opens on a response that says the provider can't take requests now. */
+  readonly breaker: Breaker;
   /** It took requests when last checked; never waits. */
   readonly connected: () => boolean;
-  /** Ask it now (or reuse a fresh answer). Providers with a probe fall back to the fallback slot when it says no. */
+  /** Ask it now (or reuse a fresh answer), for a provider that can go away. */
   readonly reachable?: () => Promise<boolean>;
-  /** The secret pi resolves this provider's key from, by name. */
-  readonly apiKey?: { readonly name: string; readonly value: string | undefined };
 };
 
-/** What a slot runs on right now. */
+/** What the models reach outside the Worker: production's in server.ts, the fakes' in src/tests/stack.ts. */
+export type ModelsBoundary = {
+  /** Workers AI, which every deploy has. */
+  readonly ai: AiBinding;
+  /** A secret by name, for the api-key providers. */
+  readonly secrets: (name: ApiKeySecret) => string | undefined;
+  /** How api-key providers reach their vendors. */
+  readonly fetch: FetchFunction;
+  /** The tunnel to VibeProxy on a computer of the user's, when this deploy has one. */
+  readonly vibeProxy?: Pick<VibeProxyConfig, "binding" | "origin" | "key">;
+  /** How long a VibeProxy probe's answer is reused; vibeproxy.ts's default when unset. */
+  readonly probeTtlMs?: number;
+};
+
+/** What a purpose may need of the model ky picks for it. A user's own choice stands even when it lacks them. */
+export type Need = {
+  readonly images?: boolean;
+};
+
+/** What a purpose runs on. */
 export type Resolved = {
-  readonly provider: Provider;
+  readonly choice: ModelChoice;
   readonly model: Model<Api>;
-  readonly thinkingLevel: ModelThinkingLevel;
-  /** The key to send with a direct request, when the provider takes one. */
-  readonly apiKey: string | undefined;
-  /** The slot's provider is unreachable, so this is the fallback slot's model. */
-  readonly fellBack: boolean;
 };
 
 /**
- * OpenCode Go in the cloud, always on while its key is set. The catalog offers one model of it: `modelId`,
- * or pi-ai's first OpenCode Go model once pi-ai no longer has that one. It is in the catalog even without
- * its key, since the slot defaults end on it.
+ * The order "best" follows when ky picks: a model on the user's own computer, then a vendor they pay with a key,
+ * then Workers AI.
  */
-export function opencodeGo(key: string | undefined, modelId = OPENCODE_MODEL): Endpoint {
-  const provider = opencodeGoProvider();
-  const models = provider.getModels();
-  // SAFETY: pi-ai's OpenCode Go provider ships a fixed, non-empty model list.
-  const model = models.find((each) => each.id === modelId) ?? models[0]!;
+const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 0, "api-key": 1, "workers-ai": 2 };
 
-  return {
-    provider,
-    name: "OpenCode Go",
-    needs: "the OPENCODE_API_KEY secret",
-    models: [model],
-    connected: () => Boolean(key),
-    apiKey: { name: "OPENCODE_API_KEY", value: key }
-  };
-}
-
-/**
- * ky's slot defaults: Claude while VibeProxy answers, else the cheap cloud
- * model. Each slot lists its choices in order; the first whose provider is
- * connected wins, and the last is used when none is.
- */
-export function kyDefaults(cheap: { readonly provider: string; readonly modelId: string }): Record<
-  Slot,
-  readonly SlotSetting[]
-> {
-  const high: SlotSetting = { ...cheap, thinkingLevel: "high" };
-
-  return {
-    main: [{ provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_MODEL, thinkingLevel: "medium" }, high],
-    subagents: [high],
-    fallback: [high],
-    titles: [
-      { provider: VIBEPROXY_PROVIDER, modelId: CLAUDE_SMALL, thinkingLevel: "off" },
-      { ...high, thinkingLevel: "off" }
-    ]
-  };
+/** A choice as a conversation's agent takes it. */
+export function agentModel({ provider, modelId, thinkingLevel }: ModelChoice): AgentChange {
+  return { model: { provider, modelId }, thinkingLevel };
 }
 
 export class Models {
   readonly settings: Settings;
+  /** pi's registry, for the harness and for every call ky makes itself. */
+  readonly registry: MutableModels;
   readonly #endpoints: readonly Endpoint[];
-  readonly #defaults: Readonly<Record<Slot, readonly SlotSetting[]>>;
 
-  constructor(
-    sql: SqlStorage,
-    endpoints: readonly Endpoint[],
-    defaults: Readonly<Record<Slot, readonly SlotSetting[]>>
-  ) {
-    this.#endpoints = endpoints;
-    this.#defaults = defaults;
-    this.settings = new Settings(
-      sql,
-      () => this.catalog(),
-      () => this.#defaultSettings()
-    );
+  /** `onChange` is called when a provider that can go away comes online or goes away. */
+  constructor(sql: SqlStorage, boundary: ModelsBoundary, onChange: () => void) {
+    const records = new ProviderRecords(sql);
+    records.add(WORKERS_AI_RECORD);
+
+    if (boundary.vibeProxy) records.add(vibeProxyRecord(boundary.vibeProxy.origin));
+
+    for (const vendor of VENDORS) if (boundary.secrets(vendor.secret)) records.add(apiKeyRecord(vendor));
+
+    this.#endpoints = records
+      .list()
+      .filter((record) => record.enabled)
+      .sort((a, b) => RANK[a.kind] - RANK[b.kind])
+      .flatMap((record) => live(record, boundary, onChange) ?? []);
+    this.settings = new Settings(sql, (choice) => this.valid(choice));
+    this.registry = createModels({
+      authContext: {
+        // Only the vendors' keys, never the rest of the Worker's env.
+        env: async (name) => {
+          const vendor = VENDORS.find((each) => each.secret === name);
+
+          return vendor ? boundary.secrets(vendor.secret) || undefined : undefined;
+        },
+        fileExists: async () => false
+      }
+    });
+
+    for (const endpoint of this.#endpoints) this.registry.setProvider(compacting(this.#routed(endpoint)));
   }
 
   catalog(): ProviderInfo[] {
@@ -148,91 +155,95 @@ export class Models {
     }));
   }
 
-  model(provider: string, modelId: string): Model<Api> {
-    const model = this.#endpoint(provider).provider.getModels().find((each) => each.id === modelId);
+  view(): SettingsView {
+    return {
+      providers: this.catalog(),
+      purposes: {
+        main: this.resolve("main").choice,
+        worker: this.resolve("worker").choice,
+        background: this.resolve("background").choice,
+        fallback: this.resolve("fallback").choice
+      }
+    };
+  }
 
-    if (!model) throw new TypeError(`No ${provider} model "${modelId}" in pi-ai's catalog.`);
-
-    return model;
+  /** Ask every provider that can go away now, or reuse a fresh answer. */
+  async probe(): Promise<void> {
+    await Promise.all(this.#endpoints.map((endpoint) => endpoint.reachable?.()));
   }
 
   /**
-   * The provider, model and thinking level a slot runs on now. A slot whose
-   * provider does not answer gets the fallback slot's model; the titles slot
-   * keeps its own light thinking there, so names stay quick.
+   * What a purpose runs on: the user's choice while its provider is connected, else the purpose's default.
+   *
+   * - main: the best connected model, with its provider's thinking level;
+   * - worker: main's;
+   * - background: Workers AI's default model, without thinking;
+   * - fallback: the best healthy model on another provider than main's, else the best that isn't main's model.
+   *
+   * A call whose provider is down when it starts runs on the user's fallback, else on the default fallback from its
+   * own model (#standIn).
+   *
+   * A default meets `need` when a connected model does.
    */
-  async resolve(slot: Slot): Promise<Resolved> {
-    const own = this.settings.get(slot);
-    const reachable = this.#endpoint(own.provider).reachable;
+  resolve(purpose: Purpose, need: Need = {}): Resolved {
+    const choice = this.settings.get(purpose) ?? this.#default(purpose, need);
 
-    if (slot === "fallback" || !reachable || (await reachable())) return this.#resolved(own, own.thinkingLevel, false);
-
-    const standIn = this.settings.get("fallback");
-
-    return this.#resolved(standIn, slot === "titles" ? own.thinkingLevel : standIn.thinkingLevel, true);
+    return { choice, model: this.#model(choice) };
   }
 
-  /** Why the model a slot runs on now can't read images, or null when it can. */
-  async imageSupport(slot: Slot): Promise<string | null> {
-    const { model } = await this.resolve(slot);
+  /** A task's own model while it can run, else the worker's: for specialists and automations. */
+  worker(own?: ModelChoice | null): ModelChoice {
+    return (own && this.valid(own)) ?? this.resolve("worker").choice;
+  }
+
+  /** The choice as it can run: a connected provider, a model it offers, its nearest level; undefined when it cannot. */
+  valid(choice: ModelChoice): ModelChoice | undefined {
+    const endpoint = this.#endpoints.find((each) => each.provider.id === choice.provider && each.connected());
+    const model = endpoint?.models.find((each) => each.id === choice.modelId);
+
+    if (!model) return undefined;
+
+    return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), choice.thinkingLevel) };
+  }
+
+  /** Why the model a purpose runs on now, or its stand-in while its provider is down, can't read images; null when it can. */
+  async imageSupport(purpose: Purpose): Promise<string | null> {
+    const own = this.resolve(purpose, { images: true }).model;
+    const model = (await this.#healthy(this.#endpoint(own.provider))) ? own : (this.#standIn(own)?.model ?? own);
 
     if (model.input.includes("image")) return null;
 
     return `${model.name} can't read images. Pick a model that can in Models, or send text only.`;
   }
 
-  /** One short answer from a slot's model. */
-  async complete(slot: Slot, system: string, text: string): Promise<string> {
-    const answer = await this.ask(slot, system, [{ role: "user", content: text, timestamp: Date.now() }]);
+  /** One short answer from a purpose's model. */
+  async complete(purpose: Purpose, system: string, text: string): Promise<string> {
+    const answer = await this.ask(purpose, system, [{ role: "user", content: text, timestamp: Date.now() }]);
 
     return textOf(answer);
   }
 
-  /** A slot's model's next message after `messages`, outside any conversation; it throws when the model fails. */
-  async ask(slot: Slot, system: string, messages: Message[], limits: AskLimits = SHORT): Promise<AssistantMessage> {
-    const { provider, model, thinkingLevel, apiKey } = await this.resolve(slot);
+  /** A purpose's model's next message after `messages`, outside any conversation; it throws when the model fails. */
+  async ask(purpose: Purpose, system: string, messages: Message[], limits: AskLimits = SHORT): Promise<AssistantMessage> {
+    const { choice, model } = this.resolve(purpose);
     // Cleared once the model answers: a timer still pending keeps the object from stopping until it fires.
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), limits.timeoutMs);
+    const options: SimpleStreamOptions = { maxTokens: limits.maxTokens, signal: timeout.signal };
 
-    const options: SimpleStreamOptions = {
-      maxTokens: limits.maxTokens,
-      // OpenCode Go routes by session and refuses requests without one.
-      sessionId: `ky-${slot}`,
-      signal: timeout.signal
-    };
-
-    if (thinkingLevel !== "off") options.reasoning = thinkingLevel;
-
-    if (apiKey) options.apiKey = apiKey;
-
-    const context = normalizeContext({ systemPrompt: system, messages });
+    if (choice.thinkingLevel !== "off") options.reasoning = choice.thinkingLevel;
 
     let answer: AssistantMessage;
 
     try {
-      answer = await provider.streamSimple(model, context, options).result();
+      answer = await this.registry.completeSimple(model, { systemPrompt: system, messages }, options);
     } finally {
       clearTimeout(timer);
     }
 
-    if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? `The ${slot} model failed.`);
+    if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? `The ${purpose} model failed.`);
 
     return answer;
-  }
-
-  /** pi's model registry for the harness. A provider with a probe falls back per turn. */
-  registry(): MutableModels {
-    const registry = createModels({
-      authContext: {
-        env: async (name) => this.#endpoints.find((each) => each.apiKey?.name === name)?.apiKey?.value || undefined,
-        fileExists: async () => false
-      }
-    });
-
-    for (const endpoint of this.#endpoints) registry.setProvider(compacting(this.#routed(endpoint)));
-
-    return registry;
   }
 
   #endpoint(provider: string): Endpoint {
@@ -243,40 +254,69 @@ export class Models {
     return endpoint;
   }
 
-  #resolved(setting: SlotSetting, wanted: ModelThinkingLevel, fellBack: boolean): Resolved {
-    const endpoint = this.#endpoint(setting.provider);
-    const model = this.model(setting.provider, setting.modelId);
-    const levels = getSupportedThinkingLevels(model);
+  #model({ provider, modelId }: ModelChoice): Model<Api> {
+    const model = this.#endpoint(provider).models.find((each) => each.id === modelId);
 
-    return {
-      provider: endpoint.provider,
-      model,
-      // A level the model lacks becomes its lightest.
-      thinkingLevel: levels.includes(wanted) ? wanted : (levels[0] ?? "off"),
-      apiKey: endpoint.apiKey?.value || undefined,
-      fellBack
-    };
+    if (!model) throw new TypeError(`No ${provider} model "${modelId}".`);
+
+    return model;
   }
 
-  #defaultSettings(): Record<Slot, SlotSetting> {
-    const connected = new Set(this.catalog().flatMap((each) => (each.connected ? [each.id] : [])));
-
-    const pick = (choices: readonly SlotSetting[]) =>
-      choices.find((each) => connected.has(each.provider)) ?? choices.at(-1)!;
-
-    return {
-      main: pick(this.#defaults.main),
-      subagents: pick(this.#defaults.subagents),
-      fallback: pick(this.#defaults.fallback),
-      titles: pick(this.#defaults.titles)
-    };
+  /** Connected, and its breaker closed. Asks a provider that can go away afresh. */
+  async #healthy(endpoint: Endpoint): Promise<boolean> {
+    return (await (endpoint.reachable?.() ?? true)) && endpoint.breaker.closed();
   }
 
-  /** The provider pi streams through: as is, or asking its probe once per turn and standing in when it says no. */
+  #default(purpose: Purpose, need: Need): ModelChoice {
+    const connected = this.#endpoints.filter((endpoint) => endpoint.connected());
+    const workersAI = this.#endpoint(WORKERS_AI);
+    // SAFETY: Workers AI is always connected, and its catalog is fixed and non-empty.
+    const first = workersAI.models[0]!;
+
+    switch (purpose) {
+      case "main":
+        return best(connected, need) ?? best(connected)!;
+      case "worker":
+        return this.resolve("main", need).choice;
+      case "background":
+        return { ...choiceOf(workersAI, first), thinkingLevel: nearestLevel(getSupportedThinkingLevels(first), "off") };
+      case "fallback": {
+        const main = this.resolve("main");
+
+        return this.#fallback(main.model, need) ?? main.choice;
+      }
+    }
+  }
+
+  /** The best healthy model on another provider than `from`'s, else the best that isn't `from`. */
+  #fallback(from: Model<Api>, need: Need = {}): ModelChoice | undefined {
+    const connected = this.#endpoints.filter((endpoint) => endpoint.connected());
+    const healthy = connected.filter((endpoint) => endpoint.breaker.closed());
+    const elsewhere = healthy.filter((endpoint) => endpoint.provider.id !== from.provider);
+
+    return best(elsewhere, need) ?? best(healthy, need, from) ?? best(connected, {}, from);
+  }
+
+  /**
+   * What a call on `model`, whose provider is down, runs on instead: the user's fallback, else the default fallback
+   * from that model, at its level; none when that is on the same provider.
+   */
+  #standIn(model: Model<Api>, options?: SimpleStreamOptions): { model: Model<Api>; options: SimpleStreamOptions } | undefined {
+    const choice = this.settings.get("fallback") ?? this.#fallback(model);
+
+    if (!choice || choice.provider === model.provider) return undefined;
+    const standIn = this.#model(choice);
+
+    // Auth is resolved again for the fallback's provider. It thinks at its own level, or not at all when the call asked for none.
+    const { reasoning, apiKey: _apiKey, headers: _headers, ...rest } = options ?? {};
+    const level = nearestLevel(getSupportedThinkingLevels(standIn), reasoning ? choice.thinkingLevel : "off");
+
+    return { model: standIn, options: level === "off" ? rest : { ...rest, reasoning: level } };
+  }
+
+  /** The provider pi streams through: each call asks whether it is healthy, and runs on the fallback's model when not. */
   #routed(endpoint: Endpoint): Provider {
-    const { provider, reachable } = endpoint;
-
-    if (!reachable) return provider;
+    const { provider } = endpoint;
 
     const streamSimple = (
       model: Model<Api>,
@@ -287,11 +327,13 @@ export class Models {
 
       void (async () => {
         try {
-          const up = await reachable();
+          const standIn = (await this.#healthy(endpoint)) ? undefined : this.#standIn(model, options);
 
-          if (!up) console.warn(`${endpoint.name} is unreachable; this turn runs on the fallback model.`);
+          if (standIn) console.warn(`${endpoint.name} is down; this call runs on ${standIn.model.name}.`);
 
-          const inner = up ? provider.streamSimple(model, context, options) : this.#standIn(context, options);
+          const inner = standIn
+            ? this.registry.streamSimple(standIn.model, context, standIn.options)
+            : provider.streamSimple(model, context, options);
 
           for await (const event of inner) out.push(event);
           out.end(await inner.result());
@@ -305,20 +347,44 @@ export class Models {
 
     return { ...provider, streamSimple };
   }
+}
 
-  /** The fallback slot's model streams the turn, with its own thinking level and key. */
-  #standIn(context: TranscriptContext, options: SimpleStreamOptions | undefined): AssistantMessageEventStream {
-    const setting = this.settings.get("fallback");
-    const { provider, model, thinkingLevel, apiKey } = this.#resolved(setting, setting.thinkingLevel, true);
-    const { reasoning: _reasoning, apiKey: _apiKey, ...rest } = options ?? {};
-    const standIn: SimpleStreamOptions = { ...rest };
+/** A record's provider made live, when its transport is there now. */
+function live(record: ProviderRecord, boundary: ModelsBoundary, onChange: () => void): Endpoint | undefined {
+  switch (record.kind) {
+    case "workers-ai":
+      return workersAI(boundary.ai);
+    case "api-key": {
+      const vendor = VENDORS.find((each) => each.id === record.vendor);
 
-    if (thinkingLevel !== "off") standIn.reasoning = thinkingLevel;
+      return vendor && boundary.secrets(vendor.secret) ? apiKey(vendor, boundary.fetch) : undefined;
+    }
 
-    if (apiKey) standIn.apiKey = apiKey;
-
-    return provider.streamSimple(model, context, standIn);
+    case "runner-local":
+      // Node P reaches runner-local providers through their machine's runner; until then only VibeProxy's tunnel.
+      return record.id === VIBEPROXY_PROVIDER && boundary.vibeProxy
+        ? vibeProxy({ ...boundary.vibeProxy, probeTtlMs: boundary.probeTtlMs, onChange })
+        : undefined;
   }
+}
+
+/** The first model of `endpoints`, in order, that meets `need` and isn't `except`. */
+function best(endpoints: readonly Endpoint[], need: Need = {}, except?: Model<Api>): ModelChoice | undefined {
+  for (const endpoint of endpoints) {
+    const model = endpoint.models.find((each) => each !== except && (!need.images || each.input.includes("image")));
+
+    if (model) return choiceOf(endpoint, model);
+  }
+
+  return undefined;
+}
+
+function choiceOf(endpoint: Endpoint, model: Model<Api>): ModelChoice {
+  return {
+    provider: endpoint.provider.id,
+    modelId: model.id,
+    thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), endpoint.thinkingLevel)
+  };
 }
 
 /**

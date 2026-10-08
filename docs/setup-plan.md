@@ -212,7 +212,8 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
 ### C5. Providers and purposes (`src/models.ts` and `src/providers/*`)
 
 - **Provider records** are stored in `ky_providers`:
-  `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor?, machine?, port?, api?, label, enabled }`.
+  `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor, machine, port, api, label, enabled }`, where
+  `vendor`, `machine`, `port` and `api` are `null` for a kind that has none (changed in M: they were optional).
   The credential for an `api-key` record lives in the Vault under `("provider", id)`.
 - **Purposes:**
 
@@ -221,12 +222,20 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
 | `main` | Best connected |
 | `worker` (subagents, specialists, automations) | `main` |
 | `background` (titles, memory summaries, dreams, skill reviews) | Workers AI, thinking off |
-| `fallback` | First healthy model that isn't `main` |
+| `fallback` | Best healthy model on another provider than `main`'s; else the best that isn't `main`'s model |
 
-- **API:**
-  - `models.resolve(purpose, need?: { tools?, images?, context? })` returns a model and thinking level.
-  - It's the only way any caller picks a model.
-  - `imageSupport` asks it.
+- `main` is the best connected provider's default, ranked runner-local, then api-key, then Workers AI.
+- **API** (changed in M):
+  - `models.resolve(purpose, need?: { images? })` returns `{ choice, model }`: the user's choice for the purpose
+    while it can run, else the default above. It is synchronous and doesn't check health.
+  - Every provider offers only tool-capable models, so `need` has no `tools`; pi compacts by the model's own
+    window, so it has no `context`.
+  - Health is checked per call, as the call starts: VibeProxy's probe, and every provider's breaker on
+    401/402/429/5xx. A call whose provider is down runs on a stand-in: the user's `fallback` choice, else the best
+    healthy model on another provider than the failing one. There is no stand-in on the same provider.
+  - It's the only way any caller picks a model. `imageSupport(purpose)` asks it, and answers for the stand-in's
+    model while the purpose's provider is down.
+  - Workers AI's three models take no reasoning effort, so a thinking level is shown and stored but not sent.
 
 ### C6. Owner overlay
 

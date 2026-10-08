@@ -11,7 +11,7 @@
  *   login       the sign-in page answers
  *   auth        a wrong token is refused, the right one opens the app
  *   hello       the session socket says hello with ky's tools
- *   cloud       the cloud model provider has its key (OPENCODE_API_KEY)
+ *   cloud       a cloud model provider is connected (Workers AI, on every deploy)
  *   vibeproxy   VibeProxy is connected: the Mac is online with it running
  *
  * `vibeproxy` fails, correctly, while the Mac is away. What a read cannot

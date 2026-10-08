@@ -2,6 +2,7 @@ import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { OUTDATED, PROTOCOL, REVOKED } from "../runner-protocol";
 import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, TOKEN, until, wait } from "./drive";
+import { GPT_OSS } from "./stack";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
 
@@ -127,12 +128,12 @@ describe("the session WebSocket protocol", () => {
       JSON.stringify({
         type: "set-model",
         id: "m1",
-        slot: "main",
-        setting: { provider: "faux", modelId: "faux-text", thinkingLevel: "off" }
+        purpose: "main",
+        choice: { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" }
       })
     );
     await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "m1"));
-    expect(await refusal("blind", [PICTURE])).toMatch(/^Faux Text can't read images/);
+    expect(await refusal("blind", [PICTURE])).toMatch(/^GPT OSS 120B can't read images/);
     expect(client.view().messages).toEqual([]);
     socket.close();
   });

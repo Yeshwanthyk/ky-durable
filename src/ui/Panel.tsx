@@ -11,12 +11,13 @@ import type {
   SkillRow,
   SkillVersion,
   MemoryView,
+  ModelChoice,
+  ModelOption,
+  Purpose,
   SoulChange,
   SoulVersion,
   SoulView,
   SpecialistView,
-  Slot,
-  SlotSetting,
   TaskRow,
   ToolInfo,
 } from "../protocol";
@@ -105,7 +106,7 @@ export function Panel({
   specialistActions: SpecialistActions;
   theme: Theme;
   onTheme: (theme: Theme) => void;
-  onSetModel: (slot: Slot, setting: SlotSetting) => void;
+  onSetModel: (purpose: Purpose, choice: ModelChoice) => void;
   onSkillChange: (change: SkillChange) => void;
   onSkillHistory: (name: string) => Promise<readonly SkillVersion[]>;
   onSoulChange: (change: SoulChange) => void;
@@ -714,14 +715,14 @@ function TaskItem({
   );
 }
 
-const SLOTS: ReadonlyArray<{ slot: Slot; label: string; hint: string }> = [
-  { slot: "main", label: "Main agent", hint: "Talks to you, in every chat" },
-  { slot: "subagents", label: "Subagents", hint: "Research and parallel work" },
-  { slot: "fallback", label: "Fallback", hint: "When the Mac is away" },
-  { slot: "titles", label: "Titles", hint: "Names chats and tasks. Small and quick is best" },
+const PURPOSES: ReadonlyArray<{ purpose: Purpose; label: string; hint: string }> = [
+  { purpose: "main", label: "Main agent", hint: "Talks to you, in every chat" },
+  { purpose: "worker", label: "Worker", hint: "Subagents, specialists and automations" },
+  { purpose: "background", label: "Background", hint: "Titles, memory, dreams and skill reviews. Small and quick is best" },
+  { purpose: "fallback", label: "Fallback", hint: "Answers when a provider is down" },
 ];
 
-const LEVELS: Partial<Record<SlotSetting["thinkingLevel"], string>> = {
+const LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = {
   off: "Off",
   minimal: "Minimal",
   low: "Low",
@@ -731,11 +732,20 @@ const LEVELS: Partial<Record<SlotSetting["thinkingLevel"], string>> = {
   max: "Max",
 };
 
-const SLOT_ICONS: Record<Slot, IconName> = { main: "chat", subagents: "nodes", fallback: "cloud", titles: "pencil" };
+const PURPOSE_ICONS: Record<Purpose, IconName> = { main: "chat", worker: "nodes", background: "pencil", fallback: "cloud" };
 
-// A role's row shows what it runs; open, it lists the models to pick from and how hard to think.
+// What a purpose runs, as its row shows it: the model, its provider and, when the model has a choice, how hard it thinks.
+function summaryOf(current: ModelChoice, provider: ProviderInfo | undefined, model: ModelOption | undefined): string {
+  const parts = [model?.name ?? current.modelId, provider?.name ?? current.provider];
+
+  if ((model?.levels.length ?? 0) > 1) parts.push(LEVELS[current.thinkingLevel] ?? current.thinkingLevel);
+
+  return parts.join(" · ");
+}
+
+// A purpose's row shows what it runs; open, it lists the models to pick from and how hard to think.
 function ModelRow({
-  slot,
+  purpose,
   label,
   hint,
   settings,
@@ -743,35 +753,29 @@ function ModelRow({
   onToggle,
   onSet,
 }: {
-  slot: Slot;
+  purpose: Purpose;
   label: string;
   hint: string;
   settings: SettingsView;
   open: boolean;
   onToggle: () => void;
-  onSet: (slot: Slot, setting: SlotSetting) => void;
+  onSet: (purpose: Purpose, choice: ModelChoice) => void;
 }) {
-  const current = settings.slots[slot];
+  const current = settings.purposes[purpose];
   const connected = settings.providers.filter((provider) => provider.connected);
-
-  const model = settings.providers
-    .find((provider) => provider.id === current.provider)
-    ?.models.find((each) => each.modelId === current.modelId);
-
-  const level = model && model.levels.length > 1 ? (LEVELS[current.thinkingLevel] ?? current.thinkingLevel) : null;
+  const provider = settings.providers.find((each) => each.id === current.provider);
+  const model = provider?.models.find((each) => each.modelId === current.modelId);
+  const levels = model?.levels ?? [];
 
   return (
     <li className="model-row" data-open={open}>
       <button type="button" className="row disclosure" aria-expanded={open} onClick={onToggle}>
         <span className="row-tile">
-          <Icon name={SLOT_ICONS[slot]} size={15} />
+          <Icon name={PURPOSE_ICONS[purpose]} size={15} />
         </span>
         <span className="row-text">
           <span className="row-label">{label}</span>
-          <span className="row-sub row-current">
-            {model?.name ?? current.modelId}
-            {level ? ` · ${level}` : null}
-          </span>
+          <span className="row-sub row-current">{summaryOf(current, provider, model)}</span>
         </span>
         <Icon name="chevronRight" size={14} className="row-chevron chevron" />
       </button>
@@ -791,7 +795,7 @@ function ModelRow({
                       aria-checked={chosen}
                       className="choice"
                       onClick={() =>
-                        onSet(slot, {
+                        onSet(purpose, {
                           provider: provider.id,
                           modelId: each.modelId,
                           thinkingLevel: each.levels.includes(current.thinkingLevel)
@@ -814,18 +818,18 @@ function ModelRow({
               })
             )}
           </ul>
-          {model && model.levels.length > 1 ? (
+          {levels.length > 1 ? (
             <div className="thinking">
               <span className="row-sub">Thinking</span>
               <div className="segmented small" role="radiogroup" aria-label={`${label} thinking`}>
-                {model.levels.map((each) => (
+                {levels.map((each) => (
                   <button
                     key={each}
                     type="button"
                     role="radio"
                     aria-checked={current.thinkingLevel === each}
                     className="pressable"
-                    onClick={() => onSet(slot, { ...current, thinkingLevel: each })}
+                    onClick={() => onSet(purpose, { ...current, thinkingLevel: each })}
                   >
                     {LEVELS[each] ?? each}
                   </button>
@@ -998,11 +1002,11 @@ function Settings({
   now: number;
   theme: Theme;
   onTheme: (theme: Theme) => void;
-  onSet: (slot: Slot, setting: SlotSetting) => void;
+  onSet: (purpose: Purpose, choice: ModelChoice) => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
   onSetRepo: (repo: string) => Promise<string | undefined>;
 }) {
-  const [openSlot, setOpenSlot] = useState<Slot | null>(null);
+  const [openPurpose, setOpenPurpose] = useState<Purpose | null>(null);
 
   return (
     <div className="panel-body settings" data-scroll>
@@ -1037,15 +1041,15 @@ function Settings({
           <p className="panel-note">Loading models…</p>
         ) : (
           <ul className="card">
-            {SLOTS.map(({ slot, label, hint }) => (
+            {PURPOSES.map(({ purpose, label, hint }) => (
               <ModelRow
-                key={slot}
-                slot={slot}
+                key={purpose}
+                purpose={purpose}
                 label={label}
                 hint={hint}
                 settings={settings}
-                open={openSlot === slot}
-                onToggle={() => setOpenSlot((value) => (value === slot ? null : slot))}
+                open={openPurpose === purpose}
+                onToggle={() => setOpenPurpose((value) => (value === purpose ? null : purpose))}
                 onSet={onSet}
               />
             ))}

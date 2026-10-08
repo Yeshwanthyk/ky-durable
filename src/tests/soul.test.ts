@@ -4,18 +4,15 @@ import { describe, expect, it } from "vitest";
 import { TEMPLATE } from "../soul";
 import { inside, prompt } from "./drive";
 
-/** SOUL.md through ky's real PiAgent on the faux model: the seed, the prompt section, and soul_edit's versions. */
+/** SOUL.md through ky's real PiAgent on the fake AI binding: the seed, the prompt section, and soul_edit's versions. */
 
 const tool = (args: Record<string, JsonValue>) => `tool soul_edit ${JSON.stringify(args)}`;
 
 const system = (name: string) => inside(name, (instance) => instance.boundary.calls.at(-1)?.system ?? "");
 
-/** The prompt sections the last request carried, in order, from its system entries. */
-async function sections(name: string): Promise<Record<string, string>> {
-  // SAFETY: the faux model records the system entries pi sent as JSON.
-  const entries = JSON.parse(await system(name)) as Array<{ sections?: Record<string, string> }>;
-
-  return Object.assign({}, ...entries.map((entry) => entry.sections ?? {}));
+/** The <soul> section of the last request's system prompt, as the wire carried it. */
+async function soulSection(name: string): Promise<string | undefined> {
+  return (await system(name)).match(/<soul>[\s\S]*?<\/soul>/)?.[0];
 }
 
 describe("SOUL.md", () => {
@@ -32,14 +29,18 @@ describe("SOUL.md", () => {
   it("sits in its own section before the preamble's rules, read fresh each turn", async () => {
     const name = crypto.randomUUID();
     await prompt(name, "hello");
-    const first = await sections(name);
-    expect(first.soul).toBe(`<soul>\n${TEMPLATE.trim()}\n</soul>`);
-    expect(Object.keys(first).slice(0, 3)).toEqual(["soul", "soul-rules", "preamble"]);
+    const soul = `<soul>\n${TEMPLATE.trim()}\n</soul>`;
+    expect(await soulSection(name)).toBe(soul);
+    // The soul, then its rules, then the preamble.
+    const text = await system(name);
+    expect(text.slice(0, soul.length + 2)).toBe(`${soul}\n\n`);
+    expect(text.indexOf("The <soul> section is SOUL.md")).toBe(soul.length + 2);
+    expect(text.indexOf("You are ky,")).toBeGreaterThan(soul.length);
 
     // A user edit between turns shows on the next request.
     await inside(name, (instance) => instance.soul.apply({ action: "edit", body: "# SOUL.md\nSpeak like a pirate." }, "user"));
     await prompt(name, "hello again");
-    expect((await sections(name)).soul).toBe("<soul>\n# SOUL.md\nSpeak like a pirate.\n</soul>");
+    expect(await soulSection(name)).toBe("<soul>\n# SOUL.md\nSpeak like a pirate.\n</soul>");
   });
 
   it("edits, patches and reverts through soul_edit, keeping every version", async () => {
@@ -81,6 +82,6 @@ describe("SOUL.md", () => {
   it("tells ky when to change it", async () => {
     const name = crypto.randomUUID();
     await prompt(name, "hello");
-    expect((await sections(name))["soul-rules"]).toContain("Change it with soul_edit only when the user asks or clearly agrees");
+    expect(await system(name)).toContain("Change it with soul_edit only when the user asks or clearly agrees");
   });
 });
