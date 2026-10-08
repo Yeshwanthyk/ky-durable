@@ -161,6 +161,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. |
 
 **Access bypass paths:** `/runner/*`, `/api/runners/pair`, `/api/files`, `/manifest.webmanifest`, `/icons/*`.
+`BYPASS` in `cli/deployer.ts` holds this list; the deployer's bypass app covers exactly it, so A's check must match it.
 
 ### C3. Access (`src/access.ts`)
 
@@ -219,6 +220,11 @@ revoke(kind, subject): void
 - `wrangler.jsonc` is generic.
 - `wrangler.local.jsonc` (gitignored) holds the owner's vars, the VPC binding and routes.
 - `pnpm run deploy` uses it when present; the CLI deployer writes the equivalent for CLI users.
+- The CLI's overlay is `~/.config/ky/wrangler.local.jsonc` (`$XDG_CONFIG_HOME/ky/` when set): the same format,
+  merged over the release's generic `wrangler.jsonc` by the same `applyOverlay`. `ky init` writes it with
+  `account_id`, `name`, the `FILES` bucket and `ACCESS_EMAILS`. `ky deploy` reads only that file, never a checkout's
+  `wrangler.local.jsonc`, and refuses `routes` (a custom domain deploys with `pnpm run deploy`) and `containers`
+  (until CM).
 
 ## DAG
 
@@ -378,7 +384,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - Port Scotty's `cli/binary.ts`, `deploy/compile.ts`, `deploy/release.ts`.
   - Embed the release pack: the Worker bundle and assets.
 - **Deployer** (port of `deploy/deployer.ts` over `@distilled.cloud/cloudflare`):
-  - Script with the C6 bindings; migrations on first deploy only.
+  - Script with the C6 bindings; the migrations the Worker hasn't run (all of them on the first deploy, then only
+    new ones).
   - Assets, R2 bucket, `AI` binding, secrets.
   - Access app plus a bypass app for the C2 paths. Sets `ACCESS_*` (C3).
   - Container app support is left as a hook for CM.
