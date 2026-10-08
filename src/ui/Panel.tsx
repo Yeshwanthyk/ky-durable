@@ -329,9 +329,7 @@ function MachineList({
     <section className="group machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
-        <p className="panel-note">
-          None yet. Run <code>runner/ky-runner.ts</code> on a computer.
-        </p>
+        <p className="panel-note">None yet. Add one to run tasks on your own computer.</p>
       ) : (
         <ul className="card machine-list">
           {machines.map((machine) => (
@@ -339,7 +337,57 @@ function MachineList({
           ))}
         </ul>
       )}
+      <AddMachine now={now} />
     </section>
+  );
+}
+
+type PairingCode = { code: string; expiresAt: number };
+
+// A single-use code for one more machine, and the command that pairs it with the code.
+function AddMachine({ now }: { now: number }) {
+  const [code, setCode] = useState<PairingCode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const add = async () => {
+    setError(null);
+    const response = await fetch("/api/runners/codes", { method: "POST" });
+
+    if (!response.ok) {
+      setError(`ky could not make a code (HTTP ${response.status}).`);
+
+      return;
+    }
+
+    setCode(await response.json());
+  };
+
+  return (
+    <div className="machine-add">
+      <button type="button" className="pill pressable" onClick={() => void add()}>
+        <Icon name="monitor" />
+        {code === null ? "Add a machine" : "New code"}
+      </button>
+      {error ? <p className="panel-note">{error}</p> : null}
+      {code === null ? null : <PairingCommand code={code} now={now} />}
+    </div>
+  );
+}
+
+// The command that pairs a computer with `code`, until the code expires.
+function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
+  if (code.expiresAt <= now) return <p className="panel-note">That code has expired. Make a new one.</p>;
+
+  return (
+    <div className="machine-code">
+      <p className="panel-note">
+        On the computer, in a ky checkout after <code>pnpm install</code>, run this before {clock(code.expiresAt)}; it works
+        once. Then start <code>runner/ky-runner.ts</code>.
+      </p>
+      <code className="machine-command" aria-label="Pairing command">
+        node runner/pair.ts {location.origin} {code.code}
+      </code>
+    </div>
   );
 }
 
@@ -445,6 +493,15 @@ function MachineItem({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   const about = [machineStatus(machine, now), factsLine(machine.facts)].filter(Boolean).join(" · ");
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    setConfirming(false);
+    const response = await fetch(`/api/runners/${encodeURIComponent(machine.name)}`, { method: "DELETE" });
+
+    setError(response.ok ? null : `ky could not remove ${machine.name} (HTTP ${response.status}).`);
+  };
 
   return (
     <li className="machine" data-state={machine.state}>
@@ -466,6 +523,26 @@ function MachineItem({
         maxLength={200}
         onSave={(note) => onSet(machine.name, { note })}
       />
+      {confirming ? (
+        <div className="memory-confirm machine-remove" role="alertdialog" aria-label={`Remove ${machine.name}`}>
+          <p>
+            Remove {machine.name}? Its runner stops, its tasks end, and it has to pair again to come back.
+          </p>
+          <div className="soul-form-actions">
+            <button type="button" className="pill" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+            <button type="button" className="pill soul-save" onClick={() => void remove()}>
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="machine-remove-button quiet pressable" onClick={() => setConfirming(true)}>
+          Remove
+        </button>
+      )}
+      {error ? <span className="machine-facts quiet">{error}</span> : null}
     </li>
   );
 }

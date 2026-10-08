@@ -5,10 +5,12 @@
  * Codex session on this machine, with your own `claude` or `codex` login,
  * shell, files and browser. Nothing listens on a port.
  *
- *   KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... node runner/ky-runner.ts
+ *   KY_URL=https://ky.<you>.workers.dev node runner/ky-runner.ts
  *
- * KY_TOKEN_FILE   read KY_TOKEN from this file instead
- * KY_MACHINE      name shown in ky (default: this host's name)
+ * Pair the machine first (runner/pair.ts), which keeps its token in a file.
+ *
+ * KY_RUNNER_TOKEN_FILE  the machine token (default: ~/.config/ky/runner-token), mode 600
+ * KY_MACHINE      name shown in ky (default: this host's name); the one it was paired as
  * KY_WORKDIR      where tasks run (default: ~/ky-work)
  * KY_PERMISSION_MODE  Claude Code permission mode (default: bypassPermissions)
  * KY_CLAUDE       the claude executable (default: claude)
@@ -19,35 +21,34 @@
  *
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
+ * Both send the task's own token, KY_TASK_TOKEN; a task never gets the
+ * machine token.
  *
- * A task's commands see the runner's whole environment, the user's own
+ * A task's commands see the runner's environment without ky's own KY_
+ * variables, plus C1's (KY_URL, KY_TASK, KY_TASK_TOKEN): the user's own
  * OPENAI_API_KEY and *_SECRET included, under Codex as under Claude Code
- * (Codex would drop them, and KY_TOKEN with them). An OPENAI_API_KEY here
- * also makes Codex bill that API key rather than sign in with auth.json.
+ * (Codex would drop them, and KY_TASK_TOKEN with them). An OPENAI_API_KEY
+ * here also makes Codex bill that API key rather than sign in with auth.json.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import { OUTDATED, REPLACED, RUNNER_PATH, type Agent, type MachineFacts } from "../src/runner-protocol.ts";
+import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../src/runner-protocol.ts";
 import { claudeArgs } from "./claude.ts";
 import { codexArgs } from "./codex.ts";
 import { HandledSeqs } from "./handled.ts";
+import { machineName, readToken, tokenFile } from "./identity.ts";
 import { Runner, type AgentProcess, type Link, type ProcessEvents } from "./runner.ts";
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
 
-const TOKEN = process.env.KY_TOKEN_FILE
-  ? readFileSync(process.env.KY_TOKEN_FILE, "utf8").trim()
-  : required("KY_TOKEN");
+const TOKEN = machineToken();
 
-const MACHINE = (process.env.KY_MACHINE ?? hostname().split(".")[0]!)
-  .toLowerCase()
-  .replace(/[^a-z0-9-]/g, "-")
-  .slice(0, 32);
+const MACHINE = machineName();
 
 const WORKDIR = process.env.KY_WORKDIR ?? join(homedir(), "ky-work");
 
@@ -82,11 +83,11 @@ const [path, caption] = process.argv.slice(2);
   const { readFile } = await import("node:fs/promises");
   const { basename, extname } = await import("node:path");
   if (!path) throw new Error("usage: ky-attach <file> [caption]");
-  const { KY_URL, KY_TOKEN, KY_TASK } = process.env;
-  if (!KY_URL || !KY_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
+  const { KY_URL, KY_TASK_TOKEN, KY_TASK } = process.env;
+  if (!KY_URL || !KY_TASK_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
   const type = types[extname(path).toLowerCase()];
   if (!type) throw new Error("png, jpeg, webp, gif, webm or mp4 only");
-  const headers = { "content-type": type, authorization: "Bearer " + KY_TOKEN,
+  const headers = { "content-type": type, authorization: "Bearer " + KY_TASK_TOKEN,
     "x-ky-name": encodeURIComponent(basename(path)) };
   if (caption) headers["x-ky-caption"] = encodeURIComponent(caption);
   const url = KY_URL.replace(/\\/$/, "") + "/api/files?task=" + encodeURIComponent(KY_TASK);
@@ -290,6 +291,21 @@ function version(): string {
   return head.status === 0 ? head.stdout.trim() : "unknown";
 }
 
+/** The machine token from its file, or exit saying how to pair. */
+function machineToken(): string {
+  try {
+    return readToken(tokenFile());
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+/** This process's env without ky's own variables, which are the runner's and never a task's. */
+function outsideEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("KY_")));
+}
+
 function required(name: string): string {
   const value = process.env[name];
 
@@ -389,7 +405,7 @@ const LAUNCH: Record<Agent, (task: string, session: string | null) => { command:
  * be made (EPERM, ENOSPC), it exits at once with why, as a CLI that would
  * not start does, and its turn ends failed: the run was already acked.
  */
-function spawnAgent(agent: Agent, task: string, session: string | null, events: ProcessEvents): AgentProcess {
+function spawnAgent(agent: Agent, task: string, taskToken: string, session: string | null, events: ProcessEvents): AgentProcess {
   let launch: ReturnType<(typeof LAUNCH)[Agent]>;
 
   try {
@@ -406,11 +422,13 @@ function spawnAgent(agent: Agent, task: string, session: string | null, events: 
 
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     cwd: WORKDIR,
+    // C1's env, for either agent: where ky is, which task this is, and the task's own token.
     env: {
-      ...process.env,
+      ...outsideEnv(),
       ...env,
-      KY_TOKEN: TOKEN,
+      KY_URL: URL_BASE,
       KY_TASK: task,
+      KY_TASK_TOKEN: taskToken,
       PATH: `${BIN}:${process.env.PATH ?? ""}`
     }
   });
@@ -451,8 +469,32 @@ const runner = new Runner(
 const FATAL = new Map<number | undefined, string>([
   [REPLACED, `another runner connected as ${MACHINE}; exiting. Give each machine its own KY_MACHINE.`],
   // Its goodbye, logged as it came, said which protocol ky speaks.
-  [OUTDATED, "this ky-runner speaks another protocol than ky; exiting. Update it."]
+  [OUTDATED, "this ky-runner speaks another protocol than ky; exiting. Update it."],
+  [REVOKED, `${MACHINE} was removed from ky, or its token is not ky's; exiting. Pair again: in ky, Settings, Machines, Add a machine.`]
 ]);
+
+/**
+ * Whether ky turns this runner's token away. Node's WebSocket says nothing
+ * about a refused upgrade, so a failed connect asks once over plain HTTP,
+ * where the route answers 401 for a bad token before 426 for no upgrade.
+ */
+async function refused(): Promise<boolean> {
+  try {
+    const response = await fetch(`${URL_BASE}${RUNNER_PATH}${MACHINE}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+
+    return response.status === 401;
+  } catch {
+    return false;
+  }
+}
+
+/** What to log before exiting after a close with `code`, or undefined to retry; a failed connect (no code) asks whether ky refused the token. */
+async function fatal(code: number | undefined): Promise<string | undefined> {
+  return FATAL.get(code === undefined && (await refused()) ? REVOKED : code);
+}
+
+/** How a lost socket is logged: the reason tells a malformed report (1008) apart from a flaky network. */
+const disconnected = (code: number | undefined, reason: string) => `disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""})`;
 
 let socket: WebSocket | undefined;
 
@@ -481,28 +523,27 @@ function connect() {
   ws.addEventListener("message", (event) => runner.message(String(event.data)));
 
   // Once per socket: Node fires only `error`, never `close`, when a connect fails.
-  const lost = (code: number | undefined, reason = "") => {
+  const lost = async (code: number | undefined, reason = "") => {
     if (socket !== ws) return;
     socket = undefined;
     runner.closed(link);
 
-    const fatal = FATAL.get(code);
+    const exit = await fatal(code);
 
-    if (fatal) {
-      log(fatal);
+    if (exit) {
+      log(exit);
       runner.shutdown();
       process.exit(1);
     }
 
-    // The reason tells a malformed report (1008) apart from a flaky network.
-    log(`disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""}), retrying in ${backoff / 1000}s`);
+    log(`${disconnected(code, reason)}, retrying in ${backoff / 1000}s`);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 60_000);
   };
 
-  ws.addEventListener("close", (event) => lost(event.code, event.reason));
+  ws.addEventListener("close", (event) => void lost(event.code, event.reason));
   ws.addEventListener("error", () => {
-    lost(undefined);
+    void lost(undefined);
 
     try {
       ws.close();

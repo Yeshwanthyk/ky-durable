@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Type, type Static } from "typebox";
@@ -8,8 +8,9 @@ import { REPO, TOKEN } from "./stack.ts";
 /**
  * The real runner (runner/ky-runner.ts) as its own process, with the fake
  * claude and codex (test/fakes/) as KY_CLAUDE and KY_CODEX and a throwaway
- * HOME and workdir, so it never touches the user's ~/.ky, ~/.codex or
- * ~/ky-work.
+ * HOME and workdir, so it never touches the user's ~/.ky, ~/.codex,
+ * ~/ky-work or machine token. It pairs as the user does: a code from ky,
+ * then runner/pair.ts.
  */
 
 const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
@@ -29,7 +30,9 @@ const FakeEvent = Type.Object({
   /** Codex's start: its CODEX_HOME, where its auth.json links to, and whether it was given developer instructions. */
   home: Type.Optional(Type.String()),
   auth: Type.Optional(Type.String()),
-  instructions: Type.Optional(Type.Number())
+  instructions: Type.Optional(Type.Number()),
+  /** The names of the KY_ variables the CLI was started with. */
+  ky: Type.Optional(Type.String())
 });
 
 export type FakeEvent = Static<typeof FakeEvent>;
@@ -63,6 +66,10 @@ export type Runner = {
 export type Machine = {
   name: string;
   dir: string;
+  /** Where its machine token is kept, in its HOME. */
+  tokenFile: string;
+  /** Run runner/pair.ts with `code`, as the user does: its exit code and what it logged. */
+  pair: (url: string, code: string) => Promise<{ code: number; output: string }>;
   /** What every fake claude on this machine has done, in order. */
   claude: () => FakeEvent[];
   /** What every fake codex on this machine has done, in order. */
@@ -70,13 +77,35 @@ export type Machine = {
   launch: (url: string, env?: Record<string, string>) => Runner;
 };
 
+/** A pairing code, as the signed-in user makes one in Settings. */
+export async function pairingCode(url: string): Promise<string> {
+  const response = await fetch(`${url}/api/runners/codes`, { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } });
+
+  if (!response.ok) throw new Error(`/api/runners/codes answered ${response.status}`);
+
+  // SAFETY: a 200 from /api/runners/codes is { code, expiresAt }.
+  return ((await response.json()) as { code: string }).code;
+}
+
 /** A machine: a name and a directory for its HOME, workdir, logs and fake claude and codex logs. */
 export function machine(name: string, root: string): Machine {
   const dir = path.join(root, name);
   mkdirSync(path.join(dir, "home"), { recursive: true });
   const claudeLog = path.join(dir, "claude.jsonl");
   const codexLog = path.join(dir, "codex.jsonl");
+  const home = path.join(dir, "home");
+  const tokenFile = path.join(home, ".config", "ky", "runner-token");
   let launches = 0;
+
+  const pair = (url: string, code: string) =>
+    new Promise<{ code: number; output: string }>((resolve) => {
+      execFile(
+        process.execPath,
+        ["--experimental-strip-types", "--no-warnings", path.join(REPO, "runner/pair.ts"), url, code],
+        { cwd: dir, env: { PATH: process.env.PATH ?? "", HOME: home, KY_MACHINE: name } },
+        (error, stdout, stderr) => resolve({ code: error === null ? 0 : Number(error.code ?? 1), output: `${stdout}${stderr}` })
+      );
+    });
 
   const launch = (url: string, env: Record<string, string> = {}): Runner => {
     launches++;
@@ -87,9 +116,8 @@ export function machine(name: string, root: string): Machine {
       cwd: dir,
       env: {
         PATH: process.env.PATH ?? "",
-        HOME: path.join(dir, "home"),
+        HOME: home,
         KY_URL: url,
-        KY_TOKEN: TOKEN,
         KY_MACHINE: name,
         KY_WORKDIR: path.join(dir, "work"),
         // The runner's state dir (default ~/.ky), kept with the machine so a relaunch finds it and the user's is never touched.
@@ -122,5 +150,5 @@ export function machine(name: string, root: string): Machine {
     };
   };
 
-  return { name, dir, claude: () => eventsIn(claudeLog), codex: () => eventsIn(codexLog), launch };
+  return { name, dir, tokenFile, pair, claude: () => eventsIn(claudeLog), codex: () => eventsIn(codexLog), launch };
 }

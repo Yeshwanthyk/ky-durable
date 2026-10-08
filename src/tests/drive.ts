@@ -37,6 +37,34 @@ export function call(path: string, init: RequestInit = {}, origin = ORIGIN): Pro
   return SELF.fetch(`${origin}${path}`, { ...init, headers });
 }
 
+/** A pairing code, as the signed-in user makes one in Settings. */
+export async function pairingCode(): Promise<{ code: string; expiresAt: number }> {
+  const response = await call("/api/runners/codes", { method: "POST" });
+  expect(response.status).toBe(200);
+
+  return response.json();
+}
+
+/**
+ * Pair as a runner does, signed in with nothing, from the address `from`; a
+ * fresh one by default, so only a test that means to meets the rate limit.
+ */
+export function pair(body: { code: string; name: string; facts: object }, from: string = crypto.randomUUID()): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/runners/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": from },
+    body: JSON.stringify(body)
+  });
+}
+
+/** A machine token for `machine`, from a code and a pairing. */
+export async function machineToken(machine: string): Promise<string> {
+  const response = await pair({ code: (await pairingCode()).code, name: machine, facts: FACTS });
+  expect(response.status).toBe(200);
+
+  return (await response.json<{ token: string }>()).token;
+}
+
 /** Accept the WebSocket a fetch upgraded to. */
 function accepted(response: Response): WebSocket {
   expect(response.status).toBe(101);

@@ -8,8 +8,10 @@ import { freePort } from "./stack.ts";
  * The network between a runner and the stack, which the harness can break
  * on purpose: hold the runner's reports, drop some, cut the connection, or
  * refuse new ones. Everything else passes through untouched, HTTP included
- * (ky-attach uploads through it), so reconnects are tested without touching
- * the runner.
+ * (ky-attach uploads and pairing go through it), so reconnects are tested
+ * without touching the runner. Each proxy is its machine's own address to
+ * ky (CF-Connecting-IP, which only the local stack takes from a client), so
+ * pairing's per-address limit counts each machine apart.
  */
 
 export type Gate = "accept" | "stall" | "refuse";
@@ -52,6 +54,11 @@ function turnAway(runner: Socket, protocol: number): void {
   runner.close(OUTDATED, "Outdated ky-runner; update it.");
 }
 
+/** ky's own close codes (4000 and up, such as REVOKED), which reach the runner for it to act on; any other close is the proxy's own. */
+function kyClose(code: number, reason: Buffer): [] | [number, Buffer] {
+  return code >= 4000 ? [code, reason] : [];
+}
+
 export async function startProxy(target: string): Promise<Proxy> {
   const port = await freePort();
   const reports: RunnerReport[] = [];
@@ -85,6 +92,8 @@ export async function startProxy(target: string): Promise<Proxy> {
     for (const [key, value] of Object.entries(incoming.headers)) {
       if (value !== undefined && key !== "host") headers.set(key, Array.isArray(value) ? value.join(", ") : value);
     }
+
+    headers.set("CF-Connecting-IP", `harness-${port}`);
 
     const body = chunks.length === 0 ? undefined : new Uint8Array(Buffer.concat(chunks));
     const response = await fetch(`${target}${incoming.url ?? "/"}`, { method: incoming.method, headers, body, redirect: "manual" });
@@ -143,15 +152,15 @@ export async function startProxy(target: string): Promise<Proxy> {
         else forward();
       });
 
-      const end = () => {
+      const end = (...close: [] | [number, Buffer]) => {
         live.delete(pair);
-        runner.close();
+        runner.close(close[0], close[1]);
         upstream.close();
       };
 
-      runner.on("close", end);
-      upstream.on("close", end);
-      upstream.on("error", end);
+      runner.on("close", () => end());
+      upstream.on("close", (code, reason) => end(...kyClose(code, reason)));
+      upstream.on("error", () => end());
     });
   };
 

@@ -11,7 +11,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect } from "./client.ts";
-import { machine } from "./runner.ts";
+import { machine, pairingCode } from "./runner.ts";
 import { type Context, online, SCENARIOS, Violation } from "./scenarios.ts";
 import { startProxy } from "./proxy.ts";
 import { REPO, useStack } from "./stack.ts";
@@ -57,10 +57,21 @@ for (const scenario of SCENARIOS.filter((each) => chosen.includes(each))) {
     main,
     runner: undefined,
     cleanup: [],
+    paired: async (name, through) => {
+      const proxy = through ?? (await startProxy(url));
+
+      if (!through) context.cleanup.push(() => proxy.close());
+      const each = machine(name, dir);
+      const paired = await each.pair(proxy.url, await pairingCode(url));
+
+      if (paired.code !== 0) throw new Error(`${name} did not pair: ${paired.output}`);
+
+      return each;
+    },
     machine: async (name, env = {}) => {
       const proxy = await startProxy(url);
       context.cleanup.push(() => proxy.close());
-      const each = machine(name, dir);
+      const each = await context.paired(name, proxy);
       context.runner = each.launch(proxy.url, env);
       await main.until(`${name} online`, () => online(context, name));
 

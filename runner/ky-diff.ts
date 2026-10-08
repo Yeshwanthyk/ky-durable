@@ -21,11 +21,11 @@ type Task = { url: string; token: string; task: string };
 
 /** The task this runs in, from the environment the runner gives it. */
 function taskOf(): Task {
-  const { KY_URL, KY_TOKEN, KY_TASK } = process.env;
+  const { KY_URL, KY_TASK_TOKEN, KY_TASK } = process.env;
 
-  if (!KY_URL || !KY_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
+  if (!KY_URL || !KY_TASK_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
 
-  return { url: KY_URL.replace(/\/$/, ""), token: KY_TOKEN, task: KY_TASK };
+  return { url: KY_URL.replace(/\/$/, ""), token: KY_TASK_TOKEN, task: KY_TASK };
 }
 
 /** Put the patch on the task, named for the repository and captioned with its branch. */

@@ -155,10 +155,10 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | Route | Auth | What it does |
 |---|---|---|
 | `POST /api/runners/codes` | Access | Returns `{ code, expiresAt }`. 10 minutes, single use. |
-| `POST /api/runners/pair` | none | Body `{ code, name, facts }`; returns `{ machine, token }`. Rate limited. |
-| `DELETE /api/runners/<machine>` | Access | Revokes the token and closes the socket. |
+| `POST /api/runners/pair` | none | Body `{ code, name, facts }`; returns `{ machine, token }`. Rate limited: 10 a minute per `CF-Connecting-IP`, the `PAIR_LIMIT` Workers rate-limit binding (429). A bad name or facts is a 400 and leaves the code unspent; a wrong, used or expired code is a 401. |
+| `DELETE /api/runners/<machine>` | Access | Revokes the token and closes the socket. 204, or 404 for no such machine. |
 | `POST /api/files?task=<id>` | `Bearer <taskToken>` | Matched to the task. |
-| `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. |
+| `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. The token is checked before the upgrade: a bad one is a 401 even without `Upgrade`, so a runner can probe it with a plain GET; a good one without `Upgrade` is a 426. |
 
 **Access bypass paths:** `/runner/*`, `/api/runners/pair`, `/api/files`, `/manifest.webmanifest`, `/icons/*`.
 `BYPASS` in `cli/deployer.ts` holds this list; the deployer's bypass app covers exactly it, so A's check must match it.
@@ -190,7 +190,10 @@ mint(kind, subject, ttlMs?): string                          // returns raw once
 check(kind, token): subject | null                           // a lookup by hash
 consume(kind, token): subject | null                         // check, and delete it: single use, one winner when callers race
 revoke(kind, subject): void
+issue("task", subject): string                              // added by T: the subject's live token again, or a new one if none; never replaces
 ```
+
+- **`issue` (added by T):** a task's token has to reach the runner again in every resend and follow-up while the task lives, without the agent keeping it. So the Vault stores a random nonce with the token's hash, and derives the token as HMAC-SHA256 of the nonce under a key it keeps (`ky_vault_keys`). `issue` derives it again while the row is live; once it is revoked or expired it makes a new one. Racing calls share one. `check` and `revoke` work on it as on a minted token.
 
 - **Pair codes:** each one is minted with a fresh random subject (for example `crypto.randomUUID()`), so codes outstanding at once never replace each other, and is redeemed with `consume`.
 - **`refresh(kind, id, fn)` is internal**, used inside the Vault only (by `sessionCreds`): its callback can't cross the typed RPC stub. It is a CAS on the secret's generation, which every `put` and every successful refresh bump. Callers of one generation share one `fn`. A `put` or `remove` that lands first wins, and the refresh answers with what is stored now, or null, whether `fn` succeeded or failed.
@@ -355,7 +358,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - Code from `mint("pair", crypto.randomUUID(), ttl)`, redeemed with `consume("pair", code)` and exchanged for
     `mint("machine", name)`.
   - Revoke closes the live socket with `goodbye` and 4401.
-- **Task tokens:** `run` carries `taskToken = mint("task", taskId)`, revoked when the task ends.
+- **Task tokens:** `run` carries `taskToken = issue("task", taskId)` (C4), issued as each run is sent so the agent
+  never stores it, and revoked when the task ends.
 - **Uploads:** `/api/files` checks the token. `ky-attach` and `ky-diff` use `KY_TASK_TOKEN`.
 - **Runner:**
   - Reads its machine token from `KY_RUNNER_TOKEN_FILE` (default `~/.config/ky/runner-token`, mode 0600).
@@ -364,8 +368,10 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **UI:** Machines panel gets "Add a machine", which shows the code and the command (`ky runner add <url> <code>`;
   until C exists, a `node runner/pair.ts <url> <code>` helper). It also gets "Remove". Use the current panel's
   look.
-- **Fallow:** remove the `unused-class-member:src/vault.ts:Vault:*` entries R3 added to `fallow/dead-code.json`
-  (every one that has a caller by then; the rest go with the node that adds their caller).
+- **Fallow:** the `unused-class-member:src/vault.ts:Vault:*` entries stay in `fallow/dead-code.json`, and T adds
+  `issue`. fallow does not follow calls through a Durable Object stub into a class declared outside the Worker's
+  entry (it counts `PiAgent`'s members only because `src/server.ts` declares it), so `mint`, `check`, `consume`,
+  `revoke` and `issue` look unused even with T's callers in `src/runners.ts`.
 - **Done when:** the harness covers pair, run, upload, revoke, an expired code, and a reused code.
 
 ### X. codex-agent

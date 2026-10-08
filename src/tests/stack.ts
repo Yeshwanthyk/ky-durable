@@ -15,8 +15,14 @@ import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
+import { Vault as ProductionVault } from "../vault";
 
-export { Vault } from "../vault";
+/** The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes. */
+export class Vault extends ProductionVault {
+  ahead(ms: number): void {
+    this.now = () => Date.now() + ms;
+  }
+}
 
 /**
  * ky's real composition with fakes at its outside boundary, for the worker
@@ -330,8 +336,8 @@ export function agents(env: Env): DurableObjectNamespace<PiAgent> {
 
 type Me = DurableObjectStub<PiAgent>;
 
-/** The test routes: method and path, and what they do to the agent `me`. */
-const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
+/** The test routes: method and path, and what they do to the agent `me` or the Vault. */
+const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>>([
   [
     "POST /test/release",
     async (me) => {
@@ -367,6 +373,15 @@ const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
 
       return new Response(null, { status: 204 });
     }
+  ],
+  [
+    "POST /test/vault-clock",
+    async (_me, url, env) => {
+      // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
+      await (env.Vault as DurableObjectNamespace<Vault>).getByName("owner").ahead(Number(url.searchParams.get("ahead") ?? "0"));
+
+      return new Response(null, { status: 204 });
+    }
   ]
 ]);
 
@@ -383,6 +398,6 @@ export default {
 
     const route = ROUTES.get(`${request.method} ${url.pathname}`);
 
-    return route ? route(agents(env).getByName("me"), url) : new Response("Not found", { status: 404 });
+    return route ? route(agents(env).getByName("me"), url, env) : new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;

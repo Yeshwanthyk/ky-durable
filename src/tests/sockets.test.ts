@@ -1,7 +1,7 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { OUTDATED, PROTOCOL } from "../runner-protocol";
-import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, prompt, shows, submit, until, wait } from "./drive";
+import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, TOKEN, until, wait } from "./drive";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
 
@@ -182,12 +182,20 @@ describe("the session WebSocket protocol", () => {
 });
 
 describe("the runner's WebSocket", () => {
-  it("goes through the Worker, signed in, to the one agent, as the machine its path names", async () => {
+  it("goes through the Worker, with its own machine token, to the one agent, as the machine its path names", async () => {
     const machine = `route-${crypto.randomUUID().slice(0, 8)}`;
+    const other = `route-${crypto.randomUUID().slice(0, 8)}`;
+    const [token, othersToken] = [await machineToken(machine), await machineToken(other)];
     const upgrade = { Upgrade: "websocket" };
-    expect((await call(`/runner/${machine}`, { headers: { ...upgrade, Authorization: "" } })).status).toBe(401);
+    const as = (authorization: string) => call(`/runner/${machine}`, { headers: { ...upgrade, Authorization: authorization } });
 
-    const response = await call(`/runner/${machine}`, { headers: upgrade });
+    // No token, the user's sign-in, a made-up token, and another machine's: none opens this machine's socket.
+    expect((await as("")).status).toBe(401);
+    expect((await as(`Bearer ${TOKEN}`)).status).toBe(401);
+    expect((await as(`Bearer ${"0".repeat(64)}`)).status).toBe(401);
+    expect((await as(`Bearer ${othersToken}`)).status).toBe(401);
+
+    const response = await as(`Bearer ${token}`);
     expect(response.status).toBe(101);
     const socket = response.webSocket!;
     socket.accept();
@@ -202,7 +210,9 @@ describe("the runner's WebSocket", () => {
       expect((await call(path, { headers: { Upgrade: "websocket" } })).status, path).toBe(404);
     }
 
-    expect((await call("/runner/mac")).status).toBe(426);
+    const machine = `plain-${crypto.randomUUID().slice(0, 8)}`;
+    const token = await machineToken(machine);
+    expect((await call(`/runner/${machine}`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(426);
   });
 
   it("keeps no machine for a runner that never says a valid hello", async () => {

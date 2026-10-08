@@ -13,13 +13,14 @@ import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { EXECUTOR_NOT_SET_UP, type ExecutorConfig, executorExtension } from "./executor";
-import { download, type FileRow, FileStore, upload } from "./files";
+import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
 import { MachineHub, machineExtension } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
-import { RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
+import type { MachineFacts } from "./runner-protocol";
+import { ownerRoute, tokenRoute } from "./runners";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
@@ -127,7 +128,11 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.storage.sql,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
-    this.files
+    this.files,
+    {
+      issue: (task) => this.env.Vault.getByName("owner").issue("task", task),
+      revoke: (task) => this.env.Vault.getByName("owner").revoke("task", task)
+    }
   );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
@@ -335,6 +340,21 @@ export class PiAgent extends DurableObject<Env> {
     return null;
   }
 
+  /** A runner paired as `machine`; a runner already connected under that name had the old token, so it goes. */
+  pairMachine(machine: string, facts: MachineFacts): void {
+    this.sockets.revokeRunner(machine, `${machine} was paired again, so this runner's token no longer works; pair it again.`);
+    this.machines.paired(machine, facts);
+  }
+
+  /** Forget a machine the user removed, after its token was revoked; false if ky never knew it. */
+  async removeMachine(machine: string): Promise<boolean> {
+    const known = this.machines.machine(machine) !== undefined;
+    this.sockets.revokeRunner(machine, `${machine} was removed from ky; pair it again to use it.`);
+    await this.machines.remove(machine);
+
+    return known;
+  }
+
   /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
   async applyMain(): Promise<void> {
     for (const session of [ROOT_SESSION, ...this.chats.list().map((chat) => chat.session)]) {
@@ -393,15 +413,6 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
-/** A runner's socket goes to the user's one agent, which tags it as the machine its path names. */
-function runnerRoute(request: Request, env: Env, url: URL): Promise<Response> | Response {
-  if (!runnerPathMachine(url.pathname)) return new Response("Not found", { status: 404 });
-
-  if (request.headers.get("Upgrade") !== "websocket") return new Response("Upgrade Required", { status: 426 });
-
-  return env.PiAgent.getByName("me").fetch(request);
-}
-
 /** Answers for anyone, signed in or not: the sign-in page, and what iOS needs to add ky to the Home Screen. */
 function openRoute(request: Request, env: Env, url: URL): Promise<Response> | Response | undefined {
   if (url.pathname === "/login") return request.method === "POST" ? login(request, env) : loginPage();
@@ -420,6 +431,11 @@ export default {
 
     if (open) return open;
 
+    // Runners and their tasks sign in with their own tokens (src/runners.ts), and never with the user's.
+    const runner = tokenRoute(request, env, url);
+
+    if (runner) return runner;
+
     if (!(await authenticate(request, env))) {
       if (request.headers.get("Upgrade") === "websocket" || url.pathname.startsWith("/api/")) {
         return new Response("Unauthorized", { status: 401 });
@@ -428,11 +444,9 @@ export default {
       return Response.redirect(new URL("/login", url).toString(), 302);
     }
 
-    if (url.pathname.startsWith(RUNNER_PATH)) return runnerRoute(request, env, url);
+    const owner = ownerRoute(request, env, url);
 
-    if (url.pathname === "/api/files") {
-      return upload(request, env.FILES, (file) => env.PiAgent.getByName("me").attachFile(file));
-    }
+    if (owner) return owner;
 
     const file = /^\/api\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
 

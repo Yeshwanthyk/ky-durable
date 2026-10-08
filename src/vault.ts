@@ -11,15 +11,19 @@ import type { RunCreds } from "./runner-protocol";
  *   without their values.
  * - Tokens are what ky hands out: pairing codes, machine tokens, task tokens.
  *   `mint` returns the raw token once and keeps only its sha-256; a subject
- *   has one live token per kind, so minting again replaces it.
+ *   has one live token per kind, so minting again replaces it. `issue` gives
+ *   a task its live token again, for every run of it the runner is sent.
  *
- * Nothing calls it yet, and fallow doesn't count the tests' calls through a
- * stub, so fallow/dead-code.json lists its members; T removes those entries.
+ * Settings doesn't call the secrets yet, and fallow doesn't count the tests'
+ * calls through a stub, so fallow/dead-code.json lists those members.
  */
 
 type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
 
 type TokenKind = "pair" | "machine" | "task";
+
+/** The kinds `issue` can give out again: a task's runs all carry its one token. */
+type ReissuedKind = "task";
 
 /** What Settings may show about a secret, like its label, account or repos. Flat, so it crosses RPC typed. */
 type SecretMeta = { readonly [field: string]: string | number | boolean | null | readonly string[] };
@@ -51,6 +55,10 @@ export class Vault extends DurableObject<Env> {
   readonly #sql = this.ctx.storage.sql;
   /** The refresh running from each stored generation of a secret, which callers that arrive meanwhile share. */
   readonly #refreshing = new Map<string, Promise<JsonValue | null>>();
+  /** The `issue` running for each subject, which callers that arrive meanwhile share. */
+  readonly #issuing = new Map<string, Promise<string>>();
+  /** The HMAC key reissued tokens are derived with, once read or made. */
+  #key: Promise<CryptoKey> | undefined;
   /** The clock for updated_at and token expiry; tests move it. */
   now = (): number => Date.now();
 
@@ -66,12 +74,18 @@ export class Vault extends DurableObject<Env> {
       updated_at INTEGER NOT NULL,
       error TEXT,
       UNIQUE (kind, id))`);
+    // `nonce`: what an issued token is derived from, so `issue` can give it again; null for a minted one.
     this.#sql.exec(`CREATE TABLE IF NOT EXISTS ky_vault_tokens (
       kind TEXT NOT NULL,
       subject TEXT NOT NULL,
       hash TEXT NOT NULL UNIQUE,
       expires_at INTEGER,
+      nonce TEXT,
       PRIMARY KEY (kind, subject))`);
+    const columns = this.#sql.exec<{ name: string }>("PRAGMA table_info(ky_vault_tokens)").toArray();
+
+    if (!columns.some((column) => column.name === "nonce")) this.#sql.exec("ALTER TABLE ky_vault_tokens ADD COLUMN nonce TEXT");
+    this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_vault_keys (name TEXT PRIMARY KEY, key TEXT NOT NULL)");
   }
 
   put(kind: SecretKind, id: string, value: JsonValue, meta?: SecretMeta): void {
@@ -168,19 +182,30 @@ export class Vault extends DurableObject<Env> {
     }
 
     const token = hex(crypto.getRandomValues(new Uint8Array(32)));
-    const hash = await sha256(token);
-    const now = this.now();
-    this.#sql.exec("DELETE FROM ky_vault_tokens WHERE expires_at <= ?", now);
-    this.#sql.exec(
-      `INSERT INTO ky_vault_tokens (kind, subject, hash, expires_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(kind, subject) DO UPDATE SET hash = excluded.hash, expires_at = excluded.expires_at`,
-      kind,
-      subject,
-      hash,
-      ttlMs === undefined ? null : now + ttlMs
-    );
+    await this.#store(kind, subject, token, ttlMs === undefined ? null : this.now() + ttlMs, null);
 
     return token;
+  }
+
+  /**
+   * The subject's live token, the same one each time until it is revoked, or
+   * a new one. A task's token is in the env of the Claude Code process its
+   * first run started, and every later run of it, a resend or a steer into
+   * that process, must carry the same token, so the caller keeps nothing.
+   *
+   * It is an HMAC of a random nonce under a key only the Vault holds, so the
+   * Vault keeps the nonce rather than the token. Callers racing for one
+   * subject share one issue.
+   */
+  issue(kind: ReissuedKind, subject: string): Promise<string> {
+    const key = JSON.stringify([kind, subject]);
+    const running = this.#issuing.get(key);
+
+    if (running) return running;
+    const issue = this.#issue(kind, subject).finally(() => this.#issuing.delete(key));
+    this.#issuing.set(key, issue);
+
+    return issue;
   }
 
   /**
@@ -223,6 +248,57 @@ export class Vault extends DurableObject<Env> {
 
   revoke(kind: TokenKind, subject: string): void {
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = ? AND subject = ?", kind, subject);
+  }
+
+  async #issue(kind: ReissuedKind, subject: string): Promise<string> {
+    const live = this.#sql
+      .exec<{ nonce: string }>(
+        `SELECT nonce FROM ky_vault_tokens
+         WHERE kind = ? AND subject = ? AND nonce IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)`,
+        kind,
+        subject,
+        this.now()
+      )
+      .toArray()[0];
+
+    if (live) return this.#derive(live.nonce);
+    const nonce = hex(crypto.getRandomValues(new Uint8Array(32)));
+    const token = await this.#derive(nonce);
+    await this.#store(kind, subject, token, null, nonce);
+
+    return token;
+  }
+
+  /** Keep `token`'s hash as the subject's one live token of this kind. */
+  async #store(kind: TokenKind, subject: string, token: string, expiresAt: number | null, nonce: string | null): Promise<void> {
+    const hash = await sha256(token);
+    this.#sql.exec("DELETE FROM ky_vault_tokens WHERE expires_at <= ?", this.now());
+    this.#sql.exec(
+      `INSERT INTO ky_vault_tokens (kind, subject, hash, expires_at, nonce) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(kind, subject) DO UPDATE SET hash = excluded.hash, expires_at = excluded.expires_at, nonce = excluded.nonce`,
+      kind,
+      subject,
+      hash,
+      expiresAt,
+      nonce
+    );
+  }
+
+  /** The token issued from `nonce`. */
+  async #derive(nonce: string): Promise<string> {
+    this.#key ??= this.#hmacKey();
+
+    return hex(await crypto.subtle.sign("HMAC", await this.#key, encoder.encode(nonce)));
+  }
+
+  /** The Vault's HMAC key, made the first time it is needed. */
+  #hmacKey(): Promise<CryptoKey> {
+    const made = hex(crypto.getRandomValues(new Uint8Array(32)));
+    this.#sql.exec("INSERT OR IGNORE INTO ky_vault_keys (name, key) VALUES ('issue', ?)", made);
+    const { key } = this.#sql.exec<{ key: string }>("SELECT key FROM ky_vault_keys WHERE name = 'issue'").one();
+    const bytes = Uint8Array.from(key.match(/../g)!, (pair) => Number.parseInt(pair, 16));
+
+    return crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   }
 
   async #refresh(

@@ -19,7 +19,8 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  *
  * What the runner must do is kept in an inbox table until it acknowledges
  * it, so a message sent while the machine is offline is delivered when it
- * reconnects. Each finished turn is recorded in the task feed and posted as
+ * reconnects. Each run carries its task's token, which the Vault issues as
+ * the run is sent and revokes when the task ends; the inbox keeps no token. Each finished turn is recorded in the task feed and posted as
  * a steer, so it lands after the current tool round, to the conversation
  * that sent the turn: the main one or a side chat. A report is kept until
  * it is posted, so one cut off by a restart is posted when the object starts.
@@ -55,12 +56,22 @@ const NOTE_CHARS = 200;
 
 type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null };
 
-/** A run's `taskToken` until runner-auth mints one per task; the runner does not read it yet. */
-const NO_TASK_TOKEN = "";
+/** A command as the inbox keeps it: a run's task token is added as it is sent. */
+type Queued = Exclude<UnnumberedCommand, { type: "run" }> | Omit<Extract<UnnumberedCommand, { type: "run" }>, "taskToken">;
+
+/** A queued command and its place in the inbox. */
+type Pending = Queued & { seq: number };
+
+/** The Vault's task tokens, for the runs the hub sends. */
+export type TaskTokens = {
+  /** The task's live token, the same for every run of it until it is revoked. */
+  issue: (task: string) => Promise<string>;
+  revoke: (task: string) => Promise<void>;
+};
 
 /** A turn for the runner to run, as `agent`. */
-function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent): UnnumberedCommand {
-  return { type: "run", task, turn, prompt, session, agent, taskToken: NO_TASK_TOKEN };
+function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent): Queued {
+  return { type: "run", task, turn, prompt, session, agent };
 }
 
 /** The agents, in the order a task takes one when none is named. */
@@ -100,6 +111,9 @@ export class MachineHub {
   readonly #feed: TaskFeed;
   readonly #sockets: (tag: string) => WebSocket[];
   readonly #files: FileStore;
+  readonly #tokens: TaskTokens;
+  /** Token work in call order, so a task's token is never issued for a run after its revoke was asked for. */
+  #tokenWork: Promise<void> = Promise.resolve();
   readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
   #wanted: (task: string) => boolean = () => true;
@@ -109,12 +123,14 @@ export class MachineHub {
     feed: TaskFeed,
     sockets: (tag: string) => WebSocket[],
     /** Files tasks share; a report lists them so the agent can mention them. */
-    files: FileStore
+    files: FileStore,
+    tokens: TaskTokens
   ) {
     this.#sql = sql;
     this.#feed = feed;
     this.#sockets = sockets;
     this.#files = files;
+    this.#tokens = tokens;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_inbox (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       machine TEXT NOT NULL,
@@ -159,11 +175,13 @@ export class MachineHub {
     // Commands from before turns were numbered, which no runner accepts: their tasks end as interrupted
     // at the runner's next hello.
     sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
-    // Runs from before they named an agent were all Claude Code's, with no task token.
+    // Runs from before they named an agent were all Claude Code's.
     sql.exec(
-      `UPDATE ky_machine_inbox SET payload = json_set(payload, '$.agent', 'claude', '$.taskToken', '')
+      `UPDATE ky_machine_inbox SET payload = json_set(payload, '$.agent', 'claude')
        WHERE json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL`
     );
+    // Runs from before tokens were issued as they are sent, which kept an empty one.
+    sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.taskToken')");
     // Facts from before runners said what kind of machine they are, until the runner says hello again.
     sql.exec("UPDATE ky_machines SET facts = NULL WHERE json_extract(facts, '$.kind') IS NULL");
   }
@@ -252,7 +270,7 @@ export class MachineHub {
         active: this.#feed.open("machine", row.name).length,
         state: row.state,
         note: row.note,
-        // SAFETY: only #onHello writes facts, each a decoded MachineFacts.
+        // SAFETY: only #onHello and paired write facts, each a checked MachineFacts.
         facts: row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts)
       }));
   }
@@ -295,12 +313,43 @@ export class MachineHub {
    * new one could overtake an older run still waiting for a hello; the
    * runner skips the seqs it has already handled.
    */
-  #enqueue(machine: string, command: UnnumberedCommand): void {
+  #enqueue(machine: string, command: Queued): Promise<void> {
     this.#sql.exec("INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?)", machine, JSON.stringify(command));
-    this.#deliver(machine, this.#pending(machine));
+
+    return this.#deliver(machine);
   }
 
-  #deliver(machine: string, commands: readonly RunnerCommand[]): void {
+  /** Run `work` after the token work asked for before it; a failure is logged, and the inbox keeps what was not sent. */
+  #afterTokens(what: string, work: () => Promise<void>): Promise<void> {
+    this.#tokenWork = this.#tokenWork.then(work).catch((error) => console.warn(`${what} failed`, error));
+
+    return this.#tokenWork;
+  }
+
+  /**
+   * Send the machine's unacked commands, each run with its task's token.
+   * The tokens are issued first, then the inbox is read again, so a run
+   * withdrawn meanwhile is not sent, and a run queued meanwhile waits for
+   * the delivery its own enqueue starts.
+   */
+  #deliver(machine: string): Promise<void> {
+    return this.#afterTokens(`delivery to ${machine}`, async () => {
+      if (!this.online(machine)) return;
+      const tasks = new Set(this.#pending(machine).flatMap((command) => (command.type === "run" ? [command.task] : [])));
+      const tokens = new Map(await Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)));
+      const commands: RunnerCommand[] = [];
+
+      for (const command of this.#pending(machine)) {
+        if (command.type !== "run") commands.push(command);
+        else if (tokens.has(command.task)) commands.push({ ...command, taskToken: tokens.get(command.task)! });
+        else break;
+      }
+
+      this.#send(machine, commands);
+    });
+  }
+
+  #send(machine: string, commands: readonly RunnerCommand[]): void {
     for (const socket of this.#sockets(runnerTag(machine))) {
       if (socket.readyState !== OPEN) continue;
 
@@ -317,11 +366,16 @@ export class MachineHub {
     }
   }
 
+  /** The task's token stops working, once no turn of it is left to run. */
+  #revoke(task: string): Promise<void> {
+    return this.#afterTokens(`revoking ${task}'s token`, () => this.#tokens.revoke(task));
+  }
+
   /**
    * The runner may have this command now: a run can no longer be withdrawn,
    * and a stop must wait for the runner to say how the turn ended.
    */
-  #sent(command: RunnerCommand): void {
+  #sent(command: Pending): void {
     this.#sql.exec("UPDATE ky_machine_inbox SET sent = 1 WHERE seq = ?", command.seq);
 
     if (command.type === "run" && command.turn > this.#turns(command.task).sent) {
@@ -329,16 +383,16 @@ export class MachineHub {
     }
   }
 
-  #pending(machine: string): RunnerCommand[] {
+  #pending(machine: string): Pending[] {
     return this.#sql
       .exec<{ seq: number; payload: string }>(
         "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? ORDER BY seq",
         machine
       )
       .toArray()
-      .map((row): RunnerCommand => {
-        // SAFETY: only #enqueue writes payloads, each a RunnerCommand without its seq.
-        const command = JSON.parse(row.payload) as UnnumberedCommand;
+      .map((row): Pending => {
+        // SAFETY: only #enqueue writes payloads, each a Queued command.
+        const command = JSON.parse(row.payload) as Queued;
 
         return { ...command, seq: row.seq };
       });
@@ -378,7 +432,7 @@ export class MachineHub {
     if (!existed) {
       this.#setTurns(id, { turn: 1, closed: 0, sent: 0 });
       this.#sentBy(id, 1, parent);
-      this.#enqueue(machine, runCommand(id, 1, prompt, null, agent));
+      void this.#enqueue(machine, runCommand(id, 1, prompt, null, agent));
     }
 
     return task;
@@ -394,7 +448,7 @@ export class MachineHub {
     this.#sentBy(task.id, turn, parent);
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
     // SAFETY: every machine task names its agent: start sets it, and the feed set it on older ones.
-    this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session, task.agent!));
+    void this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session, task.agent!));
   }
 
   /**
@@ -428,7 +482,9 @@ export class MachineHub {
     }
 
     this.#feed.reassign(task.id, to);
-    this.#deliver(to, this.#pending(to));
+    // A token issued for a run that was withdrawn before it was sent: the task starts afresh on `to`.
+    void this.#revoke(task.id);
+    void this.#deliver(to);
 
     return null;
   }
@@ -458,12 +514,41 @@ export class MachineHub {
       return;
     }
 
-    this.#enqueue(task.worker, { type: "stop", task: task.id, turn });
+    await this.#enqueue(task.worker, { type: "stop", task: task.id, turn });
+  }
+
+  /**
+   * Forget a machine the user removed: its tasks end, their tokens stop
+   * working, and what waited for it is dropped. Its runner must pair again.
+   */
+  async remove(machine: string): Promise<void> {
+    this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ?", machine);
+
+    for (const task of this.#feed.open("machine", machine)) {
+      await this.#finish(task.id, false, `${machine} was removed from ky.`, this.#turns(task.id).turn);
+    }
+
+    this.#sql.exec("DELETE FROM ky_machines WHERE name = ?", machine);
+
+    for (const watcher of this.#watchers) watcher();
+  }
+
+  /** A runner paired as `machine`: it is listed from now, with what it said it is. */
+  paired(machine: string, facts: MachineFacts): void {
+    this.#sql.exec(
+      `INSERT INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts`,
+      machine,
+      Date.now(),
+      JSON.stringify(facts)
+    );
+
+    for (const watcher of this.#watchers) watcher();
   }
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
   async #onHello(machine: string, active: readonly string[], facts: MachineFacts): Promise<void> {
-    // A valid hello is what makes a machine: a socket that never says one leaves no row.
+    // Pairing or a valid hello makes a machine: a socket that never says one leaves no row.
     this.#sql.exec(
       `INSERT INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts`,
@@ -491,7 +576,7 @@ export class MachineHub {
       );
     }
 
-    this.#deliver(machine, this.#pending(machine));
+    await this.#deliver(machine);
   }
 
   async onReport(machine: string, report: TaskReport): Promise<void> {
@@ -539,8 +624,12 @@ export class MachineHub {
     const task = this.#feed.get(id);
 
     if (!task || this.#closed(id, turn)) return;
-    const from = this.#turns(id).closed;
+    const turns = this.#turns(id);
+    const from = turns.closed;
     this.#setTurns(id, { closed: turn });
+
+    // A turn sent after this one is still to run, with the same token.
+    if (turn === turns.turn) void this.#revoke(id);
     const ended = endOf(ok, text);
     this.#feed.update(id, { status: ended.status, summary: summarize(text) || (ok ? "Done" : "Failed") });
 
@@ -658,7 +747,7 @@ function describeMachine(machine: MachineInfo): string {
 }
 
 const describeAll = (machines: readonly MachineInfo[]) =>
-  machines.length === 0 ? "No machines have connected yet. The user starts one with runner/ky-runner.ts." : machines.map(describeMachine).join("\n");
+  machines.length === 0 ? "No machines yet. The user adds one in Settings, under Machines, and starts runner/ky-runner.ts on it." : machines.map(describeMachine).join("\n");
 
 /** The machines a task could go to now, for a refusal or an offline start to offer instead. */
 function elsewhere(machines: readonly MachineInfo[], not: string): string {

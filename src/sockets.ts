@@ -13,7 +13,7 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
-import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PROTOCOL, REPLACED, runnerPathMachine } from "./runner-protocol";
+import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations";
 import type { ChatList } from "./chats";
@@ -86,6 +86,16 @@ function send(socket: WebSocket, message: PiServerMessage): void {
     socket.send(JSON.stringify(message));
   } catch {
     // The socket closed between the state check and the send.
+  }
+}
+
+/** Tell a runner why its socket closes for good, then close it with `code`; its runner exits on these codes. */
+function goodbye(socket: WebSocket, frame: Extract<ObjectFrame, { type: "goodbye" }>, code: number, reason: string): void {
+  try {
+    socket.send(JSON.stringify(frame));
+    socket.close(code, reason);
+  } catch {
+    // Already closing.
   }
 }
 
@@ -452,6 +462,13 @@ export class PiSessionSockets {
     }
   }
 
+  /** Close the machine's runner sockets for good: its token no longer works, and `reason` says what to do. */
+  revokeRunner(machine: string, reason: string): void {
+    for (const socket of this.#getWebSockets(runnerTag(machine))) {
+      if (socket.readyState === OPEN) goodbye(socket, { type: "goodbye", reason }, REVOKED, "Removed from ky; pair again.");
+    }
+  }
+
   /** A frame on a runner's socket. */
   async #onReport(connection: Connection, machine: string, raw: string): Promise<void> {
     const decoded = decodeReport(raw);
@@ -465,14 +482,8 @@ export class PiSessionSockets {
 
     if (decoded.kind === "outdated") {
       // A runner of another version: tell it which one ky speaks, so it can say to update it.
-      const goodbye: ObjectFrame = {
-        type: "goodbye",
-        reason: `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${decoded.protocol}; update ky-runner.`,
-        expected: PROTOCOL
-      };
-
-      connection.send(JSON.stringify(goodbye));
-      connection.close(OUTDATED, "Outdated ky-runner; update it.");
+      const reason = `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${decoded.protocol}; update ky-runner.`;
+      goodbye(connection, { type: "goodbye", reason, expected: PROTOCOL }, OUTDATED, "Outdated ky-runner; update it.");
 
       return;
     }

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { Vault } from "../vault";
@@ -146,6 +146,38 @@ describe("vault", () => {
 
     expect(results.filter((subject) => subject !== null)).toEqual(["code"]);
     expect(await vault.check("pair", code)).toBeNull();
+  });
+
+  it("issues a task its one live token again until it is revoked, then a new one, and stores no token", async () => {
+    const vault = fresh();
+    const [first, racing] = await Promise.all([vault.issue("task", "t1"), vault.issue("task", "t1")]);
+    const other = await vault.issue("task", "t2");
+
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(racing).toBe(first);
+    expect(await vault.issue("task", "t1")).toBe(first);
+    expect(other).not.toBe(first);
+    expect(await vault.check("task", first)).toBe("t1");
+
+    // An eviction loses nothing it needs: the token comes again from what is stored.
+    await evictDurableObject(vault);
+    expect(await vault.issue("task", "t1")).toBe(first);
+
+    const stored = await inside(vault, (_instance, state) =>
+      JSON.stringify([
+        state.storage.sql.exec("SELECT * FROM ky_vault_tokens").toArray(),
+        state.storage.sql.exec("SELECT * FROM ky_vault_keys").toArray()
+      ])
+    );
+
+    expect(stored).not.toContain(first);
+    expect(stored).not.toContain(other);
+
+    await vault.revoke("task", "t1");
+    expect(await vault.check("task", first)).toBeNull();
+    const next = await vault.issue("task", "t1");
+    expect(next).not.toBe(first);
+    expect(await vault.check("task", next)).toBe("t1");
   });
 
   it("shares one refresh among concurrent callers and stores its result", async () => {

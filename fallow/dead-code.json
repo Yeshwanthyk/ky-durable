@@ -73,6 +73,7 @@
     "unused-class-member:src/vault.ts:Vault:check",
     "unused-class-member:src/vault.ts:Vault:consume",
     "unused-class-member:src/vault.ts:Vault:githubToken",
+    "unused-class-member:src/vault.ts:Vault:issue",
     "unused-class-member:src/vault.ts:Vault:mint",
     "unused-class-member:src/vault.ts:Vault:put",
     "unused-class-member:src/vault.ts:Vault:refresh",

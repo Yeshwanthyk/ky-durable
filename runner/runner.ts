@@ -40,13 +40,13 @@ export type ProcessEvents = {
   exit(code: number | null, stderr: string): void;
 };
 
-/** Start `agent`'s CLI for a task, resuming `session` when it is set. */
-export type SpawnAgent = (agent: Agent, task: string, session: string | null, events: ProcessEvents) => AgentProcess;
+/** Start `agent`'s CLI for a task, with the task's token, resuming `session` when it is set. */
+export type SpawnAgent = (agent: Agent, task: string, taskToken: string, session: string | null, events: ProcessEvents) => AgentProcess;
 
 const ADAPTERS: Readonly<Record<Agent, Adapter>> = { claude, codex };
 
 /** A turn to run once the process it came to has exited. */
-type Turn = { turn: number; prompt: string; session: string | null };
+type Turn = { turn: number; prompt: string; session: string | null; taskToken: string };
 
 type Run = {
   agent: Agent;
@@ -241,7 +241,7 @@ export class Runner {
 
     if (run && (run.stopped || run.ended || !ADAPTERS[run.agent].steers)) {
       // The process is dying, or takes nothing more: run it in a new one after.
-      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session });
+      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session, taskToken: command.taskToken });
       this.#log(`${command.task}: queued behind ${run.stopped ? "the stop" : "its turn"}`);
 
       return;
@@ -264,7 +264,7 @@ export class Runner {
       return;
     }
 
-    this.#start(command.task, command.agent, command.turn, command.prompt, command.session);
+    this.#start(command.task, command.agent, command);
   }
 
   /**
@@ -364,12 +364,12 @@ export class Runner {
     }
   }
 
-  #start(task: string, agent: Agent, turn: number, prompt: string, session: string | null): Run {
+  #start(task: string, agent: Agent, { turn, prompt, session, taskToken }: Turn): Run {
     this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     const adapter = ADAPTERS[agent];
     const read = adapter.reader();
 
-    const child = this.#spawn(agent, task, session, {
+    const child = this.#spawn(agent, task, taskToken, session, {
       line: (line) => {
         for (const event of read(line)) {
           if (run.ended) return;
@@ -389,7 +389,7 @@ export class Runner {
 
         if (run.next.length === 0) return;
         const [first, ...rest] = run.next;
-        const next = this.#start(task, agent, first!.turn, first!.prompt, run.session ?? first!.session);
+        const next = this.#start(task, agent, { ...first!, session: run.session ?? first!.session });
 
         if (adapter.steers) for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
         else next.next = rest;

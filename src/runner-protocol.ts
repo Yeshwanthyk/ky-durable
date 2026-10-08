@@ -27,6 +27,9 @@ export const REPLACED = 4409;
 /** The close code after `goodbye` to a runner that speaks another protocol. */
 export const OUTDATED = 4426;
 
+/** The close code after `goodbye` to a runner whose machine the user removed: its token is revoked. */
+export const REVOKED = 4401;
+
 const Seq = Type.Integer({ minimum: 1 });
 
 /**
@@ -218,8 +221,28 @@ export function isPipeReport(report: RunnerReport): report is PipeReport {
   return Value.Check(PipeReportSchema, report);
 }
 
-/** A machine's name, as the last segment of its runner's path. */
-const MACHINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** A machine's name, as the last segment of its runner's path: lowercase letters, digits and dashes, up to 32. */
+const MachineNameSchema = Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,31}$" });
+
+/** Whether `name` can name a machine. */
+export function isMachineName(name: string): boolean {
+  return Value.Check(MachineNameSchema, name);
+}
+
+/** What a runner sends to pair: the user's code, the name it wants, and what it says about its machine. */
+const PairRequestSchema = Type.Object({ code: Type.String({ minLength: 1 }), name: MachineNameSchema, facts: Type.Unknown() });
+
+export type PairRequest = Static<typeof PairRequestSchema>;
+
+/** Whether `body`, a parsed JSON request, asks to pair; its facts are checked apart, with isMachineFacts. */
+export function isPairRequest(body: unknown): body is PairRequest {
+  return Value.Check(PairRequestSchema, body);
+}
+
+/** Whether `facts` is what a runner says about its machine. */
+export function isMachineFacts(facts: unknown): facts is MachineFacts {
+  return Value.Check(FactsSchema, facts);
+}
 
 /** The machine a runner's path names, or undefined if the path is not `/runner/<machine>`. */
 export function runnerPathMachine(pathname: string): string | undefined {
@@ -227,7 +250,7 @@ export function runnerPathMachine(pathname: string): string | undefined {
 
   const machine = pathname.slice(RUNNER_PATH.length);
 
-  return MACHINE_NAME.test(machine) ? machine : undefined;
+  return isMachineName(machine) ? machine : undefined;
 }
 
 /** A runner's frame, parsed once: what it says, or why the object will not act on it. */
