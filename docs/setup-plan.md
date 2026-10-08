@@ -180,16 +180,20 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 put(kind, id, value: Json, meta?: SecretMeta): void          // meta is flat (strings, numbers, booleans, string[]) so it crosses RPC typed
 remove(kind, id): void
 status(): { kind, id, meta, updatedAt, error? }[]          // never secrets; error is the last failed refresh's
-refresh(kind, id, fn: (value) => Promise<Json>): Json | null // CAS: concurrent callers share one fn; a put/remove that lands first wins
 auth(providerId): { apiKey: string; headers?: Record<string,string> } | null
-sessionCreds(agent: "claude" | "codex"): RunCreds[agent] | null   // refreshes codex with CAS
+sessionCreds(agent: "claude" | "codex"): RunCreds[agent] | null   // refreshes codex with the internal refresh (below)
 chatgptLogin(): { userCode, verificationUrl, loginId }; chatgptPoll(loginId): "pending" | "done" | { error }
 githubToken(): { token, repos } | null
 // tokens: kind = "pair" | "machine" | "task"
 mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256; one live token per (kind, subject), so minting again replaces it
-check(kind, token): subject | null
+check(kind, token): subject | null                           // a lookup by hash
+consume(kind, token): subject | null                         // check, and delete it: single use, one winner when callers race
 revoke(kind, subject): void
 ```
+
+- **Pair codes:** each one is minted with a fresh random subject (for example `crypto.randomUUID()`), so codes outstanding at once never replace each other, and is redeemed with `consume`.
+- **`refresh(kind, id, fn)` is internal**, used inside the Vault only (by `sessionCreds`): its callback can't cross the typed RPC stub. It is a CAS on the secret's generation, which every `put` and every successful refresh bump. Callers of one generation share one `fn`. A `put` or `remove` that lands first wins, and the refresh answers with what is stored now, or null, whether `fn` succeeded or failed.
+- **Refresh errors:** when `fn` fails on an unchanged secret, its message is stored verbatim as the secret's `error`, which `status` and Settings show. So a refresh function must throw messages that hold no secret.
 
 ### C5. Providers and purposes (`src/models.ts` and `src/providers/*`)
 
@@ -297,8 +301,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **Vault DO:** `src/vault.ts`, the `Vault` class, migration v2 in `wrangler.jsonc` and `src/tests/wrangler.jsonc`.
 - **Methods:**
   - The C4 secret methods: `put`, `remove`, `status`.
-  - Token methods `mint`, `check` and `revoke`, with sha-256 hashes, constant-time compare and expiry.
-  - A generic `refresh(kind, id, fn)` CAS helper, ported from Scotty `CredsObject:183-225`.
+  - Token methods `mint`, `check`, `consume` and `revoke`, with sha-256 hashes looked up by hash, and expiry.
+  - A generic internal `refresh(kind, id, fn)` CAS helper on a generation, ported from Scotty `CredsObject:183-225`.
   - `auth`, `sessionCreds` and `chatgpt*` are stubs that return null or throw "not set up". S and K fill them in.
 - **Tests:** worker tests for every method, including concurrent refresh.
 - **Done when:** the Vault is tested; there are no callers yet.
@@ -334,7 +338,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 ### T. runner-auth
 - **Routes:** implement C2 using the Vault tokens.
 - **Pairing:** `POST /api/runners/codes` and `/pair`.
-  - Code from `mint("pair")`, exchanged for `mint("machine", name)`.
+  - Code from `mint("pair", crypto.randomUUID(), ttl)`, redeemed with `consume("pair", code)` and exchanged for
+    `mint("machine", name)`.
   - Revoke closes the live socket with `goodbye` and 4401.
 - **Task tokens:** `run` carries `taskToken = mint("task", taskId)`, revoked when the task ends.
 - **Uploads:** `/api/files` checks the token. `ky-attach` and `ky-diff` use `KY_TASK_TOKEN`.
@@ -345,6 +350,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **UI:** Machines panel gets "Add a machine", which shows the code and the command (`ky runner add <url> <code>`;
   until C exists, a `node runner/pair.ts <url> <code>` helper). It also gets "Remove". Use the current panel's
   look.
+- **Fallow:** remove the `unused-class-member:src/vault.ts:Vault:*` entries R3 added to `fallow/dead-code.json`
+  (every one that has a caller by then; the rest go with the node that adds their caller).
 - **Done when:** the harness covers pair, run, upload, revoke, an expired code, and a reused code.
 
 ### X. codex-agent

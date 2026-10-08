@@ -1,6 +1,3 @@
-// Nothing calls the Vault yet: pairing, keys and subscriptions will, and fallow
-// doesn't count the tests' calls through a stub. Drop this once they do.
-// fallow-ignore-file unused-class-member
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 
@@ -14,14 +11,10 @@ import type { JsonValue } from "@earendil-works/pi-ai";
  * - Tokens are what ky hands out: pairing codes, machine tokens, task tokens.
  *   `mint` returns the raw token once and keeps only its sha-256; a subject
  *   has one live token per kind, so minting again replaces it.
+ *
+ * Nothing calls it yet, and fallow doesn't count the tests' calls through a
+ * stub, so fallow/dead-code.json lists its members; T removes those entries.
  */
-
-// The Workers runtime has this; the DOM typings, which win for `crypto`, do not.
-declare global {
-  interface SubtleCrypto {
-    timingSafeEqual(a: ArrayBuffer | ArrayBufferView, b: ArrayBuffer | ArrayBufferView): boolean;
-  }
-}
 
 type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
 
@@ -52,6 +45,9 @@ type RunCreds = {
   };
 };
 
+/** A secret's JSON text, and the write that stored it. */
+type Stored = { readonly value: string; readonly generation: number };
+
 const encoder = new TextEncoder();
 
 function hex(bytes: ArrayBuffer | Uint8Array): string {
@@ -64,37 +60,39 @@ async function sha256(text: string): Promise<string> {
 
 export class Vault extends DurableObject<Env> {
   readonly #sql = this.ctx.storage.sql;
-  /** The refresh running for each secret, which callers that arrive meanwhile share. */
+  /** The refresh running from each stored generation of a secret, which callers that arrive meanwhile share. */
   readonly #refreshing = new Map<string, Promise<JsonValue | null>>();
+  /** The clock for updated_at and token expiry; tests move it. */
+  now = (): number => Date.now();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // Every write is a new row, so a new generation; AUTOINCREMENT never hands one out twice, even after a remove.
     this.#sql.exec(`CREATE TABLE IF NOT EXISTS ky_vault_secrets (
+      generation INTEGER PRIMARY KEY AUTOINCREMENT,
       kind TEXT NOT NULL,
       id TEXT NOT NULL,
       value TEXT NOT NULL,
       meta TEXT,
       updated_at INTEGER NOT NULL,
       error TEXT,
-      PRIMARY KEY (kind, id))`);
+      UNIQUE (kind, id))`);
     this.#sql.exec(`CREATE TABLE IF NOT EXISTS ky_vault_tokens (
       kind TEXT NOT NULL,
       subject TEXT NOT NULL,
-      hash TEXT NOT NULL,
+      hash TEXT NOT NULL UNIQUE,
       expires_at INTEGER,
       PRIMARY KEY (kind, subject))`);
   }
 
   put(kind: SecretKind, id: string, value: JsonValue, meta?: SecretMeta): void {
     this.#sql.exec(
-      `INSERT INTO ky_vault_secrets (kind, id, value, meta, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(kind, id) DO UPDATE SET
-         value = excluded.value, meta = excluded.meta, updated_at = excluded.updated_at, error = NULL`,
+      "INSERT OR REPLACE INTO ky_vault_secrets (kind, id, value, meta, updated_at) VALUES (?, ?, ?, ?, ?)",
       kind,
       id,
       JSON.stringify(value),
       meta === undefined ? null : JSON.stringify(meta),
-      Date.now()
+      this.now()
     );
   }
 
@@ -120,22 +118,31 @@ export class Vault extends DurableObject<Env> {
 
   /**
    * Replace a secret with what `fn` makes of it, the way Scotty's CredsObject
-   * refreshes OAuth tokens. Callers that arrive while a refresh runs share it.
-   * The write lands only if the secret is still the value `fn` was given; when
-   * a put or remove got there first, the refresh loses and the answer is what
-   * is stored now. A secret that isn't there is null. When `fn` throws, its
-   * message is kept as the secret's error (unless the secret changed) and the
-   * refresh throws.
+   * refreshes OAuth tokens. Inside the Vault only, for sessionCreds: a function
+   * argument can't cross the typed RPC stub.
+   *
+   * Callers that arrive while a refresh of the same stored generation runs
+   * share it. The write lands only over the generation `fn` was given; when a
+   * put or remove got there first, the refresh answers with what is stored
+   * now, or null, whether `fn` succeeded or failed. A missing secret is null
+   * and runs nothing.
+   *
+   * When `fn` fails on an unchanged secret, its message is stored verbatim as
+   * the secret's error, which Settings shows, and the refresh throws. So `fn`
+   * must throw messages that hold no secret.
    *
    * The caller decides when a refresh is due; this always runs `fn` unless one
    * is already running.
    */
   refresh(kind: SecretKind, id: string, fn: (value: JsonValue) => Promise<JsonValue>): Promise<JsonValue | null> {
-    const key = JSON.stringify([kind, id]);
+    const stored = this.#stored(kind, id);
+
+    if (!stored) return Promise.resolve(null);
+    const key = JSON.stringify([kind, id, stored.generation]);
     const running = this.#refreshing.get(key);
 
     if (running) return running;
-    const refresh = this.#refresh(kind, id, fn).finally(() => this.#refreshing.delete(key));
+    const refresh = this.#refresh(kind, id, stored, fn).finally(() => this.#refreshing.delete(key));
     this.#refreshing.set(key, refresh);
 
     return refresh;
@@ -167,9 +174,13 @@ export class Vault extends DurableObject<Env> {
 
   /** A new token for `subject`, replacing its last one of this kind; without `ttlMs` it never expires. */
   async mint(kind: TokenKind, subject: string, ttlMs?: number): Promise<string> {
+    if (ttlMs !== undefined && !(Number.isFinite(ttlMs) && ttlMs > 0)) {
+      throw new Error(`A token's ttl must be a positive number of milliseconds, not ${ttlMs}.`);
+    }
+
     const token = hex(crypto.getRandomValues(new Uint8Array(32)));
     const hash = await sha256(token);
-    const now = Date.now();
+    const now = this.now();
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE expires_at <= ?", now);
     this.#sql.exec(
       `INSERT INTO ky_vault_tokens (kind, subject, hash, expires_at) VALUES (?, ?, ?, ?)
@@ -183,72 +194,99 @@ export class Vault extends DurableObject<Env> {
     return token;
   }
 
-  /** The subject a live token of this kind was minted for, or null. Every candidate is compared in constant time. */
+  /**
+   * The subject a live token of this kind was minted for, or null. Looked up
+   * by hash: nobody can pick a guess's sha-256, so the lookup's timing gives
+   * nothing away.
+   */
   async check(kind: TokenKind, token: string): Promise<string | null> {
-    const presented = encoder.encode(await sha256(token));
+    const hash = await sha256(token);
 
-    const rows = this.#sql
-      .exec<{ subject: string; hash: string }>(
-        "SELECT subject, hash FROM ky_vault_tokens WHERE kind = ? AND (expires_at IS NULL OR expires_at > ?)",
-        kind,
-        Date.now()
-      )
-      .toArray();
+    return (
+      this.#sql
+        .exec<{ subject: string }>(
+          "SELECT subject FROM ky_vault_tokens WHERE kind = ? AND hash = ? AND (expires_at IS NULL OR expires_at > ?)",
+          kind,
+          hash,
+          this.now()
+        )
+        .toArray()[0]?.subject ?? null
+    );
+  }
 
-    let subject: string | null = null;
+  /** Like `check`, and the token is used up: of callers racing with one token, only one gets its subject. */
+  async consume(kind: TokenKind, token: string): Promise<string | null> {
+    const hash = await sha256(token);
 
-    for (const row of rows) {
-      if (crypto.subtle.timingSafeEqual(encoder.encode(row.hash), presented)) subject = row.subject;
-    }
-
-    return subject;
+    // One statement, after the only await: nothing can run between finding the token and deleting it.
+    return (
+      this.#sql
+        .exec<{ subject: string }>(
+          `DELETE FROM ky_vault_tokens WHERE kind = ? AND hash = ? AND (expires_at IS NULL OR expires_at > ?)
+           RETURNING subject`,
+          kind,
+          hash,
+          this.now()
+        )
+        .toArray()[0]?.subject ?? null
+    );
   }
 
   revoke(kind: TokenKind, subject: string): void {
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = ? AND subject = ?", kind, subject);
   }
 
-  async #refresh(kind: SecretKind, id: string, fn: (value: JsonValue) => Promise<JsonValue>): Promise<JsonValue | null> {
-    const stored = this.#value(kind, id);
-
-    if (stored === undefined) return null;
-    let next: JsonValue;
-
+  async #refresh(
+    kind: SecretKind,
+    id: string,
+    stored: Stored,
+    fn: (value: JsonValue) => Promise<JsonValue>
+  ): Promise<JsonValue | null> {
     try {
-      next = await fn(JSON.parse(stored));
+      // JSON.stringify gives undefined for undefined, and throws for what it can't serialize.
+      const next: string | undefined = JSON.stringify(await fn(JSON.parse(stored.value)));
+
+      if (next === undefined) throw new Error("The refresh returned no value.");
+
+      // A new row, so a new generation, that keeps the meta and drops the error; only over the generation fn was given.
+      const saved = this.#sql
+        .exec(
+          `INSERT OR REPLACE INTO ky_vault_secrets (kind, id, value, meta, updated_at)
+           SELECT kind, id, ?, meta, ? FROM ky_vault_secrets WHERE kind = ? AND id = ? AND generation = ?
+           RETURNING generation`,
+          next,
+          this.now(),
+          kind,
+          id,
+          stored.generation
+        )
+        .toArray();
+
+      if (saved.length > 0) return JSON.parse(next);
     } catch (error) {
+      if (this.#stored(kind, id)?.generation !== stored.generation) return this.#current(kind, id);
       this.#sql.exec(
-        "UPDATE ky_vault_secrets SET error = ? WHERE kind = ? AND id = ? AND value = ?",
+        "UPDATE ky_vault_secrets SET error = ? WHERE kind = ? AND id = ? AND generation = ?",
         error instanceof Error ? error.message : String(error),
         kind,
         id,
-        stored
+        stored.generation
       );
       throw error;
     }
 
-    const saved = this.#sql
-      .exec(
-        `UPDATE ky_vault_secrets SET value = ?, updated_at = ?, error = NULL
-         WHERE kind = ? AND id = ? AND value = ? RETURNING id`,
-        JSON.stringify(next),
-        Date.now(),
-        kind,
-        id,
-        stored
-      )
-      .toArray();
-
-    if (saved.length > 0) return next;
-    const now = this.#value(kind, id);
-
-    return now === undefined ? null : JSON.parse(now);
+    return this.#current(kind, id);
   }
 
-  /** A secret's stored JSON text. */
-  #value(kind: SecretKind, id: string): string | undefined {
+  #stored(kind: SecretKind, id: string): Stored | undefined {
     return this.#sql
-      .exec<{ value: string }>("SELECT value FROM ky_vault_secrets WHERE kind = ? AND id = ?", kind, id)
-      .toArray()[0]?.value;
+      .exec<Stored>("SELECT value, generation FROM ky_vault_secrets WHERE kind = ? AND id = ?", kind, id)
+      .toArray()[0];
+  }
+
+  #current(kind: SecretKind, id: string): JsonValue | null {
+    const stored = this.#stored(kind, id);
+
+    return stored === undefined ? null : JSON.parse(stored.value);
   }
 }

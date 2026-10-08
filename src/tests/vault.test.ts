@@ -19,8 +19,6 @@ function inside<T>(vault: DurableObjectStub<Vault>, work: (instance: Vault, stat
   return runInDurableObject(vault, work);
 }
 
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** A promise the test settles by hand. */
 type Gate<T> = { promise: Promise<T>; open: (value: T) => void; fail: (error: Error) => void };
 
@@ -100,22 +98,54 @@ describe("vault", () => {
 
   it("refuses a token once its ttl has passed, and forgets it at the next mint", async () => {
     const vault = fresh();
-    const code = await vault.mint("pair", "code", 50);
-    const lasting = await vault.mint("pair", "lasting", 60_000);
 
-    expect(await vault.check("pair", code)).toBe("code");
-    await pause(100);
+    const subjects = await inside(vault, async (instance, state) => {
+      let clock = 1_000_000;
+      instance.now = () => clock;
+      const code = await instance.mint("pair", "code", 50);
+      const lasting = await instance.mint("pair", "lasting", 60_000);
+      clock += 49;
 
-    expect(await vault.check("pair", code)).toBeNull();
-    expect(await vault.check("pair", lasting)).toBe("lasting");
+      expect(await instance.check("pair", code)).toBe("code");
+      clock += 1;
 
-    await vault.mint("machine", "mac");
+      expect(await instance.check("pair", code)).toBeNull();
+      expect(await instance.consume("pair", code)).toBeNull();
+      expect(await instance.check("pair", lasting)).toBe("lasting");
 
-    const subjects = await inside(vault, (_instance, state) =>
-      state.storage.sql.exec<{ subject: string }>("SELECT subject FROM ky_vault_tokens ORDER BY subject").toArray()
-    );
+      await instance.mint("machine", "mac");
+
+      return state.storage.sql.exec<{ subject: string }>("SELECT subject FROM ky_vault_tokens ORDER BY subject").toArray();
+    });
 
     expect(subjects.map((row) => row.subject)).toEqual(["lasting", "mac"]);
+  });
+
+  it("refuses a ttl that isn't a positive number of milliseconds, and stores nothing for it", async () => {
+    const vault = fresh();
+
+    // From inside: a throw over RPC also surfaces as an unhandled rejection in vitest-pool-workers.
+    const stored = await inside(vault, async (instance, state) => {
+      for (const ttl of [Number.NaN, 0, -1, Number.POSITIVE_INFINITY]) {
+        await expect(instance.mint("pair", "code", ttl)).rejects.toThrow("ttl must be a positive number");
+      }
+
+      return state.storage.sql.exec("SELECT subject FROM ky_vault_tokens").toArray();
+    });
+
+    expect(stored).toEqual([]);
+  });
+
+  it("consumes a token once: of two racing callers, one gets its subject", async () => {
+    const vault = fresh();
+    const code = await vault.mint("pair", "code", 60_000);
+
+    expect(await vault.consume("machine", code)).toBeNull();
+
+    const results = await Promise.all([vault.consume("pair", code), vault.consume("pair", code)]);
+
+    expect(results.filter((subject) => subject !== null)).toEqual(["code"]);
+    expect(await vault.check("pair", code)).toBeNull();
   });
 
   it("shares one refresh among concurrent callers and stores its result", async () => {
@@ -157,13 +187,14 @@ describe("vault", () => {
     const afterPut = await inside(vault, async (instance) => {
       const done = gate<JsonValue>();
       const refresh = instance.refresh("chatgpt", "codex", () => done.promise);
-      instance.put("chatgpt", "codex", { ...CODEX, accessToken: "signed-in-again" });
+      instance.put("chatgpt", "codex", { ...CODEX, accessToken: "signed-in-again" }, { account: "again" });
       done.open({ ...CODEX, accessToken: "stale" });
 
       return refresh;
     });
 
     expect(afterPut).toEqual({ ...CODEX, accessToken: "signed-in-again" });
+    expect(await vault.status()).toEqual([{ kind: "chatgpt", id: "codex", meta: { account: "again" }, updatedAt: expect.any(Number) }]);
 
     const afterRemove = await inside(vault, async (instance) => {
       const done = gate<JsonValue>();
@@ -178,9 +209,72 @@ describe("vault", () => {
     expect(await vault.status()).toEqual([]);
   });
 
-  it("keeps a failed refresh's error on the secret until it is next written, and runs nothing for a missing one", async () => {
+  it("lets a put of the very same value beat a refresh, and runs a new refresh for callers after it", async () => {
+    const vault = fresh();
+    await vault.put("chatgpt", "codex", CODEX, { account: "me" });
+
+    const seen = await inside(vault, async (instance) => {
+      const stale = gate<JsonValue>();
+      const later = gate<JsonValue>();
+      let runs = 0;
+
+      const first = instance.refresh("chatgpt", "codex", () => {
+        runs++;
+
+        return stale.promise;
+      });
+
+      instance.put("chatgpt", "codex", CODEX, { account: "again" });
+
+      const second = instance.refresh("chatgpt", "codex", () => {
+        runs++;
+
+        return later.promise;
+      });
+
+      stale.open({ ...CODEX, accessToken: "stale" });
+      const lost = await first;
+      later.open({ ...CODEX, accessToken: "access-2" });
+
+      return { runs, lost, won: await second };
+    });
+
+    expect(seen).toEqual({ runs: 2, lost: CODEX, won: { ...CODEX, accessToken: "access-2" } });
+    expect(await vault.status()).toEqual([{ kind: "chatgpt", id: "codex", meta: { account: "again" }, updatedAt: expect.any(Number) }]);
+  });
+
+  it("answers a failed refresh that a put or remove beat with what is stored now, and records no error", async () => {
     const vault = fresh();
     await vault.put("chatgpt", "codex", CODEX);
+
+    const afterPut = await inside(vault, async (instance) => {
+      const done = gate<JsonValue>();
+      const refresh = instance.refresh("chatgpt", "codex", () => done.promise);
+      instance.put("chatgpt", "codex", { ...CODEX, accessToken: "signed-in-again" });
+      done.fail(new Error("refresh token rejected"));
+
+      return refresh;
+    });
+
+    expect(afterPut).toEqual({ ...CODEX, accessToken: "signed-in-again" });
+    expect(await vault.status()).toEqual([{ kind: "chatgpt", id: "codex", meta: null, updatedAt: expect.any(Number) }]);
+
+    const afterRemove = await inside(vault, async (instance) => {
+      const done = gate<JsonValue>();
+      const refresh = instance.refresh("chatgpt", "codex", () => done.promise);
+      instance.remove("chatgpt", "codex");
+      done.fail(new Error("refresh token rejected"));
+
+      return refresh;
+    });
+
+    expect(afterRemove).toBeNull();
+    expect(await vault.status()).toEqual([]);
+  });
+
+  it("keeps a failed refresh's error on the secret until a refresh or put next writes it, and runs nothing for a missing one", async () => {
+    const vault = fresh();
+    await vault.put("chatgpt", "codex", CODEX, { account: "me" });
 
     const failed = await inside(vault, async (instance) => {
       const done = gate<JsonValue>();
@@ -195,9 +289,19 @@ describe("vault", () => {
       "Error: refresh token rejected"
     ]);
     expect(await vault.status()).toEqual([
-      { kind: "chatgpt", id: "codex", meta: null, updatedAt: expect.any(Number), error: "refresh token rejected" }
+      { kind: "chatgpt", id: "codex", meta: { account: "me" }, updatedAt: expect.any(Number), error: "refresh token rejected" }
     ]);
 
+    const refreshed = await inside(vault, (instance) =>
+      instance.refresh("chatgpt", "codex", async () => ({ ...CODEX, accessToken: "access-2" }))
+    );
+
+    expect(refreshed).toEqual({ ...CODEX, accessToken: "access-2" });
+    expect(await vault.status()).toEqual([{ kind: "chatgpt", id: "codex", meta: { account: "me" }, updatedAt: expect.any(Number) }]);
+
+    await inside(vault, (instance) =>
+      expect(instance.refresh("chatgpt", "codex", () => Promise.reject(new Error("offline")))).rejects.toThrow("offline")
+    );
     await vault.put("chatgpt", "codex", CODEX);
 
     expect((await vault.status())[0]?.error).toBeUndefined();
@@ -214,6 +318,28 @@ describe("vault", () => {
 
     expect(missing).toBeNull();
     expect(ran).toBe(false);
+  });
+
+  it("fails a refresh that returns nothing or what JSON can't hold, and keeps the secret", async () => {
+    const vault = fresh();
+    await vault.put("chatgpt", "codex", CODEX);
+
+    const errors = await inside(vault, async (instance) => {
+      const loop: { [key: string]: JsonValue } = {};
+      loop.self = loop;
+      const seen: (string | undefined)[] = [];
+
+      // JSON.parse's `any` stands in for a refresh that returns undefined.
+      for (const fn of [async () => JSON.parse("{}").missing, async () => loop]) {
+        await expect(instance.refresh("chatgpt", "codex", fn)).rejects.toThrow();
+        seen.push(instance.status()[0]?.error);
+      }
+
+      return seen;
+    });
+
+    expect(errors).toEqual(["The refresh returned no value.", expect.stringMatching(/circular/)]);
+    expect(await inside(vault, (instance) => instance.refresh("chatgpt", "codex", async (value) => value))).toEqual(CODEX);
   });
 
   it("says what S and K have yet to set up: no credentials, and no ChatGPT sign-in", async () => {

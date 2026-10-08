@@ -3,6 +3,13 @@
  * it in an HttpOnly cookie; a runner sends it as a bearer token.
  */
 
+// The Workers runtime has this; the DOM typings, which win for `crypto`, do not.
+declare global {
+  interface SubtleCrypto {
+    timingSafeEqual(a: ArrayBuffer | ArrayBufferView, b: ArrayBuffer | ArrayBufferView): boolean;
+  }
+}
+
 const COOKIE = "ky_token";
 
 const YEAR_SECONDS = 365 * 24 * 60 * 60;
