@@ -3,11 +3,22 @@
     "typecheck",
     "lint",
     "fallow",
+    "node",
     "worker-e2e",
     "harness",
     "web"
   ],
   "items": [
+    {
+      "check": "node",
+      "name": "the owner overlay adds the example overlay's vars and VibeProxy tunnel to wrangler.jsonc and keeps its bindings",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the owner overlay merges vars, adds VPC services, and lets anything else replace wrangler.jsonc's",
+      "outcome": "passed"
+    },
     {
       "check": "worker-e2e",
       "name": "the activity island's status is empty while the agent is idle",
@@ -160,6 +171,46 @@
     },
     {
       "check": "worker-e2e",
+      "name": "a deploy's config builds VibeProxy and Executor when all their config is set",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY_ORIGIN, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY_KEY, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config leaves out executor without EXECUTOR_URL, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config leaves out executor without EXECUTOR_TOKEN, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config keeps OpenCode Go without its key, as not set up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config offers OpenCode Go's first model once pi-ai no longer has ky's",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "executor tools over MCP runs a program once and answers with its result",
       "outcome": "passed"
     },
@@ -290,6 +341,21 @@
     },
     {
       "check": "worker-e2e",
+      "name": "a deploy's own setup shows VibeProxy and Executor as not set up on a deploy without them, and runs on the cloud model",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's own setup falls back to the defaults when a saved model's provider is no longer set up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's own setup offers self-edits in the main prompt once Settings has ky's repo, at the address of the page that set it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "machine tasks runs a task, shows its session and steps, takes a follow-up, and reports its result and spend",
       "outcome": "passed"
     },
@@ -411,11 +477,6 @@
     {
       "check": "worker-e2e",
       "name": "a turn on Claude runs on the fallback slot's model, with its key, when the Mac has just gone away, and on Claude once it is back",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a turn on Claude sends the main prompt with ky's repo and working copy from config",
       "outcome": "passed"
     },
     {
@@ -941,6 +1002,16 @@
     {
       "check": "web",
       "name": "picks a slot's model in settings and keeps it after a reload, with VibeProxy off",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "sets ky's repo for self-edits in Settings and keeps it after a reload",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "shows why Settings refused ky's repo in its row, and keeps the repo unset",
       "outcome": "passed"
     },
     {
