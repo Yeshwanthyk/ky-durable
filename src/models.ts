@@ -36,6 +36,9 @@ export const CLAUDE_MODEL = "claude-opus-5-5";
 /** Small and quick: names chats and tasks. */
 export const CLAUDE_SMALL = "claude-haiku-4-5";
 
+/** The one OpenCode Go model the catalog offers: subagents, and the main agent while Claude is away. */
+const OPENCODE_MODEL = "deepseek-v4.1-flash";
+
 /** The context window pi's harness is told for every model; see `compacting`. */
 export const CONTEXT_WINDOW = 136_000;
 
@@ -73,12 +76,16 @@ export type Resolved = {
   readonly fellBack: boolean;
 };
 
-/** OpenCode Go in the cloud, always on while its key is set. The catalog offers one model of it. */
-export function opencodeGo(key: string | undefined, modelId: string): Endpoint {
+/**
+ * OpenCode Go in the cloud, always on while its key is set. The catalog offers one model of it: `modelId`,
+ * or pi-ai's first OpenCode Go model once pi-ai no longer has that one. It is in the catalog even without
+ * its key, since the slot defaults end on it.
+ */
+export function opencodeGo(key: string | undefined, modelId = OPENCODE_MODEL): Endpoint {
   const provider = opencodeGoProvider();
-  const model = provider.getModels().find((each) => each.id === modelId);
-
-  if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
+  const models = provider.getModels();
+  // SAFETY: pi-ai's OpenCode Go provider ships a fixed, non-empty model list.
+  const model = models.find((each) => each.id === modelId) ?? models[0]!;
 
   return {
     provider,
@@ -91,7 +98,7 @@ export function opencodeGo(key: string | undefined, modelId: string): Endpoint {
 }
 
 /**
- * ky's slot defaults: Claude while the Mac is online, else the cheap cloud
+ * ky's slot defaults: Claude while VibeProxy answers, else the cheap cloud
  * model. Each slot lists its choices in order; the first whose provider is
  * connected wins, and the last is used when none is.
  */

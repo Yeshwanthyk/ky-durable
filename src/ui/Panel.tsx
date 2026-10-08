@@ -4,7 +4,9 @@ import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
 import type {
   MachineInfo,
+  ProviderInfo,
   SettingsView,
+  SetupView,
   SkillChange,
   SkillRow,
   SkillVersion,
@@ -58,6 +60,7 @@ export function Panel({
   session,
   now,
   settings,
+  setup,
   skills,
   soul,
   memory,
@@ -75,6 +78,7 @@ export function Panel({
   onStop,
   onStopAll,
   onSetMachine,
+  onSetRepo,
   onClose,
   tab,
   onTab,
@@ -92,6 +96,7 @@ export function Panel({
   session: string;
   now: number;
   settings: SettingsView | null;
+  setup: SetupView | null;
   skills: readonly SkillRow[];
   soul: SoulView | null;
   memory: MemoryView | null;
@@ -109,6 +114,7 @@ export function Panel({
   onStop: (task: string) => void;
   onStopAll: () => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
+  onSetRepo: (repo: string) => Promise<string | undefined>;
   onClose: () => void;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -179,6 +185,7 @@ export function Panel({
       ) : (
         <Settings
           settings={settings}
+          setup={setup}
           catalog={catalog}
           machines={machines}
           now={now}
@@ -186,6 +193,7 @@ export function Panel({
           onTheme={onTheme}
           onSet={onSetModel}
           onSetMachine={onSetMachine}
+          onSetRepo={onSetRepo}
         />
       )}
     </aside>
@@ -370,31 +378,51 @@ function machineStatus(machine: MachineInfo, now: number): string {
   return machine.active === 0 ? "idle" : plural(machine.active, "task");
 }
 
-// What you say a machine is for; click to edit, Enter or leaving saves, Escape cancels.
-function MachineNote({ machine, onSave }: { machine: MachineInfo; onSave: (note: string) => void }) {
+// A short text shown as a button; click to edit, Enter or leaving saves, Escape cancels.
+function InlineEdit({
+  value,
+  className,
+  title,
+  empty,
+  label,
+  placeholder,
+  maxLength,
+  onSave,
+}: {
+  value: string;
+  /** The button's class; the input's is the same with `-input`. */
+  className: string;
+  title: string;
+  /** What the button says while the value is empty. */
+  empty: string;
+  label: string;
+  placeholder: string;
+  maxLength: number;
+  onSave: (value: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
 
-  const save = (note: string) => {
+  const save = (next: string) => {
     setEditing(false);
 
-    if (note.trim() !== machine.note) onSave(note);
+    if (next.trim() !== value) onSave(next);
   };
 
   if (!editing) {
     return (
-      <button type="button" className="machine-note pressable" title="Edit what it's for" onClick={() => setEditing(true)}>
-        {machine.note === "" ? <span className="quiet">Say what it's for</span> : machine.note}
+      <button type="button" className={`${className} pressable`} title={title} onClick={() => setEditing(true)}>
+        {value === "" ? <span className="quiet">{empty}</span> : value}
       </button>
     );
   }
 
   return (
     <input
-      className="machine-note-input"
-      aria-label={`What ${machine.name} is for`}
-      placeholder="What it's for, e.g. builds and long jobs"
-      defaultValue={machine.note}
-      maxLength={200}
+      className={`${className}-input`}
+      aria-label={label}
+      placeholder={placeholder}
+      defaultValue={value}
+      maxLength={maxLength}
       autoFocus
       onBlur={(event) => save(event.currentTarget.value)}
       onKeyDown={(event) => {
@@ -428,7 +456,16 @@ function MachineItem({
         <MachineSwitch machine={machine} onSet={onSet} />
       </div>
       <span className="machine-facts quiet">{about}</span>
-      <MachineNote machine={machine} onSave={(note) => onSet(machine.name, { note })} />
+      <InlineEdit
+        value={machine.note}
+        className="machine-note"
+        title="Edit what it's for"
+        empty="Say what it's for"
+        label={`What ${machine.name} is for`}
+        placeholder="What it's for, e.g. builds and long jobs"
+        maxLength={200}
+        onSave={(note) => onSet(machine.name, { note })}
+      />
     </li>
   );
 }
@@ -725,8 +762,149 @@ function ModelRow({
   );
 }
 
+// A provider or tool: what it needs while it is off, and how it stands.
+function ServiceRow({ name, needs, value, on }: { name: string; needs?: string; value: string; on: boolean }) {
+  return (
+    <li className="row">
+      <span className="row-tile">
+        <Icon name="plug" size={15} />
+      </span>
+      <span className="row-text">
+        <span className="row-label">{name}</span>
+        {needs ? <span className="row-sub">Needs {needs}</span> : null}
+      </span>
+      <span className="row-value tabular">{value}</span>
+      <span className="status-dot" data-connected={on} />
+    </li>
+  );
+}
+
+// The model providers this deploy has, then the providers and tools it has no config for.
+function Services({ providers, setup }: { providers: readonly ProviderInfo[]; setup: SetupView | null }) {
+  const missing = setup?.missing ?? [];
+  const configured = providers.filter((provider) => !missing.some((each) => each.id === provider.id));
+
+  return (
+    <>
+      {configured.length > 0 ? (
+        <section className="group">
+          <h3 className="group-label">Providers</h3>
+          <ul className="card">
+            {configured.map((provider) => (
+              <ServiceRow
+                key={provider.id}
+                name={provider.name}
+                {...(provider.connected ? {} : { needs: provider.needs ?? "a key" })}
+                value={provider.connected ? plural(provider.models.length, "model") : "Off"}
+                on={provider.connected}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {missing.length > 0 ? (
+        <section className="group">
+          <h3 className="group-label">Not set up</h3>
+          <ul className="card">
+            {missing.map((each) => (
+              <ServiceRow key={each.id} name={each.name} needs={each.needs} value="Not set up" on={false} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+// ky's GitHub repo, where self-edits go, and the address of the page that set it, which ky checks after a deploy.
+function SelfEdits({
+  repo,
+  url,
+  onSet,
+}: {
+  repo: string | null;
+  url: string | null;
+  onSet: (repo: string) => Promise<string | undefined>;
+}) {
+  const [refused, setRefused] = useState<string>();
+
+  return (
+    <section className="group">
+      <h3 className="group-label">Self-edits</h3>
+      <div className="card">
+        <div className="row">
+          <span className="row-tile">
+            <Icon name="repo" size={15} />
+          </span>
+          <span className="row-text">
+            <span className="row-label">ky's repo</span>
+            <span className="row-sub">ky changes itself through pull requests here</span>
+          </span>
+          <InlineEdit
+            value={repo ?? ""}
+            className="repo-edit"
+            title="Edit ky's repo"
+            empty="Not set"
+            label="ky's GitHub repo"
+            placeholder="owner/name"
+            maxLength={200}
+            onSave={(next) => void onSet(next).then(setRefused)}
+          />
+        </div>
+        {refused ? (
+          <p className="automation-refused" role="alert">
+            {refused}
+          </p>
+        ) : null}
+        <div className="row">
+          <span className="row-tile">
+            <Icon name="globe" size={15} />
+          </span>
+          <span className="row-text">
+            <span className="row-label">ky's address</span>
+            <span className="row-sub">Taken from the page that sets the repo</span>
+          </span>
+          <span className="row-value repo-edit">{url ?? <span className="quiet">Set with the repo</span>}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// The tools ky can use, listed on request.
+function ToolsGroup({ catalog }: { catalog: readonly ToolInfo[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="group">
+      <h3 className="group-label">Tools</h3>
+      <div className="card">
+        <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          <span className="row-tile">
+            <Icon name="terminal" size={15} />
+          </span>
+          <span className="row-label">What ky can use</span>
+          <span className="row-value tabular">{catalog.length}</span>
+          <Icon name="chevronRight" size={14} className="row-chevron chevron" />
+        </button>
+        {open ? (
+          <ul className="tool-list">
+            {catalog.map((tool) => (
+              <li key={tool.name}>
+                <code>{tool.name}</code>
+                <p>{tool.description}</p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function Settings({
   settings,
+  setup,
   catalog,
   machines,
   now,
@@ -734,8 +912,10 @@ function Settings({
   onTheme,
   onSet,
   onSetMachine,
+  onSetRepo,
 }: {
   settings: SettingsView | null;
+  setup: SetupView | null;
   catalog: readonly ToolInfo[];
   machines: readonly MachineInfo[];
   now: number;
@@ -743,8 +923,8 @@ function Settings({
   onTheme: (theme: Theme) => void;
   onSet: (slot: Slot, setting: SlotSetting) => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
+  onSetRepo: (repo: string) => Promise<string | undefined>;
 }) {
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
 
   return (
@@ -795,59 +975,10 @@ function Settings({
           </ul>
         )}
       </section>
-      {settings ? (
-        <section className="group">
-          <h3 className="group-label">Providers</h3>
-          <ul className="card">
-            {settings.providers.map((provider) => (
-              <li key={provider.id} className="row">
-                <span className="row-tile">
-                  <Icon name="plug" size={15} />
-                </span>
-                <span className="row-text">
-                  <span className="row-label">{provider.name}</span>
-                  {provider.connected ? null : <span className="row-sub">Needs {provider.needs ?? "a key"}</span>}
-                </span>
-                <span className="row-value tabular">
-                  {provider.connected
-                    ? `${provider.models.length} ${provider.models.length === 1 ? "model" : "models"}`
-                    : "Off"}
-                </span>
-                <span className="status-dot" data-connected={provider.connected} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {settings ? <Services providers={settings.providers} setup={setup} /> : null}
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
-      <section className="group">
-        <h3 className="group-label">Tools</h3>
-        <div className="card">
-          <button
-            type="button"
-            className="row disclosure"
-            aria-expanded={toolsOpen}
-            onClick={() => setToolsOpen((value) => !value)}
-          >
-            <span className="row-tile">
-              <Icon name="terminal" size={15} />
-            </span>
-            <span className="row-label">What ky can use</span>
-            <span className="row-value tabular">{catalog.length}</span>
-            <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-          </button>
-          {toolsOpen ? (
-            <ul className="tool-list">
-              {catalog.map((tool) => (
-                <li key={tool.name}>
-                  <code>{tool.name}</code>
-                  <p>{tool.description}</p>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </section>
+      <ToolsGroup catalog={catalog} />
+      {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}
     </div>
   );
 }

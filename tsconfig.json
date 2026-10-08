@@ -34,5 +34,5 @@
       ]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "env.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "env.d.ts", "env.optional.d.ts"]
 }

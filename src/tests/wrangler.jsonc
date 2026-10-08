@@ -16,15 +16,7 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  "vars": {
-    "KY_TOKEN": "ky-stack-token",
-    // fake-vibeproxy.ts checks this key.
-    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
-    "VIBEPROXY_KEY": "test-vibeproxy-key",
-    "KY_REPO": "test-owner/test-repo",
-    "KY_WORK_COPY": "~/test-work/ky",
-    "KY_URL": "https://ky.test"
-  },
+  "vars": { "KY_TOKEN": "ky-stack-token" },
   "durable_objects": {
     "bindings": [
       { "name": "PiAgent", "class_name": "PiAgent" },

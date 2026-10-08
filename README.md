@@ -26,9 +26,9 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | exec sandbox | `exec` runs JavaScript in a fresh Dynamic Worker over the DO's workspace (`/workspace`). No network except git over HTTPS, no shell or npm. | `src/workspace.ts`, binding `LOADER` |
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
-| Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` |
-| OpenCode Go | The cheap model (`KY_MODEL`), and the stand-in while the Mac is away. | `src/models.ts` |
-| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.jsonc` |
+| Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` in `wrangler.local.jsonc` |
+| OpenCode Go | The cheap model (`OPENCODE_MODEL` in `src/models.ts`), and the stand-in while the Mac is away. | `src/models.ts` |
+| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
 | ky-runner on the Mac | Dials out to the DO and runs each machine task as a `claude -p` session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
@@ -77,13 +77,21 @@ gets an HttpOnly cookie for a year. A runner sends the same token as `Authorizat
 
 ## Setup and deploy
 
-Bindings and vars are in `wrangler.jsonc`: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `VIBEPROXY`
-(the VPC service id of your tunnel), `EXECUTOR_URL`, `KY_MODEL`, `VIBEPROXY_ORIGIN` (VibeProxy's address on
-the Mac, `http://127.0.0.1:8317`), and `KY_REPO`, `KY_WORK_COPY` and `KY_URL` (where ky's own code lives, for
-self-edits in `src/prompt.ts`).
+`wrangler.jsonc` is generic: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `AI` and the `PiAgent` object.
+What is yours goes in `wrangler.local.jsonc` (gitignored), which `vite.config.ts` merges over it for
+`pnpm start` and `pnpm run deploy`: `EXECUTOR_URL`, `VIBEPROXY_ORIGIN` (VibeProxy's address on your
+computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunnel. Copy
+`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; only `KY_TOKEN` is
+required. Executor and VibeProxy each show as "Not set up" in Settings until their config and secret are
+there, and ky runs without them.
+
+For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from the address ky answers on:
+setting it also saves that page's origin as ky's address, shown under it. Until then the system prompt
+(`src/prompt.ts`) leaves self-edits out.
 
 ```sh
 pnpm install
+cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
 npx wrangler r2 bucket create ky-files
 npx wrangler secret put KY_TOKEN          # the one sign-in secret
 npx wrangler secret put EXECUTOR_TOKEN    # an Executor personal access token
@@ -170,11 +178,12 @@ name closes the older one (code 4409), and the older one exits. `runner/runner.t
 ## Develop
 
 ```sh
-printf 'KY_TOKEN=dev\nEXECUTOR_TOKEN=\n' > .dev.vars   # gitignored
+cp .dev.vars.example .dev.vars   # gitignored; set KY_TOKEN=dev
 pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
 ```
 
-`BROWSER` and `VIBEPROXY` are remote bindings, so `pnpm start` needs `wrangler login`. Without
+`BROWSER` and `AI` (and `VIBEPROXY`, with the overlay) are remote bindings, so `pnpm start` needs
+`wrangler login`. Without `wrangler.local.jsonc`, VibeProxy and Executor show as "Not set up". Without
 `OPENCODE_API_KEY` and VibeProxy, turns fail with "Provider is not configured"; the UI still works.
 
 | Script | Runs |
@@ -186,10 +195,11 @@ pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
 | `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
 | `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |
 | `pnpm harness` | CLI scenarios against the local stack with the real runner and a fake `claude` (`test/harness/`) |
+| `pnpm test:node` | vitest in Node on the build's config, such as the owner overlay merge (`test/node/`) |
 | `pnpm test:web` | Playwright over the local stack (`test/web/`) |
-| `pnpm gate` | typecheck, lint, fallow, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
+| `pnpm gate` | typecheck, lint, fallow, node, worker e2e, harness, web; fails if any check in `gate-baseline.json` regresses |
 | `pnpm gate:live` | the checks that need the deployed app and the Mac |
 | `pnpm lint` | oxlint with [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop` (upstream commit in `UPSTREAM`) |
-| `pnpm types` | regenerate `env.d.ts` from `wrangler.jsonc` |
+| `pnpm types` | regenerate `env.d.ts` from `wrangler.jsonc` and `.dev.vars.example`; optional config is typed in `env.optional.d.ts` |
 
 `FEATURES.md` lists every feature with the check that covers it. `FUTURE.md` lists what comes next.

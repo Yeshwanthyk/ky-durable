@@ -7,6 +7,7 @@ import type { FileRow } from "./files";
 import type { MachineState } from "./machines";
 import type { MachineFacts } from "./runner-protocol";
 import type { SettingsView, Slot, SlotSetting } from "./settings";
+import type { SetupView } from "./setup";
 import type { SkillChange, SkillRow } from "./skills";
 import type { MemoryView } from "./memory";
 import type { SoulChange, SoulView } from "./soul";
@@ -82,6 +83,11 @@ export type PiClientMessage =
       readonly state?: MachineState;
       readonly note?: string;
     }
+  /**
+   * Set ky's GitHub repo, owner/name, for self-edits, and this page's origin as ky's address; an empty repo
+   * clears it. The result is `{ refused }` when it cannot be saved.
+   */
+  | { readonly type: "set-repo"; readonly id?: string; readonly repo: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
@@ -172,6 +178,8 @@ export type PiServerMessage =
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
   /** Providers, their models, and each slot's choice; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
+  /** ky's repo and address, and what this deploy has no config for; sent on connect and on change. */
+  | { readonly type: "setup"; readonly setup: SetupView }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 
@@ -196,6 +204,8 @@ export type { SpecialistDraft, SpecialistView } from "./specialists";
 export type { FileRow } from "./files";
 
 export type { ModelOption, ProviderInfo, SettingsView, Slot, SlotSetting } from "./settings";
+
+export type { SetupView } from "./setup";
 
 export type {
   PiMessage as TranscriptMessage,

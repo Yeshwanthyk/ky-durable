@@ -3,6 +3,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
 import type { Endpoint } from "./models";
+import type { NotSetUp } from "./setup";
 
 /**
  * Claude through VibeProxy on a computer of the user's. The computer runs a
@@ -15,6 +16,15 @@ import type { Endpoint } from "./models";
  */
 
 export const VIBEPROXY_PROVIDER = "vibeproxy";
+
+const NAME = "Claude via VibeProxy";
+
+/** What the Models settings show when this deploy has no tunnel binding, origin, or key for VibeProxy. */
+export const VIBEPROXY_NOT_SET_UP: NotSetUp = {
+  id: VIBEPROXY_PROVIDER,
+  name: NAME,
+  needs: "the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
+};
 
 const ALLOWED_PATHS = new Set(["/v1/messages", "/v1/models"]);
 
@@ -33,7 +43,7 @@ export type VibeProxyConfig = {
   readonly binding: Pick<Fetcher, "fetch">;
   /** VibeProxy's listen address on that computer, which the tunnel forwards to, e.g. http://127.0.0.1:8317. */
   readonly origin: string;
-  readonly key: string | undefined;
+  readonly key: string;
   /** Claude models to offer. */
   readonly modelIds: readonly string[];
   /** Called when the computer comes online or goes away. */
@@ -76,8 +86,6 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
   let lastUp = false;
 
   const reachable = (): Promise<boolean> => {
-    if (!config.key) return Promise.resolve(false);
-
     if (probe && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
 
     const up = send(`${origin}/v1/models`, {
@@ -107,8 +115,7 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
     auth: {
       apiKey: {
         name: "VibeProxy key",
-        resolve: async () =>
-          config.key ? { auth: { apiKey: config.key }, source: "VIBEPROXY_KEY" } : undefined
+        resolve: async () => ({ auth: { apiKey: config.key }, source: "VIBEPROXY_KEY" })
       }
     },
     models,
@@ -120,8 +127,8 @@ export function vibeProxy(config: VibeProxyConfig): VibeProxy {
 
   return {
     provider,
-    name: config.name ?? "Claude via VibeProxy",
-    needs: config.needs ?? "the Mac online with VibeProxy",
+    name: config.name ?? NAME,
+    needs: config.needs ?? "the computer online with VibeProxy",
     models,
     // Direct requests (titles) need the key in their options; pi's registry resolves it through `auth` above.
     apiKey: { name: "VIBEPROXY_KEY", value: config.key },

@@ -14,7 +14,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
-import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
+import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
 
 export { Vault } from "../vault";
 
@@ -27,7 +27,9 @@ export { Vault } from "../vault";
  * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
  *   then fake-vibeproxy.ts answers as Claude;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
- * - Browser Rendering is left out: a launch is refused.
+ * - Browser Rendering is left out: a launch is refused;
+ * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
+ *   Executor, so Settings shows them as not set up.
  *
  * The faux model answers from the transcript alone, so it gives the same
  * answer after an eviction as before it:
@@ -56,6 +58,9 @@ const FAUX = "faux";
 
 /** The token the fake Executor wants. */
 const EXECUTOR_TOKEN = "ky-stack-executor";
+
+/** Objects whose name starts with this have no VibeProxy and no Executor, as a deploy without the owner overlay. */
+export const BARE = "bare-";
 
 /** The key the faux cloud provider is given, so a test sees which provider's key a request carried. */
 const FAUX_KEY = "faux-key";
@@ -258,18 +263,26 @@ export class PiAgent extends ProductionAgent {
       })
     });
 
+    const bare = this.ctx.id.name?.startsWith(BARE) === true;
+
     return {
       cloud: fauxCloud(calls),
-      vibeProxy: {
-        fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
-          (await storage.get<boolean>(MAC_UP_KEY)) === true
-            ? fakeVibeProxy(new Request(input, init))
-            : refusingVibeProxy()
-      },
+      vibeProxy: bare
+        ? undefined
+        : {
+            binding: {
+              fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
+                (await storage.get<boolean>(MAC_UP_KEY)) === true
+                  ? fakeVibeProxy(new Request(input, init))
+                  : refusingVibeProxy()
+            },
+            origin: "http://127.0.0.1:8317",
+            key: VIBEPROXY_KEY
+          },
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
       probeTtlMs: 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
-      executor: { url: "https://executor.test/mcp", token: EXECUTOR_TOKEN, fetch: executorFake.fetch },
+      executor: bare ? undefined : { url: "https://executor.test/mcp", token: EXECUTOR_TOKEN, fetch: executorFake.fetch },
       extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       executorFake,
       calls
@@ -289,7 +302,7 @@ export class PiAgent extends ProductionAgent {
   /** Bring the Mac's VibeProxy up or take it away, probe it as PiAgent does on start, and move the chats to the main slot. */
   async mac(up: boolean): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, up);
-    await this.claude.reachable();
+    await this.claude?.reachable();
     await this.applyMain();
   }
 

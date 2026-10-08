@@ -227,6 +227,42 @@ test("picks a slot's model in settings and keeps it after a reload, with VibePro
   await expect(panel(page).getByRole("button", { name: /^Titles/ })).not.toContainText("Faux Text");
 });
 
+test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+
+  try {
+    await panel(page).getByRole("button", { name: "Not set" }).click();
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("test-owner/test-repo");
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+    await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
+
+    await page.reload();
+    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
+  } finally {
+    // Clear it for the other tests.
+    await panel(page).getByRole("button", { name: "test-owner/test-repo" }).click();
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("");
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+    await expect(panel(page).getByRole("button", { name: "Not set" })).toBeVisible();
+  }
+});
+
+test("shows why Settings refused ky's repo in its row, and keeps the repo unset", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+
+  await panel(page).getByRole("button", { name: "Not set" }).click();
+  await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("not a repo");
+  await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+
+  const selfEdits = panel(page).locator(".group").filter({ hasText: "Self-edits" });
+  await expect(selfEdits.getByRole("alert")).toHaveText('"not a repo" is not a GitHub repo; write it as owner/name.');
+  await expect(selfEdits.getByRole("button", { name: "Not set" })).toBeVisible();
+  await expect(page.locator(".composer-note[data-tone='error']")).toHaveCount(0);
+});
+
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

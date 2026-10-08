@@ -8,6 +8,7 @@
  *   lint        oxlint with the anti-slop rules, no errors and no warnings
  *   fallow      dead code, duplication and complexity, no finding beyond
  *               the ones saved in fallow/*.json (which may only shrink)
+ *   node        vitest in Node on the build's config (`pnpm test:node`)
  *   worker-e2e  vitest-pool-workers on the real PiAgent (`pnpm test`)
  *   harness     the CLI harness with a real runner (`pnpm harness all`)
  *   web         Playwright on the real web app (`pnpm test:web`)
@@ -67,6 +68,28 @@ function decode<Schema extends TSchema>(schema: Schema, file: string): Static<Sc
   return Value.Check(schema, value) ? value : undefined;
 }
 
+/** The tests a vitest run reported to `file` with `--reporter=json`. */
+function vitestItems(check: string, file: string): Item[] {
+  const report = decode(VitestReport, path.join(REPO, file));
+
+  if (!report) throw new Error(`${file} is missing or not vitest's JSON report`);
+
+  return report.testResults.flatMap((each) =>
+    each.assertionResults.map((test) => ({ check, name: test.fullName, outcome: test.status }))
+  );
+}
+
+/** The vitest run `script`, reporting to test-results/<name>.json. */
+function vitest(name: string, script: string): Check {
+  const file = `test-results/${name}.json`;
+
+  return {
+    name,
+    commands: [["pnpm", "-s", script, "--reporter=default", "--reporter=json", `--outputFile.json=${file}`]],
+    items: () => vitestItems(name, file)
+  };
+}
+
 function outcomesOf(check: string, file: string): Item[] {
   const report = decode(Outcomes, file);
 
@@ -88,19 +111,8 @@ const CHECKS: Check[] = [
       `fallow/${analysis}.json`
     ])
   },
-  {
-    name: "worker-e2e",
-    commands: [["pnpm", "-s", "test", "--reporter=default", "--reporter=json", "--outputFile.json=test-results/worker-e2e.json"]],
-    items: () => {
-      const report = decode(VitestReport, path.join(REPO, "test-results/worker-e2e.json"));
-
-      if (!report) throw new Error("test-results/worker-e2e.json is missing or not vitest's JSON report");
-
-      return report.testResults.flatMap((file) =>
-        file.assertionResults.map((test) => ({ check: "worker-e2e", name: test.fullName, outcome: test.status }))
-      );
-    }
-  },
+  vitest("node", "test:node"),
+  vitest("worker-e2e", "test"),
   {
     name: "harness",
     commands: [["pnpm", "-s", "harness", "all"]],

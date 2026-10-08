@@ -28,13 +28,13 @@ export const TOKEN = "ky-stack-token";
 
 const ORIGIN = "https://ky.test";
 
-/** Fetch through ky's Worker, signed in with the bearer token. */
-export function call(path: string, init: RequestInit = {}): Promise<Response> {
+/** Fetch through ky's Worker, signed in with the bearer token, at ky's address or another. */
+export function call(path: string, init: RequestInit = {}, origin = ORIGIN): Promise<Response> {
   const headers = new Headers(init.headers);
 
   if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${TOKEN}`);
 
-  return SELF.fetch(`${ORIGIN}${path}`, { ...init, headers });
+  return SELF.fetch(`${origin}${path}`, { ...init, headers });
 }
 
 /** Accept the WebSocket a fetch upgraded to. */
@@ -46,9 +46,9 @@ function accepted(response: Response): WebSocket {
   return socket;
 }
 
-/** A WebSocket to the agent `name`, as the browser opens it (`?session=`). */
-export async function connect(name: string, query = ""): Promise<WebSocket> {
-  return accepted(await call(`/agents/pi-agent/${name}${query}`, { headers: { Upgrade: "websocket" } }));
+/** A WebSocket to the agent `name`, as the browser opens it (`?session=`), at ky's address or another. */
+export async function connect(name: string, query = "", origin = ORIGIN): Promise<WebSocket> {
+  return accepted(await call(`/agents/pi-agent/${name}${query}`, { headers: { Upgrade: "websocket" } }, origin));
 }
 
 /** A runner's WebSocket to the agent `name`, as the machine `machine`, past the Worker's route to "me". */

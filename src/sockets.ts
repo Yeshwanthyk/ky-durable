@@ -24,6 +24,7 @@ import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
+import type { NotSetUp, Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -114,6 +115,8 @@ export class PiSessionSockets {
   readonly #specialists: Specialists;
   readonly #memory: Memory;
   readonly #automations: Automations;
+  readonly #setup: Setup;
+  readonly #notSetUp: readonly NotSetUp[];
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -133,6 +136,9 @@ export class PiSessionSockets {
     specialists: Specialists,
     memory: Memory,
     automations: Automations,
+    setup: Setup,
+    /** What this deploy has no config for, sent with the setup. */
+    notSetUp: readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -150,6 +156,8 @@ export class PiSessionSockets {
     this.#specialists = specialists;
     this.#memory = memory;
     this.#automations = automations;
+    this.#setup = setup;
+    this.#notSetUp = notSetUp;
     this.#newChat = newChat;
     this.#version = version;
     chats.onChange(() => {
@@ -187,6 +195,11 @@ export class PiSessionSockets {
     files.onChange(() => this.broadcastTasks());
     models.settings.onChange(() => {
       const message = this.#settingsMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    setup.onChange(() => {
+      const message = this.#setupMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -287,6 +300,10 @@ export class PiSessionSockets {
     return { type: "settings", settings: this.#models.settings.view() };
   }
 
+  #setupMessage(): PiServerMessage {
+    return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp } };
+  }
+
   /** Send the task feed to every UI socket. */
   broadcastTasks(): void {
     const message = this.#tasksMessage();
@@ -360,6 +377,7 @@ export class PiSessionSockets {
     });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
+    send(connection, this.#setupMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
@@ -598,6 +616,9 @@ export class PiSessionSockets {
         return null;
       }
 
+      case "set-repo":
+        // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
+        return this.#setup.setRepo(message.repo, connection.uri);
       case "new-chat":
         return { session: await this.#newChat() };
       case "archive-chat":
