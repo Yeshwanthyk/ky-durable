@@ -43,6 +43,11 @@
       {
         "name": "PiAgent",
         "class_name": "PiAgent"
+      },
+      {
+        // Every secret ky keeps, and the tokens it hands out (src/vault.ts).
+        "name": "Vault",
+        "class_name": "Vault"
       }
     ]
   },
@@ -50,6 +55,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["PiAgent"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["Vault"]
     }
   ],
   "observability": {

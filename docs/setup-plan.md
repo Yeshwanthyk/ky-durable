@@ -177,15 +177,16 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 
 ```ts
 // secrets: kind = "provider" | "claude" | "chatgpt" | "github" | "executor"
-put(kind, id, value: Json, meta?): void
+put(kind, id, value: Json, meta?: SecretMeta): void          // meta is flat (strings, numbers, booleans, string[]) so it crosses RPC typed
 remove(kind, id): void
-status(): { kind, id, meta, updatedAt, error? }[]          // never secrets
+status(): { kind, id, meta, updatedAt, error? }[]          // never secrets; error is the last failed refresh's
+refresh(kind, id, fn: (value) => Promise<Json>): Json | null // CAS: concurrent callers share one fn; a put/remove that lands first wins
 auth(providerId): { apiKey: string; headers?: Record<string,string> } | null
 sessionCreds(agent: "claude" | "codex"): RunCreds[agent] | null   // refreshes codex with CAS
 chatgptLogin(): { userCode, verificationUrl, loginId }; chatgptPoll(loginId): "pending" | "done" | { error }
 githubToken(): { token, repos } | null
 // tokens: kind = "pair" | "machine" | "task"
-mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256
+mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256; one live token per (kind, subject), so minting again replaces it
 check(kind, token): subject | null
 revoke(kind, subject): void
 ```

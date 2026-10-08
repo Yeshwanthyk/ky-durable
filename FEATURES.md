@@ -186,6 +186,16 @@ A cite points at the code that does the work.
 | automation-activity | Activity lists active and paused automations, under Now and above the task history, with their schedule, next and last run. A row opens its editor; Run now, Pause and Resume show on hover. | src/ui/Automations.tsx:115, src/sockets.ts:174 | local | P pauses, resumes and archives an automation from Activity |
 | automation-editor | Activity adds and edits automations: title, prompt, a cron or one time, model and thinking, cloud or machine, and the chat it reports to. A refusal shows in the form; Archive and Delete are in the editor. | src/ui/Automations.tsx:432, src/sockets.ts:192 | local | P adds, edits, runs and deletes an automation from Activity |
 
+## Vault
+
+The Vault object keeps ky's secrets and the tokens it hands out. Nothing calls it yet; pairing, keys and subscriptions wire it in.
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| vault-secrets | Secrets are put, replaced and removed by kind and id; status lists each with its meta and never its value. | src/vault.ts:85, src/vault.ts:102 | local | W vault › puts, replaces and removes secrets, and status lists them without their values |
+| vault-tokens | A minted token is returned once and only its sha-256 is kept. It checks as its subject for its own kind, until it is revoked, replaced by a newer mint, or past its ttl. | src/vault.ts:166, src/vault.ts:184 | local | W vault › mints a token that checks as its subject for its own kind only, and stores only its sha-256; W vault › tells subjects apart, and minting again replaces the subject's last token; W vault › revokes a subject's token and no other; W vault › refuses a token once its ttl has passed, and forgets it at the next mint |
+| vault-refresh | Concurrent refreshes of a secret share one run; a refresh that a put or remove beat is dropped; a failed one leaves its error in status until the secret is next written. | src/vault.ts:130 | local | W vault › shares one refresh among concurrent callers and stores its result; W vault › drops a refresh that a put or remove beat, and answers with what is stored now; W vault › keeps a failed refresh's error on the secret until it is next written, and runs nothing for a missing one |
+
 ## Live-only
 
 These need a real outside service, so the local gate can't cover them.
@@ -207,6 +217,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 113.
+- Local features: 116.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.
