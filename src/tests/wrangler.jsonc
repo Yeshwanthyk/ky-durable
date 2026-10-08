@@ -26,7 +26,13 @@
     "KY_URL": "https://ky.test"
   },
   "durable_objects": {
-    "bindings": [{ "name": "PiAgent", "class_name": "PiAgent" }]
+    "bindings": [
+      { "name": "PiAgent", "class_name": "PiAgent" },
+      { "name": "Vault", "class_name": "Vault" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiAgent"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PiAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["Vault"] }
+  ]
 }

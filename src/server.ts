@@ -31,6 +31,8 @@ import { Titler } from "./titles";
 import { vibeProxy } from "./vibeproxy";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
+export { Vault } from "./vault";
+
 /** A pi context with no values that is never cancelled. */
 const BACKGROUND = Object.freeze({
   abortSignal: undefined,

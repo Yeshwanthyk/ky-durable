@@ -186,6 +186,17 @@ A cite points at the code that does the work.
 | automation-activity | Activity lists active and paused automations, under Now and above the task history, with their schedule, next and last run. A row opens its editor; Run now, Pause and Resume show on hover. | src/ui/Automations.tsx:115, src/sockets.ts:174 | local | P pauses, resumes and archives an automation from Activity |
 | automation-editor | Activity adds and edits automations: title, prompt, a cron or one time, model and thinking, cloud or machine, and the chat it reports to. A refusal shows in the form; Archive and Delete are in the editor. | src/ui/Automations.tsx:432, src/sockets.ts:192 | local | P adds, edits, runs and deletes an automation from Activity |
 
+## Vault
+
+The Vault object keeps ky's secrets and the tokens it hands out. Nothing calls it yet; pairing, keys and subscriptions wire it in.
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| vault-secrets | Secrets are put, replaced and removed by kind and id; status lists each with its meta and never its value. | src/vault.ts:77, src/vault.ts:92 | local | W vault › puts, replaces and removes secrets, and status lists them without their values |
+| vault-tokens | A minted token is returned once and only its sha-256 is kept. It checks as its subject for its own kind, until it is revoked, replaced by a newer mint, or past its ttl; a ttl that isn't a positive number is refused. | src/vault.ts:165, src/vault.ts:191 | local | W vault › mints a token that checks as its subject for its own kind only, and stores only its sha-256; W vault › tells subjects apart, and minting again replaces the subject's last token; W vault › revokes a subject's token and no other; W vault › refuses a token once its ttl has passed, and forgets it at the next mint; W vault › refuses a ttl that isn't a positive number of milliseconds, and stores nothing for it |
+| vault-consume | A token can be consumed once: of callers racing with it, one gets its subject and the rest get null. | src/vault.ts:207 | local | W vault › consumes a token once: of two racing callers, one gets its subject |
+| vault-refresh | Concurrent refreshes of one stored generation share one run. A put or remove that lands first wins, even with the same value, whether the refresh succeeded or failed. A failed refresh of an unchanged secret, including one that returns nothing JSON can hold, leaves its error in status until a refresh or put next writes it. | src/vault.ts:126, src/vault.ts:228 | local | W vault › shares one refresh among concurrent callers and stores its result; W vault › drops a refresh that a put or remove beat, and answers with what is stored now; W vault › lets a put of the very same value beat a refresh, and runs a new refresh for callers after it; W vault › answers a failed refresh that a put or remove beat with what is stored now, and records no error; W vault › keeps a failed refresh's error on the secret until a refresh or put next writes it, and runs nothing for a missing one; W vault › fails a refresh that returns nothing or what JSON can't hold, and keeps the secret |
+
 ## Live-only
 
 These need a real outside service, so the local gate can't cover them.
@@ -207,6 +218,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 113.
+- Local features: 121.
 - Live-only features: 8.
 - Known broken: none. `pnpm harness` has no expected failures.

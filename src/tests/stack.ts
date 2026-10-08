@@ -16,6 +16,8 @@ import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy } from "./fake-vibeproxy";
 
+export { Vault } from "../vault";
+
 /**
  * ky's real composition with fakes at its outside boundary, for the worker
  * e2e tests and the local stack. Only `boundaryFor` is replaced:

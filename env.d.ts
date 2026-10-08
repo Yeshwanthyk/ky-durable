@@ -18,11 +18,12 @@ interface __BaseEnv_Env {
 	VIBEPROXY_KEY: string;
 	OPENCODE_API_KEY: string;
 	PiAgent: DurableObjectNamespace<import("./src/server").PiAgent>;
+	Vault: DurableObjectNamespace<import("./src/server").Vault>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/server");
-		durableNamespaces: "PiAgent";
+		durableNamespaces: "PiAgent" | "Vault";
 	}
 	interface Env extends __BaseEnv_Env {}
 }

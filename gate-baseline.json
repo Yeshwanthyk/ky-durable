@@ -745,6 +745,76 @@
     },
     {
       "check": "worker-e2e",
+      "name": "vault puts, replaces and removes secrets, and status lists them without their values",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault mints a token that checks as its subject for its own kind only, and stores only its sha-256",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault tells subjects apart, and minting again replaces the subject's last token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault revokes a subject's token and no other",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault refuses a token once its ttl has passed, and forgets it at the next mint",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault refuses a ttl that isn't a positive number of milliseconds, and stores nothing for it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault consumes a token once: of two racing callers, one gets its subject",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault shares one refresh among concurrent callers and stores its result",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault drops a refresh that a put or remove beat, and answers with what is stored now",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault lets a put of the very same value beat a refresh, and runs a new refresh for callers after it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault answers a failed refresh that a put or remove beat with what is stored now, and records no error",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault keeps a failed refresh's error on the secret until a refresh or put next writes it, and runs nothing for a missing one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault fails a refresh that returns nothing or what JSON can't hold, and keeps the secret",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault says what S and K have yet to set up: no credentials, and no ChatGPT sign-in",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the session view folds a run's events into the same view a late joiner gets",
       "outcome": "passed"
     },
