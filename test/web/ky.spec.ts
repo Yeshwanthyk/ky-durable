@@ -227,6 +227,28 @@ test("picks a slot's model in settings and keeps it after a reload, with VibePro
   await expect(panel(page).getByRole("button", { name: /^Titles/ })).not.toContainText("Faux Text");
 });
 
+test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+
+  try {
+    await panel(page).getByRole("button", { name: "Not set" }).click();
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("test-owner/test-repo");
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+    await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
+
+    await page.reload();
+    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
+  } finally {
+    // Clear it for the other tests.
+    await panel(page).getByRole("button", { name: "test-owner/test-repo" }).click();
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("");
+    await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).press("Enter");
+    await expect(panel(page).getByRole("button", { name: "Not set" })).toBeVisible();
+  }
+});
+
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

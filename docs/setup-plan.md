@@ -284,10 +284,11 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - Each optional binding and var (`VIBEPROXY`, `VIBEPROXY_ORIGIN`, `EXECUTOR_*`, `OPENCODE_API_KEY`) shows up as
     "not set up".
   - The DO constructor never throws.
-  - `boundaryFor` builds VibeProxy and OpenCode Go only when they're configured.
+  - `boundaryFor` builds VibeProxy and Executor only when they're configured. OpenCode Go stays in the catalog
+    without its key, marked not set up, because the slot defaults end on it; M replaces that default.
 - **Derived values:**
   - `KY_URL` from the request origin, stored the first time it's seen.
-  - `KY_REPO` becomes a DO setting.
+  - `KY_REPO` becomes a DO setting, set in Settings › Self-edits (`src/setup.ts`).
   - `KY_WORK_COPY` is gone.
 - **Prompt:**
   - `prompt.ts` stops naming a Mac.

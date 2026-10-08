@@ -11,6 +11,7 @@ import {
   StreamableHTTPError
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { NotSetUp } from "./setup";
 
 /**
  * Executor (v2.executor.sh) over MCP. Executor holds the accounts and turns
@@ -23,9 +24,17 @@ import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.j
  * and the agent calls `resume` after.
  */
 
+/** What Settings shows when this deploy has no Executor. */
+export const EXECUTOR_NOT_SET_UP: NotSetUp = {
+  id: "executor",
+  name: "Executor",
+  needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret"
+};
+
+/** Only a deploy with EXECUTOR_URL and EXECUTOR_TOKEN has one; ky installs no Executor tools without. */
 export type ExecutorConfig = {
-  readonly url: string | undefined;
-  readonly token: string | undefined;
+  readonly url: string;
+  readonly token: string;
   /** How requests reach Executor; global fetch unless set. */
   readonly fetch?: typeof fetch;
 };
@@ -70,10 +79,6 @@ class ExecutorClient {
     this.#config = config;
   }
 
-  get configured(): boolean {
-    return Boolean(this.#config.url && this.#config.token);
-  }
-
   #connect(): Promise<Client> {
     if (this.#client) return this.#client;
 
@@ -85,7 +90,7 @@ class ExecutorClient {
       };
 
       if (this.#config.fetch) options.fetch = this.#config.fetch;
-      const transport = new StreamableHTTPClientTransport(new URL(this.#config.url!), options);
+      const transport = new StreamableHTTPClientTransport(new URL(this.#config.url), options);
 
       await client.connect(transport);
 
@@ -118,13 +123,6 @@ class ExecutorClient {
     args: Record<string, JsonValue | undefined>,
     signal: AbortSignal | undefined
   ): Promise<CallResult> {
-    if (!this.configured) {
-      return {
-        content: [{ type: "text", text: "Executor is not configured: EXECUTOR_URL and EXECUTOR_TOKEN are unset." }],
-        isError: true
-      };
-    }
-
     for (let attempt = 0; ; attempt++) {
       const retry = attempt === 0 && signal?.aborted !== true;
       const { result, neverRan } = await this.#attempt(name, args, signal);

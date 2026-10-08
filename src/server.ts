@@ -12,7 +12,7 @@ import { authenticate, loginPage, login } from "./auth";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
-import { type ExecutorConfig, executorExtension } from "./executor";
+import { EXECUTOR_NOT_SET_UP, type ExecutorConfig, executorExtension } from "./executor";
 import { download, type FileRow, FileStore, upload } from "./files";
 import { History } from "./history";
 import { MachineHub, machineExtension } from "./machines";
@@ -20,6 +20,7 @@ import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
 import { RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
+import { Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
@@ -28,7 +29,7 @@ import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
-import { vibeProxy } from "./vibeproxy";
+import { VIBEPROXY_NOT_SET_UP, vibeProxy } from "./vibeproxy";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
 export { Vault } from "./vault";
@@ -45,15 +46,16 @@ const BACKGROUND = Object.freeze({
  * stack (src/tests/stack.ts) put fakes here; nothing inside is replaced.
  */
 export type Boundary = {
-  /** The cloud models: subagents, and the main agent while the Mac is away. Its first model is the default. */
+  /** The cloud models: subagents, and the main agent while Claude is away. Its first model is the default. */
   readonly cloud: Endpoint;
-  /** The tunnel to VibeProxy on the user's Mac. */
-  readonly vibeProxy: Pick<Fetcher, "fetch">;
+  /** The tunnel to VibeProxy on a computer of the user's, when this deploy has one. */
+  readonly vibeProxy?: { readonly binding: Pick<Fetcher, "fetch">; readonly origin: string; readonly key: string };
   /** How long a VibeProxy probe's answer is reused; vibeproxy.ts's default when unset. */
   readonly probeTtlMs?: number;
   /** Browser Rendering, for browse. */
   readonly browser: BrowserWorker;
-  readonly executor: ExecutorConfig;
+  /** When this deploy has Executor. */
+  readonly executor?: ExecutorConfig;
   /** More tools for every agent, after ky's own. */
   readonly extensions: readonly Extension[];
 };
@@ -61,21 +63,23 @@ export type Boundary = {
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
-  /** Claude on the user's Mac. While the Mac is away, models.ts runs its turns on the fallback slot. */
-  readonly claude = vibeProxy({
-    binding: this.boundary.vibeProxy,
-    origin: this.env.VIBEPROXY_ORIGIN,
-    key: this.env.VIBEPROXY_KEY,
-    modelIds: [CLAUDE_MODEL, CLAUDE_SMALL],
-    probeTtlMs: this.boundary.probeTtlMs,
-    onChange: () => this.ctx.waitUntil(this.applyMain())
-  });
+  /** Claude through VibeProxy, when this deploy has its tunnel. While it is away, models.ts runs its turns on the fallback slot. */
+  readonly claude =
+    this.boundary.vibeProxy &&
+    vibeProxy({
+      ...this.boundary.vibeProxy,
+      modelIds: [CLAUDE_MODEL, CLAUDE_SMALL],
+      probeTtlMs: this.boundary.probeTtlMs,
+      onChange: () => this.ctx.waitUntil(this.applyMain())
+    });
   readonly models = new Models(
     this.ctx.storage.sql,
-    [this.claude, this.boundary.cloud],
+    this.claude ? [this.claude, this.boundary.cloud] : [this.boundary.cloud],
+    this.claude ? [] : [VIBEPROXY_NOT_SET_UP],
     kyDefaults({ provider: this.boundary.cloud.provider.id, modelId: this.boundary.cloud.models[0]!.id })
   );
-  readonly #preamble = preamble({ repo: this.env.KY_REPO, workCopy: this.env.KY_WORK_COPY, url: this.env.KY_URL });
+  /** ky's address and repo, and the tools this deploy lacks. */
+  readonly setup = new Setup(this.ctx.storage.sql, this.boundary.executor ? [] : [EXECUTOR_NOT_SET_UP]);
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
     storage: this.ctx.storage as DurableObjectStorageLike,
@@ -167,10 +171,17 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(soul);
       this.registry.install({
         name: "playground",
-        sections: [{ key: "preamble", render: () => this.#preamble, tag: false }],
+        sections: [
+          {
+            key: "preamble",
+            render: () => preamble({ executor: Boolean(this.boundary.executor), selfEdit: this.setup.selfEdit() }),
+            tag: false
+          }
+        ],
         tools: createWorkspaceTools(this.workspace)
       });
-      this.registry.install(executorExtension(this.boundary.executor));
+
+      if (this.boundary.executor) this.registry.install(executorExtension(this.boundary.executor));
       this.registry.install(this.browse);
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
@@ -252,6 +263,7 @@ export class PiAgent extends DurableObject<Env> {
     this.specialists,
     this.memory,
     this.automations,
+    this.setup,
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );
@@ -276,13 +288,18 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
-  /** Production's boundary: OpenCode Go, the Mac's tunnel, Browser Rendering and Executor. */
+  /**
+   * Production's boundary: OpenCode Go, Browser Rendering, and VibeProxy's tunnel and Executor when this deploy
+   * has their vars and secrets (wrangler.local.example.jsonc).
+   */
   boundaryFor(env: Env): Boundary {
+    const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key, EXECUTOR_URL: url, EXECUTOR_TOKEN: token } = env;
+
     return {
-      cloud: opencodeGo(env.OPENCODE_API_KEY, env.KY_MODEL),
-      vibeProxy: env.VIBEPROXY,
+      cloud: opencodeGo(env.OPENCODE_API_KEY),
+      vibeProxy: binding && origin && key ? { binding, origin, key } : undefined,
       browser: env.BROWSER,
-      executor: { url: env.EXECUTOR_URL, token: env.EXECUTOR_TOKEN },
+      executor: url && token ? { url, token } : undefined,
       extensions: []
     };
   }
@@ -292,7 +309,7 @@ export class PiAgent extends DurableObject<Env> {
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.
     this.ctx.waitUntil(this.machines.post());
-    await this.claude.reachable();
+    await this.claude?.reachable();
     await this.applyMain();
     await this.automations.recover();
     // Summaries a restart or a failed call left unwritten.

@@ -9,7 +9,8 @@
  * think. A user text containing "fail" gets a 400.
  */
 
-const KEY = "test-vibeproxy-key";
+/** The key the fake wants, as VibeProxy checks its own. */
+export const VIBEPROXY_KEY = "test-vibeproxy-key";
 
 export function refusingVibeProxy(): Response {
   throw new Error("connect ECONNREFUSED 127.0.0.1:8317");
@@ -24,7 +25,7 @@ type MessagesBody = {
 export async function fakeVibeProxy(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
-  if (request.headers.get("x-api-key") !== KEY) return new Response("Wrong VibeProxy key.", { status: 401 });
+  if (request.headers.get("x-api-key") !== VIBEPROXY_KEY) return new Response("Wrong VibeProxy key.", { status: 401 });
 
   if (url.pathname === "/v1/models") return Response.json({ data: [], has_more: false });
 

@@ -4,7 +4,9 @@ import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
 import type {
   MachineInfo,
+  ProviderInfo,
   SettingsView,
+  SetupView,
   SkillChange,
   SkillRow,
   SkillVersion,
@@ -58,6 +60,7 @@ export function Panel({
   session,
   now,
   settings,
+  setup,
   skills,
   soul,
   memory,
@@ -75,6 +78,7 @@ export function Panel({
   onStop,
   onStopAll,
   onSetMachine,
+  onSetRepo,
   onClose,
   tab,
   onTab,
@@ -92,6 +96,7 @@ export function Panel({
   session: string;
   now: number;
   settings: SettingsView | null;
+  setup: SetupView | null;
   skills: readonly SkillRow[];
   soul: SoulView | null;
   memory: MemoryView | null;
@@ -109,6 +114,7 @@ export function Panel({
   onStop: (task: string) => void;
   onStopAll: () => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
+  onSetRepo: (repo: string) => void;
   onClose: () => void;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -179,6 +185,7 @@ export function Panel({
       ) : (
         <Settings
           settings={settings}
+          setup={setup}
           catalog={catalog}
           machines={machines}
           now={now}
@@ -186,6 +193,7 @@ export function Panel({
           onTheme={onTheme}
           onSet={onSetModel}
           onSetMachine={onSetMachine}
+          onSetRepo={onSetRepo}
         />
       )}
     </aside>
@@ -370,31 +378,51 @@ function machineStatus(machine: MachineInfo, now: number): string {
   return machine.active === 0 ? "idle" : plural(machine.active, "task");
 }
 
-// What you say a machine is for; click to edit, Enter or leaving saves, Escape cancels.
-function MachineNote({ machine, onSave }: { machine: MachineInfo; onSave: (note: string) => void }) {
+// A short text shown as a button; click to edit, Enter or leaving saves, Escape cancels.
+function InlineEdit({
+  value,
+  className,
+  title,
+  empty,
+  label,
+  placeholder,
+  maxLength,
+  onSave,
+}: {
+  value: string;
+  /** The button's class; the input's is the same with `-input`. */
+  className: string;
+  title: string;
+  /** What the button says while the value is empty. */
+  empty: string;
+  label: string;
+  placeholder: string;
+  maxLength: number;
+  onSave: (value: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
 
-  const save = (note: string) => {
+  const save = (next: string) => {
     setEditing(false);
 
-    if (note.trim() !== machine.note) onSave(note);
+    if (next.trim() !== value) onSave(next);
   };
 
   if (!editing) {
     return (
-      <button type="button" className="machine-note pressable" title="Edit what it's for" onClick={() => setEditing(true)}>
-        {machine.note === "" ? <span className="quiet">Say what it's for</span> : machine.note}
+      <button type="button" className={`${className} pressable`} title={title} onClick={() => setEditing(true)}>
+        {value === "" ? <span className="quiet">{empty}</span> : value}
       </button>
     );
   }
 
   return (
     <input
-      className="machine-note-input"
-      aria-label={`What ${machine.name} is for`}
-      placeholder="What it's for, e.g. builds and long jobs"
-      defaultValue={machine.note}
-      maxLength={200}
+      className={`${className}-input`}
+      aria-label={label}
+      placeholder={placeholder}
+      defaultValue={value}
+      maxLength={maxLength}
       autoFocus
       onBlur={(event) => save(event.currentTarget.value)}
       onKeyDown={(event) => {
@@ -428,7 +456,16 @@ function MachineItem({
         <MachineSwitch machine={machine} onSet={onSet} />
       </div>
       <span className="machine-facts quiet">{about}</span>
-      <MachineNote machine={machine} onSave={(note) => onSet(machine.name, { note })} />
+      <InlineEdit
+        value={machine.note}
+        className="machine-note"
+        title="Edit what it's for"
+        empty="Say what it's for"
+        label={`What ${machine.name} is for`}
+        placeholder="What it's for, e.g. builds and long jobs"
+        maxLength={200}
+        onSave={(note) => onSet(machine.name, { note })}
+      />
     </li>
   );
 }
@@ -725,8 +762,60 @@ function ModelRow({
   );
 }
 
+// A model provider: how many models it offers, or what it needs.
+function ProviderRow({ provider }: { provider: ProviderInfo }) {
+  const off = provider.setUp ? "Off" : "Not set up";
+
+  return (
+    <li className="row">
+      <span className="row-tile">
+        <Icon name="plug" size={15} />
+      </span>
+      <span className="row-text">
+        <span className="row-label">{provider.name}</span>
+        {provider.connected ? null : <span className="row-sub">Needs {provider.needs ?? "a key"}</span>}
+      </span>
+      <span className="row-value tabular">
+        {provider.connected ? `${provider.models.length} ${provider.models.length === 1 ? "model" : "models"}` : off}
+      </span>
+      <span className="status-dot" data-connected={provider.connected} />
+    </li>
+  );
+}
+
+// ky's GitHub repo, where self-edits go; the main prompt offers them only once it is set.
+function SelfEdits({ repo, onSet }: { repo: string | null; onSet: (repo: string) => void }) {
+  return (
+    <section className="group">
+      <h3 className="group-label">Self-edits</h3>
+      <div className="card">
+        <div className="row">
+          <span className="row-tile">
+            <Icon name="repo" size={15} />
+          </span>
+          <span className="row-text">
+            <span className="row-label">ky's repo</span>
+            <span className="row-sub">ky changes itself through pull requests here</span>
+          </span>
+          <InlineEdit
+            value={repo ?? ""}
+            className="repo-edit"
+            title="Edit ky's repo"
+            empty="Not set"
+            label="ky's GitHub repo"
+            placeholder="owner/name"
+            maxLength={200}
+            onSave={onSet}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Settings({
   settings,
+  setup,
   catalog,
   machines,
   now,
@@ -734,8 +823,10 @@ function Settings({
   onTheme,
   onSet,
   onSetMachine,
+  onSetRepo,
 }: {
   settings: SettingsView | null;
+  setup: SetupView | null;
   catalog: readonly ToolInfo[];
   machines: readonly MachineInfo[];
   now: number;
@@ -743,6 +834,7 @@ function Settings({
   onTheme: (theme: Theme) => void;
   onSet: (slot: Slot, setting: SlotSetting) => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
+  onSetRepo: (repo: string) => void;
 }) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
@@ -800,21 +892,7 @@ function Settings({
           <h3 className="group-label">Providers</h3>
           <ul className="card">
             {settings.providers.map((provider) => (
-              <li key={provider.id} className="row">
-                <span className="row-tile">
-                  <Icon name="plug" size={15} />
-                </span>
-                <span className="row-text">
-                  <span className="row-label">{provider.name}</span>
-                  {provider.connected ? null : <span className="row-sub">Needs {provider.needs ?? "a key"}</span>}
-                </span>
-                <span className="row-value tabular">
-                  {provider.connected
-                    ? `${provider.models.length} ${provider.models.length === 1 ? "model" : "models"}`
-                    : "Off"}
-                </span>
-                <span className="status-dot" data-connected={provider.connected} />
-              </li>
+              <ProviderRow key={provider.id} provider={provider} />
             ))}
           </ul>
         </section>
@@ -846,8 +924,22 @@ function Settings({
               ))}
             </ul>
           ) : null}
+          {setup?.missing.map((tool) => (
+            <div key={tool.id} className="row">
+              <span className="row-tile">
+                <Icon name="plug" size={15} />
+              </span>
+              <span className="row-text">
+                <span className="row-label">{tool.name}</span>
+                <span className="row-sub">Needs {tool.needs}</span>
+              </span>
+              <span className="row-value tabular">Not set up</span>
+              <span className="status-dot" data-connected={false} />
+            </div>
+          ))}
         </div>
       </section>
+      {setup ? <SelfEdits repo={setup.repo} onSet={onSetRepo} /> : null}
     </div>
   );
 }

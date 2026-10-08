@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  // Generic: what any deploy needs. The owner's vars and bindings (VibeProxy's tunnel, Executor) go in
+  // wrangler.local.jsonc, which vite.config.ts merges in when present; see wrangler.local.example.jsonc.
   "name": "ky",
   "main": "src/server.ts",
   "compatibility_date": "2026-10-03",
@@ -12,32 +14,14 @@
   "browser": { "binding": "BROWSER", "remote": true },
   // `exec` runs JavaScript in Dynamic Workers minted through this.
   "worker_loaders": [{ "binding": "LOADER" }],
+  // Workers AI: models that need no key.
+  "ai": { "binding": "AI", "remote": true },
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // Every request goes through the Worker, which signs the user in.
     "run_worker_first": true
   },
-  "vars": {
-    // Executor's MCP endpoint for the organization, with approvals in the browser.
-    "EXECUTOR_URL": "https://v2.executor.sh/org/presh/mcp?elicitation_mode=browser",
-    // The OpenCode Go model for subagents, and for the main agent while Claude is away.
-    "KY_MODEL": "deepseek-v4.1-flash",
-    // VibeProxy's listen address on the Mac; the VIBEPROXY tunnel forwards here.
-    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317",
-    // Where ky's own code lives, for self-edits (src/prompt.ts): the repo, the Mac's working copy, the deployed app.
-    "KY_REPO": "Yeshwanthyk/ky-durable",
-    "KY_WORK_COPY": "~/ky-work/ky-durable",
-    "KY_URL": "https://ky.yeshwanth-yk.workers.dev"
-  },
-  // The Mac's VibeProxy, reached only through a private tunnel (no public hostname).
-  "vpc_services": [
-    {
-      "binding": "VIBEPROXY",
-      "service_id": "01a1072f-6f9d-7400-be66-5286e94898a1",
-      "remote": true
-    }
-  ],
   "durable_objects": {
     "bindings": [
       {

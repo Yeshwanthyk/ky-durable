@@ -53,7 +53,8 @@ A cite points at the code that does the work.
 | mac-just-left | When the Mac has just gone away, a Claude slot runs on the fallback slot's model with its key, and goes back to Claude once the Mac returns. | src/models.ts:147, src/models.ts:281 | local | W models › gives a slot on Claude the fallback slot's model when the Mac has just gone away; W models › runs on the fallback slot's model, with its key, when the Mac has just gone away, and on Claude once it is back |
 | slot-store | A slot choice is stored. A provider that is not connected is refused. | src/settings.ts:113 | local | W models › stores a slot choice, and refuses a provider that is not connected |
 | slot-persist | A slot's model survives restarts. A model that doesn't exist is refused. | src/settings.ts:74 | local | W features › stores a slot's model across restarts and refuses one that does not exist; P picks a slot's model in settings and keeps it after a reload, with VibeProxy off |
-| main-prompt | The main prompt includes ky's repo and working copy from config. | src/server.ts:206 | local | W models › sends the main prompt with ky's repo and working copy from config |
+| main-prompt | The main prompt offers Executor only when it is set up, and self-edits only once Settings has ky's repo, with the address the first page came from. | src/prompt.ts:16, src/server.ts:174, src/setup.ts:46 | local | W features › offers self-edits in the main prompt once Settings has ky's repo, with the address the first page came from |
+| setup-repo | Settings sets ky's repo for self-edits, refuses one that isn't owner/name, and keeps it across reloads. | src/setup.ts:51, src/sockets.ts:614, src/ui/Panel.tsx:787 | local | P sets ky's repo for self-edits in Settings and keeps it after a reload; W features › offers self-edits in the main prompt once Settings has ky's repo, with the address the first page came from |
 | title-slot | Titles use Claude's small model without thinking while the Mac is online, the cloud model while it is away, and keep light thinking on the stand-in. | src/titles.ts:36, src/models.ts:281 | local | W models › asks Claude's small model without thinking while the Mac is online, and keeps the bare title; W models › asks the cloud model, still without thinking, while the Mac is away; W models › keeps its light thinking on the stand-in when the Mac has just gone away |
 | image-support | The image check uses the model the slot runs on, or the fallback model while the slot's provider is away. | src/models.ts:159 | local | W models › checks the model the slot runs on; W models › checks the fallback model while the slot's provider is away |
 
@@ -75,7 +76,8 @@ A cite points at the code that does the work.
 | client-reload | A new deploy offers Reload, and only reloads by itself when there is no draft. | src/client.tsx:162 | local | P offers a reload when a new deploy is live and a draft would be lost |
 | client-theme | The theme switch survives a reload. | src/client.tsx:63 | local | P switches the theme and keeps it after a reload |
 | client-palette | The command palette opens from the keyboard and runs commands. | src/ui/CommandPalette.tsx:28 | local | P opens the command palette with the keyboard and runs a command |
-| client-tools | Settings lists the tools ky can use. | src/ui/Panel.tsx:799 | local | P lists the tools ky can use |
+| client-tools | Settings lists the tools ky can use. | src/ui/Panel.tsx:891 | local | P lists the tools ky can use |
+| config-not-set-up | A deploy without VibeProxy or Executor configured starts, runs on the cloud model, and shows each as "Not set up" in Settings with what it needs. | src/server.ts:292, src/models.ts:157, src/ui/Panel.tsx:766, src/ui/Panel.tsx:927 | local | W features › shows VibeProxy and Executor as not set up on a deploy without them, and runs on the cloud model |
 | client-skills | The Skills tab shows each skill, and edits, reverts and archives it. | src/ui/Skills.tsx:15 | local | P shows ky's skills, edits one, reverts it and archives it |
 | client-lightbox | A task's screenshot opens in the lightbox. | src/ui/Lightbox.tsx:16 | local | P shows a task's screenshot and opens it in the lightbox |
 
@@ -87,7 +89,7 @@ A cite points at the code that does the work.
 | memory-compress | After each note or forget, and on start, ky writes the summaries owed in the background on the main model; memory_zoom opens one, and memory_forget drops it to be rewritten. | src/memory.ts:282 | local | W features › writes summaries in the background on the main model, opens them, and rewrites a forgotten one |
 | memory-compress-retry | A summary over 280 bytes is asked for again, shown where it must end, at most 4 tries, and the shortest is kept; a failed call stops and the next one finishes. | src/memory.ts: | local | W memory panel › asks again when a summary is over 280 bytes, showing where it must end, and keeps the shortest try; W memory panel › stops at a failed summary and writes it on the next call |
 | chat-search | chat_search finds any message of the main chat and the side chats, every word first and some words after, with neighbors on request, leaving subagents out. | src/memory.ts:610, src/history.ts:56 | local | W features › finds any message of the main chat and the side chats with chat_search; W features › searches side chats by their title, and leaves subagents out |
-| compact-early | pi is told a context window of at most 136k tokens, so a 1M model compacts near 87k instead of near 950k. | src/models.ts:323 | local | W features › tells pi a window of at most 136k tokens, so it compacts near 87k instead of near the model's 1M |
+| compact-early | pi is told a context window of at most 136k tokens, so a 1M model compacts near 87k instead of near 950k. | src/models.ts:340 | local | W features › tells pi a window of at most 136k tokens, so it compacts near 87k instead of near the model's 1M |
 | skills-tools | skill_manage creates, patches and reverts a skill, keeping every version, and skill_view opens it and counts the use. | src/skills.ts:454, src/skills.ts:426 | local | W skills › creates, opens, patches and reverts a skill, keeping every version; H skills |
 | skills-refuse | skill_manage refuses a bad name, a duplicate, and a patch that does not match exactly once. | src/skills.ts:96 | local | W skills › refuses a bad name, a duplicate, and a patch that does not match once |
 | skills-index | Active skills are listed in the system prompt; archived ones are not. | src/skills.ts:396 | local | W skills › lists active skills in the system prompt, and drops archived ones |
@@ -96,13 +98,13 @@ A cite points at the code that does the work.
 | skills-panel | Skills go to the page on connect and on change; the user's edits, reverts and archives apply as "user", and history comes back on request. | src/sockets.ts:609 | local | W skills panel › sends skills on connect and on change, and takes the user's edits, history and reverts |
 | workspace-files | A workspace file written by a tool outlives the object. | src/workspace.ts:101 | local | W features › writes and reads a workspace file that outlives the object |
 | workspace-exec | exec runs JavaScript in the workspace. | src/workspace.ts:70 | local | W features › runs JavaScript in the workspace with exec |
-| executor-tools | executor_skills, executor_execute and executor_resume reach Executor over MCP. | src/executor.ts:181 | local | W features › calls Executor over MCP |
-| executor-once | A program runs once and the call answers with its result. | src/executor.ts:116 | local | W executor › runs a program once and answers with its result |
-| executor-no-rerun | A program whose response was lost after it ran is never run again. | src/executor.ts:136 | local | W executor › never runs a program again when its response is lost after it ran |
-| executor-expired | The call is retried once on a fresh session when Executor expired the old one. | src/executor.ts:136 | local | W executor › retries once on a fresh session when Executor expired the old one |
-| executor-connect | The call is retried once when the connection can't be made, and a second failure is reported. | src/executor.ts:136 | local | W executor › retries once when the connection cannot be made, and reports a second failure |
-| executor-no-401-retry | No retry when Executor refuses the token (401 or 403). | src/executor.ts:136 | local | W executor › does not retry when Executor refuses the token |
-| executor-cancel | Stopping the turn cancels the call at Executor. | src/executor.ts:116 | local | W executor › cancels the call at Executor when the turn is stopped |
+| executor-tools | executor_skills, executor_execute and executor_resume reach Executor over MCP. | src/executor.ts:179 | local | W features › calls Executor over MCP |
+| executor-once | A program runs once and the call answers with its result. | src/executor.ts:121 | local | W executor › runs a program once and answers with its result |
+| executor-no-rerun | A program whose response was lost after it ran is never run again. | src/executor.ts:134 | local | W executor › never runs a program again when its response is lost after it ran |
+| executor-expired | The call is retried once on a fresh session when Executor expired the old one. | src/executor.ts:134 | local | W executor › retries once on a fresh session when Executor expired the old one |
+| executor-connect | The call is retried once when the connection can't be made, and a second failure is reported. | src/executor.ts:134 | local | W executor › retries once when the connection cannot be made, and reports a second failure |
+| executor-no-401-retry | No retry when Executor refuses the token (401 or 403). | src/executor.ts:134 | local | W executor › does not retry when Executor refuses the token |
+| executor-cancel | Stopping the turn cancels the call at Executor. | src/executor.ts:121 | local | W executor › cancels the call at Executor when the turn is stopped |
 
 ## Subagents
 
@@ -209,7 +211,7 @@ These need a real outside service, so the local gate can't cover them.
 | live-cloud | The OpenCode Go key answers a completion. | src/models.ts:88 | live-only | L cloud | Needs a real key. Locally the faux provider stands in and the key swap is checked as "faux-key". |
 | live-vibeproxy | VibeProxy on the Mac answers through the tunnel to Claude. | src/vibeproxy.ts:50 | live-only | L vibeproxy | Needs the Mac, the tunnel and a Claude login. |
 | live-browser | browse drives a real Browser Rendering page. | src/browse.ts:53 | live-only | by hand: ask ky to browse a page | Locally a CDP fake stands in for the browser. |
-| live-executor | Executor runs real accounts and approvals. | src/executor.ts:181 | live-only | by hand: run executor_skills, then a program that needs approval | Locally an MCP fake stands in for Executor. |
+| live-executor | Executor runs real accounts and approvals. | src/executor.ts:179 | live-only | by hand: run executor_skills, then a program that needs approval | Locally an MCP fake stands in for Executor. |
 | live-claude-cli | The runner drives the real `claude` CLI on the Mac. | runner/ky-runner.ts | live-only | by hand: start a machine task with the runner on the Mac | The harness uses test/fakes/claude.ts. |
 
 ## Known gaps that have no fix yet

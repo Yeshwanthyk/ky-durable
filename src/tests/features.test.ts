@@ -23,6 +23,7 @@ import {
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
+import { BARE } from "./stack";
 
 /**
  * One check per server-side feature in FEATURES.md that the local stack can
@@ -478,6 +479,70 @@ describe("settings", () => {
     const later = await session(name);
     expect(latest(later.client, "settings")?.settings.slots.titles).toMatchObject({ modelId: "faux-text" });
     later.socket.close();
+  });
+});
+
+describe("a deploy's own setup", () => {
+  it("shows VibeProxy and Executor as not set up on a deploy without them, and runs on the cloud model", async () => {
+    const name = `${BARE}${crypto.randomUUID()}`;
+    const { socket, client } = await session(name);
+
+    expect(latest(client, "settings")?.settings.providers.find((each) => each.id === "vibeproxy")).toMatchObject({
+      setUp: false,
+      connected: false,
+      models: []
+    });
+    expect(latest(client, "setup")?.setup).toEqual({
+      repo: null,
+      missing: [{ id: "executor", name: "Executor", needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret" }]
+    });
+
+    const hello = latest(client, "hello");
+    expect(hello?.tools.some((tool) => tool.name.startsWith("executor_"))).toBe(false);
+
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    const [main] = await inside(name, (instance) => instance.boundary.calls.map((each) => each.system));
+    expect(main).not.toContain("Executor");
+    socket.close();
+  });
+
+  it("offers self-edits in the main prompt once Settings has ky's repo, with the address the first page came from", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    const systems = () => inside(name, (instance) => instance.boundary.calls.map((each) => each.system));
+
+    await prompt(name, "hello");
+    const [before] = await systems();
+    expect(before).toContain("The user's apps and accounts are behind Executor.");
+    expect(before).not.toContain("Changing yourself");
+    expect(before).not.toMatch(/\bMac\b|Yeshwanthyk|ky-durable|workers\.dev/);
+
+    const refused = await command(socket, client, { type: "set-repo", repo: "not a repo" });
+    expect(refused).toMatchObject({ type: "error", message: '"not a repo" is not a GitHub repo; write it as owner/name.' });
+
+    await command(socket, client, { type: "set-repo", repo: " test-owner/test-repo " });
+    expect(latest(client, "setup")?.setup.repo).toBe("test-owner/test-repo");
+
+    // A later page from elsewhere does not move ky's address.
+    const elsewhere = await inside(name, (instance) => {
+      instance.setup.seen("https://elsewhere.test");
+
+      return instance.setup.selfEdit();
+    });
+
+    expect(elsewhere).toEqual({ repo: "test-owner/test-repo", url: "https://ky.test" });
+
+    await prompt(name, "again");
+    const after = (await systems()).at(-1);
+    expect(after).toContain("your own code is the GitHub repo test-owner/test-repo.");
+    expect(after).toContain("run one machine task, on a machine that has the repo,");
+    expect(after).toContain("1. cd to its working copy of test-owner/test-repo (gh repo clone test-owner/test-repo if it has none).");
+    expect(after).toContain("4. Check that https://ky.test/login answers 200.");
+    expect(after).not.toMatch(/\bMac\b/);
+
+    await command(socket, client, { type: "set-repo", repo: "" });
+    expect(latest(client, "setup")?.setup.repo).toBeNull();
+    socket.close();
   });
 });
 

@@ -9,7 +9,7 @@
     "build": "vite build",
     "deploy": "vite build && wrangler deploy",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "types": "wrangler types env.d.ts --include-runtime false",
+    "types": "wrangler types env.d.ts --include-runtime false --env-file .dev.vars.example",
     "test": "vitest run --config src/tests/vitest.config.ts",
     "lint": "oxlint",
     "stack": "vite dev --config test/stack/vite.config.ts",

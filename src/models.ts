@@ -18,6 +18,7 @@ import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go"
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { type ModelOption, type ProviderInfo, Settings, type Slot, type SlotSetting } from "./settings";
+import type { NotSetUp } from "./setup";
 import { VIBEPROXY_PROVIDER } from "./vibeproxy";
 
 /**
@@ -36,6 +37,9 @@ export const CLAUDE_MODEL = "claude-opus-5-5";
 /** Small and quick: names chats and tasks. */
 export const CLAUDE_SMALL = "claude-haiku-4-5";
 
+/** The one OpenCode Go model the catalog offers: subagents, and the main agent while Claude is away. */
+const OPENCODE_MODEL = "deepseek-v4.1-flash";
+
 /** The context window pi's harness is told for every model; see `compacting`. */
 export const CONTEXT_WINDOW = 136_000;
 
@@ -52,6 +56,8 @@ export type Endpoint = {
   readonly name: string;
   /** What connects it, when it is not. */
   readonly needs: string;
+  /** The deploy has what it needs, its key or its binding; Settings shows it as not set up when not. */
+  readonly setUp: boolean;
   /** The models offered in the catalog. */
   readonly models: readonly Model<Api>[];
   /** It took requests when last checked; never waits. */
@@ -73,17 +79,21 @@ export type Resolved = {
   readonly fellBack: boolean;
 };
 
-/** OpenCode Go in the cloud, always on while its key is set. The catalog offers one model of it. */
-export function opencodeGo(key: string | undefined, modelId: string): Endpoint {
+/**
+ * OpenCode Go in the cloud, always on while its key is set. The catalog offers one model of it. It is in
+ * the catalog even without its key, since the slot defaults end on it.
+ */
+export function opencodeGo(key: string | undefined): Endpoint {
   const provider = opencodeGoProvider();
-  const model = provider.getModels().find((each) => each.id === modelId);
+  const model = provider.getModels().find((each) => each.id === OPENCODE_MODEL);
 
-  if (!model) throw new TypeError(`No OpenCode Go model "${modelId}" in pi-ai's catalog.`);
+  if (!model) throw new TypeError(`No OpenCode Go model "${OPENCODE_MODEL}" in pi-ai's catalog.`);
 
   return {
     provider,
     name: "OpenCode Go",
     needs: "the OPENCODE_API_KEY secret",
+    setUp: Boolean(key),
     models: [model],
     connected: () => Boolean(key),
     apiKey: { name: "OPENCODE_API_KEY", value: key }
@@ -91,7 +101,7 @@ export function opencodeGo(key: string | undefined, modelId: string): Endpoint {
 }
 
 /**
- * ky's slot defaults: Claude while the Mac is online, else the cheap cloud
+ * ky's slot defaults: Claude while VibeProxy answers, else the cheap cloud
  * model. Each slot lists its choices in order; the first whose provider is
  * connected wins, and the last is used when none is.
  */
@@ -115,14 +125,17 @@ export function kyDefaults(cheap: { readonly provider: string; readonly modelId:
 export class Models {
   readonly settings: Settings;
   readonly #endpoints: readonly Endpoint[];
+  readonly #notSetUp: readonly NotSetUp[];
   readonly #defaults: Readonly<Record<Slot, readonly SlotSetting[]>>;
 
   constructor(
     sql: SqlStorage,
     endpoints: readonly Endpoint[],
+    notSetUp: readonly NotSetUp[],
     defaults: Readonly<Record<Slot, readonly SlotSetting[]>>
   ) {
     this.#endpoints = endpoints;
+    this.#notSetUp = notSetUp;
     this.#defaults = defaults;
     this.settings = new Settings(
       sql,
@@ -132,13 +145,17 @@ export class Models {
   }
 
   catalog(): ProviderInfo[] {
-    return this.#endpoints.map((endpoint) => ({
-      id: endpoint.provider.id,
-      name: endpoint.name,
-      connected: endpoint.connected(),
-      needs: endpoint.needs,
-      models: endpoint.models.map(option)
-    }));
+    return [
+      ...this.#endpoints.map((endpoint) => ({
+        id: endpoint.provider.id,
+        name: endpoint.name,
+        setUp: endpoint.setUp,
+        connected: endpoint.connected(),
+        needs: endpoint.needs,
+        models: endpoint.models.map(option)
+      })),
+      ...this.#notSetUp.map((each) => ({ ...each, setUp: false, connected: false, models: [] }))
+    ];
   }
 
   model(provider: string, modelId: string): Model<Api> {

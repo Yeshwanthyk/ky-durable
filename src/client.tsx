@@ -175,6 +175,7 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           session={view.session}
           now={now}
           settings={ky.settings}
+          setup={ky.setup}
           skills={ky.skills}
           soul={ky.soul}
           memory={ky.memory}
@@ -192,6 +193,7 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           onStop={ky.stopTask}
           onStopAll={ky.stopAll}
           onSetMachine={ky.setMachine}
+          onSetRepo={ky.setRepo}
           onClose={() => panel.setOpen(false)}
           tab={panel.tab}
           onTab={panel.setTab}

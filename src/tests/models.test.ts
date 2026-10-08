@@ -141,19 +141,6 @@ describe("a turn on Claude", () => {
     expect((await prompt(name, "again")).text).toBe('Title: "Claude claude-opus-5-5 (thinking adaptive)"\nagain');
     expect(await calls(name)).toHaveLength(1);
   });
-
-  it("sends the main prompt with ky's repo and working copy from config", async () => {
-    const name = await fresh(false);
-    await prompt(name, "hello");
-    const [call] = await calls(name);
-
-    expect(call?.system).toContain(
-      "your own code is the GitHub repo test-owner/test-repo, with a working copy for you at ~/test-work/ky on the user's Mac."
-    );
-    expect(call?.system).toContain("1. cd ~/test-work/ky (gh repo clone test-owner/test-repo there if missing).");
-    expect(call?.system).toContain("4. Check that https://ky.test/login answers 200.");
-    expect(call?.system).not.toMatch(/Yeshwanthyk|ky-durable|workers\.dev/);
-  });
 });
 
 describe("naming chats and tasks with the titles slot", () => {

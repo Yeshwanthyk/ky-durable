@@ -1,0 +1,13 @@
+# Copy to .dev.vars (gitignored) for `pnpm start`; deployed, each is `npx wrangler secret put <NAME>`.
+# `pnpm types` reads this file: what's set here is required. The commented ones are optional, typed in
+# env.optional.d.ts, and show as "Not set up" in Settings until set.
+
+# The password for the web app, and the runner's bearer token.
+KY_TOKEN=
+
+# OpenCode Go, the cloud models.
+# OPENCODE_API_KEY=
+# VibeProxy's x-api-key; with VIBEPROXY and VIBEPROXY_ORIGIN in wrangler.local.jsonc.
+# VIBEPROXY_KEY=
+# An Executor personal access token; with EXECUTOR_URL in wrangler.local.jsonc.
+# EXECUTOR_TOKEN=

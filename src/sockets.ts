@@ -24,6 +24,7 @@ import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
+import type { Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -114,6 +115,7 @@ export class PiSessionSockets {
   readonly #specialists: Specialists;
   readonly #memory: Memory;
   readonly #automations: Automations;
+  readonly #setup: Setup;
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -133,6 +135,7 @@ export class PiSessionSockets {
     specialists: Specialists,
     memory: Memory,
     automations: Automations,
+    setup: Setup,
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -150,6 +153,7 @@ export class PiSessionSockets {
     this.#specialists = specialists;
     this.#memory = memory;
     this.#automations = automations;
+    this.#setup = setup;
     this.#newChat = newChat;
     this.#version = version;
     chats.onChange(() => {
@@ -187,6 +191,11 @@ export class PiSessionSockets {
     files.onChange(() => this.broadcastTasks());
     models.settings.onChange(() => {
       const message = this.#settingsMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    setup.onChange(() => {
+      const message = this.#setupMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -287,6 +296,10 @@ export class PiSessionSockets {
     return { type: "settings", settings: this.#models.settings.view() };
   }
 
+  #setupMessage(): PiServerMessage {
+    return { type: "setup", setup: this.#setup.view() };
+  }
+
   /** Send the task feed to every UI socket. */
   broadcastTasks(): void {
     const message = this.#tasksMessage();
@@ -347,6 +360,7 @@ export class PiSessionSockets {
     // A runner is a machine once it says hello.
     if (machine) return;
 
+    this.#setup.seen(new URL(ctx.request.url).origin);
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
     send(connection, {
@@ -360,6 +374,7 @@ export class PiSessionSockets {
     });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
+    send(connection, this.#setupMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
@@ -598,6 +613,10 @@ export class PiSessionSockets {
         return null;
       }
 
+      case "set-repo":
+        this.#setup.setRepo(message.repo);
+
+        return null;
       case "new-chat":
         return { session: await this.#newChat() };
       case "archive-chat":

@@ -934,6 +934,19 @@
   width: calc(100% - 15px);
 }
 
+/* ky's repo, at the right of its row like a value. */
+.repo-edit {
+  margin-left: auto;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.repo-edit-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---------- Settings ----------
    Grouped cards, as in iOS: a small label over each card, rows split by hairlines inset
    past the label's start, the value at the right in the quiet colour. */
@@ -2570,7 +2583,8 @@
 
 .skill-form input,
 .skill-form textarea,
-.machine-note-input {
+.machine-note-input,
+.repo-edit-input {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--line-strong);

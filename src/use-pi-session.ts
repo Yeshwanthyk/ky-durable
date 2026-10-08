@@ -18,6 +18,7 @@ import type {
   MemoryView,
   ServerMessage,
   SettingsView,
+  SetupView,
   SkillChange,
   SkillRow,
   SkillVersion,
@@ -59,6 +60,8 @@ type State = SessionView & {
   readonly automations: readonly AutomationInfo[];
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
+  /** ky's repo and the tools this deploy lacks; null until the server sends them. */
+  readonly setup: SetupView | null;
   /** A newer deploy is serving than the one this page loaded from. */
   readonly updated: boolean;
 };
@@ -78,6 +81,7 @@ const INITIAL_STATE: State = {
   memory: null,
   automations: [],
   settings: null,
+  setup: null,
   updated: false
 };
 
@@ -162,6 +166,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, settings: message.settings }));
 
           return;
+        case "setup":
+          setState((current) => ({ ...current, setup: message.setup }));
+
+          return;
         case "chats":
           setState((current) => ({ ...current, chats: message.chats, mainUpdatedAt: message.main }));
 
@@ -226,6 +234,7 @@ export function usePiSession(session: string) {
       memory: current.memory,
       automations: current.automations,
       settings: current.settings,
+      setup: current.setup,
       updated: current.updated
     }));
   }, [session]);
@@ -288,6 +297,11 @@ export function usePiSession(session: string) {
   const setModel = useCallback(
     (slot: Slot, setting: SlotSetting) =>
       send({ type: "set-model", id: crypto.randomUUID(), slot, setting }),
+    [send]
+  );
+
+  const setRepo = useCallback(
+    (repo: string) => send({ type: "set-repo", id: crypto.randomUUID(), repo }),
     [send]
   );
 
@@ -435,6 +449,7 @@ export function usePiSession(session: string) {
     stopAll,
     setMachine,
     setModel,
+    setRepo,
     newChat,
     archiveChat,
     changeSkill,

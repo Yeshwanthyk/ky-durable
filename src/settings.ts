@@ -35,6 +35,8 @@ export type ModelOption = {
 export type ProviderInfo = {
   readonly id: string;
   readonly name: string;
+  /** The deploy has its key or binding; when not, Settings says it is not set up. */
+  readonly setUp: boolean;
   /** It can take requests now, so its models can be chosen. */
   readonly connected: boolean;
   /** What connects it, when it is not. */

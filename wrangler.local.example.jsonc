@@ -1,0 +1,15 @@
+{
+  // Copy to wrangler.local.jsonc (gitignored) and fill in what you use. vite.config.ts merges it over
+  // wrangler.jsonc for `pnpm start` and `pnpm deploy`; objects merge, arrays are added to. Anything left
+  // out shows as "Not set up" in Settings. Secrets stay secrets: see .dev.vars.example.
+  "vars": {
+    // Executor's MCP endpoint for your organization, with approvals in the browser. Needs EXECUTOR_TOKEN.
+    "EXECUTOR_URL": "https://v2.executor.sh/org/<org>/mcp?elicitation_mode=browser",
+    // VibeProxy's listen address on your computer; the VIBEPROXY tunnel forwards here. Needs VIBEPROXY_KEY.
+    "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317"
+  },
+  // Your computer's VibeProxy, reached only through a private tunnel (no public hostname).
+  "vpc_services": [{ "binding": "VIBEPROXY", "service_id": "<your VPC service id>", "remote": true }]
+  // A custom domain, if you have one:
+  // "routes": [{ "pattern": "ky.example.com", "custom_domain": true }]
+}
