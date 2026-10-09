@@ -92,12 +92,22 @@ async function pair(request: Request, env: Env): Promise<Response> {
     return new Response("That code is wrong, used or expired. Make a new one in ky.", { status: 401 });
   }
 
-  // The agent takes the new pairing first: from then on, a token of the name's last pairing opens nothing.
+  // Minted before the agent takes the pairing, so whichever pairing replaces this one finds its token to revoke,
+  // even a pairing of the same name racing this one. From the agent's write on, the name's last token opens nothing.
   const pairing = crypto.randomUUID();
-  const previous = await agent(env).pairMachine(body.name, body.facts, pairing);
+  const subject = machineSubject(body.name, pairing);
+  const token = await vault(env).mint("machine", subject);
+  let previous: string | null;
+
+  try {
+    previous = await agent(env).pairMachine(body.name, body.facts, pairing);
+  } catch (error) {
+    // No pairing has this token, so nothing else would revoke it.
+    await vault(env).revoke("machine", subject);
+    throw error;
+  }
 
   if (previous !== null) await vault(env).revoke("machine", machineSubject(body.name, previous));
-  const token = await vault(env).mint("machine", machineSubject(body.name, pairing));
 
   return Response.json({ machine: body.name, token });
 }

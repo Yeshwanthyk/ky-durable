@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../runner-protocol";
+import type { Vault as TestVault } from "./stack";
 import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, TOKEN, until } from "./drive";
 
 /**
@@ -12,6 +13,9 @@ import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairin
  */
 
 const vault = () => env.Vault.getByName("owner");
+
+// SAFETY: src/tests/wrangler.jsonc binds Vault to the test stack's subclass.
+const testVault = () => (env.Vault as DurableObjectNamespace<TestVault>).getByName("owner");
 
 const named = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -181,6 +185,37 @@ describe("removing a machine", () => {
 
     const { socket } = await dial(machine, token);
     socket.close();
+  });
+});
+
+describe("pairing one name twice at the same moment", () => {
+  it("leaves only the winning pairing's token working", async () => {
+    const machine = named("race");
+    const codes = await Promise.all([pairingCode(), pairingCode()]);
+    // Both pairings are mid-mint at once, so each reaches the agent while the other is under way.
+    await testVault().slowMachineMints(2, 100);
+    const responses = await Promise.all(codes.map(({ code }) => pair({ code, name: machine, facts: FACTS })));
+    const tokens = await Promise.all(responses.map((response) => response.json<{ token: string }>().then((body) => body.token)));
+
+    // A plain GET passes the token check, then asks for the upgrade.
+    const statuses = await Promise.all(
+      tokens.map(async (token) => (await call(`/runner/${machine}`, { headers: { Authorization: `Bearer ${token}` } })).status)
+    );
+
+    expect(statuses.toSorted()).toEqual([401, 426]);
+    const winner = tokens[statuses.indexOf(426)]!;
+    expect((await vault().check("machine", winner))?.split(":")[1]).toBe(await pairing("me", machine));
+  });
+});
+
+describe("a machine token from before pairings had ids", () => {
+  it("is gone once the Vault starts", async () => {
+    const machine = named("legacy");
+    const legacy = await vault().mint("machine", machine);
+    expect(await vault().check("machine", legacy)).toBe(machine);
+
+    await evictDurableObject(vault());
+    expect(await vault().check("machine", legacy)).toBeNull();
   });
 });
 

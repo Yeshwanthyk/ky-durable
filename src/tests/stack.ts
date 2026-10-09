@@ -15,14 +15,16 @@ import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
-import { Vault as ProductionVault, type ReissuedKind } from "../vault";
+import { Vault as ProductionVault, type ReissuedKind, type TokenKind } from "../vault";
 
 /**
  * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes,
- * and issues it can make fail (`POST /test/vault-fail-issues?count=<n>`), to lose a delivery's token.
+ * issues it can make fail (`POST /test/vault-fail-issues?count=<n>`), to lose a delivery's token, and machine
+ * mints it can slow (`slowMachineMints`), to make two pairings race.
  */
 export class Vault extends ProductionVault {
   #failing = 0;
+  #slow = { count: 0, ms: 0 };
 
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;
@@ -31,6 +33,20 @@ export class Vault extends ProductionVault {
   /** Fail the next `count` issues. */
   failIssues(count: number): void {
     this.#failing = count;
+  }
+
+  /** Make each of the next `count` machine mints wait `ms` first. */
+  slowMachineMints(count: number, ms: number): void {
+    this.#slow = { count, ms };
+  }
+
+  override async mint(kind: TokenKind, subject: string, ttlMs?: number): Promise<string> {
+    if (kind === "machine" && this.#slow.count > 0) {
+      this.#slow.count -= 1;
+      await scheduler.wait(this.#slow.ms);
+    }
+
+    return super.mint(kind, subject, ttlMs);
   }
 
   override issue(kind: ReissuedKind, subject: string): Promise<string> {

@@ -165,7 +165,9 @@ The row is the machine's paired state: pairing writes it, remove deletes it, and
 machine token's subject is `<machine>:<pairing>`. The Worker passes the pairing to the agent in `X-Ky-Pairing`, and
 the agent takes the socket, and later its hello, only if that pairing is still the machine's. Otherwise it sends
 `goodbye` and closes with 4401. So a remove or a new pairing that lands between the Worker's token check and the
-socket's hello brings nothing back.
+socket's hello brings nothing back. `/pair` mints the new token before the agent takes the pairing, then revokes
+the token of the pairing it replaced. So of two pairings of one name racing, the later write revokes the earlier
+one's token, which already exists.
 
 **Access bypass paths:** `/runner/*`, `/api/runners/pair`, `/api/files`, `/manifest.webmanifest`, `/icons/*`.
 `BYPASS` in `cli/deployer.ts` holds this list; the deployer's bypass app covers exactly it, so A's check must match it.
@@ -376,7 +378,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - A delivery whose `issue` fails is tried again 1, 2, 4, 8 and 16 seconds later, while the inbox keeps the runs.
     After that, the next hello or command delivers.
 - **Pairings:** see C2. A machine row with no pairing, from before T, is listed but refused until the machine pairs
-  again.
+  again. A machine token from before T has the subject `<machine>`, with no pairing. No route takes it, and the
+  Vault deletes it when it starts.
 - **Uploads:** `/api/files` checks the token. `ky-attach` and `ky-diff` use `KY_TASK_TOKEN`.
 - **Runner:**
   - Reads its machine token from `KY_RUNNER_TOKEN_FILE` (default `~/.config/ky/runner-token`, mode 0600).

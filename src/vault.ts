@@ -22,7 +22,7 @@ import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 
 type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
 
-type TokenKind = "pair" | "machine" | "task";
+export type TokenKind = "pair" | "machine" | "task";
 
 /** The kinds `issue` can give out again: a task's runs all carry its one token. */
 export type ReissuedKind = "task";
@@ -87,6 +87,8 @@ export class Vault extends DurableObject<Env> {
     const columns = this.#sql.exec<{ name: string }>("PRAGMA table_info(ky_vault_tokens)").toArray();
 
     if (!columns.some((column) => column.name === "nonce")) this.#sql.exec("ALTER TABLE ky_vault_tokens ADD COLUMN nonce TEXT");
+    // A machine token from before pairings had ids names only the machine; no route takes it, so it goes.
+    this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = 'machine' AND instr(subject, ':') = 0");
     this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_vault_keys (name TEXT PRIMARY KEY, key TEXT NOT NULL)");
   }
 
