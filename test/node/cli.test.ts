@@ -428,7 +428,7 @@ describe("ky doctor", () => {
       nexts: ["ky init --email <you@example.com>"]
     },
     {
-      state: "a setting the CLI's overlay doesn't take",
+      state: "a setting ky's overlay refuses",
       breaks: (_, ky) => writeOverlay(ky.overlay, { ...SETTINGS, r2_buckets: [{ binding: "FILES", bucket_name: "ky-files" }] }),
       outside: (ky) => writeOverlay(ky.overlay, SETTINGS),
       nexts: [expect.stringMatching(/^fix .*wrangler\.local\.jsonc, then run `ky doctor`$/)]
@@ -481,7 +481,7 @@ describe("ky doctor", () => {
       nexts: ["ky init --subdomain <name>"]
     },
     {
-      state: "a Worker of that name ky didn't deploy",
+      state: "a Worker ky didn't deploy",
       breaks: (worker) => {
         worker.tags.splice(0);
       },
@@ -489,7 +489,7 @@ describe("ky doctor", () => {
       nexts: [expect.stringMatching(/^pick another name: set "name" in .*, then run `ky deploy`$/)]
     },
     {
-      state: "a bucket of that name ky didn't create",
+      state: "a bucket ky didn't create",
       given: async () => {
         const ky = await fresh();
 
