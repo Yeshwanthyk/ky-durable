@@ -826,6 +826,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "runner protocol stops a Codex follow-up started behind a finished turn, before its session is known",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "runner protocol reports a Codex result finished offline once the runner is back, as owed in its hello",
       "outcome": "passed"
     },
@@ -1177,6 +1182,11 @@
     {
       "check": "harness",
       "name": "codex-home-sweep",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-home-fails",
       "outcome": "PASS"
     },
     {
