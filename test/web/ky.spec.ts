@@ -27,6 +27,8 @@ const composer = (page: Page) => page.getByRole("textbox", { name: "Message" });
 
 const panel = (page: Page) => page.getByRole("complementary", { name: "Activity and settings" });
 
+const chat = (page: Page) => page.getByRole("region", { name: "Chat" });
+
 async function open(page: Page, path = "/"): Promise<void> {
   await signIn(page);
   await page.goto(path);
@@ -423,7 +425,8 @@ test("shows a subagent's work in Activity and opens its chat", async ({ page }) 
 
   await task.click();
   await expect(page.getByRole("button", { name: "Back to the main chat" })).toBeVisible();
-  await expect(page.getByText("echo: say hi from the subagent")).toBeVisible();
+  // In the chat: Activity's summary of the task says the same once it ends.
+  await expect(chat(page).getByText("echo: say hi from the subagent")).toBeVisible();
   await page.getByRole("button", { name: "Back to the main chat" }).click();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
 });
