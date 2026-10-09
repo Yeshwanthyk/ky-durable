@@ -532,6 +532,24 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
+    name: "codex-home-fails",
+    expect: "pass",
+    about: "a Codex task whose home cannot be made ends failed, saying why, and the runner stays up",
+    async run(context) {
+      const state = path.join(context.dir, "codexnohome", "state");
+      mkdirSync(state, { recursive: true });
+      // A file where the homes go: making one fails, as a full or read-only disk would.
+      writeFileSync(path.join(state, "codex"), "");
+      await context.machine("codexnohome");
+      const task = await startCodex(context, "codexnohome", "fix the tests");
+      await status(context, task, "failed");
+      const summary = context.main.task(task)!.summary;
+      check(summary.includes("It could not start") && summary.includes("ENOTDIR"), `the result says why, got ${summary}`);
+      const next = await startCodex(context, "codexnohome", "and again");
+      await status(context, next, "failed");
+    }
+  },
+  {
     name: "side-chat-report",
     expect: "pass",
     about: "a task started from a side chat reports to that side chat, not the main chat",

@@ -378,10 +378,25 @@ const LAUNCH: Record<Agent, (task: string, session: string | null) => { command:
   codex: (task, session) => ({ command: CODEX, args: codexArgs(session, TASK_PROMPT), env: { CODEX_HOME: codexHome(task) } })
 };
 
-/** Start a task's agent in the work dir. */
+/**
+ * Start a task's agent in the work dir. If its work dir or Codex home cannot
+ * be made (EPERM, ENOSPC), it exits at once with why, as a CLI that would
+ * not start does, and its turn ends failed: the run was already acked.
+ */
 function spawnAgent(agent: Agent, task: string, session: string | null, events: ProcessEvents): AgentProcess {
-  mkdirSync(WORKDIR, { recursive: true });
-  const { command, args, env } = LAUNCH[agent](task, session);
+  let launch: ReturnType<(typeof LAUNCH)[Agent]>;
+
+  try {
+    mkdirSync(WORKDIR, { recursive: true });
+    launch = LAUNCH[agent](task, session);
+  } catch (error) {
+    // After this returns: the runner records the process before it hears it exit.
+    setImmediate(() => events.exit(null, `It could not start: ${String(error)}`));
+
+    return { write: () => {}, end: () => {}, interrupt: () => {} };
+  }
+
+  const { command, args, env } = launch;
 
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     cwd: WORKDIR,
