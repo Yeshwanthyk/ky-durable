@@ -342,24 +342,25 @@ function codexHome(task: string): string {
   return home;
 }
 
+/** The tasks with a Codex home: none while there is no folder for them, or one it cannot read. */
+function codexHomeTasks(): string[] {
+  try {
+    return readdirSync(CODEX_HOMES);
+  } catch (error) {
+    // SAFETY: readdirSync throws only system errors, each with a code.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") log(`could not list the Codex homes: ${String(error)}`);
+
+    return [];
+  }
+}
+
 /**
  * Delete each Codex task's home not used for CODEX_HOME_KEPT_MS. It runs
  * with the facts, so it never throws: a home gone since the listing, or one
  * it cannot read, is left for the next sweep.
  */
 function sweepCodexHomes(): void {
-  let tasks: string[];
-
-  try {
-    tasks = readdirSync(CODEX_HOMES);
-  } catch (error) {
-    // SAFETY: readdirSync throws only system errors, each with a code.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") log(`could not sweep the Codex homes: ${String(error)}`);
-
-    return;
-  }
-
-  for (const task of tasks) {
+  for (const task of codexHomeTasks()) {
     const home = join(CODEX_HOMES, task);
 
     try {
