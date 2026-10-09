@@ -2,15 +2,15 @@ import { evictDurableObject } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
-import { Runner, type ClaudeEvents, type ClaudeProcess, type Link } from "../../runner/runner.ts";
-import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED } from "../runner-protocol";
+import { Runner, type AgentProcess, type Link, type ProcessEvents } from "../../runner/runner.ts";
+import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
 
 /**
  * The machine protocol end to end: the real runner logic (runner/runner.ts)
  * on a real WebSocket to the real PiAgent, with a
- * scripted `claude` in place of the binary. The wire between them can hold or drop the runner's frames,
+ * scripted `claude` or `codex` in place of the binary. The wire between them can hold or drop the runner's frames,
  * so each test replays one counterexample from
  * explainers/ky-architecture/quint/runner_protocol.qnt step by step.
  */
@@ -31,7 +31,7 @@ async function until(what: string, probe: () => boolean | Promise<boolean>): Pro
 const settle = () => pause(300);
 
 /** A `claude -p` stand-in: the test decides what it says and when it exits. */
-class FakeClaude implements ClaudeProcess {
+class FakeClaude implements AgentProcess {
   readonly resumed: string | null;
   readonly prompts: string[] = [];
   /** Prompts written after it was told to stop; they die with it. */
@@ -40,9 +40,9 @@ class FakeClaude implements ClaudeProcess {
   #exited = false;
   /** How many prompts it has taken in. */
   #taken = 0;
-  readonly #events: ClaudeEvents;
+  readonly #events: ProcessEvents;
 
-  constructor(resumed: string | null, events: ClaudeEvents) {
+  constructor(resumed: string | null, events: ProcessEvents) {
     this.resumed = resumed;
     this.#events = events;
   }
@@ -93,6 +93,54 @@ class FakeClaude implements ClaudeProcess {
   }
 }
 
+/** A `codex exec --json` stand-in: one turn, on the prompt it was given before stdin closed. */
+class FakeCodex implements AgentProcess {
+  readonly resumed: string | null;
+  prompt = "";
+  interrupted = false;
+  #exited = false;
+  readonly #events: ProcessEvents;
+
+  constructor(resumed: string | null, events: ProcessEvents) {
+    this.resumed = resumed;
+    this.#events = events;
+  }
+
+  write(text: string): void {
+    this.prompt += text;
+  }
+
+  end(): void {}
+
+  interrupt(): void {
+    this.interrupted = true;
+    this.#exit(130);
+  }
+
+  /** Start its turn in `thread`. */
+  start(thread: string): void {
+    this.#emit({ type: "thread.started", thread_id: thread });
+    this.#emit({ type: "turn.started" });
+  }
+
+  /** End its turn saying `text`, and exit, as `codex exec` does. */
+  answer(text: string): void {
+    this.#emit({ type: "item.completed", item: { id: "item_0", type: "agent_message", text } });
+    this.#emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    this.#exit(0);
+  }
+
+  #exit(code: number): void {
+    if (this.#exited) return;
+    this.#exited = true;
+    this.#events.exit(code, "");
+  }
+
+  #emit(event: Record<string, string | { id: string; type: string; text: string } | Record<string, number>>): void {
+    if (!this.#exited) this.#events.line(JSON.stringify(event));
+  }
+}
+
 /** One socket from the runner to the object; it can hold or drop what the runner sends. */
 class Wire {
   readonly socket: WebSocket;
@@ -128,18 +176,28 @@ class Wire {
 /** A machine named "mac": a runner, its sessions, and its socket when connected. */
 class Mac {
   readonly #object: string;
+  readonly #facts: MachineFacts;
   readonly claudes: FakeClaude[] = [];
+  readonly codexes: FakeCodex[] = [];
   runner: Runner;
   wire: Wire | undefined;
 
-  constructor(object: string) {
+  constructor(object: string, facts: MachineFacts = FACTS) {
     this.#object = object;
+    this.#facts = facts;
     this.runner = this.#boot();
   }
 
   #boot(): Runner {
     return new Runner(
-      (_task, session, events) => {
+      (agent, _task, session, events) => {
+        if (agent === "codex") {
+          const codex = new FakeCodex(session, events);
+          this.codexes.push(codex);
+
+          return codex;
+        }
+
         const claude = new FakeClaude(session, events);
         this.claudes.push(claude);
 
@@ -149,7 +207,7 @@ class Mac {
       // The same file across restarts, as on a real machine.
       new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`),
       "test",
-      () => FACTS
+      () => this.#facts
     );
   }
 
@@ -196,28 +254,37 @@ class Mac {
 
     return this.claudes[index]!;
   }
+
+  async codex(index: number): Promise<FakeCodex> {
+    await until(`codex #${index + 1} to start`, () => this.codexes.length > index);
+
+    return this.codexes[index]!;
+  }
 }
 
 /** A fresh object and its machine, not yet connected. */
 type Fixture = { readonly object: string; readonly mac: Mac };
 
-function fixture(): Fixture {
+function fixture(facts?: MachineFacts): Fixture {
   const object = crypto.randomUUID();
 
-  return { object, mac: new Mac(object) };
+  return { object, mac: new Mac(object, facts) };
 }
 
 /** A fresh object with its machine connected. */
-async function online(): Promise<Fixture> {
-  const machine = fixture();
+async function online(facts?: MachineFacts): Promise<Fixture> {
+  const machine = fixture(facts);
   await machine.mac.connect();
 
   return machine;
 }
 
-/** The main agent runs "build it" on the mac; returns the task id. */
-async function start(object: string): Promise<string> {
-  const result = await prompt(object, "machine build it");
+/** A machine that runs Codex as well as Claude Code. */
+const WITH_CODEX: MachineFacts = { ...FACTS, agents: { ...FACTS.agents, codex: { installed: true, signedIn: true } } };
+
+/** The main agent runs "build it" on the mac, as the machine's own agent or `as` one; returns the task id. */
+async function start(object: string, as?: "codex"): Promise<string> {
+  const result = await prompt(object, as ? `tool machine {"action":"run","machine":"mac","agent":"${as}","prompt":"build it"}` : "machine build it");
   const id = /Started task (\S+) on mac/.exec(result.text ?? "")?.[1];
 
   if (!id) throw new Error(`No task started: ${result.text}`);
@@ -430,16 +497,19 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
-  it("refuses a run for an agent it does not run", async () => {
-    const { mac } = await online();
+  it("refuses a run for an agent this machine does not have, and starts one that looks signed out", async () => {
+    // Claude Code's login as last asked; it may have signed in since, and if not, it says so itself.
+    const { mac } = await online({ ...FACTS, agents: { claude: { installed: true, signedIn: false }, codex: { installed: false, signedIn: false } } });
     mac.wire!.mode = "hold";
-    const run = { type: "run", seq: 1, task: "m-x", turn: 1, prompt: "go", session: null, agent: "codex", taskToken: "" };
-    mac.runner.message(JSON.stringify(run));
+    const run = { type: "run", task: "m-x", turn: 1, prompt: "go", session: null, taskToken: "" };
+    mac.runner.message(JSON.stringify({ ...run, seq: 1, agent: "codex" }));
+    mac.runner.message(JSON.stringify({ ...run, seq: 2, task: "m-y", agent: "claude" }));
 
-    expect(mac.claudes).toHaveLength(0);
+    expect(mac.codexes).toHaveLength(0);
     expect(mac.wire!.held.map((text) => JSON.parse(text))).toContainEqual(
-      expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex" })
+      expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex", text: "Codex is not installed on this machine." })
     );
+    expect((await mac.claude(0)).prompts).toEqual(["go"]);
   });
 
   it("answers a request to a port with an error: the machine shares none", async () => {
@@ -522,6 +592,90 @@ describe("runner protocol", () => {
     await until("the task to be done", async () => (await status(object, id)) === "done");
     await settle();
     expect(await reports(object, id)).toHaveLength(1);
+  });
+
+  it("runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and test it");
+    await sendTask(object, id, "and ship it");
+    await until("both messages to be acked", async () => (await inbox(object, "mac")).length === 0);
+    expect(mac.codexes).toHaveLength(1);
+
+    first.answer("built");
+    const second = await mac.codex(1);
+    expect([second.resumed, second.prompt]).toEqual(["t1", "and test it"]);
+    second.start("t1");
+    second.answer("tested");
+    const third = await mac.codex(2);
+    expect([third.resumed, third.prompt]).toEqual(["t1", "and ship it"]);
+    third.start("t1");
+    third.answer("shipped");
+
+    await until("three reports", async () => (await reports(object, id)).length === 3);
+    expect(await task(object, id)).toMatchObject({ status: "done", agent: "codex", turns: 3 });
+    expect((await reports(object, id)).map((said) => said.split("\n").at(-1))).toEqual(["built", "tested", "shipped"]);
+  });
+
+  it("stops a Codex turn with a message queued behind it, and says once that it was dropped", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and this");
+    await until("the message to be acked", async () => (await inbox(object, "mac")).length === 0);
+
+    await stopTask(object, id);
+    await until("the task to end", async () => terminal(await status(object, id)));
+    await settle();
+    expect(first.interrupted).toBe(true);
+    expect(mac.codexes).toHaveLength(1);
+    expect(await status(object, id)).toBe("stopped");
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
+  });
+
+  it("stops a Codex follow-up started behind a finished turn, before its session is known", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and this");
+    await until("the message to be acked", async () => (await inbox(object, "mac")).length === 0);
+    first.answer("built");
+    const second = await mac.codex(1);
+    await until("the first turn's report", async () => (await reports(object, id)).length === 1);
+    expect(await status(object, id)).toBe("done");
+
+    await stopTask(object, id);
+    await until("the follow-up to be interrupted", () => second.interrupted);
+    await until("the task to be stopped", async () => (await status(object, id)) === "stopped");
+  });
+
+  it("reports a Codex result finished offline once the runner is back, as owed in its hello", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const codex = await mac.codex(0);
+    codex.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    mac.disconnect();
+    codex.answer("built");
+    expect(mac.runner.active()).toEqual([]);
+    await mac.connect();
+
+    await until("a report", async () => (await reports(object, id)).length > 0);
+    await settle();
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).not.toContain("Interrupted");
+    expect(await task(object, id)).toMatchObject({ status: "done", session: "t1", turns: 1 });
   });
 
   it("keeps one socket per machine: a second runner's hello replaces the first", async () => {

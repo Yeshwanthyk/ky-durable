@@ -479,7 +479,8 @@ export class Automations {
       title: row.title,
       status: "failed",
       summary: `${machine} is ${state}: the user is not letting it take new tasks.`,
-      session: null
+      session: null,
+      agent: machines.defaultAgent(machine)
     });
   }
 

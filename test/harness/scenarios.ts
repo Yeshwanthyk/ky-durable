@@ -1,19 +1,19 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocket as Socket } from "ws";
-import type { TaskRow } from "../../src/protocol.ts";
+import type { FileRow, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
-import { machine, type Machine, type Runner } from "./runner.ts";
+import { type FakeEvent, machine, type Machine, type Runner } from "./runner.ts";
 import { TOKEN } from "./stack.ts";
 
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
  * and a machine do: the browser's session socket on `me`, and a real
- * runner/ky-runner.ts process with the fake claude, connected through a
- * proxy the scenario can break.
+ * runner/ky-runner.ts process with the fake claude and codex, connected
+ * through a proxy the scenario can break.
  *
  * A `pass` scenario checks a feature that works today. The six Quint
  * counterexamples are replayed in src/tests/runner-protocol.test.ts. An `xfail`
@@ -57,9 +57,19 @@ function terminal(row: TaskRow | undefined): boolean {
 }
 
 /** Ask the main agent (or the chat on `from`), through the faux model, to start a task on `name`; resolves with its id. */
-async function startTask(context: Context, name: string, prompt: string, from = context.main): Promise<string> {
+function startTask(context: Context, name: string, prompt: string, from = context.main): Promise<string> {
+  return started(context, name, `machine@${name} ${prompt}`, from);
+}
+
+/** Ask the main agent for a task on `name` that runs as Codex; resolves with its id. */
+function startCodex(context: Context, name: string, prompt: string): Promise<string> {
+  return started(context, name, `tool machine ${JSON.stringify({ action: "run", machine: name, agent: "codex", prompt })}`, context.main);
+}
+
+/** Submit `input` on `from`, and resolve with the id of the new task on `name` it starts. */
+async function started(context: Context, name: string, input: string, from: Client): Promise<string> {
   const known = new Set(context.main.frames.flatMap((frame) => (frame.type === "tasks" ? frame.tasks.map((row) => row.id) : [])));
-  from.send({ type: "submit", input: `machine@${name} ${prompt}` });
+  from.send({ type: "submit", input });
   let id: string | undefined;
 
   await until(`a task on ${name}`, () => {
@@ -87,8 +97,25 @@ async function status(context: Context, task: string, wanted: string, timeoutMs?
   await until(`task ${task} to be ${wanted}`, () => context.main.task(task)?.status === wanted, timeoutMs);
 }
 
-function turns(machineOf: Machine, task: string): string[] {
-  return machineOf.claude().flatMap((event) => (event.event === "turn" && event.task === task ? [event.prompt ?? ""] : []));
+/** The prompts a fake CLI took in for a task, in order: claude's by default. */
+function turns(machineOf: Machine, task: string, events: FakeEvent[] = machineOf.claude()): string[] {
+  return events.flatMap((event) => (event.event === "turn" && event.task === task ? [event.prompt ?? ""] : []));
+}
+
+/** The fake codex's `index`th start for a task; it fails the check if there is none. */
+function codexStart(machineOf: Machine, task: string, index: number): FakeEvent {
+  const start = machineOf.codex().filter((event) => event.event === "start" && event.task === task)[index];
+
+  if (!start) throw new Error(`codex started ${task} fewer than ${index + 1} times`);
+
+  return start;
+}
+
+/** The file a task shared, as the task list shows it. */
+function sharedBy(context: Context, task: string): FileRow | undefined {
+  const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+  return latest?.type === "tasks" ? latest.files.find((row) => row.task === task) : undefined;
 }
 
 /** Ask the main agent, through the faux model, for an automation; resolves with its id. */
@@ -278,8 +305,8 @@ export const SCENARIOS: Scenario[] = [
       check(listed === JSON.stringify([{ name: "ky", remote: "https://github.com/me/ky.git" }]), `one repo, no credentials, got ${listed}`);
       const { agents, ports, kind } = facts()!;
       const said = JSON.stringify({ agents, ports, kind });
-      const agentsHere = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } };
-      check(said === JSON.stringify({ agents: agentsHere, ports: [], kind: "computer" }), `a computer with claude signed in, no codex and no ports, got ${said}`);
+      const agentsHere = { claude: { installed: true, signedIn: true }, codex: { installed: true, signedIn: true } };
+      check(said === JSON.stringify({ agents: agentsHere, ports: [], kind: "computer" }), `a computer with claude and codex signed in and no ports, got ${said}`);
     }
   },
   {
@@ -388,6 +415,141 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
+    name: "codex-run",
+    expect: "pass",
+    about: "a task asked to run as Codex runs codex exec in its own CODEX_HOME, signed in with the machine's login, and reports back",
+    async run(context) {
+      const { machine: mac } = await context.machine("codex");
+      const task = await startCodex(context, "codex", "[tools=Bash:pnpm test,Edit:src/tasks.ts] fix the tests");
+      await status(context, task, "done");
+      const row = context.main.task(task)!;
+      check(row.agent === "codex", `the task records its agent, got ${row.agent}`);
+      check(turns(mac, task).length === 0 && turns(mac, task, mac.codex()).length === 1, "codex ran it once, and claude never did");
+      const steps = row.steps.map((step) => step.text).join(" | ");
+      check(steps.startsWith("Running pnpm test | Editing tasks.ts"), `codex's items show as steps, got ${steps}`);
+      const start = codexStart(mac, task, 0);
+      check(start.home === path.join(mac.dir, "state", "codex", task), `the task has its own CODEX_HOME, got ${start.home}`);
+      check(start.auth === path.join(mac.dir, "home", ".codex", "auth.json"), `its auth.json links to the machine's, got ${start.auth}`);
+      check(start.instructions === 1, "codex was told it runs a task for ky");
+      await until("the report", () => context.main.heard("fake codex did: [tools=Bash:pnpm test,Edit:src/tasks.ts] fix the tests"));
+    }
+  },
+  {
+    name: "codex-follow-up",
+    expect: "pass",
+    about: "a message to a finished Codex task resumes its thread in its own CODEX_HOME, as Codex",
+    async run(context) {
+      const { machine: mac } = await context.machine("codexfollow");
+      const task = await startCodex(context, "codexfollow", "write the draft");
+      await status(context, task, "done");
+      sendTo(context, task, "now polish it");
+      await until("the follow-up turn", () => turns(mac, task, mac.codex()).includes("now polish it"));
+      await until("the follow-up's report", () => context.main.heard("fake codex did: now polish it"));
+      const [first, resumed] = [codexStart(mac, task, 0), codexStart(mac, task, 1)];
+      check(resumed.resume === first.session, "the follow-up resumed the first thread");
+      check(resumed.home === first.home, "in the same CODEX_HOME");
+      check(resumed.instructions === 1, "the resumed turn was told again that it runs a task for ky");
+      check(turns(mac, task).length === 0, "claude never ran it");
+    }
+  },
+  {
+    name: "codex-queued",
+    expect: "pass",
+    about: "a message to a working Codex task, which takes none mid-turn, runs once that turn ends, resuming its thread",
+    async run(context) {
+      const { machine: mac } = await context.machine("codexqueue");
+      const task = await startCodex(context, "codexqueue", "[delay=3000] build the thing");
+      await status(context, task, "working");
+      sendTo(context, task, "and test it");
+      await until("both reports", () => context.main.heard("fake codex did: [delay=3000] build the thing") && context.main.heard("fake codex did: and test it"), 20_000);
+      const prompts = turns(mac, task, mac.codex()).join(" | ");
+      check(prompts === "[delay=3000] build the thing | and test it", `each message ran as its own turn, in order, got ${prompts}`);
+      check(codexStart(mac, task, 1).resume === codexStart(mac, task, 0).session, "the second turn resumed the first's thread");
+    }
+  },
+  {
+    name: "codex-stop",
+    expect: "pass",
+    about: "stopping a working Codex task interrupts its codex and marks it stopped",
+    async run(context) {
+      const { machine: mac } = await context.machine("codexstop");
+      const task = await startCodex(context, "codexstop", "[delay=30000] a long job");
+      await status(context, task, "working");
+      await context.main.command({ type: "stop-task", task });
+      await status(context, task, "stopped");
+      check(mac.codex().some((event) => event.event === "sigint" && event.task === task), "codex got SIGINT");
+    }
+  },
+  {
+    name: "codex-move",
+    expect: "pass",
+    about: "a Codex task queued for an offline machine moves to another, and runs there as Codex",
+    async run(context) {
+      const { machine: away } = await context.machine("codexaway");
+      await context.runner?.stop();
+      await until("codexaway to go offline", () => !online(context, "codexaway"));
+      const task = await startCodex(context, "codexaway", "build it elsewhere");
+      const { machine: there } = await context.machine("codexthere");
+      context.main.send({ type: "submit", input: `tool machine ${JSON.stringify({ action: "move", task, machine: "codexthere" })}` });
+      await status(context, task, "done");
+      check(context.main.task(task)?.worker === "codexthere", `the task moved, got ${context.main.task(task)?.worker}`);
+      check(turns(there, task, there.codex()).length === 1, "codex ran it on the machine it moved to");
+      check(turns(there, task).length === 0 && away.codex().length === 0, "as Codex, and only there");
+    }
+  },
+  {
+    name: "codex-attach",
+    expect: "pass",
+    about: "a Codex task's commands get KY_TOKEN, which Codex drops by default, so ky-attach shares a screenshot",
+    async run(context) {
+      await context.machine("codexshots");
+      const task = await startCodex(context, "codexshots", "[attach] screenshot the page");
+      await status(context, task, "done");
+      const file = sharedBy(context, task);
+      check(file?.caption === "a fake screenshot", "the task lists the screenshot");
+    }
+  },
+  {
+    name: "codex-home-sweep",
+    expect: "pass",
+    about: "the runner deletes a Codex task's home unused for two weeks, not the machine login it links to, and keeps one used since",
+    async run(context) {
+      const homes = path.join(context.dir, "codexsweep", "state", "codex");
+      const [old, recent] = [path.join(homes, "t_old"), path.join(homes, "t_recent")];
+      mkdirSync(old, { recursive: true });
+      mkdirSync(recent, { recursive: true });
+      const login = path.join(context.dir, "codexsweep-auth.json");
+      writeFileSync(login, "{}");
+      symlinkSync(login, path.join(old, "auth.json"));
+      // Listed first, and a stat that follows links would throw on it.
+      symlinkSync(path.join(homes, "gone"), path.join(homes, "t_broken"));
+      const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60_000);
+      utimesSync(old, fifteenDaysAgo, fifteenDaysAgo);
+      await context.machine("codexsweep");
+      await until("the old home to go", () => !existsSync(old));
+      check(existsSync(recent), "the home used since is kept");
+      check(existsSync(login), "the machine's login its auth.json linked to is kept");
+    }
+  },
+  {
+    name: "codex-home-fails",
+    expect: "pass",
+    about: "a Codex task whose home cannot be made ends failed, saying why, and the runner stays up",
+    async run(context) {
+      const state = path.join(context.dir, "codexnohome", "state");
+      mkdirSync(state, { recursive: true });
+      // A file where the homes go: making one fails, as a full or read-only disk would.
+      writeFileSync(path.join(state, "codex"), "");
+      await context.machine("codexnohome");
+      const task = await startCodex(context, "codexnohome", "fix the tests");
+      await status(context, task, "failed");
+      const summary = context.main.task(task)!.summary;
+      check(summary.includes("It could not start") && summary.includes("ENOTDIR"), `the result says why, got ${summary}`);
+      const next = await startCodex(context, "codexnohome", "and again");
+      await status(context, next, "failed");
+    }
+  },
+  {
     name: "side-chat-report",
     expect: "pass",
     about: "a task started from a side chat reports to that side chat, not the main chat",
@@ -443,8 +605,7 @@ export const SCENARIOS: Scenario[] = [
       await context.machine("shots");
       const task = await startTask(context, "shots", "[attach] screenshot the page");
       await status(context, task, "done");
-      const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
-      const file = latest?.type === "tasks" ? latest.files.find((row) => row.task === task) : undefined;
+      const file = sharedBy(context, task);
       check(file !== undefined && file.caption === "a fake screenshot", "the task lists the screenshot");
       const response = await fetch(`${context.url}/api/files/${file!.id}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
       check(response.status === 200 && response.headers.get("Content-Type") === "image/png", "the file is served");

@@ -561,6 +561,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "machine tasks runs a task as the agent asked for, else the machine's own, and its follow-ups as the same one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "machine tasks shares a machine task's file, and serves it whole and by range",
       "outcome": "passed"
     },
@@ -781,7 +786,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "runner protocol refuses a run for an agent it does not run",
+      "name": "runner protocol refuses a run for an agent this machine does not have, and starts one that looks signed out",
       "outcome": "passed"
     },
     {
@@ -807,6 +812,26 @@
     {
       "check": "worker-e2e",
       "name": "runner protocol keeps a run that a keepalive hello raced",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol stops a Codex turn with a message queued behind it, and says once that it was dropped",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol stops a Codex follow-up started behind a finished turn, before its session is known",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol reports a Codex result finished offline once the runner is back, as owed in its hello",
       "outcome": "passed"
     },
     {
@@ -1122,6 +1147,46 @@
     {
       "check": "harness",
       "name": "follow-up",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-follow-up",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-queued",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-stop",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-move",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-attach",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-home-sweep",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-home-fails",
       "outcome": "PASS"
     },
     {
