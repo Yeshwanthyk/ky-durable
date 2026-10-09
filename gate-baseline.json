@@ -676,6 +676,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "which model each purpose uses refreshes a recorded provider's port from the environment on boot, keeping the user's switch",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "which model each purpose uses stores a purpose's choice at a level its model has, and refuses a provider that is not connected",
       "outcome": "passed"
     },
@@ -701,6 +706,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "a turn stands in once a request to the provider fails to send, though its probe still answers",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a turn runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "a turn stands in for a provider whose breaker opened, on another provider",
       "outcome": "passed"
     },
@@ -722,6 +737,11 @@
     {
       "check": "worker-e2e",
       "name": "naming chats and tasks on the background purpose asks Workers AI even while the Mac is online, and keeps the bare title",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "naming chats and tasks on the background purpose stands in for Workers AI on the cheapest healthy provider's light model, never on Claude's main one",
       "outcome": "passed"
     },
     {
