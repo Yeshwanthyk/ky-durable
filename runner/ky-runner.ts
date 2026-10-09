@@ -19,6 +19,11 @@
  *
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
+ *
+ * A task's commands see the runner's whole environment, the user's own
+ * OPENAI_API_KEY and *_SECRET included, under Codex as under Claude Code
+ * (Codex would drop them, and KY_TOKEN with them). An OPENAI_API_KEY here
+ * also makes Codex bill that API key rather than sign in with auth.json.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
