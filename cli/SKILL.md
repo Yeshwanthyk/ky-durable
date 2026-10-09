@@ -23,8 +23,8 @@ can't manage Access; when `ky` says so, the user creates the token its message l
 Workers Scripts: Edit, Workers R2 Storage: Edit, Access: Apps and Policies: Edit, and Access: Organizations,
 Identity Providers, and Groups: Read) and runs with `CLOUDFLARE_API_TOKEN` set.
 
-Run again, `ky init` keeps the settings it saved and asks only for what's missing. A Worker or bucket of that name
-that ky didn't make is never changed: pick another `--name`.
+Run again, `ky init` keeps the settings it saved and asks only for what's missing. A Worker or bucket of that name,
+or an Access app already guarding its address, that ky didn't make is never changed: pick another `--name`.
 
 `ky init` prints a KY_TOKEN once, the owner's sign-in until Access replaces it. Hand it to the user; don't store it.
 
@@ -33,7 +33,8 @@ that ky didn't make is never changed: pick another `--name`.
 - `ky doctor` checks each piece and ends with `Next:`, the command or dashboard step that fixes the first one
   missing; do it (fill in any `<placeholder>`), then `ky doctor` again. `--json` prints `{ checks, next }`. It exits
   1 while anything is missing.
-- `ky upgrade` deploys this `ky`'s release when the Worker runs another one. `ky deploy` deploys it regardless.
+- `ky upgrade` deploys this `ky`'s release when the Worker runs another one. `ky deploy` deploys it regardless. A
+  `ky` older than the Worker can't deploy over it: get a newer one.
 - The settings are in `~/.config/ky/wrangler.local.jsonc`, the same overlay format as a checkout's
   wrangler.local.jsonc. It holds only `account_id`, `name`, `vars` (merged over ky's) and `vpc_services` (added);
   the bindings are the release's. Edit it, then `ky deploy`.
@@ -45,5 +46,6 @@ ky teardown --confirm <worker name>
 ```
 
 This deletes the Worker with every chat and file, then its Access apps and its bucket, then the settings file. A
-bucket another Worker binds is left alone. It
-can't be undone: run it only when the user asked for it by name.
+bucket another Worker binds, and an Access app ky didn't make, are left alone. Without the workers.dev subdomain ky
+can't find its Access apps: it says where to remove them and keeps the settings file. It can't be undone: run it
+only when the user asked for it by name.
