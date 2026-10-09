@@ -179,6 +179,20 @@ export async function prompt(name: string, text: string): Promise<Omit<PiOperati
   });
 }
 
+/**
+ * Prompt the root session and wait; the answer's text, and whether the last tool it called failed. The fake models
+ * see a tool's result as text either way, as the chat-completions wire carries no isError, so this reads the
+ * transcript.
+ */
+export async function promptTool(name: string, text: string): Promise<{ text?: string; failed?: boolean }> {
+  return inside(name, async (instance) => {
+    const { text: answer, messages } = await instance.harness.prompt(text);
+    const result = messages.flatMap((entry) => entry.model ?? []).findLast((message) => message.role === "toolResult");
+
+    return { text: answer, failed: result?.isError };
+  });
+}
+
 export function submit(name: string, text: string): Promise<PiReceipt> {
   return inside(name, (instance) => instance.harness.submit(text, {}));
 }

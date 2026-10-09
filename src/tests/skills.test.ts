@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { inside, prompt, until } from "./drive";
+import { inside, prompt, promptTool, until } from "./drive";
 
 /** Skills through ky's real PiAgent on the fake AI binding: the tools, the index, and the review after a turn. */
 
@@ -48,8 +48,8 @@ describe("skills", () => {
 
   it("refuses a bad name, a duplicate, and a patch that does not match once", async () => {
     const name = crypto.randomUUID();
-    const bad = await prompt(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));
-    expect(bad.text).toMatch(/^tool said: [\s\S]*Bad skill name "Fix PR 12"/);
+    const bad = await promptTool(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));
+    expect(bad).toEqual({ text: expect.stringMatching(/^tool said: [\s\S]*Bad skill name "Fix PR 12"/), failed: true });
 
     await prompt(name, create());
     expect((await prompt(name, create())).text).toContain("weekly-groceries exists; edit or patch it.");

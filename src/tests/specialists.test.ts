@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, follow, type Follower, inside, prompt, said, shows, snapshotView, tasks, until } from "./drive";
+import { connect, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -78,7 +78,10 @@ describe("specialists", () => {
       [1, "create", "agent"]
     ]);
     expect(soul.map((each) => each.actor)).toEqual(["template"]);
-    expect(await said(tool("specialist", { action: "create", id: "Bad Id", description: "x", brief: "x" }))).toMatch(/^tool said: [\s\S]*lowercase/);
+    expect(await promptTool(name, tool("specialist", { action: "create", id: "Bad Id", description: "x", brief: "x" }))).toEqual({
+      text: expect.stringMatching(/^tool said: [\s\S]*lowercase/),
+      failed: true
+    });
   });
 
   it("tells ky it can make specialists before there are any", async () => {
