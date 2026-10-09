@@ -310,12 +310,32 @@ describe("ky init and deploy", () => {
 
     const config = release("r3").config;
 
-    current = release("r3", { ...config, migrations: [...(config.migrations ?? []), { tag: "v3", deleted_classes: ["Vault"] }] });
+    const v3 = { tag: "v3", deleted_classes: ["Vault"], transferred_classes: [{ from: "Room", from_script: "old-ky", to: "Room" }] };
+
+    current = release("r3", { ...config, migrations: [...(config.migrations ?? []), v3] });
     await deployCommand(ky);
-    expect(script()?.migrations.at(-1)).toEqual({ old_tag: "v2", new_tag: "v3", steps: [{ deleted_classes: ["Vault"] }] });
+    expect(script()?.migrations.at(-1)).toEqual({
+      old_tag: "v2",
+      new_tag: "v3",
+      steps: [{ deleted_classes: ["Vault"], transferred_classes: [{ from: "Room", from_script: "old-ky", to: "Room" }] }]
+    });
     expect(script()?.migrationTag).toBe("v3");
     // Where wrangler reads it: the scripts list doesn't carry the migration tag.
     expect(fake.requests).toContain("GET workers/services/ky");
+  });
+
+  it("tells a ky older than the Worker to get a newer one, rather than to upgrade", async () => {
+    const ky = await setUp();
+    const config = release("r2").config;
+
+    current = release("r2", { ...config, migrations: [...(config.migrations ?? []), { tag: "v3", deleted_classes: ["Vault"] }] });
+    await upgradeCommand(ky);
+    current = release("r1");
+    const newer = "get a newer ky: `git pull && pnpm compile` in your ky checkout";
+
+    expect(await doctor(ky)).toEqual({ code: 1, next: `Next: ${newer}` });
+    expect(output).toContain("✗ Release: r2 ran migration v3: this ky (r1) is older than the Worker");
+    await expect(upgradeCommand(ky)).rejects.toThrow(`The Worker ran migration v3, which this release doesn't have: this ky is older than the Worker; ${newer}`);
   });
 
   it("deploys a release's new bindings to an existing overlay", async () => {

@@ -207,11 +207,18 @@ export async function teamDomain(cloudflare: Cloudflare, accountId: string): Pro
   return organization?.authDomain ?? undefined;
 }
 
+/** What to do when the Worker ran a migration this release doesn't have. */
+const NEWER = "get a newer ky: `git pull && pnpm compile` in your ky checkout";
+
+/** Whether the Worker ran a migration this release doesn't have: it's newer than this ky. */
+function newer(migrations: Migrations, applied: string | undefined): boolean {
+  return applied !== undefined && !migrations.some((migration) => migration.tag === applied);
+}
+
 /** The config's migrations the Worker hasn't run, as one upload: all of them on the first deploy. */
 function pendingMigrations(migrations: Migrations, applied: string | undefined) {
+  if (newer(migrations, applied)) throw new Error(`The Worker ran migration ${applied}, which this release doesn't have: this ky is older than the Worker; ${NEWER}`);
   const from = applied ? migrations.findIndex((migration) => migration.tag === applied) : -1;
-
-  if (applied && from < 0) throw new Error(`The Worker ran migration ${applied}, which this release doesn't have`);
   const pending = migrations.slice(from + 1);
 
   if (pending.length === 0) return undefined;
@@ -223,7 +230,8 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
       newSqliteClasses: migration.new_sqlite_classes,
       newClasses: migration.new_classes,
       deletedClasses: migration.deleted_classes,
-      renamedClasses: migration.renamed_classes
+      renamedClasses: migration.renamed_classes,
+      transferredClasses: migration.transferred_classes?.map((moved) => ({ from: moved.from, fromScript: moved.from_script, to: moved.to }))
     }))
   };
 }
@@ -562,22 +570,8 @@ async function inspectWorker(target: Target, release: Release, script: Script, a
   const { cloudflare, config } = target;
   const name = names(config);
   const accountId = name.account;
-  const deployed = releaseOf(script);
-  const applied = await migrationTag(cloudflare, accountId, name.script);
-  const latest = config.migrations?.at(-1)?.tag;
 
-  check({
-    name: "Release",
-    ok: deployed === release.version,
-    detail: deployed === release.version ? release.version : `${deployed ?? "unknown"}, this ky is ${release.version}`,
-    next: "ky upgrade"
-  });
-  check({
-    name: "Migrations",
-    ok: applied === latest,
-    detail: `${applied ?? "none"}${applied === latest ? "" : `, this release has ${latest}`}`,
-    next: "ky deploy"
-  });
+  for (const each of releaseChecks(releaseOf(script), release, await migrationTag(cloudflare, accountId, name.script))) check(each);
   const secrets = await cloudflare.list(Workers.listScriptSecrets.items({ accountId, scriptName: name.script }));
   const hasToken = secrets.some((secret) => secret.name === "KY_TOKEN");
 
@@ -587,6 +581,25 @@ async function inspectWorker(target: Target, release: Release, script: Script, a
   const workersDev = await cloudflare.run(Workers.getScriptSubdomain({ accountId, scriptName: name.script }));
 
   check({ name: "workers.dev", ok: workersDev.enabled, detail: workersDev.enabled ? `https://${address}` : "off", next: "ky deploy" });
+}
+
+/** Whether the Worker runs this ky's release and its migrations; a Worker past them is newer than this ky. */
+function releaseChecks(deployed: string | undefined, release: Release, applied: string | undefined): Check[] {
+  const migrations = release.config.migrations ?? [];
+  const latest = migrations.at(-1)?.tag;
+
+  if (newer(migrations, applied))
+    return [{ name: "Release", ok: false, detail: `${deployed ?? "unknown"} ran migration ${applied}: this ky (${release.version}) is older than the Worker`, next: NEWER }];
+
+  return [
+    {
+      name: "Release",
+      ok: deployed === release.version,
+      detail: deployed === release.version ? release.version : `${deployed ?? "unknown"}, this ky is ${release.version}`,
+      next: "ky upgrade"
+    },
+    { name: "Migrations", ok: applied === latest, detail: `${applied ?? "none"}${applied === latest ? "" : `, this release has ${latest}`}`, next: "ky deploy" }
+  ];
 }
 
 /** Whether an Access app guards the address, and whether the bypass app covers every C2 path under it. */

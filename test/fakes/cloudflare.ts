@@ -22,7 +22,8 @@ const Migration = Type.Object({
       new_sqlite_classes: Type.Optional(Type.Array(Type.String())),
       new_classes: Type.Optional(Type.Array(Type.String())),
       deleted_classes: Type.Optional(Type.Array(Type.String())),
-      renamed_classes: Type.Optional(Type.Array(Type.Object({ from: Type.String(), to: Type.String() })))
+      renamed_classes: Type.Optional(Type.Array(Type.Object({ from: Type.String(), to: Type.String() }))),
+      transferred_classes: Type.Optional(Type.Array(Type.Object({ from: Type.String(), from_script: Type.String(), to: Type.String() })))
     })
   )
 });
