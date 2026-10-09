@@ -19,18 +19,24 @@ ky init --account <id or name> --name ky --email <owner email>
 Without a terminal every answer is a flag; a missing one fails with the flag's name. Add `--subdomain <name>` when
 the account has no workers.dev subdomain yet. Before Access can be set up, the account needs Zero Trust on (the
 free plan is enough): `ky init` fails with the dashboard link until it is. `wrangler login` deploys Workers but
-can't manage Access; when `ky` says so, the user creates the token its message links to and runs with
-`CLOUDFLARE_API_TOKEN` set.
+can't manage Access; when `ky` says so, the user creates the token its message links to (Account Settings: Read,
+Workers Scripts: Edit, Workers R2 Storage: Edit, Access: Apps and Policies: Edit, and Access: Organizations,
+Identity Providers, and Groups: Read) and runs with `CLOUDFLARE_API_TOKEN` set.
+
+Run again, `ky init` keeps the settings it saved and asks only for what's missing. A Worker or bucket of that name
+that ky didn't make is never changed: pick another `--name`.
 
 `ky init` prints a KY_TOKEN once, the owner's sign-in until Access replaces it. Hand it to the user; don't store it.
 
 ## Keep it running
 
-- `ky doctor` checks each piece and ends with `Next: <command>`; run that command, then `ky doctor` again. `--json`
-  prints `{ checks, next }`. It exits 1 while anything is missing.
+- `ky doctor` checks each piece and ends with `Next:`, the command or dashboard step that fixes the first one
+  missing; do it (fill in any `<placeholder>`), then `ky doctor` again. `--json` prints `{ checks, next }`. It exits
+  1 while anything is missing.
 - `ky upgrade` deploys this `ky`'s release when the Worker runs another one. `ky deploy` deploys it regardless.
 - The settings are in `~/.config/ky/wrangler.local.jsonc`, the same overlay format as a checkout's
-  wrangler.local.jsonc: `vars` merge over ky's, `vpc_services` are added. Edit it, then `ky deploy`.
+  wrangler.local.jsonc. It holds only `account_id`, `name`, `vars` (merged over ky's) and `vpc_services` (added);
+  the bindings are the release's. Edit it, then `ky deploy`.
 
 ## Remove it
 
@@ -38,5 +44,6 @@ can't manage Access; when `ky` says so, the user creates the token its message l
 ky teardown --confirm <worker name>
 ```
 
-This deletes the Worker with every chat and file, its bucket and its Access apps, then the settings file. It
+This deletes the Worker with every chat and file, then its Access apps and its bucket, then the settings file. A
+bucket another Worker binds is left alone. It
 can't be undone: run it only when the user asked for it by name.

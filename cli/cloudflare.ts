@@ -10,10 +10,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fromApiToken } from "@distilled.cloud/cloudflare/Credentials";
+import { CloudflareError as ApiError, CloudflareRateLimited } from "@distilled.cloud/cloudflare/Errors";
+import { CloudflareProtocol } from "@distilled.cloud/cloudflare/Protocol";
+import * as Retry from "@distilled.cloud/cloudflare/Retry";
+import * as T from "@distilled.cloud/cloudflare/Traits";
+import * as Workers from "@distilled.cloud/cloudflare/workers";
+import * as API from "@distilled.cloud/core/api";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as S from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import { Type } from "typebox";
@@ -23,13 +30,20 @@ import { Value } from "typebox/value";
 export type Login = "CLOUDFLARE_API_TOKEN" | "wrangler login" | "a pasted token";
 
 /** A failed call: Cloudflare's own error, with its tag (`NoSuchBucket`, `Forbidden`, …). */
-export class CloudflareError extends Error {
+class CloudflareError extends Error {
   readonly tag: string;
 
   constructor(tag: string, message: string) {
     super(message);
     this.tag = tag;
   }
+}
+
+const REFUSALS = new Set(["Forbidden", "Unauthorized"]);
+
+/** Whether Cloudflare refused the login: it's signed in, but its token can't do this. */
+export function refused(error: unknown): error is CloudflareError {
+  return error instanceof CloudflareError && REFUSALS.has(error.tag);
 }
 
 /** What @distilled.cloud/cloudflare fails with: Cloudflare's error, tagged by its code. */
@@ -66,8 +80,8 @@ export class Cloudflare {
 
     throw new CloudflareError(
       tag,
-      tag === "Forbidden" || tag === "Unauthorized"
-        ? `${message} (signed in with ${this.login}). A token from ${tokenPage()} can do everything ky needs: set CLOUDFLARE_API_TOKEN to it.`
+      REFUSALS.has(tag)
+        ? `${message} (signed in with ${this.login}). ky needs a token with ${SCOPES}: create one at ${tokenPage()} and set CLOUDFLARE_API_TOKEN to it.`
         : message
     );
   }
@@ -110,17 +124,23 @@ async function wranglerToken(): Promise<string | undefined> {
   }
 }
 
+/** What a deploy needs, by the dashboard's name and its template key; `wrangler login` has neither Access one. */
+const PERMISSIONS = [
+  ["Account Settings: Read", "account_settings", "read"],
+  ["Workers Scripts: Edit", "workers_scripts", "edit"],
+  ["Workers R2 Storage: Edit", "workers_r2", "edit"],
+  ["Access: Apps and Policies: Edit", "access", "edit"],
+  ["Access: Organizations, Identity Providers, and Groups: Read", "access_acct", "read"]
+];
+
+export const SCOPES = PERMISSIONS.map(([scope]) => scope).join(", ");
+
 /**
  * The dashboard page that creates an API token with what a deploy needs, for
  * a user without wrangler (or whose wrangler login can't manage Access).
  */
 export function tokenPage(): string {
-  const permissions = [
-    ["account_settings", "read"],
-    ["workers_scripts", "edit"],
-    ["workers_r2", "edit"],
-    ["access", "edit"]
-  ].map(([key, type]) => ({ key, type }));
+  const permissions = PERMISSIONS.map(([, key, type]) => ({ key, type }));
 
   const url = new URL("https://dash.cloudflare.com/profile/api-tokens");
 
@@ -130,3 +150,22 @@ export function tokenPage(): string {
 
   return url.toString();
 }
+
+/**
+ * GET /workers/services/{name}, which @distilled.cloud/cloudflare doesn't have: where wrangler
+ * reads a Worker's migration tag, `default_environment.script.migration_tag`.
+ */
+export const getService = API.make(() => ({
+  input: S.Struct({
+    accountId: S.String.pipe(T.Label("account_id")),
+    serviceName: S.String.pipe(T.Label("service_name"))
+  }).pipe(T.Http({ method: "GET", uri: "/accounts/{account_id}/workers/services/{service_name}", code: 200 })),
+  output: S.Struct({
+    defaultEnvironment: S.Struct({
+      script: S.Struct({ migrationTag: S.optional(S.NullOr(S.String).pipe(T.Body("migration_tag"))) })
+    }).pipe(T.Body("default_environment"))
+  }),
+  errors: [Workers.WorkerNotFound, Workers.Forbidden, CloudflareRateLimited, ApiError],
+  protocol: CloudflareProtocol,
+  retry: Retry.Retry
+}));

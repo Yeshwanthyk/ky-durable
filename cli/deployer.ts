@@ -1,10 +1,14 @@
 /**
  * Deploys a release to the user's account, checks what's there, and removes it, with direct
  * Cloudflare API calls. What to deploy is the release's generic wrangler.jsonc with the user's
- * overlay merged over it (C6); everything else is found by name, so nothing is kept between runs.
+ * overlay merged over it (C6); everything else is found again each run, so nothing is kept between
+ * runs.
  *
- * A Worker the CLI deployed carries the `ky` tag and its release's version. A Worker of the same
- * name without the tag (one `pnpm run deploy` made, say) is never changed or removed.
+ * ky changes and removes only what it made. A Worker the CLI deployed carries the `ky` tag and its
+ * release's version; one of the same name without the tag (one `pnpm run deploy` made, say) is
+ * never changed or removed. A bucket the CLI made holds a marker object; one without it is never
+ * adopted or emptied, and teardown leaves a bucket another Worker binds. Access apps are the ones
+ * that guard the Worker's address, whatever they're called.
  */
 import { createHash, randomBytes } from "node:crypto";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
@@ -13,7 +17,8 @@ import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
-import type { Cloudflare } from "./cloudflare.ts";
+import { type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
+import { emails } from "./config.ts";
 import type { Release } from "./release.ts";
 
 /** C2: what Access lets through without a login; each of these checks its own bearer, or is public. */
@@ -23,6 +28,9 @@ export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/manifes
 const TAG = "ky";
 
 const RELEASE_TAG = "ky-release-";
+
+/** The object every bucket the CLI makes holds, so a bucket without it is never adopted or removed. */
+const MARKER = ".ky";
 
 /** What the deployer turns into the Worker's metadata; anything else in a config is refused. */
 const DEPLOYS = new Set([
@@ -47,7 +55,6 @@ const DEPLOYS = new Set([
 
 /** Why a key wrangler.jsonc may hold isn't deployed here. */
 const REFUSED = new Map([
-  ["routes", "a custom domain deploys with `pnpm run deploy` from a checkout"],
   // CM: the cloud machine's Container app deploys here, after the script, from its namespace, and
   // teardown removes it before the Worker.
   ["containers", "Container apps arrive with the cloud machine"]
@@ -59,8 +66,10 @@ type Migrations = NonNullable<Unstable_RawConfig["migrations"]>;
 
 type AccessApp = Parameters<typeof ZeroTrust.createAccessApplicationForAccount>[0];
 
-/** One deploy target: an account, and the config to deploy there. */
-export type Target = { cloudflare: Cloudflare; config: Unstable_RawConfig };
+type FoundApp = Awaited<ReturnType<typeof accessApps>>[number];
+
+/** One deploy target: an account, the config to deploy there, and the overlay it came from. */
+export type Target = { cloudflare: Cloudflare; config: Unstable_RawConfig; settings: string };
 
 export type Deployed = {
   url: string;
@@ -70,10 +79,32 @@ export type Deployed = {
   token?: string;
 };
 
-/** One piece `ky doctor` checks, and the command that fixes it. */
+/** One piece `ky doctor` checks, and what fixes it. */
 export type Check = { name: string; ok: boolean; detail: string; next?: string };
 
 type Script = Awaited<ReturnType<typeof scripts>>[number];
+
+type Names = ReturnType<typeof names>;
+
+/** A Worker or bucket of this deploy's name that ky didn't make. */
+export class NameTaken extends Error {
+  /** What's taken, without what to do about it. */
+  readonly taken: string;
+
+  constructor(taken: string, settings: string) {
+    super(`${taken}; ${rename(settings)}`);
+    this.taken = taken;
+  }
+}
+
+function rename(settings: string): string {
+  return `pick another name: set "name" in ${settings}, then run \`ky deploy\``;
+}
+
+/** Where the user turns Zero Trust on. */
+export function zeroTrustPage(accountId: string): string {
+  return `https://one.dash.cloudflare.com/${accountId}`;
+}
 
 function required<T>(value: T | undefined, what: string): T {
   if (value === undefined || value === "") throw new Error(`The config has no ${what}; run \`ky init\``);
@@ -81,7 +112,7 @@ function required<T>(value: T | undefined, what: string): T {
   return value;
 }
 
-/** The names this deploy's resources go by. */
+/** The names this deploy's resources go by: each bucket is the Worker's name and its binding's. */
 function names(config: Unstable_RawConfig) {
   const script = required(config.name, "name");
 
@@ -90,7 +121,10 @@ function names(config: Unstable_RawConfig) {
     script,
     access: script,
     bypass: `${script} bypass`,
-    buckets: (config.r2_buckets ?? []).map((bucket) => required(bucket.bucket_name, `bucket_name for ${bucket.binding}`))
+    buckets: (config.r2_buckets ?? []).map((bucket) => ({
+      binding: bucket.binding,
+      name: `${script}-${bucket.binding.toLowerCase().replaceAll("_", "-")}`
+    }))
   };
 }
 
@@ -103,12 +137,50 @@ function scripts(cloudflare: Cloudflare, accountId: string) {
   return cloudflare.list(Workers.listScripts.items({ accountId }));
 }
 
-/** The Worker of this name, refusing one the CLI didn't deploy. */
-async function findScript(cloudflare: Cloudflare, accountId: string, name: string): Promise<Script | undefined> {
-  const script = (await scripts(cloudflare, accountId)).find((candidate) => candidate.id === name);
+/** The Worker of this name, whoever deployed it. */
+async function existing(cloudflare: Cloudflare, accountId: string, name: string): Promise<Script | undefined> {
+  return (await scripts(cloudflare, accountId)).find((candidate) => candidate.id === name);
+}
 
-  if (script && !script.tags?.includes(TAG))
-    throw new Error(`A Worker named ${name} is already in this account and ky didn't deploy it; pick another name`);
+function ours(script: Script): boolean {
+  return script.tags?.includes(TAG) ?? false;
+}
+
+/** The Worker of this name, refusing one the CLI didn't deploy. */
+async function findScript({ cloudflare, settings }: Target, name: Names): Promise<Script | undefined> {
+  const script = await existing(cloudflare, name.account, name.script);
+
+  if (script && !ours(script)) throw new NameTaken(`A Worker named ${name.script} is already in this account and ky didn't deploy it`, settings);
+
+  return script;
+}
+
+/** The migration the Worker last ran, read where wrangler reads it. */
+async function migrationTag(cloudflare: Cloudflare, accountId: string, name: string): Promise<string | undefined> {
+  const service = await cloudflare.run(getService({ accountId, serviceName: name }));
+
+  return service.defaultEnvironment.script.migrationTag ?? undefined;
+}
+
+/** Whether the bucket is there, and whether the CLI made it. */
+async function bucketState(cloudflare: Cloudflare, accountId: string, bucketName: string): Promise<"missing" | "ours" | "theirs"> {
+  if (!(await cloudflare.find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket"))) return "missing";
+  const marked = await cloudflare.list(R2.listObjects.items({ accountId, bucketName, prefix: MARKER }));
+
+  return marked.some((object) => object.key === MARKER) ? "ours" : "theirs";
+}
+
+/**
+ * The deploy's Worker, when there is one, once neither it nor a bucket of the deploy's names is
+ * one ky didn't make; it writes nothing.
+ */
+export async function claim(target: Target): Promise<Script | undefined> {
+  const name = names(target.config);
+  const script = await findScript(target, name);
+
+  for (const bucket of name.buckets)
+    if ((await bucketState(target.cloudflare, name.account, bucket.name)) === "theirs")
+      throw new NameTaken(`A bucket named ${bucket.name} is already in this account and ky didn't create it`, target.settings);
 
   return script;
 }
@@ -116,7 +188,7 @@ async function findScript(cloudflare: Cloudflare, accountId: string, name: strin
 async function host(cloudflare: Cloudflare, accountId: string, name: string): Promise<string> {
   const subdomain = await cloudflare.find(Workers.getSubdomain({ accountId }), "SubdomainNotFound");
 
-  if (!subdomain?.subdomain) throw new Error("This account has no workers.dev subdomain yet; run `ky init`");
+  if (!subdomain?.subdomain) throw new Error("This account has no workers.dev subdomain yet: run `ky init --subdomain <name>`");
 
   return `${name}.${subdomain.subdomain}.workers.dev`;
 }
@@ -149,8 +221,8 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
   };
 }
 
-/** The Worker's bindings, from the config, with `env` added as plain text. */
-function bindings(config: Unstable_RawConfig, env: Record<string, string>): Binding[] {
+/** The Worker's bindings, from the config, with its buckets and `env` added as plain text. */
+function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Record<string, string>): Binding[] {
   for (const key of Object.keys(config))
     if (!DEPLOYS.has(key)) throw new Error(`ky deploy can't deploy \`${key}\`: ${REFUSED.get(key) ?? "use `pnpm run deploy` from a checkout"}`);
 
@@ -162,7 +234,7 @@ function bindings(config: Unstable_RawConfig, env: Record<string, string>): Bind
     ...single(config.browser).map((name): Binding => ({ type: "browser", name })),
     ...single(config.assets).map((name): Binding => ({ type: "assets", name })),
     ...(config.worker_loaders ?? []).map((loader): Binding => ({ type: "worker_loader", name: loader.binding })),
-    ...(config.r2_buckets ?? []).map((bucket): Binding => ({ type: "r2_bucket", name: bucket.binding, bucketName: required(bucket.bucket_name, `bucket_name for ${bucket.binding}`) })),
+    ...buckets.map((bucket): Binding => ({ type: "r2_bucket", name: bucket.binding, bucketName: bucket.name })),
     ...(config.durable_objects?.bindings ?? []).map(
       (object): Binding => ({ type: "durable_object_namespace", name: object.name, className: object.class_name })
     ),
@@ -219,57 +291,85 @@ async function uploadAssets(cloudflare: Cloudflare, accountId: string, scriptNam
   return jwt;
 }
 
-function accessApps(cloudflare: Cloudflare, accountId: string, name: string) {
-  return cloudflare
-    .list(ZeroTrust.listAccessApplicationsForAccount.items({ accountId }))
-    .then((apps) => apps.filter((app) => app.name === name));
+/** A destination as Access compares it: no scheme, no trailing slash, lower case. */
+function normal(uri: string): string {
+  return uri.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "");
 }
 
-/** Creates or updates the Access app of this name, and returns its audience tag. */
-async function ensureAccessApp(
-  cloudflare: Cloudflare,
-  accountId: string,
-  name: string,
-  destinations: NonNullable<AccessApp["destinations"]>,
-  policies: NonNullable<AccessApp["policies"]>
-): Promise<string> {
-  const found = (await accessApps(cloudflare, accountId, name))[0]?.id;
-  const app = { accountId, type: "self_hosted", name, destinations, policies };
+function accessApps(cloudflare: Cloudflare, accountId: string) {
+  return cloudflare.list(ZeroTrust.listAccessApplicationsForAccount.items({ accountId }));
+}
 
-  const saved = found
-    ? await cloudflare.run(ZeroTrust.updateAccessApplicationForAccount({ ...app, appId: found }))
+/** What the app guards, normalised. */
+function guards(app: FoundApp): Set<string> {
+  const destinations = ("destinations" in app ? app.destinations : undefined) ?? [];
+  const uris = destinations.flatMap((destination) => ("uri" in destination && destination.uri ? [destination.uri] : []));
+  const domain = "domain" in app && app.domain ? [app.domain] : [];
+
+  return new Set([...uris, ...domain].map(normal));
+}
+
+/** The Access apps that guard this address: the owner's covers it, the bypass app C2's paths under it. */
+async function accessFor(cloudflare: Cloudflare, accountId: string, address: string) {
+  const apps = await accessApps(cloudflare, accountId);
+  const paths = BYPASS.map((path) => normal(`${address}${path}`));
+  const owner = apps.find((app) => guards(app).has(normal(address)));
+
+  return { owner, bypass: apps.find((app) => app !== owner && paths.some((path) => guards(app).has(path))), paths };
+}
+
+/** Creates the Access app, or updates the one found, and returns its audience tag. */
+async function saveApp(cloudflare: Cloudflare, found: FoundApp | undefined, app: AccessApp): Promise<string> {
+  const saved = found?.id
+    ? await cloudflare.run(ZeroTrust.updateAccessApplicationForAccount({ ...app, appId: found.id }))
     : await cloudflare.run(ZeroTrust.createAccessApplicationForAccount(app));
 
-  if (!("aud" in saved) || !saved.aud) throw new Error(`Cloudflare returned no audience tag for the Access app ${name}`);
+  if (!("aud" in saved) || !saved.aud) throw new Error(`Cloudflare returned no audience tag for the Access app ${app.name}`);
 
   return saved.aud;
 }
 
 /** The Access app that lets only the owner in, and the one for C2's paths; returns the first's audience tag. */
-async function ensureAccess(cloudflare: Cloudflare, name: ReturnType<typeof names>, address: string, allowed: string[]): Promise<string> {
-  const aud = await ensureAccessApp(
-    cloudflare,
-    name.account,
-    name.access,
-    [{ type: "public", uri: address }],
-    [{ name: "owner", decision: "allow", include: allowed.map((email) => ({ email: { email } })) }]
-  );
+async function ensureAccess(cloudflare: Cloudflare, name: Names, address: string, allowed: string[]): Promise<string> {
+  const accountId = name.account;
+  const found = await accessFor(cloudflare, accountId, address);
 
-  await ensureAccessApp(
-    cloudflare,
-    name.account,
-    name.bypass,
-    BYPASS.map((path) => ({ type: "public", uri: `${address}${path}` })),
-    [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
-  );
+  const aud = await saveApp(cloudflare, found.owner, {
+    accountId,
+    type: "self_hosted",
+    name: name.access,
+    destinations: [{ type: "public", uri: address }],
+    policies: [{ name: "owner", decision: "allow", include: allowed.map((email) => ({ email: { email } })) }]
+  });
+
+  await saveApp(cloudflare, found.bypass, {
+    accountId,
+    type: "self_hosted",
+    name: name.bypass,
+    destinations: BYPASS.map((path) => ({ type: "public", uri: `${address}${path}` })),
+    policies: [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
+  });
 
   return aud;
 }
 
-async function ensureBuckets(cloudflare: Cloudflare, accountId: string, buckets: string[]): Promise<void> {
-  for (const bucketName of buckets)
-    if (!(await cloudflare.find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket")))
-      await cloudflare.run(R2.createBucket({ accountId, name: bucketName }));
+/** Makes the buckets that aren't there yet, each with the marker that says ky made it. */
+async function ensureBuckets(cloudflare: Cloudflare, name: Names): Promise<void> {
+  const accountId = name.account;
+
+  for (const bucket of name.buckets) {
+    if (await cloudflare.find(R2.getBucket({ accountId, bucketName: bucket.name }), "NoSuchBucket")) continue;
+    await cloudflare.run(R2.createBucket({ accountId, name: bucket.name }));
+    await cloudflare.run(
+      R2.putObject({
+        accountId,
+        bucketName: bucket.name,
+        objectName: MARKER,
+        body: `ky made this bucket for the ${name.script} Worker; \`ky teardown\` removes it.`,
+        contentType: "text/plain"
+      })
+    );
+  }
 }
 
 /** A new KY_TOKEN, unless the Worker (when there is one) has it: it signs the owner in until Access replaces it (node A). */
@@ -279,31 +379,24 @@ async function newToken(cloudflare: Cloudflare, accountId: string, scriptName: s
   return secrets.some((secret) => secret.name === "KY_TOKEN") ? undefined : Buffer.from(randomBytes(24)).toString("base64url");
 }
 
-/** The emails Access lets in: ACCESS_EMAILS (C3). */
-function emails(config: Unstable_RawConfig): string[] {
-  const value = config.vars?.ACCESS_EMAILS;
-
-  return Value.Check(Type.String(), value) ? value.split(",").map((email) => email.trim()).filter(Boolean) : [];
-}
-
 /**
  * Deploys the release: buckets, the Access apps, the web app, then the Worker with its bindings,
  * the migrations it hasn't run, `ACCESS_*`, and a KY_TOKEN when it has none; then workers.dev.
  */
-export async function deploy({ cloudflare, config }: Target, release: Release, say: (step: string) => void): Promise<Deployed> {
+export async function deploy(target: Target, release: Release, say: (step: string) => void): Promise<Deployed> {
+  const { cloudflare, config } = target;
   const name = names(config);
   const accountId = name.account;
   const allowed = emails(config);
-
-  if (allowed.length === 0) throw new Error("The config has no ACCESS_EMAILS; run `ky init`");
   const address = await host(cloudflare, accountId, name.script);
   const team = await teamDomain(cloudflare, accountId);
 
-  if (!team) throw new Error("Zero Trust isn't on for this account; run `ky init`");
-  const script = await findScript(cloudflare, accountId, name.script);
+  if (!team) throw new Error(`Zero Trust isn't on for this account: turn it on at ${zeroTrustPage(accountId)} (the free plan is enough), then run \`ky deploy\``);
+  const script = await claim(target);
+  const applied = script && (await migrationTag(cloudflare, accountId, name.script));
 
   say("Setting up the bucket");
-  await ensureBuckets(cloudflare, accountId, name.buckets);
+  await ensureBuckets(cloudflare, name);
   say("Setting up Access");
   const aud = await ensureAccess(cloudflare, name, address, allowed);
 
@@ -326,11 +419,11 @@ export async function deploy({ cloudflare, config }: Target, release: Release, s
           config: { notFoundHandling: config.assets?.not_found_handling, runWorkerFirst: config.assets?.run_worker_first }
         },
         bindings: [
-          ...bindings(config, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }),
+          ...bindings(config, name.buckets, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }),
           ...secret
         ],
         keepBindings: ["secret_text"],
-        migrations: pendingMigrations(config.migrations ?? [], script?.migrationTag ?? undefined),
+        migrations: pendingMigrations(config.migrations ?? [], applied),
         observability: config.observability ? { enabled: config.observability.enabled ?? false } : undefined,
         tags: [TAG, `${RELEASE_TAG}${release.version}`]
       },
@@ -345,39 +438,85 @@ export async function deploy({ cloudflare, config }: Target, release: Release, s
 }
 
 /** The release the Worker runs, or undefined when there's no Worker. */
-export async function deployedRelease({ cloudflare, config }: Target): Promise<string | undefined> {
-  const name = names(config);
-  const script = await findScript(cloudflare, name.account, name.script);
+export async function deployedRelease(target: Target): Promise<string | undefined> {
+  const script = await findScript(target, names(target.config));
 
   return script && (releaseOf(script) ?? "an unknown release");
 }
 
-/** Every piece of a deploy, checked in order, each with the command that fixes it. */
-export async function inspect({ cloudflare, config }: Target, release: Release): Promise<Check[]> {
+type Checker = (check: Check) => boolean;
+
+/** Every piece of a deploy, checked in order, each with what fixes it; a refused login is a failed check too. */
+export async function inspect(target: Target, release: Release): Promise<Check[]> {
+  const checks: Check[] = [];
+
+  try {
+    await inspectAccount(target, release, (check) => checks.push(check) > 0 && check.ok);
+  } catch (error) {
+    if (!refused(error)) throw error;
+    checks.push({
+      name: "Cloudflare permissions",
+      ok: false,
+      detail: `Cloudflare refused ${target.cloudflare.login}; ky needs ${SCOPES}`,
+      next: `set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}, then run \`ky doctor\``
+    });
+  }
+
+  return checks;
+}
+
+function bucketCheck(state: Awaited<ReturnType<typeof bucketState>>, bucketName: string, settings: string): Check {
+  if (state === "ours") return { name: "Bucket", ok: true, detail: bucketName };
+
+  if (state === "missing") return { name: "Bucket", ok: false, detail: `no bucket ${bucketName}`, next: "ky deploy" };
+
+  return { name: "Bucket", ok: false, detail: `${bucketName} is a bucket ky didn't create`, next: rename(settings) };
+}
+
+/** Zero Trust, workers.dev, then the names the deploy needs, then the Worker. */
+async function inspectAccount(target: Target, release: Release, check: Checker): Promise<void> {
+  const { cloudflare, config, settings } = target;
   const name = names(config);
   const accountId = name.account;
-  const checks: Check[] = [];
-  const check = (check: Check) => checks.push(check) && check.ok;
   const team = await teamDomain(cloudflare, accountId);
 
   check({
     name: "Zero Trust",
     ok: Boolean(team),
     detail: team ?? "off",
-    next: `turn it on at https://one.dash.cloudflare.com/${accountId}, then \`ky deploy\``
+    next: `turn it on at ${zeroTrustPage(accountId)} (the free plan is enough), then run \`ky deploy\``
   });
-  const subdomain = await cloudflare.find(Workers.getSubdomain({ accountId }), "SubdomainNotFound");
+  const subdomain = (await cloudflare.find(Workers.getSubdomain({ accountId }), "SubdomainNotFound"))?.subdomain;
 
-  check({ name: "workers.dev subdomain", ok: Boolean(subdomain?.subdomain), detail: subdomain?.subdomain ?? "none", next: "ky init" });
+  if (!check({ name: "workers.dev subdomain", ok: Boolean(subdomain), detail: subdomain ?? "none", next: "ky init --subdomain <name>" })) return;
+  const script = await existing(cloudflare, accountId, name.script);
 
-  if (!subdomain?.subdomain) return checks;
-  const address = `${name.script}.${subdomain.subdomain}.workers.dev`;
-  const script = await findScript(cloudflare, accountId, name.script);
+  if (script && !ours(script)) {
+    check({ name: "Worker", ok: false, detail: `${name.script} is a Worker ky didn't deploy`, next: rename(settings) });
 
-  check({ name: "Worker", ok: Boolean(script), detail: script ? name.script : `no Worker named ${name.script}`, next: "ky deploy" });
+    return;
+  }
 
-  if (!script) return checks;
+  for (const bucket of name.buckets) check(bucketCheck(await bucketState(cloudflare, accountId, bucket.name), bucket.name, settings));
+
+  if (!script) {
+    check({ name: "Worker", ok: false, detail: `no Worker named ${name.script}`, next: "ky deploy" });
+
+    return;
+  }
+
+  check({ name: "Worker", ok: true, detail: name.script });
+  await inspectWorker(target, release, script, `${name.script}.${subdomain}.workers.dev`, check);
+}
+
+/** The Worker's release, migrations, KY_TOKEN, Access apps and workers.dev. */
+async function inspectWorker(target: Target, release: Release, script: Script, address: string, check: Checker): Promise<void> {
+  const { cloudflare, config } = target;
+  const name = names(config);
+  const accountId = name.account;
   const deployed = releaseOf(script);
+  const applied = await migrationTag(cloudflare, accountId, name.script);
+  const latest = config.migrations?.at(-1)?.tag;
 
   check({
     name: "Release",
@@ -385,70 +524,108 @@ export async function inspect({ cloudflare, config }: Target, release: Release):
     detail: deployed === release.version ? release.version : `${deployed ?? "unknown"}, this ky is ${release.version}`,
     next: "ky upgrade"
   });
-  const latest = config.migrations?.at(-1)?.tag;
-
   check({
     name: "Migrations",
-    ok: script.migrationTag === latest,
-    detail: `${script.migrationTag ?? "none"}${script.migrationTag === latest ? "" : `, this release has ${latest}`}`,
-    next: "ky upgrade"
+    ok: applied === latest,
+    detail: `${applied ?? "none"}${applied === latest ? "" : `, this release has ${latest}`}`,
+    next: "ky deploy"
   });
   const secrets = await cloudflare.list(Workers.listScriptSecrets.items({ accountId, scriptName: name.script }));
   const hasToken = secrets.some((secret) => secret.name === "KY_TOKEN");
 
   check({ name: "KY_TOKEN", ok: hasToken, detail: hasToken ? "set" : "missing", next: "ky deploy" });
 
-  for (const bucketName of name.buckets) {
-    const bucket = await cloudflare.find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket");
-
-    check({ name: "Bucket", ok: Boolean(bucket), detail: bucket ? bucketName : `no bucket ${bucketName}`, next: "ky deploy" });
-  }
-
-  const covers = async (app: string, uris: string[], covered: string) => {
-    const found = (await accessApps(cloudflare, accountId, app))[0];
-    const destinations = (found && "destinations" in found ? found.destinations : undefined) ?? [];
-    const has = new Set(destinations.map((destination) => ("uri" in destination ? destination.uri : undefined)));
-    const missing = uris.filter((uri) => !has.has(uri));
-
-    check({
-      name: `Access app "${app}"`,
-      ok: Boolean(found) && missing.length === 0,
-      detail: !found ? "missing" : missing.length > 0 ? `doesn't cover ${missing.join(", ")}` : covered,
-      next: "ky deploy"
-    });
-  };
-
-  await covers(name.access, [address], address);
-  await covers(
-    name.bypass,
-    BYPASS.map((path) => `${address}${path}`),
-    `${BYPASS.length} paths`
-  );
+  for (const access of accessChecks(await accessFor(cloudflare, accountId, address), address)) check(access);
   const workersDev = await cloudflare.run(Workers.getScriptSubdomain({ accountId, scriptName: name.script }));
 
   check({ name: "workers.dev", ok: workersDev.enabled, detail: workersDev.enabled ? `https://${address}` : "off", next: "ky deploy" });
-
-  return checks;
 }
 
-/** Removes the Access apps, the Worker (its Durable Objects' data and secrets go with it) and the buckets. */
-export async function teardown({ cloudflare, config }: Target, say: (step: string) => void): Promise<void> {
+/** Whether an Access app guards the address, and whether the bypass app covers every C2 path under it. */
+function accessChecks(access: Awaited<ReturnType<typeof accessFor>>, address: string): Check[] {
+  const missing = access.paths.filter((path) => !access.bypass || !guards(access.bypass).has(path));
+
+  return [
+    { name: "Access for the owner", ok: Boolean(access.owner), detail: access.owner ? address : `no Access app guards ${address}`, next: "ky deploy" },
+    {
+      name: "Access bypass",
+      ok: missing.length === 0,
+      detail: missing.length === 0 ? `${BYPASS.length} paths` : `doesn't cover ${missing.join(", ")}`,
+      next: "ky deploy"
+    }
+  ];
+}
+
+/** The other Workers that bind the bucket. */
+async function bindersOf(cloudflare: Cloudflare, accountId: string, bucketName: string, except: string): Promise<string[]> {
+  const binders: string[] = [];
+
+  for (const script of await scripts(cloudflare, accountId)) {
+    if (!script.id || script.id === except) continue;
+    const settings = await cloudflare.run(Workers.getScriptScriptAndVersionSetting({ accountId, scriptName: script.id }));
+
+    if (settings.bindings?.some((binding) => binding.type === "r2_bucket" && "bucketName" in binding && binding.bucketName === bucketName))
+      binders.push(script.id);
+  }
+
+  return binders;
+}
+
+/** What teardown does with the bucket: removes it, leaves it (ky didn't create it, or another Worker binds it), or nothing once it's gone. */
+async function bucketFate(cloudflare: Cloudflare, accountId: string, bucketName: string, script: string): Promise<"remove" | "gone" | { leave: string }> {
+  const state = await bucketState(cloudflare, accountId, bucketName);
+
+  if (state === "missing") return "gone";
+
+  if (state === "theirs") return { leave: "ky didn't create it" };
+  const binders = await bindersOf(cloudflare, accountId, bucketName, script);
+
+  return binders.length > 0 ? { leave: `${binders.join(", ")} binds it` } : "remove";
+}
+
+/** What teardown removes once the Worker is gone (the Access apps that guard its address, the buckets ky made that no other Worker binds), and what it leaves. */
+async function removable({ cloudflare, config }: Target) {
   const name = names(config);
   const accountId = name.account;
-  const script = await findScript(cloudflare, accountId, name.script);
+  const subdomain = (await cloudflare.find(Workers.getSubdomain({ accountId }), "SubdomainNotFound"))?.subdomain;
+  const access = subdomain ? await accessFor(cloudflare, accountId, `${name.script}.${subdomain}.workers.dev`) : undefined;
+  const buckets: string[] = [];
+  const kept: string[] = [];
 
-  say("Removing the Access apps");
+  for (const bucket of name.buckets) {
+    const fate = await bucketFate(cloudflare, accountId, bucket.name, name.script);
 
-  for (const app of [...(await accessApps(cloudflare, accountId, name.access)), ...(await accessApps(cloudflare, accountId, name.bypass))])
-    if (app.id) await cloudflare.run(ZeroTrust.deleteAccessApplicationForAccount({ accountId, appId: app.id }));
+    if (fate === "remove") buckets.push(bucket.name);
+    else if (fate !== "gone") kept.push(`the bucket ${bucket.name}: ${fate.leave}`);
+  }
+
+  return { apps: [access?.owner, access?.bypass].flatMap((app) => (app ? [app] : [])), buckets, kept };
+}
+
+/** Removes the Worker (its Durable Objects' data and secrets go with it), then its Access apps and buckets. */
+export async function teardown(target: Target, say: (step: string) => void): Promise<void> {
+  const { cloudflare, config, settings } = target;
+  const name = names(config);
+  const accountId = name.account;
+  const script = await existing(cloudflare, accountId, name.script);
+
+  if (script && !ours(script))
+    throw new Error(
+      `A Worker named ${name.script} is in this account and ky didn't deploy it, so ky teardown leaves it alone, with its Access apps and buckets; delete ${settings} to forget these settings`
+    );
 
   if (script) {
     say("Removing the Worker and its data");
     await cloudflare.run(Workers.deleteScript({ accountId, scriptName: name.script, force: true }));
   }
 
-  for (const bucketName of name.buckets) {
-    if (!(await cloudflare.find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket"))) continue;
+  const { apps, buckets, kept } = await removable(target);
+
+  if (apps.length > 0) say("Removing the Access apps");
+
+  for (const app of apps) if (app.id) await cloudflare.run(ZeroTrust.deleteAccessApplicationForAccount({ accountId, appId: app.id }));
+
+  for (const bucketName of buckets) {
     say(`Emptying and removing the bucket ${bucketName}`);
 
     const keys = (await cloudflare.list(R2.listObjects.items({ accountId, bucketName, perPage: 1000 }))).flatMap((object) =>
@@ -458,19 +635,19 @@ export async function teardown({ cloudflare, config }: Target, say: (step: strin
     for (let i = 0; i < keys.length; i += 1000) await cloudflare.run(R2.deleteObjects({ accountId, bucketName, body: keys.slice(i, i + 1000) }));
     await cloudflare.run(R2.deleteBucket({ accountId, bucketName }));
   }
+
+  for (const left of kept) say(`Leaving ${left}`);
 }
 
-/** What of a deploy is still in the account, by name. */
-export async function leftovers({ cloudflare, config }: Target): Promise<string[]> {
-  const name = names(config);
-  const accountId = name.account;
-  const worker = (await scripts(cloudflare, accountId)).some((script) => script.id === name.script);
-  const buckets = (await cloudflare.run(R2.listBuckets({ accountId }))).buckets ?? [];
-  const apps = [...(await accessApps(cloudflare, accountId, name.access)), ...(await accessApps(cloudflare, accountId, name.bypass))];
+/** What teardown should have removed that's still in the account. */
+export async function leftovers(target: Target): Promise<string[]> {
+  const name = names(target.config);
+  const worker = await existing(target.cloudflare, name.account, name.script);
+  const { apps, buckets } = await removable(target);
 
   return [
     ...(worker ? [`Worker ${name.script}`] : []),
-    ...buckets.filter((bucket) => bucket.name && name.buckets.includes(bucket.name)).map((bucket) => `Bucket ${bucket.name}`),
+    ...buckets.map((bucket) => `Bucket ${bucket}`),
     ...apps.map((app) => `Access app ${app.name}`)
   ];
 }

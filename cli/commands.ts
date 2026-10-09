@@ -4,8 +4,9 @@
  * process's exit code.
  */
 import { rm } from "node:fs/promises";
-import type { Cloudflare } from "./cloudflare.ts";
-import { merged, readOverlay } from "./config.ts";
+import type { Unstable_RawConfig } from "wrangler";
+import { type Cloudflare, tokenPage } from "./cloudflare.ts";
+import { incomplete, merged, readOverlay } from "./config.ts";
 import { type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import type { Release } from "./release.ts";
 
@@ -15,16 +16,33 @@ export type Context = {
   release: () => Promise<Release>;
   login: () => Promise<Cloudflare>;
   print: (line: string) => void;
+  /** Where a failure is reported. */
+  fail: (line: string) => void;
 };
+
+/** The `ky init` that fills in what the overlay lacks. */
+function initFor(overlay: Unstable_RawConfig): string {
+  return ["ky init", ...incomplete(overlay).map((setting) => setting.flag)].join(" ");
+}
+
+/** What the overlay lacks for a deploy, as a sentence, or undefined when it lacks nothing. */
+function lacking(file: string, overlay: Unstable_RawConfig): string | undefined {
+  const missing = incomplete(overlay);
+
+  return missing.length > 0 ? `${file} has no ${missing.map((setting) => setting.setting).join(", ")}` : undefined;
+}
 
 /** The deploy the overlay describes; `ky init` makes one. */
 async function target(context: Context): Promise<{ target: Target; release: Release }> {
   const overlay = await readOverlay(context.overlay);
 
-  if (!overlay) throw new Error(`ky isn't set up here (no ${context.overlay}); run \`ky init\``);
+  if (!overlay) throw new Error(`ky isn't set up here (no ${context.overlay}); run \`${initFor({})}\``);
+  const lacks = lacking(context.overlay, overlay);
+
+  if (lacks) throw new Error(`${lacks}; run \`${initFor(overlay)}\``);
   const release = await context.release();
 
-  return { target: { cloudflare: await context.login(), config: merged(release, overlay) }, release };
+  return { target: { cloudflare: await context.login(), config: merged(release, overlay), settings: context.overlay }, release };
 }
 
 /** Deploys, and shows the URL and, once, a KY_TOKEN the deploy set. */
@@ -60,25 +78,52 @@ export async function upgradeCommand(context: Context): Promise<number> {
   return deployTo(context, to, release);
 }
 
-/** The config, the login, then each piece of the deploy, as far as each lets the next be checked. */
+/** The overlay, checked: there, readable, and with everything a deploy needs. */
+async function configCheck(file: string): Promise<{ check: Check; overlay?: Unstable_RawConfig }> {
+  const name = "Config";
+  let overlay: Unstable_RawConfig | undefined;
+
+  try {
+    overlay = await readOverlay(file);
+  } catch (error) {
+    return { check: { name, ok: false, detail: error instanceof Error ? error.message : String(error), next: `fix ${file}, then run \`ky doctor\`` } };
+  }
+
+  if (!overlay) return { check: { name, ok: false, detail: `no ${file}`, next: initFor({}) } };
+  const lacks = lacking(file, overlay);
+
+  if (lacks) return { check: { name, ok: false, detail: lacks, next: initFor(overlay) } };
+
+  return { check: { name, ok: true, detail: file }, overlay };
+}
+
+/** The config, the release, the login, then each piece of the deploy, as far as each lets the next be checked. */
 async function doctor(context: Context): Promise<Check[]> {
-  const overlay = await readOverlay(context.overlay);
-  const config: Check = { name: "Config", ok: Boolean(overlay), detail: overlay ? context.overlay : `no ${context.overlay}`, next: "ky init" };
+  const { check: config, overlay } = await configCheck(context.overlay);
 
   if (!overlay) return [config];
-  const release = await context.release();
+  let release: Release;
   let cloudflare: Cloudflare;
+
+  try {
+    release = await context.release();
+  } catch (error) {
+    return [config, { name: "Release", ok: false, detail: error instanceof Error ? error.message : String(error), next: "pnpm compile" }];
+  }
 
   try {
     cloudflare = await context.login();
   } catch (error) {
-    return [config, { name: "Cloudflare login", ok: false, detail: error instanceof Error ? error.message : String(error), next: "wrangler login" }];
+    return [
+      config,
+      { name: "Cloudflare login", ok: false, detail: error instanceof Error ? error.message : String(error), next: `wrangler login, or set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}` }
+    ];
   }
 
   return [
     config,
     { name: "Cloudflare login", ok: true, detail: cloudflare.login },
-    ...(await inspect({ cloudflare, config: merged(release, overlay) }, release))
+    ...(await inspect({ cloudflare, config: merged(release, overlay), settings: context.overlay }, release))
   ];
 }
 

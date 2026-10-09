@@ -20,6 +20,9 @@ importers:
       '@distilled.cloud/cloudflare':
         specifier: 1.0.0-rc.12
         version: 1.0.0-rc.12(effect@4.0.0-rc.117)
+      '@distilled.cloud/core':
+        specifier: 1.0.0-rc.12
+        version: 1.0.0-rc.12(effect@4.0.0-rc.117)
       '@earendil-works/chord':
         specifier: ^1.0.0
         version: 1.0.2

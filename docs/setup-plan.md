@@ -221,10 +221,15 @@ revoke(kind, subject): void
 - `wrangler.local.jsonc` (gitignored) holds the owner's vars, the VPC binding and routes.
 - `pnpm run deploy` uses it when present; the CLI deployer writes the equivalent for CLI users.
 - The CLI's overlay is `~/.config/ky/wrangler.local.jsonc` (`$XDG_CONFIG_HOME/ky/` when set): the same format,
-  merged over the release's generic `wrangler.jsonc` by the same `applyOverlay`. `ky init` writes it with
-  `account_id`, `name`, the `FILES` bucket and `ACCESS_EMAILS`. `ky deploy` reads only that file, never a checkout's
-  `wrangler.local.jsonc`, and refuses `routes` (a custom domain deploys with `pnpm run deploy`) and `containers`
-  (until CM).
+  merged over the release's generic `wrangler.jsonc` by the same `applyOverlay`. `ky deploy` reads only that file,
+  never a checkout's `wrangler.local.jsonc`.
+  - It holds only `account_id`, `name`, `vars` (with `ACCESS_EMAILS`) and `vpc_services`, the keys the overlay
+    merges or that are the owner's. Any other key would replace the release's own (overlay arrays replace), so the
+    CLI refuses an overlay that sets one, `r2_buckets` and `routes` among them; a custom domain deploys with
+    `pnpm run deploy`. The deployer refuses `containers` until CM.
+  - Every binding is the release's, so a release that changes them reaches every user on `ky upgrade`. Each bucket
+    is named from the Worker and its binding, `<name>-<binding>` (`ky-files` for `FILES`).
+  - `ky init` writes it, and run again fills in only what it lacks: `ky doctor` names that `ky init` and its flags.
 
 ## DAG
 

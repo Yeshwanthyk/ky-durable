@@ -1,7 +1,8 @@
 /**
  * `ky init`: from a Cloudflare login to ky running behind Access. It signs in, picks the account,
  * makes sure Zero Trust and a workers.dev subdomain are on, asks for the Worker's name and the
- * owner's email, writes the overlay (cli/config.ts) and deploys.
+ * owner's email, writes the overlay (cli/config.ts) and deploys. Run again, it keeps what the
+ * overlay has and asks only for what it lacks, so it's also how `ky doctor` fixes a missing setting.
  *
  * Each answer can come as a flag instead; without a terminal, as when an agent runs it, a missing
  * one is an error that names its flag.
@@ -10,10 +11,11 @@ import { execFile } from "node:child_process";
 import * as Accounts from "@distilled.cloud/cloudflare/accounts";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { isCancel, password, select, text } from "@clack/prompts";
-import { Cloudflare, CloudflareError, tokenPage } from "./cloudflare.ts";
+import type { Unstable_RawConfig } from "wrangler";
+import { Cloudflare, refused, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
-import { merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
-import { deploy, deployedRelease, teamDomain } from "./deployer.ts";
+import { emails, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
+import { claim, type Deployed, deploy, NameTaken, teamDomain, zeroTrustPage } from "./deployer.ts";
 
 export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string };
 
@@ -64,7 +66,7 @@ async function pickAccount(cloudflare: Cloudflare, given: string | undefined): P
 
 /** The Access team domain, waiting for the user to turn Zero Trust on. */
 async function zeroTrust(context: Context, cloudflare: Cloudflare, account: string): Promise<string> {
-  const url = `https://one.dash.cloudflare.com/${account}`;
+  const url = zeroTrustPage(account);
 
   for (;;) {
     const team = await teamDomain(cloudflare, account);
@@ -77,67 +79,111 @@ async function zeroTrust(context: Context, cloudflare: Cloudflare, account: stri
   }
 }
 
-export async function initCommand(context: Context, flags: InitFlags): Promise<number> {
-  if (await readOverlay(context.overlay)) throw new Error(`ky is already set up (${context.overlay}); run \`ky deploy\`, or \`ky teardown\` first`);
-  const release = await context.release();
-  let cloudflare: Cloudflare;
-
+/** This run's login, or in a terminal without one, a pasted token. */
+async function signIn(context: Context): Promise<Cloudflare> {
   try {
-    cloudflare = await context.login();
+    return await context.login();
   } catch (error) {
     if (!interactive()) throw error;
-    cloudflare = new Cloudflare(
+
+    return new Cloudflare(
       await ask(undefined, "", () => password({ message: `Create a Cloudflare API token at ${tokenPage()} and paste it here` })),
       "a pasted token"
     );
   }
+}
 
-  const account = await pickAccount(cloudflare, flags.account);
-  let team: string;
-
+/** The Access team, with a login that can manage Access: in a terminal, a token pasted when wrangler's can't. */
+async function accessLogin(context: Context, cloudflare: Cloudflare, account: string): Promise<{ cloudflare: Cloudflare; team: string }> {
   try {
-    team = await zeroTrust(context, cloudflare, account);
+    return { cloudflare, team: await zeroTrust(context, cloudflare, account) };
   } catch (error) {
     // wrangler's login can deploy Workers but not manage Access; a token for this run can.
-    if (!(error instanceof CloudflareError && error.tag === "Forbidden" && cloudflare.login === "wrangler login" && interactive())) throw error;
-    cloudflare = new Cloudflare(
+    if (!(refused(error) && cloudflare.login === "wrangler login" && interactive())) throw error;
+
+    const token = new Cloudflare(
       await ask(undefined, "", () => password({ message: `wrangler's login can't set up Access. Create a token at ${tokenPage()} and paste it here` })),
       "a pasted token"
     );
-    team = await zeroTrust(context, cloudflare, account);
+
+    return { cloudflare: token, team: await zeroTrust(context, token, account) };
   }
+}
 
-  context.print(`· Access team: ${team}`);
+async function ensureSubdomain(cloudflare: Cloudflare, account: string, given: string | undefined): Promise<void> {
+  if ((await cloudflare.find(Workers.getSubdomain({ accountId: account }), "SubdomainNotFound"))?.subdomain) return;
 
-  if (!(await cloudflare.find(Workers.getSubdomain({ accountId: account }), "SubdomainNotFound"))?.subdomain) {
-    const subdomain = await ask(flags.subdomain, "--subdomain <name>", () =>
-      text({ message: "Your workers.dev subdomain (ky lives at <name>.<subdomain>.workers.dev)", validate: (value) => validName(value ?? "") })
-    );
+  const subdomain = await ask(given, "--subdomain <name>", () =>
+    text({ message: "Your workers.dev subdomain (ky lives at <name>.<subdomain>.workers.dev)", validate: (value) => validName(value ?? "") })
+  );
 
-    await cloudflare.run(Workers.putSubdomain({ accountId: account, subdomain }));
-  }
+  await cloudflare.run(Workers.putSubdomain({ accountId: account, subdomain }));
+}
 
-  const name = await ask(flags.name, "--name <worker>", () =>
-    text({ message: "Name the Worker", defaultValue: "ky", placeholder: "ky", validate: (value) => (value ? validName(value) : undefined) })
+/** The saved value; else the flag's, or the prompt's. A flag that contradicts the saved value is refused. */
+async function settle(saved: string | undefined, given: string | undefined, setting: string, file: string, answer: () => Promise<string>): Promise<string> {
+  if (saved === undefined) return answer();
+
+  if (given !== undefined && (await answer()) !== saved) throw new Error(`${file} already sets ${setting} to ${saved}; edit it there to change it`);
+
+  return saved;
+}
+
+/** The overlay to deploy: what's saved, with what it lacks asked for. */
+async function settings(context: Context, saved: Unstable_RawConfig, account: string, flags: InitFlags) {
+  const name = await settle(saved.name, flags.name, "name", context.overlay, () =>
+    ask(flags.name, "--name <worker>", () =>
+      text({ message: "Name the Worker", defaultValue: "ky", placeholder: "ky", validate: (value) => (value ? validName(value) : undefined) })
+    )
   );
 
   const invalid = validName(name);
 
   if (invalid) throw new Error(`${name}: ${invalid}`);
 
-  const email = await ask(flags.email, "--email <you@example.com>", () =>
-    text({ message: "Your email: Access lets only it in", validate: (value) => (value?.includes("@") ? undefined : "An email address") })
+  const allowed = await settle(emails(saved).join(",") || undefined, flags.email, "ACCESS_EMAILS", context.overlay, () =>
+    ask(flags.email, "--email <you@example.com>", () =>
+      text({ message: "Your email: Access lets only it in", validate: (value) => (value?.includes("@") ? undefined : "An email address") })
+    )
   );
 
-  const overlay = overlayFor(account, name, [email]);
-  const target = { cloudflare, config: merged(release, overlay) };
+  return overlayFor(saved, account, name, allowed);
+}
 
-  // Refuses a Worker of this name that ky didn't deploy, before anything is written.
-  await deployedRelease(target);
+/**
+ * Sets ky up, or picks up where an earlier `ky init` left off: what the overlay already has is
+ * kept, and only what it lacks is asked for.
+ */
+export async function initCommand(context: Context, flags: InitFlags): Promise<number> {
+  const saved = (await readOverlay(context.overlay)) ?? {};
+  const release = await context.release();
+  const signedIn = await signIn(context);
+  const account = await settle(saved.account_id, flags.account, "account_id", context.overlay, () => pickAccount(signedIn, flags.account));
+  const { cloudflare, team } = await accessLogin(context, signedIn, account);
+
+  context.print(`· Access team: ${team}`);
+  await ensureSubdomain(cloudflare, account, flags.subdomain);
+  const overlay = await settings(context, saved, account, flags);
+  const target = { cloudflare, config: merged(release, overlay), settings: context.overlay };
+
+  try {
+    // Refuses a Worker or bucket of this name that ky didn't make, before anything is written.
+    await claim(target);
+  } catch (error) {
+    if (error instanceof NameTaken && !saved.name) throw new Error(`${error.taken}; pick another name: run \`ky init\` again with another --name`);
+    throw error;
+  }
+
   await writeOverlay(context.overlay, overlay);
-  const deployed = await deploy(target, release, (step) => context.print(`· ${step}`));
+  let deployed: Deployed;
 
-  context.print(`ky is live at ${deployed.url}, behind Access for ${email}`);
+  try {
+    deployed = await deploy(target, release, (step) => context.print(`· ${step}`));
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nYour settings are saved in ${context.overlay}: run \`ky deploy\` to retry`);
+  }
+
+  context.print(`ky is live at ${deployed.url}, behind Access for ${emails(overlay).join(", ")}`);
 
   if (deployed.token) context.print(`Your KY_TOKEN, shown once (sign in with it): ${deployed.token}`);
   context.print(`Settings: ${context.overlay}`);

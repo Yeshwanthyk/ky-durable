@@ -6,7 +6,8 @@
  *
  * It holds Cloudflare to what the deployer depends on: a migration whose old tag isn't the
  * Worker's is refused, a Worker's main module must be among its files, assets need the upload
- * session's completion token, and a bucket with objects in it can't be deleted.
+ * session's completion token, and a bucket with objects in it can't be deleted. A wrangler login
+ * (WRANGLER_TOKEN) is refused on every Access route, as Cloudflare refuses wrangler's OAuth scopes.
  */
 import { createServer, type IncomingMessage } from "node:http";
 import { type Static, type TSchema, Type } from "typebox";
@@ -25,14 +26,28 @@ const Migration = Type.Object({
   )
 });
 
-/** The part of a Worker upload's metadata the fake reads; the rest is kept as sent. */
+/** The part of a Worker upload's metadata the fake reads or the tests check; the rest is kept as sent. */
 const Metadata = Type.Object({
   main_module: Type.String(),
+  compatibility_date: Type.Optional(Type.String()),
+  compatibility_flags: Type.Optional(Type.Array(Type.String())),
   tags: Type.Optional(Type.Array(Type.String())),
   keep_bindings: Type.Optional(Type.Array(Type.String())),
-  bindings: Type.Optional(Type.Array(Type.Object({ type: Type.String(), name: Type.String(), text: Type.Optional(Type.String()) }))),
+  bindings: Type.Optional(
+    Type.Array(
+      Type.Object({ type: Type.String(), name: Type.String(), text: Type.Optional(Type.String()), bucket_name: Type.Optional(Type.String()) })
+    )
+  ),
   migrations: Type.Optional(Migration),
-  assets: Type.Optional(Type.Object({ jwt: Type.Optional(Type.String()) }))
+  observability: Type.Optional(Type.Object({ enabled: Type.Boolean() })),
+  assets: Type.Optional(
+    Type.Object({
+      jwt: Type.Optional(Type.String()),
+      config: Type.Optional(
+        Type.Object({ not_found_handling: Type.Optional(Type.String()), run_worker_first: Type.Optional(Type.Union([Type.Boolean(), Type.Array(Type.String())])) })
+      )
+    })
+  )
 });
 
 const AppBody = Type.Object({
@@ -73,10 +88,13 @@ export type FakeAccount = {
 export type FakeCloudflare = {
   url: string;
   accounts: Map<string, FakeAccount>;
-  /** Refuse every Access call with 403, as a wrangler login does. */
-  forbidAccess: boolean;
+  /** Every call to an account, in order: its method and the path under the account. */
+  requests: string[];
   close: () => Promise<void>;
 };
+
+/** The token a wrangler login gives: it deploys Workers, but Access refuses it. */
+export const WRANGLER_TOKEN = "wrangler-oauth-token";
 
 const UPLOAD = "upload-session";
 
@@ -128,15 +146,25 @@ class Page {
 }
 
 function scriptItem(id: string, script: FakeScript) {
-  return { id, tag: `tag-${id}`, tags: script.tags, migration_tag: script.migrationTag ?? null, has_assets: true, has_modules: true };
+  return { id, tag: `tag-${id}`, tags: script.tags, has_assets: true, has_modules: true };
+}
+
+/** The Worker's service, where wrangler reads its migration tag. */
+function service(call: Call) {
+  const script = scriptNamed(call);
+
+  return {
+    id: call.name,
+    default_environment: { environment: "production", script: { ...scriptItem(call.name, script), migration_tag: script.migrationTag ?? null } }
+  };
 }
 
 function app(found: FakeApp) {
   return { ...found, domain: found.destinations[0]?.uri };
 }
 
-/** One call to an account's API: its account, the request, and the name in its path, if any. */
-type Call = { account: FakeAccount; request: Request; url: URL; name: string };
+/** One call to an account's API: its account, the request, and the name and object key in its path, if any. */
+type Call = { account: FakeAccount; request: Request; url: URL; name: string; key: string };
 
 type Handler = (call: Call) => object | null | Promise<object | null>;
 
@@ -243,6 +271,19 @@ function deleteBucket(call: Call) {
   return {};
 }
 
+function listObjects(call: Call) {
+  const prefix = call.url.searchParams.get("prefix") ?? "";
+
+  return [...bucketNamed(call)].flatMap((key) => (key.startsWith(prefix) ? [{ key }] : []));
+}
+
+async function putObject(call: Call) {
+  bucketNamed(call).add(call.key);
+  await call.request.arrayBuffer();
+
+  return { key: call.key };
+}
+
 async function deleteObjects(call: Call) {
   const bucket = bucketNamed(call);
 
@@ -275,7 +316,7 @@ function deleteApp({ account, name }: Call) {
   return { id: name };
 }
 
-/** Every route under /accounts/{id}, by method and path; `:name` is a Worker, bucket or app. */
+/** Every route under /accounts/{id}, by method and path; `:name` is a Worker, bucket or app, `:key` an object. */
 const ROUTES = new Map<string, Handler>([
   ["GET workers/subdomain", subdomain],
   [
@@ -288,6 +329,7 @@ const ROUTES = new Map<string, Handler>([
   ],
   ["POST workers/assets/upload", uploadAssets],
   ["GET workers/scripts", ({ account }) => [...account.scripts].map(([id, script]) => scriptItem(id, script))],
+  ["GET workers/services/:name", service],
   ["PUT workers/scripts/:name", putScript],
   [
     "DELETE workers/scripts/:name",
@@ -301,12 +343,14 @@ const ROUTES = new Map<string, Handler>([
   ["POST workers/scripts/:name/assets-upload-session", assetSession],
   ["GET workers/scripts/:name/subdomain", (call) => ({ enabled: scriptNamed(call).workersDev, previews_enabled: false })],
   ["POST workers/scripts/:name/subdomain", setWorkersDev],
+  ["GET workers/scripts/:name/settings", (call) => ({ bindings: scriptNamed(call).metadata.bindings ?? [] })],
   ["GET workers/scripts/:name/secrets", (call) => [...scriptNamed(call).secrets.keys()].map((secret) => ({ name: secret, type: "secret_text" }))],
   ["GET r2/buckets", ({ account }) => ({ buckets: [...account.buckets.keys()].map((bucket) => ({ name: bucket })) })],
   ["POST r2/buckets", createBucket],
   ["GET r2/buckets/:name", (call) => bucketNamed(call) && { name: call.name }],
   ["DELETE r2/buckets/:name", deleteBucket],
-  ["GET r2/buckets/:name/objects", (call) => [...bucketNamed(call)].map((key) => ({ key }))],
+  ["GET r2/buckets/:name/objects", listObjects],
+  ["PUT r2/buckets/:name/objects/:key", putObject],
   ["DELETE r2/buckets/:name/objects", deleteObjects],
   ["GET access/organizations", organization],
   ["GET access/apps", ({ account, url }) => new Page([...account.apps.values()].map(app), url)],
@@ -315,9 +359,9 @@ const ROUTES = new Map<string, Handler>([
   ["DELETE access/apps/:name", deleteApp]
 ]);
 
-/** The route's handler, by its exact path or with `:name` for the third part. */
+/** The route's handler, by its exact path or with `:name` for the third part and `:key` for the fifth. */
 function handlerFor(method: string, path: string[]): Handler {
-  const named = path.map((part, index) => (index === 2 ? ":name" : part));
+  const named = path.map((part, index) => [part, part, ":name", part, ":key"][index] ?? part);
   const handler = ROUTES.get(`${method} ${path.join("/")}`) ?? ROUTES.get(`${method} ${named.join("/")}`);
 
   if (!handler) throw new Failure(404, 7003, `No route for ${method} ${path.join("/")}`);
@@ -336,10 +380,12 @@ async function route(fake: FakeCloudflare, request: Request): Promise<object | n
   const account = fake.accounts.get(id);
 
   if (!account) throw new Failure(404, 7003, "Could not route to /accounts/…, perhaps your object identifier is invalid?");
+  fake.requests.push(`${request.method} ${path.join("/")}`);
 
-  if (path[0] === "access" && fake.forbidAccess) throw new Failure(403, 10001, "Method not allowed for this authentication scheme");
+  if (path[0] === "access" && request.headers.get("authorization") === `Bearer ${WRANGLER_TOKEN}`)
+    throw new Failure(403, 10001, "Method not allowed for this authentication scheme");
 
-  return handlerFor(request.method, path)({ account, request, url, name: path[2] ?? "" });
+  return handlerFor(request.method, path)({ account, request, url, name: path[2] ?? "", key: decodeURIComponent(path[4] ?? "") });
 }
 
 /** The route's response, in Cloudflare's envelope. */
@@ -378,7 +424,7 @@ export async function fakeCloudflare(...accounts: FakeAccount[]): Promise<FakeCl
   const fake: FakeCloudflare = {
     url: `http://127.0.0.1:${address.port}`,
     accounts: new Map(accounts.map((account) => [account.id, account])),
-    forbidAccess: false,
+    requests: [],
     close: () => new Promise((resolve) => server.close(() => resolve()))
   };
 

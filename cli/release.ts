@@ -10,6 +10,7 @@
  *   assets/…       the web app
  *   SKILL.md       `ky skill`
  */
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Unstable_RawConfig } from "wrangler";
@@ -86,7 +87,12 @@ export function packOf(files: Map<string, Uint8Array>): string {
 
 /** The release this `ky` carries, or the checkout's. */
 export async function loadRelease(): Promise<Release> {
-  if (!packed) return fromFiles(await releaseFiles(CHECKOUT));
+  if (!packed) {
+    if (!existsSync(CHECKOUT)) throw new Error(`There's no release in ${CHECKOUT}: run \`pnpm compile\` first`);
+
+    return fromFiles(await releaseFiles(CHECKOUT));
+  }
+
   const pack: Record<string, string> = JSON.parse(await readFile(packed, "utf8"));
 
   return fromFiles(new Map(Object.entries(pack).map(([name, base64]) => [name, Buffer.from(base64, "base64")])));
