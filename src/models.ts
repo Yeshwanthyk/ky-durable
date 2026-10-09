@@ -64,6 +64,8 @@ export type Endpoint = {
   readonly needs: string;
   /** The models offered; the first is the provider's default. */
   readonly models: readonly Model<Api>[];
+  /** Its quick, cheap model for background work while it stands in; its default when unset. */
+  readonly light?: Model<Api>;
   /** The thinking level its models run at by default. */
   readonly thinkingLevel: ModelThinkingLevel;
   /** Opens on a response that says the provider can't take requests now. */
@@ -96,7 +98,10 @@ export type Need = {
 /** The options of a call sent to a stand-in, which streams where it was sent: re-routing it could bounce forever. */
 const STAND_IN = Symbol("stand-in");
 
-type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true };
+/** The options of a background call, whose stand-in is the cheapest healthy provider's light model. */
+const BACKGROUND = Symbol("background");
+
+type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true; readonly [BACKGROUND]?: true };
 
 /** What a purpose runs on. */
 export type Resolved = {
@@ -187,7 +192,7 @@ export class Models {
    * - fallback: the best healthy model on another provider than main's, else the best that isn't main's model.
    *
    * A call whose provider is down when it starts runs on a stand-in on another provider that is healthy now: the
-   * user's fallback, else the best there (#standIn).
+   * user's fallback, else the best there; a background call, the cheapest's light model (#standIn).
    *
    * A default meets `need` when a connected model does.
    */
@@ -235,7 +240,7 @@ export class Models {
     // Cleared once the model answers: a timer still pending keeps the object from stopping until it fires.
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), limits.timeoutMs);
-    const options: SimpleStreamOptions = { maxTokens: limits.maxTokens, signal: timeout.signal };
+    const options: CallOptions = { maxTokens: limits.maxTokens, signal: timeout.signal, ...(purpose === "background" && { [BACKGROUND]: true }) };
 
     if (choice.thinkingLevel !== "off") options.reasoning = choice.thinkingLevel;
 
@@ -318,15 +323,17 @@ export class Models {
   }
 
   /**
-   * What a call on `model`, whose provider is down, runs on instead: the user's fallback while its provider is
-   * healthy, else the best model on another provider that is healthy now; none when no other provider is.
+   * What a call on `model`, whose provider is down, runs on instead, on another provider that is healthy now; none
+   * when no other provider is. A background call takes the cheapest such provider's light model. Any other takes
+   * the user's fallback while its provider is healthy, else the best model there.
    */
-  async #standIn(model: Model<Api>, options?: SimpleStreamOptions): Promise<{ model: Model<Api>; options: CallOptions } | undefined> {
+  async #standIn(model: Model<Api>, options?: CallOptions): Promise<{ model: Model<Api>; options: CallOptions } | undefined> {
     const others = this.#endpoints.filter((endpoint) => endpoint.provider.id !== model.provider);
     const health = await Promise.all(others.map((endpoint) => this.#healthy(endpoint)));
     const healthy = others.filter((_endpoint, index) => health[index]);
     const stored = this.settings.get("fallback");
-    const choice = stored && healthy.some((endpoint) => endpoint.provider.id === stored.provider) ? stored : best(healthy);
+    const fallback = stored && healthy.some((endpoint) => endpoint.provider.id === stored.provider) ? stored : best(healthy);
+    const choice = options?.[BACKGROUND] ? cheapest(healthy) : fallback;
 
     if (!choice) return undefined;
     const standIn = this.#model(choice);
@@ -392,6 +399,14 @@ function live(record: ProviderRecord, boundary: ModelsBoundary, onChange: () => 
         ? vibeProxy({ ...boundary.vibeProxy, probeTtlMs: boundary.probeTtlMs, onChange })
         : undefined;
   }
+}
+
+/** The light model of the last of `endpoints`, which are ranked dearest first. */
+function cheapest(endpoints: readonly Endpoint[]): ModelChoice | undefined {
+  const endpoint = endpoints.at(-1);
+  const model = endpoint?.light ?? endpoint?.models[0];
+
+  return endpoint && model && choiceOf(endpoint, model);
 }
 
 /** The first model of `endpoints`, in order, that meets `need` and isn't `except`. */

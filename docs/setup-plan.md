@@ -232,7 +232,9 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
     window, so it has no `context`.
   - Health is checked per call, as the call starts: VibeProxy's probe, and every provider's breaker on
     401/402/429/5xx. A call whose provider is down runs on a stand-in on another provider that is healthy now:
-    the user's `fallback` choice while its provider is, else the best there. There is no stand-in on the same
+    the user's `fallback` choice while its provider is, else the best there. A `background` call's stand-in is the
+    cheapest healthy provider's light model instead (Workers AI, then api-key, then runner-local; Haiku on VibeProxy),
+    so titles and summaries never fall to Opus (changed in M review 2). There is no stand-in on the same
     provider, and a stand-in is never re-routed (changed in M review: it could bounce between two down providers).
     With no other provider healthy, the call runs on its own provider, fails fast, and pi's retry applies.
   - It's the only way any caller picks a model. `imageSupport(purpose)` asks it, and answers for the stand-in's

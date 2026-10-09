@@ -143,6 +143,7 @@ export function vibeProxy(config: VibeProxyConfig): Endpoint {
     name: NAME,
     needs: "the computer online with VibeProxy",
     models,
+    light: models.find((model) => model.id === "claude-haiku-4-5"),
     thinkingLevel: "medium",
     breaker,
     /** The last probe reached it. Starts a new probe when that one is stale. */

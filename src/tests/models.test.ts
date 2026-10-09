@@ -270,6 +270,23 @@ describe("naming chats and tasks on the background purpose", () => {
     ]);
   });
 
+  it("stands in for Workers AI on the cheapest healthy provider's light model, never on Claude's main one", async () => {
+    const mac = await fresh("mac-up");
+    const both = await fresh("keyed");
+    await agent(both).mac(true);
+
+    for (const name of [mac, both]) {
+      await agent(name).provider("workers-ai", false);
+      // The 429 opens Workers AI's breaker; this title is lost, and the next stands in.
+      expect(await title(name, "first")).toBeNull();
+    }
+
+    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-4-5 (thinking disabled)");
+    // OpenCode Go is cheaper than the Mac.
+    expect(await title(both, "Plan a trip")).toBe("Named: Plan a trip");
+    expect((await calls(both)).at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
+  });
+
   it("gives up quietly when the model fails or there is nothing to name", async () => {
     const name = await fresh("bare");
 
