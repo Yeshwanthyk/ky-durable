@@ -103,6 +103,7 @@ describe("which model each purpose uses", () => {
   it("puts the background on main's model while the Workers AI record is disabled, and runs nothing with no provider", async () => {
     const keyed = await fresh("keyed");
     const bare = await fresh("bare");
+
     const disabled = (name: string) =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
@@ -218,6 +219,7 @@ describe("a turn", () => {
 describe("thinking on Workers AI", () => {
   it("offers each model the levels its endpoint honours", async () => {
     const name = await fresh("bare");
+
     const levels = await inside(name, (instance) =>
       instance.models.catalog()[0]!.models.map(({ modelId, levels }) => ({ modelId, levels }))
     );
@@ -231,6 +233,7 @@ describe("thinking on Workers AI", () => {
 
   it("sends each model's level as reasoning_effort, and none for GLM", async () => {
     const name = await fresh("bare");
+
     const sentFor = async (purpose: Purpose, choice: ModelChoice) => {
       await set(name, purpose, choice);
       await inside(name, (instance) => instance.applyMain());

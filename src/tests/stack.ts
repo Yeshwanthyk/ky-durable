@@ -247,6 +247,7 @@ export class PiAgent extends ProductionAgent {
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
     const keyed = this.ctx.id.name?.startsWith(KEYED) === true;
+
     const refusing = (provider: FakeProvider) => async () =>
       (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
