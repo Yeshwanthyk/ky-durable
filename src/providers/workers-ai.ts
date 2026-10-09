@@ -32,14 +32,26 @@ export const WORKERS_AI_RECORD: ProviderRecord = {
   enabled: true
 };
 
+type Thinking = Pick<Model<Api>, "reasoning" | "thinkingLevelMap">;
+
 /**
  * The models offered, each one that calls tools, from pi-ai's AI Gateway
- * catalog. The first is the default: it reads images and has a 1M window.
+ * catalog, and how each takes a thinking level as `reasoning_effort` on the
+ * compat endpoint (probed live, docs/setup-plan.md C5). The first is the
+ * default: it reads images and has a 1M window.
+ *
+ * - GLM 5.3 Flash thinks on its own. Any effort cuts its thinking to a few
+ *   tokens, "high" as much as "low", and "none" is ignored, so it offers no
+ *   level.
+ * - Kimi K2.6 stops thinking at "none" and thinks at "high"; the levels
+ *   between change little, so it offers off and high.
+ * - GPT OSS 120B thinks less at "low" and more at "high", and refuses
+ *   "none", so it offers low, medium and high.
  */
-const MODEL_IDS = [
-  "workers-ai/@cf/zai-org/glm-5.3-flash",
-  "workers-ai/@cf/moonshotai/kimi-k2.6",
-  "workers-ai/@cf/openai/gpt-oss-120b"
+const MODELS: ReadonlyArray<readonly [string, Thinking]> = [
+  ["workers-ai/@cf/zai-org/glm-5.3-flash", { reasoning: false }],
+  ["workers-ai/@cf/moonshotai/kimi-k2.6", { reasoning: true, thinkingLevelMap: { off: "none", minimal: null, low: null, medium: null } }],
+  ["workers-ai/@cf/openai/gpt-oss-120b", { reasoning: true, thinkingLevelMap: { off: null, minimal: null } }]
 ];
 
 /** The binding's route to AI Gateway's default gateway, in place of the catalog's HTTPS one. */
@@ -55,12 +67,18 @@ const HEADERS = {
 };
 
 export function workersAI(ai: AiBinding): Endpoint {
-  const models = MODEL_IDS.map((modelId): Model<Api> => {
+  const models = MODELS.map(([modelId, thinking]): Model<Api> => {
     const base = Object.values(CLOUDFLARE_AI_GATEWAY_MODELS).find((model) => model.id === modelId);
 
     if (!base) throw new TypeError(`No Workers AI model "${modelId}" in pi-ai's catalog.`);
 
-    return { ...base, provider: WORKERS_AI, baseUrl: base.baseUrl.replace(GATEWAY, ROOT) };
+    return {
+      ...base,
+      ...thinking,
+      compat: { ...base.compat, supportsReasoningEffort: thinking.reasoning },
+      provider: WORKERS_AI,
+      baseUrl: base.baseUrl.replace(GATEWAY, ROOT)
+    };
   });
 
   const breaker = new Breaker(WORKERS_AI_RECORD.label);

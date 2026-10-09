@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Models } from "../models";
 import type { ModelChoice, Purpose } from "../settings";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
@@ -54,11 +55,12 @@ describe("which model each purpose uses", () => {
   it("runs everything on Workers AI on a deploy with no secrets", async () => {
     const name = await fresh("bare");
 
-    expect(await resolve(name, "main")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
-    expect(await resolve(name, "worker")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    // GLM takes no thinking level; it thinks on its own.
+    expect(await resolve(name, "main")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+    expect(await resolve(name, "worker")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
     expect(await resolve(name, "background")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
     // No other provider, so the fallback is Workers AI's next model.
-    expect(await resolve(name, "fallback")).toMatchObject({ provider: "workers-ai", modelId: KIMI });
+    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: KIMI, thinkingLevel: "high" });
 
     const catalog = await inside(name, (instance) =>
       instance.models.catalog().map(({ id, connected, models }) => ({ id, connected, models: models.map((model) => model.modelId) }))
@@ -73,7 +75,7 @@ describe("which model each purpose uses", () => {
     expect(await resolve(name, "main")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
     expect(await resolve(name, "worker")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
     expect(await resolve(name, "background")).toMatchObject({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
-    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
   });
 
   it("puts the main agent on Workers AI while the Mac is away, and shows Claude as not connected", async () => {
@@ -95,7 +97,26 @@ describe("which model each purpose uses", () => {
     const name = await fresh("keyed");
 
     expect(await resolve(name, "main")).toEqual({ provider: "opencode-go", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" });
-    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
+    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+  });
+
+  it("puts the background on main's model while the Workers AI record is disabled, and runs nothing with no provider", async () => {
+    const keyed = await fresh("keyed");
+    const bare = await fresh("bare");
+    const disabled = (name: string) =>
+      inside(name, (instance, state) => {
+        state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
+        const models = new Models(state.storage.sql, instance.boundary, () => {});
+
+        try {
+          return models.resolve("background").choice;
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+      });
+
+    expect(await disabled(keyed)).toMatchObject({ provider: "opencode-go", modelId: "deepseek-v4.1-flash" });
+    expect(await disabled(bare)).toBe("No model provider is enabled.");
   });
 
   it("stores a purpose's choice at a level its model has, and refuses a provider that is not connected", async () => {
@@ -163,7 +184,7 @@ describe("a turn", () => {
     const name = await fresh("keyed");
     await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
     await inside(name, (instance) => instance.applyMain());
-    await agent(name).workersAI(false);
+    await agent(name).provider("workers-ai", false);
 
     // Workers AI answers 429, which opens its breaker; from then on calls run on OpenCode Go.
     await prompt(name, "first");
@@ -172,6 +193,58 @@ describe("a turn", () => {
     const sent = await calls(name);
     expect(sent[0]).toMatchObject({ model: GLM });
     expect(sent.at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
+  });
+
+  it("ends a turn whose providers are all down, without bouncing between their stand-ins", async () => {
+    const name = await fresh("keyed");
+    await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+    await inside(name, (instance) => instance.applyMain());
+    await agent(name).provider("workers-ai", false);
+    await agent(name).provider("opencode-go", false);
+
+    // Workers AI's 429 opens its breaker, then OpenCode Go stands in and its 402 opens its own.
+    expect(await prompt(name, "first")).toMatchObject({ status: "unanswered" });
+    expect((await calls(name)).map(({ model }) => model)).toEqual([GLM, "deepseek-v4.1-flash"]);
+
+    // With no provider healthy, each call goes to Workers AI itself and fails there, until pi's retries run out.
+    expect(await prompt(name, "second")).toMatchObject({ status: "unanswered" });
+    const later = (await calls(name)).slice(2).map(({ model }) => model);
+    expect(later.length).toBeGreaterThan(0);
+    expect(new Set(later)).toEqual(new Set([GLM]));
+    // pi retries a 429 five times from 1s (server.ts), about 31s in all.
+  }, 60_000);
+});
+
+describe("thinking on Workers AI", () => {
+  it("offers each model the levels its endpoint honours", async () => {
+    const name = await fresh("bare");
+    const levels = await inside(name, (instance) =>
+      instance.models.catalog()[0]!.models.map(({ modelId, levels }) => ({ modelId, levels }))
+    );
+
+    expect(levels).toEqual([
+      { modelId: GLM, levels: ["off"] },
+      { modelId: KIMI, levels: ["off", "high"] },
+      { modelId: GPT_OSS, levels: ["low", "medium", "high"] }
+    ]);
+  });
+
+  it("sends each model's level as reasoning_effort, and none for GLM", async () => {
+    const name = await fresh("bare");
+    const sentFor = async (purpose: Purpose, choice: ModelChoice) => {
+      await set(name, purpose, choice);
+      await inside(name, (instance) => instance.applyMain());
+      const before = (await calls(name)).length;
+      await (purpose === "main" ? prompt(name, "hello") : title(name, "Plan a trip"));
+
+      return (await calls(name)).slice(before).map(({ reasoning }) => reasoning);
+    };
+
+    expect(await sentFor("main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" })).toEqual([null]);
+    expect(await sentFor("main", { provider: "workers-ai", modelId: KIMI, thinkingLevel: "high" })).toEqual(["high"]);
+    expect(await sentFor("background", { provider: "workers-ai", modelId: KIMI, thinkingLevel: "off" })).toEqual(["none"]);
+    // GPT OSS can't stop thinking, so off is stored as its lowest level.
+    expect(await sentFor("background", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" })).toEqual(["low"]);
   });
 });
 

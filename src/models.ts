@@ -42,7 +42,8 @@ import {
  * A provider is healthy while it is connected (VibeProxy's probe answers)
  * and its circuit breaker is closed. Each call asks once when it starts,
  * then streams from exactly one provider: the one asked for while it is
- * healthy, else the fallback purpose's.
+ * healthy, else a stand-in on another provider that is healthy now, else the
+ * one asked for, so the call fails fast and pi's retry applies.
  */
 
 /** The context window pi's harness is told for every model; see `compacting`. */
@@ -91,6 +92,11 @@ export type ModelsBoundary = {
 export type Need = {
   readonly images?: boolean;
 };
+
+/** The options of a call sent to a stand-in, which streams where it was sent: re-routing it could bounce forever. */
+const STAND_IN = Symbol("stand-in");
+
+type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true };
 
 /** What a purpose runs on. */
 export type Resolved = {
@@ -177,11 +183,11 @@ export class Models {
    *
    * - main: the best connected model, with its provider's thinking level;
    * - worker: main's;
-   * - background: Workers AI's default model, without thinking;
+   * - background: Workers AI's default model (main's while its record is disabled), at its lowest thinking level;
    * - fallback: the best healthy model on another provider than main's, else the best that isn't main's model.
    *
-   * A call whose provider is down when it starts runs on the user's fallback, else on the default fallback from its
-   * own model (#standIn).
+   * A call whose provider is down when it starts runs on a stand-in on another provider that is healthy now: the
+   * user's fallback, else the best there (#standIn).
    *
    * A default meets `need` when a connected model does.
    */
@@ -209,7 +215,7 @@ export class Models {
   /** Why the model a purpose runs on now, or its stand-in while its provider is down, can't read images; null when it can. */
   async imageSupport(purpose: Purpose): Promise<string | null> {
     const own = this.resolve(purpose, { images: true }).model;
-    const model = (await this.#healthy(this.#endpoint(own.provider))) ? own : (this.#standIn(own)?.model ?? own);
+    const model = (await this.#healthy(this.#endpoint(own.provider))) ? own : ((await this.#standIn(own))?.model ?? own);
 
     if (model.input.includes("image")) return null;
 
@@ -269,17 +275,28 @@ export class Models {
 
   #default(purpose: Purpose, need: Need): ModelChoice {
     const connected = this.#endpoints.filter((endpoint) => endpoint.connected());
-    const workersAI = this.#endpoint(WORKERS_AI);
-    // SAFETY: Workers AI is always connected, and its catalog is fixed and non-empty.
-    const first = workersAI.models[0]!;
 
     switch (purpose) {
-      case "main":
-        return best(connected, need) ?? best(connected)!;
+      case "main": {
+        // Every provider may be away, or have its record disabled; then the best that can go away and come back.
+        const choice = best(connected, need) ?? best(connected) ?? best(this.#endpoints);
+
+        if (!choice) throw new Error("No model provider is enabled.");
+
+        return choice;
+      }
+
       case "worker":
         return this.resolve("main", need).choice;
-      case "background":
-        return { ...choiceOf(workersAI, first), thinkingLevel: nearestLevel(getSupportedThinkingLevels(first), "off") };
+      case "background": {
+        // Workers AI's default model, or main's while the Workers AI record is disabled.
+        const workersAI = this.#endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
+        const first = workersAI?.models[0];
+        const { choice, model } = workersAI && first ? { choice: choiceOf(workersAI, first), model: first } : this.resolve("main", need);
+
+        return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
+      }
+
       case "fallback": {
         const main = this.resolve("main");
 
@@ -298,36 +315,42 @@ export class Models {
   }
 
   /**
-   * What a call on `model`, whose provider is down, runs on instead: the user's fallback, else the default fallback
-   * from that model, at its level; none when that is on the same provider.
+   * What a call on `model`, whose provider is down, runs on instead: the user's fallback while its provider is
+   * healthy, else the best model on another provider that is healthy now; none when no other provider is.
    */
-  #standIn(model: Model<Api>, options?: SimpleStreamOptions): { model: Model<Api>; options: SimpleStreamOptions } | undefined {
-    const choice = this.settings.get("fallback") ?? this.#fallback(model);
+  async #standIn(model: Model<Api>, options?: SimpleStreamOptions): Promise<{ model: Model<Api>; options: CallOptions } | undefined> {
+    const others = this.#endpoints.filter((endpoint) => endpoint.provider.id !== model.provider);
+    const health = await Promise.all(others.map((endpoint) => this.#healthy(endpoint)));
+    const healthy = others.filter((_endpoint, index) => health[index]);
+    const stored = this.settings.get("fallback");
+    const choice = stored && healthy.some((endpoint) => endpoint.provider.id === stored.provider) ? stored : best(healthy);
 
-    if (!choice || choice.provider === model.provider) return undefined;
+    if (!choice) return undefined;
     const standIn = this.#model(choice);
 
-    // Auth is resolved again for the fallback's provider. It thinks at its own level, or not at all when the call asked for none.
+    // Auth is resolved again for the stand-in's provider. It thinks at its own level, or not at all when the call asked for none.
     const { reasoning, apiKey: _apiKey, headers: _headers, ...rest } = options ?? {};
     const level = nearestLevel(getSupportedThinkingLevels(standIn), reasoning ? choice.thinkingLevel : "off");
 
-    return { model: standIn, options: level === "off" ? rest : { ...rest, reasoning: level } };
+    const sent: CallOptions = { ...rest, [STAND_IN]: true };
+
+    return { model: standIn, options: level === "off" ? sent : { ...sent, reasoning: level } };
   }
 
-  /** The provider pi streams through: each call asks whether it is healthy, and runs on the fallback's model when not. */
+  /** The provider pi streams through: each call asks whether it is healthy, and runs on a stand-in when not. */
   #routed(endpoint: Endpoint): Provider {
     const { provider } = endpoint;
 
     const streamSimple = (
       model: Model<Api>,
       context: TranscriptContext,
-      options: SimpleStreamOptions | undefined
+      options: CallOptions | undefined
     ): AssistantMessageEventStream => {
       const out = createAssistantMessageEventStream();
 
       void (async () => {
         try {
-          const standIn = (await this.#healthy(endpoint)) ? undefined : this.#standIn(model, options);
+          const standIn = options?.[STAND_IN] || (await this.#healthy(endpoint)) ? undefined : await this.#standIn(model, options);
 
           if (standIn) console.warn(`${endpoint.name} is down; this call runs on ${standIn.model.name}.`);
 

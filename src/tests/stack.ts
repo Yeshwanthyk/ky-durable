@@ -39,10 +39,12 @@ export class Vault extends ProductionVault {
  * e2e tests and the local stack. Only `boundaryFor` is replaced:
  *
  * - Workers AI is test/fakes/ai.ts behind a fake AI binding, so every object chats
- *   with no secrets, as a fresh deploy does; it refuses with 429 while
- *   `workersAI(false)` holds;
+ *   with no secrets, as a fresh deploy does;
  * - an object named `keyed-…` has the OPENCODE_API_KEY secret, and OpenCode
  *   Go is the same fake behind `fetch`;
+ * - each refuses every request while `provider(id, false)` holds: Workers AI
+ *   with 429, as out of its free allocation, and OpenCode Go with 402, as
+ *   out of credit;
  * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
  *   then fake-vibeproxy.ts answers as Claude;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
@@ -73,8 +75,12 @@ const GATE_RUNS_KEY = "test:gate:runs";
 /** Whether the fake VibeProxy answers (the Mac is online). */
 const MAC_UP_KEY = "test:mac-up";
 
-/** Whether Workers AI refuses every request, as one out of its free allocation does. */
-const WORKERS_AI_DOWN_KEY = "test:workers-ai-down";
+/** The status each fake provider refuses every request with while it is down. */
+const REFUSALS = { "workers-ai": 429, "opencode-go": 402 } as const;
+
+type FakeProvider = keyof typeof REFUSALS;
+
+const downKey = (provider: FakeProvider) => `test:down:${provider}`;
 
 /** The token the fake Executor wants. */
 const EXECUTOR_TOKEN = "ky-stack-executor";
@@ -241,12 +247,13 @@ export class PiAgent extends ProductionAgent {
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
     const keyed = this.ctx.id.name?.startsWith(KEYED) === true;
-    const workersAIDown = async () => ((await storage.get<boolean>(WORKERS_AI_DOWN_KEY)) === true ? 429 : undefined);
+    const refusing = (provider: FakeProvider) => async () =>
+      (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
     return {
-      ai: fakeAI(chatCompletions(script, calls, workersAIDown)),
+      ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
       secrets: (name) => (keyed && name === "OPENCODE_API_KEY" ? OPENCODE_KEY : undefined),
-      fetch: chatCompletions(script, calls),
+      fetch: chatCompletions(script, calls, refusing("opencode-go")),
       vibeProxy: bare
         ? undefined
         : {
@@ -286,9 +293,9 @@ export class PiAgent extends ProductionAgent {
     await this.applyMain();
   }
 
-  /** Let Workers AI answer, or refuse every request with 429 from now on. */
-  async workersAI(up: boolean): Promise<void> {
-    await this.ctx.storage.put(WORKERS_AI_DOWN_KEY, !up);
+  /** Let a fake provider answer, or refuse every request from now on. */
+  async provider(id: FakeProvider, up: boolean): Promise<void> {
+    await this.ctx.storage.put(downKey(id), !up);
   }
 
   /** Dream now, as the nightly fire does, and wait for it to finish. */

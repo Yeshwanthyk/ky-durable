@@ -521,7 +521,7 @@ describe("a deploy's own setup", () => {
     expect(latest(client, "settings")?.settings.purposes.main).toEqual({
       provider: "workers-ai",
       modelId: GLM,
-      thinkingLevel: "high"
+      thinkingLevel: "off"
     });
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
     socket.close();
