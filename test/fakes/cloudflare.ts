@@ -6,8 +6,9 @@
  *
  * It holds Cloudflare to what the deployer depends on: a migration whose old tag isn't the
  * Worker's is refused, a Worker's main module must be among its files, assets need the upload
- * session's completion token, and a bucket with objects in it can't be deleted. A wrangler login
- * (WRANGLER_TOKEN) is refused on every Access route, as Cloudflare refuses wrangler's OAuth scopes.
+ * session's completion token, a bucket with objects in it can't be deleted, and an Access app's
+ * tags must be the account's already. A wrangler login (WRANGLER_TOKEN) is refused on every Access
+ * route, as Cloudflare refuses wrangler's OAuth scopes.
  */
 import { createServer, type IncomingMessage } from "node:http";
 import { type Static, type TSchema, Type } from "typebox";
@@ -53,6 +54,7 @@ const Metadata = Type.Object({
 const AppBody = Type.Object({
   name: Type.String(),
   type: Type.String(),
+  tags: Type.Optional(Type.Array(Type.String())),
   destinations: Type.Array(Type.Object({ type: Type.String(), uri: Type.Optional(Type.String()) })),
   policies: Type.Array(Type.Object({ name: Type.String(), decision: Type.String(), include: Type.Array(Type.Unknown()) }))
 });
@@ -81,6 +83,8 @@ export type FakeAccount = {
   /** Bucket name to its object keys. */
   buckets: Map<string, Set<string>>;
   apps: Map<string, FakeApp>;
+  /** The account's Access tags. */
+  tags: Set<string>;
   /** Asset hashes uploaded so far. */
   assets: Set<string>;
 };
@@ -112,7 +116,7 @@ class Failure extends Error {
 }
 
 export function fakeAccount(id: string, name: string, account: Partial<FakeAccount> = {}): FakeAccount {
-  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), assets: new Set(), ...account };
+  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), ...account };
 }
 
 async function body(message: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
@@ -305,6 +309,8 @@ async function saveApp({ account, request, name }: Call) {
   const saved = { ...sent, id, aud: account.apps.get(id)?.aud ?? `aud-${id}` };
 
   if (sent.destinations.length === 0 || sent.policies.length === 0) throw new Failure(400, 12130, "An app needs destinations and policies");
+
+  for (const tag of sent.tags ?? []) if (!account.tags.has(tag)) throw new Failure(400, 12135, `access.api.error.tag_not_found: ${tag}`);
   account.apps.set(id, saved);
 
   return app(saved);
@@ -353,6 +359,17 @@ const ROUTES = new Map<string, Handler>([
   ["PUT r2/buckets/:name/objects/:key", putObject],
   ["DELETE r2/buckets/:name/objects", deleteObjects],
   ["GET access/organizations", organization],
+  ["GET access/tags", ({ account, url }) => new Page([...account.tags].map((name) => ({ name })), url)],
+  [
+    "POST access/tags",
+    async ({ account, request }) => {
+      const { name } = decode(Type.Object({ name: Type.String() }), await request.text());
+
+      account.tags.add(name);
+
+      return { name };
+    }
+  ],
   ["GET access/apps", ({ account, url }) => new Page([...account.apps.values()].map(app), url)],
   ["POST access/apps", saveApp],
   ["PUT access/apps/:name", saveApp],

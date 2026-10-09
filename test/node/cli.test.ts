@@ -214,31 +214,36 @@ describe("ky init and deploy", () => {
       expect.objectContaining({
         name: "ky",
         type: "self_hosted",
+        tags: ["ky"],
         destinations: [{ type: "public", uri: HOST }],
         policies: [{ name: "owner", decision: "allow", include: [{ email: { email: EMAIL } }] }]
       }),
       expect.objectContaining({
         name: "ky bypass",
         type: "self_hosted",
+        tags: ["ky"],
         destinations: BYPASS.map((bypass) => ({ type: "public", uri: `${HOST}${bypass}` })),
         policies: [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
       })
     ]);
+    expect(account.tags).toEqual(new Set(["ky"]));
     expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/manifest.webmanifest", "/icons/*"]);
   });
 
-  it("finds the Access apps by what they guard, not by name", async () => {
+  it("finds ky's Access apps by what they guard and their tag, not by name", async () => {
     const elsewhere = {
       id: "elsewhere",
       aud: "aud-elsewhere",
       name: "ky",
       type: "self_hosted",
+      tags: ["ky"],
       destinations: [{ type: "public", uri: "ky.example.com" }],
       policies: [{ name: "team", decision: "allow", include: [] }]
     };
 
     const mine = { ...elsewhere, id: "mine", aud: "aud-mine", name: "my ky", destinations: [{ type: "public", uri: `HTTPS://KY.Test.workers.dev/` }] };
 
+    account.tags.add("ky");
     account.apps.set("elsewhere", elsewhere).set("mine", mine);
     const ky = await setUp();
 
@@ -249,6 +254,40 @@ describe("ky init and deploy", () => {
 
     await teardownCommand(ky, "ky");
     expect([...account.apps.keys()]).toEqual(["elsewhere"]);
+  });
+
+  it("refuses an Access app on the address ky didn't make, and leaves it alone", async () => {
+    const theirs = {
+      id: "theirs",
+      aud: "aud-theirs",
+      name: "intranet",
+      type: "self_hosted",
+      destinations: [
+        { type: "public", uri: HOST },
+        { type: "public", uri: "intranet.example.com" }
+      ],
+      policies: [{ name: "staff", decision: "allow", include: [{ everyone: {} }] }]
+    };
+
+    account.apps.set("theirs", theirs);
+    const ky = await fresh();
+
+    await expect(initCommand(ky, { account: "acc", name: "ky", email: EMAIL })).rejects.toThrow(
+      `An Access app named intranet already guards ${HOST} and ky didn't make it; pick another name: run \`ky init\` again with another --name`
+    );
+    expect(existsSync(ky.overlay)).toBe(false);
+    expect(apps()).toEqual([theirs]);
+
+    account.apps.clear();
+    await initCommand(ky, { account: "acc", name: "ky", email: EMAIL });
+    account.apps.set("theirs", theirs);
+    expect(await doctor(ky)).toEqual({ code: 1, next: `Next: pick another name: set "name" in ${ky.overlay}, then run \`ky deploy\`` });
+    expect(output).toContain(`✗ Access: An Access app named intranet already guards ${HOST} and ky didn't make it`);
+
+    output = [];
+    expect(await teardownCommand(ky, "ky")).toBe(0);
+    expect(output).toContain("· Leaving the Access app intranet: ky didn't make it");
+    expect(apps()).toEqual([theirs]);
   });
 
   it("upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration", async () => {
@@ -589,6 +628,19 @@ describe("ky teardown", () => {
     expect(script()).toBeDefined();
     expect(account.apps.size).toBe(2);
     expect(account.buckets.size).toBe(1);
+  });
+
+  it("says it can't find the Access apps once the workers.dev subdomain is gone, and keeps the overlay", async () => {
+    const ky = await setUp();
+
+    account.subdomain = undefined;
+    await expect(teardownCommand(ky, "ky")).rejects.toThrow(
+      `This account has no workers.dev subdomain, so ky can't find the Access apps that guarded ky: remove them at https://one.dash.cloudflare.com/acc, then delete ${ky.overlay}`
+    );
+    expect(account.scripts.size).toBe(0);
+    expect(account.buckets.size).toBe(0);
+    expect(account.apps.size).toBe(2);
+    expect(existsSync(ky.overlay)).toBe(true);
   });
 
   it("leaves a bucket another Worker binds, and the production ky Worker's bucket", async () => {

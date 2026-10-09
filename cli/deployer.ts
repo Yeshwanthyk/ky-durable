@@ -7,8 +7,9 @@
  * ky changes and removes only what it made. A Worker the CLI deployed carries the `ky` tag and its
  * release's version; one of the same name without the tag (one `pnpm run deploy` made, say) is
  * never changed or removed. A bucket the CLI made holds a marker object; one without it is never
- * adopted or emptied, and teardown leaves a bucket another Worker binds. Access apps are the ones
- * that guard the Worker's address, whatever they're called.
+ * adopted or emptied, and teardown leaves a bucket another Worker binds. An Access app the CLI
+ * made carries the `ky` tag too; one without it that guards the Worker's address is never changed
+ * or removed.
  */
 import { createHash, randomBytes } from "node:crypto";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
@@ -24,7 +25,7 @@ import type { Release } from "./release.ts";
 /** C2: what Access lets through without a login; each of these checks its own bearer, or is public. */
 export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/manifest.webmanifest", "/icons/*"];
 
-/** The tag every Worker the CLI deploys carries, and the one that names its release. */
+/** The tag every Worker and Access app the CLI makes carries, and the one that names a Worker's release. */
 const TAG = "ky";
 
 const RELEASE_TAG = "ky-release-";
@@ -86,7 +87,7 @@ type Script = Awaited<ReturnType<typeof scripts>>[number];
 
 type Names = ReturnType<typeof names>;
 
-/** A Worker or bucket of this deploy's name that ky didn't make. */
+/** A Worker, bucket or Access app of this deploy's that ky didn't make. */
 export class NameTaken extends Error {
   /** What's taken, without what to do about it. */
   readonly taken: string;
@@ -171,18 +172,24 @@ async function bucketState(cloudflare: Cloudflare, accountId: string, bucketName
 }
 
 /**
- * The deploy's Worker, when there is one, once neither it nor a bucket of the deploy's names is
- * one ky didn't make; it writes nothing.
+ * The deploy's Worker, when there is one, and its address, once none of the Worker, the buckets of
+ * the deploy's names and the Access apps that guard the address is one ky didn't make; it writes
+ * nothing.
  */
-export async function claim(target: Target): Promise<Script | undefined> {
+export async function claim(target: Target) {
+  const { cloudflare, settings } = target;
   const name = names(target.config);
   const script = await findScript(target, name);
 
   for (const bucket of name.buckets)
-    if ((await bucketState(target.cloudflare, name.account, bucket.name)) === "theirs")
-      throw new NameTaken(`A bucket named ${bucket.name} is already in this account and ky didn't create it`, target.settings);
+    if ((await bucketState(cloudflare, name.account, bucket.name)) === "theirs")
+      throw new NameTaken(`A bucket named ${bucket.name} is already in this account and ky didn't create it`, settings);
+  const address = await host(cloudflare, name.account, name.script);
+  const [theirs] = (await accessFor(cloudflare, name.account, address)).theirs;
 
-  return script;
+  if (theirs) throw new NameTaken(theirApp(theirs, address), settings);
+
+  return { script, address };
 }
 
 async function host(cloudflare: Cloudflare, accountId: string, name: string): Promise<string> {
@@ -309,13 +316,36 @@ function guards(app: FoundApp): Set<string> {
   return new Set([...uris, ...domain].map(normal));
 }
 
-/** The Access apps that guard this address: the owner's covers it, the bypass app C2's paths under it. */
-async function accessFor(cloudflare: Cloudflare, accountId: string, address: string) {
-  const apps = await accessApps(cloudflare, accountId);
-  const paths = BYPASS.map((path) => normal(`${address}${path}`));
-  const owner = apps.find((app) => guards(app).has(normal(address)));
+function tagged(app: FoundApp): boolean {
+  return ("tags" in app && app.tags?.includes(TAG)) ?? false;
+}
 
-  return { owner, bypass: apps.find((app) => app !== owner && paths.some((path) => guards(app).has(path))), paths };
+function theirApp(app: FoundApp, address: string): string {
+  return `An Access app named ${app.name} already guards ${address} and ky didn't make it`;
+}
+
+/**
+ * The Access apps that guard this address or a C2 path under it: of ky's, the owner's covers the
+ * address and the bypass app the paths; `theirs` are the ones ky didn't make.
+ */
+async function accessFor(cloudflare: Cloudflare, accountId: string, address: string) {
+  const paths = BYPASS.map((path) => normal(`${address}${path}`));
+  const guarding = (await accessApps(cloudflare, accountId)).filter((app) => [normal(address), ...paths].some((uri) => guards(app).has(uri)));
+  const ours = guarding.filter(tagged);
+  const owner = ours.find((app) => guards(app).has(normal(address)));
+
+  return {
+    owner,
+    bypass: ours.find((app) => app !== owner && paths.some((path) => guards(app).has(path))),
+    theirs: guarding.filter((app) => !tagged(app)),
+    paths
+  };
+}
+
+/** The account's `ky` Access tag, which an app must have before it's tagged. */
+async function ensureTag(cloudflare: Cloudflare, accountId: string): Promise<void> {
+  if ((await cloudflare.list(ZeroTrust.listAccessTags.items({ accountId }))).some((tag) => tag.name === TAG)) return;
+  await cloudflare.run(ZeroTrust.createAccessTag({ accountId, name: TAG }));
 }
 
 /** Creates the Access app, or updates the one found, and returns its audience tag. */
@@ -334,10 +364,13 @@ async function ensureAccess(cloudflare: Cloudflare, name: Names, address: string
   const accountId = name.account;
   const found = await accessFor(cloudflare, accountId, address);
 
+  await ensureTag(cloudflare, accountId);
+
   const aud = await saveApp(cloudflare, found.owner, {
     accountId,
     type: "self_hosted",
     name: name.access,
+    tags: [TAG],
     destinations: [{ type: "public", uri: address }],
     policies: [{ name: "owner", decision: "allow", include: allowed.map((email) => ({ email: { email } })) }]
   });
@@ -346,6 +379,7 @@ async function ensureAccess(cloudflare: Cloudflare, name: Names, address: string
     accountId,
     type: "self_hosted",
     name: name.bypass,
+    tags: [TAG],
     destinations: BYPASS.map((path) => ({ type: "public", uri: `${address}${path}` })),
     policies: [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
   });
@@ -388,11 +422,10 @@ export async function deploy(target: Target, release: Release, say: (step: strin
   const name = names(config);
   const accountId = name.account;
   const allowed = emails(config);
-  const address = await host(cloudflare, accountId, name.script);
   const team = await teamDomain(cloudflare, accountId);
 
   if (!team) throw new Error(`Zero Trust isn't on for this account: turn it on at ${zeroTrustPage(accountId)} (the free plan is enough), then run \`ky deploy\``);
-  const script = await claim(target);
+  const { script, address } = await claim(target);
   const applied = script && (await migrationTag(cloudflare, accountId, name.script));
 
   say("Setting up the bucket");
@@ -497,7 +530,10 @@ async function inspectAccount(target: Target, release: Release, check: Checker):
     return;
   }
 
-  for (const bucket of name.buckets) check(bucketCheck(await bucketState(cloudflare, accountId, bucket.name), bucket.name, settings));
+  const address = `${name.script}.${subdomain}.workers.dev`;
+  const access = await accessFor(cloudflare, accountId, address);
+
+  for (const each of await ownershipChecks(target, access, address)) check(each);
 
   if (!script) {
     check({ name: "Worker", ok: false, detail: `no Worker named ${name.script}`, next: "ky deploy" });
@@ -506,11 +542,23 @@ async function inspectAccount(target: Target, release: Release, check: Checker):
   }
 
   check({ name: "Worker", ok: true, detail: name.script });
-  await inspectWorker(target, release, script, `${name.script}.${subdomain}.workers.dev`, check);
+  await inspectWorker(target, release, script, access, address, check);
+}
+
+type Access = Awaited<ReturnType<typeof accessFor>>;
+
+/** The deploy's buckets, and any Access app on its address ky didn't make. */
+async function ownershipChecks({ cloudflare, config, settings }: Target, access: Access, address: string): Promise<Check[]> {
+  const name = names(config);
+  const buckets: Check[] = [];
+
+  for (const bucket of name.buckets) buckets.push(bucketCheck(await bucketState(cloudflare, name.account, bucket.name), bucket.name, settings));
+
+  return [...buckets, ...access.theirs.map((app): Check => ({ name: "Access", ok: false, detail: theirApp(app, address), next: rename(settings) }))];
 }
 
 /** The Worker's release, migrations, KY_TOKEN, Access apps and workers.dev. */
-async function inspectWorker(target: Target, release: Release, script: Script, address: string, check: Checker): Promise<void> {
+async function inspectWorker(target: Target, release: Release, script: Script, access: Access, address: string, check: Checker): Promise<void> {
   const { cloudflare, config } = target;
   const name = names(config);
   const accountId = name.account;
@@ -535,14 +583,14 @@ async function inspectWorker(target: Target, release: Release, script: Script, a
 
   check({ name: "KY_TOKEN", ok: hasToken, detail: hasToken ? "set" : "missing", next: "ky deploy" });
 
-  for (const access of accessChecks(await accessFor(cloudflare, accountId, address), address)) check(access);
+  for (const each of accessChecks(access, address)) check(each);
   const workersDev = await cloudflare.run(Workers.getScriptSubdomain({ accountId, scriptName: name.script }));
 
   check({ name: "workers.dev", ok: workersDev.enabled, detail: workersDev.enabled ? `https://${address}` : "off", next: "ky deploy" });
 }
 
 /** Whether an Access app guards the address, and whether the bypass app covers every C2 path under it. */
-function accessChecks(access: Awaited<ReturnType<typeof accessFor>>, address: string): Check[] {
+function accessChecks(access: Access, address: string): Check[] {
   const missing = access.paths.filter((path) => !access.bypass || !guards(access.bypass).has(path));
 
   return [
@@ -583,26 +631,43 @@ async function bucketFate(cloudflare: Cloudflare, accountId: string, bucketName:
   return binders.length > 0 ? { leave: `${binders.join(", ")} binds it` } : "remove";
 }
 
-/** What teardown removes once the Worker is gone (the Access apps that guard its address, the buckets ky made that no other Worker binds), and what it leaves. */
+/** ky's Access apps on the Worker's address, and the others there; undefined without a workers.dev subdomain to find them by. */
+async function appsAt(cloudflare: Cloudflare, name: Names) {
+  const subdomain = (await cloudflare.find(Workers.getSubdomain({ accountId: name.account }), "SubdomainNotFound"))?.subdomain;
+
+  if (!subdomain) return undefined;
+  const access = await accessFor(cloudflare, name.account, `${name.script}.${subdomain}.workers.dev`);
+
+  return {
+    apps: [access.owner, access.bypass].flatMap((app) => (app ? [app] : [])),
+    kept: access.theirs.map((app) => `the Access app ${app.name}: ky didn't make it`)
+  };
+}
+
+/**
+ * What teardown removes once the Worker is gone (ky's Access apps for its address, the buckets ky
+ * made that no other Worker binds), what it leaves, and whether the Access apps couldn't be found.
+ */
 async function removable({ cloudflare, config }: Target) {
   const name = names(config);
-  const accountId = name.account;
-  const subdomain = (await cloudflare.find(Workers.getSubdomain({ accountId }), "SubdomainNotFound"))?.subdomain;
-  const access = subdomain ? await accessFor(cloudflare, accountId, `${name.script}.${subdomain}.workers.dev`) : undefined;
+  const access = await appsAt(cloudflare, name);
   const buckets: string[] = [];
   const kept: string[] = [];
 
   for (const bucket of name.buckets) {
-    const fate = await bucketFate(cloudflare, accountId, bucket.name, name.script);
+    const fate = await bucketFate(cloudflare, name.account, bucket.name, name.script);
 
     if (fate === "remove") buckets.push(bucket.name);
     else if (fate !== "gone") kept.push(`the bucket ${bucket.name}: ${fate.leave}`);
   }
 
-  return { apps: [access?.owner, access?.bypass].flatMap((app) => (app ? [app] : [])), buckets, kept };
+  return { apps: access?.apps ?? [], buckets, kept: [...kept, ...(access?.kept ?? [])], lost: !access };
 }
 
-/** Removes the Worker (its Durable Objects' data and secrets go with it), then its Access apps and buckets. */
+/**
+ * Removes the Worker (its Durable Objects' data and secrets go with it), then its Access apps and
+ * buckets; when the Access apps can't be found, it says so and the overlay stays.
+ */
 export async function teardown(target: Target, say: (step: string) => void): Promise<void> {
   const { cloudflare, config, settings } = target;
   const name = names(config);
@@ -619,7 +684,7 @@ export async function teardown(target: Target, say: (step: string) => void): Pro
     await cloudflare.run(Workers.deleteScript({ accountId, scriptName: name.script, force: true }));
   }
 
-  const { apps, buckets, kept } = await removable(target);
+  const { apps, buckets, kept, lost } = await removable(target);
 
   if (apps.length > 0) say("Removing the Access apps");
 
@@ -637,6 +702,11 @@ export async function teardown(target: Target, say: (step: string) => void): Pro
   }
 
   for (const left of kept) say(`Leaving ${left}`);
+
+  if (lost)
+    throw new Error(
+      `This account has no workers.dev subdomain, so ky can't find the Access apps that guarded ${name.script}: remove them at ${zeroTrustPage(accountId)}, then delete ${settings}`
+    );
 }
 
 /** What teardown should have removed that's still in the account. */
