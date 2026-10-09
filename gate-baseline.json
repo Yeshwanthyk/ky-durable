@@ -21,7 +21,12 @@
     },
     {
       "check": "node",
-      "name": "ky init and deploy finds the Access apps by what they guard, not by name",
+      "name": "ky init and deploy finds ky's Access apps by what they guard and their tag, not by name",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses an Access app on the address ky didn't make, and leaves it alone",
       "outcome": "passed"
     },
     {
@@ -31,7 +36,17 @@
     },
     {
       "check": "node",
+      "name": "ky init and deploy tells a ky older than the Worker to get a newer one, rather than to upgrade",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
       "name": "ky init and deploy deploys a release's new bindings to an existing overlay",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses a name whose bucket R2 wouldn't take, before anything is written",
       "outcome": "passed"
     },
     {
@@ -157,6 +172,11 @@
     {
       "check": "node",
       "name": "ky teardown leaves a Worker of that name ky didn't deploy alone",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown says it can't find the Access apps once the workers.dev subdomain is gone, and keeps the overlay",
       "outcome": "passed"
     },
     {
