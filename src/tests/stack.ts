@@ -11,28 +11,22 @@ import {
 } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { TaskTokens } from "../machines";
 import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
-import { Vault as ProductionVault, type ReissuedKind, type TokenKind } from "../vault";
+import { Vault as ProductionVault, type TokenKind } from "../vault";
 
 /**
  * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes,
- * issues it can make fail (`POST /test/vault-fail-issues?count=<n>`), to lose a delivery's token, and machine
- * mints it can slow (`slowMachineMints`), to make two pairings race.
+ * and machine mints it can slow (`slowMachineMints`), to make two pairings race.
  */
 export class Vault extends ProductionVault {
-  #failing = 0;
   #slow = { count: 0, ms: 0 };
 
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;
-  }
-
-  /** Fail the next `count` issues. */
-  failIssues(count: number): void {
-    this.#failing = count;
   }
 
   /** Make each of the next `count` machine mints wait `ms` first. */
@@ -49,12 +43,6 @@ export class Vault extends ProductionVault {
     return super.mint(kind, subject, ttlMs);
   }
 
-  override issue(kind: ReissuedKind, subject: string): Promise<string> {
-    if (this.#failing === 0) return super.issue(kind, subject);
-    this.#failing -= 1;
-
-    return Promise.reject(new Error("The test Vault failed this issue."));
-  }
 }
 
 /**
@@ -264,6 +252,32 @@ const NoParameters = Type.Object({});
 /** The real agent with the fakes above, a multiply tool, and gate tools the test opens. */
 export class PiAgent extends ProductionAgent {
   declare readonly boundary: TestBoundary;
+  /** Task token issues still to fail; read only once the hub calls, after this field is set. */
+  #failingIssues = 0;
+
+  /** Fail the next `count` task token issues, as a Vault call that failed: the agent's own catch sees the error. */
+  failIssues(count: number): void {
+    this.#failingIssues = count;
+  }
+
+  /** The task token issues still to fail. */
+  failingIssues(): number {
+    return this.#failingIssues;
+  }
+
+  override taskTokens(): TaskTokens {
+    const tokens = super.taskTokens();
+
+    return {
+      ...tokens,
+      issue: async (task) => {
+        if (this.#failingIssues === 0) return tokens.issue(task);
+        this.#failingIssues -= 1;
+
+        throw new Error("The test agent failed this issue.");
+      }
+    };
+  }
 
   override boundaryFor(): TestBoundary {
     // Runs as the first field initializer: only ctx and env are set.
@@ -416,15 +430,6 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  [
-    "POST /test/vault-fail-issues",
-    async (_me, url, env) => {
-      // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
-      await (env.Vault as DurableObjectNamespace<Vault>).getByName("owner").failIssues(Number(url.searchParams.get("count") ?? "0"));
-
-      return new Response(null, { status: 204 });
-    }
-  ]
 ]);
 
 export default {

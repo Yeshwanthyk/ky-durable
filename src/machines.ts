@@ -131,6 +131,8 @@ export class MachineHub {
   readonly #retries = new Map<string, number>();
   /** The machines with a retry waiting. */
   readonly #waiting = new Set<string>();
+  /** The wait before a failed delivery's first retry, doubled for each one after; tests shorten it. */
+  retryMs = 1_000;
   readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
   #wanted: (task: string) => boolean = () => true;
@@ -349,9 +351,10 @@ export class MachineHub {
 
   /**
    * Deliver again after a failed issue, a few times, further apart each time;
-   * the inbox keeps the runs meanwhile. A pending timer keeps the object from
-   * hibernating, and a restart closes the socket, whose next hello delivers.
-   * Past the last retry, the next hello or command delivers.
+   * the inbox keeps the runs meanwhile. A retry is a timer in memory, so an
+   * eviction loses it. Then, as past the last retry, the runs wait for the
+   * runner's next hello, which it says each time it connects, or the next
+   * command for the machine.
    */
   #retry(machine: string): void {
     // One retry waits at a time: a delivery that fails meanwhile is the one it makes.
@@ -369,7 +372,7 @@ export class MachineHub {
     setTimeout(() => {
       this.#waiting.delete(machine);
       void this.#deliver(machine);
-    }, 1_000 * 2 ** tries);
+    }, this.retryMs * 2 ** tries);
   }
 
   /**

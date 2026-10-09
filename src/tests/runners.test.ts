@@ -336,13 +336,34 @@ describe("task tokens", () => {
 
   it("deliver a run again, a moment later, after the Vault failed to issue its token", async () => {
     const mac = await runner("me");
-    expect((await call("/test/vault-fail-issues?count=1", { method: "POST" })).status).toBe(204);
+    await inside("me", (instance) => instance.failIssues(1));
 
     await prompt("me", "machine retry the delivery");
     const run = await mac.run();
     expect(await vault().check("task", run.taskToken)).toBe(run.task);
 
     mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "done", session: null, agent: "claude" });
+    mac.socket.close();
+  });
+
+  it("wait for the next hello once every retry of a delivery failed", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    // The first delivery and its five retries fail, 1, 2, 4, 8 and 16 ms apart here.
+    await inside(name, (instance) => {
+      instance.machines.retryMs = 1;
+      instance.failIssues(6);
+    });
+
+    await prompt(name, "machine after the retries");
+    await until(() => inside(name, (instance) => instance.failingIssues() === 0), "every delivery failed");
+    // Past the last retry, nothing more is tried.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mac.commands).toEqual([]);
+
+    mac.socket.send(HELLO);
+    const run = await mac.run();
+    expect(await vault().check("task", run.taskToken)).toBe(run.task);
     mac.socket.close();
   });
 

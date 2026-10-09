@@ -15,7 +15,7 @@ import { browseExtension } from "./browse";
 import { EXECUTOR_NOT_SET_UP, type ExecutorConfig, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
-import { MachineHub, machineExtension } from "./machines";
+import { MachineHub, machineExtension, type TaskTokens } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
@@ -129,11 +129,7 @@ export class PiAgent extends DurableObject<Env> {
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
     this.files,
-    {
-      issue: (task) => this.env.Vault.getByName("owner").issue("task", task),
-      revoke: (task) => this.env.Vault.getByName("owner").revoke("task", task),
-      revokeAll: (tasks) => this.env.Vault.getByName("owner").revokeAll("task", tasks)
-    }
+    this.taskTokens()
   );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
@@ -301,6 +297,17 @@ export class PiAgent extends DurableObject<Env> {
   /** The main chat or a side chat, as against a subagent, a review or a dream. */
   isChat(session: string): boolean {
     return session === ROOT_SESSION || this.chats.has(session);
+  }
+
+  /** The hub's task tokens: the Vault's. Runs as a field initializer, so only ctx and env are set; tests wrap it. */
+  taskTokens(): TaskTokens {
+    const vault = () => this.env.Vault.getByName("owner");
+
+    return {
+      issue: (task) => vault().issue("task", task),
+      revoke: (task) => vault().revoke("task", task),
+      revokeAll: (tasks) => vault().revokeAll("task", tasks)
+    };
   }
 
   /**

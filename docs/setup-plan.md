@@ -376,7 +376,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
     the follow-up turn runs with the same token. A token of a task that ended earlier has expired. The sweep names
     only the agent's own tasks, because the one Vault serves every agent object.
   - A delivery whose `issue` fails is tried again 1, 2, 4, 8 and 16 seconds later, while the inbox keeps the runs.
-    After that, the next hello or command delivers.
+    After that, the runner's next hello (it says one on every connect) or the next command for the machine delivers.
+    A retry is a timer in memory, so an eviction loses it, and the runs wait the same way.
 - **Pairings:** see C2. A machine row with no pairing, from before T, is listed but refused until the machine pairs
   again. A machine token from before T has the subject `<machine>`, with no pairing. No route takes it, and the
   Vault deletes it when it starts.
