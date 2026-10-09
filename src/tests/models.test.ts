@@ -125,6 +125,25 @@ describe("which model each purpose uses", () => {
     expect(await disabled(bare)).toEqual({ background: "No model provider is enabled.", purposes: {} });
   });
 
+  it("refreshes a recorded provider's port from the environment on boot, keeping the user's switch", async () => {
+    const name = await fresh("mac-up");
+
+    const reboot = () =>
+      inside(name, (instance, state) => {
+        state.storage.sql.exec("UPDATE ky_providers SET port = 1, enabled = 0 WHERE id = 'vibeproxy'");
+        new Models(state.storage.sql, instance.boundary, () => {});
+
+        return state.storage.sql
+          .exec<{ port: number; enabled: number }>("SELECT port, enabled FROM ky_providers WHERE id = 'vibeproxy'")
+          .one();
+      });
+
+    const { port, enabled } = await reboot();
+
+    expect(port).not.toBe(1);
+    expect(enabled).toBe(0);
+  });
+
   it("stores a purpose's choice at a level its model has, and refuses a provider that is not connected", async () => {
     const name = await fresh("mac-away");
 

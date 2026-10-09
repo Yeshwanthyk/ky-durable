@@ -61,11 +61,17 @@ export class ProviderRecords {
       .map(({ enabled, ...row }) => ({ ...row, enabled: enabled === 1 }));
   }
 
-  /** Record a provider unless it already is, so a row the user changed keeps their change. */
+  /**
+   * Record a provider, or refresh what this deploy's environment says of one
+   * already recorded (its kind, vendor, machine, port and API), so a row
+   * keeps the user's label and switch but never a port the overlay moved.
+   */
   add(record: ProviderRecord): void {
     this.#sql.exec(
       `INSERT INTO ky_providers (id, kind, vendor, machine, port, api, label, enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+         kind = excluded.kind, vendor = excluded.vendor, machine = excluded.machine,
+         port = excluded.port, api = excluded.api`,
       record.id,
       record.kind,
       record.vendor,

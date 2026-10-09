@@ -215,6 +215,7 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
   `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor, machine, port, api, label, enabled }`, where
   `vendor`, `machine`, `port` and `api` are `null` for a kind that has none (changed in M: they were optional).
   The credential for an `api-key` record lives in the Vault under `("provider", id)`.
+  A record is added on the first boot its provider can run. Each later boot refreshes `kind`, `vendor`, `machine`, `port` and `api` from the environment; `label` and `enabled` keep the user's values (changed in M review 2: it was insert-only).
 - **Purposes:**
 
 | Purpose | Default |
