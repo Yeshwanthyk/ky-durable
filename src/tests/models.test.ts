@@ -195,6 +195,26 @@ describe("a turn", () => {
     expect((await calls(name)).map(({ model }) => model)).toEqual([GLM]);
   });
 
+  it("runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't", async () => {
+    const name = await fresh("mac-up");
+    await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "medium" });
+    const sent = async (thinkingLevel: "off" | "high") => {
+      await agent(name).mac(true);
+      // Haiku, unlike Opus, can stop thinking.
+      await set(name, "main", { provider: "vibeproxy", modelId: "claude-haiku-4-5", thinkingLevel });
+      await inside(name, (instance) => instance.applyMain());
+      await agent(name).macLeaves();
+      const before = (await calls(name)).length;
+      await prompt(name, "hello");
+
+      return (await calls(name)).slice(before).map(({ model, reasoning }) => ({ model, reasoning }));
+    };
+
+    // GPT OSS can't stop thinking, so a call asking for none runs at its lowest level.
+    expect(await sent("off")).toEqual([{ model: GPT_OSS, reasoning: "low" }]);
+    expect(await sent("high")).toEqual([{ model: GPT_OSS, reasoning: "medium" }]);
+  });
+
   it("stands in for a provider whose breaker opened, on another provider", async () => {
     const name = await fresh("keyed");
     await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
