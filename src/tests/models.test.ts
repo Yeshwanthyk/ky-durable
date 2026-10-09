@@ -198,6 +198,7 @@ describe("a turn", () => {
   it("runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't", async () => {
     const name = await fresh("mac-up");
     await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "medium" });
+
     const sent = async (thinkingLevel: "off" | "high") => {
       await agent(name).mac(true);
       // Haiku, unlike Opus, can stop thinking.
