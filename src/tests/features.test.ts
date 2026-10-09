@@ -689,12 +689,10 @@ describe("machine tasks", () => {
       protocol: PROTOCOL,
       version: "test",
       active: [],
-      facts: { ...FACTS, agents: { claude: { installed: true, signedIn: false }, codex: { installed: true, signedIn: true } } }
+      facts: { ...FACTS, agents: { claude: { installed: false, signedIn: false }, codex: { installed: true, signedIn: true } } }
     });
-    await client.until(() => machine("box")?.facts?.agents.claude.signedIn === false);
-    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain(
-      "box: on, online, 0 running or queued, macOS, no logged-in browser, runs Codex, Claude Code not signed in"
-    );
+    await client.until(() => machine("box")?.facts?.agents.claude.installed === false);
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("box: on, online, 0 running or queued, macOS, no logged-in browser, runs Codex");
     expect((await prompt(name, `tool machine {"action":"run","prompt":"build it"}`)).text).toContain("Name the machine for this task.");
 
     // A paused machine takes no new task; the agent hears where else it can go.
@@ -711,7 +709,7 @@ describe("machine tasks", () => {
     const queued = (await tasks(name)).length;
     const [waiting] = await inside(name, (instance) => instance.feed.open("machine", "away"));
     expect((await prompt(name, `tool machine {"action":"move","task":"${waiting!.id}","machine":"box"}`)).text).toContain(
-      `box cannot run Claude Code: it is not signed in there. ${waiting!.id} runs as Claude Code, so it stays.`
+      `box cannot run Claude Code: it is not installed there. ${waiting!.id} runs as Claude Code, so it stays.`
     );
     expect((await prompt(name, `tool machine {"action":"move","task":"${built.task}","machine":"mac"}`)).text).toContain("mac is paused");
     await command(socket, client, { type: "set-machine", machine: "mac", state: "on" });
@@ -745,11 +743,11 @@ describe("machine tasks", () => {
     expect((await prompt(name, asCodex)).text).toContain("mac cannot run Codex: it is not installed there.");
     const before = (await tasks(name)).length;
 
-    // Signed in to Codex too, by its next hello.
-    const both = { ...FACTS, agents: { ...FACTS.agents, codex: { installed: true, signedIn: true } } };
-    mac.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [building.task], facts: both });
-    await until(async () => (await inside(name, (instance) => instance.machines.machine("mac")?.facts?.agents.codex.signedIn)) === true, "codex signed in");
-    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("mac: on, online, 1 running or queued, macOS, no logged-in browser, runs Claude Code and Codex");
+    // Codex installed, by its next hello, and signed out as last asked: the user may have signed in just now, so it is not refused.
+    const signedOut = { ...FACTS, agents: { ...FACTS.agents, codex: { installed: true, signedIn: false } } };
+    mac.send({ type: "hello", protocol: PROTOCOL, version: "test", active: [building.task], facts: signedOut });
+    await until(async () => (await inside(name, (instance) => instance.machines.machine("mac")?.facts?.agents.codex.installed)) === true, "codex installed");
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain("mac: on, online, 1 running or queued, macOS, no logged-in browser, runs Claude Code, Codex not signed in");
     expect((await prompt(name, asCodex)).text).toContain("on mac as Codex.");
     const reviewing = await mac.next();
     expect(reviewing).toMatchObject({ type: "run", prompt: "review it", agent: "codex", turn: 1 });

@@ -152,13 +152,14 @@ const searching = (key: string) => (args: Args): Activity => {
   return { icon: "search", label: pattern ? `Searching for ${short(pattern, 24)}` : "Searching files" };
 };
 
-/** Claude Code's tools, as a machine task's runner reports them. */
+/** Claude Code's tools, as a machine task's runner reports them, and Codex's file deletes, which Claude Code has no tool for. */
 const CLAUDE = new Map<string, (args: Args) => Activity>([
   ["Bash", shell],
   ["Read", (args) => fileTool("file", "Reading", "a file", args)],
   ["Write", (args) => fileTool("filePlus", "Writing", "a file", args)],
   ["Edit", (args) => fileTool("pencil", "Editing", "a file", args)],
   ["MultiEdit", (args) => fileTool("pencil", "Editing", "a file", args)],
+  ["Delete", (args) => fileTool("fileMinus", "Deleting", "a file", args)],
   ["Grep", searching("pattern")],
   ["Glob", searching("pattern")],
   ["WebFetch", (args) => browsing(text(args.url))],

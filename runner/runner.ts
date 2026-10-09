@@ -96,15 +96,6 @@ function spentBy({ spent }: Extract<AgentEvent, { type: "result" }>, before: Run
 /** The larger of two counts, either of which may be missing. */
 const most = (a: number | undefined, b: number | undefined) => Math.max(a ?? 0, b ?? 0);
 
-/** Why this machine cannot run `agent` now, as its facts say; undefined if it can. */
-function unable(agent: Agent, facts: MachineFacts): string | undefined {
-  const { installed, signedIn } = facts.agents[agent];
-
-  if (!installed) return `${AGENT_NAMES[agent]} is not installed on this machine.`;
-
-  return signedIn ? undefined : `${AGENT_NAMES[agent]} is not signed in on this machine: ${ADAPTERS[agent].signIn}.`;
-}
-
 export class Runner {
   readonly #spawn: SpawnAgent;
   readonly #log: (line: string) => void;
@@ -264,10 +255,11 @@ export class Runner {
       return;
     }
 
-    const refused = unable(command.agent, this.#facts());
-
-    if (refused) {
-      this.#report({ type: "result", task: command.task, turn: command.turn, ok: false, text: refused, session: command.session, agent: command.agent });
+    // Only a missing CLI is turned away: a login that looks signed out, or an
+    // answer that was not readable, may be wrong, and the CLI says so itself.
+    if (!this.#facts().agents[command.agent].installed) {
+      const text = `${AGENT_NAMES[command.agent]} is not installed on this machine.`;
+      this.#report({ type: "result", task: command.task, turn: command.turn, ok: false, text, session: command.session, agent: command.agent });
 
       return;
     }

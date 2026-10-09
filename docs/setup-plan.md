@@ -387,8 +387,10 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **Built:** each Codex task's home is `KY_STATE_DIR/codex/<task>` (`codexHome` in `runner/ky-runner.ts`), and its
   `auth.json` is a link to the machine's `CODEX_HOME/auth.json`. S hands a task `run.creds.codex` by writing
   `auth.json` there as a file in place of the link, mode 0600, and rewriting it on a `creds` frame; the next
-  `codex exec` of that task reads it. A run is refused by the last-known `facts.agents`, so S must let a run with
-  `creds` through on a machine that is not signed in itself.
+  `codex exec` of that task reads it. A run is refused only when the last-known `facts.agents` says its CLI is not
+  installed (looked for again first); a signed-out one still starts, so a run with `creds` already gets through on
+  a machine that is not signed in itself. The runner deletes a home 14 days after its last turn, so S's `auth.json`
+  in it goes too.
 
 ### D. cli-deploy
 - **Package:** `cli/`, a Bun-compiled `ky`.

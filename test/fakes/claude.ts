@@ -39,17 +39,12 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { attach, toolsIn } from "./directives.ts";
 
 const UserLine = Type.Object({
   type: Type.Literal("user"),
   message: Type.Object({ role: Type.Literal("user"), content: Type.String() })
 });
-
-/** A 1x1 transparent PNG. */
-const PIXEL = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
-  "base64"
-);
 
 const args = process.argv.slice(2);
 
@@ -102,28 +97,16 @@ type Part = { type: "text"; text: string } | { type: "tool_use"; id: string; nam
 
 /** The tool uses a `[tools=...]` directive asks for. */
 function toolUses(prompt: string): Part[] {
-  const listed = /\[tools=([^\]]+)\]/.exec(prompt)?.[1] ?? "";
-
-  return listed
-    .split(",")
-    .filter((each) => each.includes(":"))
-    .map((each): Part => {
-      const [name, value] = [each.slice(0, each.indexOf(":")), each.slice(each.indexOf(":") + 1)];
-
-      return { type: "tool_use", id: crypto.randomUUID(), name, input: { [name === "Bash" ? "command" : "file_path"]: value } };
-    });
+  return toolsIn(prompt).map(({ name, value }): Part => ({
+    type: "tool_use",
+    id: crypto.randomUUID(),
+    name,
+    input: { [name === "Bash" ? "command" : "file_path"]: value }
+  }));
 }
 
 function emit(event: StreamEvent) {
   process.stdout.write(`${JSON.stringify({ ...event, session_id: session })}\n`);
-}
-
-async function attach(): Promise<string> {
-  const file = join(mkdtempSync(join(tmpdir(), "fake-claude-")), "screenshot.png");
-  writeFileSync(file, PIXEL);
-  const { stdout } = await promisify(execFile)("ky-attach", [file, "a fake screenshot"]);
-
-  return stdout.trim();
 }
 
 async function diff(): Promise<string> {

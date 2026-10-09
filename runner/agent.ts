@@ -22,8 +22,6 @@ export type Adapter = {
   steers: boolean;
   /** A reader for one process's stdout, a line at a time. */
   reader(): (line: string) => AgentEvent[];
-  /** How the user signs it in on the machine, as an instruction. */
-  signIn: string;
 };
 
 /** A line as JSON, or undefined. */

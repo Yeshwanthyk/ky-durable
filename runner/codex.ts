@@ -1,44 +1,67 @@
 /**
  * Codex as a task's agent: `codex exec --json`, one process per turn. The
  * prompt comes on stdin, which then closes; a follow-up resumes the thread
- * by its id in a new process. Codex has no way to take a prompt mid-turn,
- * so one that comes then waits for the turn to end.
+ * by its id in a new process. `exec` takes no prompt mid-turn (its
+ * app-server does, but the plan keeps one CLI interface per agent), so one
+ * that comes then waits for the turn to end.
  *
  * Each item Codex works through is mapped onto the Claude Code tool it is
  * most like, so its steps read the same: a command is Bash, a file change
- * is Write, Edit or a delete, and an MCP call is `mcp__<server>__<tool>`.
+ * is Write, Edit or Delete, and an MCP call is `mcp__<server>__<tool>`.
  */
 
 import { parse, type Adapter, type AgentEvent } from "./agent.ts";
 import { describeTool } from "../src/tool-labels.ts";
 
-/** Flags every `codex exec` takes: JSON events, run anywhere, nothing to approve. */
-const FLAGS = ["--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"];
-
 /**
- * `codex`'s arguments for a turn: a new thread with `instructions` added to
- * its developer prompt, or `thread` resumed, which kept them. The prompt is
- * read from stdin (`-`).
+ * Flags every `codex exec` takes: JSON events, run anywhere, nothing to
+ * approve. Its commands get the whole environment the runner gives it,
+ * KY_TOKEN and KY_TASK too, which ky-attach and ky-diff need: by default
+ * Codex drops every variable named like a token, key or secret. And its
+ * home keeps only what a follow-up resumes from: no prompt history, no
+ * plugins synced in, no memories.
  */
-export function codexArgs(thread: string | null, instructions: string): string[] {
-  if (thread) return ["exec", "resume", ...FLAGS, thread, "-"];
+const FLAGS = [
+  "--json",
+  "--skip-git-repo-check",
+  "--dangerously-bypass-approvals-and-sandbox",
+  ...["shell_environment_policy.ignore_default_excludes=true", 'history.persistence="none"', "features.plugins=false", "features.memories=false"].flatMap(
+    (setting) => ["-c", setting]
+  )
+];
 
-  // A JSON string is a TOML basic string, as `-c` parses its value.
-  return ["exec", ...FLAGS, "-c", `developer_instructions=${JSON.stringify(instructions)}`, "-"];
+/** A string as a TOML basic string, as `-c` parses its value: JSON's escapes, and DEL, which TOML also forbids raw. */
+function toml(text: string): string {
+  return JSON.stringify(text).replaceAll("\x7f", "\\u007f");
 }
 
-/** A command as Codex runs it, `/bin/zsh -lc '<script>'`, as the script. */
-function unwrapShell(command: string): string {
-  const script = /^\S*sh -lc '((?:[^']|'\\'')*)'$/s.exec(command)?.[1];
+/**
+ * `codex`'s arguments for a turn: a new thread, or `thread` resumed, with
+ * `instructions` added to its developer prompt, which a resume does not
+ * keep. The prompt is read from stdin (`-`).
+ */
+export function codexArgs(thread: string | null, instructions: string): string[] {
+  const flags = [...FLAGS, "-c", `developer_instructions=${toml(instructions)}`];
 
-  return script === undefined ? command : script.replaceAll("'\\''", "'");
+  return thread ? ["exec", "resume", ...flags, thread, "-"] : ["exec", ...flags, "-"];
+}
+
+/**
+ * A command as Codex runs it, `/bin/zsh -lc '<script>'`, as the script.
+ * Its quoting is the shlex crate's: a `'` in the script is `'\''`, and a `!`
+ * is `'\!'`, so no shell expands it as history.
+ */
+function unwrapShell(command: string): string {
+  const script = /^\S*sh -lc '((?:[^']|'\\[!']')*)'$/s.exec(command)?.[1];
+
+  return script === undefined ? command : script.replaceAll(/'\\([!'])'/g, "$1");
 }
 
 /** File change kinds, as the Claude Code tool that would make one. */
 const FILE_TOOLS = new Map([
   ["add", "Write"],
   ["update", "Edit"],
-  ["delete", "delete"]
+  ["delete", "Delete"]
 ]);
 
 /** Labels for the tools each kind of item uses; other items are not tools. */
@@ -91,7 +114,8 @@ function reader(): (line: string) => AgentEvent[] {
     ["turn.started", () => [{ type: "taken" }]],
     ["item.started", (event) => tools(event.item ?? {})],
     ["item.completed", (event) => (event.item?.type === "agent_message" ? answer(event.item) : tools(event.item ?? {}))],
-    ["turn.completed", () => [{ type: "result", ok: true, text: said }]],
+    // Each process runs one turn. Its token counts have nowhere to go in a result, and on a subscription nothing says what they cost.
+    ["turn.completed", () => [{ type: "result", ok: true, text: said, spent: { turns: 1 } }]],
     ["turn.failed", (event) => [{ type: "result", ok: false, text: failure(String(event.error?.message ?? "")) }]]
   ]);
 
@@ -105,6 +129,5 @@ function reader(): (line: string) => AgentEvent[] {
 export const codex: Adapter = {
   prompt: (text) => text,
   steers: false,
-  reader,
-  signIn: "run `codex login` there"
+  reader
 };

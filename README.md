@@ -142,18 +142,21 @@ node --experimental-strip-types runner/ky-runner.ts
 | `CODEX_HOME` | `~/.codex` | The machine's Codex home, whose `auth.json` (from `codex login`) every Codex task signs in with |
 | `KY_CHROME` | off | `1`: tasks drive your Chrome with its logins (`--chrome`) |
 | `KY_REPOS` | `KY_WORKDIR` | Folders, split by `:`, whose git repositories the runner tells ky about (each folder, and the folders right inside it) |
-| `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled, and `codex/<task>`, each Codex task's own `CODEX_HOME`. Delete it after resetting the object |
+| `KY_STATE_DIR` | `~/.ky` | Where the runner keeps `handled-<machine>.json`, the commands it already handled, and `codex/<task>`, each Codex task's own `CODEX_HOME`, deleted 14 days after its last turn. Delete it after resetting the object |
 
 `bypassPermissions` lets a task run any command as your user without asking. Run the runner as a
 separate user, in a VM, or with `KY_PERMISSION_MODE=acceptEdits` if that is too much.
 
 How a task runs: a task runs as the agent the `machine` tool asked for, or the one the machine has,
-Claude Code first, and keeps it; a machine without that agent installed and signed in refuses it. A
+Claude Code first (one signed in before one that is not), and keeps it; a machine without that agent installed
+refuses it, and one signed out as it last said runs it anyway, so the CLI's own error is the result. A
 Claude Code task is one `claude -p` session in stream-json mode. A message sent while it works steers it;
 one sent after it finished resumes it with `--resume`. A Codex task is one `codex exec --json` per turn,
 in its own `CODEX_HOME` (`KY_STATE_DIR/codex/<task>`) whose `auth.json` links to the machine's, so none of
-your Codex config or history comes in. A message sent while it works waits for the turn to end; each
-follow-up resumes the thread with `codex exec resume`. Stop sends SIGINT, then SIGKILL after 5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
+your Codex config (`config.toml`: models, MCP servers, profiles) or history comes in; its commands get the
+runner's whole environment, which Codex would otherwise strip of `*TOKEN*` names, so `ky-attach` works. A
+home not used for 14 days is deleted, and a later follow-up to that task fails. A message sent while it works
+waits for the turn to end; each follow-up resumes the thread with `codex exec resume`. Stop sends SIGINT, then SIGKILL after 5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
 offline starts when it reconnects. Tasks share files with `ky-attach <file> [caption]`, which the runner
 installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, installed beside it, uploads
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line

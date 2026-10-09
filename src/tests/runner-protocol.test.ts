@@ -114,7 +114,7 @@ class FakeCodex implements AgentProcess {
 
   interrupt(): void {
     this.interrupted = true;
-    this.exit(130);
+    this.#exit(130);
   }
 
   /** Start its turn in `thread`. */
@@ -127,10 +127,10 @@ class FakeCodex implements AgentProcess {
   answer(text: string): void {
     this.#emit({ type: "item.completed", item: { id: "item_0", type: "agent_message", text } });
     this.#emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
-    this.exit(0);
+    this.#exit(0);
   }
 
-  exit(code: number): void {
+  #exit(code: number): void {
     if (this.#exited) return;
     this.#exited = true;
     this.#events.exit(code, "");
@@ -279,9 +279,12 @@ async function online(facts?: MachineFacts): Promise<Fixture> {
   return machine;
 }
 
-/** The main agent runs "build it" on the mac; returns the task id. */
-async function start(object: string): Promise<string> {
-  const result = await prompt(object, "machine build it");
+/** A machine that runs Codex as well as Claude Code. */
+const WITH_CODEX: MachineFacts = { ...FACTS, agents: { ...FACTS.agents, codex: { installed: true, signedIn: true } } };
+
+/** The main agent runs "build it" on the mac, as the machine's own agent or `as` one; returns the task id. */
+async function start(object: string, as?: "codex"): Promise<string> {
+  const result = await prompt(object, as ? `tool machine {"action":"run","machine":"mac","agent":"${as}","prompt":"build it"}` : "machine build it");
   const id = /Started task (\S+) on mac/.exec(result.text ?? "")?.[1];
 
   if (!id) throw new Error(`No task started: ${result.text}`);
@@ -494,27 +497,19 @@ describe("runner protocol", () => {
     expect(mac.claudes).toHaveLength(0);
   });
 
-  it("refuses a run for an agent this machine does not have, or has signed out", async () => {
+  it("refuses a run for an agent this machine does not have, and starts one that looks signed out", async () => {
+    // Claude Code's login as last asked; it may have signed in since, and if not, it says so itself.
     const { mac } = await online({ ...FACTS, agents: { claude: { installed: true, signedIn: false }, codex: { installed: false, signedIn: false } } });
     mac.wire!.mode = "hold";
     const run = { type: "run", task: "m-x", turn: 1, prompt: "go", session: null, taskToken: "" };
     mac.runner.message(JSON.stringify({ ...run, seq: 1, agent: "codex" }));
     mac.runner.message(JSON.stringify({ ...run, seq: 2, task: "m-y", agent: "claude" }));
 
-    expect(mac.claudes).toHaveLength(0);
     expect(mac.codexes).toHaveLength(0);
-    expect(mac.wire!.held.map((text) => JSON.parse(text))).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex", text: "Codex is not installed on this machine." }),
-        expect.objectContaining({
-          type: "result",
-          task: "m-y",
-          ok: false,
-          agent: "claude",
-          text: "Claude Code is not signed in on this machine: run `claude` there and sign in."
-        })
-      ])
+    expect(mac.wire!.held.map((text) => JSON.parse(text))).toContainEqual(
+      expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex", text: "Codex is not installed on this machine." })
     );
+    expect((await mac.claude(0)).prompts).toEqual(["go"]);
   });
 
   it("answers a request to a port with an error: the machine shares none", async () => {
@@ -597,6 +592,72 @@ describe("runner protocol", () => {
     await until("the task to be done", async () => (await status(object, id)) === "done");
     await settle();
     expect(await reports(object, id)).toHaveLength(1);
+  });
+
+  it("runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and test it");
+    await sendTask(object, id, "and ship it");
+    await until("both messages to be acked", async () => (await inbox(object, "mac")).length === 0);
+    expect(mac.codexes).toHaveLength(1);
+
+    first.answer("built");
+    const second = await mac.codex(1);
+    expect([second.resumed, second.prompt]).toEqual(["t1", "and test it"]);
+    second.start("t1");
+    second.answer("tested");
+    const third = await mac.codex(2);
+    expect([third.resumed, third.prompt]).toEqual(["t1", "and ship it"]);
+    third.start("t1");
+    third.answer("shipped");
+
+    await until("three reports", async () => (await reports(object, id)).length === 3);
+    expect(await task(object, id)).toMatchObject({ status: "done", agent: "codex", turns: 3 });
+    expect((await reports(object, id)).map((said) => said.split("\n").at(-1))).toEqual(["built", "tested", "shipped"]);
+  });
+
+  it("stops a Codex turn with a message queued behind it, and says once that it was dropped", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and this");
+    await until("the message to be acked", async () => (await inbox(object, "mac")).length === 0);
+
+    await stopTask(object, id);
+    await until("the task to end", async () => terminal(await status(object, id)));
+    await settle();
+    expect(first.interrupted).toBe(true);
+    expect(mac.codexes).toHaveLength(1);
+    expect(await status(object, id)).toBe("stopped");
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
+  });
+
+  it("reports a Codex result finished offline once the runner is back, as owed in its hello", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const codex = await mac.codex(0);
+    codex.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+
+    mac.disconnect();
+    codex.answer("built");
+    expect(mac.runner.active()).toEqual([]);
+    await mac.connect();
+
+    await until("a report", async () => (await reports(object, id)).length > 0);
+    await settle();
+    const said = await reports(object, id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).not.toContain("Interrupted");
+    expect(await task(object, id)).toMatchObject({ status: "done", session: "t1", turns: 1 });
   });
 
   it("keeps one socket per machine: a second runner's hello replaces the first", async () => {

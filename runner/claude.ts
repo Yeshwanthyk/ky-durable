@@ -76,6 +76,5 @@ function read(line: string): AgentEvent[] {
 export const claude: Adapter = {
   prompt: (text) => `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`,
   steers: true,
-  reader: () => read,
-  signIn: "run `claude` there and sign in"
+  reader: () => read
 };

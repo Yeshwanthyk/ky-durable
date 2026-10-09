@@ -1,7 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocket as Socket } from "ws";
-import type { TaskRow } from "../../src/protocol.ts";
+import type { FileRow, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
@@ -109,6 +109,13 @@ function codexStart(machineOf: Machine, task: string, index: number): FakeEvent 
   if (!start) throw new Error(`codex started ${task} fewer than ${index + 1} times`);
 
   return start;
+}
+
+/** The file a task shared, as the task list shows it. */
+function sharedBy(context: Context, task: string): FileRow | undefined {
+  const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+  return latest?.type === "tasks" ? latest.files.find((row) => row.task === task) : undefined;
 }
 
 /** Ask the main agent, through the faux model, for an automation; resolves with its id. */
@@ -441,6 +448,7 @@ export const SCENARIOS: Scenario[] = [
       const [first, resumed] = [codexStart(mac, task, 0), codexStart(mac, task, 1)];
       check(resumed.resume === first.session, "the follow-up resumed the first thread");
       check(resumed.home === first.home, "in the same CODEX_HOME");
+      check(resumed.instructions === 1, "the resumed turn was told again that it runs a task for ky");
       check(turns(mac, task).length === 0, "claude never ran it");
     }
   },
@@ -487,6 +495,34 @@ export const SCENARIOS: Scenario[] = [
       check(context.main.task(task)?.worker === "codexthere", `the task moved, got ${context.main.task(task)?.worker}`);
       check(turns(there, task, there.codex()).length === 1, "codex ran it on the machine it moved to");
       check(turns(there, task).length === 0 && away.codex().length === 0, "as Codex, and only there");
+    }
+  },
+  {
+    name: "codex-attach",
+    expect: "pass",
+    about: "a Codex task's commands get KY_TOKEN, which Codex drops by default, so ky-attach shares a screenshot",
+    async run(context) {
+      await context.machine("codexshots");
+      const task = await startCodex(context, "codexshots", "[attach] screenshot the page");
+      await status(context, task, "done");
+      const file = sharedBy(context, task);
+      check(file?.caption === "a fake screenshot", "the task lists the screenshot");
+    }
+  },
+  {
+    name: "codex-home-sweep",
+    expect: "pass",
+    about: "the runner deletes a Codex task's home unused for two weeks, and keeps one used since",
+    async run(context) {
+      const homes = path.join(context.dir, "codexsweep", "state", "codex");
+      const [old, recent] = [path.join(homes, "t_old"), path.join(homes, "t_recent")];
+      mkdirSync(old, { recursive: true });
+      mkdirSync(recent, { recursive: true });
+      const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60_000);
+      utimesSync(old, fifteenDaysAgo, fifteenDaysAgo);
+      await context.machine("codexsweep");
+      await until("the old home to go", () => !existsSync(old));
+      check(existsSync(recent), "the home used since is kept");
     }
   },
   {
@@ -545,8 +581,7 @@ export const SCENARIOS: Scenario[] = [
       await context.machine("shots");
       const task = await startTask(context, "shots", "[attach] screenshot the page");
       await status(context, task, "done");
-      const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
-      const file = latest?.type === "tasks" ? latest.files.find((row) => row.task === task) : undefined;
+      const file = sharedBy(context, task);
       check(file !== undefined && file.caption === "a fake screenshot", "the task lists the screenshot");
       const response = await fetch(`${context.url}/api/files/${file!.id}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
       check(response.status === 200 && response.headers.get("Content-Type") === "image/png", "the file is served");

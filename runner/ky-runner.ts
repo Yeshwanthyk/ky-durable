@@ -21,7 +21,7 @@
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -212,15 +212,24 @@ const FACTS_EVERY_MS = 5 * 60_000;
 /**
  * An agent's facts as last known, asked again in the background once they
  * are old: an answer that says nothing keeps the last one. Before any answer
- * it is taken to be here and signed out.
+ * it is taken to be here and signed out. One last found missing is looked
+ * for again each time, since a run for it is turned away and it may have
+ * been installed since; that check is quick.
  */
-function lastKnown(ask: () => Promise<AgentFacts | undefined>) {
+function lastKnown(command: string, ask: () => Promise<AgentFacts | undefined>) {
   let facts: AgentFacts = { installed: true, signedIn: false };
   let at = 0;
   let check: Promise<void> | undefined;
 
   return {
-    facts: () => facts,
+    facts(): AgentFacts {
+      if (!facts.installed && !missing(command)) {
+        facts = { installed: true, signedIn: false };
+        at = 0;
+      }
+
+      return facts;
+    },
     refresh(): Promise<void> {
       if (!check && Date.now() - at > FACTS_EVERY_MS) {
         check = ask().then((answer) => {
@@ -235,11 +244,17 @@ function lastKnown(ask: () => Promise<AgentFacts | undefined>) {
   };
 }
 
+/** Whether `command` is not on this machine. */
+function missing(command: string): boolean {
+  // SAFETY: spawnSync's error is a system error, with a code.
+  return (spawnSync(command, ["--version"], { stdio: "ignore", timeout: 10_000 }).error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
 const AGENTS = {
   // No `--json`: JSON is its default, and a CLI without the flag still answers by its exit code.
-  claude: lastKnown(() => askAgent(CLAUDE, ["auth", "status"], (out, code) => loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1))),
+  claude: lastKnown(CLAUDE, () => askAgent(CLAUDE, ["auth", "status"], (out, code) => loggedIn(out) ?? SIGNED_IN_BY_EXIT.get(code ?? -1))),
   // It says which login in words, on stderr; its exit code is what to read.
-  codex: lastKnown(() => askAgent(CODEX, ["login", "status"], (_out, code) => SIGNED_IN_BY_EXIT.get(code ?? -1)))
+  codex: lastKnown(CODEX, () => askAgent(CODEX, ["login", "status"], (_out, code) => SIGNED_IN_BY_EXIT.get(code ?? -1)))
 } satisfies Record<Agent, ReturnType<typeof lastKnown>>;
 
 let repos: { at: number; value: MachineFacts["repos"] } | undefined;
@@ -248,7 +263,10 @@ let repos: { at: number; value: MachineFacts["repos"] } | undefined;
 function machineFacts(): MachineFacts {
   for (const agent of Object.values(AGENTS)) void agent.refresh();
 
-  if (!repos || Date.now() - repos.at > FACTS_EVERY_MS) repos = { at: Date.now(), value: scanRepos() };
+  if (!repos || Date.now() - repos.at > FACTS_EVERY_MS) {
+    repos = { at: Date.now(), value: scanRepos() };
+    sweepCodexHomes();
+  }
 
   return {
     os: process.platform,
@@ -282,15 +300,27 @@ function log(...parts: unknown[]) {
   console.log(new Date().toISOString().slice(11, 19), ...parts);
 }
 
+/** Where each Codex task's home is. */
+const CODEX_HOMES = join(STATE_DIR, "codex");
+
+/**
+ * How long a Codex task's home is kept after its last turn: two weeks, as
+ * long as a follow-up is likely to come; a later one fails, its thread gone.
+ * A home is a few MB of Codex's own state, which would otherwise pile up a
+ * task at a time.
+ */
+const CODEX_HOME_KEPT_MS = 14 * 24 * 60 * 60_000;
+
 /**
  * A Codex task's own CODEX_HOME, which keeps its threads for follow-ups to
  * resume. Nothing of the user's own Codex config (models, MCP servers,
  * profiles) comes in, and its threads stay out of the user's history. It
  * signs in with the machine's login: auth.json links to the machine's, so a
- * token Codex refreshes is refreshed for both.
+ * token Codex refreshes is refreshed for both. Each turn marks it used, for
+ * the sweep.
  */
 function codexHome(task: string): string {
-  const home = join(STATE_DIR, "codex", task);
+  const home = join(CODEX_HOMES, task);
   mkdirSync(home, { recursive: true, mode: 0o700 });
 
   try {
@@ -301,7 +331,24 @@ function codexHome(task: string): string {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
 
+  const now = new Date();
+  utimesSync(home, now, now);
+
   return home;
+}
+
+/** Delete each Codex task's home not used for CODEX_HOME_KEPT_MS. */
+function sweepCodexHomes(): void {
+  if (!existsSync(CODEX_HOMES)) return;
+
+  for (const task of readdirSync(CODEX_HOMES)) {
+    const home = join(CODEX_HOMES, task);
+
+    if (Date.now() - statSync(home).mtimeMs > CODEX_HOME_KEPT_MS) {
+      rmSync(home, { recursive: true, force: true });
+      log(`${task}: deleted its Codex home, unused for ${CODEX_HOME_KEPT_MS / 86_400_000} days`);
+    }
+  }
 }
 
 /** How each agent's CLI is started for a task: its executable, arguments, and what it adds to the environment. */

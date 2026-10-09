@@ -13,8 +13,13 @@
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default 50)
  *   [fail]       the turn fails, with the API's error body as Codex gives it
+ *   [attach]     a command that shares a 1x1 PNG through `ky-attach`, run with
+ *                the environment Codex gives its commands: unless
+ *                shell_environment_policy.ignore_default_excludes=true, none
+ *                named like a key, secret or token; the answer ends with what
+ *                it printed, or how it failed
  *   [tools=Bash:pnpm test,Edit:src/x.ts]
- *                items before the answer: Bash a command, Write/Edit/delete a file change
+ *                items before the answer: Bash a command, Write/Edit/Delete a file change
  *
  * FAKE_CODEX_LOG       append one JSON line per start, turn, SIGINT and exit, so
  *                      a test can count and order what really ran; a start
@@ -22,6 +27,7 @@
  */
 import { appendFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
+import { attach, toolsIn } from "./directives.ts";
 
 const args = process.argv.slice(2);
 
@@ -76,24 +82,43 @@ function authLink(): string {
 const FILE_KINDS = new Map([
   ["Write", "add"],
   ["Edit", "update"],
-  ["delete", "delete"]
+  ["Delete", "delete"]
 ]);
 
 /** The items a `[tools=...]` directive asks for. */
 function items(prompt: string): ToolItem[] {
-  const listed = /\[tools=([^\]]+)\]/.exec(prompt)?.[1] ?? "";
+  return toolsIn(prompt).map(({ name, value }, index): ToolItem => {
+    const id = `item_${index}`;
 
-  return listed
-    .split(",")
-    .filter((each) => each.includes(":"))
-    .map((each, index): ToolItem => {
-      const [name, value] = [each.slice(0, each.indexOf(":")), each.slice(each.indexOf(":") + 1)];
-      const id = `item_${index}`;
+    return name === "Bash"
+      ? { id, type: "command_execution", command: `/bin/zsh -lc '${value}'`, aggregated_output: "", exit_code: 0, status: "completed" }
+      : { id, type: "file_change", changes: [{ path: value, kind: FILE_KINDS.get(name) ?? "update" }], status: "completed" };
+  });
+}
 
-      return name === "Bash"
-        ? { id, type: "command_execution", command: `/bin/zsh -lc '${value}'`, aggregated_output: "", exit_code: 0, status: "completed" }
-        : { id, type: "file_change", changes: [{ path: value, kind: FILE_KINDS.get(name) ?? "update" }], status: "completed" };
-    });
+/** The environment Codex gives its commands: by default, none named like a key, secret or token. */
+function commandEnv(): NodeJS.ProcessEnv {
+  if (args.includes("shell_environment_policy.ignore_default_excludes=true")) return process.env;
+
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !/KEY|SECRET|TOKEN/i.test(name)));
+}
+
+/** `[attach]` as a command item: a line saying what it printed, or how it failed; nothing without the directive. */
+async function attached(prompt: string): Promise<string> {
+  if (!prompt.includes("[attach]")) return "";
+  const item: ToolItem = { id: "item_attach", type: "command_execution", command: "/bin/zsh -lc 'ky-attach screenshot.png'", aggregated_output: "", exit_code: 0, status: "in_progress" };
+  emit({ type: "item.started", item });
+
+  try {
+    const said = await attach(commandEnv());
+    emit({ type: "item.completed", item: { ...item, aggregated_output: said, status: "completed" } });
+
+    return `\n${said}`;
+  } catch (error) {
+    emit({ type: "item.completed", item: { ...item, aggregated_output: String(error), exit_code: 1, status: "failed" } });
+
+    return `\nky-attach failed: ${String(error)}`;
+  }
 }
 
 process.on("SIGINT", () => {
@@ -134,7 +159,8 @@ process.stdin.on("end", async () => {
     process.exit(1);
   }
 
-  emit({ type: "item.completed", item: { id: "item_answer", type: "agent_message", text: `fake codex did: ${prompt}` } });
+  const shared = await attached(prompt);
+  emit({ type: "item.completed", item: { id: "item_answer", type: "agent_message", text: `fake codex did: ${prompt}${shared}` } });
   emit({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
   record("exit", { code: 0 });
   process.exit(0);

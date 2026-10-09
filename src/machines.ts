@@ -69,23 +69,30 @@ const PREFERRED: readonly Agent[] = ["claude", "codex"];
 /** Agents that take a message mid-turn; Codex runs one once its turn ends. */
 const STEERS: ReadonlySet<Agent> = new Set(["claude"]);
 
-/** Whether a machine can run `agent`: installed and signed in, as it last said; one that never said is taken to. */
+/** Whether a machine has `agent` installed, as it last said; one that never said is taken to. */
+function has(facts: MachineFacts | null, agent: Agent): boolean {
+  return facts === null || facts.agents[agent].installed;
+}
+
+/** Whether a machine runs `agent`: installed and signed in, as it last said; one that never said is taken to. */
 function runs(facts: MachineFacts | null, agent: Agent): boolean {
-  return facts === null || (facts.agents[agent].installed && facts.agents[agent].signedIn);
+  return has(facts, agent) && (facts === null || facts.agents[agent].signedIn);
 }
 
-/** The agent a task on a machine runs as when none is named: the first it runs, Claude Code first. */
+/** The agent a task on a machine runs as when none is named: the first it runs, else the first it has, Claude Code first. */
 function defaultAgent(facts: MachineFacts | null): Agent {
-  return PREFERRED.find((agent) => runs(facts, agent)) ?? "claude";
+  return PREFERRED.find((agent) => runs(facts, agent)) ?? PREFERRED.find((agent) => has(facts, agent)) ?? "claude";
 }
 
-/** Why a machine cannot run `agent`, or null if it can. */
+/**
+ * Why a machine cannot run `agent`, or null if it can. Only a missing CLI
+ * is: a login that looks signed out may be wrong, as the runner does too,
+ * and the CLI says so itself.
+ */
 function cannotRun(machine: MachineInfo | undefined, agent: Agent): string | null {
-  const facts = machine?.facts ?? null;
+  if (!machine || has(machine.facts, agent)) return null;
 
-  if (!machine || runs(facts, agent)) return null;
-
-  return `${machine.name} cannot run ${AGENT_NAMES[agent]}: it is not ${facts!.agents[agent].installed ? "signed in" : "installed"} there.`;
+  return `${machine.name} cannot run ${AGENT_NAMES[agent]}: it is not installed there.`;
 }
 
 export class MachineHub {
@@ -768,7 +775,7 @@ function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo
 
   if ("refusal" in picked) return picked.refusal;
 
-  if (!args.prompt) return "run needs a prompt.";
+  if (!args.prompt?.trim()) return "run needs a prompt.";
   const agent = args.agent ?? hub.defaultAgent(picked.name);
   const refusal = cannotRun(machines.find((m) => m.name === picked.name), agent);
 
@@ -782,7 +789,8 @@ function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo
 
 /** Steer or resume a task, unless the user has turned its machine off. */
 function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, conversation: string): string {
-  if (!message) return "send needs a message.";
+  // A blank one would end Codex's resumed turn with nothing to run.
+  if (!message?.trim()) return "send needs a message.";
 
   if (hub.machine(task.worker)?.state === "off") {
     return `${task.worker} is off: the user is not letting it take anything. Start a new task elsewhere with what ${task.id} needs.`;
