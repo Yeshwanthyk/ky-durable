@@ -896,12 +896,42 @@
     },
     {
       "check": "worker-e2e",
+      "name": "removing a machine turns away a socket whose token the Worker took just before the remove, and keeps no machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine turns away a hello that comes after the remove on a socket taken before it, and keeps no machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine turns away the last pairing's socket once the machine pairs again, and takes the new one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the methods of the runner routes answers 405 to anything but POST on the codes path, and never takes it for a machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "task tokens are the task's alone, last through a follow-up, and stop when the task ends",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
       "name": "task tokens refuse an upload with another task's token after the first ends",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens are revoked when the agent starts, for a task that ended and whose revoke was lost",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens deliver a run again, a moment later, after the Vault failed to issue its token",
       "outcome": "passed"
     },
     {
@@ -981,7 +1011,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the runner's WebSocket keeps no machine for a runner that never says a valid hello",
+      "name": "the runner's WebSocket keeps no machine for a socket whose machine was never paired, or that never says a valid hello",
       "outcome": "passed"
     },
     {
@@ -1096,7 +1126,22 @@
     },
     {
       "check": "worker-e2e",
-      "name": "vault issues a task its one live token again until it is revoked, then a new one, and stores no token",
+      "name": "vault issues a task its one live token again until it is revoked, then a new one, kept as its hash and nonce",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault lets an issued token expire a day after its last issue",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault lets a revoke that comes while an issue derives its token win: the issue stores a new one after it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault revokes the issued tokens of all the subjects named, and no others",
       "outcome": "passed"
     },
     {
