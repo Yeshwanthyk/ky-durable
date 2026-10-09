@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocket as Socket } from "ws";
 import type { FileRow, TaskRow } from "../../src/protocol.ts";
@@ -512,17 +512,23 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "codex-home-sweep",
     expect: "pass",
-    about: "the runner deletes a Codex task's home unused for two weeks, and keeps one used since",
+    about: "the runner deletes a Codex task's home unused for two weeks, not the machine login it links to, and keeps one used since",
     async run(context) {
       const homes = path.join(context.dir, "codexsweep", "state", "codex");
       const [old, recent] = [path.join(homes, "t_old"), path.join(homes, "t_recent")];
       mkdirSync(old, { recursive: true });
       mkdirSync(recent, { recursive: true });
+      const login = path.join(context.dir, "codexsweep-auth.json");
+      writeFileSync(login, "{}");
+      symlinkSync(login, path.join(old, "auth.json"));
+      // Listed first, and a stat that follows links would throw on it.
+      symlinkSync(path.join(homes, "gone"), path.join(homes, "t_broken"));
       const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60_000);
       utimesSync(old, fifteenDaysAgo, fifteenDaysAgo);
       await context.machine("codexsweep");
       await until("the old home to go", () => !existsSync(old));
       check(existsSync(recent), "the home used since is kept");
+      check(existsSync(login), "the machine's login its auth.json linked to is kept");
     }
   },
   {

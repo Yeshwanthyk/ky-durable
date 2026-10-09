@@ -21,7 +21,7 @@
  * video, and ky-diff shares a repository's changes as a reviewable diff.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -337,16 +337,33 @@ function codexHome(task: string): string {
   return home;
 }
 
-/** Delete each Codex task's home not used for CODEX_HOME_KEPT_MS. */
+/**
+ * Delete each Codex task's home not used for CODEX_HOME_KEPT_MS. It runs
+ * with the facts, so it never throws: a home gone since the listing, or one
+ * it cannot read, is left for the next sweep.
+ */
 function sweepCodexHomes(): void {
-  if (!existsSync(CODEX_HOMES)) return;
+  let tasks: string[];
 
-  for (const task of readdirSync(CODEX_HOMES)) {
+  try {
+    tasks = readdirSync(CODEX_HOMES);
+  } catch (error) {
+    // SAFETY: readdirSync throws only system errors, each with a code.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") log(`could not sweep the Codex homes: ${String(error)}`);
+
+    return;
+  }
+
+  for (const task of tasks) {
     const home = join(CODEX_HOMES, task);
 
-    if (Date.now() - statSync(home).mtimeMs > CODEX_HOME_KEPT_MS) {
+    try {
+      // lstat: a home is a folder, and a link in its place is judged by its own age, not followed.
+      if (Date.now() - lstatSync(home).mtimeMs <= CODEX_HOME_KEPT_MS) continue;
       rmSync(home, { recursive: true, force: true });
       log(`${task}: deleted its Codex home, unused for ${CODEX_HOME_KEPT_MS / 86_400_000} days`);
+    } catch (error) {
+      log(`${task}: could not sweep its Codex home: ${String(error)}`);
     }
   }
 }
