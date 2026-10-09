@@ -348,6 +348,19 @@ describe("ky init and deploy", () => {
     expect([...account.buckets.keys()]).toEqual(["ky-files", "ky-runner-files"]);
   });
 
+  it("refuses a name whose bucket R2 wouldn't take, before anything is written", async () => {
+    const config = release("r1").config;
+    const ky = await fresh();
+    const name = "k".repeat(57);
+
+    current = release("r1", { ...config, r2_buckets: [...(config.r2_buckets ?? []), { binding: "RUNNER_FILES", bucket_name: "ky-runner-files" }] });
+    await expect(initCommand(ky, { account: "acc", name, email: EMAIL })).rejects.toThrow(
+      `The RUNNER_FILES binding's bucket would be ${name}-runner-files, and R2 takes only 3 to 63 lowercase letters, digits and dashes: pick a shorter name`
+    );
+    expect(existsSync(ky.overlay)).toBe(false);
+    expect(account.buckets.size).toBe(0);
+  });
+
   it("uploads only the web app's files Cloudflare doesn't have", async () => {
     const ky = await setUp();
     const uploaded = new Set(account.assets);

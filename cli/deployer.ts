@@ -12,6 +12,7 @@
  * or removed.
  */
 import { createHash, randomBytes } from "node:crypto";
+import { extname } from "node:path";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
@@ -113,6 +114,19 @@ function required<T>(value: T | undefined, what: string): T {
   return value;
 }
 
+/** What R2 takes as a bucket's name. */
+const BUCKET = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+
+/** The bucket for a binding, the Worker's name and the binding's, refused when R2 wouldn't take it. */
+function bucketFor(script: string, binding: string): string {
+  const bucketName = `${script}-${binding.toLowerCase().replaceAll("_", "-")}`;
+
+  if (!BUCKET.test(bucketName))
+    throw new Error(`The ${binding} binding's bucket would be ${bucketName}, and R2 takes only 3 to 63 lowercase letters, digits and dashes: pick a shorter name`);
+
+  return bucketName;
+}
+
 /** The names this deploy's resources go by: each bucket is the Worker's name and its binding's. */
 function names(config: Unstable_RawConfig) {
   const script = required(config.name, "name");
@@ -122,10 +136,7 @@ function names(config: Unstable_RawConfig) {
     script,
     access: script,
     bypass: `${script} bypass`,
-    buckets: (config.r2_buckets ?? []).map((bucket) => ({
-      binding: bucket.binding,
-      name: `${script}-${bucket.binding.toLowerCase().replaceAll("_", "-")}`
-    }))
+    buckets: (config.r2_buckets ?? []).map((bucket) => ({ binding: bucket.binding, name: bucketFor(script, bucket.binding) }))
   };
 }
 
@@ -273,17 +284,17 @@ const TYPES = new Map([
   ["webmanifest", "application/manifest+json"]
 ]);
 
-/** The web app's manifest, path to hash, and its files by hash; a file's hash is wrangler's. */
+/** The web app's manifest, path to hash, and its files by hash; as in wrangler's, a hash covers the file and its extension. */
 function hashed(assets: Release["assets"]) {
   const files = new Map<string, File>();
   const manifest: Record<string, { hash: string; size: number }> = {};
 
   for (const [path, content] of assets) {
-    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+    const ext = extname(path).slice(1);
     const hash = createHash("sha256").update(content).update(ext).digest("hex").slice(0, 32);
 
     manifest[path] = { hash, size: content.byteLength };
-    files.set(hash, new File([Buffer.from(content).toString("base64")], hash, { type: TYPES.get(ext) ?? "application/octet-stream" }));
+    files.set(hash, new File([Buffer.from(content).toString("base64")], hash, { type: TYPES.get(ext.toLowerCase()) ?? "application/octet-stream" }));
   }
 
   return { manifest, files };
