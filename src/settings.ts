@@ -56,6 +56,8 @@ export class Settings {
   constructor(sql: SqlStorage, valid: (choice: ModelChoice) => ModelChoice | undefined) {
     this.#sql = sql;
     this.#valid = valid;
+    // ky_settings held the slots the purposes replaced; their choices are not carried over.
+    sql.exec(`DROP TABLE IF EXISTS ky_settings`);
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_purposes (
       purpose TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   }

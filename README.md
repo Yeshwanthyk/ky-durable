@@ -27,13 +27,15 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` in `wrangler.local.jsonc` |
-| OpenCode Go | The cheap model (`OPENCODE_MODEL` in `src/models.ts`), and the stand-in while the Mac is away. | `src/models.ts` |
-| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, turns on Claude go to the fallback slot. | `src/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
+| Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
+| OpenCode Go | A model vendor paid with a key; main's model when the `OPENCODE_API_KEY` secret is set. | `src/providers/api-key.ts` |
+| VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
 | ky-runner on the Mac | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
-`ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations.ts`), `ky_settings` (model slots, `src/settings.ts`),
+`ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations.ts`), `ky_providers` (`src/providers/records.ts`),
+`ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`),
 `ky_dream` (`src/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
@@ -105,12 +107,17 @@ pnpm run deploy                           # vite build && wrangler deploy
 ```
 
 For Claude, run VibeProxy on the Mac at `VIBEPROXY_ORIGIN` and a cloudflared tunnel to it with no public
-hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on OpenCode Go.
+hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on OpenCode Go when its
+key is set, else on Workers AI.
 Open pages reload by themselves after a deploy (`CF_VERSION_METADATA`), unless you have a draft.
 
-**Models.** Settings has four slots (`src/settings.ts`): main, subagents, fallback (Claude's stand-in
-while the Mac is away) and titles. Claude can be picked only while VibeProxy answers. `src/models.ts` owns
-the catalog, the defaults, `resolve(slot)` and the fallback; `src/vibeproxy.ts` makes one provider per tunnel.
+**Models.** Settings picks a model for each of four purposes (`src/settings.ts`): main; worker (subagents,
+specialists, automations); background (titles, memory summaries, dreams, skill reviews); and fallback. Each
+provider is a row in `ky_providers`, made live by its module in `src/providers/`. `src/models.ts` owns the
+one pi registry, the catalog, the defaults and `resolve(purpose, need)`, the only way a model is picked.
+Each call checks its provider as it starts (VibeProxy's probe, and a breaker that opens on 401/402/429/5xx);
+a call whose provider is down runs on another provider that is healthy then. Claude can be picked only
+while VibeProxy answers.
 The system prompt is `src/prompt.ts`.
 
 **Deploy order when the runner protocol changes.** Deploy the worker first, then update and restart the
