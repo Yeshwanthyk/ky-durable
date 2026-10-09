@@ -27,12 +27,15 @@ const MODEL_IDS = ["claude-opus-5-5", "claude-haiku-4-5"];
 
 /** A runner-local provider on the port of `origin`, reached through the overlay's tunnel until node P pipes it through the runner. */
 export function vibeProxyRecord(origin: string): ProviderRecord {
+  const url = new URL(origin);
+
   return {
     id: VIBEPROXY_PROVIDER,
     kind: "runner-local",
     vendor: null,
     machine: null,
-    port: Number(new URL(origin).port),
+    // URL leaves out a scheme's default port.
+    port: Number(url.port) || (url.protocol === "https:" ? 443 : 80),
     api: "anthropic-messages",
     label: NAME,
     enabled: true

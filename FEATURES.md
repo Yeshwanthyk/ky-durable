@@ -42,7 +42,7 @@ A cite points at the code that does the work.
 
 | id | behaviour | cite | tag | check |
 |---|---|---|---|---|
-| side-chat | New side chat starts a chat. The background model names it from its first message. | src/server.ts:340, src/chats.ts:25, src/server.ts:109 | local | W features › starts a side chat whose title the background model rewrites from its first message; P starts a side chat, names it from its first message, and goes back to the main chat |
+| side-chat | New side chat starts a chat. The background model names it from its first message. | src/server.ts:343, src/chats.ts:25, src/server.ts:109 | local | W features › starts a side chat whose title the background model rewrites from its first message; P starts a side chat, names it from its first message, and goes back to the main chat |
 | title-trim | A long title is trimmed. When the background model fails, the first line is kept. | src/titles.ts:24, src/chats.ts:19 | local | W features › trims a long title, and keeps the first line when the background model fails; W models › trims a long title to fit; W models › gives up quietly when the model fails or there is nothing to name |
 
 ## Models, and the Mac online or away
