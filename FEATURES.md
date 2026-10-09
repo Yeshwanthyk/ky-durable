@@ -203,6 +203,23 @@ The Vault object keeps ky's secrets and the tokens it hands out. Nothing calls i
 | vault-consume | A token can be consumed once: of callers racing with it, one gets its subject and the rest get null. | src/vault.ts:207 | local | W vault › consumes a token once: of two racing callers, one gets its subject |
 | vault-refresh | Concurrent refreshes of one stored generation share one run. A put or remove that lands first wins, even with the same value, whether the refresh succeeded or failed. A failed refresh of an unchanged secret, including one that returns nothing JSON can hold, leaves its error in status until a refresh or put next writes it. | src/vault.ts:126, src/vault.ts:228 | local | W vault › shares one refresh among concurrent callers and stores its result; W vault › drops a refresh that a put or remove beat, and answers with what is stored now; W vault › lets a put of the very same value beat a refresh, and runs a new refresh for callers after it; W vault › answers a failed refresh that a put or remove beat with what is stored now, and records no error; W vault › keeps a failed refresh's error on the secret until a refresh or put next writes it, and runs nothing for a missing one; W vault › fails a refresh that returns nothing or what JSON can't hold, and keeps the secret |
 
+## Setup CLI
+
+`ky`, built by `pnpm compile` with the release inside it, deploys ky to the user's own Cloudflare account with the user's login for that run; it keeps no Cloudflare token. The checks run it in-process against test/fakes/cloudflare.ts.
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| cli-deploy | `ky init` writes the overlay (account, name, vars), then deploys the Worker with the release's config and bindings, every migration, `ACCESS_*`, a bucket named from the Worker and each R2 binding (a name R2 won't take is refused before anything is written) and a KY_TOKEN that is printed once. | cli/init.ts:157, cli/deployer.ts:439, cli/deployer.ts:121 | local | N cli › ky init and deploy › deploys the Worker with the release's config, every migration, ACCESS_* and a KY_TOKEN shown once; N cli › ky init and deploy › deploys a release's new bindings to an existing overlay; N cli › ky init and deploy › refuses a name whose bucket R2 wouldn't take, before anything is written |
+| cli-access | The deploy sets up an Access app that lets only the owner in, and a bypass app for exactly the C2 paths, both tagged `ky`; it finds them by what they guard and their tag, never by name. | cli/deployer.ts:350, cli/deployer.ts:382 | local | N cli › ky init and deploy › sets up an Access app for the owner and a bypass app for the C2 paths; N cli › ky init and deploy › finds ky's Access apps by what they guard and their tag, not by name |
+| cli-upgrade | `ky upgrade` runs only the migrations the Worker hasn't run (its tag read where wrangler reads it), keeps its KY_TOKEN, and updates the Access apps in place; a ky older than the Worker says to get a newer one. | cli/deployer.ts:230, cli/commands.ts:66 | local | N cli › ky init and deploy › upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration; N cli › ky init and deploy › tells a ky older than the Worker to get a newer one, rather than to upgrade |
+| cli-assets | A deploy uploads only the web app's files Cloudflare doesn't have. | cli/deployer.ts:304 | local | N cli › ky init and deploy › uploads only the web app's files Cloudflare doesn't have |
+| cli-ownership | A Worker, bucket or Access app of the deploy's that ky didn't make (the owner's production `ky` and `ky-files`, or an app already guarding the address, say) is never changed, emptied or removed, and teardown leaves a bucket another Worker binds. | cli/deployer.ts:162, cli/deployer.ts:178, cli/deployer.ts:190, cli/deployer.ts:350, cli/deployer.ts:632 | local | N cli › ky init and deploy › refuses a Worker or bucket of that name ky didn't make, and writes nothing; N cli › ky init and deploy › refuses an Access app on the address ky didn't make, and leaves it alone; N cli › ky teardown › leaves a Worker of that name ky didn't deploy alone; N cli › ky teardown › leaves a bucket another Worker binds, and the production ky Worker's bucket |
+| cli-init-prereqs | `ky init` waits for Zero Trust, sets the workers.dev subdomain, and names the token scopes to create when the login can't manage Access; without a terminal, each missing answer names its flag. Run again, it fills in only what the overlay lacks; a failed deploy keeps the settings and says to retry with `ky deploy`. | cli/init.ts:68, cli/init.ts:97, cli/init.ts:113, cli/init.ts:133 | local | N cli › ky init and deploy › asks for Zero Trust, a workers.dev subdomain, and a token that can manage Access; N cli › ky init and deploy › fills in what the overlay lacks, and keeps what it has; N cli › ky init and deploy › keeps the settings when the deploy fails, and says to retry with ky deploy |
+| cli-doctor | `ky doctor` checks each piece of the deploy, reports a refused login, a name ky didn't make or a ky older than the Worker as a failed check, and prints the command or dashboard step that fixes the first one missing, or JSON with `--json`. Following each Next leads to a deploy that passes. | cli/commands.ts:101, cli/deployer.ts:502, cli/deployer.ts:598 | local | N cli › ky doctor › prints each check; N cli › ky doctor › reports a login Access refuses, and a Worker ky didn't deploy, as checks; N cli › ky doctor › with $state, each Next leads to a deploy that passes; N cli › ky init and deploy › tells a ky older than the Worker to get a newer one, rather than to upgrade |
+| cli-teardown | `ky teardown --confirm <name>` removes the Worker with its data and secrets, then its Access apps and the emptied bucket, then the overlay; when it can't find the Access apps (the workers.dev subdomain is gone) it says where to remove them and keeps the overlay. | cli/deployer.ts:695, cli/commands.ts:145 | local | N cli › ky teardown › removes the Worker with its data and secrets, then its Access apps and the emptied bucket, then the overlay; N cli › ky teardown › says it can't find the Access apps once the workers.dev subdomain is gone, and keeps the overlay |
+| cli-errors | A failure, a bad flag among them, prints `ky: <message>` rather than a stack. | cli/ky.ts:41 | local | N cli › the ky command › prints a bad flag's message rather than a stack, and help |
+| cli-release-pack | The compiled `ky` carries the release it deploys. | cli/release.ts:37, cli/binary.ts:1 | local | N cli › the release pack › carries the release the compiled ky deploys |
+
 ## Live-only
 
 These need a real outside service, so the local gate can't cover them.
@@ -217,6 +234,7 @@ These need a real outside service, so the local gate can't cover them.
 | live-browser | browse drives a real Browser Rendering page. | src/browse.ts:53 | live-only | by hand: ask ky to browse a page | Locally a CDP fake stands in for the browser. |
 | live-executor | Executor runs real accounts and approvals. | src/executor.ts:179 | live-only | by hand: run executor_skills, then a program that needs approval | Locally an MCP fake stands in for Executor. |
 | live-claude-cli | The runner drives the real `claude` CLI on the Mac. | runner/ky-runner.ts | live-only | by hand: start a machine task with the runner on the Mac | The harness uses test/fakes/claude.ts. |
+| live-ky-init | On a clean account, the compiled `ky init` ends with ky behind Access, and `ky teardown` removes it. | cli/init.ts:80 | live-only | by hand: `ky init`, `ky doctor`, `ky teardown --confirm ky` on a spare account | Needs a real Cloudflare account; the local checks use test/fakes/cloudflare.ts. |
 
 ## Known gaps that have no fix yet
 
@@ -224,6 +242,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 126.
-- Live-only features: 8.
+- Local features: 135.
+- Live-only features: 9.
 - Known broken: none. `pnpm harness` has no expected failures.

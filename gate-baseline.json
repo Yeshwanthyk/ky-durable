@@ -11,6 +11,191 @@
   "items": [
     {
       "check": "node",
+      "name": "ky init and deploy deploys the Worker with the release's config, every migration, ACCESS_* and a KY_TOKEN shown once",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy sets up an Access app for the owner and a bypass app for the C2 paths",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy finds ky's Access apps by what they guard and their tag, not by name",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses an Access app on the address ky didn't make, and leaves it alone",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy tells a ky older than the Worker to get a newer one, rather than to upgrade",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy deploys a release's new bindings to an existing overlay",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses a name whose bucket R2 wouldn't take, before anything is written",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy uploads only the web app's files Cloudflare doesn't have",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy refuses a Worker or bucket of that name ky didn't make, and writes nothing",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy asks for Zero Trust, a workers.dev subdomain, and a token that can manage Access",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy fills in what the overlay lacks, and keeps what it has",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky init and deploy keeps the settings when the deploy fails, and says to retry with ky deploy",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor prints each check",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor reports a login Access refuses, and a Worker ky didn't deploy, as checks",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no settings', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a setting missing', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a setting ky\\'s overlay refuses', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no compiled release', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no login', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a wrangler login, which Access refuses', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'Zero Trust off', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no workers.dev subdomain', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a Worker ky didn\\'t deploy', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a bucket ky didn\\'t create', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no Worker', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'an older release', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'a migration behind', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no KY_TOKEN', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'no bypass app', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky doctor with 'workers.dev off', each Next leads to a deploy that passes",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown removes the Worker with its data and secrets, then its Access apps and the emptied bucket, then the overlay",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown leaves a Worker of that name ky didn't deploy alone",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown says it can't find the Access apps once the workers.dev subdomain is gone, and keeps the overlay",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky teardown leaves a bucket another Worker binds, and the production ky Worker's bucket",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the ky command prints a bad flag's message rather than a stack, and help",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the release pack carries the release the compiled ky deploys",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
       "name": "the owner overlay adds the example overlay's vars and VibeProxy tunnel to wrangler.jsonc and keeps its bindings",
       "outcome": "passed"
     },
