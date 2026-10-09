@@ -138,8 +138,8 @@ node --experimental-strip-types runner/ky-runner.ts
 ```
 
 Remove in the same list revokes the token: the runner exits and says to pair again. Each task's
-`claude` gets only `KY_URL`, `KY_TASK` and `KY_TASK_TOKEN` from ky, never the machine token; it still
-runs as your user, so it could read the token file.
+agent, `claude` or `codex`, gets only `KY_URL`, `KY_TASK` and `KY_TASK_TOKEN` from ky, never the machine
+token; it still runs as your user, so it could read the token file.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
