@@ -440,7 +440,10 @@ export class MachineHub {
    * be running whatever the inbox says.
    */
   async stop(task: TaskRow): Promise<void> {
-    if (task.status !== "queued" && task.status !== "working") return;
+    const { turn, closed, sent } = this.#turns(task.id);
+
+    // Open turns, not the status: a follow-up queued behind a finished turn leaves the task done until it starts.
+    if (turn <= closed) return;
 
     const withdrawn = this.#sql.exec(
       `DELETE FROM ky_machine_inbox WHERE machine = ? AND sent = 0
@@ -448,8 +451,6 @@ export class MachineHub {
       task.worker,
       task.id
     ).rowsWritten;
-
-    const { turn, closed, sent } = this.#turns(task.id);
 
     if (withdrawn > 0 && sent <= closed) {
       await this.#finish(task.id, false, "Stopped before it started.", turn);

@@ -640,6 +640,24 @@ describe("runner protocol", () => {
     expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
   });
 
+  it("stops a Codex follow-up started behind a finished turn, before its session is known", async () => {
+    const { object, mac } = await online(WITH_CODEX);
+    const id = await start(object, "codex");
+    const first = await mac.codex(0);
+    first.start("t1");
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+    await sendTask(object, id, "and this");
+    await until("the message to be acked", async () => (await inbox(object, "mac")).length === 0);
+    first.answer("built");
+    const second = await mac.codex(1);
+    await until("the first turn's report", async () => (await reports(object, id)).length === 1);
+    expect(await status(object, id)).toBe("done");
+
+    await stopTask(object, id);
+    await until("the follow-up to be interrupted", () => second.interrupted);
+    await until("the task to be stopped", async () => (await status(object, id)) === "stopped");
+  });
+
   it("reports a Codex result finished offline once the runner is back, as owed in its hello", async () => {
     const { object, mac } = await online(WITH_CODEX);
     const id = await start(object, "codex");
