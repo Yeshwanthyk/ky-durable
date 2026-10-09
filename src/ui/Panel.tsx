@@ -746,6 +746,7 @@ function summaryOf(current: ModelChoice, provider: ProviderInfo | undefined, mod
 // A purpose's row shows what it runs; open, it lists the models to pick from and how hard to think.
 function ModelRow({
   purpose,
+  current,
   label,
   hint,
   settings,
@@ -754,6 +755,7 @@ function ModelRow({
   onSet,
 }: {
   purpose: Purpose;
+  current: ModelChoice;
   label: string;
   hint: string;
   settings: SettingsView;
@@ -761,7 +763,6 @@ function ModelRow({
   onToggle: () => void;
   onSet: (purpose: Purpose, choice: ModelChoice) => void;
 }) {
-  const current = settings.purposes[purpose];
   const connected = settings.providers.filter((provider) => provider.connected);
   const provider = settings.providers.find((each) => each.id === current.provider);
   const model = provider?.models.find((each) => each.modelId === current.modelId);
@@ -1039,20 +1040,29 @@ function Settings({
         <h3 className="group-label">Models</h3>
         {settings === null ? (
           <p className="panel-note">Loading models…</p>
+        ) : Object.keys(settings.purposes).length === 0 ? (
+          <p className="panel-note">No model provider is enabled.</p>
         ) : (
           <ul className="card">
-            {PURPOSES.map(({ purpose, label, hint }) => (
-              <ModelRow
-                key={purpose}
-                purpose={purpose}
-                label={label}
-                hint={hint}
-                settings={settings}
-                open={openPurpose === purpose}
-                onToggle={() => setOpenPurpose((value) => (value === purpose ? null : purpose))}
-                onSet={onSet}
-              />
-            ))}
+            {PURPOSES.flatMap(({ purpose, label, hint }) => {
+              const current = settings.purposes[purpose];
+
+              return current
+                ? [
+                    <ModelRow
+                      key={purpose}
+                      purpose={purpose}
+                      current={current}
+                      label={label}
+                      hint={hint}
+                      settings={settings}
+                      open={openPurpose === purpose}
+                      onToggle={() => setOpenPurpose((value) => (value === purpose ? null : purpose))}
+                      onSet={onSet}
+                    />,
+                  ]
+                : [];
+            })}
           </ul>
         )}
       </section>

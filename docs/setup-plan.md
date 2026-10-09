@@ -237,6 +237,8 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
     so titles and summaries never fall to Opus (changed in M review 2). There is no stand-in on the same
     provider, and a stand-in is never re-routed (changed in M review: it could bounce between two down providers).
     With no other provider healthy, the call runs on its own provider, fails fast, and pi's retry applies.
+  - With no provider enabled no purpose resolves: `resolve` throws, and the Settings view (`SettingsView.purposes`,
+    now partial) lists none, so Settings still opens and says so (changed in M review 2).
   - It's the only way any caller picks a model. `imageSupport(purpose)` asks it, and answers for the stand-in's
     model while the purpose's provider is down.
   - Workers AI's thinking levels are per model, from live probes of the compat endpoint (changed in M review:

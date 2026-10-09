@@ -108,16 +108,21 @@ describe("which model each purpose uses", () => {
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
         const models = new Models(state.storage.sql, instance.boundary, () => {});
+        const { purposes } = models.view();
 
         try {
-          return models.resolve("background").choice;
+          return { background: models.resolve("background").choice, purposes };
         } catch (error) {
-          return error instanceof Error ? error.message : String(error);
+          return { background: error instanceof Error ? error.message : String(error), purposes };
         }
       });
 
-    expect(await disabled(keyed)).toMatchObject({ provider: "opencode-go", modelId: "deepseek-v4.1-flash" });
-    expect(await disabled(bare)).toBe("No model provider is enabled.");
+    expect(await disabled(keyed)).toMatchObject({
+      background: { provider: "opencode-go", modelId: "deepseek-v4.1-flash" },
+      purposes: { background: { provider: "opencode-go" } }
+    });
+    // Settings still opens, with no purpose to show.
+    expect(await disabled(bare)).toEqual({ background: "No model provider is enabled.", purposes: {} });
   });
 
   it("stores a purpose's choice at a level its model has, and refuses a provider that is not connected", async () => {

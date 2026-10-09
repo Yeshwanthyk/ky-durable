@@ -167,15 +167,18 @@ export class Models {
   }
 
   view(): SettingsView {
-    return {
-      providers: this.catalog(),
-      purposes: {
-        main: this.resolve("main").choice,
-        worker: this.resolve("worker").choice,
-        background: this.resolve("background").choice,
-        fallback: this.resolve("fallback").choice
-      }
-    };
+    // With no provider enabled no purpose resolves, and Settings says so.
+    const purposes =
+      this.#endpoints.length === 0
+        ? {}
+        : {
+            main: this.resolve("main").choice,
+            worker: this.resolve("worker").choice,
+            background: this.resolve("background").choice,
+            fallback: this.resolve("fallback").choice
+          };
+
+    return { providers: this.catalog(), purposes };
   }
 
   /** Ask every provider that can go away now, or reuse a fresh answer. */

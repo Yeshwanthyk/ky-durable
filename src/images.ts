@@ -57,6 +57,7 @@ export function checkInput(input: UserInput): string | null {
  */
 export function imageSupport(settings: SettingsView, purpose: Purpose): string | null {
   const find = (choice: SettingsView["purposes"][Purpose]) => {
+    if (!choice) return undefined;
     const provider = settings.providers.find((each) => each.id === choice.provider);
 
     return provider ? { provider, model: provider.models.find((each) => each.modelId === choice.modelId) } : undefined;

@@ -44,7 +44,8 @@ export type ProviderInfo = {
 
 export type SettingsView = {
   readonly providers: readonly ProviderInfo[];
-  readonly purposes: Readonly<Record<Purpose, ModelChoice>>;
+  /** What each purpose runs on; none while no model provider is enabled. */
+  readonly purposes: Readonly<Partial<Record<Purpose, ModelChoice>>>;
 };
 
 export class Settings {
