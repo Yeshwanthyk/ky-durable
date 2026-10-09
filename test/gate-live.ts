@@ -3,21 +3,25 @@
  * The live checks: `KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... pnpm gate:live`.
  *
  * Opt-in, never part of `pnpm gate`: they need a deployed ky and its real
- * bindings, which the local stack replaces with fakes or leaves out. They only
- * read: no message is sent, no model is called and no task is started, so
- * running them against the real deployment is safe. One line per check,
- * PASS or FAIL; exit 1 on any FAIL.
+ * bindings, which the local stack replaces with fakes or leaves out. All but
+ * `cloud` only read. `cloud` makes one real completion: it starts a side chat,
+ * waits for the background model to title it, then stops the chat's turn and
+ * archives it. Nothing else is sent and no task is started, so running them
+ * against the real deployment is safe. One line per check, PASS or FAIL; exit
+ * 1 on any FAIL.
  *
  *   login       the sign-in page answers
  *   auth        a wrong token is refused, the right one opens the app
  *   hello       the session socket says hello with ky's tools
- *   cloud       a cloud model provider is connected (Workers AI, on every deploy)
+ *   cloud       a cloud model answers: the background model (Workers AI, on
+ *               every deploy) titles a new side chat from its first message
  *   vibeproxy   VibeProxy is connected: the Mac is online with it running
  *
  * `vibeproxy` fails, correctly, while the Mac is away. What a read cannot
  * prove (Browser Rendering, the real Executor, a real `claude` run, a real
- * model turn) is in FEATURES.md as live-only, with how to try it by hand.
+ * main-agent turn) is in FEATURES.md as live-only, with how to try it by hand.
  */
+import { decodeNewChat } from "../src/tests/frames.ts";
 import { connect } from "./harness/client.ts";
 
 const url = process.env.KY_URL?.replace(/\/$/, "");
@@ -83,7 +87,30 @@ await check("cloud", async () => {
 
   if (cloud.length === 0) return "no cloud provider in settings";
 
-  return cloud.some((provider) => provider.connected) ? undefined : `not connected: needs ${cloud[0]!.needs ?? "a key"}`;
+  if (!cloud.some((provider) => provider.connected)) return `not connected: needs ${cloud[0]!.needs ?? "a key"}`;
+
+  const created = await client.command({ type: "new-chat" });
+  const session = decodeNewChat(created.result);
+
+  if (!session) return "new-chat gave no session";
+
+  // Short enough that the list shows it whole until it is renamed.
+  const first = "plan a long weekend in lisbon with two kids in may";
+  const side = await connect(url, `?session=${session}`, token);
+  const title = () => client.frames.findLast((frame) => frame.type === "chats")?.chats.find((row) => row.session === session)?.title;
+  // A new chat's row has no title; its first message titles it, until the background model's title replaces that.
+  const named = () => ![undefined, "", first].includes(title());
+
+  try {
+    side.send({ type: "submit", input: first });
+    await client.until("the background model's title", named, 60_000).catch(() => undefined);
+  } finally {
+    side.send({ type: "abort" });
+    side.close();
+    await client.command({ type: "archive-chat", session, archived: true });
+  }
+
+  return named() ? undefined : `the side chat's title stayed "${title() ?? "(none)"}": the background model did not answer`;
 });
 
 await check("vibeproxy", async () => {

@@ -240,7 +240,7 @@ These need a real outside service, so the local gate can't cover them.
 | live-login | The deployed worker serves the login form. | src/auth.ts:69 | live-only | L login | Needs the deployed worker. |
 | live-auth | The deployed worker accepts KY_TOKEN and refuses requests without it. | src/auth.ts:44 | live-only | L auth | Needs the deployed worker and the real token. |
 | live-hello | A deployed socket says hello with the machine tool. | src/sockets.ts:382 | live-only | L hello | Needs the deployed object. |
-| live-cloud | A cloud provider is connected: Workers AI on every deploy. | src/providers/workers-ai.ts:69 | live-only | L cloud | Needs the deployed worker's AI binding. Locally a fake AI binding stands in (test/fakes/ai.ts). |
+| live-cloud | A cloud model answers on the deployed worker: Workers AI, on every deploy, titles a new side chat from its first message. The check stops that chat's turn and archives it. | src/providers/workers-ai.ts:69, src/server.ts:358 | live-only | L cloud | Needs the deployed worker's AI binding. Locally a fake AI binding stands in (test/fakes/ai.ts). |
 | live-vibeproxy | VibeProxy on the Mac answers through the tunnel to Claude. | src/vibeproxy.ts:60 | live-only | L vibeproxy | Needs the Mac, the tunnel and a Claude login. |
 | live-browser | browse drives a real Browser Rendering page. | src/browse.ts:53 | live-only | by hand: ask ky to browse a page | Locally a CDP fake stands in for the browser. |
 | live-executor | Executor runs real accounts and approvals. | src/executor.ts:179 | live-only | by hand: run executor_skills, then a program that needs approval | Locally an MCP fake stands in for Executor. |
