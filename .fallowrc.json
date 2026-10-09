@@ -11,5 +11,6 @@
     "test/gate.ts",
     "test/gate-live.ts"
   ],
-  "ignorePatterns": ["explainers/**", "test-results/**"]
+  "ignorePatterns": ["explainers/**", "test-results/**"],
+  "ignoreUnresolvedImports": ["../dist/release.pack"]
 }
