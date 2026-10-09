@@ -46,7 +46,8 @@ export class Vault extends ProductionVault {
  *   with 429, as out of its free allocation, and OpenCode Go with 402, as
  *   out of credit;
  * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
- *   then fake-vibeproxy.ts answers as Claude;
+ *   then fake-vibeproxy.ts answers as Claude; after `tunnelDrops()` the
+ *   tunnel refuses each message while the probe still answers;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
  * - Browser Rendering is left out: a launch is refused;
  * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
@@ -74,6 +75,9 @@ const GATE_RUNS_KEY = "test:gate:runs";
 
 /** Whether the fake VibeProxy answers (the Mac is online). */
 const MAC_UP_KEY = "test:mac-up";
+
+/** Whether the tunnel drops each message while VibeProxy's probe still answers. */
+const TUNNEL_DROPS_KEY = "test:tunnel-drops";
 
 /** The status each fake provider refuses every request with while it is down. */
 const REFUSALS = { "workers-ai": 429, "opencode-go": 402 } as const;
@@ -259,10 +263,12 @@ export class PiAgent extends ProductionAgent {
         ? undefined
         : {
             binding: {
-              fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
-                (await storage.get<boolean>(MAC_UP_KEY)) === true
-                  ? fakeVibeProxy(new Request(input, init))
-                  : refusingVibeProxy()
+              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+                const request = new Request(input, init);
+                const drops = (await storage.get<boolean>(TUNNEL_DROPS_KEY)) === true && new URL(request.url).pathname === "/v1/messages";
+
+                return (await storage.get<boolean>(MAC_UP_KEY)) === true && !drops ? fakeVibeProxy(request) : refusingVibeProxy();
+              }
             },
             origin: "http://127.0.0.1:8317",
             key: VIBEPROXY_KEY
@@ -312,6 +318,11 @@ export class PiAgent extends ProductionAgent {
   /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
   async macLeaves(): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, false);
+  }
+
+  /** Drop every message on the tunnel while VibeProxy's probe still answers, as a tunnel that fails mid-call does. */
+  async tunnelDrops(): Promise<void> {
+    await this.ctx.storage.put(TUNNEL_DROPS_KEY, true);
   }
 }
 

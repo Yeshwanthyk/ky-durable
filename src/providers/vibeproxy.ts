@@ -79,18 +79,24 @@ export function vibeProxy(config: VibeProxyConfig): Endpoint {
   });
 
   const breaker = new Breaker(NAME);
-  const tunnel = breaker.watch((input, init) => config.binding.fetch(input, init));
+  const tunnel = (input: RequestInfo | URL, init?: RequestInit) => config.binding.fetch(input, init);
 
-  const send = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const request = new Request(input, init);
-    const url = new URL(request.url);
+  const allowed =
+    (fetch: typeof tunnel) =>
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
 
-    if (url.origin !== origin || !ALLOWED_PATHS.has(url.pathname)) {
-      return new Response("ky only sends Messages API requests to VibeProxy.", { status: 403 });
-    }
+      if (url.origin !== origin || !ALLOWED_PATHS.has(url.pathname)) {
+        return new Response("ky only sends Messages API requests to VibeProxy.", { status: 403 });
+      }
 
-    return tunnel(request);
-  };
+      return fetch(request);
+    };
+
+  const send = allowed(breaker.watch(tunnel));
+  // The probe goes around the breaker: its answer must not close a breaker that the calls opened.
+  const ask = allowed(tunnel);
 
   let probe: { at: number; up: Promise<boolean> } | undefined;
   let lastUp = false;
@@ -98,7 +104,7 @@ export function vibeProxy(config: VibeProxyConfig): Endpoint {
   const reachable = (): Promise<boolean> => {
     if (probe && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
 
-    const up = send(`${origin}/v1/models`, {
+    const up = ask(`${origin}/v1/models`, {
       headers: { "x-api-key": config.key, "anthropic-version": "2023-06-01" },
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     }).then(

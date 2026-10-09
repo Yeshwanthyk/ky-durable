@@ -181,6 +181,15 @@ describe("a turn", () => {
     expect(await calls(name)).toHaveLength(1);
   });
 
+  it("stands in once a request to the provider fails to send, though its probe still answers", async () => {
+    const name = await fresh("mac-up");
+    await agent(name).tunnelDrops();
+
+    // The tunnel drops Claude's request, which opens VibeProxy's breaker; pi retries, and the retry runs on Workers AI.
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    expect((await calls(name)).map(({ model }) => model)).toEqual([GLM]);
+  });
+
   it("stands in for a provider whose breaker opened, on another provider", async () => {
     const name = await fresh("keyed");
     await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
