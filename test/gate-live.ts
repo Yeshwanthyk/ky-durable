@@ -82,21 +82,13 @@ const settings = client.frames.findLast((frame) => frame.type === "settings");
 
 const providers = settings?.type === "settings" ? settings.settings.providers : [];
 
-await check("cloud", async () => {
-  const cloud = providers.filter((provider) => provider.id !== "vibeproxy");
-
-  if (cloud.length === 0) return "no cloud provider in settings";
-
-  if (!cloud.some((provider) => provider.connected)) return `not connected: needs ${cloud[0]!.needs ?? "a key"}`;
-
-  const created = await client.command({ type: "new-chat" });
-  const session = decodeNewChat(created.result);
+/** Why a new side chat whose first message is `first` was not renamed by the background model; it is archived after. */
+async function unrenamed(first: string): Promise<string | undefined> {
+  const session = decodeNewChat((await client.command({ type: "new-chat" })).result);
 
   if (!session) return "new-chat gave no session";
 
-  // Short enough that the list shows it whole until it is renamed.
-  const first = "plan a long weekend in lisbon with two kids in may";
-  const side = await connect(url, `?session=${session}`, token);
+  const side = await connect(url!, `?session=${session}`, token);
   const title = () => client.frames.findLast((frame) => frame.type === "chats")?.chats.find((row) => row.session === session)?.title;
   // A new chat's row has no title; its first message titles it, until the background model's title replaces that.
   const named = () => ![undefined, "", first].includes(title());
@@ -111,6 +103,17 @@ await check("cloud", async () => {
   }
 
   return named() ? undefined : `the side chat's title stayed "${title() ?? "(none)"}": the background model did not answer`;
+}
+
+await check("cloud", async () => {
+  const cloud = providers.filter((provider) => provider.id !== "vibeproxy");
+
+  if (cloud.length === 0) return "no cloud provider in settings";
+
+  if (!cloud.some((provider) => provider.connected)) return `not connected: needs ${cloud[0]!.needs ?? "a key"}`;
+
+  // Short enough that the list shows it whole until it is renamed.
+  return unrenamed("plan a long weekend in lisbon with two kids in may");
 });
 
 await check("vibeproxy", async () => {

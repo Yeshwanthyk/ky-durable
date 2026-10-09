@@ -274,35 +274,38 @@ export class Models {
   }
 
   #default(purpose: Purpose, need: Need): ModelChoice {
-    const connected = this.#endpoints.filter((endpoint) => endpoint.connected());
-
     switch (purpose) {
-      case "main": {
-        // Every provider may be away, or have its record disabled; then the best that can go away and come back.
-        const choice = best(connected, need) ?? best(connected) ?? best(this.#endpoints);
-
-        if (!choice) throw new Error("No model provider is enabled.");
-
-        return choice;
-      }
-
+      case "main":
+        return this.#main(need);
       case "worker":
         return this.resolve("main", need).choice;
-      case "background": {
-        // Workers AI's default model, or main's while the Workers AI record is disabled.
-        const workersAI = this.#endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
-        const first = workersAI?.models[0];
-        const { choice, model } = workersAI && first ? { choice: choiceOf(workersAI, first), model: first } : this.resolve("main", need);
-
-        return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
-      }
-
+      case "background":
+        return this.#background(need);
       case "fallback": {
         const main = this.resolve("main");
 
         return this.#fallback(main.model, need) ?? main.choice;
       }
     }
+  }
+
+  /** The best connected model; with every provider away, the best that can go away and come back. */
+  #main(need: Need): ModelChoice {
+    const connected = this.#endpoints.filter((endpoint) => endpoint.connected());
+    const choice = best(connected, need) ?? best(connected) ?? best(this.#endpoints);
+
+    if (!choice) throw new Error("No model provider is enabled.");
+
+    return choice;
+  }
+
+  /** Workers AI's default model, or main's while the Workers AI record is disabled, at its lowest thinking level. */
+  #background(need: Need): ModelChoice {
+    const workersAI = this.#endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
+    const first = workersAI?.models[0];
+    const { choice, model } = workersAI && first ? { choice: choiceOf(workersAI, first), model: first } : this.resolve("main", need);
+
+    return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
   }
 
   /** The best healthy model on another provider than `from`'s, else the best that isn't `from`. */
