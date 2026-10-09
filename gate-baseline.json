@@ -786,7 +786,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "runner protocol refuses a run for an agent this machine does not have, or has signed out",
+      "name": "runner protocol refuses a run for an agent this machine does not have, and starts one that looks signed out",
       "outcome": "passed"
     },
     {
@@ -812,6 +812,21 @@
     {
       "check": "worker-e2e",
       "name": "runner protocol keeps a run that a keepalive hello raced",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol stops a Codex turn with a message queued behind it, and says once that it was dropped",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol reports a Codex result finished offline once the runner is back, as owed in its hello",
       "outcome": "passed"
     },
     {
@@ -1152,6 +1167,16 @@
     {
       "check": "harness",
       "name": "codex-move",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-attach",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "codex-home-sweep",
       "outcome": "PASS"
     },
     {
