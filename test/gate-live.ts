@@ -4,11 +4,12 @@
  *
  * Opt-in, never part of `pnpm gate`: they need a deployed ky and its real
  * bindings, which the local stack replaces with fakes or leaves out. All but
- * `cloud` only read. `cloud` makes one real completion: it starts a side chat,
- * waits for the background model to title it, then stops the chat's turn and
- * archives it. Nothing else is sent and no task is started, so running them
- * against the real deployment is safe. One line per check, PASS or FAIL; exit
- * 1 on any FAIL.
+ * `cloud` only read. `cloud` starts a side chat, sends it one message and
+ * aborts that turn as soon as the submit is accepted, then waits for the
+ * background model's title and archives the chat. It calls models twice at
+ * most: one title call, and at most one main-model request, aborted. No tool
+ * runs and no task is started, so running them against the real deployment
+ * is safe. One line per check, PASS or FAIL; exit 1 on any FAIL.
  *
  *   login       the sign-in page answers
  *   auth        a wrong token is refused, the right one opens the app
@@ -94,10 +95,11 @@ async function unrenamed(first: string): Promise<string | undefined> {
   const named = () => ![undefined, "", first].includes(title());
 
   try {
-    side.send({ type: "submit", input: first });
+    // Titling runs apart from the turn (server.ts #nameThings), so the turn is stopped before it can call a tool.
+    await side.command({ type: "submit", input: first });
+    await side.command({ type: "abort" });
     await client.until("the background model's title", named, 60_000).catch(() => undefined);
   } finally {
-    side.send({ type: "abort" });
     side.close();
     await client.command({ type: "archive-chat", session, archived: true });
   }
