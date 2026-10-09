@@ -911,6 +911,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "pairing one name twice at the same moment leaves only the winning pairing's token working",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a machine token from before pairings had ids is gone once the Vault starts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "the methods of the runner routes answers 405 to anything but POST on the codes path, and never takes it for a machine",
       "outcome": "passed"
     },
@@ -931,7 +941,22 @@
     },
     {
       "check": "worker-e2e",
+      "name": "task tokens survive the start's sweep while a follow-up runs after a stop, though the task shows as ended",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens survive the start's sweep for an open task",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "task tokens deliver a run again, a moment later, after the Vault failed to issue its token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens wait for the next hello once every retry of a delivery failed",
       "outcome": "passed"
     },
     {
