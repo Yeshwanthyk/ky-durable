@@ -259,6 +259,46 @@ describe("task tokens", () => {
     await until(async () => (await vault().check("task", lost)) === null, "the start revoked the lost token");
   });
 
+  it("survive the start's sweep while a follow-up runs after a stop, though the task shows as ended", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await prompt(name, "machine build it");
+    const run = await mac.run();
+    mac.send({ type: "session", task: run.task, turn: run.turn, session: "s-stop" });
+
+    // Stop, and a follow-up before the runner says the stopped turn ended.
+    await prompt(name, `tool machine {"action":"stop","task":"${run.task}"}`);
+    expect(await mac.next()).toMatchObject({ type: "stop", task: run.task });
+    await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"then do this"}`);
+    const followUp = await mac.run();
+    expect(followUp.taskToken).toBe(run.taskToken);
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: false, text: "stopped", session: "s-stop", agent: "claude" });
+    await until(
+      () => inside(name, (instance) => instance.feed.get(run.task)?.status === "stopped"),
+      "the stopped turn ended the task's status"
+    );
+
+    // The follow-up's process holds the token; the agent restarts mid-turn.
+    await evictDurableObject(env.PiAgent.getByName(name));
+    (await connect(name)).close();
+    await inside(name, (instance) => instance.machines.sweepTokens());
+    expect(await vault().check("task", run.taskToken)).toBe(run.task);
+    mac.socket.close();
+  });
+
+  it("survive the start's sweep for an open task", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await prompt(name, "machine keep at it");
+    const run = await mac.run();
+    mac.socket.close();
+
+    await evictDurableObject(env.PiAgent.getByName(name));
+    (await connect(name)).close();
+    await inside(name, (instance) => instance.machines.sweepTokens());
+    expect(await vault().check("task", run.taskToken)).toBe(run.task);
+  });
+
   it("deliver a run again, a moment later, after the Vault failed to issue its token", async () => {
     const mac = await runner("me");
     expect((await call("/test/vault-fail-issues?count=1", { method: "POST" })).status).toBe(204);

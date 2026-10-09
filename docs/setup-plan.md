@@ -369,8 +369,10 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **Task tokens:** `run` carries `taskToken = issue("task", taskId)` (C4), issued as each run is sent so the agent
   never stores it, and revoked when the task ends.
   - Revokes are best effort, so the agent also sweeps at start: `revokeAll("task", …)` with its machine tasks that
-    ended within `ISSUED_TTL_MS`. A token of a task that ended earlier has expired. The sweep names only the agent's
-    own tasks, because the one Vault serves every agent object.
+    ended within `ISSUED_TTL_MS` and are over by the rule the end revoke uses: every turn reported over, and no run
+    of the task in the inbox. Status alone is not enough: a stop with a follow-up queued sets the task stopped while
+    the follow-up turn runs with the same token. A token of a task that ended earlier has expired. The sweep names
+    only the agent's own tasks, because the one Vault serves every agent object.
   - A delivery whose `issue` fails is tried again 1, 2, 4, 8 and 16 seconds later, while the inbox keeps the runs.
     After that, the next hello or command delivers.
 - **Pairings:** see C2. A machine row with no pairing, from before T, is listed but refused until the machine pairs

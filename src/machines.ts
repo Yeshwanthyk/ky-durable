@@ -414,17 +414,34 @@ export class MachineHub {
   }
 
   /**
-   * Revoke the tokens of the tasks that ended, for a revoke a failure or a
-   * restart lost. A task that ended longer than ISSUED_TTL_MS ago was last
-   * issued its token before that, so the token has expired. Only this
-   * agent's tasks: the Vault serves every agent object. Queued after the
-   * token work asked for before it, and it reads the tasks when it runs, so
-   * it never revokes a token that a run queued after it needs.
+   * Revoke the tokens of the tasks that are over, for a revoke a failure or
+   * a restart lost. Over is what `#finish` revokes on: every turn reported
+   * over, and no run of it in the inbox. A task stopped with a follow-up
+   * queued shows as ended while that turn runs, so its status is not enough.
+   * A task that ended longer than ISSUED_TTL_MS ago was last issued its
+   * token before that, so the token has expired. Only this agent's tasks:
+   * the Vault serves every agent object. It runs after the token work asked
+   * for before it and reads the tasks then; a run sent after it is issued a
+   * new token, so it revokes no token a run still needs.
    */
   sweepTokens(): Promise<void> {
     return this.#afterTokens("sweeping task tokens", () =>
-      this.#tokens.revokeAll(this.#feed.closedSince("machine", Date.now() - ISSUED_TTL_MS))
+      this.#tokens.revokeAll(this.#feed.closedSince("machine", Date.now() - ISSUED_TTL_MS).filter((task) => this.#over(task)))
     );
+  }
+
+  /** Whether every turn of the task is reported over and none of its runs waits in the inbox. */
+  #over(task: string): boolean {
+    const { turn, closed } = this.#turns(task);
+
+    const queued = this.#sql
+      .exec(
+        "SELECT 1 FROM ky_machine_inbox WHERE json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.task') = ? LIMIT 1",
+        task
+      )
+      .toArray();
+
+    return closed >= turn && queued.length === 0;
   }
 
   /** The task's token stops working, once no turn of it is left to run. */
