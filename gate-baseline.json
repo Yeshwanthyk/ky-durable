@@ -921,6 +921,16 @@
     },
     {
       "check": "worker-e2e",
+      "name": "runner protocol hands a Codex turn run with ky's login each refreshed one, and the turn queued behind it the newest",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "runner protocol keeps a refreshed ChatGPT login from a Codex turn signed in with the machine's own",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "runner protocol runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread",
       "outcome": "passed"
     },
@@ -1221,6 +1231,26 @@
     },
     {
       "check": "worker-e2e",
+      "name": "Settings › Subscriptions keeps a Claude token, refuses what isn't one, and shows only its status",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Settings › Subscriptions signs in to ChatGPT with a device code the Vault polls for",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "handing a machine's task the subscriptions hands Claude's token to a machine that isn't signed in, or uses ky's login, and keeps it out of storage",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "handing a machine's task the subscriptions pushes a Codex task a refreshed ChatGPT token before the one it has expires",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "vault puts, replaces and removes secrets, and status lists them without their values",
       "outcome": "passed"
     },
@@ -1306,7 +1336,32 @@
     },
     {
       "check": "worker-e2e",
-      "name": "vault says what S and K have yet to set up: no credentials, and no ChatGPT sign-in",
+      "name": "vault says what CM has yet to set up: no GitHub token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subscriptions in the vault has nothing to hand out before the user sets anything up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subscriptions in the vault signs in to ChatGPT: its alarm polls until the code is entered, then keeps the login and stops",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subscriptions in the vault ends a sign-in whose code expired, and one a newer sign-in replaced",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subscriptions in the vault refreshes the ChatGPT login under an hour before it expires, and uses a live one while a refresh fails",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "subscriptions in the vault hands out the Claude token as it was saved",
       "outcome": "passed"
     },
     {
@@ -1402,6 +1457,16 @@
     {
       "check": "harness",
       "name": "codex-run",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "subscriptions",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "subscription-renew",
       "outcome": "PASS"
     },
     {

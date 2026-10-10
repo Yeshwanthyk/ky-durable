@@ -12,7 +12,9 @@
  * closing ends it once its turns are done. Each result carries the
  * process's totals so far, as Claude Code's do: one turn per result, and
  * COST_PER_TURN each. `claude auth status` says it is signed in, as the
- * runner asks for its facts.
+ * runner asks for its facts, unless FAKE_CLAUDE_SIGNED_OUT is set: then it
+ * says it is not, and without CLAUDE_CODE_OAUTH_TOKEN every turn fails as
+ * Claude Code's do signed out.
  *
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default FAKE_CLAUDE_DELAY_MS, else 50)
@@ -27,11 +29,14 @@
  *                one argument (Bash's command, a file tool's path)
  *
  * FAKE_CLAUDE_LOG      append one JSON line per start, turn, SIGINT and exit, so
- *                      a test can count and order what really ran
+ *                      a test can count and order what really ran; a start
+ *                      records a fingerprint of CLAUDE_CODE_OAUTH_TOKEN, never
+ *                      the token
  * FAKE_CLAUDE_SIGINT_MS on SIGINT, stop reading and exit after this long
  *                      (default 0), as Claude Code takes a moment to shut down
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +44,7 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { attach, toolsIn } from "./directives.ts";
+import { attach, pause, toolsIn } from "./directives.ts";
 
 const UserLine = Type.Object({
   type: Type.Literal("user"),
@@ -48,10 +53,18 @@ const UserLine = Type.Object({
 
 const args = process.argv.slice(2);
 
+const signedOut = process.env.FAKE_CLAUDE_SIGNED_OUT !== undefined;
+
 if (args[0] === "auth") {
-  process.stdout.write(`${JSON.stringify({ loggedIn: true })}\n`);
-  process.exit(0);
+  process.stdout.write(`${JSON.stringify({ loggedIn: !signedOut })}\n`);
+  process.exit(signedOut ? 1 : 0);
 }
+
+/** The subscription token ky handed this process, if any. */
+const handed = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+/** Neither signed in nor handed a token: every turn fails as Claude Code's does. */
+const unsigned = signedOut && handed === undefined;
 
 const resume = args.includes("--resume") ? args[args.indexOf("--resume") + 1] : undefined;
 
@@ -151,14 +164,16 @@ async function turn(prompt: string) {
     message: { role: "assistant", content: [{ type: "text", text: `working on: ${prompt}` }, ...toolUses(prompt)] }
   });
 
-  const delay = /\[delay=(\d+)\]/.exec(prompt);
-  await new Promise((resolve) => setTimeout(resolve, delay ? Number(delay[1]) : defaultDelay));
+  await pause(prompt, defaultDelay);
   const folded = prompt.includes("[fold]") ? waiting.splice(0) : [];
 
   for (const each of folded) take(each, { folded: 1 });
   const shared = await share(prompt);
 
-  if (!dying) answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${shared}`);
+  if (dying) return;
+
+  if (unsigned) answer("[fail]", "Not logged in · Please run /login");
+  else answer(prompt, `fake claude did: ${[prompt, ...folded].join(" + ")}${shared}`);
 }
 
 /** End a turn with its one result. */
@@ -185,7 +200,11 @@ process.on("SIGINT", () => {
 });
 
 // Which of ky's variables the runner gave it, by name only: never a token's value.
-record("start", { resume: resume ?? "", ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",") });
+record("start", {
+  resume: resume ?? "",
+  token: handed === undefined ? "" : createHash("sha256").update(handed).digest("hex").slice(0, 12),
+  ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
+});
 
 emit({ type: "system", subtype: "init" });
 

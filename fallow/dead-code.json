@@ -67,6 +67,7 @@
     "unused-class-member:src/ui/bloub/engine.ts:BotEngine:setOutline",
     "unused-class-member:src/ui/bloub/engine.ts:BotEngine:setState",
     "unused-class-member:src/ui/bloub/engine.ts:BotEngine:state",
+    "unused-class-member:src/vault.ts:Vault:alarm",
     "unused-class-member:src/vault.ts:Vault:auth",
     "unused-class-member:src/vault.ts:Vault:chatgptLogin",
     "unused-class-member:src/vault.ts:Vault:chatgptPoll",

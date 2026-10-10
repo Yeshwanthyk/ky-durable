@@ -23,6 +23,7 @@ import type { MachineFacts } from "./runner-protocol";
 import { ownerRoute, tokenRoute } from "./runners";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
+import { Subscriptions } from "./subscriptions";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
 import { Soul, soulExtension } from "./soul";
@@ -105,12 +106,15 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
+  /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
+  readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
     this.files,
-    this.taskTokens()
+    this.taskTokens(),
+    (agent) => this.subscriptions.creds(agent)
   );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
@@ -246,6 +250,7 @@ export class PiAgent extends DurableObject<Env> {
     this.machines,
     this.files,
     this.models,
+    this.subscriptions,
     this.chats,
     this.skills,
     this.soul,

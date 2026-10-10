@@ -24,6 +24,13 @@ export function toolsIn(prompt: string): { name: string; value: string }[] {
     .map((each) => ({ name: each.slice(0, each.indexOf(":")), value: each.slice(each.indexOf(":") + 1) }));
 }
 
+/** `[delay=MS]`: wait MS milliseconds, else `fallback`. */
+export function pause(prompt: string, fallback: number): Promise<void> {
+  const delay = /\[delay=(\d+)\]/.exec(prompt)?.[1];
+
+  return new Promise((resolve) => setTimeout(resolve, delay === undefined ? fallback : Number(delay)));
+}
+
 /** `[attach]`: share a 1x1 PNG through `ky-attach`, as a screenshot would be, run with `env`; what it printed. */
 export async function attach(env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const file = join(mkdtempSync(join(tmpdir(), "fake-agent-")), "screenshot.png");

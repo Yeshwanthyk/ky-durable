@@ -131,7 +131,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 |---|---|---|
 | `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt } }`, `expiresAt` in epoch milliseconds. Absent means use the machine's own login. |
 | `stop` | `seq, task, turn` | |
-| `creds` | `seq, task, codex` | Mid-task Codex token refresh. |
+| `creds` | `seq, task, codex` | Mid-task Codex token refresh. Sent (added by S) at a runner `hello` when the Vault's login is newer than the one the task was last handed; the runner ignores it for a task that runs on the machine's own login. |
 | `http_request` | `id, port, method, path, headers, body?` | `body` is base64. Only to an allowed port. |
 | `http_cancel` | `id` | |
 | `goodbye` | `reason, expected?` | Sent before close code 4426 on a protocol mismatch, or 4401 on a revoked token. |
@@ -195,8 +195,8 @@ put(kind, id, value: Json, meta?: SecretMeta): void          // meta is flat (st
 remove(kind, id): void
 status(): { kind, id, meta, updatedAt, error? }[]          // never secrets; error is the last failed refresh's
 auth(providerId): { apiKey: string; headers?: Record<string,string> } | null   // the ("provider", providerId) secret, which models.ts puts once a test call takes it
-sessionCreds(agent: "claude" | "codex"): RunCreds[agent] | null   // refreshes codex with the internal refresh (below)
-chatgptLogin(): { userCode, verificationUrl, loginId }; chatgptPoll(loginId): "pending" | "done" | { error }
+sessionCreds(agent: "claude" | "codex"): Promise<RunCreds[agent] | null>   // async (S); refreshes codex with the internal refresh (below)
+chatgptLogin(): Promise<{ userCode, verificationUrl, loginId }>; chatgptPoll(loginId): "pending" | "done" | { error }
 githubToken(): { token, repos } | null
 // tokens: kind = "pair" | "machine" | "task"
 mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256; one live token per (kind, subject), so minting again replaces it
@@ -211,6 +211,7 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
 
 - **Pair codes:** each one is minted with a fresh random subject (for example `crypto.randomUUID()`), so codes outstanding at once never replace each other, and is redeemed with `consume`.
 - **`refresh(kind, id, fn)` is internal**, used inside the Vault only (by `sessionCreds`): its callback can't cross the typed RPC stub. It is a CAS on the secret's generation, which every `put` and every successful refresh bump. Callers of one generation share one `fn`. A `put` or `remove` that lands first wins, and the refresh answers with what is stored now, or null, whether `fn` succeeded or failed.
+- **Subscriptions (added by S):** both are kept under the id `SUBSCRIPTION = "subscription"`: `("claude", SUBSCRIPTION)` holds `{ oauthToken }` with meta `{ expiresAt }`, and `("chatgpt", SUBSCRIPTION)` holds the ChatGPT login with its refresh token, which never leaves the Vault (`run.creds.codex.refreshToken` is always null). `sessionCreds("codex")` refreshes when under an hour (`CODEX_RENEW_BEFORE_MS`) is left; a refresh that fails hands out the stored token while it lasts. Sign-ins in progress are rows of `ky_vault_logins`, which the Vault's `alarm` polls; one sign-in at a time. Its OpenAI `fetch` is the field `openai`, which the test stack replaces with `test/fakes/openai.ts`.
 - **Refresh errors:** when `fn` fails on an unchanged secret, its message is stored verbatim as the secret's `error`, which `status` and Settings show. So a refresh function must throw messages that hold no secret.
 
 ### C5. Providers and purposes (`src/models.ts` and `src/providers/*`)
@@ -540,6 +541,17 @@ These are the machine flows for ChatGPT and Claude.
   - On a machine with neither CLI signed in, ky runs a Claude Code task and a Codex task using the Vault's
     credentials.
   - A Codex task outlives one token expiry. A fake clock in the harness proves it.
+- **Contract changes (added by S):**
+  - Browser socket: `set-claude { token }` answers `{ refused? }`; `remove-subscription { kind }`;
+    `chatgpt-login` answers `{ userCode, verificationUrl, loginId }` or `{ refused }`; `chatgpt-poll { login }`
+    answers `"pending" | "done" | { error }`. The server frame `subscriptions` lists
+    `{ kind: "claude" | "chatgpt", connected, expiresAt: number | null, error: string | null }`, never a token.
+  - `MachineInfo.login: "own" | "ky"` (`ky_machines.login`, default `own`), set with `set-machine { login }`.
+  - `MachineHub` takes a sixth argument, `creds: (agent) => Promise<RunCreds>` (`Subscriptions.creds`). The inbox
+    keeps runs and `creds` commands without their secrets; both are filled as they are sent. `ky_machine_logins`
+    keeps, per task, the expiry of the Codex login it was last sent, so a newer one is queued once.
+  - The Claude token is checked by its shape only (`sk-ant-oat…`), never by a call: nothing in ky calls Anthropic
+    with it, so a revoked token shows up as the task's "Not logged in".
 
 ### C. cli-runner
 - **Move the runner into the CLI:** `ky runner run`. `runner/` is deleted, and `ky-attach` / `ky-diff` become

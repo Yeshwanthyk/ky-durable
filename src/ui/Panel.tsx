@@ -1,5 +1,5 @@
 import { type FormEvent, Fragment, type ReactNode, useContext, useState } from "react";
-import type { MachineChange, MachineState } from "../machines";
+import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
 import type {
@@ -33,6 +33,7 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
+import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
 
@@ -69,6 +70,7 @@ export function Panel({
   memoryActions,
   specialists,
   specialistActions,
+  subscriptions,
   theme,
   onTheme,
   onSetModel,
@@ -106,6 +108,7 @@ export function Panel({
   memoryActions: MemoryActions;
   specialists: readonly SpecialistView[];
   specialistActions: SpecialistActions;
+  subscriptions: SubscriptionsData;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSetModel: (purpose: Purpose, choice: ModelChoice) => void;
@@ -192,6 +195,7 @@ export function Panel({
           setup={setup}
           catalog={catalog}
           machines={machines}
+          subscriptions={subscriptions}
           now={now}
           theme={theme}
           onTheme={onTheme}
@@ -402,6 +406,11 @@ const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string]> = [
   ["off", "Off"],
 ];
 
+const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string]> = [
+  ["own", "Its own"],
+  ["ky", "ky's"],
+];
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** What the runner says the machine is: its OS, its Chrome, and how many repos. */
@@ -518,6 +527,7 @@ function MachineItem({
         <MachineSwitch machine={machine} onSet={onSet} />
       </div>
       <span className="machine-facts quiet">{about}</span>
+      <MachineLoginSwitch machine={machine} onSet={onSet} />
       <InlineEdit
         value={machine.note}
         className="machine-note"
@@ -568,6 +578,29 @@ function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machi
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Whose Claude and ChatGPT logins the machine's tasks use: its own, or ky's subscriptions.
+function MachineLoginSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
+  return (
+    <div className="machine-login">
+      <span className="quiet">Sign in with</span>
+      <div className="segmented small" role="radiogroup" aria-label={`Whose login ${machine.name} uses`}>
+        {MACHINE_LOGINS.map(([each, label]) => (
+          <button
+            key={each}
+            type="button"
+            role="radio"
+            aria-checked={machine.login === each}
+            className="pressable"
+            onClick={() => onSet(machine.name, { login: each })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1131,6 +1164,7 @@ function Settings({
   setup,
   catalog,
   machines,
+  subscriptions,
   now,
   theme,
   onTheme,
@@ -1143,6 +1177,7 @@ function Settings({
   setup: SetupView | null;
   catalog: readonly ToolInfo[];
   machines: readonly MachineInfo[];
+  subscriptions: SubscriptionsData;
   now: number;
   theme: Theme;
   onTheme: (theme: Theme) => void;
@@ -1211,6 +1246,7 @@ function Settings({
         )}
       </section>
       {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
+      <Subscriptions {...subscriptions} now={now} />
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}

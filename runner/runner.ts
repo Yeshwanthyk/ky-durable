@@ -14,9 +14,11 @@ import {
   decodeObjectFrame,
   PROTOCOL,
   type Agent,
+  type CodexCreds,
   type MachineFacts,
   type ObjectFrame,
   type RunCommand,
+  type RunCreds,
   type RunnerCommand,
   type RunnerReport
 } from "../src/runner-protocol.ts";
@@ -32,6 +34,8 @@ export type AgentProcess = {
   end(): void;
   /** SIGINT, then SIGKILL if it lingers. */
   interrupt(): void;
+  /** Hand a Codex process that was started with ky's ChatGPT login the refreshed one, for its next request. */
+  renew(codex: CodexCreds): void;
 };
 
 /** What an agent process says: each stdout line, then its exit. */
@@ -40,17 +44,26 @@ export type ProcessEvents = {
   exit(code: number | null, stderr: string): void;
 };
 
-/** Start `agent`'s CLI for a task, with the task's token, resuming `session` when it is set. */
-export type SpawnAgent = (agent: Agent, task: string, taskToken: string, session: string | null, events: ProcessEvents) => AgentProcess;
+/**
+ * Start `agent`'s CLI for a task, with the task's token, resuming `session`
+ * when it is set, and signed in with `creds` when ky sent them, else with
+ * the machine's own login.
+ */
+export type SpawnAgent = (agent: Agent, task: string, launch: Launch, events: ProcessEvents) => AgentProcess;
+
+/** What a turn's process starts with, besides its prompt. */
+export type Launch = { taskToken: string; session: string | null; creds: RunCreds | undefined };
 
 const ADAPTERS: Readonly<Record<Agent, Adapter>> = { claude, codex };
 
 /** A turn to run once the process it came to has exited. */
-type Turn = { turn: number; prompt: string; session: string | null; taskToken: string };
+type Turn = Launch & { turn: number; prompt: string };
 
 type Run = {
   agent: Agent;
   child: AgentProcess;
+  /** Whether it was started with ky's ChatGPT login, which a `creds` frame renews. */
+  handed: boolean;
   session: string | null;
   /** Whether this process's session has been reported yet. */
   announced: boolean;
@@ -232,8 +245,17 @@ export class Runner {
 
     const run = this.#runs.get(command.task);
 
-    // Fresh credentials are not handed to a running agent yet: each task signs in with the machine's own login.
-    if (command.type === "stop" && run) this.#stop(command.task, run);
+    if (!run) return;
+
+    if (command.type === "stop") this.#stop(command.task, run);
+    else this.#renew(run, command.codex);
+  }
+
+  /** A refreshed ChatGPT login: the live process gets it, and so do the turns queued behind it. */
+  #renew(run: Run, codex: CodexCreds): void {
+    if (run.handed && !run.ended) run.child.renew(codex);
+
+    for (const next of run.next) if (next.creds?.codex) next.creds = { ...next.creds, codex };
   }
 
   #onRun(command: RunCommand): void {
@@ -241,7 +263,7 @@ export class Runner {
 
     if (run && (run.stopped || run.ended || !ADAPTERS[run.agent].steers)) {
       // The process is dying, or takes nothing more: run it in a new one after.
-      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session, taskToken: command.taskToken });
+      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session, taskToken: command.taskToken, creds: command.creds });
       this.#log(`${command.task}: queued behind ${run.stopped ? "the stop" : "its turn"}`);
 
       return;
@@ -264,7 +286,7 @@ export class Runner {
       return;
     }
 
-    this.#start(command.task, command.agent, command);
+    this.#start(command.task, command.agent, { ...command, creds: command.creds });
   }
 
   /**
@@ -364,12 +386,12 @@ export class Runner {
     }
   }
 
-  #start(task: string, agent: Agent, { turn, prompt, session, taskToken }: Turn): Run {
+  #start(task: string, agent: Agent, { turn, prompt, session, taskToken, creds }: Turn): Run {
     this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     const adapter = ADAPTERS[agent];
     const read = adapter.reader();
 
-    const child = this.#spawn(agent, task, taskToken, session, {
+    const child = this.#spawn(agent, task, { taskToken, session, creds }, {
       line: (line) => {
         for (const event of read(line)) {
           if (run.ended) return;
@@ -399,6 +421,7 @@ export class Runner {
     const run: Run = {
       agent,
       child,
+      handed: creds?.codex !== undefined,
       session,
       announced: false,
       turn,

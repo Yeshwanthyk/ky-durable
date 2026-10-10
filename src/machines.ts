@@ -7,7 +7,7 @@ import {
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import type { FileRow, FileStore } from "./files";
 import { type MachineInfo, osName } from "./protocol";
-import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
+import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -21,6 +21,13 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * it, so a message sent while the machine is offline is delivered when it
  * reconnects. Each run carries its task's token, which the Vault issues as
  * the run is sent and revokes when the task ends; the inbox keeps no token.
+ *
+ * A run on a machine that isn't signed in to its agent, or that the user
+ * set to sign in with ky's login, carries the Vault's subscription for it,
+ * added as it is sent like the token. A Codex task handed ky's ChatGPT login
+ * is sent the refreshed one (a `creds` command) while it is open: at each
+ * hello, which the runner says every 30 seconds, the hub asks the Vault for
+ * the login, which the Vault refreshes before it expires.
  *
  * A machine is paired when its row has a pairing: the id the Worker's pair
  * route made when it minted the machine's token. Removing the machine
@@ -57,15 +64,22 @@ export type MachineState = "on" | "paused" | "off";
 
 const MACHINE_STATES: readonly MachineState[] = ["on", "paused", "off"];
 
-/** What the user changes about a machine: whether ky may use it, and what it is for. */
-export type MachineChange = { state?: MachineState; note?: string };
+/** own: tasks sign in with the machine's own login when it has one. ky: always with ky's subscriptions. */
+export type MachineLogin = "own" | "ky";
+
+const MACHINE_LOGINS: readonly MachineLogin[] = ["own", "ky"];
+
+/** What the user changes about a machine: whether ky may use it, what it is for, and whose login its tasks use. */
+export type MachineChange = { state?: MachineState; note?: string; login?: MachineLogin };
 
 const NOTE_CHARS = 200;
 
-type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null };
+type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null; login: MachineLogin };
 
-/** A command as the inbox keeps it: a run's task token is added as it is sent. */
-type Queued = Exclude<UnnumberedCommand, { type: "run" }> | Omit<Extract<UnnumberedCommand, { type: "run" }>, "taskToken">;
+type Command<T extends UnnumberedCommand["type"]> = Extract<UnnumberedCommand, { type: T }>;
+
+/** A command as the inbox keeps it: no secret. A run's task token and credentials, and a creds command's login, are added as it is sent. */
+type Queued = Command<"stop"> | Omit<Command<"run">, "taskToken" | "creds"> | Omit<Command<"creds">, "codex">;
 
 /** A queued command and its place in the inbox. */
 type Pending = Queued & { seq: number };
@@ -78,6 +92,9 @@ export type TaskTokens = {
   /** Revoke the tokens of all of `tasks`. */
   revokeAll: (tasks: readonly string[]) => Promise<void>;
 };
+
+/** The Vault's subscriptions: what a run is handed for `agent` when the machine doesn't use its own login; none without one. */
+export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
 
 /** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
 const DELIVERY_RETRIES = 5;
@@ -103,6 +120,22 @@ function runs(facts: MachineFacts | null, agent: Agent): boolean {
   return has(facts, agent) && (facts === null || facts.agents[agent].signedIn);
 }
 
+/** Whether a machine's runs of `agent` are handed ky's subscription: set to, or not signed in itself. */
+function handsCreds(machine: MachineInfo | undefined, agent: Agent): boolean {
+  return machine !== undefined && (machine.login === "ky" || !runs(machine.facts, agent));
+}
+
+/** Throw for a change to a state or login a machine can't have. */
+function checkChange(change: MachineChange): void {
+  if (change.state !== undefined && !MACHINE_STATES.includes(change.state)) {
+    throw new Error(`A machine is on, paused or off, not ${JSON.stringify(change.state)}.`);
+  }
+
+  if (change.login !== undefined && !MACHINE_LOGINS.includes(change.login)) {
+    throw new Error(`A machine's tasks sign in with its own login or ky's, not ${JSON.stringify(change.login)}.`);
+  }
+}
+
 /** The agent a task on a machine runs as when none is named: the first it runs, else the first it has, Claude Code first. */
 function defaultAgent(facts: MachineFacts | null): Agent {
   return PREFERRED.find((agent) => runs(facts, agent)) ?? PREFERRED.find((agent) => has(facts, agent)) ?? "claude";
@@ -125,6 +158,7 @@ export class MachineHub {
   readonly #sockets: (tag: string) => WebSocket[];
   readonly #files: FileStore;
   readonly #tokens: TaskTokens;
+  readonly #creds: SessionCreds;
   /** Token work in call order, so a task's token is never issued for a run after its revoke was asked for. */
   #tokenWork: Promise<void> = Promise.resolve();
   /** The retries of each machine's failed delivery so far. */
@@ -143,13 +177,15 @@ export class MachineHub {
     sockets: (tag: string) => WebSocket[],
     /** Files tasks share; a report lists them so the agent can mention them. */
     files: FileStore,
-    tokens: TaskTokens
+    tokens: TaskTokens,
+    creds: SessionCreds
   ) {
     this.#sql = sql;
     this.#feed = feed;
     this.#sockets = sockets;
     this.#files = files;
     this.#tokens = tokens;
+    this.#creds = creds;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_inbox (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       machine TEXT NOT NULL,
@@ -168,6 +204,10 @@ export class MachineHub {
       turn INTEGER NOT NULL,
       session TEXT NOT NULL,
       PRIMARY KEY (task, turn))`);
+    // Each open Codex task handed ky's ChatGPT login, and when the login it was last sent expires.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_logins (
+      task TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL)`);
     // Reports owed to a conversation, from when a turn closes until it is posted there.
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_reports (
       task TEXT NOT NULL,
@@ -193,6 +233,8 @@ export class MachineHub {
 
     // The id of the machine's live pairing; null for a machine from before pairing, whose runner must pair.
     if (!known.some((column) => column.name === "pairing")) sql.exec("ALTER TABLE ky_machines ADD COLUMN pairing TEXT");
+
+    if (!known.some((column) => column.name === "login")) sql.exec("ALTER TABLE ky_machines ADD COLUMN login TEXT NOT NULL DEFAULT 'own'");
 
     // Commands from before turns were numbered, which no runner accepts: their tasks end as interrupted
     // at the runner's next hello.
@@ -281,7 +323,7 @@ export class MachineHub {
 
   machines(): MachineInfo[] {
     return this.#sql
-      .exec<MachineRow>("SELECT name, seen_at, state, note, facts FROM ky_machines ORDER BY name")
+      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name")
       .toArray()
       .map((row) => ({
         name: row.name,
@@ -291,7 +333,8 @@ export class MachineHub {
         state: row.state,
         note: row.note,
         // SAFETY: only #onHello and paired write facts, each a checked MachineFacts.
-        facts: row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts)
+        facts: row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts),
+        login: row.login
       }));
   }
 
@@ -307,12 +350,11 @@ export class MachineHub {
   /** Set whether ky may use a machine, or what it is for. Throws for a machine that never connected. */
   configure(name: string, change: MachineChange): MachineInfo {
     if (!this.machine(name)) throw new Error(`No machine ${name}.`);
-
-    if (change.state !== undefined && !MACHINE_STATES.includes(change.state)) {
-      throw new Error(`A machine is on, paused or off, not ${JSON.stringify(change.state)}.`);
-    }
+    checkChange(change);
 
     if (change.state !== undefined) this.#sql.exec("UPDATE ky_machines SET state = ? WHERE name = ?", change.state, name);
+
+    if (change.login !== undefined) this.#sql.exec("UPDATE ky_machines SET login = ? WHERE name = ?", change.login, name);
 
     if (change.note !== undefined) {
       this.#sql.exec("UPDATE ky_machines SET note = ? WHERE name = ?", change.note.trim().slice(0, NOTE_CHARS), name);
@@ -376,27 +418,84 @@ export class MachineHub {
   }
 
   /**
-   * Send the machine's unacked commands, each run with its task's token.
-   * The tokens are issued first, then the inbox is read again, so a run
-   * withdrawn meanwhile is not sent, and a run queued meanwhile waits for
-   * the delivery its own enqueue starts.
+   * Send the machine's unacked commands, each run with its task's token,
+   * and with ky's subscription for its agent when the machine is handed it.
+   * The tokens and logins are fetched first, then the inbox is read again,
+   * so a run withdrawn meanwhile is not sent, and a run queued meanwhile
+   * waits for the delivery its own enqueue starts. A creds command with no
+   * ChatGPT login left to send is dropped.
    */
   #deliver(machine: string): Promise<void> {
     return this.#afterTokens(`delivery to ${machine}`, async () => {
       if (!this.online(machine)) return;
-      const tasks = new Set(this.#pending(machine).flatMap((command) => (command.type === "run" ? [command.task] : [])));
-      const tokens = new Map(await Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)));
-      const commands: RunnerCommand[] = [];
+      const info = this.machine(machine);
+      const pending = this.#pending(machine);
+      const tasks = new Set(pending.flatMap((command) => (command.type === "run" ? [command.task] : [])));
 
-      for (const command of this.#pending(machine)) {
-        if (command.type !== "run") commands.push(command);
-        else if (tokens.has(command.task)) commands.push({ ...command, taskToken: tokens.get(command.task)! });
-        else break;
-      }
+      const agents = new Set(
+        pending.flatMap((command): Agent[] => {
+          if (command.type === "creds") return ["codex"];
 
-      this.#send(machine, commands);
+          return command.type === "run" && handsCreds(info, command.agent) ? [command.agent] : [];
+        })
+      );
+
+      const [tokens, creds] = await Promise.all([
+        Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)).then((issued) => new Map(issued)),
+        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all))
+      ]);
+
+      this.#send(machine, this.#outgoing(machine, tokens, creds, agents));
       this.#retries.delete(machine);
     }, () => this.#retry(machine));
+  }
+
+  /**
+   * The machine's unacked commands as they are sent, read again after the
+   * tokens and logins were fetched: up to the first run whose token wasn't.
+   */
+  #outgoing(machine: string, tokens: ReadonlyMap<string, string>, creds: RunCreds, agents: ReadonlySet<Agent>): RunnerCommand[] {
+    const commands: RunnerCommand[] = [];
+
+    for (const command of this.#pending(machine)) {
+      if (command.type === "stop") commands.push(command);
+      else if (command.type === "creds" && creds.codex) commands.push({ ...command, codex: creds.codex });
+      else if (command.type === "creds") this.#sql.exec("DELETE FROM ky_machine_inbox WHERE seq = ?", command.seq);
+      else if (!tokens.has(command.task)) break;
+      else {
+        const handed = agents.has(command.agent) ? creds[command.agent] : undefined;
+        const run: RunnerCommand = { ...command, taskToken: tokens.get(command.task)! };
+
+        commands.push(handed ? { ...run, creds: { [command.agent]: handed } } : run);
+      }
+    }
+
+    return commands;
+  }
+
+  /**
+   * Queue the refreshed ChatGPT login for each open Codex task on `machine`
+   * that was handed an older one. The Vault refreshes the login before it
+   * expires, so the task's next request has a live token.
+   */
+  async #renew(machine: string): Promise<void> {
+    const open = new Set(this.#feed.open("machine", machine).map((task) => task.id));
+
+    const handed = this.#sql
+      .exec<{ task: string; expires_at: number }>("SELECT task, expires_at FROM ky_machine_logins")
+      .toArray()
+      .filter((row) => open.has(row.task));
+
+    if (handed.length === 0) return;
+    const { codex } = await this.#creds("codex");
+
+    if (!codex) return;
+    const queued = new Set(this.#pending(machine).flatMap((command) => (command.type === "creds" ? [command.task] : [])));
+
+    for (const { task, expires_at } of handed) {
+      if (codex.expiresAt <= expires_at || queued.has(task)) continue;
+      this.#sql.exec("INSERT INTO ky_machine_inbox (machine, payload) VALUES (?, ?)", machine, JSON.stringify({ type: "creds", task } satisfies Queued));
+    }
   }
 
   #send(machine: string, commands: readonly RunnerCommand[]): void {
@@ -456,8 +555,18 @@ export class MachineHub {
    * The runner may have this command now: a run can no longer be withdrawn,
    * and a stop must wait for the runner to say how the turn ended.
    */
-  #sent(command: Pending): void {
+  #sent(command: RunnerCommand): void {
     this.#sql.exec("UPDATE ky_machine_inbox SET sent = 1 WHERE seq = ?", command.seq);
+    const codex = command.type === "creds" ? command.codex : command.type === "run" ? command.creds?.codex : undefined;
+
+    if (codex) {
+      this.#sql.exec(
+        `INSERT INTO ky_machine_logins (task, expires_at) VALUES (?, ?)
+         ON CONFLICT(task) DO UPDATE SET expires_at = MAX(expires_at, excluded.expires_at)`,
+        command.task,
+        codex.expiresAt
+      );
+    }
 
     if (command.type === "run" && command.turn > this.#turns(command.task).sent) {
       this.#setTurns(command.task, { sent: command.turn });
@@ -674,6 +783,13 @@ export class MachineHub {
       );
     }
 
+    try {
+      await this.#renew(machine);
+    } catch (error) {
+      // The Vault failed; the next hello asks again.
+      console.warn(`renewing ChatGPT logins on ${machine} failed`, error);
+    }
+
     await this.#deliver(machine);
   }
 
@@ -726,8 +842,12 @@ export class MachineHub {
     const from = turns.closed;
     this.#setTurns(id, { closed: turn });
 
-    // A turn sent after this one is still to run, with the same token.
-    if (turn === turns.turn) void this.#revoke(id);
+    // A turn sent after this one is still to run, with the same token and login.
+    if (turn === turns.turn) {
+      void this.#revoke(id);
+      this.#sql.exec("DELETE FROM ky_machine_logins WHERE task = ?", id);
+    }
+
     const ended = endOf(ok, text);
     this.#feed.update(id, { status: ended.status, summary: summarize(text) || (ok ? "Done" : "Failed") });
 

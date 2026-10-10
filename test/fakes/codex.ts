@@ -8,7 +8,9 @@
  * one turn on it and exits: the thread starts (new, or the one resumed), the
  * turn starts, each tool a directive asks for is an item, then after a pause
  * Codex's answer `fake codex did: <prompt>` and the turn's end.
- * `codex login status` says on stderr that it is signed in, as Codex does.
+ * `codex login status` says on stderr that it is signed in, as Codex does,
+ * unless FAKE_CODEX_SIGNED_OUT is set: then it says it is not, and a turn
+ * fails unless its CODEX_HOME holds an auth.json with an access token.
  *
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default 50)
@@ -23,17 +25,22 @@
  *
  * FAKE_CODEX_LOG       append one JSON line per start, turn, SIGINT and exit, so
  *                      a test can count and order what really ran; a start
- *                      records its CODEX_HOME and where its auth.json links to
+ *                      records its CODEX_HOME and where its auth.json links to,
+ *                      and a start and an exit a fingerprint of the access
+ *                      token in it then, never the token
  */
-import { appendFileSync, readlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
-import { attach, toolsIn } from "./directives.ts";
+import { attach, pause, toolsIn } from "./directives.ts";
 
 const args = process.argv.slice(2);
 
+const signedOut = process.env.FAKE_CODEX_SIGNED_OUT !== undefined;
+
 if (args[0] === "login" && args[1] === "status") {
-  process.stderr.write("Logged in using ChatGPT\n");
-  process.exit(0);
+  process.stderr.write(signedOut ? "Not logged in\n" : "Logged in using ChatGPT\n");
+  process.exit(signedOut ? 1 : 0);
 }
 
 const resume = args[1] === "resume" ? args.find((arg, index) => index > 1 && !arg.startsWith("-") && args[index - 1] !== "-c") : undefined;
@@ -74,6 +81,17 @@ function emit(event: JsonEvent) {
 function authLink(): string {
   try {
     return readlinkSync(join(home, "auth.json"));
+  } catch {
+    return "";
+  }
+}
+
+/** A fingerprint of the access token in the task's auth.json, as Codex would sign in now; "" if there is none. */
+function token(): string {
+  try {
+    const access = String(JSON.parse(readFileSync(join(home, "auth.json"), "utf8")).tokens.access_token);
+
+    return createHash("sha256").update(access).digest("hex").slice(0, 12);
   } catch {
     return "";
   }
@@ -133,6 +151,7 @@ record("start", {
   resume: resume ?? "",
   home,
   auth: authLink(),
+  token: token(),
   instructions: args.some((arg) => arg.startsWith("developer_instructions=")) ? 1 : 0,
   ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
 });
@@ -142,6 +161,22 @@ let prompt = "";
 process.stdin.on("data", (chunk) => {
   prompt += chunk;
 });
+
+/** Why the turn fails, as Codex's error body: not signed in, or asked to by [fail]; null when it doesn't. */
+function failure(prompt: string): string | null {
+  if (signedOut && token() === "") return JSON.stringify({ type: "error", status: 401, error: { type: "unauthorized", message: "not signed in" } });
+
+  return prompt.includes("[fail]")
+    ? JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "fake codex failed" } })
+    : null;
+}
+
+function fail(body: string): never {
+  emit({ type: "error", message: body });
+  emit({ type: "turn.failed", error: { message: body } });
+  record("exit", { code: 1 });
+  process.exit(1);
+}
 
 process.stdin.on("end", async () => {
   emit({ type: "thread.started", thread_id: thread });
@@ -153,22 +188,16 @@ process.stdin.on("end", async () => {
     emit({ type: "item.completed", item });
   }
 
-  const delay = /\[delay=(\d+)\]/.exec(prompt);
-  await new Promise((resolve) => setTimeout(resolve, delay ? Number(delay[1]) : 50));
+  await pause(prompt, 50);
 
   if (dying) return;
+  const failed = failure(prompt);
 
-  if (prompt.includes("[fail]")) {
-    const body = JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "fake codex failed" } });
-    emit({ type: "error", message: body });
-    emit({ type: "turn.failed", error: { message: body } });
-    record("exit", { code: 1 });
-    process.exit(1);
-  }
+  if (failed !== null) fail(failed);
 
   const shared = await attached(prompt);
   emit({ type: "item.completed", item: { id: "item_answer", type: "agent_message", text: `fake codex did: ${prompt}${shared}` } });
   emit({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
-  record("exit", { code: 0 });
+  record("exit", { code: 0, token: token() });
   process.exit(0);
 });

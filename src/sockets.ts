@@ -24,6 +24,7 @@ import { mentions, type Specialists } from "./specialists";
 import type { PiClientMessage, PiServerMessage } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
+import type { Subscriptions } from "./subscriptions";
 import type { NotSetUp, Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
 
@@ -128,6 +129,7 @@ export class PiSessionSockets {
   readonly #hub: MachineHub;
   readonly #files: FileStore;
   readonly #models: Models;
+  readonly #subscriptions: Subscriptions;
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
@@ -149,6 +151,7 @@ export class PiSessionSockets {
     hub: MachineHub,
     files: FileStore,
     models: Models,
+    subscriptions: Subscriptions,
     chats: ChatList,
     skills: Skills,
     soul: Soul,
@@ -169,6 +172,7 @@ export class PiSessionSockets {
     this.#hub = hub;
     this.#files = files;
     this.#models = models;
+    this.#subscriptions = subscriptions;
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
@@ -226,6 +230,19 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+    subscriptions.onChange(() => {
+      this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
+    });
+  }
+
+  async #subscriptionsMessage(): Promise<PiServerMessage> {
+    return { type: "subscriptions", subscriptions: await this.#subscriptions.view() };
+  }
+
+  async #broadcastSubscriptions(): Promise<void> {
+    const message = await this.#subscriptionsMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
   }
 
   #skillsMessage(): PiServerMessage {
@@ -407,6 +424,7 @@ export class PiSessionSockets {
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
+    send(connection, await this.#subscriptionsMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
@@ -655,11 +673,23 @@ export class PiSessionSockets {
         if (message.state !== undefined) change.state = message.state;
 
         if (message.note !== undefined) change.note = message.note;
+
+        if (message.login !== undefined) change.login = message.login;
         this.#hub.configure(message.machine, change);
 
         return null;
       }
 
+      case "set-claude":
+        return await this.#subscriptions.setClaude(message.token);
+      case "remove-subscription":
+        await this.#subscriptions.remove(message.kind);
+
+        return null;
+      case "chatgpt-login":
+        return await this.#subscriptions.chatgptLogin();
+      case "chatgpt-poll":
+        return await this.#subscriptions.chatgptPoll(message.login);
       case "set-repo":
         // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
         return this.#setup.setRepo(message.repo, connection.uri);

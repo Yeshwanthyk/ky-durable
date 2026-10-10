@@ -892,6 +892,25 @@
   margin-left: 15px;
 }
 
+.machine-login {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 15px;
+}
+
+.subscription-form {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.subscription-input {
+  width: 9rem;
+  min-width: 0;
+}
+
 .machine[data-state="off"] .machine-name,
 .machine[data-state="paused"] .machine-name {
   color: var(--muted);

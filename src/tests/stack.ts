@@ -6,16 +6,20 @@ import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
 import { edge, FakeAccess } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
+import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 
 /**
- * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes,
- * and machine mints it can slow (`slowMachineMints`), to make two pairings race.
+ * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes
+ * and tokens, machine mints it can slow (`slowMachineMints`), to make two pairings race, and the fake OpenAI
+ * for ChatGPT's sign-in.
  */
 export class Vault extends ProductionVault {
   #slow = { count: 0, ms: 0 };
+
+  override openai = fakeOpenAi(() => this.now()).fetch;
 
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;

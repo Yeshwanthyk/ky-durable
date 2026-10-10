@@ -22,6 +22,8 @@ export type Proxy = {
   connections: () => number;
   /** Reports from the runner seen so far, held or dropped ones included. */
   reports: RunnerReport[];
+  /** The object's frames to the runner seen so far, as sent. */
+  frames: string[];
   /** Hold the runner's frames until `release`. */
   hold: () => void;
   release: () => void;
@@ -62,6 +64,7 @@ function kyClose(code: number, reason: Buffer): [] | [number, Buffer] {
 export async function startProxy(target: string): Promise<Proxy> {
   const port = await freePort();
   const reports: RunnerReport[] = [];
+  const frames: string[] = [];
   const live = new Set<{ runner: Socket; upstream: Socket }>();
   let held: Array<() => void> | undefined;
   let drop: (report: RunnerReport) => boolean = () => false;
@@ -135,6 +138,8 @@ export async function startProxy(target: string): Promise<Proxy> {
         for (const frame of early.splice(0)) upstream.send(frame);
       });
       upstream.on("message", (data) => {
+        frames.push(String(data));
+
         if (runner.readyState === Socket.OPEN) runner.send(String(data));
       });
 
@@ -170,6 +175,7 @@ export async function startProxy(target: string): Promise<Proxy> {
     url: `http://127.0.0.1:${port}`,
     connections: () => connections,
     reports,
+    frames,
     hold: () => {
       held ??= [];
     },
