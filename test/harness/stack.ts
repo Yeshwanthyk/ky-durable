@@ -11,8 +11,6 @@ import path from "node:path";
 
 export const REPO = path.resolve(import.meta.dirname, "../..");
 
-export const TOKEN = "ky-stack-token";
-
 export type Stack = { url: string; log: string; stop: () => Promise<void> };
 
 /** A TCP port nothing listens on right now. */
@@ -29,13 +27,13 @@ export function freePort(): Promise<number> {
   });
 }
 
-/** Resolves once `GET /login` answers 200, which needs the Worker up. */
+/** Resolves once the manifest, which Access lets through signed out, answers 200: that needs the Worker up. */
 async function ready(url: string, timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${url}/login`)).status === 200) return;
+      if ((await fetch(`${url}/manifest.webmanifest`)).status === 200) return;
     } catch {
       // Not listening yet.
     }
@@ -43,7 +41,7 @@ async function ready(url: string, timeoutMs = 90_000): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  throw new Error(`The local stack at ${url} never answered GET /login`);
+  throw new Error(`The local stack at ${url} never answered GET /manifest.webmanifest`);
 }
 
 /** Start the stack, wait until it is ready, and return how to stop it. */

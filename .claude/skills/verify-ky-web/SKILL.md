@@ -18,7 +18,7 @@ Everything here runs on this Mac against the local stack. It never touches the d
    - `pnpm test:web -g "<title words>"`.
    - Or start your own stack with `pnpm stack` in the background and wait until it is ready:
      ```sh
-     until curl -fsS -o /dev/null http://127.0.0.1:8790/login; do sleep 1; done
+     until curl -fsS -o /dev/null http://127.0.0.1:8790/manifest.webmanifest; do sleep 1; done
      ```
    - Then run `KY_STACK_URL=http://127.0.0.1:8790 pnpm test:web -g "<title words>"`. Global setup reuses that stack, but still starts the `webmac` runner.
 4. Open `http://127.0.0.1:8790` yourself and sign in with the token `ky-stack-token`.
@@ -27,7 +27,7 @@ Everything here runs on this Mac against the local stack. It never touches the d
 ## Doctor (read-only)
 
 - `npx playwright --version`, plus `ls ~/Library/Caches/ms-playwright`: Playwright is installed and has a chromium build.
-- `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/login`: prints 200 when your stack is up.
+- `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/manifest.webmanifest`: prints 200 when your stack is up.
 - `npx playwright test --config test/web/playwright.config.ts --list`: lists every web test, without running any.
 - `lsof -nP -iTCP:8790 -sTCP:LISTEN`: shows who owns the port.
 
@@ -65,5 +65,5 @@ Everything here runs on this Mac against the local stack. It never touches the d
 
 - The stack uses `src/tests/wrangler.jsonc` and a fresh temp state directory on every start. The runner's `HOME` and `KY_STATE_DIR` are under `test-results/web-stack/webmac/`.
 - Tests share one stack, so a test that changes a setting (a model slot, the Mac) must restore it before it ends.
-- Never point `KY_STACK_URL` at the deployed worker, and never use the real `KY_TOKEN`.
+- Never point `KY_STACK_URL` at the deployed worker, and never use a real Access token.
 - Don't commit anything under `test-results/` or `playwright-report/`; both are gitignored.

@@ -2,8 +2,10 @@
 # `pnpm types` reads this file: what's set here is required. The commented ones are optional, typed in
 # env.optional.d.ts, and show as "Not set up" in Settings until set.
 
-# The password for the web app, and the runner's bearer token.
-KY_TOKEN=
+# `pnpm start` has no Cloudflare Access in front of it: sign every request in as this email. Never deployed.
+# KY_DEV=1
+# KY_DEV_EMAIL=you@example.com
+# ACCESS_EMAILS=you@example.com
 
 # OpenCode Go; without it ky runs on Workers AI through the AI binding.
 # OPENCODE_API_KEY=

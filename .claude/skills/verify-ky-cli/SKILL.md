@@ -19,7 +19,7 @@ Everything here runs on this Mac against the local stack. It never touches the d
    - The port is `KY_STACK_PORT` (default 8790) and the token is `ky-stack-token`.
 3. Wait until the stack is ready, then point the harness at it:
    ```sh
-   until curl -fsS -o /dev/null http://127.0.0.1:8790/login; do sleep 1; done
+   until curl -fsS -o /dev/null http://127.0.0.1:8790/manifest.webmanifest; do sleep 1; done
    export KY_STACK_URL=http://127.0.0.1:8790
    ```
    If you leave `KY_STACK_URL` unset, `pnpm harness` starts its own stack on a free port and stops it when it finishes.
@@ -32,7 +32,7 @@ Run these before driving. None of them changes anything.
 - `node --version`: must be 22 or newer, because the runner and harness use `--experimental-strip-types`.
 - `test -x node_modules/.bin/vite && echo ok`: dependencies are installed.
 - `lsof -nP -iTCP:8790 -sTCP:LISTEN`: either nothing is listening, or it is your stack.
-- `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/login`: prints 200 when the stack is up.
+- `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/manifest.webmanifest`: prints 200 when the stack is up.
 - `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8790/test/gate-runs`: prints 401 without the token, which shows the auth gate is on.
 - `pnpm harness --list`: shows every scenario and whether it is expected to `pass` or `xfail`.
 
@@ -77,5 +77,5 @@ and says what the harness can't reach. After adding a scenario, add its row ther
 
 - Every runner gets its own temporary `HOME`, `KY_WORKDIR` and `KY_STATE_DIR` under its scenario directory, so `~/.ky` and `~/.claude` are never read or written.
 - The stack keeps Durable Object, R2 and KV state in a fresh temp directory and uses `src/tests/wrangler.jsonc`, not the production config.
-- Never set `KY_URL` or `KY_STACK_URL` to the deployed worker, and never use the real `KY_TOKEN` here. Live checks are `pnpm gate:live`, and you run them only when asked.
+- Never set `KY_URL` or `KY_STACK_URL` to the deployed worker, and never use a real Access token here. Live checks are `pnpm gate:live`, and you run them only when asked.
 - Don't commit anything under `test-results/`; it is gitignored.

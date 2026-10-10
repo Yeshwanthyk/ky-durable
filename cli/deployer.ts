@@ -11,7 +11,7 @@
  * made carries the `ky` tag too; one without it that guards the Worker's address is never changed
  * or removed.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
@@ -21,10 +21,8 @@ import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
 import { type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
 import { emails } from "./config.ts";
+import { BYPASS } from "../src/access.ts";
 import type { Release } from "./release.ts";
-
-/** C2: what Access lets through without a login; each of these checks its own bearer, or is public. */
-export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/manifest.webmanifest", "/icons/*"];
 
 /** The tag every Worker and Access app the CLI makes carries, and the one that names a Worker's release. */
 const TAG = "ky";
@@ -78,8 +76,6 @@ export type Deployed = {
   url: string;
   /** The release the Worker ran before, or undefined when this deploy created it. */
   from?: string;
-  /** KY_TOKEN, when this deploy set one; it's shown once and kept nowhere else. */
-  token?: string;
 };
 
 /** One piece `ky doctor` checks, and what fixes it. */
@@ -429,16 +425,9 @@ async function ensureBuckets(cloudflare: Cloudflare, name: Names): Promise<void>
   }
 }
 
-/** A new KY_TOKEN, unless the Worker (when there is one) has it: it signs the owner in until Access replaces it (node A). */
-async function newToken(cloudflare: Cloudflare, accountId: string, scriptName: string | undefined): Promise<string | undefined> {
-  const secrets = scriptName ? await cloudflare.list(Workers.listScriptSecrets.items({ accountId, scriptName })) : [];
-
-  return secrets.some((secret) => secret.name === "KY_TOKEN") ? undefined : Buffer.from(randomBytes(24)).toString("base64url");
-}
-
 /**
  * Deploys the release: buckets, the Access apps, the web app, then the Worker with its bindings,
- * the migrations it hasn't run, `ACCESS_*`, and a KY_TOKEN when it has none; then workers.dev.
+ * the migrations it hasn't run and `ACCESS_*`; then workers.dev.
  */
 export async function deploy(target: Target, release: Release, say: (step: string) => void): Promise<Deployed> {
   const { cloudflare, config } = target;
@@ -458,8 +447,6 @@ export async function deploy(target: Target, release: Release, say: (step: strin
 
   say("Uploading the web app");
   const jwt = await uploadAssets(cloudflare, accountId, name.script, release.assets);
-  const token = await newToken(cloudflare, accountId, script && name.script);
-  const secret: Binding[] = token ? [{ type: "secret_text", name: "KY_TOKEN", text: token }] : [];
 
   say(script ? `Upgrading the Worker from ${releaseOf(script) ?? "an unknown release"} to ${release.version}` : "Uploading the Worker");
   await cloudflare.run(
@@ -474,10 +461,7 @@ export async function deploy(target: Target, release: Release, say: (step: strin
           jwt,
           config: { notFoundHandling: config.assets?.not_found_handling, runWorkerFirst: config.assets?.run_worker_first }
         },
-        bindings: [
-          ...bindings(config, name.buckets, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }),
-          ...secret
-        ],
+        bindings: bindings(config, name.buckets, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }),
         keepBindings: ["secret_text"],
         migrations: pendingMigrations(config.migrations ?? [], applied),
         observability: config.observability ? { enabled: config.observability.enabled ?? false } : undefined,
@@ -490,7 +474,7 @@ export async function deploy(target: Target, release: Release, say: (step: strin
   say("Turning on workers.dev");
   await cloudflare.run(Workers.createScriptSubdomain({ accountId, scriptName: name.script, enabled: true, previewsEnabled: false }));
 
-  return { url: `https://${address}`, from: script ? (releaseOf(script) ?? "an unknown release") : undefined, token };
+  return { url: `https://${address}`, from: script ? (releaseOf(script) ?? "an unknown release") : undefined };
 }
 
 /** The release the Worker runs, or undefined when there's no Worker. */
@@ -580,17 +564,13 @@ async function ownershipChecks({ cloudflare, config, settings }: Target, access:
   return [...buckets, ...access.theirs.map((app): Check => ({ name: "Access", ok: false, detail: theirApp(app, address), next: rename(settings) }))];
 }
 
-/** The Worker's release, migrations, KY_TOKEN, Access apps and workers.dev. */
+/** The Worker's release, migrations, Access apps and workers.dev. */
 async function inspectWorker(target: Target, release: Release, script: Script, access: Access, address: string, check: Checker): Promise<void> {
   const { cloudflare, config } = target;
   const name = names(config);
   const accountId = name.account;
 
   for (const each of releaseChecks(releaseOf(script), release, await migrationTag(cloudflare, accountId, name.script))) check(each);
-  const secrets = await cloudflare.list(Workers.listScriptSecrets.items({ accountId, scriptName: name.script }));
-  const hasToken = secrets.some((secret) => secret.name === "KY_TOKEN");
-
-  check({ name: "KY_TOKEN", ok: hasToken, detail: hasToken ? "set" : "missing", next: "ky deploy" });
 
   for (const each of accessChecks(access, address)) check(each);
   const workersDev = await cloudflare.run(Workers.getScriptSubdomain({ accountId, scriptName: name.script }));

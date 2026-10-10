@@ -19,7 +19,7 @@ function patchText(id: string): Promise<string> {
   let text = patches.get(id);
 
   if (!text) {
-    text = fetch(`/api/files/${id}`).then((response) => (response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`))));
+    text = fetch(`/files/${id}`).then((response) => (response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`))));
     patches.set(id, text);
   }
 

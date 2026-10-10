@@ -16,7 +16,7 @@ export function Attachments({ task, compact = false }: { task: string; compact?:
   if (files.length === 0) return null;
 
   const media: Media[] = [...files].reverse().map((file) => ({
-    src: `/api/files/${file.id}`,
+    src: `/files/${file.id}`,
     label: file.caption ?? file.name,
     video: file.type.startsWith("video/")
   }));

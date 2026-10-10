@@ -3,11 +3,11 @@ import path from "node:path";
 import { WebSocket as Socket } from "ws";
 import type { FileRow, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
+import { signedIn } from "../../src/tests/fake-access.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
 import { type FakeEvent, machine, type Machine, pairingCode, type Runner } from "./runner.ts";
-import { TOKEN } from "./stack.ts";
 
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
@@ -154,7 +154,7 @@ async function runAutomation(context: Context, id: string): Promise<string> {
 
 /** Ask a test route on the stack, which answers 204 once it is done. */
 async function testRoute(context: Context, route: string): Promise<void> {
-  const response = await fetch(`${context.url}${route}`, { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } });
+  const response = await fetch(`${context.url}${route}`, { method: "POST", headers: await signedIn() });
 
   if (response.status !== 204) throw new Error(`${route} answered ${response.status}`);
 }
@@ -183,7 +183,7 @@ function flipped(history: readonly string[]): boolean {
 
 /** Delete a machine as the user does in Settings; resolves with the HTTP status. */
 async function removeMachine(context: Context, name: string): Promise<number> {
-  return (await fetch(`${context.url}/api/runners/${name}`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } })).status;
+  return (await fetch(`${context.url}/api/runners/${name}`, { method: "DELETE", headers: await signedIn() })).status;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -716,7 +716,7 @@ export const SCENARIOS: Scenario[] = [
       await status(context, task, "done");
       const file = sharedBy(context, task);
       check(file !== undefined && file.caption === "a fake screenshot", "the task lists the screenshot");
-      const response = await fetch(`${context.url}/api/files/${file!.id}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      const response = await fetch(`${context.url}/files/${file!.id}`, { headers: await signedIn() });
       check(response.status === 200 && response.headers.get("Content-Type") === "image/png", "the file is served");
     }
   },

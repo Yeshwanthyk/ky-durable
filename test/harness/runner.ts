@@ -3,7 +3,8 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs"
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
-import { REPO, TOKEN } from "./stack.ts";
+import { signedIn } from "../../src/tests/fake-access.ts";
+import { REPO } from "./stack.ts";
 
 /**
  * The real runner (runner/ky-runner.ts) as its own process, with the fake
@@ -79,7 +80,7 @@ export type Machine = {
 
 /** A pairing code, as the signed-in user makes one in Settings. */
 export async function pairingCode(url: string): Promise<string> {
-  const response = await fetch(`${url}/api/runners/codes`, { method: "POST", headers: { Authorization: `Bearer ${TOKEN}` } });
+  const response = await fetch(`${url}/api/runners/codes`, { method: "POST", headers: await signedIn() });
 
   if (!response.ok) throw new Error(`/api/runners/codes answered ${response.status}`);
 

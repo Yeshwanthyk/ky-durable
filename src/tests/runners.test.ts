@@ -1,9 +1,11 @@
 import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { ASSERTION } from "../access";
 import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../runner-protocol";
+import { FakeAccess } from "./fake-access";
 import type { Vault as TestVault } from "./stack";
-import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, TOKEN, until } from "./drive";
+import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, until } from "./drive";
 
 /**
  * Runners' own tokens (src/runners.ts): pairing a machine with a code, its
@@ -118,13 +120,15 @@ describe("pairing a machine", () => {
   });
 
   it("makes codes and removes machines only for the signed-in user", async () => {
-    expect((await call("/api/runners/codes", { method: "POST", headers: { Authorization: "" } })).status).toBe(401);
-    expect((await call("/api/runners/mac", { method: "DELETE", headers: { Authorization: "" } })).status).toBe(401);
+    const signedOut = { [ASSERTION]: "" };
+    expect((await call("/api/runners/codes", { method: "POST", headers: signedOut })).status).toBe(401);
+    expect((await call("/api/runners/mac", { method: "DELETE", headers: signedOut })).status).toBe(401);
     const machine = named("owned");
     const token = await machineToken(machine);
     // A machine's own token is not the user's.
-    expect((await call("/api/runners/codes", { method: "POST", headers: { Authorization: `Bearer ${token}` } })).status).toBe(401);
-    expect((await call(`/api/runners/${machine}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })).status).toBe(401);
+    const machines = { ...signedOut, Authorization: `Bearer ${token}` };
+    expect((await call("/api/runners/codes", { method: "POST", headers: machines })).status).toBe(401);
+    expect((await call(`/api/runners/${machine}`, { method: "DELETE", headers: machines })).status).toBe(401);
   });
 });
 
@@ -235,7 +239,7 @@ describe("task tokens", () => {
     const run = await mac.run();
     expect(await vault().check("task", run.taskToken)).toBe(run.task);
     // The user's sign-in is not a task token.
-    expect(await vault().check("task", TOKEN)).toBeNull();
+    expect(await vault().check("task", await new FakeAccess().sign())).toBeNull();
 
     mac.send({ type: "session", task: run.task, turn: run.turn, session: "s-token" });
     await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);

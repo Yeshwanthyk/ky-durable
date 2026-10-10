@@ -16,13 +16,13 @@ import {
   shows,
   submit,
   tasks,
-  TOKEN,
   until,
   wait
 } from "./drive";
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
+import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
 
 /**
@@ -75,35 +75,6 @@ async function command(
 
   return reply()!;
 }
-
-describe("signing in", () => {
-  it("sends pages to the login form and refuses the API and sockets without the token", async () => {
-    const page = await call("/", { headers: { Authorization: "" }, redirect: "manual" });
-    expect(page.status).toBe(302);
-    expect(page.headers.get("Location")).toBe("https://ky.test/login");
-
-    expect((await call("/api/files/0123456789abcdef0123456789abcdef", { headers: { Authorization: "" } })).status).toBe(401);
-    expect((await call("/agents/pi-agent/me", { headers: { Authorization: "", Upgrade: "websocket" } })).status).toBe(401);
-    expect((await call("/", { headers: { Authorization: "Bearer wrong" }, redirect: "manual" })).status).toBe(302);
-    expect((await call("/login", { headers: { Authorization: "" } })).status).toBe(200);
-  });
-
-  it("sets an HttpOnly cookie for the right token, which then signs requests in", async () => {
-    const wrong = await call("/login", { method: "POST", body: new URLSearchParams({ token: "nope" }) });
-    expect(wrong.status).toBe(401);
-
-    const right = await call("/login", { method: "POST", body: new URLSearchParams({ token: TOKEN }), redirect: "manual" });
-    expect(right.status).toBe(303);
-    const cookie = right.headers.get("Set-Cookie") ?? "";
-    expect(cookie).toMatch(/^ky_token=ky-stack-token;.*HttpOnly; Secure; SameSite=Lax$/);
-
-    const signedIn = await call("/api/files/0123456789abcdef0123456789abcdef", {
-      headers: { Authorization: "", Cookie: cookie.split(";")[0]! }
-    });
-
-    expect(signedIn.status).toBe(404);
-  });
-});
 
 describe("the tools", () => {
   it("remembers a note and recalls it", async () => {
@@ -784,9 +755,9 @@ describe("machine tasks", () => {
       });
 
     expect((await upload(run.task, "image/svg+xml")).status).toBe(415);
-    // Only the task's own token: not for another task, and not the user's sign-in.
+    // Only the task's own token: not for another task, and not the user's sign-in, which every call here carries.
     expect((await upload("not-a-task")).status).toBe(401);
-    expect((await upload(run.task, "image/png", TOKEN)).status).toBe(401);
+    expect((await upload(run.task, "image/png", await new FakeAccess().sign())).status).toBe(401);
 
     const uploaded = await upload(run.task);
     expect(uploaded.status).toBe(200);

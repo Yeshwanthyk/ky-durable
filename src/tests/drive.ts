@@ -14,26 +14,26 @@ import {
   type RunnerCommand,
   type RunnerReport
 } from "../runner-protocol";
+import { ASSERTION } from "../access";
+import { FakeAccess } from "./fake-access";
 import { decodeServerFrame } from "./frames";
 import { agents, type PiAgent } from "./stack";
 
 /**
  * Drives ky's real Worker the way its clients do: the browser's WebSocket
- * through the Worker's fetch, signed in with the test token, and pi's harness
+ * through the Worker's fetch, signed in by the fake Access, and pi's harness
  * inside the object for what only the server sees. The Worker sends every
  * runner to the one agent "me", so a test's runner dials its own agent
  * object straight; sockets.test.ts checks the Worker's route.
  */
 
-export const TOKEN = "ky-stack-token";
-
 const ORIGIN = "https://ky.test";
 
-/** Fetch through ky's Worker, signed in with the bearer token, at ky's address or another. */
-export function call(path: string, init: RequestInit = {}, origin = ORIGIN): Promise<Response> {
+/** Fetch through ky's Worker as Access lets the owner through, at ky's address or another; an empty assertion header is signed out. */
+export async function call(path: string, init: RequestInit = {}, origin = ORIGIN): Promise<Response> {
   const headers = new Headers(init.headers);
 
-  if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${TOKEN}`);
+  if (!headers.has(ASSERTION)) headers.set(ASSERTION, await new FakeAccess().sign());
 
   return SELF.fetch(`${origin}${path}`, { ...init, headers });
 }

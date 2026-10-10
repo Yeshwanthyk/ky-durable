@@ -1,7 +1,8 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { OUTDATED, PROTOCOL, REVOKED } from "../runner-protocol";
-import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, TOKEN, until, wait } from "./drive";
+import { FakeAccess } from "./fake-access";
+import { agent, call, connect, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, until, wait } from "./drive";
 import { GPT_OSS } from "./stack";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
@@ -192,7 +193,7 @@ describe("the runner's WebSocket", () => {
 
     // No token, the user's sign-in, a made-up token, and another machine's: none opens this machine's socket.
     expect((await as("")).status).toBe(401);
-    expect((await as(`Bearer ${TOKEN}`)).status).toBe(401);
+    expect((await as(`Bearer ${await new FakeAccess().sign()}`)).status).toBe(401);
     expect((await as(`Bearer ${"0".repeat(64)}`)).status).toBe(401);
     expect((await as(`Bearer ${othersToken}`)).status).toBe(401);
 

@@ -46,7 +46,7 @@ async function target(context: Context): Promise<{ target: Target; release: Rele
   return { target: { cloudflare: await context.login(), config: merged(release, overlay), settings: context.overlay }, release };
 }
 
-/** Deploys, and shows the URL and, once, a KY_TOKEN the deploy set. */
+/** Deploys, and shows the URL. */
 async function deployTo(out: Output, to: Target, release: Release): Promise<number> {
   const deployed = await out.steps("Stopped. Run `ky deploy` to finish the deploy.", (say) => {
     say("Checking what's in the account");
@@ -54,7 +54,6 @@ async function deployTo(out: Output, to: Target, release: Release): Promise<numb
     return deploy(to, release, say);
   });
 
-  if (deployed.token) out.note("Your KY_TOKEN, shown once (sign in with it)", [deployed.token]);
   const live = `${green(`ky ${release.version} is live`)} at ${bold(deployed.url)}`;
 
   out.outro(deployed.from ? `${live} (was ${deployed.from})` : live);

@@ -4,7 +4,8 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
 import { machine as pairable } from "../harness/runner.ts";
-import { REPO, TOKEN } from "../harness/stack.ts";
+import { accessCookie } from "../../src/tests/fake-access.ts";
+import { REPO } from "../harness/stack.ts";
 
 /**
  * One check per local web feature in FEATURES.md, through the real app in
@@ -19,10 +20,13 @@ const PIXEL = Buffer.from(
   "base64"
 );
 
+/** Sign the browser in to the stack's fake Access, as Access's login leaves it: with its cookie. */
 async function signIn(page: Page): Promise<void> {
-  const url = process.env.KY_STACK_URL!;
-  await page.context().addCookies([{ name: "ky_token", value: TOKEN, url }]);
+  await page.context().addCookies([await accessCookie(process.env.KY_STACK_URL!)]);
 }
+
+/** What the Worker answers a request Access didn't sign in. */
+const REFUSED = "Sign in to ky through Cloudflare Access.";
 
 const composer = (page: Page) => page.getByRole("textbox", { name: "Message" });
 
@@ -43,13 +47,13 @@ async function send(page: Page, text: string): Promise<void> {
 
 /** Open every gate tool started so far (src/tests/stack.ts). */
 async function release(page: Page): Promise<void> {
-  const response = await page.request.post("/test/release", { headers: { Authorization: `Bearer ${TOKEN}` } });
+  const response = await page.request.post("/test/release");
   expect(response.status()).toBe(204);
 }
 
 /** Bring the stack's Mac (its fake VibeProxy) online ("1"), take it away ("0"), or let it leave unnoticed ("leaves"). */
 async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
-  const response = await page.request.post(`/test/mac?up=${up}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  const response = await page.request.post(`/test/mac?up=${up}`);
   expect(response.status()).toBe(204);
 }
 
@@ -135,17 +139,38 @@ function record(connection: Connection, message: string): string | undefined {
   return frame.id;
 }
 
-test("sends the sign-in form to strangers, refuses a wrong token, and lets the right one in", async ({ page }) => {
+test("shows nothing of ky without Access's sign-in, even with a forged email header, but loads the manifest and icons", async ({ page }) => {
+  const forged: Array<Record<string, string>> = [{}, { "Cf-Access-Authenticated-User-Email": "owner@ky.test" }];
+
+  for (const headers of forged) {
+    const response = await page.request.get("/", { headers, maxRedirects: 0 });
+    expect(response.status()).toBe(401);
+    expect(await response.text()).toBe(REFUSED);
+  }
+
   await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByText(REFUSED)).toBeVisible();
+  await expect(composer(page)).toHaveCount(0);
 
-  await page.getByPlaceholder("Token").fill("not the token");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByText("That token is not right.")).toBeVisible();
+  expect((await page.request.get("/manifest.webmanifest")).status()).toBe(200);
+  expect((await page.request.get("/icons/icon-192.png")).headers()["content-type"]).toBe("image/png");
+});
 
-  await page.getByPlaceholder("Token").fill(TOKEN);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+test("reloads into Access's sign-in when the socket drops after the sign-in lapses", async ({ page }) => {
+  const closers: Array<() => Promise<void>> = [];
+
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (socket) => {
+    const server = socket.connectToServer();
+    closers.push(() => socket.close());
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => socket.send(message));
+  });
+
+  await open(page);
+  await page.context().clearCookies();
+  await closers.at(-1)!();
+
+  await expect(page.getByText(REFUSED)).toBeVisible();
 });
 
 test("streams the answer to a message", async ({ page }) => {
