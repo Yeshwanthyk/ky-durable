@@ -10,6 +10,7 @@ import { readOverlay, writeOverlay } from "../../cli/config.ts";
 import { BYPASS } from "../../cli/deployer.ts";
 import { initCommand } from "../../cli/init.ts";
 import * as Cli from "../../cli/ky.ts";
+import { banner, bold } from "../../cli/output.ts";
 import { loadRelease, packOf, type Release, releaseFiles, useRelease } from "../../cli/release.ts";
 import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
@@ -104,6 +105,11 @@ async function doctor(ky: Context) {
   const code = await doctorCommand(ky, false);
 
   return { code, next: output.at(-1) };
+}
+
+/** The checks `ky doctor` printed, each as `<mark> <name>: <detail>`: without the padding that lines them up, or a failure's `→ next`. */
+function checks(): string[] {
+  return output.slice(0, -1).map((line) => line.replace(/^(.) (.+?) {2,}(.*?)( {2}→ .*)?$/, "$1 $2: $3"));
 }
 
 /** What `ky doctor` says to fill in, filled in. */
@@ -283,7 +289,7 @@ describe("ky init and deploy", () => {
     await initCommand(ky, { account: "acc", name: "ky", email: EMAIL });
     account.apps.set("theirs", theirs);
     expect(await doctor(ky)).toEqual({ code: 1, next: `Next: pick another name: set "name" in ${ky.overlay}, then run \`ky deploy\`` });
-    expect(output).toContain(`✗ Access: An Access app named intranet already guards ${HOST} and ky didn't make it`);
+    expect(checks()).toContain(`✗ Access: An Access app named intranet already guards ${HOST} and ky didn't make it`);
 
     output = [];
     expect(await teardownCommand(ky, "ky")).toBe(0);
@@ -335,7 +341,7 @@ describe("ky init and deploy", () => {
     const newer = "get a newer ky: `git pull && pnpm compile` in your ky checkout";
 
     expect(await doctor(ky)).toEqual({ code: 1, next: `Next: ${newer}` });
-    expect(output).toContain("✗ Release: r2 ran migration v3: this ky (r1) is older than the Worker");
+    expect(checks()).toContain("✗ Release: r2 ran migration v3: this ky (r1) is older than the Worker");
     await expect(upgradeCommand(ky)).rejects.toThrow(`The Worker ran migration v3, which this release doesn't have: this ky is older than the Worker; ${newer}`);
   });
 
@@ -444,7 +450,8 @@ describe("ky doctor", () => {
     const ky = await setUp();
 
     expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
-    expect(output.slice(0, -1)).toEqual([
+    expect(output[1]).toBe("✓ Cloudflare login       CLOUDFLARE_API_TOKEN");
+    expect(checks()).toEqual([
       `✓ Config: ${ky.overlay}`,
       "✓ Cloudflare login: CLOUDFLARE_API_TOKEN",
       "✓ Zero Trust: test.cloudflareaccess.com",
@@ -472,12 +479,13 @@ describe("ky doctor", () => {
 
     signedIn = wrangler();
     expect(await doctor(ky)).toEqual({ code: 1, next: `Next: set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}, then run \`ky doctor\`` });
-    expect(output).toContain(`✗ Cloudflare permissions: Cloudflare refused wrangler login; ky needs ${SCOPES}`);
+    expect(checks()).toContain(`✗ Cloudflare permissions: Cloudflare refused wrangler login; ky needs ${SCOPES}`);
 
     signedIn = token();
     script()?.tags.splice(0);
     expect(await doctor(ky)).toEqual({ code: 1, next: `Next: pick another name: set "name" in ${ky.overlay}, then run \`ky deploy\`` });
-    expect(output).toContain("✗ Worker: ky is a Worker ky didn't deploy");
+    expect(checks()).toContain("✗ Worker: ky is a Worker ky didn't deploy");
+    expect(output).toContainEqual(expect.stringMatching(/^✗ Worker +ky is a Worker ky didn't deploy {2}→ pick another name: set "name" in /));
   });
 
   /** Each way a deploy can be broken: what breaks it (after `ky init`, unless `given`), what the user does outside ky, and the Nexts that fix it. */
@@ -708,6 +716,93 @@ describe("the ky command", () => {
     expect(await Cli.ky(["--help"], ky)).toBe(0);
     expect(output[0]).toContain("ky init");
     expect(await Cli.ky(["nope"], ky)).toBe(2);
+  });
+});
+
+describe("how ky looks", () => {
+  /** The steps the run reported, as plain output names them. */
+  const steps = () => output.filter((line) => line.startsWith("· ")).map((line) => line.slice(2));
+
+  /** Runs `then` as though in a terminal, with NO_COLOR set or not. */
+  function inTerminal(noColor: boolean, then: () => void) {
+    const [tty, color] = [process.stdout.isTTY, process.env.NO_COLOR];
+
+    process.stdout.isTTY = true;
+
+    if (noColor) process.env.NO_COLOR = "1";
+    else delete process.env.NO_COLOR;
+
+    try {
+      then();
+    } finally {
+      process.stdout.isTTY = tty;
+
+      if (color === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = color;
+    }
+  }
+
+  it("reports every step of a first ky init, upgrade and teardown, in order", async () => {
+    const ky = await fresh();
+
+    account.subdomain = undefined;
+    await initCommand(ky, { account: "Test", name: "ky", email: EMAIL, subdomain: "test" });
+    expect(steps()).toEqual([
+      "Signed in with CLOUDFLARE_API_TOKEN",
+      "Cloudflare account Test",
+      "Access team: test.cloudflareaccess.com",
+      "Turning on test.workers.dev",
+      "Checking the names are free",
+      "Setting up the bucket",
+      "Setting up Access",
+      "Uploading the web app",
+      "Uploading the Worker",
+      "Turning on workers.dev"
+    ]);
+
+    output = [];
+    current = release("r2");
+    await upgradeCommand(ky);
+    expect(steps()).toEqual([
+      "Checking what's in the account",
+      "Setting up the bucket",
+      "Setting up Access",
+      "Uploading the web app",
+      "Upgrading the Worker from r1 to r2",
+      "Turning on workers.dev"
+    ]);
+
+    output = [];
+    await teardownCommand(ky, "ky");
+    expect(steps()).toEqual([
+      "Checking what's in the account",
+      "Removing the Worker and its data",
+      "Removing the Access apps",
+      "Emptying and removing the bucket ky-files",
+      "Checking nothing is left"
+    ]);
+  });
+
+  it("prints plain lines, without escape codes, when piped", async () => {
+    const ky = await setUp();
+
+    await run(ky, "ky doctor");
+    await run(ky, "ky deploy");
+    await run(ky, "ky --help");
+    expect(output.join("\n")).not.toContain("\u001b");
+    expect(banner()).not.toContain("\u001b");
+  });
+
+  it("colors a terminal's output, and not under NO_COLOR", () => {
+    inTerminal(false, () => {
+      expect(banner()).toContain("\u001b[38;5;214m█");
+      expect(bold("ky")).toBe("\u001b[1mky\u001b[0m");
+    });
+    inTerminal(true, () => {
+      expect(banner()).not.toContain("\u001b");
+      expect(banner()).toContain("█▄▀   ▀▄▄█");
+      expect(bold("ky")).toBe("ky");
+    });
   });
 });
 
