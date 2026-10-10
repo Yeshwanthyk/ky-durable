@@ -18,6 +18,8 @@ interface Env {
   readonly ACCESS_EMAILS?: string;
   /** "1" when `ky deploy` gave the CloudMachine its container (Workers Paid): the cloud machine is listed and woken. */
   readonly KY_CLOUD?: string;
+  /** How many idle minutes the cloud machine stays up before it sleeps (src/cloud.ts): 10 when unset; a live test sets 1. */
+  readonly KY_CLOUD_IDLE_MINUTES?: string;
   /** "1" signs every request in as KY_DEV_EMAIL, with no Access: `pnpm start` only, never a deploy. */
   readonly KY_DEV?: string;
   readonly KY_DEV_EMAIL?: string;

@@ -52,6 +52,16 @@ These are done once, on GitHub, by the owner.
    pull request it opened.
 7. Then follow "Every release" from step 2; `package.json` is already at `0.1.0`.
 
+## The cloud machine's image is public
+
+`ky-cloud` is a public package (step 6): every deploy, yours or a stranger's, pulls it signed out, and
+`release.yml` refuses an image it can't. Make it public as soon as the image workflow first publishes it.
+
+If it's ever private, for a moment or by mistake, `ky deploy` says so and can still pull it with
+`KY_GHCR_TOKEN` set to a GitHub token with **read:packages**, such as `KY_GHCR_TOKEN=$(gh auth token)` after
+`gh auth refresh -s read:packages`. `deploy.yml` sends its own `GITHUB_TOKEN` the same way. A release can't
+use it: strangers' deploys have no token.
+
 ## Trying it without publishing
 
 ```sh

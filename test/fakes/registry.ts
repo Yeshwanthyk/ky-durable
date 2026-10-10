@@ -3,7 +3,8 @@
  * KY_REGISTRY_BASE_URL points it: `/<host>/…` is the registry at `<host>`.
  *
  * - ghcr.io holds one published image, an index whose linux/amd64 manifest has a config and two
- *   layers, and hands out anonymous pull tokens.
+ *   layers, and hands out anonymous pull tokens. Made private, as a new package is, the anonymous
+ *   token pulls nothing (403), and only a token asked for with the GitHub token it was given pulls.
  * - registry.cloudflare.com takes pushes with the login the fake Cloudflare API hands out
  *   (`REGISTRY_LOGIN`), and refuses a manifest whose blobs it doesn't have.
  */
@@ -28,6 +29,10 @@ export type FakeRegistry = {
   source: string;
   /** The linux/amd64 manifest's digest, which the account's copy goes by. */
   manifest: string;
+  /** Makes the package private: only a pull token asked for with `token` (as Basic's password) pulls. */
+  privately: (token: string) => void;
+  /** Requests to ghcr.io so far, to see a deploy of an image already copied ask it nothing. */
+  pulls: () => number;
   /** Every blob the account's registry holds, by repository. */
   pushed: Map<string, Set<string>>;
   /** Blob pushes so far, to see a second deploy copy nothing. */
@@ -91,11 +96,28 @@ function publish() {
   };
 }
 
-/** ghcr.io: anonymous pull tokens, and the published image's manifests and blobs. */
-function ghcr(image: ReturnType<typeof publish>, asked: Asked): Answer {
-  if (asked.path === "token") return { status: 200, headers: { "content-type": "application/json" }, body: json({ token: "pull-token" }) };
+/** A pull token: the member's when asked for with `secret` as Basic's password, else the anonymous one. */
+function pullToken(authorization: string | undefined, secret: string | undefined): Answer {
+  const password = Buffer.from(authorization?.replace(/^Basic /, "") ?? "", "base64").toString().split(":")[1];
+  const token = secret && password === secret ? "member-token" : "pull-token";
 
-  if (asked.authorization !== "Bearer pull-token") return { status: 401 };
+  return { status: 200, headers: { "content-type": "application/json" }, body: json({ token }) };
+}
+
+/** 401 without a pull token, 403 for the anonymous one on a private package, else nothing. */
+function refused(authorization: string | undefined, secret: string | undefined): Answer | undefined {
+  if (authorization !== "Bearer pull-token" && authorization !== "Bearer member-token") return { status: 401 };
+
+  return secret && authorization !== "Bearer member-token" ? { status: 403 } : undefined;
+}
+
+/** ghcr.io: pull tokens, and the published image's manifests and blobs; `secret` makes it private. */
+function ghcr(image: ReturnType<typeof publish>, asked: Asked, secret: string | undefined): Answer {
+  if (asked.path === "token") return pullToken(asked.authorization, secret);
+
+  const refusal = refused(asked.authorization, secret);
+
+  if (refusal) return refusal;
   const [, repo, kind, digest = ""] = /^v2\/(.+)\/(manifests|blobs)\/(sha256:[a-f0-9]{64})$/.exec(asked.path) ?? [];
 
   if (repo !== SOURCE_REPO) return { status: 404 };
@@ -170,12 +192,16 @@ class AccountRegistry {
 export async function fakeRegistry(): Promise<FakeRegistry> {
   const image = publish();
   const account = new AccountRegistry();
+  let pulls = 0;
+  let secret: string | undefined;
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://registry.test");
     const [, host, ...rest] = url.pathname.split("/");
     const asked: Asked = { method: request.method ?? "GET", path: rest.join("/"), url, authorization: request.headers.authorization, body: () => read(request) };
-    const answer = host === "ghcr.io" ? ghcr(image, asked) : host === "registry.cloudflare.com" ? await account.answer(asked) : { status: 404 };
+
+    if (host === "ghcr.io") pulls++;
+    const answer = host === "ghcr.io" ? ghcr(image, asked, secret) : host === "registry.cloudflare.com" ? await account.answer(asked) : { status: 404 };
 
     response.writeHead(answer.status, answer.headers).end(answer.body);
   });
@@ -186,6 +212,10 @@ export async function fakeRegistry(): Promise<FakeRegistry> {
     url: `http://127.0.0.1:${portOf(server)}`,
     source: `ghcr.io/${SOURCE_REPO}@${image.index}`,
     manifest: image.manifest,
+    privately: (token) => {
+      secret = token;
+    },
+    pulls: () => pulls,
     pushed: account.pushed,
     uploads: () => account.uploads,
     close: () => new Promise((resolve) => server.close(() => resolve()))

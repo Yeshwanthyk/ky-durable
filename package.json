@@ -18,6 +18,7 @@
     "test:web": "playwright test --config test/web/playwright.config.ts",
     "gate": "node --experimental-strip-types --no-warnings test/gate.ts",
     "gate:live": "node --experimental-strip-types --no-warnings test/gate-live.ts",
+    "live:cloud": "node --experimental-strip-types --no-warnings test/live-cloud.ts",
     "compile": "vite build && node --experimental-strip-types --no-warnings cli/compile.ts",
     "ky": "node --experimental-strip-types --no-warnings cli/main.ts"
   },

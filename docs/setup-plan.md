@@ -673,12 +673,14 @@ These are the machine flows for ChatGPT and Claude.
     `ctx.container` (no `@cloudflare/containers`), behind a `CloudBox` the stack replaces with
     `test/fakes/container.ts`. `wake(origin)` sets the alarm to now; the alarm, while `PiAgent.cloudBusy()`, starts
     the container (a fresh machine token from `pairAs`, `KY_URL` from the Setup key `origin`), restores R2
-    `cloud-machine/save.tar.gz`, and pings every 60s; idle for 10 minutes it saves (`POST /save` to R2) and destroys
-    the container. `machines.ts` wakes it when a command waits for `cloud`.
+    `cloud-machine/save.tar.gz`, and pings every 60s; idle for `KY_CLOUD_IDLE_MINUTES` (an overlay var, 10 when
+    unset; the live test `pnpm live:cloud` runs on 1) it saves (`POST /save` to R2) and destroys the container.
+    `machines.ts` wakes it when a command waits for `cloud`.
   - `ky runner cloud` (`cli/runner/cloud.ts`) is the container's entrypoint: an HTTP server on 8080 (`/ping`,
     `/restore`, `/save`) around the runner; it sets git's `insteadOf` to `http://github.internal/api/git/`.
   - Image: `container/Dockerfile` (node:22-bookworm-slim, so Debian slim with node, pnpm, bun, git, gh, claude, codex, the released linux `ky`),
-    `.github/workflows/image.yml` pushes `ghcr.io/<owner>/ky-cloud` by digest; `container/image.digest` pins it and
+    `.github/workflows/image.yml` pushes `ghcr.io/<owner>/ky-cloud` by digest, with its layers cached so a ky change
+    makes only the binary's layer new (the only one a deploy then copies); `container/image.digest` pins it and
     `pnpm compile` puts it in `release.json` as `image`. `ky deploy` copies its linux/amd64 manifest into the
     account registry (`cli/image.ts`), deploys with `containers: [{ class_name: "CloudMachine" }]` and `KY_CLOUD`,
     then creates the container app (`ky-cloud`, standard-1, at most one instance) or rolls out a new image.

@@ -27,28 +27,11 @@
  * prove (Browser Rendering, the real Executor, a real `claude` run, a real
  * main-agent turn) is in FEATURES.md as live-only, with how to try it by hand.
  */
-import { spawnSync } from "node:child_process";
 import { decodeNewChat } from "../src/tests/frames.ts";
 import { connect } from "./harness/client.ts";
+import { liveTarget } from "./live-access.ts";
 
-const url = process.env.KY_URL?.replace(/\/$/, "");
-
-if (!url) {
-  console.error("usage: KY_URL=https://ky.<you>.workers.dev pnpm gate:live");
-  process.exit(2);
-}
-
-const login = spawnSync("cloudflared", ["access", "token", `-app=${url}`], { encoding: "utf8" });
-
-const token = login.status === 0 ? login.stdout.trim() : "";
-
-if (!token) {
-  console.error(`No Access token for ${url}: run \`cloudflared access login ${url}\`, then try again.\n${login.stderr ?? ""}`);
-  process.exit(2);
-}
-
-/** How Access takes a `cloudflared` token in place of the browser's cookie. */
-const signedIn = { "cf-access-token": token };
+const { url, signedIn } = liveTarget("KY_URL=https://ky.<you>.workers.dev pnpm gate:live");
 
 let failed = false;
 
@@ -110,7 +93,7 @@ async function unrenamed(first: string): Promise<string | undefined> {
 
   if (!session) return "new-chat gave no session";
 
-  const side = await connect(url!, `?session=${session}`, signedIn);
+  const side = await connect(url, `?session=${session}`, signedIn);
   const title = () => client.frames.findLast((frame) => frame.type === "chats")?.chats.find((row) => row.session === session)?.title;
   // A new chat's row has no title; its first message titles it, until the background model's title replaces that.
   const named = () => ![undefined, "", first].includes(title());

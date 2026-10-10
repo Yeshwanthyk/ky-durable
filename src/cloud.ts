@@ -11,7 +11,8 @@ import { pairAs } from "./runners";
  *   and hands it to the container; the runner says it is `kind: "cloud"`.
  * - MachineHub wakes it when a command waits for it offline. An alarm keeps it awake: while any
  *   task is open it pings the container every TICK_MS, since the runner's own outbound socket
- *   doesn't count as activity; idle for IDLE_MS, it sleeps.
+ *   doesn't count as activity; idle for KY_CLOUD_IDLE_MINUTES (10 unless the overlay's vars say),
+ *   it sleeps.
  * - Sleeping saves what must outlive the container to R2 (Claude Code's sessions, each Codex task's
  *   home, the runner's handled seqs, the work trees); the next start restores it before the runner
  *   dials ky, so a follow-up resumes its session.
@@ -35,8 +36,8 @@ const PORT = 8080;
 /** How often the alarm pings the container while it runs. */
 const TICK_MS = 60_000;
 
-/** How long the container runs with no task open before it sleeps. */
-const IDLE_MS = 10 * 60_000;
+/** How long the container runs with no task open before it sleeps, unless KY_CLOUD_IDLE_MINUTES says. */
+const IDLE_MINUTES = 10;
 
 /** How long a container has to start listening. */
 const START_WITHIN_MS = 3 * 60_000;
@@ -76,6 +77,13 @@ function containerBox(ctx: DurableObjectState): CloudBox | undefined {
   };
 }
 
+/** KY_CLOUD_IDLE_MINUTES as milliseconds: a positive number of minutes, such as 1 for a live test; else IDLE_MINUTES. */
+export function idleTimeout(minutes: string | undefined): number {
+  const parsed = Number(minutes);
+
+  return (minutes?.trim() && Number.isFinite(parsed) && parsed > 0 ? parsed : IDLE_MINUTES) * 60_000;
+}
+
 export class CloudMachine extends DurableObject<Env> {
   /** The container, or undefined on a deploy without one. */
   box(): CloudBox | undefined {
@@ -84,7 +92,7 @@ export class CloudMachine extends DurableObject<Env> {
 
   /** How often the alarm comes while the container runs, and how long it stays up idle; tests shorten them. */
   async timing(): Promise<{ tickMs: number; idleMs: number }> {
-    return { tickMs: TICK_MS, idleMs: IDLE_MS };
+    return { tickMs: TICK_MS, idleMs: idleTimeout(this.env.KY_CLOUD_IDLE_MINUTES) };
   }
 
   #agent() {
@@ -102,7 +110,7 @@ export class CloudMachine extends DurableObject<Env> {
     if (at === null || at > Date.now()) await this.ctx.storage.setAlarm(Date.now());
   }
 
-  /** Keep the container up while a task is open, and put it to sleep once none has been for IDLE_MS. */
+  /** Keep the container up while a task is open, and put it to sleep once none has been for its idle timeout. */
   override async alarm(): Promise<void> {
     const box = this.box();
 

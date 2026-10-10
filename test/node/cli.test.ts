@@ -750,6 +750,16 @@ describe("the cloud machine", () => {
     expect(fake.requests.filter((request) => request.startsWith("PATCH") || request.includes("rollouts"))).toEqual([]);
     expect(account.containerApps.size).toBe(1);
 
+    // Pinned to the linux/amd64 manifest the account's registry already holds, as the image
+    // workflow pins it: GitHub's registry isn't asked at all.
+    const pulls = registry.pulls();
+
+    current = { ...release("r1"), image: `ghcr.io/ky-owner/ky-cloud@${registry.manifest}` };
+    await deployCommand(ky);
+    expect(registry.pulls()).toBe(pulls);
+    expect(registry.uploads()).toBe(3);
+    expect(container()?.configuration.image).toBe(image);
+
     // An app on another image: doctor says so, and a deploy rolls this one out.
     const app = container();
 
@@ -774,6 +784,25 @@ describe("the cloud machine", () => {
       "DELETE containers/applications",
       "DELETE workers/scripts"
     ]);
+  });
+
+  it("pulls a private image with KY_GHCR_TOKEN, and says what to do without it", async () => {
+    account.paid = true;
+    registry.privately("gh-read-packages");
+
+    await expect(setUp()).rejects.toThrow(/\(403\): make the ky-cloud package public on GitHub, or set KY_GHCR_TOKEN/);
+    expect(registry.uploads()).toBe(0);
+
+    process.env.KY_GHCR_TOKEN = "gh-read-packages";
+
+    try {
+      await setUp();
+    } finally {
+      delete process.env.KY_GHCR_TOKEN;
+    }
+
+    expect(registry.pushed.get("acc/ky-cloud")?.size).toBe(3);
+    expect(container()?.configuration.image).toBe(`registry.cloudflare.com/acc/ky-cloud@${registry.manifest}`);
   });
 
   it("refuses a release image that isn't pinned on ghcr.io", async () => {

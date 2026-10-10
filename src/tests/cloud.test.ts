@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { idleTimeout } from "../cloud";
 import { CLOUD, CLOUD_FACTS } from "../cloud-facts";
 import type { ClientMessage } from "../protocol";
 import { type GithubLogin, kyRefsOnly, proxyGit } from "../github";
@@ -144,6 +145,14 @@ describe("Settings › Subscriptions › GitHub", () => {
 });
 
 describe("the cloud machine", () => {
+  it("sleeps after KY_CLOUD_IDLE_MINUTES idle, 10 when it's unset or not a positive number", () => {
+    expect(idleTimeout(undefined)).toBe(10 * 60_000);
+    expect(idleTimeout("1")).toBe(60_000);
+    expect(idleTimeout("0.5")).toBe(30_000);
+
+    for (const bad of ["", " ", "0", "-1", "ten", "Infinity"]) expect(idleTimeout(bad)).toBe(10 * 60_000);
+  });
+
   it("is listed on every deploy that has it, and no runner pairs as it or removes it", async () => {
     const name = crypto.randomUUID();
     await connect(name).then((socket) => socket.close());

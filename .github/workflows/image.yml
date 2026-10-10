@@ -2,13 +2,21 @@ name: image
 
 # Publishes the cloud machine's image (container/Dockerfile) to GitHub's registry and records its
 # linux/amd64 digest. `ky deploy` copies the ref in container/image.digest into the account's
-# registry.cloudflare.com (cli/image.ts). The package must be public: deploys pull it anonymously.
-# It then opens a pull request that pins the image, with the commit it was built from, in
+# registry.cloudflare.com (cli/image.ts). The package must be public: deploys pull it signed out
+# (with KY_GHCR_TOKEN set, `ky deploy` can pull a private one, but a release can't). It then
+# opens a pull request that pins the image, with the commit it was built from, in
 # container/image.digest; .github/workflows/release.yml releases only with a pin no older than
 # what the image holds.
+#
+# The image's layers are cached between runs (type=gha) and the ky binary is the last, so a run for
+# a ky change rebuilds and pushes only that layer, and a deploy copies only that one.
+#
+# Run it by hand: gh workflow run image.yml --ref <branch> (GitHub lists it only once the file is on
+# main; until then a push to setup-untether that touches the paths below runs it). The pin's pull
+# request goes to the branch it ran on.
 on:
   push:
-    branches: [main]
+    branches: [main, setup-untether]
     # What the image holds: the Dockerfile, and the `ky` built from cli/ with the src/ files it
     # imports and the locked packages. release.yml checks the pinned image against the same list.
     paths:
@@ -55,28 +63,53 @@ jobs:
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: Build and push
+      - name: Read the tools' current versions
+        id: tools
+        # Passed as build-args, so the tools' cached layer is rebuilt when one is released, not on every run.
         run: |
-          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ky-cloud"
-          tag="$repository:$GITHUB_SHA"
-          docker buildx build \
-            --platform linux/amd64 \
-            --file container/Dockerfile \
-            --tag "$tag" \
-            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
-            --provenance=false \
-            --metadata-file "$RUNNER_TEMP/metadata.json" \
-            --push .
-          digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/metadata.json")
-          case "$digest" in sha256:*) ;; *) echo "no digest in build metadata" >&2; exit 1 ;; esac
-          echo "REF=$repository@$digest" >> "$GITHUB_ENV"
+          {
+            echo "repository=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ky-cloud"
+            echo "claude=$(npm view @anthropic-ai/claude-code version)"
+            echo "codex=$(npm view @openai/codex version)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: container/Dockerfile
+          platforms: linux/amd64
+          push: true
+          # One linux/amd64 manifest, no index or attestation: its digest is what the account's copy goes by.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.tools.outputs.repository }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            CLAUDE_CODE_VERSION=${{ steps.tools.outputs.claude }}
+            CODEX_VERSION=${{ steps.tools.outputs.codex }}
+          cache-from: type=gha,scope=ky-cloud
+          cache-to: type=gha,scope=ky-cloud,mode=max
+      - name: Summary
+        env:
+          REPOSITORY: ${{ steps.tools.outputs.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CLAUDE: ${{ steps.tools.outputs.claude }}
+          CODEX: ${{ steps.tools.outputs.codex }}
+        run: |
+          case "$DIGEST" in sha256:*) ;; *) echo "no digest from the build" >&2; exit 1 ;; esac
+          echo "REF=$REPOSITORY@$DIGEST" >> "$GITHUB_ENV"
+          # In the log too, for `gh run view --log` to find.
+          echo "published $REPOSITORY@$DIGEST"
           {
             echo "### Cloud machine image"
             echo
-            echo "- tag: \`$tag\`"
-            echo "- ref: \`$repository@$digest\`"
+            echo "- tag: \`$REPOSITORY:$GITHUB_SHA\`"
+            echo "- ref: \`$REPOSITORY@$DIGEST\`"
             echo "- source: \`$GITHUB_SHA\`"
+            echo "- Claude Code $CLAUDE, Codex $CODEX"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Log out
         if: always()

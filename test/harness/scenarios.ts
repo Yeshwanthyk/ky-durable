@@ -1144,7 +1144,8 @@ export const SCENARIOS: Scenario[] = [
 
       const task = await startTask(context, CLOUD, `[sh] ${script}`);
       await status(context, task, "done", 60_000);
-      await until("the report", () => context.main.heard("pushed=ky"));
+      // The report streams: wait for its last line before checking the earlier ones.
+      await until("the report", () => context.main.heard("site="));
       check(git.branches("me/app").includes("ky/harness"), `the ky/ branch reached GitHub, got ${git.branches("me/app").join(", ")}`);
       check(context.main.heard("main=1") && git.head("me/app", "main") === main, "the push to main was refused");
       check(context.main.heard("site=128"), "a repo not picked in Settings is refused");
