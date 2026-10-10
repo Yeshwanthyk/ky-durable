@@ -1,11 +1,11 @@
 /**
  * Screenshots and recordings a machine task shares with the user, after
- * scotty's attachments. The runner's `ky-attach` PUTs a file to
+ * scotty's attachments. The runner's `ky attach` PUTs a file to
  * `/api/files?task=<id>`; the Worker stores the bytes in R2 first and only
  * then has the agent record it, so no record names missing bytes. The UI
  * shows each file on its task and in the task's report in the chat.
  *
- * A task's code changes travel the same way: the runner's `ky-diff` PUTs a
+ * A task's code changes travel the same way: the runner's `ky diff` PUTs a
  * git patch as `text/x-diff`, and the UI renders its newest one as a diff.
  */
 

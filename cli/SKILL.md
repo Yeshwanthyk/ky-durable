@@ -32,10 +32,26 @@ or an Access app already guarding its address, that ky didn't make is never chan
   missing; do it (fill in any `<placeholder>`), then `ky doctor` again. `--json` prints `{ checks, next }`. It exits
   1 while anything is missing.
 - `ky upgrade` deploys this `ky`'s release when the Worker runs another one. `ky deploy` deploys it regardless. A
-  `ky` older than the Worker can't deploy over it: get a newer one.
+  `ky` older than the Worker can't deploy over it: get a newer one. It also restarts this computer's runner
+  service, if there is one, so the runner runs the new release.
 - The settings are in `~/.config/ky/wrangler.local.jsonc`, the same overlay format as a checkout's
   wrangler.local.jsonc. It holds only `account_id`, `name`, `vars` (merged over ky's) and `vpc_services` (added);
   the bindings are the release's. Edit it, then `ky deploy`.
+
+## Add a machine
+
+A machine runs ky's tasks as Claude Code or Codex sessions. In ky, Settings, Machines, Add a machine shows a code
+good for ten minutes; on that computer:
+
+```sh
+ky runner add <ky url> <code>      # --yes shares what it finds (never Chrome); --no-service starts nothing
+```
+
+It pairs, keeps the token in the Keychain (macOS) or a 0600 file (Linux), writes `~/.config/ky/runner.json`,
+installs a launchd agent or `systemd --user` unit, and waits until ky shows the machine online. Then:
+`ky runner ls`, `ky runner status [--json]` (exits 1 unless online), `ky runner logs [-f]`, and `ky runner rm`, which
+removes it from this computer only: the user removes the machine in ky's Settings too. `ky runner run` is the runner
+itself, in the foreground. Tasks run `ky attach <file>` and `ky diff` to share files and changes.
 
 ## Remove it
 

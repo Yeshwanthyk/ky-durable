@@ -426,8 +426,8 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - Reads its machine token from `KY_RUNNER_TOKEN_FILE` (default `~/.config/ky/runner-token`, mode 0600).
   - Stops reading `KY_TOKEN`.
   - Its children get only C1's env.
-- **UI:** Machines panel gets "Add a machine", which shows the code and the command (`ky runner add <url> <code>`;
-  until C exists, a `node runner/pair.ts <url> <code>` helper). It also gets "Remove". Use the current panel's
+- **UI:** Machines panel gets "Add a machine", which shows the code and the command (`ky runner add <url> <code>`,
+  from C). It also gets "Remove". Use the current panel's
   look.
 - **Fallow:** the `unused-class-member:src/vault.ts:Vault:*` entries stay in `fallow/dead-code.json`, and T adds
   `issue` and `revokeAll`. fallow does not follow calls through a Durable Object stub into a class declared outside the Worker's
@@ -580,6 +580,22 @@ These are the machine flows for ChatGPT and Claude.
 - **Other commands:** `ky runner ls`, `rm`, `status`, `logs`.
 - **Upgrades:** `ky upgrade` restarts the service.
 - **Done when:** on a second Mac or a Linux box, `ky runner add` goes from nothing to running a task.
+- **Built (C):**
+  - `cli/runner/` holds the runner (`run.ts` the process, `tasks.ts` how it starts each agent, `facts.ts` what
+    it reports, `share.ts` for `ky attach` / `ky diff`), and `ky runner add|run|ls|status|logs|rm`
+    (`commands.ts`, `service.ts`, `settings.ts`, `token.ts`). Each task's PATH gets a `ky` in `~/.ky/bin` that runs
+    this `ky`. Settings' "Add a machine" shows `ky runner add <origin> <code>`.
+  - One runner per computer: `runner.json` is this computer's. `ls` shows it; ky has no route that lists
+    machines for a machine token. `rm` is local, and says to Remove the machine in ky's Settings, which revokes
+    the token.
+  - "Online" is the runner's own status file (`~/.ky/runner-status.json`): `add` waits until the runner it
+    started says ky took its socket, and stays so for 2s. No contract changes.
+  - Services: launchd `dev.ky.runner` (not the old `com.ky.runner`) with KeepAlive unless it exits 0, and
+    systemd `ky-runner.service` with `Restart=on-failure` and linger. A runner ky turns away exits 0 under the
+    service, so neither restarts it in a loop. `ky upgrade` kickstarts or restarts whichever is loaded.
+  - The Keychain item (service `ky runner`, account `<name>@<host>`) is written through `security -i`'s stdin.
+    `KY_RUNNER_TOKEN_FILE` keeps it in a file instead, e.g. for a Mac with no unlocked login Keychain.
+  - `--yes` shares what it found but never Chrome; `--no-service` starts nothing.
 
 ### F. first-run
 - **First-run screen** (empty providers, in the current Welcome style):

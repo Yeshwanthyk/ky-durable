@@ -390,11 +390,11 @@ function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
   return (
     <div className="machine-code">
       <p className="panel-note">
-        On the computer, in a ky checkout after <code>pnpm install</code>, run this before {clock(code.expiresAt)}; it works
-        once. Then start <code>runner/ky-runner.ts</code>.
+        On the computer, with <code>ky</code> installed, run this before {clock(code.expiresAt)}; it works once. It sets up
+        the runner, starts it at login, and waits for it to come online here.
       </p>
       <code className="machine-command" aria-label="Pairing command">
-        node runner/pair.ts {location.origin} {code.code}
+        ky runner add {location.origin} {code.code}
       </code>
     </div>
   );

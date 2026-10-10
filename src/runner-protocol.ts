@@ -2,8 +2,8 @@ import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
 
 /**
- * The machine protocol: what MachineHub (src/machines.ts) and ky-runner
- * (runner/) say to each other over the runner's WebSocket. Both ends import
+ * The machine protocol: what MachineHub (src/machines.ts) and the runner
+ * (`ky runner run`, cli/runner/) say to each other over the runner's WebSocket. Both ends import
  * this file and decode every frame they receive with it, so a frame either
  * matches these schemas or is not acted on.
  *
@@ -79,7 +79,7 @@ const RunCommandSchema = Type.Object({
   /** The agent's session to resume, once the first turn named one. */
   session: Session,
   agent: AgentSchema,
-  /** The task's own token, for `ky-attach` and `ky-diff`, as KY_TASK_TOKEN. */
+  /** The task's own token, for `ky attach` and `ky diff`, as KY_TASK_TOKEN. */
   taskToken: Text,
   creds: Type.Optional(RunCredsSchema)
 });

@@ -7,11 +7,15 @@ import { login } from "./cloudflare.ts";
 import { overlayPath } from "./config.ts";
 import { ky } from "./ky.ts";
 import { loadRelease } from "./release.ts";
+import { system } from "./runner/system.ts";
 
 process.exitCode = await ky(process.argv.slice(2), {
   overlay: overlayPath(),
   release: loadRelease,
   login,
   print: (line) => console.log(line),
-  fail: (line) => console.error(line)
+  fail: (line) => console.error(line),
+  system: system(),
+  env: process.env,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 });

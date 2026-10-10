@@ -4,7 +4,7 @@ import { Counts, plural, useReview } from "./change-review";
 import { latestDiff, patchSummary } from "./review";
 import { Icon } from "./Icon";
 
-// A machine task's code changes, from the newest patch its `ky-diff` shared:
+// A machine task's code changes, from the newest patch its `ky diff` shared:
 // a collapsed row with the totals, then a file list, then each file's diff.
 // Tapping a line leaves a comment; the comments go to the task as one message.
 // The row reads its totals from the patch text; the diff library, and the

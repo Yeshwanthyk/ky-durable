@@ -7,16 +7,22 @@ import { signedIn } from "../../src/tests/fake-access.ts";
 import { REPO } from "./stack.ts";
 
 /**
- * The real runner (runner/ky-runner.ts) as its own process, with the fake
+ * The real runner (`ky runner run`) as its own process, with the fake
  * claude and codex (test/fakes/) as KY_CLAUDE and KY_CODEX and a throwaway
- * HOME and workdir, so it never touches the user's ~/.ky, ~/.codex,
- * ~/ky-work or machine token. It pairs as the user does: a code from ky,
- * then runner/pair.ts.
+ * HOME, config and workdir, so it never touches the user's ~/.ky, ~/.codex,
+ * ~/ky-work, Keychain or machine token. It pairs as the user does: a code
+ * from ky, then `ky runner add --yes --no-service`, its token in a file
+ * (KY_RUNNER_TOKEN_FILE), so no Keychain and no launchd agent.
  */
 
 const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
 
 const FAKE_CODEX = path.join(REPO, "test/fakes/codex.ts");
+
+/** `ky`: this checkout's cli/main.ts, or the compiled binary KY_HARNESS_KY names. */
+const [KY, ...KY_ARGS] = process.env.KY_HARNESS_KY
+  ? [process.env.KY_HARNESS_KY]
+  : [process.execPath, "--experimental-strip-types", "--no-warnings", path.join(REPO, "cli/main.ts")];
 
 /** What a fake agent CLI logged: a start, a turn, a SIGINT or an exit. */
 const FakeEvent = Type.Object({
@@ -71,7 +77,7 @@ export type Machine = {
   dir: string;
   /** Where its machine token is kept, in its HOME. */
   tokenFile: string;
-  /** Run runner/pair.ts with `code`, as the user does: its exit code and what it logged. */
+  /** Run `ky runner add` with `code`, as the user does: its exit code and what it logged. */
   pair: (url: string, code: string) => Promise<{ code: number; output: string }>;
   /** What every fake claude on this machine has done, in order. */
   claude: () => FakeEvent[];
@@ -100,12 +106,29 @@ export function machine(name: string, root: string): Machine {
   const tokenFile = path.join(home, ".config", "ky", "runner-token");
   let launches = 0;
 
+  /** The machine's computer: its HOME, config, state, token file and fake agents. */
+  const computer = {
+    PATH: process.env.PATH ?? "",
+    HOME: home,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    KY_MACHINE: name,
+    KY_RUNNER_TOKEN_FILE: tokenFile,
+    // No ports unless a scenario gives some, whatever listens on this computer when it pairs.
+    KY_RUNNER_PORTS: "",
+    // The runner's state dir (default ~/.ky), kept with the machine so a relaunch finds it and the user's is never touched.
+    KY_STATE_DIR: path.join(dir, "state"),
+    KY_CLAUDE: FAKE_CLAUDE,
+    FAKE_CLAUDE_LOG: claudeLog,
+    KY_CODEX: FAKE_CODEX,
+    FAKE_CODEX_LOG: codexLog
+  };
+
   const pair = (url: string, code: string) =>
     new Promise<{ code: number; output: string }>((resolve) => {
       execFile(
-        process.execPath,
-        ["--experimental-strip-types", "--no-warnings", path.join(REPO, "runner/pair.ts"), url, code],
-        { cwd: dir, env: { PATH: process.env.PATH ?? "", HOME: home, KY_MACHINE: name } },
+        KY!,
+        [...KY_ARGS, "runner", "add", url, code, "--yes", "--no-service"],
+        { cwd: dir, env: { ...computer, KY_WORKDIR: path.join(dir, "work") } },
         (error, stdout, stderr) => resolve({ code: error === null ? 0 : Number(error.code ?? 1), output: `${stdout}${stderr}` })
       );
     });
@@ -115,22 +138,9 @@ export function machine(name: string, root: string): Machine {
     const logFile = path.join(dir, `runner-${launches}.log`);
     const out = createWriteStream(logFile);
 
-    const child: ChildProcess = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(REPO, "runner/ky-runner.ts")], {
+    const child: ChildProcess = spawn(KY!, [...KY_ARGS, "runner", "run"], {
       cwd: dir,
-      env: {
-        PATH: process.env.PATH ?? "",
-        HOME: home,
-        KY_URL: url,
-        KY_MACHINE: name,
-        KY_WORKDIR: path.join(dir, "work"),
-        // The runner's state dir (default ~/.ky), kept with the machine so a relaunch finds it and the user's is never touched.
-        KY_STATE_DIR: path.join(dir, "state"),
-        KY_CLAUDE: FAKE_CLAUDE,
-        FAKE_CLAUDE_LOG: claudeLog,
-        KY_CODEX: FAKE_CODEX,
-        FAKE_CODEX_LOG: codexLog,
-        ...env
-      },
+      env: { ...computer, KY_URL: url, KY_WORKDIR: path.join(dir, "work"), ...env },
       stdio: ["ignore", "pipe", "pipe"]
     });
 

@@ -17,7 +17,7 @@ import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
  * and a machine do: the browser's session socket on `me`, and a real
- * runner/ky-runner.ts process with the fake claude and codex, connected
+ * `ky runner run` process with the fake claude and codex, connected
  * through a proxy the scenario can break.
  *
  * A `pass` scenario checks a feature that works today. The six Quint
@@ -355,16 +355,16 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "pair",
     expect: "pass",
-    about: "runner/pair.ts trades a code for a machine token, kept 0600, and ky lists the machine",
+    about: "`ky runner add` trades a code for a machine token, kept 0600, and ky lists the machine",
     async run(context) {
       const proxy = await startProxy(context.url);
       context.cleanup.push(() => proxy.close());
       const box = machine("paired", context.dir);
       const paired = await box.pair(proxy.url, await pairingCode(context.url));
-      check(paired.code === 0 && paired.output.includes("Paired as paired."), `pair.ts paired, got ${paired.code}: ${paired.output}`);
+      check(paired.code === 0 && paired.output.includes("Paired as paired."), `ky runner add paired, got ${paired.code}: ${paired.output}`);
       const mode = statSync(box.tokenFile).mode & 0o777;
       check(mode === 0o600, `the token file is 0600, got ${mode.toString(8)}`);
-      check(!paired.output.includes(readFileSync(box.tokenFile, "utf8").trim()), "pair.ts never prints the token");
+      check(!paired.output.includes(readFileSync(box.tokenFile, "utf8").trim()), "ky runner add never prints the token");
       await until("the paired machine in the list", () => {
         const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
 
@@ -387,7 +387,7 @@ export const SCENARIOS: Scenario[] = [
       for (const [name, tried] of [["second", code], ["guess", "not-a-code"]] as const) {
         const other = machine(name, context.dir);
         const refused = await other.pair(proxy.url, tried);
-        check(refused.code === 1 && refused.output.includes("wrong, used or expired"), `${name} was refused, got ${refused.code}: ${refused.output}`);
+        check(refused.code === 1 && refused.output.includes("ky didn't take that code"), `${name} was refused, got ${refused.code}: ${refused.output}`);
         check(!existsSync(other.tokenFile), `${name} has no token file`);
       }
     }
@@ -404,7 +404,7 @@ export const SCENARIOS: Scenario[] = [
       context.cleanup.push(() => testRoute(context, "/test/vault-clock?ahead=0"));
       const late = machine("late", context.dir);
       const refused = await late.pair(proxy.url, code);
-      check(refused.code === 1 && refused.output.includes("wrong, used or expired"), `the expired code was refused, got ${refused.code}: ${refused.output}`);
+      check(refused.code === 1 && refused.output.includes("ky didn't take that code"), `the expired code was refused, got ${refused.code}: ${refused.output}`);
       check(!existsSync(late.tokenFile), "no token file");
     }
   },
@@ -730,7 +730,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "codex-attach",
     expect: "pass",
-    about: "a Codex task's commands get KY_TASK_TOKEN, which Codex drops by default, so ky-attach shares a screenshot; never the machine token",
+    about: "a Codex task's commands get KY_TASK_TOKEN, which Codex drops by default, so ky attach shares a screenshot; never the machine token",
     async run(context) {
       const { machine: shots } = await context.machine("codexshots");
       const task = await startCodex(context, "codexshots", "[attach] screenshot the page");
@@ -833,7 +833,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "screenshot",
     expect: "pass",
-    about: "a task shares a screenshot through ky-attach and /api/files serves it",
+    about: "a task shares a screenshot through ky attach and /api/files serves it",
     async run(context) {
       await context.machine("shots");
       const task = await startTask(context, "shots", "[attach] screenshot the page");

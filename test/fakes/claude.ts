@@ -3,7 +3,7 @@
  * A fake `claude` for the runner: it speaks Claude Code's stream-json on
  * stdin and stdout, as `claude -p --input-format stream-json
  * --output-format stream-json` does, and does no work. The CLI harness and
- * the web e2e hand it to runner/ky-runner.ts as KY_CLAUDE.
+ * the web e2e hand it to `ky runner run` as KY_CLAUDE.
  *
  * Each user message is one turn: an assistant message, a pause, then a
  * result `fake claude did: <prompt>`. Messages queue and run in order. With
@@ -20,8 +20,8 @@
  *   [delay=MS]   this turn takes MS milliseconds (default FAKE_CLAUDE_DELAY_MS, else 50)
  *   [fold]       messages that come while this turn runs join it, as Claude Code
  *                takes a message sent mid-turn: one result answers them all
- *   [attach]     share a 1x1 PNG through `ky-attach`, as a screenshot would be
- *   [diff]       change a scratch git repository and share it through `ky-diff`:
+ *   [attach]     share a 1x1 PNG through `ky attach`, as a screenshot would be
+ *   [diff]       change a scratch git repository and share it through `ky diff`:
  *                a.ts with one line changed and one added, and a new notes.md
  *   [fail]       the turn ends in an error result
  *   [tools=Bash:pnpm test,Edit:src/x.ts]
@@ -131,7 +131,7 @@ async function diff(): Promise<string> {
   await run("git", ["-c", "user.name=fake", "-c", "user.email=fake@example.com", "commit", "-qm", "start"]);
   writeFileSync(join(repo, "a.ts"), "const a = 1;\nconst b = 3;\nconst c = 4;\nexport { a };\n");
   writeFileSync(join(repo, "notes.md"), "hello\n");
-  const { stdout } = await run("ky-diff", ["HEAD"]);
+  const { stdout } = await run("ky", ["diff", "HEAD"]);
 
   return stdout.trim();
 }

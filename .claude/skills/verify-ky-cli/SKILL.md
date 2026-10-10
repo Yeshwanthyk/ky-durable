@@ -1,6 +1,6 @@
 ---
 name: verify-ky-cli
-description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, src/skills.ts, src/dreaming.ts, src/automations.ts, runner/, or anything else a machine task, skill, automation or the socket protocol goes through.
+description: Verify a ky change from the command line. Start the local stack, run the real Mac runner against it with a fake claude, drive scenarios with `pnpm harness`, and collect the logs. Use it after touching src/machines.ts, src/sockets.ts, src/skills.ts, src/dreaming.ts, src/automations.ts, cli/runner/, or anything else a machine task, skill, automation or the socket protocol goes through.
 ---
 
 # Verify ky from the CLI
@@ -39,7 +39,7 @@ Run these before driving. None of them changes anything.
 ## Drive
 
 - To run scenarios, use `pnpm harness <scenario...|all>`. For example, `pnpm harness chat machine-run stop`.
-  - Each scenario starts real runners (`runner/ky-runner.ts`) with the fake `claude` (`test/fakes/claude.ts`), through a fault proxy (`test/harness/proxy.ts`). The proxy can hold, drop or cut frames.
+  - Each scenario starts real runners (`ky runner run`, from `cli/runner/`) with the fake `claude` (`test/fakes/claude.ts`), through a fault proxy (`test/harness/proxy.ts`). The proxy can hold, drop or cut frames.
   - Outcomes:
     - `PASS`
     - `FAIL`

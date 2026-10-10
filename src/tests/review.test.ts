@@ -1,11 +1,11 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { describe, expect, it } from "vitest";
-import { captureDiff, type Git } from "../../runner/diff.ts";
+import { captureDiff, type Git } from "../../cli/runner/diff.ts";
 import type { FileRow } from "../files";
 import { countsOf, feedbackMessage, latestDiff, patchSummary } from "../ui/review";
 
 /**
- * A task's code changes: what ky-diff captures from git, and how the UI
+ * A task's code changes: what ky diff captures from git, and how the UI
  * counts them and writes the user's line comments up for the task.
  */
 
@@ -138,7 +138,7 @@ describe("reviewing a task's diff", () => {
 
     expect(message).toBe(
       [
-        "Review of your changes (3 comments). Address each, then run ky-diff again.",
+        "Review of your changes (3 comments). Address each, then run ky diff again.",
         "",
         "src/a.ts:2 (removed line)",
         "> const b = 2;",

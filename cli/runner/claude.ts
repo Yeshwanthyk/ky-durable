@@ -5,7 +5,7 @@
  */
 
 import { parse, type Adapter, type AgentEvent } from "./agent.ts";
-import { describeTool } from "../src/tool-labels.ts";
+import { describeTool } from "../../src/tool-labels.ts";
 
 type Options = { permissionMode: string; systemPrompt: string; chrome: boolean; session: string | null };
 

@@ -1,7 +1,7 @@
 /**
  * VibeProxy, faked: the local model server on the user's computer. The
  * overlay's tunnel in src/tests/stack.ts switches between these per object;
- * the worker e2e tests' runner and the CLI harness's real ky-runner reach
+ * the worker e2e tests' runner and the CLI harness's real `ky runner run` reach
  * `fakeVibeProxy` on a machine's port over the pipe.
  *
  * `refusingVibeProxy` is the Mac away: the tunnel refuses every connection.

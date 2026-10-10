@@ -1,8 +1,8 @@
 import { evictDurableObject } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { HandledSeqs } from "../../runner/handled.ts";
-import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../runner/runner.ts";
+import { HandledSeqs } from "../../cli/runner/handled.ts";
+import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../cli/runner/runner.ts";
 import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
 import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
@@ -10,7 +10,7 @@ import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./dri
 import { BARE } from "./stack";
 
 /**
- * The machine protocol end to end: the real runner logic (runner/runner.ts)
+ * The machine protocol end to end: the real runner logic (cli/runner/runner.ts)
  * on a real WebSocket to the real PiAgent, with a
  * scripted `claude` or `codex` in place of the binary, and the fake VibeProxy
  * on the machine's ports for the pipe. The wire between them can hold or drop the runner's frames,

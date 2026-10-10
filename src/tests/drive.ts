@@ -260,7 +260,7 @@ export type FakeRunner = {
 
 /**
  * A runner socket speaking the runner protocol by hand, for the worker side
- * of machine tasks. The CLI harness drives the real runner/ky-runner.ts.
+ * of machine tasks. The CLI harness drives the real `ky runner run`.
  */
 export async function runner(name: string, machine = "mac", facts: MachineFacts = FACTS): Promise<FakeRunner> {
   const socket = await connectRunner(name, machine);
