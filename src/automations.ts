@@ -12,7 +12,8 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
 import type { ChatList } from "./chats";
 import type { MachineHub } from "./machines";
-import type { ProviderInfo, Settings, SlotSetting } from "./settings";
+import type { Models } from "./models";
+import type { ModelChoice } from "./settings";
 import type { Spawn } from "./subagents";
 import { isLive, type TaskFeed, type TaskRow } from "./tasks";
 
@@ -44,8 +45,8 @@ export type AutomationRow = {
   readonly cron: string | null;
   /** A one-off's time in epoch ms, or null for a cron. */
   readonly at: number | null;
-  /** The model runs use; null for the subagents slot. */
-  readonly model: SlotSetting | null;
+  /** The model runs use; null for the worker's. */
+  readonly model: ModelChoice | null;
   /** The machine runs go to; null for the cloud. */
   readonly machine: string | null;
   /** The chat its results are reported to: the main one, or a side chat's session. */
@@ -86,8 +87,7 @@ export type AutomationDeps = {
   readonly feed: TaskFeed;
   readonly machines: MachineHub;
   readonly chats: ChatList;
-  readonly settings: Settings;
-  readonly catalog: () => readonly ProviderInfo[];
+  readonly models: Pick<Models, "worker" | "valid" | "catalog">;
   readonly runtime: AutomationRuntime;
   /** ky's own nightly job, Dreaming (src/dreaming.ts): booked here so one Scheduler holds every fire. */
   readonly dream: { readonly cron: string; readonly run: () => void };
@@ -133,8 +133,8 @@ function slotOf(fire: Fire, schedule: Schedule<Fire>, row: AutomationRow): numbe
 }
 
 function rowOf(stored: StoredRow): AutomationRow {
-  // SAFETY: only create and #set write model, always a validated SlotSetting or null.
-  return { ...stored, model: stored.model === null ? null : (JSON.parse(stored.model) as SlotSetting) };
+  // SAFETY: only create and #set write model, always a validated ModelChoice or null.
+  return { ...stored, model: stored.model === null ? null : (JSON.parse(stored.model) as ModelChoice) };
 }
 
 function lastOf(task: TaskRow | undefined): LastRun | null {
@@ -513,11 +513,9 @@ export class Automations {
     return this.#deps.runtime.abort(run.session);
   }
 
-  /** The automation's model while it can run, else the subagents slot. */
-  #modelOf(row: AutomationRow): SlotSetting {
-    const { settings } = this.#deps;
-
-    return (row.model && settings.valid(row.model)) ?? settings.get("subagents");
+  /** The automation's model while it can run, else the worker's. */
+  #modelOf(row: AutomationRow): ModelChoice {
+    return this.#deps.models.worker(row.model);
   }
 
   /** The draft as it can be saved, or why not. */
@@ -528,7 +526,7 @@ export class Automations {
     if (problem !== undefined) return { refused: problem };
 
     if (draft.model === null) return draft;
-    const model = this.#deps.settings.valid(draft.model);
+    const model = this.#deps.models.valid(draft.model);
 
     return model
       ? { ...draft, model }
@@ -562,7 +560,7 @@ export class Automations {
 
   /** The models an automation can use, and their thinking levels. */
   #choices(): string {
-    const models = this.#deps.catalog().flatMap((provider) =>
+    const models = this.#deps.models.catalog().flatMap((provider) =>
       provider.connected
         ? provider.models.map((model) => `${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`)
         : []
@@ -676,7 +674,7 @@ const parameters = Type.Object({
   prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),
   cron: Type.Optional(Type.String({ description: "A 5-field cron in UTC, like 0 9 * * 1-5." })),
   at: Type.Optional(Type.String({ description: "A one-off's time, ISO with a zone, like 2026-10-06T09:00:00Z." })),
-  model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or subagents to clear it, for the subagents slot." })),
+  model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or worker to clear it, for the worker model." })),
   thinking: Type.Optional(Type.Union(LEVELS.map((level) => Type.Literal(level)))),
   machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud; cloud to clear it." })),
   chat: Type.Optional(
@@ -702,9 +700,9 @@ type Args = {
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
-/** The model the tool asked for, at the level asked for or the subagents slot's. */
-function modelArg(args: Args, fallback: SlotSetting): SlotSetting | null | undefined {
-  if (args.model === "subagents") return null;
+/** The model the tool asked for, at the level asked for or the worker's. */
+function modelArg(args: Args, fallback: ModelChoice): ModelChoice | null | undefined {
+  if (args.model === "worker") return null;
 
   if (args.model === undefined) return args.thinking === undefined ? undefined : { ...fallback, thinkingLevel: args.thinking };
   const [provider = "", ...rest] = args.model.split("/");
@@ -713,7 +711,7 @@ function modelArg(args: Args, fallback: SlotSetting): SlotSetting | null | undef
 }
 
 /** What the tool's arguments change, leaving out what they do not mention. */
-function patchOf(args: Args, fallback: SlotSetting): Partial<AutomationDraft> {
+function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
   const patch: Partial<AutomationDraft> = {
     title: args.title,
     prompt: args.prompt,
@@ -728,7 +726,7 @@ function patchOf(args: Args, fallback: SlotSetting): Partial<AutomationDraft> {
 }
 
 /** Create, reporting to the calling chat unless another is named. */
-async function create(automations: Automations, args: Args, fallback: SlotSetting, caller: string): Promise<string> {
+async function create(automations: Automations, args: Args, fallback: ModelChoice, caller: string): Promise<string> {
   if (!args.title || !args.prompt) return "create needs a title and a prompt.";
 
   // What the arguments leave out: no model or machine, and reports to this chat.
@@ -744,7 +742,7 @@ function scheduleOf(row: Pick<AutomationRow, "cron" | "at">): string {
 }
 
 function lineOf(automations: Automations, view: AutomationView): string {
-  const model = view.model ? `${view.model.provider}/${view.model.modelId} ${view.model.thinkingLevel}` : "subagents slot";
+  const model = view.model ? `${view.model.provider}/${view.model.modelId} ${view.model.thinkingLevel}` : "worker model";
   const next = view.next_run === null ? "none" : new Date(view.next_run).toISOString();
   const last = view.last_run ? `${view.last_run.status}${view.last_run.summary ? `: ${view.last_run.summary}` : ""}` : "never";
 
@@ -776,7 +774,7 @@ function act(automations: Automations, action: string, id: string): Promise<stri
   return automations.run(id);
 }
 
-type Call = { readonly action: string; readonly args: Args; readonly fallback: SlotSetting; readonly caller: string };
+type Call = { readonly action: string; readonly args: Args; readonly fallback: ModelChoice; readonly caller: string };
 
 async function dispatch(automations: Automations, { action, args, fallback, caller }: Call): Promise<string> {
   if (action === "create") return create(automations, args, fallback, caller);
@@ -795,7 +793,7 @@ async function dispatch(automations: Automations, { action, args, fallback, call
 }
 
 /** The automation tool, for the main agent only. */
-export function automationExtension(automations: Automations, subagents: () => SlotSetting): Extension {
+export function automationExtension(automations: Automations, worker: () => ModelChoice): Extension {
   return defineExtension({
     name: "automations",
     tools: [
@@ -817,7 +815,7 @@ export function automationExtension(automations: Automations, subagents: () => S
             await dispatch(automations, {
               action: args.action,
               args,
-              fallback: subagents(),
+              fallback: worker(),
               caller: String(api.conversationId)
             })
           )

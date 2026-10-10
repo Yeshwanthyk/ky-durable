@@ -1,19 +1,8 @@
-import {
-  createFauxCore,
-  fauxAssistantMessage,
-  fauxText,
-  fauxToolCall,
-  type AssistantMessage,
-  type JsonValue,
-  type Message,
-  type TranscriptContext,
-  Type
-} from "@earendil-works/pi-ai";
-import { createProvider } from "@earendil-works/pi-ai/models";
+import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { TaskTokens } from "../machines";
-import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
+import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
@@ -49,16 +38,22 @@ export class Vault extends ProductionVault {
  * ky's real composition with fakes at its outside boundary, for the worker
  * e2e tests and the local stack. Only `boundaryFor` is replaced:
  *
- * - the cloud models are pi-ai's faux provider, "faux" (thinks, reads images)
- *   and "faux-text" (text only);
+ * - Workers AI is test/fakes/ai.ts behind a fake AI binding, so every object chats
+ *   with no secrets, as a fresh deploy does;
+ * - an object named `keyed-…` has the OPENCODE_API_KEY secret, and OpenCode
+ *   Go is the same fake behind `fetch`;
+ * - each refuses every request while `provider(id, false)` holds: Workers AI
+ *   with 429, as out of its free allocation, and OpenCode Go with 402, as
+ *   out of credit;
  * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
- *   then fake-vibeproxy.ts answers as Claude;
+ *   then fake-vibeproxy.ts answers as Claude; after `tunnelDrops()` the
+ *   tunnel refuses each message while the probe still answers;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
  * - Browser Rendering is left out: a launch is refused;
  * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
  *   Executor, so Settings shows them as not set up.
  *
- * The faux model answers from the transcript alone, so it gives the same
+ * The fake models answer from the transcript alone, so they give the same
  * answer after an eviction as before it:
  *
  * - `multiply N` calls `multiply`; `gate` and `gate-unsafe` call the gate
@@ -69,8 +64,8 @@ export class Vault extends ProductionVault {
  * - `tool NAME JSON` calls any tool with those arguments.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
- * - The titles model answers `Title: "Named: <first line>"` and a second line,
- *   so its cleaning is exercised; text containing `no-title` makes it fail.
+ * - Titles are answered `Title: "Named: <first line>"` and a second line,
+ *   so their cleaning is exercised; text containing `no-title` gets a 400.
  */
 
 /** Gate runs up to this one are released. */
@@ -81,7 +76,15 @@ const GATE_RUNS_KEY = "test:gate:runs";
 /** Whether the fake VibeProxy answers (the Mac is online). */
 const MAC_UP_KEY = "test:mac-up";
 
-const FAUX = "faux";
+/** Whether the tunnel drops each message while VibeProxy's probe still answers. */
+const TUNNEL_DROPS_KEY = "test:tunnel-drops";
+
+/** The status each fake provider refuses every request with while it is down. */
+const REFUSALS = { "workers-ai": 429, "opencode-go": 402 } as const;
+
+type FakeProvider = keyof typeof REFUSALS;
+
+const downKey = (provider: FakeProvider) => `test:down:${provider}`;
 
 /** The token the fake Executor wants. */
 const EXECUTOR_TOKEN = "ky-stack-executor";
@@ -89,87 +92,73 @@ const EXECUTOR_TOKEN = "ky-stack-executor";
 /** Objects whose name starts with this have no VibeProxy and no Executor, as a deploy without the owner overlay. */
 export const BARE = "bare-";
 
-/** The key the faux cloud provider is given, so a test sees which provider's key a request carried. */
-const FAUX_KEY = "faux-key";
+/** Objects whose name starts with this have an OpenCode Go key, as a deploy with that secret set. */
+export const KEYED = "keyed-";
 
-/** What the faux cloud model was asked, and with which key. */
-export type FauxCall = { model: string; reasoning: string | null; apiKey: string | null; system: string };
+/** The OpenCode Go key a keyed object has. */
+export const OPENCODE_KEY = "opencode-test-key";
+
+/** Workers AI's models: the default, which reads images, the next, and the text-only one. */
+export const GLM = "workers-ai/@cf/zai-org/glm-5.3-flash";
+
+export const KIMI = "workers-ai/@cf/moonshotai/kimi-k2.6";
+
+export const GPT_OSS = "workers-ai/@cf/openai/gpt-oss-120b";
 
 /** The test boundary, with its fakes in reach. */
 export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
-  readonly calls: FauxCall[];
+  /** Every request to Workers AI and OpenCode Go, as the wire carried it. */
+  readonly calls: AiCall[];
 };
 
-function textOf(content: Message["content"] | undefined): string {
-  if (content === undefined) return "";
+const call = (tool: string, args: Record<string, JsonValue>): Reply => ({ tool, args });
 
-  if (!Array.isArray(content)) return content;
+/** What the background model is asked: a name, or a summary of notes or of a task. */
+function title(text: string): Reply {
+  if (text.includes("no-title")) return { status: 400, error: "The fake titles model refuses this text." };
 
-  return content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-}
-
-const call = (name: string, args: Record<string, JsonValue>) =>
-  fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-
-function title(context: TranscriptContext): AssistantMessage {
-  const text = textOf(context.messages.at(-1)?.content);
-
-  if (text.includes("no-title")) {
-    return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The faux titles model is down." });
-  }
-
-  return fauxAssistantMessage([fauxText(`Title: "Named: ${text.split("\n")[0]}"\nA second line the cleaning drops.`)]);
-}
-
-/** Whether this is the titles model's call: its system prompt asks for a name or a summary. */
-function naming(context: TranscriptContext): boolean {
-  const [first] = context.messages;
-  const system = first?.role === "system" ? textOf(first.content) : "";
-
-  return system.startsWith("You name things") || system.startsWith("You summarize");
+  return { text: `Title: "Named: ${text.split("\n")[0]}"\nA second line the cleaning drops.` };
 }
 
 /**
- * Memory's summary writer, which runs on the main slot: "first to last" of the
- * notes it compresses, or of the two lines it merges, so "memory 0 to memory 7"
- * covers the notes 0 to 7.
+ * Memory's summary writer: "first to last" of the notes it compresses, or of
+ * the two lines it merges, so "memory 0 to memory 7" covers the notes 0 to 7.
  */
-function compressing(context: TranscriptContext): AssistantMessage | undefined {
-  const [first, asked] = context.messages.filter((message) => message.role !== "assistant");
-
-  if (!textOf(first?.content).startsWith("You write the memory of ky")) return undefined;
-
-  const text = textOf(asked?.content);
-
+function compress(text: string): Reply {
   // The step's lines follow its "Compress these" or "Merge these" line.
   const items = text.split(/\n(?:Compress|Merge) these[^\n]*\n/).at(-1)?.split("\n") ?? [];
-  const line = `${items[0]?.split(" to ")[0]} to ${items.at(-1)?.split(" to ").at(-1)}`;
 
-  return fauxAssistantMessage([fauxText(line)]);
+  return { text: `${items[0]?.split(" to ")[0]} to ${items.at(-1)?.split(" to ").at(-1)}` };
 }
 
-function script(context: TranscriptContext): AssistantMessage {
-  if (naming(context)) return title(context);
+/** The background's requests, by how their system prompt starts, and how each is answered from its user text. */
+const BACKGROUND: Array<[string, (asked: string) => Reply]> = [
+  ["You name things", title],
+  ["You summarize", title],
+  ["You write the memory of ky", compress]
+];
 
-  const summary = compressing(context);
+function script(messages: readonly WireMessage[]): Reply {
+  const system = wireText(messages.find((message) => message.role === "system")?.content);
+  const background = BACKGROUND.find(([start]) => system.startsWith(start));
 
-  if (summary) return summary;
+  if (background) return background[1](wireText(messages.find((message) => message.role === "user")?.content));
 
   // pi places system-prompt changes positionally, so a system message can follow the user's input.
-  const last = context.messages.filter((message) => message.role !== "system").at(-1);
+  return reply(messages.filter((message) => message.role !== "system").at(-1));
+}
 
-  if (last?.role === "toolResult") {
-    return fauxAssistantMessage([
-      fauxText(`${last.isError ? "tool failed" : "tool said"}: ${textOf(last.content)}`)
-    ]);
-  }
+/** The answer to a turn's last message: the user's input, or a tool's result. */
+function reply(last: WireMessage | undefined): Reply {
+  // The wire does not say whether a tool failed; its result is its text either way.
+  if (last?.role === "tool") return { text: `tool said: ${wireText(last.content)}` };
 
-  return answer(last?.role === "user" ? textOf(last.content) : "");
+  return answer(last?.role === "user" ? wireText(last.content) : "");
 }
 
 /** The prompts that call a tool: each pattern, and the call its match makes. */
-const CALLS: Array<[RegExp, (match: RegExpExecArray) => AssistantMessage]> = [
+const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
   [/^multiply (\d+)$/, (match) => call("multiply", { value: Number(match[1]) })],
   [/^spawn (\S+) (.+)$/s, (match) => call("subagent", { action: "spawn", name: match[1]!, message: match[2]! })],
   [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
@@ -181,70 +170,14 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => AssistantMessage]> = [
 ];
 
 /** The answer to a user's prompt: the tool call it asks for, or an echo. */
-function answer(prompt: string): AssistantMessage {
+function answer(prompt: string): Reply {
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
 
     if (match) return make(match);
   }
 
-  return fauxAssistantMessage([fauxText(`echo: ${prompt}`)]);
-}
-
-/** pi-ai's faux provider, given the script again before every call so its queue never runs dry. */
-function fauxCloud(calls: FauxCall[]): Endpoint {
-  const core = createFauxCore({
-    provider: FAUX,
-    models: [
-      // A 1M window, as the real main models have, so the cap in models.ts shows.
-      { id: "faux", name: "Faux", reasoning: true, input: ["text", "image"], contextWindow: 1_000_000 },
-      { id: "faux-text", name: "Faux Text", reasoning: false, input: ["text"] }
-    ],
-    tokensPerSecond: 200,
-    tokenSize: { min: 2, max: 4 }
-  });
-
-  const provider = createProvider({
-    id: FAUX,
-    // Resolved by name from the registry's env, as OpenCode Go resolves OPENCODE_API_KEY.
-    auth: {
-      apiKey: {
-        name: "Faux key",
-        resolve: async ({ ctx }) => {
-          const key = await ctx.env("FAUX_KEY");
-
-          return key ? { auth: { apiKey: key }, source: "FAUX_KEY" } : undefined;
-        }
-      }
-    },
-    models: core.models,
-    api: {
-      stream: core.stream,
-      streamSimple: (model, context, options) => {
-        calls.push({
-          model: model.id,
-          reasoning: options?.reasoning ?? null,
-          apiKey: options?.apiKey ?? null,
-          // As sent: pi's system messages, some of which are sections rather than text parts.
-          system: JSON.stringify(context.messages.filter((message) => message.role === "system"))
-        });
-        core.setResponses([script]);
-
-        return core.streamSimple(model, context, options);
-      },
-      fetchDeferred: core.fetchDeferred,
-      cancelDeferred: core.cancelDeferred
-    }
-  });
-
-  return {
-    provider,
-    name: "Faux",
-    needs: "nothing",
-    models: provider.getModels(),
-    connected: () => true,
-    apiKey: { name: "FAUX_KEY", value: FAUX_KEY }
-  };
+  return { text: `echo: ${prompt}` };
 }
 
 const NoParameters = Type.Object({});
@@ -283,7 +216,7 @@ export class PiAgent extends ProductionAgent {
     // Runs as the first field initializer: only ctx and env are set.
     const storage = this.ctx.storage;
     const executorFake = new FakeExecutor(EXECUTOR_TOKEN);
-    const calls: FauxCall[] = [];
+    const calls: AiCall[] = [];
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
       defineTool({
@@ -317,17 +250,25 @@ export class PiAgent extends ProductionAgent {
     });
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
+    const keyed = this.ctx.id.name?.startsWith(KEYED) === true;
+
+    const refusing = (provider: FakeProvider) => async () =>
+      (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
     return {
-      cloud: fauxCloud(calls),
+      ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
+      secrets: (name) => (keyed && name === "OPENCODE_API_KEY" ? OPENCODE_KEY : undefined),
+      fetch: chatCompletions(script, calls, refusing("opencode-go")),
       vibeProxy: bare
         ? undefined
         : {
             binding: {
-              fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
-                (await storage.get<boolean>(MAC_UP_KEY)) === true
-                  ? fakeVibeProxy(new Request(input, init))
-                  : refusingVibeProxy()
+              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+                const request = new Request(input, init);
+                const drops = (await storage.get<boolean>(TUNNEL_DROPS_KEY)) === true && new URL(request.url).pathname === "/v1/messages";
+
+                return (await storage.get<boolean>(MAC_UP_KEY)) === true && !drops ? fakeVibeProxy(request) : refusingVibeProxy();
+              }
             },
             origin: "http://127.0.0.1:8317",
             key: VIBEPROXY_KEY
@@ -352,11 +293,16 @@ export class PiAgent extends ProductionAgent {
     await this.ctx.storage.put(RELEASED_KEY, await this.gateRuns());
   }
 
-  /** Bring the Mac's VibeProxy up or take it away, probe it as PiAgent does on start, and move the chats to the main slot. */
+  /** Bring the Mac's VibeProxy up or take it away, probe it as PiAgent does on start, and move the chats to the main purpose. */
   async mac(up: boolean): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, up);
-    await this.claude?.reachable();
+    await this.models.probe();
     await this.applyMain();
+  }
+
+  /** Let a fake provider answer, or refuse every request from now on. */
+  async provider(id: FakeProvider, up: boolean): Promise<void> {
+    await this.ctx.storage.put(downKey(id), !up);
   }
 
   /** Dream now, as the nightly fire does, and wait for it to finish. */
@@ -372,6 +318,11 @@ export class PiAgent extends ProductionAgent {
   /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
   async macLeaves(): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, false);
+  }
+
+  /** Drop every message on the tunnel while VibeProxy's probe still answers, as a tunnel that fails mid-call does. */
+  async tunnelDrops(): Promise<void> {
+    await this.ctx.storage.put(TUNNEL_DROPS_KEY, true);
   }
 }
 

@@ -6,8 +6,8 @@ import type {
   AutomationInfo,
   ChatRow,
   MachineInfo,
+  ModelChoice,
   ProviderInfo,
-  SlotSetting,
   TaskRow,
 } from "../protocol";
 import { byNextRun } from "./automation-order";
@@ -352,7 +352,7 @@ type Form = {
   cron: string;
   /** A local time for a datetime-local input, when it runs once. */
   at: string;
-  /** provider/modelId, or empty for the subagents model. */
+  /** provider/modelId, or empty for the worker model. */
   model: string;
   thinking: string;
   /** A machine's name, or empty for the cloud. */
@@ -380,7 +380,7 @@ function localInput(ms: number): string {
 }
 
 export function modelFields(
-  model: SlotSetting | null,
+  model: ModelChoice | null,
 ): Pick<Form, "model" | "thinking"> {
   return model
     ? {
@@ -417,14 +417,14 @@ function formOf(automation: AutomationInfo | undefined): Form {
   };
 }
 
-type ModelChoice = {
+type Pickable = {
   value: string;
   label: string;
   levels: readonly ModelThinkingLevel[];
 };
 
 /** Every model a connected provider offers, as `provider/modelId`. */
-export function modelChoices(providers: readonly ProviderInfo[]): ModelChoice[] {
+export function modelChoices(providers: readonly ProviderInfo[]): Pickable[] {
   return providers.flatMap((provider) =>
     provider.connected
       ? provider.models.map((model) => ({
@@ -444,10 +444,10 @@ function levelOf(
   return levels.find((level) => level === thinking) ?? levels[0] ?? "off";
 }
 
-export function settingOf(
+export function choiceOf(
   form: Pick<Form, "model" | "thinking">,
-  choices: readonly ModelChoice[],
-): SlotSetting | null {
+  choices: readonly Pickable[],
+): ModelChoice | null {
   const choice = choices.find((each) => each.value === form.model);
 
   if (!choice) return null;
@@ -460,7 +460,7 @@ export function settingOf(
   };
 }
 
-function draftOf(form: Form, choices: readonly ModelChoice[]): AutomationDraft {
+function draftOf(form: Form, choices: readonly Pickable[]): AutomationDraft {
   const timing = form.repeat
     ? { cron: form.cron.trim(), at: null }
     : { cron: null, at: new Date(form.at).getTime() };
@@ -469,7 +469,7 @@ function draftOf(form: Form, choices: readonly ModelChoice[]): AutomationDraft {
     title: form.title.trim(),
     prompt: form.prompt.trim(),
     ...timing,
-    model: settingOf(form, choices),
+    model: choiceOf(form, choices),
     machine: form.machine || null,
     chat: form.chat,
   };
@@ -653,7 +653,7 @@ function ModelField({ form, set }: FieldProps) {
   return <ModelPicks providers={useContext(AutomationsContext).providers} form={form} set={set} />;
 }
 
-/** The model and, when it has levels, the thinking picks; an empty model is the subagents slot's. */
+/** The model and, when it has levels, the thinking picks; an empty model is the worker's. */
 export function ModelPicks({
   providers,
   form,

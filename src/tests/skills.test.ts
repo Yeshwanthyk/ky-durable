@@ -1,9 +1,9 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { inside, prompt, until } from "./drive";
+import { inside, prompt, promptTool, until } from "./drive";
 
-/** Skills through ky's real PiAgent on the faux model: the tools, the index, and the review after a turn. */
+/** Skills through ky's real PiAgent on the fake AI binding: the tools, the index, and the review after a turn. */
 
 const tool = (name: string, args: Record<string, JsonValue>) => `tool ${name} ${JSON.stringify(args)}`;
 
@@ -48,8 +48,8 @@ describe("skills", () => {
 
   it("refuses a bad name, a duplicate, and a patch that does not match once", async () => {
     const name = crypto.randomUUID();
-    const bad = await prompt(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));
-    expect(bad.text).toMatch(/^tool failed: [\s\S]*Bad skill name "Fix PR 12"/);
+    const bad = await promptTool(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));
+    expect(bad).toEqual({ text: expect.stringMatching(/^tool said: [\s\S]*Bad skill name "Fix PR 12"/), failed: true });
 
     await prompt(name, create());
     expect((await prompt(name, create())).text).toContain("weekly-groceries exists; edit or patch it.");
@@ -106,7 +106,7 @@ describe("skills", () => {
 
     const [review] = await reviews(name);
     expect(review).toMatchObject({ kind: "cloud", title: "Skill review", status: "done" });
-    // The faux model echoes the review's instructions.
+    // The fake AI binding echoes the review's instructions.
     expect(review!.summary).toMatch(/^echo: \[skill review\]/);
 
     // The fork holds the turn it reviews, and its own turns are not reviewed again.
@@ -178,7 +178,7 @@ describe("dreaming", () => {
 
     const [dream] = await dreams(name);
     expect(dream).toMatchObject({ kind: "cloud", title: "Dreaming", status: "done" });
-    // The faux model echoes the dream's instructions and its digest.
+    // The fake AI binding echoes the dream's instructions and its digest.
     expect(dream!.summary).toMatch(/^echo: \[dream\]/);
 
     const asked = await inside(name, (instance) => instance.boundary.calls.slice(before).map((call) => call.system));

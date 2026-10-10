@@ -1,6 +1,6 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
-import type { SettingsView, Slot } from "./settings";
+import type { Purpose, SettingsView } from "./settings";
 
 /**
  * Images the user attaches travel inline, as pi-ai image parts in the user
@@ -25,7 +25,7 @@ export function imagesOf(input: UserInput): ImageContent[] {
 
 /**
  * Why this input's shape is refused, or null when it is fine. Whether the
- * slot's model reads images is Models.imageSupport's answer (models.ts).
+ * purpose's model reads images is Models.imageSupport's answer (models.ts).
  */
 export function checkInput(input: UserInput): string | null {
   if (!Array.isArray(input)) return null;
@@ -49,22 +49,23 @@ export function checkInput(input: UserInput): string | null {
 }
 
 /**
- * The browser's early warning, from the settings it was sent: why the slot's
- * model cannot read images, or null when it can. A slot whose provider is
- * offline runs on the fallback slot, so that model is checked, as
- * Models.resolve does on the server, which has the final say. A model missing
- * from the catalog is let through.
+ * The browser's early warning, from the settings it was sent: why the
+ * purpose's model cannot read images, or null when it can. A purpose whose
+ * provider is offline runs on the fallback, so that model is checked, as
+ * Models.imageSupport does on the server, which has the final say. A model
+ * missing from the catalog is let through.
  */
-export function imageSupport(settings: SettingsView, slot: Slot): string | null {
-  const find = (setting: SettingsView["slots"][Slot]) => {
-    const provider = settings.providers.find((each) => each.id === setting.provider);
+export function imageSupport(settings: SettingsView, purpose: Purpose): string | null {
+  const find = (choice: SettingsView["purposes"][Purpose]) => {
+    if (!choice) return undefined;
+    const provider = settings.providers.find((each) => each.id === choice.provider);
 
-    return provider ? { provider, model: provider.models.find((each) => each.modelId === setting.modelId) } : undefined;
+    return provider ? { provider, model: provider.models.find((each) => each.modelId === choice.modelId) } : undefined;
   };
 
-  let found = find(settings.slots[slot]);
+  let found = find(settings.purposes[purpose]);
 
-  if (found && !found.provider.connected && slot !== "fallback") found = find(settings.slots.fallback);
+  if (found && !found.provider.connected && purpose !== "fallback") found = find(settings.purposes.fallback);
 
   if (!found?.model || found.model.images) return null;
 

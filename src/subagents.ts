@@ -18,7 +18,8 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import type { SlotSetting } from "./settings";
+import { agentModel } from "./models";
+import type { ModelChoice } from "./settings";
 import {
   DISCUSS_MAX,
   DISCUSS_MIN,
@@ -98,7 +99,7 @@ type ReporterInput = {
 export type SpawnRequest = {
   name: string;
   message: string;
-  model: SlotSetting;
+  model: ModelChoice;
   feedId?: string;
   label?: string;
 };
@@ -115,8 +116,8 @@ export type SpecialistDeps = {
   readonly tools: Specialist;
   /** Extensions a specialist's conversations do not get: the main agent's persona and managers. */
   readonly remove: readonly Extension[];
-  /** A specialist's model as it can run: its own, or the subagents slot. */
-  readonly model: (setting: SlotSetting | null) => SlotSetting;
+  /** A specialist's model as it can run: its own, or the worker's. */
+  readonly model: (own: ModelChoice | null) => ModelChoice;
 };
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
@@ -139,8 +140,8 @@ export function subagentExtension(
   feed: TaskFeed,
   /** Main-agent-only extensions that subagents do not get, besides this one. */
   mainOnly: readonly Extension[],
-  /** The subagent slot, applied to each subagent whenever it is messaged. */
-  model: () => SlotSetting,
+  /** The worker's model, applied to each subagent whenever it is messaged. */
+  model: () => ModelChoice,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
   specialists?: SpecialistDeps
@@ -502,17 +503,16 @@ export function subagentExtension(
     return child.id;
   }
 
-  /** Message a subagent on `setting`: a reporter task delivers it and reports the answer to `owner`. */
-  async function deliver(tx: Tx, owner: ConversationId, input: ReporterInput, setting: SlotSetting): Promise<TaskId> {
-    const { provider, modelId, thinkingLevel } = setting;
-    await configure(tx, input.conversationId, { model: { provider, modelId }, thinkingLevel });
+  /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
+  async function deliver(tx: Tx, owner: ConversationId, input: ReporterInput, choice: ModelChoice): Promise<TaskId> {
+    await configure(tx, input.conversationId, agentModel(choice));
 
     return tx.createTask(Reporter, input, background(owner));
   }
 
-  const spawn: Spawn = async (tx, owner, { name, message, model: setting, feedId, label }) => {
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label }) => {
     const conversationId = await register(tx, owner, name);
-    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label }, setting);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label }, model);
 
     return conversationId;
   };

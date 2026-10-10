@@ -17,7 +17,7 @@ import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
 import { MachineHub, machineExtension, type TaskTokens } from "./machines";
 import { Memory, memoryExtension } from "./memory";
-import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
+import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
 import { ownerRoute, tokenRoute } from "./runners";
@@ -30,7 +30,9 @@ import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
-import { VIBEPROXY_NOT_SET_UP, vibeProxy } from "./vibeproxy";
+import { VENDORS, vendorNotSetUp } from "./providers/api-key";
+import { VIBEPROXY_NOT_SET_UP } from "./providers/vibeproxy";
+import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
 export { Vault } from "./vault";
@@ -46,13 +48,7 @@ const BACKGROUND = Object.freeze({
  * Everything ky reaches outside the Worker. The worker e2e tests and the local
  * stack (src/tests/stack.ts) put fakes here; nothing inside is replaced.
  */
-export type Boundary = {
-  /** The cloud models: subagents, and the main agent while Claude is away. Its first model is the default. */
-  readonly cloud: Endpoint;
-  /** The tunnel to VibeProxy on a computer of the user's, when this deploy has one. */
-  readonly vibeProxy?: { readonly binding: Pick<Fetcher, "fetch">; readonly origin: string; readonly key: string };
-  /** How long a VibeProxy probe's answer is reused; vibeproxy.ts's default when unset. */
-  readonly probeTtlMs?: number;
+export type Boundary = ModelsBoundary & {
   /** Browser Rendering, for browse. */
   readonly browser: BrowserWorker;
   /** When this deploy has Executor. */
@@ -61,10 +57,10 @@ export type Boundary = {
   readonly extensions: readonly Extension[];
 };
 
-/** What a boundary lacks. The cloud has no probe, so it is connected exactly while it has its key. */
-export function notSetUp({ cloud, vibeProxy, executor }: Boundary): readonly NotSetUp[] {
+/** What a boundary lacks: the api-key vendors without their secret, and the overlay's add-ons. */
+export function notSetUp({ secrets, vibeProxy, executor }: Boundary): readonly NotSetUp[] {
   return [
-    ...(cloud.connected() ? [] : [{ id: cloud.provider.id, name: cloud.name, needs: cloud.needs }]),
+    ...VENDORS.flatMap((vendor) => (secrets(vendor.secret) ? [] : [vendorNotSetUp(vendor)])),
     ...(vibeProxy ? [] : [VIBEPROXY_NOT_SET_UP]),
     ...(executor ? [] : [EXECUTOR_NOT_SET_UP])
   ];
@@ -73,20 +69,8 @@ export function notSetUp({ cloud, vibeProxy, executor }: Boundary): readonly Not
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
-  /** Claude through VibeProxy, when this deploy has its tunnel. While it is away, models.ts runs its turns on the fallback slot. */
-  readonly claude =
-    this.boundary.vibeProxy &&
-    vibeProxy({
-      ...this.boundary.vibeProxy,
-      modelIds: [CLAUDE_MODEL, CLAUDE_SMALL],
-      probeTtlMs: this.boundary.probeTtlMs,
-      onChange: () => this.ctx.waitUntil(this.applyMain())
-    });
-  readonly models = new Models(
-    this.ctx.storage.sql,
-    this.claude ? [this.claude, this.boundary.cloud] : [this.boundary.cloud],
-    kyDefaults({ provider: this.boundary.cloud.provider.id, modelId: this.boundary.cloud.models[0]!.id })
-  );
+  /** When a provider that can go away comes or goes, the chats move to what main resolves to now. */
+  readonly models = new Models(this.ctx.storage.sql, this.boundary, () => this.ctx.waitUntil(this.applyMain()));
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   readonly workspace = new Workspace({
@@ -105,9 +89,9 @@ export class PiAgent extends DurableObject<Env> {
   });
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
-  /** Its summaries are written on the main slot, in the background, as notes come in. */
+  /** Its summaries are written on the background model, as notes come in. */
   readonly memory = new Memory(this.ctx.storage.sql, (system, messages) =>
-    this.models.ask("main", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
+    this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
   );
   readonly skills = new Skills(this.ctx.storage.sql);
   /** SOUL.md, ky's persona. */
@@ -123,7 +107,7 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.isChat(session),
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
-  readonly titler = new Titler((system, text) => this.models.complete("titles", system, text));
+  readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
   readonly machines = new MachineHub(
     this.ctx.storage.sql,
     this.feed,
@@ -137,8 +121,7 @@ export class PiAgent extends DurableObject<Env> {
     feed: this.feed,
     machines: this.machines,
     chats: this.chats,
-    settings: this.models.settings,
-    catalog: () => this.models.catalog(),
+    models: this.models,
     runtime: {
       spawn: (tx, owner, request) => this.#spawn!(tx, owner, request),
       commit: async (change) => (await this.harness.pi()).commit(change, BACKGROUND),
@@ -158,7 +141,8 @@ export class PiAgent extends DurableObject<Env> {
     conversation: (session) => this.harness.conversation(session),
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
-    context: BACKGROUND
+    context: BACKGROUND,
+    model: () => agentModel(this.models.resolve("background").choice)
   };
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     memory: this.memory,
@@ -167,7 +151,7 @@ export class PiAgent extends DurableObject<Env> {
     host: this.#background,
     create: async () => {
       const { id } = await this.harness.sessions.create();
-      await this.#configureMain(id);
+      await this.#configure(id, "background");
 
       return id;
     }
@@ -202,7 +186,7 @@ export class PiAgent extends DurableObject<Env> {
       // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
       const memory = memoryExtension(this.memory, this.history, (session) => chat(session) || this.reviews.has(session));
       const machines = machineExtension(this.machines, this.feed);
-      const automations = automationExtension(this.automations, () => this.models.settings.get("subagents"));
+      const automations = automationExtension(this.automations, () => this.models.resolve("worker").choice);
       this.registry.install(memory);
       this.registry.install(machines);
       this.registry.install(automations);
@@ -214,14 +198,14 @@ export class PiAgent extends DurableObject<Env> {
       const subagents = subagentExtension(
         this.feed,
         [soul, memory, machines, automations, specialists.manage],
-        () => this.models.settings.get("subagents"),
+        () => this.models.resolve("worker").choice,
         (feedId) => this.automations.wanted(feedId),
         {
           store: this.specialists,
           tools: specialists,
           // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
           remove: [soul, automations, specialists.manage],
-          model: (setting) => (setting && this.models.settings.valid(setting)) ?? this.models.settings.get("subagents")
+          model: (own) => this.models.worker(own)
         }
       );
 
@@ -233,7 +217,7 @@ export class PiAgent extends DurableObject<Env> {
       return Harness.open(
         storage,
         {
-          models: this.models.registry(),
+          models: this.models.registry,
           registry: this.registry,
           settings: {
             retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 },
@@ -246,15 +230,13 @@ export class PiAgent extends DurableObject<Env> {
         context
       );
     },
-    // Read on each new session, so they follow the main slot.
+    // Read on each new session, so they follow the main purpose.
     defaults: ((models: Models) => ({
       get model() {
-        const { provider, modelId } = models.settings.get("main");
-
-        return models.model(provider, modelId);
+        return models.resolve("main").model;
       },
       get thinkingLevel() {
-        return models.settings.get("main").thinkingLevel;
+        return models.resolve("main").choice.thinkingLevel;
       }
     }))(this.models)
   });
@@ -288,8 +270,8 @@ export class PiAgent extends DurableObject<Env> {
     super(ctx, env);
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.#nameThings();
-    this.models.settings.onChange((slot) => {
-      if (slot === "main") this.ctx.waitUntil(this.applyMain());
+    this.models.settings.onChange((purpose) => {
+      if (purpose === "main") this.ctx.waitUntil(this.applyMain());
     });
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
   }
@@ -311,14 +293,16 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /**
-   * Production's boundary: OpenCode Go, Browser Rendering, and VibeProxy's tunnel and Executor when this deploy
-   * has their vars and secrets (wrangler.local.example.jsonc).
+   * Production's boundary: Workers AI, the Worker's secrets, the internet, Browser Rendering, and VibeProxy's tunnel
+   * and Executor when this deploy has their vars and secrets (wrangler.local.example.jsonc).
    */
   boundaryFor(env: Env): Boundary {
     const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key, EXECUTOR_URL: url, EXECUTOR_TOKEN: token } = env;
 
     return {
-      cloud: opencodeGo(env.OPENCODE_API_KEY),
+      ai: env.AI,
+      secrets: (name) => env[name],
+      fetch: (input, init) => fetch(input, init),
       vibeProxy: binding && origin && key ? { binding, origin, key } : undefined,
       browser: env.BROWSER,
       executor: url && token ? { url, token } : undefined,
@@ -333,7 +317,7 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.machines.post());
     // Task tokens whose revoke a failure or a restart lost.
     this.ctx.waitUntil(this.machines.sweepTokens());
-    await this.claude?.reachable();
+    await this.models.probe();
     await this.applyMain();
     await this.automations.recover();
     // Summaries a restart or a failed call left unwritten.
@@ -373,14 +357,19 @@ export class PiAgent extends DurableObject<Env> {
   /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
   async applyMain(): Promise<void> {
     for (const session of [ROOT_SESSION, ...this.chats.list().map((chat) => chat.session)]) {
-      await this.#configureMain(session);
+      await this.#configure(session);
     }
   }
 
-  async #configureMain(session: string): Promise<void> {
+  /** Set a top-level conversation up like the main one, on `purpose`'s model. */
+  async #configure(session: string, purpose: Purpose = "main"): Promise<void> {
     const conversation = await this.harness.conversation(session);
     await conversation.configure(
-      { ...this.harness.agentDefaults(), extensions: { remove: [this.browse] } },
+      {
+        ...this.harness.agentDefaults(),
+        ...agentModel(this.models.resolve(purpose).choice),
+        extensions: { remove: [this.browse] }
+      },
       BACKGROUND
     );
   }
@@ -388,13 +377,13 @@ export class PiAgent extends DurableObject<Env> {
   /** A side chat: a new top-level conversation set up like the main one, sharing its memory. */
   async newChat(): Promise<string> {
     const { id } = await this.harness.sessions.create();
-    await this.#configureMain(id);
+    await this.#configure(id);
     this.chats.add(id);
 
     return id;
   }
 
-  /** The titles model renames chats and tasks once it answers, unless they were renamed first. */
+  /** The background model renames chats and tasks once it answers, unless they were renamed first. */
   #nameThings(): void {
     const later = (work: () => Promise<void>) => this.ctx.waitUntil(work());
 

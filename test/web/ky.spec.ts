@@ -8,8 +8,8 @@ import { REPO, TOKEN } from "../harness/stack.ts";
 
 /**
  * One check per local web feature in FEATURES.md, through the real app in
- * Chromium. The stack's model is pi-ai's faux provider (src/tests/stack.ts):
- * it echoes, and `spawn`, `machine@webmac`, `gate` and `tool` prompts call
+ * Chromium. The stack's models are Workers AI's behind a fake AI binding
+ * (src/tests/stack.ts): they echo, and `spawn`, `machine@webmac`, `gate` and `tool` prompts call
  * tools. The machine `webmac` is a real runner with the fake claude.
  */
 
@@ -53,11 +53,11 @@ async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
   expect(response.status()).toBe(204);
 }
 
-/** Pick a slot's model in Settings, by the slot's label and the model's radio. */
-async function pick(page: Page, slot: string, model: RegExp): Promise<void> {
-  const row = panel(page).getByRole("button", { name: new RegExp(`^${slot}`) });
+/** Pick a purpose's model in Settings, by the purpose's label and the model's radio. */
+async function pick(page: Page, purpose: string, model: RegExp): Promise<void> {
+  const row = panel(page).getByRole("button", { name: new RegExp(`^${purpose}`) });
   await row.click();
-  const radio = panel(page).getByRole("radiogroup", { name: `${slot} model` }).getByRole("radio", { name: model });
+  const radio = panel(page).getByRole("radiogroup", { name: `${purpose} model` }).getByRole("radio", { name: model });
   await radio.click();
   await expect(radio).toHaveAttribute("aria-checked", "true");
   await row.click();
@@ -212,22 +212,23 @@ test("marks a side chat that ky answered while the user was in another chat, unt
   await expect(side.getByRole("img", { name: "New" })).toBeHidden();
 });
 
-test("picks a slot's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
+test("picks a purpose's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();
-  await panel(page).getByRole("button", { name: /^Titles/ }).click();
-  await panel(page).getByRole("radiogroup", { name: "Titles model" }).getByRole("radio", { name: /Faux Text/ }).click();
-  await expect(panel(page).getByRole("button", { name: /^Titles/ })).toContainText("Faux Text");
+  await expect(panel(page).getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash · Workers AI");
+  await panel(page).getByRole("button", { name: /^Background/ }).click();
+  await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^GPT OSS 120B/ }).click();
+  await expect(panel(page).getByRole("button", { name: /^Background/ })).toContainText("GPT OSS 120B");
   await expect(panel(page).getByRole("listitem").filter({ hasText: "VibeProxy" })).toContainText("Off");
 
   await page.reload();
   await panel(page).getByRole("tab", { name: "Settings" }).click();
-  await expect(panel(page).getByRole("button", { name: /^Titles/ })).toContainText("Faux Text");
+  await expect(panel(page).getByRole("button", { name: /^Background/ })).toContainText("GPT OSS 120B");
 
   // Put it back for the other tests.
-  await panel(page).getByRole("button", { name: /^Titles/ }).click();
-  await panel(page).getByRole("radiogroup", { name: "Titles model" }).getByRole("radio", { name: /^Faux Faux/ }).click();
-  await expect(panel(page).getByRole("button", { name: /^Titles/ })).not.toContainText("Faux Text");
+  await panel(page).getByRole("button", { name: /^Background/ }).click();
+  await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^Glm 5.3 Flash/ }).click();
+  await expect(panel(page).getByRole("button", { name: /^Background/ })).not.toContainText("GPT OSS 120B");
 });
 
 test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
@@ -683,13 +684,13 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
     await expect(page.getByRole("list", { name: "Images to send" }).getByRole("img")).toHaveCount(1);
   };
 
-  const cantRead = "Faux Text can't read images. Pick a model that can in Models, or send text only.";
+  const cantRead = "GPT OSS 120B can't read images. Pick a model that can in Models, or send text only.";
 
   await mac(page, "1");
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();
   await pick(page, "Main agent", /Opus/);
-  await pick(page, "Fallback", /Faux Text/);
+  await pick(page, "Fallback", /^GPT OSS 120B/);
 
   // The Mac goes away unnoticed: the page still shows Claude, so only the server, which asks the Mac, can refuse.
   await mac(page, "leaves");
@@ -708,14 +709,14 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
   // With a text-only main model the page warns before anything is sent.
   await page.reload();
   await panel(page).getByRole("tab", { name: "Settings" }).click();
-  await pick(page, "Main agent", /^Faux Text/);
+  await pick(page, "Main agent", /^GPT OSS 120B/);
   await attach();
   await expect(page.getByRole("alert")).toHaveText(cantRead);
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
-  // Put the slots back for the other tests.
-  await pick(page, "Main agent", /^Faux Faux/);
-  await pick(page, "Fallback", /^Faux Faux/);
+  // Put the purposes back for the other tests.
+  await pick(page, "Main agent", /^Glm 5.3 Flash/);
+  await pick(page, "Fallback", /^Glm 5.3 Flash/);
 });
 
 /** Every URL the page asks for that matches, so a test can see when a lazy chunk loads. */

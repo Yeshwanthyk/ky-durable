@@ -3,11 +3,11 @@ import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { TaskRow } from "../tasks";
-import type { PiAgent } from "./stack";
+import { GLM, GPT_OSS, type PiAgent } from "./stack";
 import { agent, connect, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 
 /**
- * Automations through ky's real PiAgent on the faux model: created and
+ * Automations through ky's real PiAgent on the fake Workers AI: created and
  * changed from chat with `tool automation {...}`, fired by the object's
  * alarm (`runDurableObjectAlarm`), and checked by the task feed's rows and
  * the reports the chats hear.
@@ -117,7 +117,7 @@ function nextDaily(hour: number, minute = 0): string {
   return new Date(today > now.getTime() ? today : today + 86_400_000).toISOString();
 }
 
-/** The faux model calls an automation's runs made. */
+/** The model calls an automation's runs made. */
 function runCalls(name: string, id: string) {
   return inside(name, (instance) => instance.boundary.calls.filter((call) => call.system.includes(`automation-${id}`)));
 }
@@ -131,7 +131,7 @@ describe("automations", () => {
 
     const line = await listed(name, id);
     expect(line).toContain(`${id} "Daily digest" [active] cron 0 9 * * * UTC, by user`);
-    expect(line).toContain("model: subagents slot; where: cloud; reports to: main");
+    expect(line).toContain("model: worker model; where: cloud; reports to: main");
     expect(line).toContain(`next: ${nextDaily(9)}; last run: never`);
 
     expect(await booking(name, id)).toMatchObject({ type: "cron", cron: "0 9 * * *", callback: "automation", payload: { id } });
@@ -140,20 +140,20 @@ describe("automations", () => {
 
   it("runs an automation on its own model and reports once to the chat that made it", async () => {
     const name = crypto.randomUUID();
-    const id = await create(name, { model: "faux/faux-text" });
+    const id = await create(name, { model: `workers-ai/${GPT_OSS}` });
 
     await runNow(name, id);
     const run = await runEnds(name, id);
     expect(run).toMatchObject({ kind: "cloud", source: `automation:${id}`, title: "Daily digest" });
-    // The titles model may have renamed the summary already.
+    // The background model may have renamed the summary already.
     expect(run.summary).toContain("echo: digest the news");
     expect(run.id).toMatch(new RegExp(`^a-${id}-\\d+$`));
     expect(await runs(name, id)).toHaveLength(1);
 
-    // The subagents slot is faux/faux; the run asked faux-text.
+    // The worker is on GLM; the run asked GPT OSS.
     const calls = await runCalls(name, id);
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.map((call) => call.model)).toEqual(calls.map(() => "faux-text"));
+    expect(calls.map((call) => call.model)).toEqual(calls.map(() => GPT_OSS));
 
     await until(async () => (await reports(name, "Daily digest")).length > 0, "the report");
     await settle();
@@ -188,27 +188,29 @@ describe("automations", () => {
     expect(await reports(name, "Daily digest")).toEqual(['[automation "Daily digest" result: tell the user] tool said: released after 1 runs']);
   });
 
-  it("refuses a model that is not offered and runs a model-less automation on the subagents slot", async () => {
+  it("refuses a model that is not offered and runs a model-less automation on the worker's model", async () => {
     const name = crypto.randomUUID();
-    const refused = await say(name, automation({ action: "create", title: "Daily digest", prompt: "digest", cron: "0 9 * * *", model: "faux/missing" }));
-    expect(refused).toMatch(/^tool said: faux\/missing is not available\. Choose one of: faux\/faux \(.*\); faux\/faux-text \(off\)\.$/);
+    const refused = await say(name, automation({ action: "create", title: "Daily digest", prompt: "digest", cron: "0 9 * * *", model: "workers-ai/missing" }));
+    expect(refused).toMatch(/^tool said: workers-ai\/missing is not available\. Choose one of: /);
+    expect(refused).toContain(`workers-ai/${GLM} (`);
+    expect(refused).toContain(`; workers-ai/${GPT_OSS} (`);
     expect(await say(name, automation({ action: "list", all: true }))).toBe("tool said: No automations.");
 
-    // The user moves the subagents slot to faux-text in Settings.
+    // The user moves the worker to GPT OSS in Settings.
     const socket = await connect(name);
     const client = follow(socket);
     await client.until(() => client.frames.some((frame) => frame.type === "settings"));
-    socket.send(JSON.stringify({ type: "set-model", id: "slot", slot: "subagents", setting: { provider: "faux", modelId: "faux-text", thinkingLevel: "off" } }));
-    await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "slot"));
+    socket.send(JSON.stringify({ type: "set-model", id: "worker", purpose: "worker", choice: { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" } }));
+    await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "worker"));
     socket.close();
 
     const id = await create(name);
-    expect(await listed(name, id)).toContain("model: subagents slot");
+    expect(await listed(name, id)).toContain("model: worker model");
     await runNow(name, id);
     await runEnds(name, id);
     const calls = await runCalls(name, id);
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.map((call) => call.model)).toEqual(calls.map(() => "faux-text"));
+    expect(calls.map((call) => call.model)).toEqual(calls.map(() => GPT_OSS));
   });
 
   it("skips a slot while the last run is still working", async () => {
@@ -312,14 +314,14 @@ describe("automations", () => {
     const name = crypto.randomUUID();
     const first = await runner(name);
     first.socket.close();
-    const id = await create(name, { model: "faux/faux-text", machine: "mac" });
-    expect(await listed(name, id)).toContain("model: faux/faux-text");
+    const id = await create(name, { model: `workers-ai/${GPT_OSS}`, machine: "mac" });
+    expect(await listed(name, id)).toContain(`model: workers-ai/${GPT_OSS}`);
     expect(await listed(name, id)).toContain("where: mac");
 
-    expect(await say(name, automation({ action: "update", id, model: "subagents", machine: "cloud" }))).toBe(
+    expect(await say(name, automation({ action: "update", id, model: "worker", machine: "cloud" }))).toBe(
       'tool said: Updated "Daily digest".'
     );
-    expect(await listed(name, id)).toContain("model: subagents slot; where: cloud");
+    expect(await listed(name, id)).toContain("model: worker model; where: cloud");
 
     expect(await say(name, automation({ action: "update", id, prompt: " " }))).toBe("tool said: An automation needs a title and a prompt.");
   });

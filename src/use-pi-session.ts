@@ -16,6 +16,8 @@ import type {
   MemoryItem,
   MemorySearch,
   MemoryView,
+  ModelChoice,
+  Purpose,
   ServerMessage,
   SettingsView,
   SetupView,
@@ -27,8 +29,6 @@ import type {
   SoulView,
   SpecialistDraft,
   SpecialistView,
-  Slot,
-  SlotSetting,
   TaskRow,
   SessionView,
   ToolInfo
@@ -295,8 +295,8 @@ export function usePiSession(session: string) {
   );
 
   const setModel = useCallback(
-    (slot: Slot, setting: SlotSetting) =>
-      send({ type: "set-model", id: crypto.randomUUID(), slot, setting }),
+    (purpose: Purpose, choice: ModelChoice) =>
+      send({ type: "set-model", id: crypto.randomUUID(), purpose, choice }),
     [send]
   );
 

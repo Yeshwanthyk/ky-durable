@@ -58,7 +58,7 @@ function terminal(row: TaskRow | undefined): boolean {
   return row !== undefined && TERMINAL.has(row.status);
 }
 
-/** Ask the main agent (or the chat on `from`), through the faux model, to start a task on `name`; resolves with its id. */
+/** Ask the main agent (or the chat on `from`), through the fake AI binding, to start a task on `name`; resolves with its id. */
 function startTask(context: Context, name: string, prompt: string, from = context.main): Promise<string> {
   return started(context, name, `machine@${name} ${prompt}`, from);
 }
@@ -120,7 +120,7 @@ function sharedBy(context: Context, task: string): FileRow | undefined {
   return latest?.type === "tasks" ? latest.files.find((row) => row.task === task) : undefined;
 }
 
-/** Ask the main agent, through the faux model, for an automation; resolves with its id. */
+/** Ask the main agent, through the fake AI binding, for an automation; resolves with its id. */
 async function createAutomation(context: Context, draft: Record<string, string>): Promise<string> {
   // The main chat's history is shared by every scenario: the answer is a new id, not one made before.
   const ids = () => [...JSON.stringify(context.main.frames).matchAll(/Created automation (\w+),/g)].map((match) => match[1]!);

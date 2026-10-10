@@ -212,21 +212,43 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
 ### C5. Providers and purposes (`src/models.ts` and `src/providers/*`)
 
 - **Provider records** are stored in `ky_providers`:
-  `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor?, machine?, port?, api?, label, enabled }`.
+  `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor, machine, port, api, label, enabled }`, where
+  `vendor`, `machine`, `port` and `api` are `null` for a kind that has none (changed in M: they were optional).
   The credential for an `api-key` record lives in the Vault under `("provider", id)`.
+  A record is added on the first boot its provider can run. Each later boot refreshes `kind`, `vendor`, `machine`, `port` and `api` from the environment; `label` and `enabled` keep the user's values (changed in M review 2: it was insert-only).
 - **Purposes:**
 
 | Purpose | Default |
 |---|---|
-| `main` | Best connected |
+| `main` | Best connected; with none connected, the best enabled |
 | `worker` (subagents, specialists, automations) | `main` |
-| `background` (titles, memory summaries, dreams, skill reviews) | Workers AI, thinking off |
-| `fallback` | First healthy model that isn't `main` |
+| `background` (titles, memory summaries, dreams, skill reviews) | Workers AI's default model at its lowest thinking level; `main`'s while the Workers AI record is disabled |
+| `fallback` | Best healthy model on another provider than `main`'s; else the best that isn't `main`'s model |
 
-- **API:**
-  - `models.resolve(purpose, need?: { tools?, images?, context? })` returns a model and thinking level.
-  - It's the only way any caller picks a model.
-  - `imageSupport` asks it.
+- `main` is the best connected provider's default, ranked runner-local, then api-key, then Workers AI.
+- **API** (changed in M):
+  - `models.resolve(purpose, need?: { images? })` returns `{ choice, model }`: the user's choice for the purpose
+    while it can run, else the default above. It is synchronous and doesn't check health.
+  - Every provider offers only tool-capable models, so `need` has no `tools`; pi compacts by the model's own
+    window, so it has no `context`.
+  - Health is checked per call, as the call starts: VibeProxy's probe, and every provider's breaker on
+    401/402/429/5xx. A call whose provider is down runs on a stand-in on another provider that is healthy now:
+    the user's `fallback` choice while its provider is, else the best there. A `background` call's stand-in is the
+    cheapest healthy provider's light model instead (Workers AI, then api-key, then runner-local; Haiku on VibeProxy),
+    so titles and summaries never fall to Opus (changed in M review 2). There is no stand-in on the same
+    provider, and a stand-in is never re-routed (changed in M review: it could bounce between two down providers).
+    With no other provider healthy, the call runs on its own provider, fails fast, and pi's retry applies.
+  - With no provider enabled no purpose resolves: `resolve` throws, and the Settings view (`SettingsView.purposes`,
+    now partial) lists none, so Settings still opens and says so (changed in M review 2).
+  - It's the only way any caller picks a model. `imageSupport(purpose)` asks it, and answers for the stand-in's
+    model while the purpose's provider is down.
+  - Workers AI's thinking levels are per model, from live probes of the compat endpoint (changed in M review:
+    no level was sent before). Each level is sent as `reasoning_effort`:
+    - GLM 5.3 Flash offers none. It thinks on its own (240–530 tokens on a title); any effort cuts that to a few
+      tokens whatever its value, and "none" is ignored.
+    - Kimi K2.6 offers off ("none", which stops it thinking) and high.
+    - GPT OSS 120B offers low, medium and high; it refuses "none".
+  - Thinking shares `max_tokens`. GLM's own thinking stays well inside a title's or summary's budget (2000 and 8000).
 
 ### C6. Owner overlay
 

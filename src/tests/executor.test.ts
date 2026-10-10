@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inside, prompt, submit, until } from "./drive";
+import { inside, prompt, promptTool, submit, until } from "./drive";
 
 /** What the fake Executor saw: how often `code` ran, cancellations, sessions opened. */
 function executorSaw(name: string, code: string): Promise<{ runs: number; cancelled: number; sessions: number }> {
@@ -21,8 +21,10 @@ describe("executor tools over MCP", () => {
   it("never runs a program again when its response is lost after it ran", async () => {
     const name = crypto.randomUUID();
 
-    const { text } = await prompt(name, "executor lose-response");
-    expect(text).toMatch(/^tool failed: Executor call failed: .*Network connection lost/);
+    expect(await promptTool(name, "executor lose-response")).toEqual({
+      text: expect.stringMatching(/^tool said: Executor call failed: .*Network connection lost/),
+      failed: true
+    });
     expect((await executorSaw(name, "lose-response")).runs).toBe(1);
   });
 
@@ -46,7 +48,7 @@ describe("executor tools over MCP", () => {
     await inside(never, (agent) => {
       agent.boundary.executorFake.refuseConnects = 2;
     });
-    expect((await prompt(never, "executor never")).text).toMatch(/^tool failed: Executor call failed:/);
+    expect(await promptTool(never, "executor never")).toEqual({ text: expect.stringMatching(/^tool said: Executor call failed:/), failed: true });
     expect((await executorSaw(never, "never")).runs).toBe(0);
   });
 
@@ -56,7 +58,7 @@ describe("executor tools over MCP", () => {
       agent.boundary.executorFake.token = "another-token";
     });
 
-    expect((await prompt(name, "executor refused")).text).toMatch(/^tool failed: Executor call failed:/);
+    expect(await promptTool(name, "executor refused")).toEqual({ text: expect.stringMatching(/^tool said: Executor call failed:/), failed: true });
     expect(await inside(name, (agent) => agent.boundary.executorFake.unauthorized)).toBe(1);
     expect((await executorSaw(name, "refused")).runs).toBe(0);
   });

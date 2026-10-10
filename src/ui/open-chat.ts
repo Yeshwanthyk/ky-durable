@@ -58,15 +58,15 @@ export function openChat(session: string, chats: readonly ChatRow[], tasks: read
   return { ...open, kind: kindOf(main, chat), speaker: speakerOf(subagent, talksToMain), where: whereOf(open) };
 }
 
-/** The main slot's model by name, for the topbar and the panel. */
+/** The main purpose's model by name, for the topbar and the panel. */
 export function mainModelName(settings: SettingsView | null): string {
-  const slot = settings?.slots.main;
+  const main = settings?.purposes.main;
 
-  if (!slot) return "Main agent";
+  if (!main) return "Main agent";
 
-  const provider = settings?.providers.find((each) => each.id === slot.provider);
+  const provider = settings?.providers.find((each) => each.id === main.provider);
 
-  return provider?.models.find((each) => each.modelId === slot.modelId)?.name ?? slot.modelId;
+  return provider?.models.find((each) => each.modelId === main.modelId)?.name ?? main.modelId;
 }
 
 export function statusLabel(status: ConnectionStatus): string {

@@ -8,7 +8,7 @@ import type {
   SpecialistDraft,
   SpecialistView,
 } from "../protocol";
-import { ModelPicks, modelChoices, modelFields, Pick, settingOf } from "./Automations";
+import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
@@ -418,7 +418,7 @@ const formOf = (specialist: SpecialistView | undefined) =>
 function draftOf(form: SpecialistForm, providers: readonly ProviderInfo[], create: boolean): SpecialistDraft {
   const settings = {
     description: form.description.trim(),
-    model: settingOf(form, modelChoices(providers)),
+    model: choiceOf(form, modelChoices(providers)),
     machine: form.machine || null,
   };
 

@@ -1,6 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
 import {
+  type AgentChange,
   AssistantEntry,
   type Conversation,
   defineExtension,
@@ -379,6 +380,8 @@ export type ReviewHost = {
   /** Run work in the background of the current request, like `ctx.waitUntil`. */
   readonly later: (work: Promise<void>) => void;
   readonly context: Context;
+  /** The background purpose's model, which a review's fork runs on. */
+  readonly model: () => AgentChange;
 };
 
 /** A background task as it shows in Activity. */
@@ -451,8 +454,9 @@ export function skillsExtension(
 
       if (!latest) return;
       // The fork keeps the parent's agent and, since it remembers, the parent's memory section,
-      // so its requests share the parent's prompt cache.
+      // but runs on the background model.
       const fork = await conversation.fork(latest.id, { ownership: { kind: "ownerless" } }, context);
+      await fork.configure(host.model(), context);
       reviews.add(String(fork.id), session);
       await runInFeed(host, fork, { id: crypto.randomUUID(), worker: "skills", title: "Skill review", content: REVIEW });
     } catch (error) {

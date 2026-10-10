@@ -5,7 +5,7 @@
 # The password for the web app, and the runner's bearer token.
 KY_TOKEN=
 
-# OpenCode Go, the cloud models.
+# OpenCode Go; without it ky runs on Workers AI through the AI binding.
 # OPENCODE_API_KEY=
 # VibeProxy's x-api-key; with VIBEPROXY and VIBEPROXY_ORIGIN in wrangler.local.jsonc.
 # VIBEPROXY_KEY=

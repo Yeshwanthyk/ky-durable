@@ -1,21 +1,21 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 
 /**
- * Which model does which job. There are four slots: the main agent, the
- * cloud subagents, the stand-in that answers for Claude while the Mac is
- * away, and the small model that names chats and tasks. Each slot holds a provider, a model and a thinking level, and is
- * kept in this object's SQLite so a change survives restarts.
+ * Which model does which job. There are four purposes (C5): the main agent;
+ * the worker, for subagents, specialists and automations; the background,
+ * for titles, memory summaries, dreams and skill reviews; and the fallback,
+ * which answers for a purpose whose provider is down. The user may choose a
+ * provider, a model and a thinking level for each. A choice is kept in this
+ * object's SQLite, so it survives restarts.
  *
- * The catalog of providers and models comes from the server, which knows
- * which keys are set. A stored choice whose provider has lost its key, or
- * whose model left the catalog, reads as the slot's default.
+ * models.ts owns the catalog and each purpose's default. A stored choice
+ * whose provider is not connected, or whose model left the catalog, reads as
+ * no choice, so the purpose's default runs.
  */
 
-export type Slot = "main" | "subagents" | "fallback" | "titles";
+export type Purpose = "main" | "worker" | "background" | "fallback";
 
-export const SLOTS: readonly Slot[] = ["main", "subagents", "fallback", "titles"];
-
-export type SlotSetting = {
+export type ModelChoice = {
   readonly provider: string;
   readonly modelId: string;
   readonly thinkingLevel: ModelThinkingLevel;
@@ -44,86 +44,62 @@ export type ProviderInfo = {
 
 export type SettingsView = {
   readonly providers: readonly ProviderInfo[];
-  readonly slots: Readonly<Record<Slot, SlotSetting>>;
+  /** What each purpose runs on; none while no model provider is enabled. */
+  readonly purposes: Readonly<Partial<Record<Purpose, ModelChoice>>>;
 };
 
 export class Settings {
   readonly #sql: SqlStorage;
-  readonly #catalog: () => readonly ProviderInfo[];
-  readonly #defaults: () => Readonly<Record<Slot, SlotSetting>>;
-  readonly #listeners = new Set<(slot: Slot, setting: SlotSetting) => void>();
+  readonly #valid: (choice: ModelChoice) => ModelChoice | undefined;
+  readonly #listeners = new Set<(purpose: Purpose, choice: ModelChoice) => void>();
 
-  constructor(
-    sql: SqlStorage,
-    catalog: () => readonly ProviderInfo[],
-    defaults: () => Readonly<Record<Slot, SlotSetting>>
-  ) {
+  /** `valid` is the choice as it can run now, or undefined when it cannot. */
+  constructor(sql: SqlStorage, valid: (choice: ModelChoice) => ModelChoice | undefined) {
     this.#sql = sql;
-    this.#catalog = catalog;
-    this.#defaults = defaults;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_settings (
-      slot TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    this.#valid = valid;
+    // ky_settings held the slots the purposes replaced; their choices are not carried over.
+    sql.exec(`DROP TABLE IF EXISTS ky_settings`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_purposes (
+      purpose TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   }
 
-  onChange(listener: (slot: Slot, setting: SlotSetting) => void): () => void {
+  onChange(listener: (purpose: Purpose, choice: ModelChoice) => void): () => void {
     this.#listeners.add(listener);
 
     return () => this.#listeners.delete(listener);
   }
 
-  get(slot: Slot): SlotSetting {
+  /** The user's choice for a purpose while it can run, else undefined. */
+  get(purpose: Purpose): ModelChoice | undefined {
     const row = this.#sql
-      .exec<{ value: string }>("SELECT value FROM ky_settings WHERE slot = ?", slot)
+      .exec<{ value: string }>("SELECT value FROM ky_purposes WHERE purpose = ?", purpose)
       .toArray()[0];
 
-    // SAFETY: only set() writes this table, and it writes a validated SlotSetting.
-    const stored = row ? this.valid(JSON.parse(row.value) as SlotSetting) : undefined;
-
-    return stored ?? this.#defaults()[slot];
-  }
-
-  view(): SettingsView {
-    return {
-      providers: this.#catalog(),
-      slots: {
-        main: this.get("main"),
-        subagents: this.get("subagents"),
-        fallback: this.get("fallback"),
-        titles: this.get("titles")
-      }
-    };
+    // SAFETY: only set() writes this table, each row a validated ModelChoice.
+    return row ? this.#valid(JSON.parse(row.value) as ModelChoice) : undefined;
   }
 
   /** Store a choice; an unknown model throws, a level it lacks is moved to the nearest it has. */
-  set(slot: Slot, setting: SlotSetting): SlotSetting {
-    const valid = this.valid(setting);
+  set(purpose: Purpose, choice: ModelChoice): ModelChoice {
+    const valid = this.#valid(choice);
 
-    if (!valid) throw new Error(`${setting.provider}/${setting.modelId} is not available.`);
+    if (!valid) throw new Error(`${choice.provider}/${choice.modelId} is not available.`);
     this.#sql.exec(
-      "INSERT INTO ky_settings (slot, value) VALUES (?, ?) ON CONFLICT(slot) DO UPDATE SET value = excluded.value",
-      slot,
+      "INSERT INTO ky_purposes (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value",
+      purpose,
       JSON.stringify(valid)
     );
 
-    for (const listener of this.#listeners) listener(slot, valid);
+    for (const listener of this.#listeners) listener(purpose, valid);
 
     return valid;
-  }
-
-  /** The choice as it can run: a connected provider, a known model, its nearest level; undefined when it cannot. */
-  valid(setting: SlotSetting): SlotSetting | undefined {
-    const provider = this.#catalog().find((each) => each.id === setting.provider && each.connected);
-    const model = provider?.models.find((each) => each.modelId === setting.modelId);
-
-    if (!model) return undefined;
-
-    return { ...setting, thinkingLevel: nearestLevel(model.levels, setting.thinkingLevel) };
   }
 }
 
 const ORDER: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-function nearestLevel(levels: readonly ModelThinkingLevel[], wanted: ModelThinkingLevel): ModelThinkingLevel {
+/** `wanted`, or the level of `levels` nearest it. */
+export function nearestLevel(levels: readonly ModelThinkingLevel[], wanted: ModelThinkingLevel): ModelThinkingLevel {
   if (levels.length === 0 || levels.includes(wanted)) return levels.length === 0 ? "off" : wanted;
   const rank = ORDER.indexOf(wanted);
 

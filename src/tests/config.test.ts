@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { describe, expect, it } from "vitest";
-import { opencodeGo } from "../models";
+import { apiKey, VENDORS } from "../providers/api-key";
 import { notSetUp, PiAgent } from "../server";
 
 /**
@@ -57,7 +57,17 @@ describe("a deploy's config", () => {
     ]);
   });
 
+  it("keeps OpenCode Go with its key empty, as not set up", () => {
+    expect(notSetUp(boundary({ ...full, OPENCODE_API_KEY: "" })).map((each) => each.id)).toEqual(["opencode-go"]);
+  });
+
+  it("reads an API key from the deploy's secrets", () => {
+    expect(boundary(full).secrets("OPENCODE_API_KEY")).toBe("opencode-key");
+  });
+
   it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
-    expect(opencodeGo("opencode-key", "no-such-model").models).toEqual([opencodeGoProvider().getModels()[0]]);
+    const vendor = { ...VENDORS[0]!, modelIds: ["no-such-model"] };
+
+    expect(apiKey(vendor, fetch).models).toEqual([opencodeGoProvider().getModels()[0]]);
   });
 });

@@ -41,7 +41,7 @@ const speakerBlob = (subagent: TaskRow | undefined, theme: Theme) => (subagent ?
 function whyCantSee(images: readonly PendingImage[], settings: SettingsView | null, talksToMain: boolean) {
   if (images.length === 0 || !settings) return null;
 
-  return imageSupport(settings, talksToMain ? "main" : "subagents");
+  return imageSupport(settings, talksToMain ? "main" : "worker");
 }
 
 const canSend = (connected: boolean, reading: number, cantSee: string | null) =>

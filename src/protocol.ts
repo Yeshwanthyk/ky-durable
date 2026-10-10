@@ -6,7 +6,7 @@ import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineState } from "./machines";
 import type { MachineFacts } from "./runner-protocol";
-import type { SettingsView, Slot, SlotSetting } from "./settings";
+import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
 import type { SkillChange, SkillRow } from "./skills";
 import type { MemoryView } from "./memory";
@@ -127,12 +127,12 @@ export type PiClientMessage =
       readonly automation: string;
       readonly action: AutomationAction;
     }
-  /** Choose the model, and its thinking level, for one slot. */
+  /** Choose the model, and its thinking level, for one purpose. */
   | {
       readonly type: "set-model";
       readonly id?: string;
-      readonly slot: Slot;
-      readonly setting: SlotSetting;
+      readonly purpose: Purpose;
+      readonly choice: ModelChoice;
     };
 
 /** Server → client. */
@@ -176,7 +176,7 @@ export type PiServerMessage =
   | { readonly type: "memory"; readonly memory: MemoryView }
   /** The active and paused automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
-  /** Providers, their models, and each slot's choice; sent on connect and on change. */
+  /** Providers, their models, and each purpose's model; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
   /** ky's repo and address, and what this deploy has no config for; sent on connect and on change. */
   | { readonly type: "setup"; readonly setup: SetupView }
@@ -203,7 +203,7 @@ export type { SpecialistDraft, SpecialistView } from "./specialists";
 
 export type { FileRow } from "./files";
 
-export type { ModelOption, ProviderInfo, SettingsView, Slot, SlotSetting } from "./settings";
+export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView } from "./settings";
 
 export type { SetupView } from "./setup";
 

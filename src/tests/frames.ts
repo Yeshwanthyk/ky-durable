@@ -32,7 +32,7 @@ const Automation = Type.Unsafe<AutomationInfo>(
 );
 
 const Settings = Type.Unsafe<SettingsView>(
-  Type.Object({ providers: Type.Array(Type.Object({ id: Type.String() })), slots: Type.Object({}) })
+  Type.Object({ providers: Type.Array(Type.Object({ id: Type.String() })), purposes: Type.Object({}) })
 );
 
 const Setup = Type.Unsafe<SetupView>(

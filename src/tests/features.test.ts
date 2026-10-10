@@ -23,11 +23,11 @@ import {
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
-import { BARE } from "./stack";
+import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
 
 /**
  * One check per server-side feature in FEATURES.md that the local stack can
- * reach, each through ky's real Worker and PiAgent on the faux model.
+ * reach, each through ky's real Worker and PiAgent on the fake Workers AI.
  */
 
 type Frame<T extends PiServerMessage["type"]> = Extract<PiServerMessage, { type: T }>;
@@ -115,12 +115,12 @@ describe("the tools", () => {
     expect(recalled.text).toContain("the user likes green tea");
   });
 
-  it("writes summaries in the background on the main model, opens them, and rewrites a forgotten one", async () => {
+  it("writes summaries on the background model, opens them, and rewrites a forgotten one", async () => {
     const name = crypto.randomUUID();
     await prompt(name, 'tool memory_note {"text":"first memory"}');
     expect((await prompt(name, 'tool memory_note {"text":"second memory"}')).text).toBe("tool said: Saved as #1.");
 
-    // The two notes owe a summary; the faux main model writes "first to last".
+    // The two notes owe a summary; the fake background model writes "first to last".
     await until(async () => (await summarized(name, "0-1")) !== null, "a summary");
     expect(await summarized(name, "0-1")).toBe("first memory to second memory");
 
@@ -180,16 +180,13 @@ describe("the tools", () => {
 
   it("tells pi a window of at most 136k tokens, so it compacts near 87k instead of near the model's 1M", async () => {
     const windows = await inside(crypto.randomUUID(), (instance) => {
-      const registry = instance.models.registry();
+      const { choice, model } = instance.models.resolve("main");
 
-      return [
-        registry.getModel("faux", "faux")?.contextWindow,
-        instance.models.model("faux", "faux").contextWindow
-      ] as const;
+      return [instance.models.registry.getModel(choice.provider, choice.modelId)?.contextWindow, model.contextWindow] as const;
     });
 
     // pi reads the capped window; the model itself keeps its 1M.
-    expect(windows).toEqual([CONTEXT_WINDOW, 1_000_000]);
+    expect(windows).toEqual([CONTEXT_WINDOW, 1_048_576]);
   });
 
   it("writes and reads a workspace file that outlives the object", async () => {
@@ -262,7 +259,7 @@ describe("running turns", () => {
 });
 
 describe("side chats and titles", () => {
-  it("starts a side chat whose title the titles model rewrites from its first message", async () => {
+  it("starts a side chat whose title the background model rewrites from its first message", async () => {
     const name = crypto.randomUUID();
     const main = await session(name);
     const created = await command(main.socket, main.client, { type: "new-chat" });
@@ -284,7 +281,7 @@ describe("side chats and titles", () => {
     side.socket.close();
   });
 
-  it("trims a long title, and keeps the first line when the titles model fails", async () => {
+  it("trims a long title, and keeps the first line when the background model fails", async () => {
     const name = crypto.randomUUID();
     const main = await session(name);
 
@@ -446,15 +443,15 @@ describe("memory panel", () => {
 });
 
 describe("settings", () => {
-  it("stores a slot's model across restarts and refuses one that does not exist", async () => {
+  it("stores a purpose's model across restarts and refuses one that does not exist", async () => {
     const name = crypto.randomUUID();
     const { socket, client } = await session(name);
 
-    expect(latest(client, "settings")?.settings.slots).toMatchObject({
-      main: { provider: "faux", modelId: "faux" },
-      subagents: { provider: "faux", modelId: "faux" },
-      fallback: { provider: "faux", modelId: "faux" },
-      titles: { provider: "faux", modelId: "faux", thinkingLevel: "off" }
+    expect(latest(client, "settings")?.settings.purposes).toMatchObject({
+      main: { provider: "workers-ai", modelId: GLM },
+      worker: { provider: "workers-ai", modelId: GLM },
+      background: { provider: "workers-ai", modelId: GLM, thinkingLevel: "off" },
+      fallback: { provider: "workers-ai", modelId: KIMI }
     });
 
     const providers = latest(client, "settings")?.settings.providers ?? [];
@@ -462,36 +459,37 @@ describe("settings", () => {
 
     const refused = await command(socket, client, {
       type: "set-model",
-      slot: "main",
-      setting: { provider: "faux", modelId: "missing", thinkingLevel: "off" }
+      purpose: "main",
+      choice: { provider: "workers-ai", modelId: "missing", thinkingLevel: "off" }
     });
 
-    expect(refused).toMatchObject({ type: "error", message: "faux/missing is not available." });
+    expect(refused).toMatchObject({ type: "error", message: "workers-ai/missing is not available." });
 
     await command(socket, client, {
       type: "set-model",
-      slot: "titles",
-      setting: { provider: "faux", modelId: "faux-text", thinkingLevel: "off" }
+      purpose: "background",
+      choice: { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" }
     });
 
     socket.close();
     await evictDurableObject(agent(name));
     const later = await session(name);
-    expect(latest(later.client, "settings")?.settings.slots.titles).toMatchObject({ modelId: "faux-text" });
+    expect(latest(later.client, "settings")?.settings.purposes.background).toMatchObject({ modelId: GPT_OSS });
     later.socket.close();
   });
 });
 
 describe("a deploy's own setup", () => {
-  it("shows VibeProxy and Executor as not set up on a deploy without them, and runs on the cloud model", async () => {
+  it("shows OpenCode Go, VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);
 
-    expect(latest(client, "settings")?.settings.providers.map((each) => each.id)).toEqual(["faux"]);
+    expect(latest(client, "settings")?.settings.providers.map((each) => each.id)).toEqual(["workers-ai"]);
     expect(latest(client, "setup")?.setup).toEqual({
       repo: null,
       url: null,
       missing: [
+        { id: "opencode-go", name: "OpenCode Go", needs: "the OPENCODE_API_KEY secret" },
         {
           id: "vibeproxy",
           name: "Claude via VibeProxy",
@@ -515,15 +513,15 @@ describe("a deploy's own setup", () => {
     const stale = JSON.stringify({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
 
     await inside(name, (_instance, state) => {
-      state.storage.sql.exec("INSERT INTO ky_settings (slot, value) VALUES ('main', ?)", stale);
+      state.storage.sql.exec("INSERT INTO ky_purposes (purpose, value) VALUES ('main', ?)", stale);
     });
     await evictDurableObject(agent(name));
 
     const { socket, client } = await session(name);
-    expect(latest(client, "settings")?.settings.slots.main).toEqual({
-      provider: "faux",
-      modelId: "faux",
-      thinkingLevel: "high"
+    expect(latest(client, "settings")?.settings.purposes.main).toEqual({
+      provider: "workers-ai",
+      modelId: GLM,
+      thinkingLevel: "off"
     });
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
     socket.close();
