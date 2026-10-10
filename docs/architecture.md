@@ -102,6 +102,10 @@ For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from th
 setting it also saves that page's origin as ky's address, shown under it. Until then the system prompt
 (`src/prompt.ts`) leaves self-edits out.
 
+A merged self-edit deploys through `.github/workflows/deploy.yml`: `pnpm compile linux-x64`, then `ky deploy` with
+the overlay from the `KY_OVERLAY` secret and the `CLOUDFLARE_API_TOKEN` secret (the README's "Changing itself").
+Without both, it deploys nothing.
+
 ```sh
 pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use

@@ -35,6 +35,8 @@ Worker's modules, the web app, the generic `wrangler.jsonc` and the guide for ag
 These are done once, on GitHub, by the owner.
 
 1. Merge `setup-untether` into `main`: the workflows run from `main`, and the tag goes on it.
+   The merge also starts `deploy.yml`, which deploys your own ky with the `CLOUDFLARE_API_TOKEN` and
+   `KY_OVERLAY` secrets, or does nothing and says so without them (README › Changing itself).
 2. Make `Yeshwanthyk/ky-durable` public. install.sh, the brew formula and the Deploy to Cloudflare button all
    download from it signed out.
 3. Create the tap: a public repo `Yeshwanthyk/homebrew-ky` with one commit (a README is enough; the workflow
