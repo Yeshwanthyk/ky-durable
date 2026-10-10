@@ -5,7 +5,11 @@
  *
  * Every manifest and blob is checked against its digest before anything is pushed, and a layer is
  * spooled to disk, never held in memory. A blob the account's registry has already is skipped, so
- * a deploy of the same image copies nothing.
+ * a deploy of the same image copies nothing; and when the release pins a manifest (not an index)
+ * the account's registry already holds, the copy asks GitHub's registry nothing at all.
+ *
+ * GitHub's registry is asked signed out: the package is public. With KY_GHCR_TOKEN (a GitHub token
+ * with read:packages) set, the pull token is asked for with it, so a private one pulls too.
  *
  * KY_REGISTRY_BASE_URL points every registry at one server, `<base>/<host>/…`, as
  * CLOUDFLARE_API_BASE_URL points the API; the tests point it at test/fakes/registry.ts.
@@ -69,14 +73,30 @@ function origin(host: string): string {
   return base ? `${base.replace(/\/+$/, "")}/${host}` : `https://${host}`;
 }
 
-function failed(step: string, response?: Response): Error {
-  return new Error(`Copying the cloud machine's image failed at ${step}${response ? ` (${response.status})` : ""}`);
+function failed(step: string, response?: Response, hint = ""): Error {
+  return new Error(`Copying the cloud machine's image failed at ${step}${response ? ` (${response.status})` : ""}${hint}`);
 }
 
-async function expect(response: Response, status: number, step: string): Promise<void> {
+async function expect(response: Response, status: number, step: string, hint?: string): Promise<void> {
   if (response.status === status) return;
   await response.body?.cancel();
-  throw failed(step, response);
+  throw failed(step, response, hint);
+}
+
+/** What to do when GitHub's registry refuses the image, as it does a private package signed out. */
+function refusedHint(response: Response): string | undefined {
+  if (![401, 403, 404].includes(response.status)) return undefined;
+
+  return process.env.KY_GHCR_TOKEN
+    ? ": KY_GHCR_TOKEN can't read it; it needs read:packages, and access to the ky-cloud package"
+    : ": make the ky-cloud package public on GitHub, or set KY_GHCR_TOKEN to a GitHub token with read:packages";
+}
+
+/** The pull token request's sign-in: KY_GHCR_TOKEN as a password (GitHub ignores the user name), else none. */
+function sourceLogin(): Record<string, string> {
+  const token = process.env.KY_GHCR_TOKEN?.trim();
+
+  return token ? { authorization: `Basic ${Buffer.from(`ky:${token}`).toString("base64")}` } : {};
 }
 
 function decode<T extends TSchema>(schema: T, bytes: Uint8Array, step: string): Static<T> {
@@ -126,9 +146,9 @@ async function resolve(source: string) {
 
   tokenUrl.searchParams.set("scope", `repository:${repo}:pull`);
   tokenUrl.searchParams.set("service", host);
-  const tokenAnswer = await fetch(tokenUrl);
+  const tokenAnswer = await fetch(tokenUrl, { headers: sourceLogin() });
 
-  await expect(tokenAnswer, 200, "the source's token");
+  await expect(tokenAnswer, 200, "the source's token", refusedHint(tokenAnswer));
   const { token } = decode(Token, new Uint8Array(await tokenAnswer.arrayBuffer()), "the source's token");
   const get = (part: string) => fetch(`${origin(host)}/v2/${repo}/${part}`, { headers: { authorization: `Bearer ${token}`, accept: ACCEPT } });
 
@@ -136,7 +156,7 @@ async function resolve(source: string) {
   const manifest = async (digest: string) => {
     const answer = await get(`manifests/${digest}`);
 
-    await expect(answer, 200, `manifest ${digest}`);
+    await expect(answer, 200, `manifest ${digest}`, refusedHint(answer));
     const content = new Uint8Array(await answer.arrayBuffer());
 
     if (sha256(content) !== digest) throw failed(`manifest ${digest} digest`);
@@ -167,13 +187,22 @@ export async function imageDigest(source: string): Promise<string> {
 
 /** Copies `source`'s linux/amd64 image into the account's registry; returns its reference there. */
 export async function copyImage({ source, account, repository, login }: CopyOptions): Promise<string> {
-  const { get, chosen } = await resolve(source);
-  const image = decode(Manifest, chosen.content, "the image manifest");
   const base = `${origin(TARGET)}/v2/${account}/${repository}`;
   const authorization = `Basic ${Buffer.from(`${login.username}:${login.password}`).toString("base64")}`;
 
   const target = (method: string, part: string, init: RequestInit = {}) =>
     fetch(part.startsWith("http") ? part : `${base}/${part}`, { ...init, method, headers: { authorization, ...init.headers } });
+
+  // The image workflow pins a linux/amd64 manifest, which the copy goes by: a deploy of an image
+  // already copied stops here. A registry holds a manifest only once it has every blob it names.
+  const [, host, , pinned] = REFERENCE.exec(source) ?? [];
+  const held = host && pinned && SOURCES.has(host) ? await target("HEAD", `manifests/${pinned}`) : undefined;
+
+  await held?.body?.cancel();
+
+  if (held?.status === 200 && held.headers.get("docker-content-digest") === pinned) return `${TARGET}/${account}/${repository}@${pinned}`;
+  const { get, chosen } = await resolve(source);
+  const image = decode(Manifest, chosen.content, "the image manifest");
 
   const scratch = await mkdtemp(path.join(tmpdir(), "ky-image-"));
 

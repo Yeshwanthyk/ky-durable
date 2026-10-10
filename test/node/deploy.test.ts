@@ -27,6 +27,9 @@ describe("the deploy workflow", () => {
     expect(workflow).toContain("CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}");
     expect(workflow).toContain("KY_OVERLAY: ${{ secrets.KY_OVERLAY }}");
     expect(workflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(1);
+    // The image pulls with the run's own token, so a private ky-cloud package deploys.
+    expect(workflow).toContain("KY_GHCR_TOKEN: ${{ github.token }}");
+    expect(workflow).toMatch(/permissions:\n\s+contents: read\n\s+packages: read/);
     // A rollback goes back along main, never to a branch that wasn't merged.
     expect(workflow).toContain('git merge-base --is-ancestor "$commit" origin/main');
     expect(workflow).toContain("run: pnpm ky deploy");
