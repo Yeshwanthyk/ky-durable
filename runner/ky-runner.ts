@@ -70,11 +70,10 @@ const REPO_ROOTS = (process.env.KY_REPOS ?? WORKDIR).split(":").filter((root) =>
 const STATE_DIR = process.env.KY_STATE_DIR ?? join(homedir(), ".ky");
 
 /** The local ports ky's requests may reach over the socket; every other port is refused. */
-const PORTS = (process.env.KY_RUNNER_PORTS ?? "").split(",").flatMap((each) => {
-  const port = Number(each.trim());
-
-  return each.trim() !== "" && Number.isInteger(port) && port >= 1 && port <= 65_535 ? [port] : [];
-});
+const PORTS = (process.env.KY_RUNNER_PORTS ?? "")
+  .split(",")
+  .map(Number)
+  .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65_535);
 
 /** Where `ky-attach` is installed; each task finds it on its PATH. */
 const BIN = join(homedir(), ".ky", "bin");
