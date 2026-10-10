@@ -190,11 +190,11 @@ deployer's bypass app read it. As in Access, `/a` covers `/a` and every path und
 ### C4. Vault (`src/vault.ts`, DO class `Vault`, `getByName("owner")`, SQLite, migration v2)
 
 ```ts
-// secrets: kind = "provider" | "claude" | "chatgpt" | "github" | "executor"
+// secrets: kind is any string, e.g. "provider", "claude", "chatgpt", "github", "executor"; a new kind needs no Vault change (changed in K: it was a closed list)
 put(kind, id, value: Json, meta?: SecretMeta): void          // meta is flat (strings, numbers, booleans, string[]) so it crosses RPC typed
 remove(kind, id): void
 status(): { kind, id, meta, updatedAt, error? }[]          // never secrets; error is the last failed refresh's
-auth(providerId): { apiKey: string; headers?: Record<string,string> } | null
+auth(providerId): { apiKey: string; headers?: Record<string,string> } | null   // the ("provider", providerId) secret, which models.ts puts once a test call takes it
 sessionCreds(agent: "claude" | "codex"): RunCreds[agent] | null   // refreshes codex with the internal refresh (below)
 chatgptLogin(): { userCode, verificationUrl, loginId }; chatgptPoll(loginId): "pending" | "done" | { error }
 githubToken(): { token, repos } | null
@@ -219,7 +219,9 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
   `{ id, kind: "workers-ai" | "api-key" | "runner-local", vendor, machine, port, api, label, enabled }`, where
   `vendor`, `machine`, `port` and `api` are `null` for a kind that has none (changed in M: they were optional).
   The credential for an `api-key` record lives in the Vault under `("provider", id)`.
-  A record is added on the first boot its provider can run. Each later boot refreshes `kind`, `vendor`, `machine`, `port` and `api` from the environment; `label` and `enabled` keep the user's values (changed in M review 2: it was insert-only).
+  A `workers-ai` or `runner-local` record is added on the first boot its provider can run. An `api-key` record is
+  added when the user saves its key in Settings after a test call succeeds, and removed with the key (changed in K:
+  it was added on boot when its env secret was set). Each later boot refreshes `kind`, `vendor`, `machine`, `port` and `api` from the environment; `label` and `enabled` keep the user's values (changed in M review 2: it was insert-only).
 - **Purposes:**
 
 | Purpose | Default |
@@ -337,6 +339,7 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - The DO constructor never throws.
   - `boundaryFor` builds VibeProxy and Executor only when they're configured. OpenCode Go stays in the catalog
     without its key, marked not set up, because the slot defaults end on it; M replaces that default.
+    (K removed `OPENCODE_API_KEY`: OpenCode Go's key is added in Settings like the other vendors'.)
 - **Derived values:**
   - `KY_URL` from the request origin: the origin of the page that sets the repo, saved with it and shown in
     Settings › Self-edits.
@@ -507,6 +510,13 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - status
   - last error
 - **Done when:** pasting an Anthropic or OpenAI key makes those models selectable, and removing it falls back cleanly.
+- **Built (K):**
+  - Vendors are Anthropic, OpenAI and OpenCode Go (`VENDORS` in `src/providers/api-key.ts`). A Claude subscription
+    token (`sk-ant-oat…`) is refused: pi would send it as Claude Code does.
+  - Client messages `add-key { vendor, key }` (answers `{ refused? }`, never the key) and `remove-key { provider }`.
+  - `SettingsView` gains `vendors` (those with no key yet); `ProviderInfo` gains `kind` and `failure` (why its
+    breaker last opened, until a response succeeds).
+  - The registry is built with an empty auth context, so pi never reads a key from the env or files.
 
 ### S. subscriptions
 These are the machine flows for ChatGPT and Claude.

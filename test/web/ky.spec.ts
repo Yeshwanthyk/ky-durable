@@ -3,6 +3,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
+import { ANTHROPIC_KEY } from "../fakes/vendors.ts";
 import { machine as pairable } from "../harness/runner.ts";
 import { accessCookie } from "../../src/tests/fake-access.ts";
 import { REPO } from "../harness/stack.ts";
@@ -291,6 +292,34 @@ test("shows why Settings refused ky's repo in its row, and keeps the repo unset"
   await expect(selfEdits.getByRole("alert")).toHaveText('"not a repo" is not a GitHub repo; write it as owner/name.');
   await expect(selfEdits.getByRole("button", { name: "Not set" })).toBeVisible();
   await expect(page.locator(".composer-note[data-tone='error']")).toHaveCount(0);
+});
+
+test("adds an Anthropic key in Settings once its test call passes, runs on Claude, and falls back when it is removed", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
+  const main = panel(page).getByRole("button", { name: /^Main agent/ });
+  // Exact, as the form's own name, "Add an API key", contains it.
+  const key = providers.getByRole("textbox", { name: "API key", exact: true });
+
+  await providers.getByRole("combobox", { name: "Vendor" }).selectOption({ label: "Anthropic" });
+  await key.fill("sk-ant-api03-wrong");
+  await providers.getByRole("button", { name: "Test and save" }).click();
+  await expect(providers.getByRole("alert")).toContainText("Anthropic refused the key");
+  await expect(providers.getByRole("button", { name: "Remove the Anthropic key" })).toBeHidden();
+
+  try {
+    await key.fill(ANTHROPIC_KEY);
+    await providers.getByRole("button", { name: "Test and save" }).click();
+    await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText("3 models");
+    await expect(key).toHaveValue("");
+    await expect(providers.getByRole("alert")).toBeHidden();
+    await expect(main).toContainText("· Anthropic");
+  } finally {
+    await providers.getByRole("button", { name: "Remove the Anthropic key" }).click();
+    await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
+    await expect(main).toContainText("Glm 5.3 Flash · Workers AI");
+  }
 });
 
 test("switches the theme and keeps it after a reload", async ({ page }) => {

@@ -28,7 +28,7 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` in `wrangler.local.jsonc` |
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
-| OpenCode Go | A model vendor paid with a key; main's model when the `OPENCODE_API_KEY` secret is set. | `src/providers/api-key.ts` |
+| API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/api-key.ts`, `src/vault.ts` |
 | VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
 | ky-runner on the Mac | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `runner/ky-runner.ts` |
 
@@ -102,14 +102,13 @@ pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
 npx wrangler r2 bucket create ky-files
 npx wrangler secret put EXECUTOR_TOKEN    # an Executor personal access token
-npx wrangler secret put OPENCODE_API_KEY  # OpenCode Go
 npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
 pnpm run deploy                           # vite build && wrangler deploy
 ```
 
 For Claude, run VibeProxy on the Mac at `VIBEPROXY_ORIGIN` and a cloudflared tunnel to it with no public
-hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on OpenCode Go when its
-key is set, else on Workers AI.
+hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on a vendor whose API key
+you added in Settings, else on Workers AI.
 Open pages reload by themselves after a deploy (`CF_VERSION_METADATA`), unless you have a draft.
 
 **Models.** Settings picks a model for each of four purposes (`src/settings.ts`): main; worker (subagents,
@@ -212,7 +211,7 @@ pnpm start   # vite dev with the Worker and DO, signed in as KY_DEV_EMAIL
 
 `BROWSER` and `AI` (and `VIBEPROXY`, with the overlay) are remote bindings, so `pnpm start` needs
 `wrangler login`. Without `wrangler.local.jsonc`, VibeProxy and Executor show as "Not set up". Without
-`OPENCODE_API_KEY` and VibeProxy, turns fail with "Provider is not configured"; the UI still works.
+VibeProxy or a key added in Settings, ky runs on Workers AI.
 
 | Script | Runs |
 | --- | --- |

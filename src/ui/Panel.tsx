@@ -1,4 +1,4 @@
-import { Fragment, useContext, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useContext, useState } from "react";
 import type { MachineChange, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
@@ -7,6 +7,7 @@ import type {
   ProviderInfo,
   SettingsView,
   SetupView,
+  VendorOption,
   SkillChange,
   SkillRow,
   SkillVersion,
@@ -21,7 +22,7 @@ import type {
   TaskRow,
   ToolInfo,
 } from "../protocol";
-import { Automations } from "./Automations";
+import { Automations, Pick } from "./Automations";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
 import { Changes } from "./Changes";
 import type { BlobVariantId } from "./blob-catalog";
@@ -80,6 +81,7 @@ export function Panel({
   onStopAll,
   onSetMachine,
   onSetRepo,
+  keyActions,
   onClose,
   tab,
   onTab,
@@ -116,6 +118,7 @@ export function Panel({
   onStopAll: () => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
   onSetRepo: (repo: string) => Promise<string | undefined>;
+  keyActions: KeyActions;
   onClose: () => void;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -195,6 +198,7 @@ export function Panel({
           onSet={onSetModel}
           onSetMachine={onSetMachine}
           onSetRepo={onSetRepo}
+          keyActions={keyActions}
         />
       )}
     </aside>
@@ -844,8 +848,20 @@ function ModelRow({
   );
 }
 
-// A provider or tool: what it needs while it is off, and how it stands.
-function ServiceRow({ name, needs, value, on }: { name: string; needs?: string; value: string; on: boolean }) {
+// A provider or tool: what it needs while it is off, or why it last failed, and how it stands.
+function ServiceRow({
+  name,
+  sub,
+  value,
+  on,
+  children,
+}: {
+  name: string;
+  sub?: string | undefined;
+  value: string;
+  on: boolean;
+  children?: ReactNode;
+}) {
   return (
     <li className="row">
       <span className="row-tile">
@@ -853,48 +869,174 @@ function ServiceRow({ name, needs, value, on }: { name: string; needs?: string; 
       </span>
       <span className="row-text">
         <span className="row-label">{name}</span>
-        {needs ? <span className="row-sub">Needs {needs}</span> : null}
+        {sub ? <span className="row-sub">{sub}</span> : null}
       </span>
       <span className="row-value tabular">{value}</span>
+      {children}
       <span className="status-dot" data-connected={on} />
     </li>
   );
 }
 
-// The model providers this deploy has, then the providers and tools it has no config for.
-function Services({ providers, setup }: { providers: readonly ProviderInfo[]; setup: SetupView | null }) {
+export type KeyActions = {
+  /** Test and save a vendor's key; resolves with why it was refused, if it was. */
+  readonly onAdd: (vendor: string, key: string) => Promise<string | undefined>;
+  readonly onRemove: (provider: string) => void;
+};
+
+// What a provider's row says under its name: what it needs while it is off, else why its breaker last opened.
+function providerSub(provider: ProviderInfo): string | undefined {
+  if (!provider.connected) return `Needs ${provider.needs ?? "a key"}`;
+
+  return provider.failure && `Last error: ${provider.failure}`;
+}
+
+// A provider and how it stands; an api-key provider's key can be removed.
+function ProviderRow({ provider, onRemove }: { provider: ProviderInfo; onRemove: (provider: string) => void }) {
+  return (
+    <ServiceRow
+      name={provider.name}
+      sub={providerSub(provider)}
+      value={provider.connected ? plural(provider.models.length, "model") : "Off"}
+      on={provider.connected}
+    >
+      {provider.kind === "api-key" ? (
+        <button
+          type="button"
+          className="automation-text danger pressable"
+          aria-label={`Remove the ${provider.name} key`}
+          onClick={() => onRemove(provider.id)}
+        >
+          Remove
+        </button>
+      ) : null}
+    </ServiceRow>
+  );
+}
+
+// The model providers this deploy has, then a key to add for a vendor that has none.
+function Providers({
+  providers,
+  vendors,
+  keyActions,
+}: {
+  providers: readonly ProviderInfo[];
+  vendors: readonly VendorOption[];
+  keyActions: KeyActions;
+}) {
+  return (
+    <section className="group">
+      <h3 className="group-label">Providers</h3>
+      {providers.length > 0 ? (
+        <ul className="card">
+          {providers.map((provider) => (
+            <ProviderRow key={provider.id} provider={provider} onRemove={keyActions.onRemove} />
+          ))}
+        </ul>
+      ) : null}
+      {vendors.length > 0 ? <AddKey vendors={vendors} onAdd={keyActions.onAdd} /> : null}
+    </section>
+  );
+}
+
+// The providers and tools this deploy has no config for, with what each needs.
+function NotSetUpGroup({ missing }: { missing: SetupView["missing"] }) {
+  return missing.length > 0 ? (
+    <section className="group">
+      <h3 className="group-label">Not set up</h3>
+      <ul className="card">
+        {missing.map((each) => (
+          <ServiceRow key={each.id} name={each.name} sub={`Needs ${each.needs}`} value="Not set up" on={false} />
+        ))}
+      </ul>
+    </section>
+  ) : null;
+}
+
+// The model providers this deploy has and the keys it takes, then the providers and tools it has no config for.
+function Services({
+  settings,
+  setup,
+  keyActions,
+}: {
+  settings: SettingsView;
+  setup: SetupView | null;
+  keyActions: KeyActions;
+}) {
   const missing = setup?.missing ?? [];
-  const configured = providers.filter((provider) => !missing.some((each) => each.id === provider.id));
+  const configured = settings.providers.filter((provider) => !missing.some((each) => each.id === provider.id));
 
   return (
     <>
-      {configured.length > 0 ? (
-        <section className="group">
-          <h3 className="group-label">Providers</h3>
-          <ul className="card">
-            {configured.map((provider) => (
-              <ServiceRow
-                key={provider.id}
-                name={provider.name}
-                {...(provider.connected ? {} : { needs: provider.needs ?? "a key" })}
-                value={provider.connected ? plural(provider.models.length, "model") : "Off"}
-                on={provider.connected}
-              />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      {missing.length > 0 ? (
-        <section className="group">
-          <h3 className="group-label">Not set up</h3>
-          <ul className="card">
-            {missing.map((each) => (
-              <ServiceRow key={each.id} name={each.name} needs={each.needs} value="Not set up" on={false} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <Providers providers={configured} vendors={settings.vendors} keyActions={keyActions} />
+      <NotSetUpGroup missing={missing} />
     </>
+  );
+}
+
+// The vendor picked, or the first one left once a saved key takes the picked one off the list.
+function vendorOf(vendors: readonly VendorOption[], chosen: string): string {
+  return vendors.some((each) => each.id === chosen) ? chosen : (vendors[0]?.id ?? "");
+}
+
+// A vendor's API key, which the server tests with a call before saving; the field empties once it is tested.
+function AddKey({
+  vendors,
+  onAdd,
+}: {
+  vendors: readonly VendorOption[];
+  onAdd: (vendor: string, key: string) => Promise<string | undefined>;
+}) {
+  const [chosen, setChosen] = useState("");
+  const [key, setKey] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [refused, setRefused] = useState<string>();
+  const vendor = vendorOf(vendors, chosen);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setTesting(true);
+
+    setRefused(await onAdd(vendor, key));
+    setTesting(false);
+    setKey("");
+  };
+
+  return (
+    <form className="automation-form key-form" aria-label="Add an API key" onSubmit={save}>
+      <div className="card">
+        <Pick label="Vendor" value={vendor} onChange={setChosen}>
+          {vendors.map((each) => (
+            <option key={each.id} value={each.id}>
+              {each.name}
+            </option>
+          ))}
+        </Pick>
+        <label className="row">
+          <span className="row-label">API key</span>
+          <input
+            className="key-input"
+            aria-label="API key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Paste it here"
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+        </label>
+      </div>
+      {refused ? (
+        <p className="automation-refused" role="alert">
+          {refused}
+        </p>
+      ) : null}
+      <div className="automation-foot">
+        <button type="submit" className="pill primary pressable" disabled={testing || key.trim() === ""}>
+          {testing ? "Testing…" : "Test and save"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -995,6 +1137,7 @@ function Settings({
   onSet,
   onSetMachine,
   onSetRepo,
+  keyActions,
 }: {
   settings: SettingsView | null;
   setup: SetupView | null;
@@ -1006,6 +1149,7 @@ function Settings({
   onSet: (purpose: Purpose, choice: ModelChoice) => void;
   onSetMachine: (machine: string, change: MachineChange) => void;
   onSetRepo: (repo: string) => Promise<string | undefined>;
+  keyActions: KeyActions;
 }) {
   const [openPurpose, setOpenPurpose] = useState<Purpose | null>(null);
 
@@ -1066,7 +1210,7 @@ function Settings({
           </ul>
         )}
       </section>
-      {settings ? <Services providers={settings.providers} setup={setup} /> : null}
+      {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}

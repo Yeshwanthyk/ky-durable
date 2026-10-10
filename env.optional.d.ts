@@ -10,7 +10,6 @@ interface Env {
   /** VibeProxy's listen address on that computer, which the tunnel forwards to. */
   readonly VIBEPROXY_ORIGIN?: string;
   readonly VIBEPROXY_KEY?: string;
-  readonly OPENCODE_API_KEY?: string;
   /** Executor's MCP endpoint for the organization. */
   readonly EXECUTOR_URL?: string;
   readonly EXECUTOR_TOKEN?: string;

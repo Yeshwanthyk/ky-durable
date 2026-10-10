@@ -21,6 +21,7 @@ export class Breaker {
   readonly #name: string;
   readonly #cooldownMs: number;
   #openUntil = 0;
+  #failure: string | undefined;
 
   constructor(name: string, cooldownMs = COOLDOWN_MS) {
     this.#name = name;
@@ -30,6 +31,11 @@ export class Breaker {
   /** The provider may take requests: no response has opened the breaker within the cooldown. */
   closed(): boolean {
     return Date.now() >= this.#openUntil;
+  }
+
+  /** Why it last opened, as Settings shows it, until a response succeeds. */
+  failure(): string | undefined {
+    return this.#failure;
   }
 
   /** `fetch`, with each response's status recorded; a request that fails to send opens the breaker too. */
@@ -46,7 +52,10 @@ export class Breaker {
       }
 
       if (trips(response.status)) this.#open(`answered ${response.status}`);
-      else if (response.ok) this.#openUntil = 0;
+      else if (response.ok) {
+        this.#openUntil = 0;
+        this.#failure = undefined;
+      }
 
       return response;
     };
@@ -55,5 +64,6 @@ export class Breaker {
   #open(why: string): void {
     if (this.closed()) console.warn(`${this.#name} ${why}; its calls run on a stand-in for a while.`);
     this.#openUntil = Date.now() + this.#cooldownMs;
+    this.#failure = why;
   }
 }

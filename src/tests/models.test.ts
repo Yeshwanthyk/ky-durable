@@ -1,27 +1,43 @@
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { Models } from "../models";
 import type { ModelChoice, Purpose } from "../settings";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
-import { BARE, GLM, GPT_OSS, KEYED, KIMI, OPENCODE_KEY } from "./stack";
+import { ANTHROPIC_KEY, OPENAI_KEY } from "../../test/fakes/vendors";
+import { BARE, GLM, GPT_OSS, KIMI, OPENCODE_KEY } from "./stack";
 
 /**
  * Which model each purpose runs on, on ky's real composition: Workers AI
  * behind the fake AI binding on every object, Claude through the fake
- * VibeProxy on the Mac where the overlay is, and OpenCode Go behind the fake
- * fetch on a keyed object. Each test gets a fresh object.
+ * VibeProxy on the Mac where the overlay is, and the api-key vendors behind
+ * the fake fetch once a key is added. Each test gets a fresh object.
  */
 
 const WORKERS_AI_URL = "https://workers-binding.ai/ai-gateway/gateways/default/compat/chat/completions";
 
 const CLAUDE = 'Title: "Claude claude-opus-5-5 (thinking adaptive)"';
 
-/** A fresh object: a deploy with no overlay or secrets, or with the overlay and the Mac online or away, or with OpenCode Go's key. */
+/** A fresh object: a deploy with no overlay, or with the overlay and the Mac online or away, or with OpenCode Go's key added. */
 async function fresh(deploy: "bare" | "mac-up" | "mac-away" | "keyed"): Promise<string> {
-  const name = `${deploy === "bare" ? BARE : deploy === "keyed" ? KEYED : ""}${crypto.randomUUID()}`;
+  const name = `${deploy === "bare" ? BARE : ""}${crypto.randomUUID()}`;
   await agent(name).mac(deploy === "mac-up");
 
+  if (deploy === "keyed") {
+    expect(await addKey(name, "opencode-go", OPENCODE_KEY)).toEqual({});
+    // Forget the key's test call, so a test sees only its own.
+    await inside(name, (instance) => instance.boundary.calls.splice(0));
+  }
+
   return name;
+}
+
+function addKey(name: string, vendor: string, key: string): Promise<{ refused?: string }> {
+  return inside(name, (instance) => instance.models.addKey(vendor, key));
+}
+
+function providers(name: string): Promise<string[]> {
+  return inside(name, (instance) => instance.models.catalog().map((provider) => provider.id));
 }
 
 function resolve(name: string, purpose: Purpose): Promise<ModelChoice> {
@@ -93,7 +109,7 @@ describe("which model each purpose uses", () => {
     ]);
   });
 
-  it("puts the main agent on OpenCode Go when its key is set, with Workers AI as the fallback", async () => {
+  it("puts the main agent on OpenCode Go once its key is added, with Workers AI as the fallback", async () => {
     const name = await fresh("keyed");
 
     expect(await resolve(name, "main")).toEqual({ provider: "opencode-go", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" });
@@ -107,7 +123,7 @@ describe("which model each purpose uses", () => {
     const disabled = (name: string) =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
-        const models = new Models(state.storage.sql, instance.boundary, () => {});
+        const models = new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"));
         const { purposes } = models.view();
 
         try {
@@ -131,7 +147,7 @@ describe("which model each purpose uses", () => {
     const reboot = () =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET port = 1, enabled = 0 WHERE id = 'vibeproxy'");
-        new Models(state.storage.sql, instance.boundary, () => {});
+        new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"));
 
         return state.storage.sql
           .exec<{ port: number; enabled: number }>("SELECT port, enabled FROM ky_providers WHERE id = 'vibeproxy'")
@@ -175,7 +191,7 @@ describe("a turn", () => {
     expect(sent[0]!.headers.authorization).toBeUndefined();
   });
 
-  it("runs on OpenCode Go with its key when that is set", async () => {
+  it("runs on OpenCode Go with the key added for it", async () => {
     const name = await fresh("keyed");
 
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
@@ -235,7 +251,7 @@ describe("a turn", () => {
     expect(await sent("high")).toEqual([{ model: GPT_OSS, reasoning: "medium" }]);
   });
 
-  it("stands in for a provider whose breaker opened, on another provider", async () => {
+  it("stands in for a provider whose breaker opened, on another provider, and Settings shows why it opened", async () => {
     const name = await fresh("keyed");
     await set(name, "main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "high" });
     await inside(name, (instance) => instance.applyMain());
@@ -248,6 +264,10 @@ describe("a turn", () => {
     const sent = await calls(name);
     expect(sent[0]).toMatchObject({ model: GLM });
     expect(sent.at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
+
+    const shown = await inside(name, (instance) => instance.models.catalog());
+    expect(shown.find((provider) => provider.id === "workers-ai")).toMatchObject({ failure: "answered 429" });
+    expect(shown.find((provider) => provider.id === "opencode-go")).not.toHaveProperty("failure");
   });
 
   it("ends a turn whose providers are all down, without bouncing between their stand-ins", async () => {
@@ -268,6 +288,80 @@ describe("a turn", () => {
     expect(new Set(later)).toEqual(new Set([GLM]));
     // pi retries a 429 five times from 1s (server.ts), about 31s in all.
   }, 60_000);
+});
+
+describe("an API key added in Settings", () => {
+  it("makes Anthropic's models selectable once a test call takes it, and moves main to Claude", async () => {
+    const name = await fresh("bare");
+
+    expect(await addKey(name, "anthropic", ` ${ANTHROPIC_KEY}\n`)).toEqual({});
+    // The test call ran on the light model, with the key trimmed.
+    const [test] = await calls(name);
+    expect(test).toMatchObject({ url: expect.stringMatching(/^https:\/\/api\.anthropic\.com\/v1\/messages/), model: "claude-haiku-4-5" });
+    expect(test!.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
+
+    const catalog = await inside(name, (instance) => instance.models.view());
+    expect(catalog.providers.map(({ id, kind, models }) => ({ id, kind, models: models.map((model) => model.modelId) }))).toEqual([
+      { id: "anthropic", kind: "api-key", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] },
+      { id: "workers-ai", kind: "workers-ai", models: [GLM, KIMI, GPT_OSS] }
+    ]);
+    expect(catalog.vendors.map((vendor) => vendor.id)).toEqual(["openai", "opencode-go"]);
+    expect(await resolve(name, "main")).toEqual({ provider: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
+
+    // Each request reads the key from the Vault.
+    expect(await env.Vault.getByName("owner").auth("anthropic")).toEqual({ apiKey: ANTHROPIC_KEY });
+    await inside(name, (instance) => instance.applyMain());
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    const sent = (await calls(name)).at(-1);
+    expect(sent).toMatchObject({ model: "claude-opus-5-5" });
+    expect(sent!.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
+  });
+
+  it("makes OpenAI's models selectable, and runs a turn on them", async () => {
+    const name = await fresh("bare");
+
+    expect(await addKey(name, "openai", OPENAI_KEY)).toEqual({});
+    expect(await resolve(name, "main")).toEqual({ provider: "openai", modelId: "gpt-6.1-sol", thinkingLevel: "medium" });
+    expect(await set(name, "worker", { provider: "openai", modelId: "gpt-6-luna", thinkingLevel: "low" })).toMatchObject({
+      modelId: "gpt-6-luna"
+    });
+
+    await inside(name, (instance) => instance.applyMain());
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    const sent = (await calls(name)).at(-1);
+    expect(sent).toMatchObject({ url: "https://api.openai.com/v1/responses", model: "gpt-6.1-sol", reasoning: "medium" });
+    expect(sent!.headers.authorization).toBe(`Bearer ${OPENAI_KEY}`);
+  });
+
+  it("refuses a key the vendor refuses, or a Claude subscription token, and saves neither", async () => {
+    const name = await fresh("bare");
+
+    expect(await addKey(name, "openai", "sk-proj-wrong")).toEqual({ refused: expect.stringMatching(/^OpenAI refused the key: OpenAI API error \(401\)/) });
+    expect(await addKey(name, "anthropic", "sk-ant-oat01-token")).toEqual({
+      refused: "That is a Claude subscription token. Paste an Anthropic API key."
+    });
+    expect(await addKey(name, "anthropic", "  ")).toEqual({ refused: "Paste your Anthropic API key." });
+    expect(await addKey(name, "mistral", "key")).toEqual({ refused: 'ky has no vendor "mistral".' });
+
+    // Only the wrong OpenAI key was sent; the token never left.
+    expect((await calls(name)).map(({ model }) => model)).toEqual(["gpt-6-luna"]);
+    expect(await providers(name)).toEqual(["workers-ai"]);
+  });
+
+  it("falls back to the next healthy provider when its key is removed", async () => {
+    const name = await fresh("mac-up");
+    expect(await addKey(name, "anthropic", ANTHROPIC_KEY)).toEqual({});
+    await set(name, "main", { provider: "anthropic", modelId: "claude-sonnet-5-5", thinkingLevel: "high" });
+
+    await inside(name, (instance) => instance.models.removeKey("anthropic"));
+
+    expect(await providers(name)).toEqual(["vibeproxy", "workers-ai"]);
+    expect(await resolve(name, "main")).toMatchObject({ provider: "vibeproxy", modelId: "claude-opus-5-5" });
+    expect(await env.Vault.getByName("owner").auth("anthropic")).toBeNull();
+    expect(await inside(name, (instance) => instance.models.removeKey("workers-ai").catch((error: Error) => error.message))).toBe(
+      "workers-ai has no API key to remove."
+    );
+  });
 });
 
 describe("thinking on Workers AI", () => {

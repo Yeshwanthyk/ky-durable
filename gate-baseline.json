@@ -431,21 +431,6 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config keeps OpenCode Go without its key, as not set up",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config keeps OpenCode Go with its key empty, as not set up",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config reads an API key from the deploy's secrets",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
       "name": "a deploy's config offers OpenCode Go's first model once pi-ai no longer has ky's",
       "outcome": "passed"
     },
@@ -571,7 +556,12 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's own setup shows OpenCode Go, VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI",
+      "name": "API keys in Settings tests and saves a vendor's key, never sends it back, and falls back once it is removed",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's own setup shows VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI",
       "outcome": "passed"
     },
     {
@@ -701,7 +691,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "which model each purpose uses puts the main agent on OpenCode Go when its key is set, with Workers AI as the fallback",
+      "name": "which model each purpose uses puts the main agent on OpenCode Go once its key is added, with Workers AI as the fallback",
       "outcome": "passed"
     },
     {
@@ -726,7 +716,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a turn runs on OpenCode Go with its key when that is set",
+      "name": "a turn runs on OpenCode Go with the key added for it",
       "outcome": "passed"
     },
     {
@@ -751,12 +741,32 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a turn stands in for a provider whose breaker opened, on another provider",
+      "name": "a turn stands in for a provider whose breaker opened, on another provider, and Settings shows why it opened",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
       "name": "a turn ends a turn whose providers are all down, without bouncing between their stand-ins",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "an API key added in Settings makes Anthropic's models selectable once a test call takes it, and moves main to Claude",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "an API key added in Settings makes OpenAI's models selectable, and runs a turn on them",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "an API key added in Settings refuses a key the vendor refuses, or a Claude subscription token, and saves neither",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "an API key added in Settings falls back to the next healthy provider when its key is removed",
       "outcome": "passed"
     },
     {
@@ -1507,6 +1517,11 @@
     {
       "check": "web",
       "name": "shows why Settings refused ky's repo in its row, and keeps the repo unset",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "adds an Anthropic key in Settings once its test call passes, runs on Claude, and falls back when it is removed",
       "outcome": "passed"
     },
     {

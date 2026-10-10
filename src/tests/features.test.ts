@@ -24,6 +24,7 @@ import { PROTOCOL } from "../runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
+import { ANTHROPIC_KEY } from "../../test/fakes/vendors";
 
 /**
  * One check per server-side feature in FEATURES.md that the local stack can
@@ -450,8 +451,42 @@ describe("settings", () => {
   });
 });
 
+describe("API keys in Settings", () => {
+  it("tests and saves a vendor's key, never sends it back, and falls back once it is removed", async () => {
+    const name = `${BARE}${crypto.randomUUID()}`;
+    const { socket, client } = await session(name);
+    const settings = () => latest(client, "settings")?.settings;
+    const lastModel = async () => (await inside(name, (instance) => instance.boundary.calls.at(-1)?.model));
+
+    expect(settings()?.vendors.map((vendor) => vendor.name)).toEqual(["Anthropic", "OpenAI", "OpenCode Go"]);
+    expect(await command(socket, client, { type: "add-key", vendor: "anthropic", key: "sk-ant-api03-wrong" })).toMatchObject({
+      type: "result",
+      result: { refused: expect.stringMatching(/^Anthropic refused the key: 401/) }
+    });
+
+    expect(await command(socket, client, { type: "add-key", vendor: "anthropic", key: ANTHROPIC_KEY })).toEqual(
+      expect.objectContaining({ type: "result", result: {} })
+    );
+    await client.until(() => settings()?.purposes.main?.provider === "anthropic");
+    expect(settings()?.providers.find((each) => each.id === "anthropic")).toMatchObject({ kind: "api-key", connected: true });
+    expect(settings()?.vendors.map((vendor) => vendor.id)).toEqual(["openai", "opencode-go"]);
+    // The chats move to Claude.
+    expect((await prompt(name, "hello")).text).toBe("echo: hello");
+    expect(await lastModel()).toBe("claude-opus-5-5");
+
+    await command(socket, client, { type: "remove-key", provider: "anthropic" });
+    await client.until(() => settings()?.purposes.main?.provider === "workers-ai");
+    expect(settings()?.providers.map((each) => each.id)).toEqual(["workers-ai"]);
+    expect((await prompt(name, "again")).text).toBe("echo: again");
+    expect(await lastModel()).toBe(GLM);
+
+    expect(JSON.stringify(client.frames)).not.toContain(ANTHROPIC_KEY);
+    socket.close();
+  });
+});
+
 describe("a deploy's own setup", () => {
-  it("shows OpenCode Go, VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI", async () => {
+  it("shows VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);
 
@@ -460,7 +495,6 @@ describe("a deploy's own setup", () => {
       repo: null,
       url: null,
       missing: [
-        { id: "opencode-go", name: "OpenCode Go", needs: "the OPENCODE_API_KEY secret" },
         {
           id: "vibeproxy",
           name: "Claude via VibeProxy",

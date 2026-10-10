@@ -5,6 +5,7 @@ import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
 import { edge, FakeAccess } from "./fake-access";
+import { vendors } from "../../test/fakes/vendors";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
@@ -42,8 +43,10 @@ export class Vault extends ProductionVault {
  *
  * - Workers AI is test/fakes/ai.ts behind a fake AI binding, so every object chats
  *   with no secrets, as a fresh deploy does;
- * - an object named `keyed-…` has the OPENCODE_API_KEY secret, and OpenCode
- *   Go is the same fake behind `fetch`;
+ * - the api-key vendors are behind `fetch`: OpenCode Go is the same fake,
+ *   and Anthropic and OpenAI are test/fakes/vendors.ts, answering from the
+ *   same script, each taking only its own key; a key is added through
+ *   Settings as the user adds one, and kept in the real Vault;
  * - each refuses every request while `provider(id, false)` holds: Workers AI
  *   with 429, as out of its free allocation, and OpenCode Go with 402, as
  *   out of credit;
@@ -94,10 +97,7 @@ const EXECUTOR_TOKEN = "ky-stack-executor";
 /** Objects whose name starts with this have no VibeProxy and no Executor, as a deploy without the owner overlay. */
 export const BARE = "bare-";
 
-/** Objects whose name starts with this have an OpenCode Go key, as a deploy with that secret set. */
-export const KEYED = "keyed-";
-
-/** The OpenCode Go key a keyed object has. */
+/** A key OpenCode Go's fake takes; it takes any. */
 export const OPENCODE_KEY = "opencode-test-key";
 
 /** Workers AI's models: the default, which reads images, the next, and the text-only one. */
@@ -110,7 +110,7 @@ export const GPT_OSS = "workers-ai/@cf/openai/gpt-oss-120b";
 /** The test boundary, with its fakes in reach. */
 export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
-  /** Every request to Workers AI and OpenCode Go, as the wire carried it. */
+  /** Every request to Workers AI and the api-key vendors, as the wire carried it. */
   readonly calls: AiCall[];
 };
 
@@ -252,15 +252,13 @@ export class PiAgent extends ProductionAgent {
     });
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
-    const keyed = this.ctx.id.name?.startsWith(KEYED) === true;
 
     const refusing = (provider: FakeProvider) => async () =>
       (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
     return {
       ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
-      secrets: (name) => (keyed && name === "OPENCODE_API_KEY" ? OPENCODE_KEY : undefined),
-      fetch: chatCompletions(script, calls, refusing("opencode-go")),
+      fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go"))),
       vibeProxy: bare
         ? undefined
         : {

@@ -212,11 +212,15 @@ export class PiSessionSockets {
     feed.onChange(() => this.broadcastTasks());
     hub.onChange(() => this.broadcastTasks());
     files.onChange(() => this.broadcastTasks());
-    models.settings.onChange(() => {
+
+    const broadcastSettings = () => {
       const message = this.#settingsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
-    });
+    };
+
+    models.settings.onChange(broadcastSettings);
+    models.onChange(broadcastSettings);
     setup.onChange(() => {
       const message = this.#setupMessage();
 
@@ -639,6 +643,12 @@ export class PiSessionSockets {
         return { provider, modelId, thinkingLevel };
       }
 
+      case "add-key":
+        return await this.#models.addKey(message.vendor, message.key);
+      case "remove-key":
+        await this.#models.removeKey(message.provider);
+
+        return null;
       case "set-machine": {
         const change: MachineChange = {};
 

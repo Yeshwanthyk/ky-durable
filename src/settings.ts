@@ -1,4 +1,5 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ProviderKind } from "./providers/records";
 
 /**
  * Which model does which job. There are four purposes (C5): the main agent;
@@ -34,18 +35,27 @@ export type ModelOption = {
 
 export type ProviderInfo = {
   readonly id: string;
+  /** An api-key provider's key can be removed. */
+  readonly kind: ProviderKind;
   readonly name: string;
   /** It can take requests now, so its models can be chosen. */
   readonly connected: boolean;
   /** What connects it, when it is not. */
   readonly needs?: string;
+  /** Why its breaker last opened, until a request succeeds. */
+  readonly failure?: string;
   readonly models: readonly ModelOption[];
 };
+
+/** A vendor the user may add an API key for. */
+export type VendorOption = { readonly id: string; readonly name: string };
 
 export type SettingsView = {
   readonly providers: readonly ProviderInfo[];
   /** What each purpose runs on; none while no model provider is enabled. */
   readonly purposes: Readonly<Partial<Record<Purpose, ModelChoice>>>;
+  /** The vendors with no key saved. */
+  readonly vendors: readonly VendorOption[];
 };
 
 export class Settings {
