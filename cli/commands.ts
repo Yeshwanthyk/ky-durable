@@ -8,6 +8,7 @@ import type { Unstable_RawConfig } from "wrangler";
 import { type Cloudflare, tokenPage } from "./cloudflare.ts";
 import { incomplete, merged, readOverlay } from "./config.ts";
 import { type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
+import { bold, dim, green, type Output, output, red } from "./output.ts";
 import type { Release } from "./release.ts";
 
 export type Context = {
@@ -46,36 +47,47 @@ async function target(context: Context): Promise<{ target: Target; release: Rele
 }
 
 /** Deploys, and shows the URL and, once, a KY_TOKEN the deploy set. */
-async function deployTo(context: Context, to: Target, release: Release): Promise<number> {
-  const deployed = await deploy(to, release, (step) => context.print(`· ${step}`));
+async function deployTo(out: Output, to: Target, release: Release): Promise<number> {
+  const deployed = await out.steps("Stopped. Run `ky deploy` to finish the deploy.", (say) => {
+    say("Checking what's in the account");
 
-  context.print(deployed.from ? `ky ${release.version} is live at ${deployed.url} (was ${deployed.from})` : `ky ${release.version} is live at ${deployed.url}`);
+    return deploy(to, release, say);
+  });
 
-  if (deployed.token) context.print(`Your KY_TOKEN, shown once (sign in with it): ${deployed.token}`);
+  if (deployed.token) out.note("Your KY_TOKEN, shown once (sign in with it)", [deployed.token]);
+  const live = `${green(`ky ${release.version} is live`)} at ${bold(deployed.url)}`;
+
+  out.outro(deployed.from ? `${live} (was ${deployed.from})` : live);
 
   return 0;
 }
 
 export async function deployCommand(context: Context): Promise<number> {
+  const out = output(context.print);
+
+  out.intro("ky deploy");
   const { target: to, release } = await target(context);
 
-  return deployTo(context, to, release);
+  return deployTo(out, to, release);
 }
 
 /** Deploys this ky's release over the Worker, when it runs another one. */
 export async function upgradeCommand(context: Context): Promise<number> {
+  const out = output(context.print);
+
+  out.intro("ky upgrade");
   const { target: to, release } = await target(context);
-  const from = await deployedRelease(to);
+  const from = await out.waiting("Reading the Worker's release", () => deployedRelease(to));
 
   if (!from) throw new Error("There's no ky Worker to upgrade; run `ky deploy`");
 
   if (from === release.version) {
-    context.print(`Already on ${release.version}`);
+    out.outro(`Already on ${release.version}`);
 
     return 0;
   }
 
-  return deployTo(context, to, release);
+  return deployTo(out, to, release);
 }
 
 /** The overlay, checked: there, readable, and with everything a deploy needs. */
@@ -127,15 +139,24 @@ async function doctor(context: Context): Promise<Check[]> {
   ];
 }
 
+/** Each check as a line, its details lined up, with what fixes each failed one. */
+function checkLines(checks: Check[]): string[] {
+  const width = Math.max(...checks.map((check) => check.name.length));
+
+  return checks.map(
+    (check) => `${check.ok ? green("✓") : red("✗")} ${check.name.padEnd(width)}  ${check.detail}${!check.ok && check.next ? dim(`  → ${check.next}`) : ""}`
+  );
+}
+
 /** Checks each piece of the deploy, and prints the command that fixes the first one missing. */
 export async function doctorCommand(context: Context, json: boolean): Promise<number> {
-  const checks = await doctor(context);
+  const checks = json ? await doctor(context) : await output(context.print).waiting("Checking each piece of the deploy", () => doctor(context));
   const next = checks.find((check) => !check.ok)?.next;
 
   if (json) context.print(JSON.stringify({ checks, next }, null, 2));
   else {
-    for (const check of checks) context.print(`${check.ok ? "✓" : "✗"} ${check.name}: ${check.detail}`);
-    context.print(next ? `Next: ${next}` : "All good");
+    for (const line of checkLines(checks)) context.print(line);
+    context.print(next ? `${bold("Next:")} ${next}` : green("All good"));
   }
 
   return next ? 1 : 0;
@@ -147,17 +168,27 @@ export async function teardownCommand(context: Context, confirm: string | undefi
   const name = from.config.name;
 
   if (confirm !== name) throw new Error(`This deletes the ${name} Worker, its chats and files, and its Access apps. Run \`ky teardown --confirm ${name}\``);
-  await teardown(from, (step) => context.print(`· ${step}`));
-  const left = await leftovers(from);
+  const out = output(context.print);
+
+  out.intro("ky teardown");
+
+  const left = await out.steps(`Stopped. Run \`ky teardown --confirm ${name}\` again to finish.`, async (say) => {
+    say("Checking what's in the account");
+    await teardown(from, say);
+
+    say("Checking nothing is left");
+
+    return leftovers(from);
+  });
 
   if (left.length > 0) {
-    context.print(`Still in the account: ${left.join(", ")}. Run \`ky teardown --confirm ${name}\` again`);
+    out.outro(`Still in the account: ${left.join(", ")}. Run \`ky teardown --confirm ${name}\` again`);
 
     return 1;
   }
 
   await rm(context.overlay);
-  context.print(`Removed ${name}`);
+  out.outro(`${green("Removed")} ${name}`);
 
   return 0;
 }
