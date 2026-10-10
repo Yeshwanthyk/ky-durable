@@ -335,7 +335,7 @@ function MachineList({
 }: {
   machines: readonly MachineInfo[];
   now: number;
-  /** Whether Settings › Subscriptions has a login saved. */
+  /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
   subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
@@ -462,8 +462,9 @@ const STATE_STATUS = {
   off: ["off", "Off"],
 } as const satisfies Record<MachineState, readonly [MachineStatus["tone"], string]>;
 
-/** When an offline machine was last seen, and what waits for it. */
+/** When an offline machine was last seen, and what waits for it; the cloud machine is asleep instead. */
 function offlineStatus(machine: MachineInfo, now: number): MachineStatus {
+  if (isCloud(machine)) return { tone: "offline", text: "Asleep · starts when it's sent a task" };
   const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
 
   return { tone: "offline", text: `Offline · last seen ${agoInWords(machine.seenAt, now)}${waiting}` };
@@ -534,6 +535,9 @@ function InlineEdit({
   );
 }
 
+/** Whether the machine is the deploy's cloud machine, which sleeps instead of going offline and can't be unpaired. */
+const isCloud = (machine: MachineInfo) => machine.facts?.kind === "cloud";
+
 // A machine: whether it is up and busy, what it is, whether ky may use it, whose logins it uses, and what it is for.
 function MachineItem({
   machine,
@@ -543,21 +547,12 @@ function MachineItem({
 }: {
   machine: MachineInfo;
   now: number;
-  /** Whether Settings › Subscriptions has a login saved. */
+  /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
   subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   const status = machineStatus(machine, now);
   const facts = factsLine(machine.facts);
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const remove = async () => {
-    setConfirming(false);
-    const response = await fetch(`/api/runners/${encodeURIComponent(machine.name)}`, { method: "DELETE" });
-
-    setError(response.ok ? null : `ky could not unpair ${machine.name} (HTTP ${response.status}).`);
-  };
 
   return (
     <li className="machine" data-state={machine.state}>
@@ -571,10 +566,29 @@ function MachineItem({
         </span>
         {facts ? <span className="machine-facts">{facts}</span> : null}
       </div>
-      {machine.online ? null : <MachineRestart />}
+      <MachineRestart machine={machine} />
       <MachineSwitch machine={machine} onSet={onSet} />
       <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
       <MachineNote machine={machine} onSet={onSet} />
+      {isCloud(machine) ? null : <MachineUnpair machine={machine} />}
+    </li>
+  );
+}
+
+// Unpairing a computer, once the user confirms it.
+function MachineUnpair({ machine }: { machine: MachineInfo }) {
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    setConfirming(false);
+    const response = await fetch(`/api/runners/${encodeURIComponent(machine.name)}`, { method: "DELETE" });
+
+    setError(response.ok ? null : `ky could not unpair ${machine.name} (HTTP ${response.status}).`);
+  };
+
+  return (
+    <>
       {confirming ? (
         <div className="machine-confirm" role="alertdialog" aria-label={`Unpair ${machine.name}`}>
           <p>
@@ -599,12 +613,14 @@ function MachineItem({
           {error}
         </p>
       ) : null}
-    </li>
+    </>
   );
 }
 
-// How to bring an offline machine back: the service restarts it, or the user starts it by hand.
-function MachineRestart() {
+// How to bring an offline computer back: the service restarts it, or the user starts it by hand. The cloud machine wakes itself.
+function MachineRestart({ machine }: { machine: MachineInfo }) {
+  if (machine.online || isCloud(machine)) return null;
+
   return (
     <div className="machine-restart">
       <p>Start it on that computer:</p>
@@ -1395,7 +1411,7 @@ function Settings({
       <MachineList
         machines={machines}
         now={now}
-        subscribed={subscriptions.views.some((view) => view.connected)}
+        subscribed={subscriptions.views.some((view) => view.connected && view.kind !== "github")}
         onSet={onSetMachine}
       />
       <ToolsGroup catalog={catalog} />
