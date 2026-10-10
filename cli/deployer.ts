@@ -49,6 +49,7 @@ const DEPLOYS = new Set([
   "ai",
   "assets",
   "durable_objects",
+  "ratelimits",
   "migrations",
   "observability",
   "vars",
@@ -263,6 +264,9 @@ function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Re
     ...buckets.map((bucket): Binding => ({ type: "r2_bucket", name: bucket.binding, bucketName: bucket.name })),
     ...(config.durable_objects?.bindings ?? []).map(
       (object): Binding => ({ type: "durable_object_namespace", name: object.name, className: object.class_name })
+    ),
+    ...(config.ratelimits ?? []).map(
+      (limit): Binding => ({ type: "ratelimit", name: limit.name, namespaceId: limit.namespace_id, simple: limit.simple })
     ),
     ...(config.vpc_services ?? []).map((service): Binding => ({ type: "vpc_service", name: service.binding, serviceId: service.service_id })),
     ...Object.entries({ ...config.vars, ...env }).map(
