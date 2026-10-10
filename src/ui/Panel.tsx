@@ -3,6 +3,7 @@ import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
 import type {
+  CloudState,
   MachineInfo,
   ProviderInfo,
   SettingsView,
@@ -453,25 +454,40 @@ function agoInWords(time: number, now: number): string {
 }
 
 /** A machine's status: a tone for its dot, and a line of words. */
-type MachineStatus = { tone: "online" | "paused" | "off" | "offline"; text: string };
+type MachineStatus = { tone: "online" | "paused" | "waking" | "off" | "offline"; text: string };
 
-/** What an online machine's dot and status say for each state. */
+/** What an online computer's dot and status say for each state. */
 const STATE_STATUS = {
   on: ["online", "Online"],
   paused: ["paused", "Paused"],
   off: ["off", "Off"],
 } as const satisfies Record<MachineState, readonly [MachineStatus["tone"], string]>;
 
-/** When an offline machine was last seen, and what waits for it; the cloud machine is asleep instead. */
+/** What the cloud machine's dot and status say in each state, and with no task. */
+const CLOUD_STATUS = {
+  asleep: ["offline", "Asleep", "wakes when it's sent a task"],
+  waking: ["waking", "Waking", "starting up"],
+  running: ["online", "Running", "idle"],
+} as const satisfies Record<CloudState, readonly [MachineStatus["tone"], string, string]>;
+
+/** When an offline computer was last seen, and what waits for it. */
 function offlineStatus(machine: MachineInfo, now: number): MachineStatus {
-  if (isCloud(machine)) return { tone: "offline", text: "Asleep · starts when it's sent a task" };
   const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
 
   return { tone: "offline", text: `Offline · last seen ${agoInWords(machine.seenAt, now)}${waiting}` };
 }
 
+/** The cloud machine's status: asleep, waking or running, and its tasks. */
+function cloudStatus(cloud: CloudState, active: number): MachineStatus {
+  const [tone, word, none] = CLOUD_STATUS[cloud];
+
+  return { tone, text: `${word} · ${active === 0 ? none : plural(active, "task")}` };
+}
+
 /** The machine's status as a tone for its dot and a line of words. */
 function machineStatus(machine: MachineInfo, now: number): MachineStatus {
+  if (machine.cloud !== null) return cloudStatus(machine.cloud, machine.active);
+
   if (!machine.online) return offlineStatus(machine, now);
   const [tone, word] = STATE_STATUS[machine.state];
   const busy = machine.active === 0 ? "idle" : `${plural(machine.active, "task")} running`;
@@ -536,7 +552,7 @@ function InlineEdit({
 }
 
 /** Whether the machine is the deploy's cloud machine, which sleeps instead of going offline and can't be unpaired. */
-const isCloud = (machine: MachineInfo) => machine.facts?.kind === "cloud";
+const isCloud = (machine: MachineInfo) => machine.cloud !== null;
 
 // A machine: whether it is up and busy, what it is, whether ky may use it, whose logins it uses, and what it is for.
 function MachineItem({

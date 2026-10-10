@@ -910,7 +910,8 @@
   background: var(--success);
 }
 
-.machine-status[data-tone="paused"] .machine-dot {
+.machine-status[data-tone="paused"] .machine-dot,
+.machine-status[data-tone="waking"] .machine-dot {
   background: var(--warning);
 }
 

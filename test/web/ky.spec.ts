@@ -630,7 +630,8 @@ test("lists the cloud machine first in Settings, asleep while it has no task", a
   await panel(page).getByRole("tab", { name: "Settings" }).click();
   const machines = panel(page).locator("#settings-machines").getByRole("listitem");
   await expect(machines.first()).toContainText("cloud");
-  await expect(machines.first()).toContainText("asleep");
+  await expect(machines.first()).toContainText("Asleep");
+  await expect(machines.first().getByRole("button", { name: "Unpair this computer" })).toHaveCount(0);
   await expect(machines.filter({ hasText: "webmac" }).last()).toContainText(/idle|task/);
 });
 
