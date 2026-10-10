@@ -195,7 +195,10 @@ export type ObjectFrame = Static<typeof ObjectFrameSchema>;
 
 export type RunnerReport = Static<typeof RunnerReportSchema>;
 
-type PipeReport = Static<typeof PipeReportSchema>;
+export type PipeReport = Static<typeof PipeReportSchema>;
+
+/** A request for one of the machine's allowed ports. */
+export type HttpRequest = Extract<ObjectFrame, { type: "http_request" }>;
 
 /** What a runner says about its tasks and itself, as against its answers to `http_request`. */
 export type TaskReport = Exclude<RunnerReport, PipeReport>;
@@ -219,6 +222,20 @@ export type UnnumberedCommand = DistributiveOmit<RunnerCommand, "seq">;
 
 export function isPipeReport(report: RunnerReport): report is PipeReport {
   return Value.Check(PipeReportSchema, report);
+}
+
+/** Bytes as a pipe frame carries them: base64. */
+export function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+
+  // In slices: spreading a whole chunk into fromCharCode overflows the stack.
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+
+  return btoa(binary);
+}
+
+export function fromBase64(text: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 }
 
 /**

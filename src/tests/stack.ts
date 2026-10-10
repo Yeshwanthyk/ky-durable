@@ -8,7 +8,7 @@ import { edge, FakeAccess } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
 import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeExecutor } from "./fake-executor";
-import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
+import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 
 /**
@@ -54,9 +54,13 @@ export class Vault extends ProductionVault {
  * - each refuses every request while `provider(id, false)` holds: Workers AI
  *   with 429, as out of its free allocation, and OpenCode Go with 402, as
  *   out of credit;
- * - VibeProxy on the Mac is away (refuses connections) until `mac(true)`,
- *   then fake-vibeproxy.ts answers as Claude; after `tunnelDrops()` the
- *   tunnel refuses each message while the probe still answers;
+ * - VibeProxy on the Mac, through the overlay's tunnel, is away (refuses
+ *   connections) until `mac(true)`, then test/fakes/vibeproxy.ts answers as
+ *   Claude; after `tunnelDrops()` the tunnel refuses each message while the
+ *   probe still answers;
+ * - a machine whose runner shares VIBEPROXY_TEST_PORT has VibeProxy over the
+ *   pipe instead, the test's own fake behind it; `pipe()` sends a request
+ *   over it as a provider's would (`overPipe()`);
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
  * - Browser Rendering is left out: a launch is refused;
  * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
@@ -263,20 +267,23 @@ export class PiAgent extends ProductionAgent {
     return {
       ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
       fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go"))),
-      vibeProxy: bare
-        ? undefined
-        : {
-            binding: {
-              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-                const request = new Request(input, init);
-                const drops = (await storage.get<boolean>(TUNNEL_DROPS_KEY)) === true && new URL(request.url).pathname === "/v1/messages";
+      vibeProxy: {
+        port: VIBEPROXY_TEST_PORT,
+        key: VIBEPROXY_KEY,
+        tunnel: bare
+          ? undefined
+          : {
+              binding: {
+                fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+                  const request = new Request(input, init);
+                  const drops = (await storage.get<boolean>(TUNNEL_DROPS_KEY)) === true && new URL(request.url).pathname === "/v1/messages";
 
-                return (await storage.get<boolean>(MAC_UP_KEY)) === true && !drops ? fakeVibeProxy(request) : refusingVibeProxy();
-              }
-            },
-            origin: "http://127.0.0.1:8317",
-            key: VIBEPROXY_KEY
-          },
+                  return (await storage.get<boolean>(MAC_UP_KEY)) === true && !drops ? fakeVibeProxy(request) : refusingVibeProxy();
+                }
+              },
+              origin: "http://127.0.0.1:8317"
+            }
+      },
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
       probeTtlMs: 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
@@ -322,6 +329,29 @@ export class PiAgent extends ProductionAgent {
   /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
   async macLeaves(): Promise<void> {
     await this.ctx.storage.put(MAC_UP_KEY, false);
+  }
+
+  /**
+   * Send `path` to `port` on `machine` over the pipe, as a provider does, and say how it went: its status and
+   * body, or why it failed. `abortAfterMs` aborts it that long after its head; `timeoutMs` shortens the pipe's wait.
+   */
+  async overPipe(machine: string, port: number, path: string, { abortAfterMs, timeoutMs }: { abortAfterMs?: number; timeoutMs?: number } = {}): Promise<{ status?: number; body?: string; failed?: string }> {
+    const before = this.pipe.timeoutMs;
+    const abort = new AbortController();
+
+    if (timeoutMs !== undefined) this.pipe.timeoutMs = timeoutMs;
+
+    try {
+      const response = await this.pipe.fetcher(machine, port)(`http://127.0.0.1:${port}${path}`, { signal: abort.signal });
+
+      if (abortAfterMs !== undefined) setTimeout(() => abort.abort(), abortAfterMs);
+
+      return { status: response.status, body: await response.text() };
+    } catch (error) {
+      return { failed: error instanceof Error ? error.message : String(error) };
+    } finally {
+      this.pipe.timeoutMs = before;
+    }
   }
 
   /** Drop every message on the tunnel while VibeProxy's probe still answers, as a tunnel that fails mid-call does. */
@@ -374,6 +404,21 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       await (up === "leaves" ? me.macLeaves() : me.mac(up === "1"));
 
       return new Response(null, { status: 204 });
+    }
+  ],
+  // A request over the pipe: machine, port and path; abort-after (ms after its head) and timeout (ms) are optional.
+  [
+    "POST /test/pipe",
+    async (me, url) => {
+      const number = (name: string) => (url.searchParams.has(name) ? Number(url.searchParams.get(name)) : undefined);
+      const { searchParams } = url;
+
+      return Response.json(
+        await me.overPipe(searchParams.get("machine") ?? "", number("port") ?? 0, searchParams.get("path") ?? "/", {
+          abortAfterMs: number("abort-after"),
+          timeoutMs: number("timeout")
+        })
+      );
     }
   ],
   [

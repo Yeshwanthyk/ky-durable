@@ -18,6 +18,7 @@
  * KY_CHROME       1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
  * KY_REPOS        folders, split by ":", whose git repositories ky is told about (default: KY_WORKDIR)
  * KY_STATE_DIR    what must outlive the runner, and each Codex task's home (default: ~/.ky)
+ * KY_RUNNER_PORTS ports on this machine, split by ",", that ky may send HTTP requests to, e.g. 8317 for VibeProxy (default: none)
  *
  * Each task finds two commands on its PATH: ky-attach shares an image or
  * video, and ky-diff shares a repository's changes as a reviewable diff.
@@ -67,6 +68,13 @@ const REPO_ROOTS = (process.env.KY_REPOS ?? WORKDIR).split(":").filter((root) =>
 
 /** Where the runner keeps what must outlive it: the seqs of the commands it has run, and each Codex task's home. */
 const STATE_DIR = process.env.KY_STATE_DIR ?? join(homedir(), ".ky");
+
+/** The local ports ky's requests may reach over the socket; every other port is refused. */
+const PORTS = (process.env.KY_RUNNER_PORTS ?? "").split(",").flatMap((each) => {
+  const port = Number(each.trim());
+
+  return each.trim() !== "" && Number.isInteger(port) && port >= 1 && port <= 65_535 ? [port] : [];
+});
 
 /** Where `ky-attach` is installed; each task finds it on its PATH. */
 const BIN = join(homedir(), ".ky", "bin");
@@ -279,7 +287,7 @@ function machineFacts(): MachineFacts {
     chrome: CHROME,
     repos: repos.value,
     agents: { claude: AGENTS.claude.facts(), codex: AGENTS.codex.facts() },
-    ports: [],
+    ports: PORTS,
     kind: "computer"
   };
 }
@@ -506,7 +514,8 @@ const runner = new Runner(
   (line) => log(line),
   new HandledSeqs(join(STATE_DIR, `handled-${MACHINE}.json`), `${URL_BASE} ${MACHINE}`),
   version(),
-  machineFacts
+  machineFacts,
+  (port, path, init) => fetch(`http://127.0.0.1:${port}${path}`, init)
 );
 
 /** Close codes after which retrying cannot help, and what to log before exiting. */
@@ -555,7 +564,8 @@ function connect() {
       ws.send(text);
 
       return true;
-    }
+    },
+    buffered: () => ws.bufferedAmount
   };
 
   socket = ws;

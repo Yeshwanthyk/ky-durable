@@ -132,8 +132,8 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt } }`, `expiresAt` in epoch milliseconds. Absent means use the machine's own login. |
 | `stop` | `seq, task, turn` | |
 | `creds` | `seq, task, codex` | Mid-task Codex token refresh. Sent (added by S) at a runner `hello` when the Vault's login is newer than the one the task was last handed; the runner ignores it for a task that runs on the machine's own login. |
-| `http_request` | `id, port, method, path, headers, body?` | `body` is base64. Only to an allowed port. |
-| `http_cancel` | `id` | |
+| `http_request` | `id, port, method, path, headers, body?` | `body` is base64. Only to a port in the runner's `facts.ports`; any other is answered with `http_error`. |
+| `http_cancel` | `id` | Sent when the reader aborts or cancels, after 120s without a frame, or when the reader falls 8 MiB behind (C1 has no flow-control frame toward the runner) (changed in P). |
 | `goodbye` | `reason, expected?` | Sent before close code 4426 on a protocol mismatch, or 4401 on a revoked token. |
 
 **Runner → object**
@@ -143,7 +143,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | `hello` | `protocol: integer, version, active, facts` | The server reads `protocol` first, then validates the rest. `facts` = `{ os, chrome, repos, agents: { claude: { installed, signedIn }, codex: { installed, signedIn } }, ports: number[], kind: "computer"\|"cloud" }`. |
 | `ack`, `session`, `step`, `result` | as in v2 | `result` gains `agent`. |
 | `http_head` | `id, status, headers` | |
-| `http_chunk` | `id, data` | `data` is base64. |
+| `http_chunk` | `id, data` | `data` is base64, at most 48 KiB of body per chunk (changed in P). |
 | `http_end` | `id` | |
 | `http_error` | `id, message` | |
 
@@ -233,6 +233,16 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
 | `fallback` | Best healthy model on another provider than `main`'s; else the best that isn't `main`'s model |
 
 - `main` is the best connected provider's default, ranked runner-local, then api-key, then Workers AI.
+- **VibeProxy** is one `runner-local` record, `vibeproxy`, on `api: "anthropic-messages"` (changed in P):
+  - Its `machine` is the paired machine whose `facts.ports` holds its port (8317), an online one first, then the
+    first by name. It is reached over the pipe and shown as "Claude via VibeProxy on <machine>".
+  - **The pipe wins:** only when no machine shares the port does the overlay's tunnel carry it (`machine: null`,
+    "Claude via VibeProxy"). With neither it keeps its last place. Each runner hello and close re-places it.
+  - A runner-local provider is connected only while its machine is online and its probe answers. A machine going
+    offline makes it down at once, so the next call runs on a stand-in.
+  - Its key is `VIBEPROXY_KEY` when set, else a placeholder: VibeProxy on 127.0.0.1 checks none by default.
+  - It counts as not set up while there is neither a tunnel nor a machine sharing the port.
+  - `ModelsBoundary.vibeProxy` is `{ port, key?, tunnel?: { binding, origin } }`: it was the tunnel alone.
 - **API** (changed in M):
   - `models.resolve(purpose, need?: { images? })` returns `{ choice, model }`: the user's choice for the purpose
     while it can run, else the default above. It is synchronous and doesn't check health.
@@ -496,7 +506,12 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - A machine going offline fails its open requests at once.
 - **Provider:** `runner-local` (C5), with an OpenAI-compatible or Anthropic-compatible API on `machine:port`.
 - **VibeProxy:** becomes a `runner-local` record (Anthropic API, port 8317).
-- **Overlay:** the VPC tunnel stays in the overlay as an alternative.
+- **Overlay:** the VPC tunnel stays in the overlay as an alternative. The pipe wins while a machine shares the
+  port (C5).
+- **Built (P):** `runner/forward.ts` (runner side), `src/pipe.ts` (`RunnerPipe`, the Worker's fetcher),
+  `src/providers/runner-local.ts` (the provider, with Anthropic's and OpenAI's chat APIs), and
+  `src/providers/vibeproxy.ts` on top of it. No record uses the OpenAI API yet: C's `runner.json` declares a
+  machine's other servers and their models.
 - **Done when:**
   - `main` on "Claude via VibeProxy on <machine>" streams a tool-using turn over the pipe.
   - Turning the machine off fails over to `fallback`, the same as today.
