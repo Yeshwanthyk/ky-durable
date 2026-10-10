@@ -10,6 +10,9 @@ type SubscriptionActions = {
   readonly onRemove: (kind: SubscriptionKind) => void;
   readonly onChatGptLogin: () => Promise<ChatGptCode | { refused: string }>;
   readonly onChatGptPoll: (login: string) => Promise<ChatGptState>;
+  readonly onGithubRepos: (token: string) => Promise<{ repos: string[] } | { refused: string }>;
+  /** Resolves with why the token or repos were refused, if they were. */
+  readonly onSetGithub: (token: string, repos: readonly string[]) => Promise<string | undefined>;
 };
 
 /** What Settings › Subscriptions shows, and what it does. */
@@ -42,7 +45,14 @@ function chatgptNote(view: SubscriptionView): string {
   return view.error ?? "Signed in; ky renews it";
 }
 
-// Your Claude and ChatGPT subscriptions, which tasks on machines that aren't signed in run with; off until a machine is paired, as nothing else uses them.
+function githubNote(view: SubscriptionView): string {
+  if (!view.connected) return "For the cloud machine: paste a fine-grained token";
+  const repos = view.repos ?? [];
+
+  return `${repos.length} ${repos.length === 1 ? "repo" : "repos"}: ${repos.join(", ")}`;
+}
+
+// Your Claude and ChatGPT subscriptions, which tasks on machines that aren't signed in run with, and GitHub for the cloud machine; off until a machine is paired, as nothing else uses them.
 export function Subscriptions({ views, actions, now, paired }: SubscriptionsData & { now: number; paired: boolean }) {
   const view = (kind: SubscriptionKind): SubscriptionView =>
     views.find((each) => each.kind === kind) ?? { kind, connected: false, expiresAt: null, error: null };
@@ -54,10 +64,14 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
         <div className="card">
           <ClaudeRow view={view("claude")} actions={actions} now={now} />
           <ChatGptRow view={view("chatgpt")} actions={actions} />
+          <GithubRow view={view("github")} actions={actions} />
         </div>
       </fieldset>
       {paired ? (
-        <p className="panel-note">Machines run Claude Code and Codex with these when they aren't signed in, or when you pick ky's login.</p>
+        <p className="panel-note">
+          Machines run Claude Code and Codex with these when they aren't signed in, or when you pick ky's login. The cloud machine clones and pushes with
+          GitHub's, to ky/ branches only.
+        </p>
       ) : (
         <PairFirst />
       )}
@@ -230,5 +244,86 @@ function ChatGptCodeNote({ signing }: { signing: Signing }) {
         {signing.code.userCode}
       </code>
     </div>
+  );
+}
+
+function GithubRow({ view, actions }: { view: SubscriptionView; actions: SubscriptionActions }) {
+  const [token, setToken] = useState("");
+  const [listed, setListed] = useState<readonly string[] | null>(null);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [problem, setProblem] = useState<string>();
+
+  const list = async () => {
+    const answer = await actions.onGithubRepos(token);
+
+    if ("refused" in answer) return setProblem(answer.refused);
+    setProblem(answer.repos.length === 0 ? "The token reaches no repos: give it some on GitHub." : undefined);
+    setListed(answer.repos);
+    setPicked(new Set());
+  };
+
+  const save = async () => {
+    const reason = await actions.onSetGithub(token, [...picked]);
+
+    setProblem(reason);
+
+    if (reason === undefined) {
+      setToken("");
+      setListed(null);
+    }
+  };
+
+  const toggle = (repo: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+
+      if (!next.delete(repo)) next.add(repo);
+
+      return next;
+    });
+
+  return (
+    <>
+      <SubscriptionRow icon="repo" label="GitHub" note={githubNote(view)} ok={view.connected}>
+        {view.connected ? (
+          <RemoveButton onRemove={() => actions.onRemove("github")} />
+        ) : (
+          <form
+            className="subscription-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void (listed === null ? list() : save());
+            }}
+          >
+            <input
+              className="subscription-input"
+              type="password"
+              autoComplete="off"
+              aria-label="GitHub token"
+              placeholder="github_pat_…"
+              value={token}
+              onChange={(event) => {
+                setToken(event.currentTarget.value);
+                setListed(null);
+              }}
+            />
+            <button type="submit" className="pill pressable" disabled={token.trim() === "" || (listed !== null && picked.size === 0)}>
+              {listed === null ? "Next" : "Save"}
+            </button>
+          </form>
+        )}
+      </SubscriptionRow>
+      {!view.connected && listed !== null && listed.length > 0 ? (
+        <fieldset className="github-repos" aria-label="Repos the cloud machine may use">
+          {listed.map((repo) => (
+            <label key={repo} className="github-repo">
+              <input type="checkbox" checked={picked.has(repo)} onChange={() => toggle(repo)} />
+              <span>{repo}</span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      <Problem text={problem} />
+    </>
   );
 }

@@ -239,9 +239,10 @@ describe("the runner's WebSocket", () => {
 
     await until(async () => (await inside(name, (instance) => instance.machines.online("silent"))) === false, "silent offline");
 
-    // Only pairing makes a machine: the two paired ones are listed, offline, and the stranger is not.
+    // Only pairing makes a machine: the two paired ones are listed, offline, and the stranger is not; the cloud machine comes with the deploy.
     const machines = await inside(name, (instance) => instance.machines.machines());
     expect(machines.map((machine) => [machine.name, machine.online])).toEqual([
+      ["cloud", false],
       ["old", false],
       ["silent", false]
     ]);
@@ -253,7 +254,7 @@ describe("the runner's WebSocket", () => {
     const client = follow(socket);
     await client.until(() => client.frames.some((frame) => frame.type === "hello"));
 
-    expect(await inside(name, (instance) => instance.machines.machines())).toEqual([]);
+    expect((await inside(name, (instance) => instance.machines.machines())).map((machine) => machine.name)).toEqual(["cloud"]);
     socket.close();
   });
 });

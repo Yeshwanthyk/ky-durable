@@ -5,6 +5,7 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
+import { CLOUD, CLOUD_FACTS } from "./cloud-facts";
 import type { FileRow, FileStore } from "./files";
 import { type MachineInfo, osName } from "./protocol";
 import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
@@ -96,6 +97,12 @@ export type TaskTokens = {
 /** The Vault's subscriptions: what a run is handed for `agent` when the machine doesn't use its own login; none without one. */
 export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
 
+/** The cloud machine, on a deploy that has one: started when a command waits for it, and handed GitHub. */
+export type CloudHook = {
+  wake(): void;
+  github(): Promise<{ token: string } | null>;
+};
+
 /** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
 const DELIVERY_RETRIES = 5;
 
@@ -122,7 +129,7 @@ function runs(facts: MachineFacts | null, agent: Agent): boolean {
 
 /** Whether a machine's runs of `agent` are handed ky's subscription: set to, or not signed in itself. */
 function handsCreds(machine: MachineInfo | undefined, agent: Agent): boolean {
-  return machine !== undefined && (machine.login === "ky" || !runs(machine.facts, agent));
+  return machine !== undefined && (machine.login === "ky" || machine.facts?.kind === "cloud" || !runs(machine.facts, agent));
 }
 
 /** Throw for a change to a state or login a machine can't have. */
@@ -169,6 +176,8 @@ export class MachineHub {
   retryMs = 1_000;
   readonly #watchers = new Set<() => void>();
   #harness: PiHarness | undefined;
+  /** The cloud machine, once the deploy says it has one. */
+  cloud: CloudHook | undefined;
   #wanted: (task: string) => boolean = () => true;
 
   constructor(
@@ -427,7 +436,12 @@ export class MachineHub {
    */
   #deliver(machine: string): Promise<void> {
     return this.#afterTokens(`delivery to ${machine}`, async () => {
-      if (!this.online(machine)) return;
+      if (!this.online(machine)) {
+        if (machine === CLOUD && this.#pending(machine).length > 0) this.cloud?.wake();
+
+        return;
+      }
+
       const info = this.machine(machine);
       const pending = this.#pending(machine);
       const tasks = new Set(pending.flatMap((command) => (command.type === "run" ? [command.task] : [])));
@@ -440,12 +454,13 @@ export class MachineHub {
         })
       );
 
-      const [tokens, creds] = await Promise.all([
+      const [tokens, creds, github] = await Promise.all([
         Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)).then((issued) => new Map(issued)),
-        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all))
+        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all)),
+        info?.facts?.kind === "cloud" && tasks.size > 0 ? this.cloud?.github() : undefined
       ]);
 
-      this.#send(machine, this.#outgoing(machine, tokens, creds, agents));
+      this.#send(machine, this.#outgoing(machine, tokens, github ? { ...creds, github } : creds, agents));
       this.#retries.delete(machine);
     }, () => this.#retry(machine));
   }
@@ -465,8 +480,9 @@ export class MachineHub {
       else {
         const handed = agents.has(command.agent) ? creds[command.agent] : undefined;
         const run: RunnerCommand = { ...command, taskToken: tokens.get(command.task)! };
+        const given: RunCreds = { ...(handed && { [command.agent]: handed }), ...(creds.github && { github: creds.github }) };
 
-        commands.push(handed ? { ...run, creds: { [command.agent]: handed } } : run);
+        commands.push(Object.keys(given).length > 0 ? { ...run, creds: given } : run);
       }
     }
 
@@ -750,6 +766,18 @@ export class MachineHub {
     return previous;
   }
 
+  /** List the cloud machine, unpaired until it first starts, so tasks can be sent to it while it sleeps. */
+  listCloud(): void {
+    const listed = this.#sql.exec("INSERT OR IGNORE INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)", CLOUD, Date.now(), JSON.stringify(CLOUD_FACTS));
+
+    if (listed.rowsWritten > 0) for (const watcher of this.#watchers) watcher();
+  }
+
+  /** Whether `machine` has an open task or a command waiting: the cloud machine stays awake while it has. */
+  busy(machine: string): boolean {
+    return this.#feed.open("machine", machine).length > 0 || this.#pending(machine).length > 0;
+  }
+
   /** Whether `machine` is paired, and `pairing` is its live pairing: a runner's socket is the machine's only then. */
   pairedAs(machine: string, pairing: string | undefined): boolean {
     return pairing !== undefined && this.#pairing(machine) === pairing;
@@ -942,7 +970,7 @@ function agentsOf(facts: MachineFacts): string[] {
 function describeMachine(machine: MachineInfo): string {
   const parts = [
     machine.state,
-    machine.online ? "online" : "offline",
+    machine.online ? "online" : machine.facts?.kind === "cloud" ? "asleep (wakes for a task in a minute or two)" : "offline",
     `${machine.active} running or queued`,
     ...(machine.facts
       ? [
@@ -954,6 +982,10 @@ function describeMachine(machine: MachineInfo): string {
   ];
 
   const lines = [`${machine.name}: ${parts.join(", ")}`];
+
+  if (machine.facts?.kind === "cloud") {
+    lines.push("  ky's own Linux machine in Cloudflare: no local files of the user's; it clones from GitHub, and pushes only to ky/* branches of the repos the user picked");
+  }
 
   if (machine.note !== "") lines.push(`  the user says: ${machine.note}`);
 
@@ -1036,6 +1068,8 @@ function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: Task
   const started = `Started task ${task.id} on ${task.worker} as ${AGENT_NAMES[task.agent!]}`;
 
   if (hub.online(task.worker)) return `${started}.`;
+
+  if (hub.machine(task.worker)?.facts?.kind === "cloud") return `${started} (asleep: it wakes for the task in a minute or two).`;
 
   const waiting = machines.some((m) => m.name === task.worker)
     ? `offline: it starts when ${task.worker} connects`

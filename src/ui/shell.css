@@ -918,6 +918,24 @@
   min-width: 0;
 }
 
+.github-repos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0 0 8px 15px;
+  padding: 0;
+  border: 0;
+}
+
+.github-repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
 .machine[data-state="off"] .machine-name,
 .machine[data-state="paused"] .machine-name {
   color: var(--muted);

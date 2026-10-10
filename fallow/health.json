@@ -1,6 +1,11 @@
 {
   "kind": "health",
   "finding_counts": {
+    "cli/image.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "public/sw.js": {
       "crap_moderate": {
         "count": 3
@@ -11,9 +16,17 @@
         "count": 1
       }
     },
-    "src/machines.ts": {
-      "crap_moderate": {
+    "src/github.ts": {
+      "complexity_moderate": {
         "count": 1
+      }
+    },
+    "src/machines.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
       }
     },
     "src/server.ts": {
@@ -107,12 +120,17 @@
         "count": 3
       },
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
     "src/ui/Soul.tsx": {
       "crap_moderate": {
         "count": 2
+      }
+    },
+    "src/ui/Subscriptions.tsx": {
+      "crap_high": {
+        "count": 1
       }
     },
     "src/ui/Thread.tsx": {
@@ -231,6 +249,24 @@
         "count": 1
       }
     },
+    "test/fakes/container.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "test/fakes/git.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/fakes/registry.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "test/gate-live.ts": {
       "crap_moderate": {
         "count": 1
@@ -322,23 +358,25 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
+    "src/ui/open-chat.ts:high impact",
     "src/ui/turns.ts:complexity",
     "src/ui/blob-catalog.ts:dead code",
-    "src/ui/Thread.tsx:complexity",
+    "cli/runner/commands.ts:high impact",
     "src/tool-labels.ts:high impact",
+    "src/ui/Thread.tsx:complexity",
     "src/ui/ToolRow.tsx:untested risk",
     "src/ui/bloub/skins.ts:dead code",
     "src/ui/activity.ts:high impact",
-    "src/ui/open-chat.ts:high impact",
-    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
     "test/harness/client.ts:high impact",
     "src/images.ts:high impact",
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
+    "src/ui/Panel.tsx:complexity",
     "src/ui/bloub/expressions.ts:dead code",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
-    "src/ui/Panel.tsx:complexity",
+    "src/use-pi-session.ts:complexity",
+    "cli/runner/facts.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
     "src/ui/bloub/states.ts:dead code",
-    "src/use-pi-session.ts:complexity",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk",
     "src/subagents.ts:complexity"
   ]

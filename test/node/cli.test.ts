@@ -13,6 +13,7 @@ import * as Cli from "../../cli/ky.ts";
 import { banner, bold } from "../../cli/output.ts";
 import { loadRelease, packOf, type Release, releaseFiles, useRelease } from "../../cli/release.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
+import { type FakeRegistry, fakeRegistry } from "../fakes/registry.ts";
 import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
@@ -184,9 +185,9 @@ describe("ky init and deploy", () => {
     const text = (name: string) => bindings.find((binding) => binding.name === name)?.text;
 
     expect(await readOverlay(ky.overlay)).toEqual(SETTINGS);
-    expect(worker).toMatchObject({ tags: ["ky", "ky-release-r1"], migrationTag: "v2", workersDev: true, modules: ["index.js", "assets/models.js"] });
+    expect(worker).toMatchObject({ tags: ["ky", "ky-release-r1"], migrationTag: "v3", workersDev: true, modules: ["index.js", "assets/models.js"] });
     expect(worker?.migrations).toEqual([
-      { new_tag: "v2", steps: [{ new_sqlite_classes: ["PiAgent"] }, { new_sqlite_classes: ["Vault"] }] }
+      { new_tag: "v3", steps: [{ new_sqlite_classes: ["PiAgent"] }, { new_sqlite_classes: ["Vault"] }, { new_sqlite_classes: ["CloudMachine"] }] }
     ]);
     expect(metadata).toMatchObject({
       compatibility_date: "2026-10-03",
@@ -306,7 +307,7 @@ describe("ky init and deploy", () => {
 
     current = release("r2");
     await upgradeCommand(ky);
-    expect(script()).toMatchObject({ tags: ["ky", "ky-release-r2"], migrationTag: "v2" });
+    expect(script()).toMatchObject({ tags: ["ky", "ky-release-r2"], migrationTag: "v3" });
     expect(script()?.migrations).toHaveLength(1);
     expect(script()?.metadata.migrations).toBeUndefined();
     expect(output).toContain(`ky r2 is live at https://${HOST} (was r1)`);
@@ -314,16 +315,16 @@ describe("ky init and deploy", () => {
 
     const config = release("r3").config;
 
-    const v3 = { tag: "v3", deleted_classes: ["Vault"], transferred_classes: [{ from: "Room", from_script: "old-ky", to: "Room" }] };
+    const v4 = { tag: "v4", deleted_classes: ["Vault"], transferred_classes: [{ from: "Room", from_script: "old-ky", to: "Room" }] };
 
-    current = release("r3", { ...config, migrations: [...(config.migrations ?? []), v3] });
+    current = release("r3", { ...config, migrations: [...(config.migrations ?? []), v4] });
     await deployCommand(ky);
     expect(script()?.migrations.at(-1)).toEqual({
-      old_tag: "v2",
-      new_tag: "v3",
+      old_tag: "v3",
+      new_tag: "v4",
       steps: [{ deleted_classes: ["Vault"], transferred_classes: [{ from: "Room", from_script: "old-ky", to: "Room" }] }]
     });
-    expect(script()?.migrationTag).toBe("v3");
+    expect(script()?.migrationTag).toBe("v4");
     // Where wrangler reads it: the scripts list doesn't carry the migration tag.
     expect(fake.requests).toContain("GET workers/services/ky");
   });
@@ -332,14 +333,14 @@ describe("ky init and deploy", () => {
     const ky = await setUp();
     const config = release("r2").config;
 
-    current = release("r2", { ...config, migrations: [...(config.migrations ?? []), { tag: "v3", deleted_classes: ["Vault"] }] });
+    current = release("r2", { ...config, migrations: [...(config.migrations ?? []), { tag: "v4", deleted_classes: ["Vault"] }] });
     await upgradeCommand(ky);
     current = release("r1");
     const newer = "get a newer ky: `git pull && pnpm compile` in your ky checkout";
 
     expect(await doctor(ky)).toEqual({ code: 1, next: `Next: ${newer}` });
-    expect(checks()).toContain("✗ Release: r2 ran migration v3: this ky (r1) is older than the Worker");
-    await expect(upgradeCommand(ky)).rejects.toThrow(`The Worker ran migration v3, which this release doesn't have: this ky is older than the Worker; ${newer}`);
+    expect(checks()).toContain("✗ Release: r2 ran migration v4: this ky (r1) is older than the Worker");
+    await expect(upgradeCommand(ky)).rejects.toThrow(`The Worker ran migration v4, which this release doesn't have: this ky is older than the Worker; ${newer}`);
   });
 
   it("deploys a release's new bindings to an existing overlay", async () => {
@@ -456,10 +457,11 @@ describe("ky doctor", () => {
       "✓ Bucket: ky-files",
       "✓ Worker: ky",
       "✓ Release: r1",
-      "✓ Migrations: v2",
+      "✓ Migrations: v3",
       `✓ Access for the owner: ${HOST}`,
       "✓ Access bypass: 5 paths",
-      `✓ workers.dev: https://${HOST}`
+      `✓ workers.dev: https://${HOST}`,
+      "✓ Cloud machine: off, so tasks run on your computers: this ky's release has no cloud machine image"
     ]);
 
     account.team = undefined;
@@ -693,6 +695,95 @@ describe("ky teardown", () => {
   });
 });
 
+describe("the cloud machine", () => {
+  let registry: FakeRegistry;
+
+  const container = () => [...account.containerApps.values()][0];
+
+  const binding = (name: string) => script()?.metadata.bindings?.find((each) => each.name === name);
+
+  beforeEach(async () => {
+    registry = await fakeRegistry();
+    process.env.KY_REGISTRY_BASE_URL = registry.url;
+    current = { ...release("r1"), image: registry.source };
+  });
+
+  afterEach(async () => {
+    delete process.env.KY_REGISTRY_BASE_URL;
+    await registry.close();
+  });
+
+  it("is skipped on an account without Workers Paid, and doctor says tasks run on your computers", async () => {
+    const ky = await setUp();
+
+    expect(output).toContain("· Skipping the cloud machine: this account can't run containers: it needs Workers Paid (https://dash.cloudflare.com/acc/workers/plans), and a login with Containers: Edit");
+    expect(script()?.metadata.containers).toBeUndefined();
+    expect(binding("KY_CLOUD")).toBeUndefined();
+    expect(registry.uploads()).toBe(0);
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    expect(checks()).toContain("✓ Cloud machine: off, so tasks run on your computers: this account can't run containers: it needs Workers Paid (https://dash.cloudflare.com/acc/workers/plans), and a login with Containers: Edit");
+  });
+
+  it("copies the image, attaches it to the CloudMachine namespace, rolls out a new one, and goes first on teardown", async () => {
+    account.paid = true;
+    const ky = await setUp();
+    const image = `registry.cloudflare.com/acc/ky-cloud@${registry.manifest}`;
+
+    expect(registry.pushed.get("acc/ky-cloud")?.size).toBe(3);
+    expect(script()?.metadata.containers).toEqual([{ class_name: "CloudMachine" }]);
+    expect(binding("KY_CLOUD")).toMatchObject({ type: "plain_text", text: "1" });
+    expect(container()).toMatchObject({
+      name: "ky-cloud",
+      max_instances: 1,
+      instances: 0,
+      configuration: { image, instance_type: "standard-1" },
+      durable_objects: { namespace_id: "ns-ky-CloudMachine" }
+    });
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    expect(checks()).toContain("✓ Cloud machine: ky-cloud");
+
+    // The same image again: nothing copied, nothing rolled out.
+    fake.requests.splice(0);
+    await deployCommand(ky);
+    expect(registry.uploads()).toBe(3);
+    expect(fake.requests.filter((request) => request.startsWith("PATCH") || request.includes("rollouts"))).toEqual([]);
+    expect(account.containerApps.size).toBe(1);
+
+    // An app on another image: doctor says so, and a deploy rolls this one out.
+    const app = container();
+
+    if (!app) throw new Error("No container app");
+    app.configuration.image = `registry.cloudflare.com/acc/ky-cloud@sha256:${"0".repeat(64)}`;
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky deploy" });
+    await deployCommand(ky);
+    expect(output).toContain("· Rolling out the cloud machine's new image");
+    expect(app.configuration.image).toBe(image);
+    expect(app.rollouts).toEqual([{ image, instance_type: "standard-1" }]);
+
+    account.containerApps.clear();
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky deploy" });
+    expect(checks()).toContain("✗ Cloud machine: no container app");
+    await deployCommand(ky);
+    expect(account.containerApps.size).toBe(1);
+
+    fake.requests.splice(0);
+    expect(await teardownCommand(ky, "ky")).toBe(0);
+    expect(account.containerApps.size).toBe(0);
+    expect(fake.requests.filter((request) => request.startsWith("DELETE")).slice(0, 2).map((request) => request.split("/").slice(0, 2).join("/"))).toEqual([
+      "DELETE containers/applications",
+      "DELETE workers/scripts"
+    ]);
+  });
+
+  it("refuses a release image that isn't pinned on ghcr.io", async () => {
+    account.paid = true;
+    current = { ...release("r1"), image: "docker.io/someone/ky-cloud:latest" };
+
+    await expect(setUp()).rejects.toThrow("isn't one ky copies");
+    expect(script()).toBeUndefined();
+  });
+});
+
 describe("the ky command", () => {
   it("prints a bad flag's message rather than a stack, and help", async () => {
     const ky = await setUp();
@@ -742,6 +833,7 @@ describe("how ky looks", () => {
       "Access team: test.cloudflareaccess.com",
       "Turning on test.workers.dev",
       "Checking the names are free",
+      "Skipping the cloud machine: this ky's release has no cloud machine image",
       "Setting up the bucket",
       "Setting up Access",
       "Uploading the web app",
@@ -754,6 +846,7 @@ describe("how ky looks", () => {
     await upgradeCommand(ky);
     expect(steps()).toEqual([
       "Checking what's in the account",
+      "Skipping the cloud machine: this ky's release has no cloud machine image",
       "Setting up the bucket",
       "Setting up Access",
       "Uploading the web app",

@@ -5,7 +5,7 @@
  * `ky` reads the one `pnpm compile` left in dist/release.
  *
  * On disk and in the pack the layout is the same:
- *   release.json   { version, config }
+ *   release.json   { version, config, image? }
  *   worker/…       the Worker's modules, the config's `main` among them
  *   assets/…       the web app
  *   SKILL.md       `ky skill`
@@ -17,9 +17,10 @@ import type { Unstable_RawConfig } from "wrangler";
 
 /**
  * release.json. `config` is wrangler.jsonc as built: generic, no owner overlay, its `main` the
- * built entry module.
+ * built entry module. `image` is the cloud machine's image, `ghcr.io/…@sha256:…`, from
+ * container/image.digest; a release without one deploys no cloud machine.
  */
-type Manifest = { version: string; config: Unstable_RawConfig };
+type Manifest = { version: string; config: Unstable_RawConfig; image?: string };
 
 export type Release = Manifest & {
   /** Module name (`index.js`, `assets/models-….js`) to content. */

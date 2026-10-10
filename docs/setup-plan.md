@@ -129,7 +129,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 
 | Frame | Fields | Notes |
 |---|---|---|
-| `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt } }`, `expiresAt` in epoch milliseconds. Absent means use the machine's own login. |
+| `run` | `seq, task, turn, prompt, session, agent: "claude"\|"codex", taskToken, creds?` | `creds` is optional per-task credentials: `{ claude?: { oauthToken }, codex?: { accessToken, refreshToken: null, idToken, accountId, expiresAt }, github?: { token } }`, `expiresAt` in epoch milliseconds. Absent means use the machine's own login. `github` (added by CM) goes only to tasks on the cloud machine; being optional, it needs no `PROTOCOL` bump. |
 | `stop` | `seq, task, turn` | |
 | `creds` | `seq, task, codex` | Mid-task Codex token refresh. Sent (added by S) at a runner `hello` when the Vault's login is newer than the one the task was last handed; the runner ignores it for a task that runs on the machine's own login. |
 | `http_request` | `id, port, method, path, headers, body?` | `body` is base64. Only to a port in the runner's `facts.ports`; any other is answered with `http_error`. |
@@ -148,7 +148,8 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | `http_error` | `id, message` | |
 
 **Child process env:** `KY_URL`, `KY_TASK`, `KY_TASK_TOKEN`, plus the agent's own credential when `creds` was sent
-(`CLAUDE_CODE_OAUTH_TOKEN`, or an `auth.json` in a per-task `CODEX_HOME`). The machine token is never in a child's env.
+(`CLAUDE_CODE_OAUTH_TOKEN`, or an `auth.json` in a per-task `CODEX_HOME`), and `GH_TOKEN` when `creds.github` was sent
+(added by CM). The machine token is never in a child's env.
 
 ### C2. HTTP routes
 
@@ -197,7 +198,9 @@ status(): { kind, id, meta, updatedAt, error? }[]          // never secrets; err
 auth(providerId): { apiKey: string; headers?: Record<string,string> } | null   // the ("provider", providerId) secret, which models.ts puts once a test call takes it
 sessionCreds(agent: "claude" | "codex"): Promise<RunCreds[agent] | null>   // async (S); refreshes codex with the internal refresh (below)
 chatgptLogin(): Promise<{ userCode, verificationUrl, loginId }>; chatgptPoll(loginId): "pending" | "done" | { error }
-githubToken(): { token, repos } | null
+githubToken(): GithubLogin | null                           // { token, repos }: the ("github", SUBSCRIPTION) secret, with meta { repos } (built by CM)
+githubRepos(token): { repos } | { refused }                  // added by CM: the repos (owner/name) a token reaches, from GitHub's API
+setGithub(token, repos): { refused? }                        // added by CM: keep the token with the repos picked
 executor(agent): { url, token } | null                       // added by F: the ("executor", agent) secret, with meta { url }
 // tokens: kind = "pair" | "machine" | "task"
 mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256; one live token per (kind, subject), so minting again replaces it
@@ -279,7 +282,8 @@ revokeAll("task", subjects: string[]): void                  // added by T: revo
   - It holds only `account_id`, `name`, `vars` (with `ACCESS_EMAILS`) and `vpc_services`, the keys the overlay
     merges or that are the owner's. Any other key would replace the release's own (overlay arrays replace), so the
     CLI refuses an overlay that sets one, `r2_buckets` and `routes` among them; a custom domain deploys with
-    `pnpm run deploy`. The deployer refuses `containers` until CM.
+    `pnpm run deploy`. The deployer refuses `containers` in the overlay; on Workers Paid it attaches
+    CloudMachine's container itself (changed in CM), from the image named by the release's `release.json` `image`.
   - Every binding is the release's, so a release that changes them reaches every user on `ky upgrade`. Each bucket
     is named from the Worker and its binding, `<name>-<binding>` (`ky-files` for `FILES`); a name R2 won't take
     is refused before anything is written.
@@ -663,6 +667,37 @@ These are the machine flows for ChatGPT and Claude.
   - a script task, a Claude Code task and a Codex task run on `cloud`;
   - one of those tasks sleeps, wakes and resumes;
   - a push to `ky/*` works, and a push to `main` is refused.
+
+- **Built (CM):**
+  - `CloudMachine` (`src/cloud.ts`, migration v3) drives its container through the Durable Object's own
+    `ctx.container` (no `@cloudflare/containers`), behind a `CloudBox` the stack replaces with
+    `test/fakes/container.ts`. `wake(origin)` sets the alarm to now; the alarm, while `PiAgent.cloudBusy()`, starts
+    the container (a fresh machine token from `pairAs`, `KY_URL` from the Setup key `origin`), restores R2
+    `cloud-machine/save.tar.gz`, and pings every 60s; idle for 10 minutes it saves (`POST /save` to R2) and destroys
+    the container. `machines.ts` wakes it when a command waits for `cloud`.
+  - `ky runner cloud` (`cli/runner/cloud.ts`) is the container's entrypoint: an HTTP server on 8080 (`/ping`,
+    `/restore`, `/save`) around the runner; it sets git's `insteadOf` to `http://github.internal/api/git/`.
+  - Image: `container/Dockerfile` (node:22-bookworm-slim, so Debian slim with node, pnpm, bun, git, gh, claude, codex, the released linux `ky`),
+    `.github/workflows/image.yml` pushes `ghcr.io/<owner>/ky-cloud` by digest; `container/image.digest` pins it and
+    `pnpm compile` puts it in `release.json` as `image`. `ky deploy` copies its linux/amd64 manifest into the
+    account registry (`cli/image.ts`), deploys with `containers: [{ class_name: "CloudMachine" }]` and `KY_CLOUD`,
+    then creates the container app (`ky-cloud`, standard-1, at most one instance) or rolls out a new image.
+    Without Workers Paid (`containers/me` refused) it skips the step and `ky doctor` says tasks run on your
+    computers; `ky teardown` deletes the app before the Worker.
+  - GitHub: `src/github.ts` is the `github.internal` proxy (`GithubProxy`, a `WorkerEntrypoint` the container's
+    outbound HTTP is routed to): only the picked repos, pushes only to `refs/heads/ky/*`, the container's own
+    credentials dropped, a rate-limit 403 turned into 429. Settings › Subscriptions has a GitHub row (token, then
+    pick repos).
+- **Contract changes (added by CM):**
+  - C1: `run.creds.github { token }`, only to tasks on `cloud`, given as `GH_TOKEN`; no `PROTOCOL` bump.
+  - C4: `githubToken()` returns `GithubLogin { token, repos }`; `githubRepos(token)` and `setGithub(token, repos)`.
+  - C6: the deployer attaches `containers` and `KY_CLOUD` itself on Workers Paid; `release.json` gains `image`.
+  - Browser socket: `github-repos { token }` answers `{ repos } | { refused }`; `set-github { token, repos }`
+    answers `{ refused? }`. The subscription view gains `repos` (never the token). Subscription kind `github`.
+  - Setup key `origin`: the address a browser last opened ky on, which the cloud runner dials.
+  - `cloud` is a reserved machine name: listed on every deploy with the container, never paired as or removed.
+  - Boundary: `CloudMachine.box()` and `timing()` (the stack's fake container and short timings), the Vault's
+    `github` fetch (`test/fakes/github.ts`), `KY_REGISTRY_BASE_URL` (`test/fakes/registry.ts`).
 
 ### RT. routing-self-edit
 - **Routing:**

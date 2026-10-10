@@ -46,6 +46,11 @@ export function refused(error: unknown): error is CloudflareError {
   return error instanceof CloudflareError && REFUSALS.has(error.tag);
 }
 
+/** Whether Cloudflare answered the call with an error, rather than the call failing to reach it. */
+export function answeredWithError(error: unknown): error is CloudflareError {
+  return error instanceof CloudflareError;
+}
+
 /** What @distilled.cloud/cloudflare fails with: Cloudflare's error, tagged by its code. */
 const Tagged = Type.Object({ _tag: Type.String() });
 

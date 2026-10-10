@@ -24,6 +24,8 @@
  *   [diff]       change a scratch git repository and share it through `ky diff`:
  *                a.ts with one line changed and one added, and a new notes.md
  *   [fail]       the turn ends in an error result
+ *   [sh] COMMAND everything after it runs in a shell in the task's directory, and
+ *                the answer ends with its exit code and output
  *   [tools=Bash:pnpm test,Edit:src/x.ts]
  *                the assistant message also uses these tools, each with its
  *                one argument (Bash's command, a file tool's path)
@@ -34,17 +36,21 @@
  *                      the token
  * FAKE_CLAUDE_SIGINT_MS on SIGINT, stop reading and exit after this long
  *                      (default 0), as Claude Code takes a moment to shut down
+ * FAKE_CLAUDE_SESSIONS keep each session as Claude Code does, in
+ *                      ~/.claude/projects/fake/<session>.jsonl, and refuse to
+ *                      --resume one that isn't there, exiting 1 as Claude Code
+ *                      does: the cloud machine must bring its sessions back
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { attach, pause, toolsIn } from "./directives.ts";
+import { attach, pause, shell, toolsIn } from "./directives.ts";
 
 const UserLine = Type.Object({
   type: Type.Literal("user"),
@@ -138,9 +144,12 @@ async function diff(): Promise<string> {
 
 /** What `[attach]` and `[diff]` shared, as the lines the turn's answer ends with. */
 async function share(prompt: string): Promise<string> {
+  const ran = await shell(prompt);
+
   const lines = [
     ...(prompt.includes("[attach]") ? [await attach()] : []),
-    ...(prompt.includes("[diff]") ? [await diff()] : [])
+    ...(prompt.includes("[diff]") ? [await diff()] : []),
+    ...(ran === undefined ? [] : [ran])
   ];
 
   return lines.map((line) => `\n${line}`).join("");
@@ -205,6 +214,20 @@ record("start", {
   token: handed === undefined ? "" : createHash("sha256").update(handed).digest("hex").slice(0, 12),
   ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
 });
+
+if (process.env.FAKE_CLAUDE_SESSIONS) {
+  const sessions = join(homedir(), ".claude", "projects", "fake");
+  const kept = join(sessions, `${session}.jsonl`);
+
+  if (resume !== undefined && !existsSync(kept)) {
+    record("exit", { code: 1 });
+    process.stderr.write(`No conversation found with session ID: ${resume}\n`);
+    process.exit(1);
+  }
+
+  mkdirSync(sessions, { recursive: true });
+  appendFileSync(kept, `${JSON.stringify({ type: "start", at: Date.now() })}\n`);
+}
 
 emit({ type: "system", subtype: "init" });
 

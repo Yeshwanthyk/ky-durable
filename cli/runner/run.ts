@@ -43,6 +43,10 @@ export type RunOptions = {
   ky: string[];
   /** Run by launchd or systemd: a refusal exits 0, so the service is not started again only to be refused. */
   service: boolean;
+  /** What the runner says it is: one of the user's computers, or ky's cloud machine (`ky runner cloud`). */
+  kind?: MachineFacts["kind"];
+  /** Stops the runner: its tasks are interrupted, its socket closes and it doesn't reconnect; runRunner then returns. */
+  stop?: AbortSignal;
 };
 
 function log(...parts: unknown[]) {
@@ -60,7 +64,7 @@ export function checkoutVersion(): string {
 const disconnected = (code: number | undefined, reason: string) => `disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""})`;
 
 /** Runs the runner until ky turns it away, or a signal ends it. */
-export async function runRunner({ settings, token, state, version, ky, service }: RunOptions): Promise<void> {
+export async function runRunner({ settings, token, state, version, ky, service, kind = "computer", stop }: RunOptions): Promise<void> {
   const { url, name: machine, workdir } = settings;
   const claude = process.env.KY_CLAUDE ?? "claude";
   const codex = process.env.KY_CODEX ?? "codex";
@@ -92,7 +96,7 @@ export async function runRunner({ settings, token, state, version, ky, service }
       work.sweepCodexHomes();
     }
 
-    return { os: process.platform, chrome: settings.chrome, repos: repos.value, agents: { claude: shared("claude"), codex: shared("codex") }, ports: settings.ports, kind: "computer" };
+    return { os: process.platform, chrome: settings.chrome, repos: repos.value, agents: { claude: shared("claude"), codex: shared("codex") }, ports: settings.ports, kind };
   };
 
   const runner = new Runner(
@@ -172,7 +176,7 @@ export async function runRunner({ settings, token, state, version, ky, service }
 
     // Once per socket: Node fires only `error`, never `close`, when a connect fails.
     const lost = async (code: number | undefined, reason = "") => {
-      if (socket !== ws) return;
+      if (socket !== ws || stop?.aborted) return;
       socket = undefined;
       runner.closed(link);
 
@@ -204,7 +208,7 @@ export async function runRunner({ settings, token, state, version, ky, service }
   };
 
   // Keep the socket alive through idle proxies.
-  setInterval(() => runner.keepalive(), 30_000);
+  const keepalive = setInterval(() => runner.keepalive(), 30_000);
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
@@ -220,6 +224,20 @@ export async function runRunner({ settings, token, state, version, ky, service }
   // The first hello waits for the first answers, so it does not say signed out of a machine that is not.
   await Promise.all(Object.values(agents).map((agent) => agent.refresh()));
 
+  if (stop?.aborted) {
+    clearInterval(keepalive);
+
+    return;
+  }
+
   connect();
-  await new Promise(() => {});
+  await new Promise<void>((resolve) => {
+    stop?.addEventListener("abort", () => {
+      clearInterval(keepalive);
+      runner.shutdown();
+      socket?.close();
+      say("stopped", "asked to stop");
+      resolve();
+    });
+  });
 }

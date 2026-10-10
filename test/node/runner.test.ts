@@ -1,7 +1,9 @@
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Context } from "../../cli/commands.ts";
@@ -265,5 +267,95 @@ describe("ky attach and ky diff", () => {
     expect(await run(["attach", "shot.png"])).toBe(1);
     expect(await run(["diff"])).toBe(1);
     expect(printed).toEqual(["ky: run this inside a ky task", "ky: run this inside a ky task"]);
+  });
+});
+
+describe("ky runner cloud", () => {
+  const KY = [process.execPath, "--experimental-strip-types", "--no-warnings", path.join(REPO, "cli/main.ts"), "runner", "cloud"];
+
+  /** `ky runner cloud` in a fresh home, as the container's entrypoint runs it, and its port. */
+  async function cloud(env: NodeJS.ProcessEnv): Promise<{ home: string; port: number; child: ChildProcess; output: () => string }> {
+    const home = await mkdtemp(path.join(tmpdir(), "ky-cloud-test-"));
+
+    const port = await new Promise<number>((resolve) => {
+      const probe = createServer().listen(0, "127.0.0.1", () => {
+        // SAFETY: a server listening on a TCP port has an AddressInfo address.
+        const { port: free } = probe.address() as AddressInfo;
+        probe.close(() => resolve(free));
+      });
+    });
+
+    const child = spawn(KY[0]!, KY.slice(1), {
+      cwd: home,
+      env: { PATH: process.env.PATH, HOME: home, KY_URL: ours.url, KY_CLOUD_PORT: String(port), KY_RUNNER_PORTS: "", ...env },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let output = "";
+
+    child.stdout?.on("data", (chunk: Buffer) => (output += chunk));
+    child.stderr?.on("data", (chunk: Buffer) => (output += chunk));
+    cleanups.push(async () => {
+      child.kill("SIGKILL");
+      await rm(home, { recursive: true, force: true });
+    });
+
+    return { home, port, child, output: () => output };
+  }
+
+  const cleanups: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  it("refuses to run without the token the cloud machine passes", async () => {
+    const { child, output } = await cloud({});
+    const code = await new Promise((resolve) => child.on("exit", resolve));
+
+    expect(code).not.toBe(0);
+    expect(output()).toContain("KY_RUNNER_TOKEN");
+  });
+
+  it("restores the last save before it runs, and saves sessions and work trees but not node_modules", async () => {
+    const { home, port, output } = await cloud({ KY_RUNNER_TOKEN: TOKEN, KY_GITHUB_PROXY: "http://proxy.test/api/git/" });
+    const at = (route: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${route}`, init);
+    const ping = async () => (await at("/ping")).text();
+
+    for (let i = 0; i < 100; i++) {
+      if (await ping().catch(() => undefined)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(await ping(), output()).toBe("waiting");
+
+    // What a last sleep saved: a Claude Code session, and a work tree with its dependencies.
+    const last = await mkdtemp(path.join(tmpdir(), "ky-cloud-save-"));
+    cleanups.push(() => rm(last, { recursive: true, force: true }));
+    await mkdir(path.join(last, ".claude", "projects", "fake"), { recursive: true });
+    await writeFile(path.join(last, ".claude", "projects", "fake", "s-1.jsonl"), "{}\n");
+    await mkdir(path.join(last, "ky-work", "app", "node_modules", "dep"), { recursive: true });
+    await writeFile(path.join(last, "ky-work", "app", "README.md"), "# app\n");
+    await writeFile(path.join(last, "ky-work", "app", "node_modules", "dep", "index.js"), "");
+    execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", "ky-work"]);
+
+    expect((await at("/restore", { method: "PUT", body: await readFile(path.join(last, "save.tar.gz")) })).status).toBe(204);
+    expect(await ping()).toBe("running");
+    expect(await readFile(path.join(home, ".claude", "projects", "fake", "s-1.jsonl"), "utf8")).toBe("{}\n");
+    expect((await at("/restore", { method: "PUT", body: "" })).status).toBe(409);
+    // git reaches github.com through the proxy, set in the container's home.
+    expect(execFileSync("git", ["config", "--file", path.join(home, ".gitconfig"), "--get", "url.http://proxy.test/api/git/.insteadof"], { encoding: "utf8" }).trim()).toBe(
+      "https://github.com/"
+    );
+
+    const save = await at("/save", { method: "POST" });
+    expect(save.status).toBe(200);
+    expect(await ping()).toBe("stopped");
+    await writeFile(path.join(last, "next.tar.gz"), Buffer.from(await save.arrayBuffer()));
+    const listed = execFileSync("tar", ["-tzf", path.join(last, "next.tar.gz")], { encoding: "utf8" }).split("\n");
+
+    expect(listed).toContain(".claude/projects/fake/s-1.jsonl");
+    expect(listed).toContain("ky-work/app/README.md");
+    expect(listed.some((entry) => entry.includes("node_modules"))).toBe(false);
   });
 });

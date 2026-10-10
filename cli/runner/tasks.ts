@@ -202,8 +202,17 @@ export function tasks(config: TaskConfig) {
 
     const child: ChildProcessWithoutNullStreams = spawn(command, args, {
       cwd: config.workdir,
-      // C1's env, for either agent: where ky is, which task this is, and the task's own token.
-      env: { ...outsideEnv(), ...env, KY_URL: config.url, KY_TASK: task, KY_TASK_TOKEN: taskToken, PATH: `${bin}:${process.env.PATH ?? ""}` }
+      // C1's env, for either agent: where ky is, which task this is, and the task's own token; on the
+      // cloud machine, ky's GitHub token for `gh`.
+      env: {
+        ...outsideEnv(),
+        ...env,
+        ...(creds?.github && { GH_TOKEN: creds.github.token }),
+        KY_URL: config.url,
+        KY_TASK: task,
+        KY_TASK_TOKEN: taskToken,
+        PATH: `${bin}:${process.env.PATH ?? ""}`
+      }
     });
 
     createInterface({ input: child.stdout }).on("line", (line) => events.line(line));

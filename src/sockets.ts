@@ -447,6 +447,7 @@ export class PiSessionSockets {
 
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
+    this.#setup.opened(ctx.request.url);
     send(connection, {
       type: "hello",
       session,
@@ -723,6 +724,10 @@ export class PiSessionSockets {
 
       case "set-claude":
         return await this.#subscriptions.setClaude(message.token);
+      case "github-repos":
+        return await this.#subscriptions.githubRepos(message.token);
+      case "set-github":
+        return await this.#subscriptions.setGithub(message.token, message.repos);
       case "remove-subscription":
         await this.#subscriptions.remove(message.kind);
 

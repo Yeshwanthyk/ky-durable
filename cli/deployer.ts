@@ -13,15 +13,18 @@
  */
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
+import * as Containers from "@distilled.cloud/cloudflare/containers";
+import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
-import { type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
+import { answeredWithError, type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
 import { emails } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
+import { copyImage, imageDigest, TARGET } from "./image.ts";
 import type { Release } from "./release.ts";
 
 /** The tag every Worker and Access app the CLI makes carries, and the one that names a Worker's release. */
@@ -55,11 +58,21 @@ const DEPLOYS = new Set([
 ]);
 
 /** Why a key wrangler.jsonc may hold isn't deployed here. */
-const REFUSED = new Map([
-  // CM: the cloud machine's Container app deploys here, after the script, from its namespace, and
-  // teardown removes it before the Worker.
-  ["containers", "Container apps arrive with the cloud machine"]
-]);
+const REFUSED = new Map([["containers", "the deployer attaches the cloud machine's container itself, on an account with Workers Paid"]]);
+
+/** The Durable Object class the cloud machine's container backs. */
+const CLOUD_CLASS = "CloudMachine";
+
+/** The repository in the account's registry the cloud machine's image is copied to. */
+const CLOUD_REPOSITORY = "ky-cloud";
+
+/** The cloud machine's size: half a vCPU, 4 GiB and 8 GB of disk. */
+const CLOUD_INSTANCE = "standard-1";
+
+/** Where the user moves the account to Workers Paid. */
+function plansPage(accountId: string): string {
+  return `https://dash.cloudflare.com/${accountId}/workers/plans`;
+}
 
 type Binding = Workers.PutScriptBinding;
 
@@ -133,7 +146,8 @@ function names(config: Unstable_RawConfig) {
     script,
     access: script,
     bypass: `${script} bypass`,
-    buckets: (config.r2_buckets ?? []).map((bucket) => ({ binding: bucket.binding, name: bucketFor(script, bucket.binding) }))
+    buckets: (config.r2_buckets ?? []).map((bucket) => ({ binding: bucket.binding, name: bucketFor(script, bucket.binding) })),
+    cloud: `${script}-cloud`
   };
 }
 
@@ -425,6 +439,103 @@ async function ensureBuckets(cloudflare: Cloudflare, name: Names): Promise<void>
   }
 }
 
+/** Whether the account runs containers: Workers Paid, and a login that may use them. */
+async function runsContainers(cloudflare: Cloudflare, accountId: string): Promise<boolean> {
+  try {
+    await cloudflare.run(Containers.getContainerIdentity({ accountId }));
+
+    return true;
+  } catch (error) {
+    if (!answeredWithError(error)) throw error;
+
+    return false;
+  }
+}
+
+/** Whether the cloud machine deploys: the release has its image, and the account runs containers. */
+async function cloudState(cloudflare: Cloudflare, accountId: string, release: Release): Promise<{ image: string } | { off: string }> {
+  if (!release.image) return { off: "this ky's release has no cloud machine image" };
+
+  if (!(await runsContainers(cloudflare, accountId)))
+    return { off: `this account can't run containers: it needs Workers Paid (${plansPage(accountId)}), and a login with Containers: Edit` };
+
+  return { image: release.image };
+}
+
+/** The cloud machine's Durable Object namespace, once the Worker has run migration v3. */
+async function cloudNamespace(cloudflare: Cloudflare, name: Names): Promise<string | undefined> {
+  const namespaces = await cloudflare.list(DurableObjects.listNamespaces.items({ accountId: name.account }));
+
+  return namespaces.find((namespace) => namespace.script === name.script && namespace.class === CLOUD_CLASS)?.id ?? undefined;
+}
+
+/** The container app that backs the Worker's cloud machine; undefined when there's none, or the account runs no containers. */
+async function cloudApp(cloudflare: Cloudflare, name: Names) {
+  if (!(await runsContainers(cloudflare, name.account))) return undefined;
+  const namespaceId = await cloudNamespace(cloudflare, name);
+
+  if (!namespaceId) return undefined;
+
+  return (await cloudflare.run(Containers.listContainerApplications({ accountId: name.account }))).find((app) => app.durableObjects?.namespaceId === namespaceId);
+}
+
+/** A short-lived login to the account's registry, to push the image with. */
+async function registryLogin(cloudflare: Cloudflare, accountId: string) {
+  const credential = await cloudflare.run(
+    Containers.createContainerRegistryCredentials({ accountId, registryId: TARGET, permissions: ["pull", "push"], expirationMinutes: 15 })
+  );
+
+  const username = credential.username ?? credential.user;
+
+  if (!username) throw new Error("Cloudflare returned no registry login");
+
+  return { username, password: credential.password };
+}
+
+/** Attaches the image to the cloud machine's namespace: a new container app, or a rollout of the one there. */
+async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string, say: (step: string) => void): Promise<void> {
+  const accountId = name.account;
+  const namespaceId = await cloudNamespace(cloudflare, name);
+
+  if (!namespaceId) throw new Error(`Cloudflare made no ${CLOUD_CLASS} namespace for ${name.script}`);
+  const configuration = { image, instanceType: CLOUD_INSTANCE };
+  const app = (await cloudflare.run(Containers.listContainerApplications({ accountId }))).find((each) => each.durableObjects?.namespaceId === namespaceId);
+
+  if (!app) {
+    say("Setting up the cloud machine");
+    await cloudflare.run(
+      Containers.createContainerApplication({
+        accountId,
+        name: name.cloud,
+        // One cloud machine per deploy; it starts when a task wakes it.
+        maxInstances: 1,
+        instances: 0,
+        schedulingPolicy: "default",
+        constraints: {},
+        configuration,
+        durableObjects: { namespaceId }
+      })
+    );
+
+    return;
+  }
+
+  if (app.configuration.image === image) return;
+  say("Rolling out the cloud machine's new image");
+  await cloudflare.run(Containers.updateContainerApplication({ accountId, applicationId: app.id, configuration }));
+  await cloudflare.run(
+    Containers.createContainerApplicationRollout({
+      accountId,
+      applicationId: app.id,
+      description: "ky deploy",
+      strategy: "rolling",
+      kind: "full_auto",
+      stepPercentage: 100,
+      targetConfiguration: configuration
+    })
+  );
+}
+
 /**
  * Deploys the release: buckets, the Access apps, the web app, then the Worker with its bindings,
  * the migrations it hasn't run and `ACCESS_*`; then workers.dev.
@@ -439,6 +550,13 @@ export async function deploy(target: Target, release: Release, say: (step: strin
   if (!team) throw new Error(`Zero Trust isn't on for this account: turn it on at ${zeroTrustPage(accountId)} (the free plan is enough), then run \`ky deploy\``);
   const { script, address } = await claim(target);
   const applied = script && (await migrationTag(cloudflare, accountId, name.script));
+  const cloud = await cloudState(cloudflare, accountId, release);
+  let image: string | undefined;
+
+  if ("image" in cloud) {
+    say("Copying the cloud machine's image");
+    image = await copyImage({ source: cloud.image, account: accountId, repository: CLOUD_REPOSITORY, login: await registryLogin(cloudflare, accountId) });
+  } else say(`Skipping the cloud machine: ${cloud.off}`);
 
   say("Setting up the bucket");
   await ensureBuckets(cloudflare, name);
@@ -461,7 +579,13 @@ export async function deploy(target: Target, release: Release, say: (step: strin
           jwt,
           config: { notFoundHandling: config.assets?.not_found_handling, runWorkerFirst: config.assets?.run_worker_first }
         },
-        bindings: bindings(config, name.buckets, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }),
+        bindings: bindings(config, name.buckets, {
+          ACCESS_TEAM_DOMAIN: team,
+          ACCESS_AUD: aud,
+          ACCESS_EMAILS: allowed.join(","),
+          ...(image && { KY_CLOUD: "1" })
+        }),
+        containers: image ? [{ className: CLOUD_CLASS }] : undefined,
         keepBindings: ["secret_text"],
         migrations: pendingMigrations(config.migrations ?? [], applied),
         observability: config.observability ? { enabled: config.observability.enabled ?? false } : undefined,
@@ -470,6 +594,8 @@ export async function deploy(target: Target, release: Release, say: (step: strin
       files: [...release.modules].map(([module, content]) => new File([Buffer.from(content)], module, { type: "application/javascript+module" }))
     })
   );
+
+  if (image) await ensureCloudApp(cloudflare, name, image, say);
 
   say("Turning on workers.dev");
   await cloudflare.run(Workers.createScriptSubdomain({ accountId, scriptName: name.script, enabled: true, previewsEnabled: false }));
@@ -576,6 +702,23 @@ async function inspectWorker(target: Target, release: Release, script: Script, a
   const workersDev = await cloudflare.run(Workers.getScriptSubdomain({ accountId, scriptName: name.script }));
 
   check({ name: "workers.dev", ok: workersDev.enabled, detail: workersDev.enabled ? `https://${address}` : "off", next: "ky deploy" });
+  check(await cloudCheck(cloudflare, name, release));
+}
+
+/** Whether the cloud machine runs this release's image; on an account without containers, why it's off, which is fine. */
+async function cloudCheck(cloudflare: Cloudflare, name: Names, release: Release): Promise<Check> {
+  const cloud = await cloudState(cloudflare, name.account, release);
+
+  if (!("image" in cloud)) return { name: "Cloud machine", ok: true, detail: `off, so tasks run on your computers: ${cloud.off}` };
+  const app = await cloudApp(cloudflare, name);
+
+  if (!app) return { name: "Cloud machine", ok: false, detail: "no container app", next: "ky deploy" };
+
+  // The release names an image (or an index of them); the account's copy goes by its linux/amd64 manifest.
+  if (!app.configuration.image.endsWith(`@${await imageDigest(cloud.image)}`))
+    return { name: "Cloud machine", ok: false, detail: `runs ${app.configuration.image}, not this ky's ${cloud.image}`, next: "ky deploy" };
+
+  return { name: "Cloud machine", ok: true, detail: name.cloud };
 }
 
 /** Whether the Worker runs this ky's release and its migrations; a Worker past them is newer than this ky. */
@@ -687,6 +830,14 @@ export async function teardown(target: Target, say: (step: string) => void): Pro
       `A Worker named ${name.script} is in this account and ky didn't deploy it, so ky teardown leaves it alone, with its Access apps and buckets; delete ${settings} to forget these settings`
     );
 
+  // The container app first: it holds on to the Worker's namespace.
+  const app = script && (await cloudApp(cloudflare, name));
+
+  if (app) {
+    say("Removing the cloud machine");
+    await cloudflare.find(Containers.deleteContainerApplication({ accountId, applicationId: app.id }), "ContainerApplicationNotFound");
+  }
+
   if (script) {
     say("Removing the Worker and its data");
     await cloudflare.run(Workers.deleteScript({ accountId, scriptName: name.script, force: true }));
@@ -723,8 +874,13 @@ export async function leftovers(target: Target): Promise<string[]> {
   const worker = await existing(target.cloudflare, name.account, name.script);
   const { apps, buckets } = await removable(target);
 
+  const containers = (await runsContainers(target.cloudflare, name.account))
+    ? (await target.cloudflare.run(Containers.listContainerApplications({ accountId: name.account }))).filter((app) => app.name === name.cloud)
+    : [];
+
   return [
     ...(worker ? [`Worker ${name.script}`] : []),
+    ...containers.map((app) => `Container app ${app.name}`),
     ...buckets.map((bucket) => `Bucket ${bucket}`),
     ...apps.map((app) => `Access app ${app.name}`)
   ];

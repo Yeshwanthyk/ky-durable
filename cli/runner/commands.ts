@@ -1,5 +1,5 @@
 /**
- * `ky runner add|run|ls|status|logs|rm`, and `ky attach` and `ky diff`, which tasks run. Each
+ * `ky runner add|run|ls|status|logs|rm|cloud`, and `ky attach` and `ky diff`, which tasks run. Each
  * takes the run's context, whose `system` the tests replace with a temporary home and fakes of
  * `security`, `launchctl` and `systemctl`.
  */
@@ -11,6 +11,7 @@ import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/runner-pro
 import type { Context } from "../commands.ts";
 import { bold, cancelled, dim, green, type Output, output, red, terminal } from "../output.ts";
 import { ASK, type AgentFacts, repoFolders, scanRepos } from "./facts.ts";
+import { cloudCommand } from "./cloud.ts";
 import { checkoutVersion, runRunner, type Status, statusFile } from "./run.ts";
 import { logFile, service } from "./service.ts";
 import { kyUrl, LOCAL_SERVERS, machineName, readSettings, removeSettings, type Settings, settingsFile, withEnv, writeSettings } from "./settings.ts";
@@ -343,7 +344,9 @@ export async function runnerCommand(context: Context, positionals: string[], fla
     ["ls", () => lsCommand(context)],
     ["status", () => statusCommand(context, flags.json ?? false)],
     ["logs", () => logsCommand(context, flags.follow ?? false)],
-    ["rm", () => rmCommand(context)]
+    ["rm", () => rmCommand(context)],
+    // The cloud machine's container runs this; nothing else does.
+    ["cloud", () => cloudCommand(context)]
   ]);
 
   const run = commands.get(command ?? "");

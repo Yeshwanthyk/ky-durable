@@ -1,5 +1,6 @@
+import { CLOUD } from "./cloud-facts";
 import { upload } from "./files";
-import { isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
+import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
 
 /**
  * Runners' routes. A machine pairs once with a code the user makes in ky,
@@ -88,28 +89,40 @@ async function pair(request: Request, env: Env): Promise<Response> {
 
   if (!isMachineFacts(body.facts)) return new Response("facts is not what a runner says about its machine.", { status: 400 });
 
+  if (body.name === CLOUD) return new Response(`${CLOUD} is ky's own cloud machine; pick another name.`, { status: 409 });
+
   if ((await vault(env).consume("pair", body.code)) === null) {
     return new Response("That code is wrong, used or expired. Make a new one in ky.", { status: 401 });
   }
 
+  const token = await pairAs(env, body.name, body.facts);
+
+  return Response.json({ machine: body.name, token });
+}
+
+/**
+ * Pair `machine` as a new pairing and return its token. The pair route does it for a runner's
+ * code; the CloudMachine for itself, each time it starts its container.
+ */
+export async function pairAs(env: Env, machine: string, facts: MachineFacts): Promise<string> {
   // Minted before the agent takes the pairing, so whichever pairing replaces this one finds its token to revoke,
   // even a pairing of the same name racing this one. From the agent's write on, the name's last token opens nothing.
   const pairing = crypto.randomUUID();
-  const subject = machineSubject(body.name, pairing);
+  const subject = machineSubject(machine, pairing);
   const token = await vault(env).mint("machine", subject);
   let previous: string | null;
 
   try {
-    previous = await agent(env).pairMachine(body.name, body.facts, pairing);
+    previous = await agent(env).pairMachine(machine, facts, pairing);
   } catch (error) {
     // No pairing has this token, so nothing else would revoke it.
     await vault(env).revoke("machine", subject);
     throw error;
   }
 
-  if (previous !== null) await vault(env).revoke("machine", machineSubject(body.name, previous));
+  if (previous !== null) await vault(env).revoke("machine", machineSubject(machine, previous));
 
-  return Response.json({ machine: body.name, token });
+  return token;
 }
 
 /** Runners' routes that take their own tokens, never the user's sign-in; undefined for any other path. */
@@ -147,6 +160,8 @@ async function newCode(env: Env): Promise<Response> {
 /** Forget the machine, then revoke its token: its socket closes, and its runner must pair again. */
 async function remove(env: Env, machine: string): Promise<Response> {
   if (!isMachineName(machine)) return new Response("Not found", { status: 404 });
+
+  if (machine === CLOUD) return new Response(`${CLOUD} comes with ky's deploy, and stays while the deploy does.`, { status: 409 });
   const removed = await agent(env).removeMachine(machine);
 
   if (!removed) return new Response(`No machine ${machine}.`, { status: 404 });

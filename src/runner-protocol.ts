@@ -59,10 +59,12 @@ const CodexCredsSchema = Type.Object({
 /**
  * Per-task credentials, handed only to that task's agent: `claude` gets
  * CLAUDE_CODE_OAUTH_TOKEN. Absent, the task uses the machine's own login.
+ * `github` goes only to tasks on the cloud machine, as GH_TOKEN for `gh`.
  */
 const RunCredsSchema = Type.Object({
   claude: Type.Optional(Type.Object({ oauthToken: Text })),
-  codex: Type.Optional(CodexCredsSchema)
+  codex: Type.Optional(CodexCredsSchema),
+  github: Type.Optional(Type.Object({ token: Text }))
 });
 
 const Headers = Type.Record(Type.String(), Type.String());

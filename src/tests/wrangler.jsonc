@@ -20,18 +20,22 @@
   "vars": {
     "ACCESS_TEAM_DOMAIN": "ky-test.cloudflareaccess.com",
     "ACCESS_AUD": "ky-test-aud",
-    "ACCESS_EMAILS": "owner@ky.test"
+    "ACCESS_EMAILS": "owner@ky.test",
+    // The cloud machine is on; its container is a fake host (test/fakes/container.ts).
+    "KY_CLOUD": "1"
   },
   // Pairing is open to anyone: at most 10 attempts a minute from one address (src/runners.ts).
   "ratelimits": [{ "name": "PAIR_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
   "durable_objects": {
     "bindings": [
       { "name": "PiAgent", "class_name": "PiAgent" },
-      { "name": "Vault", "class_name": "Vault" }
+      { "name": "Vault", "class_name": "Vault" },
+      { "name": "CloudMachine", "class_name": "CloudMachine" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PiAgent"] },
-    { "tag": "v2", "new_sqlite_classes": ["Vault"] }
+    { "tag": "v2", "new_sqlite_classes": ["Vault"] },
+    { "tag": "v3", "new_sqlite_classes": ["CloudMachine"] }
   ]
 }

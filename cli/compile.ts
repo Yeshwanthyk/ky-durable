@@ -5,6 +5,7 @@
  * this runs on macOS.
  */
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { experimental_readRawConfig } from "wrangler";
@@ -25,6 +26,13 @@ const config = experimental_readRawConfig({ config: path.join(REPO, "wrangler.js
 
 const built: { main: string } = JSON.parse(await readFile(path.join(BUILT, "wrangler.json"), "utf8"));
 
+// The cloud machine's image, as .github/workflows/image.yml published it: the file's first line that isn't a comment.
+const digestFile = path.join(REPO, "container/image.digest");
+
+const image = existsSync(digestFile)
+  ? (await readFile(digestFile, "utf8")).split("\n").map((line) => line.trim()).find((line) => line !== "" && !line.startsWith("#"))
+  : undefined;
+
 const version = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
 
 // What the web app's build marks as never served: the resolved config and .dev.vars.
@@ -34,7 +42,7 @@ await rm(CHECKOUT, { recursive: true, force: true });
 
 await mkdir(CHECKOUT, { recursive: true });
 
-await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify({ version, config: { ...config, main: built.main } }, null, 2));
+await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify({ version, config: { ...config, main: built.main }, image }, null, 2));
 
 await writeFile(path.join(CHECKOUT, "SKILL.md"), await readFile(path.join(import.meta.dirname, "SKILL.md")));
 

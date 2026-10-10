@@ -15,7 +15,6 @@
     "unused-export:src/files.ts:FILE_TYPES",
     "unused-export:src/files.ts:MAX_FILE_BYTES",
     "unused-export:src/memory.ts:cover",
-    "unused-export:src/settings.ts:SLOTS",
     "unused-export:src/titles.ts:clean",
     "unused-export:src/ui/ToolRow.tsx:phrase",
     "unused-export:src/ui/blob-catalog.ts:AUTOMATIC_BLOB_VARIANTS",
@@ -36,19 +35,13 @@
     "unused-export:tools/oxlint/anti-slop/shared/dictionary-types.ts:isPopulatedObjectExpression"
   ],
   "unused_types": [
-    "unused-type:src/machines.ts:RunnerCommand",
-    "unused-type:src/protocol.ts:ModelOption",
-    "unused-type:src/protocol.ts:ProviderInfo",
     "unused-type:src/protocol.ts:TranscriptMessage",
     "unused-type:src/protocol.ts:TranscriptPart",
-    "unused-type:src/runner-protocol.ts:CodexCreds",
-    "unused-type:src/ui/bloub/math.ts:Easing",
-    "unused-type:src/use-pi-session.ts:ConnectionStatus"
+    "unused-type:src/ui/bloub/math.ts:Easing"
   ],
   "private_type_leaks": [],
   "deprecated_exports_in_use": [],
   "unused_dependencies": [
-    "unused-dependency:package.json:@earendil-works/chord",
     "unused-dependency:package.json:@earendil-works/pi-telemetry",
     "unused-dependency:package.json:@platformatic/vfs"
   ],
@@ -59,6 +52,9 @@
   "unused_optional_dependencies": [],
   "unused_enum_members": [],
   "unused_class_members": [
+    "unused-class-member:src/cloud.ts:CloudMachine:alarm",
+    "unused-class-member:src/cloud.ts:CloudMachine:wake",
+    "unused-class-member:src/github.ts:GithubProxy:fetch",
     "unused-class-member:src/sockets.ts:PiSessionSockets:close",
     "unused-class-member:src/ui/bloub/engine.ts:BotEngine:reset",
     "unused-class-member:src/ui/bloub/engine.ts:BotEngine:sample",
@@ -70,19 +66,16 @@
     "unused-class-member:src/vault.ts:Vault:alarm",
     "unused-class-member:src/vault.ts:Vault:auth",
     "unused-class-member:src/vault.ts:Vault:chatgptLogin",
-    "unused-class-member:src/vault.ts:Vault:chatgptPoll",
     "unused-class-member:src/vault.ts:Vault:check",
     "unused-class-member:src/vault.ts:Vault:consume",
     "unused-class-member:src/vault.ts:Vault:executor",
     "unused-class-member:src/vault.ts:Vault:githubToken",
     "unused-class-member:src/vault.ts:Vault:issue",
-    "unused-class-member:src/vault.ts:Vault:mint",
-    "unused-class-member:src/vault.ts:Vault:put",
-    "unused-class-member:src/vault.ts:Vault:refresh",
     "unused-class-member:src/vault.ts:Vault:remove",
     "unused-class-member:src/vault.ts:Vault:revoke",
     "unused-class-member:src/vault.ts:Vault:revokeAll",
     "unused-class-member:src/vault.ts:Vault:sessionCreds",
+    "unused-class-member:src/vault.ts:Vault:setGithub",
     "unused-class-member:src/vault.ts:Vault:status"
   ],
   "unused_store_members": [],

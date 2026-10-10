@@ -25,8 +25,11 @@ export type SelfEdit = { readonly repo: string; readonly url: string };
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 
-/** `seeded`: when the first start seeded ky's starter skills, specialist and automations. */
-type Key = "repo" | "url" | "seeded";
+/**
+ * `seeded`: when the first start seeded ky's starter skills, specialist and automations;
+ * `origin`: the address the user last opened ky on.
+ */
+type Key = "repo" | "url" | "seeded" | "origin";
 
 export class Setup {
   readonly #sql: SqlStorage;
@@ -86,6 +89,18 @@ export class Setup {
     this.#set("seeded", String(Date.now()));
 
     return true;
+  }
+
+  /** The address the user last opened ky on, which the cloud machine's runner dials; null until a browser connects. */
+  origin(): string | null {
+    return this.#get("origin") ?? null;
+  }
+
+  /** A browser opened ky at `page`; keep its origin. */
+  opened(page: string): void {
+    const origin = new URL(page).origin;
+
+    if (this.#get("origin") !== origin) this.#set("origin", origin);
   }
 
   #set(key: Key, value: string): void {

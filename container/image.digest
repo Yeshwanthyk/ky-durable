@@ -1,0 +1,3 @@
+# The cloud machine's image the next release deploys: ghcr.io/<owner>/ky-cloud@sha256:<digest>, as
+# .github/workflows/image.yml's summary gives it. `pnpm compile` puts it in release.json; with no
+# line here, a release deploys no cloud machine.

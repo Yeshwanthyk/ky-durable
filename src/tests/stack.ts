@@ -10,6 +10,92 @@ import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
+import { type CloudBox, CloudMachine as ProductionCloudMachine, SAVE_KEY } from "../cloud";
+import { CLOUD } from "../cloud-facts";
+import { proxyGit } from "../github";
+import { fakeGithubApi } from "../../test/fakes/github";
+
+export { GithubProxy } from "../github";
+
+/** The cloud machine's settings in the stack: its fake container host, the fake GitHub, and how soon it sleeps. */
+const HOST_KEY = "test:host";
+
+const UPSTREAM_KEY = "test:github";
+
+const IDLE_KEY = "test:idle-ms";
+
+/** The test alarm's tick: a start that failed is tried again soon. */
+const TEST_TICK_MS = 2_000;
+
+/**
+ * A container on the fake host (test/fakes/container.ts) at `host`, which the harness starts; with no
+ * host set, none runs and a start fails, as a container that never comes up.
+ */
+function hostBox(host: () => Promise<string | undefined>): CloudBox {
+  const at = async (path: string) => {
+    const url = await host();
+
+    if (!url) throw new Error("No fake container host: POST /test/cloud-host first.");
+
+    return `${url}${path}`;
+  };
+
+  return {
+    running: async () => ((await host()) ? (await (await fetch(await at("/running"))).text()) === "true" : false),
+    start: async (env) => {
+      const started = await fetch(await at("/start"), { method: "POST", body: JSON.stringify(env) });
+
+      if (started.status !== 204) throw new Error(`The fake container didn't start: ${started.status}`);
+    },
+    fetch: async (path, init) => fetch(await at(`/port${path}`), init),
+    destroy: async () => {
+      await (await fetch(await at("/destroy"), { method: "POST" })).body?.cancel();
+    }
+  };
+}
+
+/**
+ * The CloudMachine, with its container on the harness's fake host (`POST /test/cloud-host`), a tick
+ * of TEST_TICK_MS, and an idle time the harness may shorten.
+ */
+export class CloudMachine extends ProductionCloudMachine {
+  override box(): CloudBox {
+    return hostBox(() => this.ctx.storage.get<string>(HOST_KEY));
+  }
+
+  override async timing(): Promise<{ tickMs: number; idleMs: number }> {
+    return { tickMs: TEST_TICK_MS, idleMs: (await this.ctx.storage.get<number>(IDLE_KEY)) ?? (await super.timing()).idleMs };
+  }
+
+  /** Use the fake container host at `host`, the fake github.com at `github`, and sleep after `idleMs` idle. */
+  async configure(host: string, github: string | null, idleMs: number | null): Promise<void> {
+    await this.ctx.storage.put(HOST_KEY, host);
+
+    if (github) await this.ctx.storage.put(UPSTREAM_KEY, github);
+
+    if (idleMs === null) await this.ctx.storage.delete(IDLE_KEY);
+    else await this.ctx.storage.put(IDLE_KEY, idleMs);
+  }
+
+  /** Where the stack's github.internal route sends git: the fake github.com. */
+  async upstream(): Promise<string | undefined> {
+    return this.ctx.storage.get<string>(UPSTREAM_KEY);
+  }
+
+  /** Stop the container, forget its save, its alarm and its host, for the next scenario. */
+  async reset(): Promise<void> {
+    if (await this.box().running()) await this.box().destroy();
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    await this.env.FILES.delete(SAVE_KEY);
+  }
+}
+
+/** The CloudMachine binding, which the test wrangler config points at this subclass. */
+function cloud(env: Env): DurableObjectStub<CloudMachine> {
+  // SAFETY: src/tests/wrangler.jsonc binds CloudMachine to this module's subclass.
+  return (env.CloudMachine as DurableObjectNamespace<CloudMachine>).getByName(CLOUD);
+}
 
 /**
  * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes
@@ -20,6 +106,8 @@ export class Vault extends ProductionVault {
   #slow = { count: 0, ms: 0 };
 
   override openai = fakeOpenAi(() => this.now()).fetch;
+
+  override github = fakeGithubApi();
 
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;
@@ -436,6 +524,27 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
+  // The cloud machine's fake container host (url), fake github.com (github) and idle time in ms (idle).
+  [
+    "POST /test/cloud-host",
+    async (_me, url, env) => {
+      const { searchParams } = url;
+
+      await cloud(env).configure(searchParams.get("url") ?? "", searchParams.get("github"), searchParams.has("idle") ? Number(searchParams.get("idle")) : null);
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  // Put the cloud machine to sleep now, as its idle time running out does: 409 while it has work, or nothing runs.
+  ["POST /test/cloud-sleep", async (_me, _url, env) => new Response(null, { status: (await cloud(env).sleep()) ? 204 : 409 })],
+  [
+    "POST /test/cloud-reset",
+    async (_me, _url, env) => {
+      await cloud(env).reset();
+
+      return new Response(null, { status: 204 });
+    }
+  ],
 ]);
 
 /** Access with the team's keys from the fake: every FakeAccess signs with them. */
@@ -447,6 +556,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const signed = edge(request);
     const url = new URL(signed.url);
+
+    // The container's github.internal, which production intercepts in the container's network: the
+    // fake container host's git reaches it here, with no sign-in, as git in the container has none.
+    if (url.pathname.startsWith("/github.internal/")) {
+      const upstream = await cloud(env).upstream();
+      const vault = env.Vault.getByName("owner");
+      url.pathname = url.pathname.slice("/github.internal".length);
+
+      return proxyGit(new Request(url, request), await vault.githubToken(), upstream);
+    }
 
     if (!url.pathname.startsWith("/test/")) return ky.fetch(signed, env);
 

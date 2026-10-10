@@ -4,12 +4,13 @@ import { SUBSCRIPTION, type Vault } from "./vault";
 
 /**
  * Settings › Subscriptions: the user's Claude and ChatGPT logins, which the
- * Vault keeps and tasks on machines run with (MachineHub hands them out).
- * What crosses to the browser is only whether each is set up, when the
- * Claude token runs out, and the last refresh error; never a token.
+ * Vault keeps and tasks on machines run with (MachineHub hands them out), and
+ * the GitHub token the cloud machine's git and `gh` use. What crosses to the
+ * browser is only whether each is set up, when the Claude token runs out, the
+ * last refresh error and GitHub's repos; never a token.
  */
 
-const KINDS: readonly SubscriptionKind[] = ["claude", "chatgpt"];
+const KINDS: readonly SubscriptionKind[] = ["claude", "chatgpt", "github"];
 
 /** What `claude setup-token` prints: a long-lived OAuth token. */
 const CLAUDE_TOKEN = /^sk-ant-oat\d+-[\w-]+$/;
@@ -54,7 +55,16 @@ export class Subscriptions {
       // setClaude keeps it as a number.
       const expiresAt = secret?.meta?.expiresAt;
 
-      return { kind, connected: secret !== undefined, expiresAt: expiresAt ? Number(expiresAt) : null, error: secret?.error ?? null };
+      // setGithub keeps them as a list.
+      const repos = secret?.meta?.repos;
+
+      return {
+        kind,
+        connected: secret !== undefined,
+        expiresAt: expiresAt ? Number(expiresAt) : null,
+        error: secret?.error ?? null,
+        ...(Array.isArray(repos) && { repos })
+      };
     });
   }
 
@@ -72,6 +82,20 @@ export class Subscriptions {
     this.#changed();
 
     return {};
+  }
+
+  /** The repos a GitHub token reaches, for the user to pick from; `{ refused }` when GitHub didn't take it. */
+  githubRepos(token: string): Promise<{ repos: string[] } | { refused: string }> {
+    return this.#vault().githubRepos(token);
+  }
+
+  /** Keep a GitHub token for the cloud machine, and the repos it may fetch and push to. */
+  async setGithub(token: string, repos: readonly string[]): Promise<{ refused?: string }> {
+    const saved = await this.#vault().setGithub(token, repos);
+
+    if (!saved.refused) this.#changed();
+
+    return saved;
   }
 
   /** Forget a subscription: tasks sign in with their machine's own login again. */
