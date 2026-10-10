@@ -30,7 +30,6 @@ import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
-import { VENDORS, vendorNotSetUp } from "./providers/api-key";
 import { VIBEPROXY_NOT_SET_UP } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
@@ -57,10 +56,9 @@ export type Boundary = ModelsBoundary & {
   readonly extensions: readonly Extension[];
 };
 
-/** What a boundary lacks: the api-key vendors without their secret, and the overlay's add-ons. */
-export function notSetUp({ secrets, vibeProxy, executor }: Boundary): readonly NotSetUp[] {
+/** What a boundary lacks: the overlay's add-ons. */
+export function notSetUp({ vibeProxy, executor }: Boundary): readonly NotSetUp[] {
   return [
-    ...VENDORS.flatMap((vendor) => (secrets(vendor.secret) ? [] : [vendorNotSetUp(vendor)])),
     ...(vibeProxy ? [] : [VIBEPROXY_NOT_SET_UP]),
     ...(executor ? [] : [EXECUTOR_NOT_SET_UP])
   ];
@@ -69,8 +67,7 @@ export function notSetUp({ secrets, vibeProxy, executor }: Boundary): readonly N
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
-  /** When a provider that can go away comes or goes, the chats move to what main resolves to now. */
-  readonly models = new Models(this.ctx.storage.sql, this.boundary, () => this.ctx.waitUntil(this.applyMain()));
+  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"));
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   readonly workspace = new Workspace({
@@ -273,6 +270,8 @@ export class PiAgent extends DurableObject<Env> {
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
     });
+    // When the providers change, the chats move to what main resolves to now.
+    this.models.onChange(() => this.ctx.waitUntil(this.applyMain()));
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
   }
 
@@ -293,7 +292,7 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /**
-   * Production's boundary: Workers AI, the Worker's secrets, the internet, Browser Rendering, and VibeProxy's tunnel
+   * Production's boundary: Workers AI, the internet, Browser Rendering, and VibeProxy's tunnel
    * and Executor when this deploy has their vars and secrets (wrangler.local.example.jsonc).
    */
   boundaryFor(env: Env): Boundary {
@@ -301,7 +300,6 @@ export class PiAgent extends DurableObject<Env> {
 
     return {
       ai: env.AI,
-      secrets: (name) => env[name],
       fetch: (input, init) => fetch(input, init),
       vibeProxy: binding && origin && key ? { binding, origin, key } : undefined,
       browser: env.BROWSER,

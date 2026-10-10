@@ -99,6 +99,7 @@ export function workersAI(ai: AiBinding): Endpoint {
 
   return {
     provider: sending(provider, (given) => ({ fetch, headers: { ...given?.headers, ...HEADERS } })),
+    kind: WORKERS_AI_RECORD.kind,
     name: WORKERS_AI_RECORD.label,
     needs: "the AI binding",
     models,

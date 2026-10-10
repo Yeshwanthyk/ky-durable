@@ -140,6 +140,7 @@ export function vibeProxy(config: VibeProxyConfig): Endpoint {
 
   return {
     provider: sending(provider, () => ({ fetch: send })),
+    kind: "runner-local",
     name: NAME,
     needs: "the computer online with VibeProxy",
     models,

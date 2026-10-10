@@ -251,6 +251,17 @@ export function usePiSession(session: string) {
     [agent]
   );
 
+  /** Send a message the server answers by its id; resolves with the answer. */
+  const ask = useCallback(
+    (message: (id: string) => ClientMessage) =>
+      new Promise<JsonValue>((resolve) => {
+        const id = crypto.randomUUID();
+        waiting.current.set(id, resolve);
+        send(message(id));
+      }),
+    [send]
+  );
+
   /**
    * Idle: starts a run. Busy: queued as a follow-up, or steers the run. Each
    * message gets one operation id, kept across resends, so pi takes it once.
@@ -306,25 +317,29 @@ export function usePiSession(session: string) {
   /** Set ky's repo for self-edits; resolves with why it was refused, if it was. */
   const setRepo = useCallback(
     (repo: string) =>
-      new Promise<string | undefined>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers set-repo with `{ refused? }`.
-        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
-        send({ type: "set-repo", id, repo });
-      }),
+      ask((id) => ({ type: "set-repo", id, repo })).then(refusal),
+    [ask]
+  );
+
+  /** Test and save a vendor's API key; resolves with why it was refused, if it was. */
+  const addKey = useCallback(
+    (vendor: string, key: string) =>
+      ask((id) => ({ type: "add-key", id, vendor, key })).then(refusal),
+    [ask]
+  );
+
+  /** Remove an api-key provider's key, and with it the provider. */
+  const removeKey = useCallback(
+    (provider: string) => send({ type: "remove-key", id: crypto.randomUUID(), provider }),
     [send]
   );
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
     () =>
-      new Promise<string>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers new-chat with `{ session }`.
-        waiting.current.set(id, (result) => resolve((result as { session: string }).session));
-        send({ type: "new-chat", id });
-      }),
-    [send]
+      // SAFETY: the server answers new-chat with `{ session }`.
+      ask((id) => ({ type: "new-chat", id })).then((result) => (result as { session: string }).session),
+    [ask]
   );
 
   /** Archive a side chat, or put it back in the list. */
@@ -342,13 +357,9 @@ export function usePiSession(session: string) {
   /** A skill's versions, newest first. */
   const skillHistory = useCallback(
     (name: string) =>
-      new Promise<readonly SkillVersion[]>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers skill-history with the skill's versions.
-        waiting.current.set(id, (result) => resolve(result as readonly SkillVersion[]));
-        send({ type: "skill-history", id, name });
-      }),
-    [send]
+      // SAFETY: the server answers skill-history with the skill's versions.
+      ask((id) => ({ type: "skill-history", id, name })).then((result) => result as readonly SkillVersion[]),
+    [ask]
   );
 
   /** Change SOUL.md as the user. */
@@ -360,25 +371,16 @@ export function usePiSession(session: string) {
   /** SOUL.md's versions, newest first. */
   const soulHistory = useCallback(
     () =>
-      new Promise<readonly SoulVersion[]>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers soul-history with SOUL.md's versions.
-        waiting.current.set(id, (result) => resolve(result as readonly SoulVersion[]));
-        send({ type: "soul-history", id });
-      }),
-    [send]
+      // SAFETY: the server answers soul-history with SOUL.md's versions.
+      ask((id) => ({ type: "soul-history", id })).then((result) => result as readonly SoulVersion[]),
+    [ask]
   );
 
   /** Create a specialist or change its settings; resolves with why it was refused, if it was. */
   const saveSpecialist = useCallback(
     (specialist: string, draft: SpecialistDraft, create: boolean) =>
-      new Promise<string | undefined>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers specialist-save with `{ refused? }`.
-        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
-        send({ type: "specialist-save", id, specialist, create, draft });
-      }),
-    [send]
+      ask((id) => ({ type: "specialist-save", id, specialist, create, draft })).then(refusal),
+    [ask]
   );
 
   /** Change a specialist's brief as the user. */
@@ -391,37 +393,25 @@ export function usePiSession(session: string) {
   /** A specialist's brief versions, newest first. */
   const briefHistory = useCallback(
     (specialist: string) =>
-      new Promise<readonly SoulVersion[]>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers specialist-history with the brief's versions.
-        waiting.current.set(id, (result) => resolve(result as readonly SoulVersion[]));
-        send({ type: "specialist-history", id, specialist });
-      }),
-    [send]
+      // SAFETY: the server answers specialist-history with the brief's versions.
+      ask((id) => ({ type: "specialist-history", id, specialist })).then((result) => result as readonly SoulVersion[]),
+    [ask]
   );
 
   /** Memories matching a regex, or the plain text when it is not one, newest first. */
   const searchMemory = useCallback(
     (query: string) =>
-      new Promise<MemorySearch>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers memory-search with a MemorySearch.
-        waiting.current.set(id, (result) => resolve(result as MemorySearch));
-        send({ type: "memory-search", id, query });
-      }),
-    [send]
+      // SAFETY: the server answers memory-search with a MemorySearch.
+      ask((id) => ({ type: "memory-search", id, query })).then((result) => result as MemorySearch),
+    [ask]
   );
 
   /** A memory block's two halves, newest first. */
   const zoomMemory = useCallback(
     (block: string) =>
-      new Promise<readonly MemoryItem[]>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers memory-zoom with the block's halves.
-        waiting.current.set(id, (result) => resolve(result as readonly MemoryItem[]));
-        send({ type: "memory-zoom", id, block });
-      }),
-    [send]
+      // SAFETY: the server answers memory-zoom with the block's halves.
+      ask((id) => ({ type: "memory-zoom", id, block })).then((result) => result as readonly MemoryItem[]),
+    [ask]
   );
 
   /** Drop a block's summary so ky writes it again. */
@@ -433,13 +423,8 @@ export function usePiSession(session: string) {
   /** Create an automation as the user, or change one; resolves with why it was refused, if it was. */
   const saveAutomation = useCallback(
     (automation: string | undefined, draft: AutomationDraft) =>
-      new Promise<string | undefined>((resolve) => {
-        const id = crypto.randomUUID();
-        // SAFETY: the server answers automation-save with `{ refused? }`.
-        waiting.current.set(id, (result) => resolve((result as { refused?: string }).refused));
-        send({ type: "automation-save", id, automation, draft });
-      }),
-    [send]
+      ask((id) => ({ type: "automation-save", id, automation, draft })).then(refusal),
+    [ask]
   );
 
   /** Pause, resume, archive, run or delete an automation as the user. */
@@ -460,6 +445,8 @@ export function usePiSession(session: string) {
     setMachine,
     setModel,
     setRepo,
+    addKey,
+    removeKey,
     newChat,
     archiveChat,
     changeSkill,
@@ -490,6 +477,12 @@ async function reloadIfSignedOut(): Promise<void> {
   } catch {
     // Offline: the socket keeps retrying.
   }
+}
+
+/** Why the server refused a save, from its answer. */
+function refusal(result: JsonValue): string | undefined {
+  // SAFETY: the server answers each save it may refuse with `{ refused? }`.
+  return (result as { refused?: string }).refused;
 }
 
 /** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */

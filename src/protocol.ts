@@ -133,7 +133,14 @@ export type PiClientMessage =
       readonly id?: string;
       readonly purpose: Purpose;
       readonly choice: ModelChoice;
-    };
+    }
+  /**
+   * Save an API key for a vendor once a test call takes it; the result is `{ refused }` when it doesn't. The key is
+   * never sent back.
+   */
+  | { readonly type: "add-key"; readonly id?: string; readonly vendor: string; readonly key: string }
+  /** Remove an api-key provider's key; what ran on it moves to the next healthy provider. */
+  | { readonly type: "remove-key"; readonly id?: string; readonly provider: string };
 
 /** Server → client. */
 export type PiServerMessage =
@@ -203,7 +210,7 @@ export type { SpecialistDraft, SpecialistView } from "./specialists";
 
 export type { FileRow } from "./files";
 
-export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView } from "./settings";
+export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings";
 
 export type { SetupView } from "./setup";
 

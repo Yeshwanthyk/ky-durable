@@ -18,7 +18,7 @@ import {
 } from "@earendil-works/pi-ai/models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AgentChange } from "@earendil-works/pi-durable";
-import { type ApiKeySecret, apiKey, apiKeyRecord, VENDORS } from "./providers/api-key";
+import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
 import type { Breaker } from "./providers/breaker";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
 import { type VibeProxyConfig, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
@@ -55,9 +55,16 @@ export type AskLimits = { readonly timeoutMs: number; readonly maxTokens: number
 /** Room for a model that cannot stop thinking to think, then answer. */
 const SHORT: AskLimits = { timeoutMs: 30_000, maxTokens: 2_000 };
 
+/** The call a new key must answer before it is saved. */
+const KEY_TEST: AskLimits = { timeoutMs: 20_000, maxTokens: 16 };
+
+/** Keys come from the Vault, never from the Worker's env or files. */
+const NO_ENV = { env: async () => undefined, fileExists: async () => false };
+
 /** A provider record made live: pi's provider, sending through its transport, and what the catalog shows about it. */
 export type Endpoint = {
   readonly provider: Provider;
+  readonly kind: ProviderKind;
   /** The name Settings shows. */
   readonly name: string;
   /** What connects it, when it is not. */
@@ -80,14 +87,19 @@ export type Endpoint = {
 export type ModelsBoundary = {
   /** Workers AI, which every deploy has. */
   readonly ai: AiBinding;
-  /** A secret by name, for the api-key providers. */
-  readonly secrets: (name: ApiKeySecret) => string | undefined;
   /** How api-key providers reach their vendors. */
   readonly fetch: FetchFunction;
   /** The tunnel to VibeProxy on a computer of the user's, when this deploy has one. */
   readonly vibeProxy?: Pick<VibeProxyConfig, "binding" | "origin" | "key">;
   /** How long a VibeProxy probe's answer is reused; vibeproxy.ts's default when unset. */
   readonly probeTtlMs?: number;
+};
+
+/** Where the api-key providers' keys are kept: the Vault, through its stub (vault.ts). */
+export type KeyVault = {
+  auth(providerId: string): Promise<ProviderKey | null>;
+  put(kind: "provider", id: string, value: ProviderKey): Promise<void>;
+  remove(kind: "provider", id: string): Promise<void>;
 };
 
 /** What a purpose may need of the model ky picks for it. A user's own choice stands even when it lacks them. */
@@ -124,46 +136,47 @@ export class Models {
   readonly settings: Settings;
   /** pi's registry, for the harness and for every call ky makes itself. */
   readonly registry: MutableModels;
-  readonly #endpoints: readonly Endpoint[];
+  readonly #records: ProviderRecords;
+  readonly #boundary: ModelsBoundary;
+  readonly #vault: KeyVault;
+  readonly #listeners = new Set<() => void>();
+  #endpoints: readonly Endpoint[] = [];
 
-  /** `onChange` is called when a provider that can go away comes online or goes away. */
-  constructor(sql: SqlStorage, boundary: ModelsBoundary, onChange: () => void) {
-    const records = new ProviderRecords(sql);
-    records.add(WORKERS_AI_RECORD);
+  constructor(sql: SqlStorage, boundary: ModelsBoundary, vault: KeyVault) {
+    this.#records = new ProviderRecords(sql);
+    this.#boundary = boundary;
+    this.#vault = vault;
+    this.#records.add(WORKERS_AI_RECORD);
 
-    if (boundary.vibeProxy) records.add(vibeProxyRecord(boundary.vibeProxy.origin));
+    if (boundary.vibeProxy) this.#records.add(vibeProxyRecord(boundary.vibeProxy.origin));
 
-    for (const vendor of VENDORS) if (boundary.secrets(vendor.secret)) records.add(apiKeyRecord(vendor));
-
-    this.#endpoints = records
-      .list()
-      .filter((record) => record.enabled)
-      .sort((a, b) => RANK[a.kind] - RANK[b.kind])
-      .flatMap((record) => live(record, boundary, onChange) ?? []);
     this.settings = new Settings(sql, (choice) => this.valid(choice));
-    this.registry = createModels({
-      authContext: {
-        // Only the vendors' keys, never the rest of the Worker's env.
-        env: async (name) => {
-          const vendor = VENDORS.find((each) => each.secret === name);
+    this.registry = createModels({ authContext: NO_ENV });
+    this.#load();
+  }
 
-          return vendor ? boundary.secrets(vendor.secret) || undefined : undefined;
-        },
-        fileExists: async () => false
-      }
-    });
+  /** `listener` is called when the providers change: one that can go away comes or goes, or a key is saved or removed. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
 
-    for (const endpoint of this.#endpoints) this.registry.setProvider(compacting(this.#routed(endpoint)));
+    return () => this.#listeners.delete(listener);
   }
 
   catalog(): ProviderInfo[] {
-    return this.#endpoints.map((endpoint) => ({
-      id: endpoint.provider.id,
-      name: endpoint.name,
-      connected: endpoint.connected(),
-      needs: endpoint.needs,
-      models: endpoint.models.map(option)
-    }));
+    return this.#endpoints.map((endpoint) => {
+      const failure = endpoint.breaker.failure();
+
+      const info: ProviderInfo = {
+        id: endpoint.provider.id,
+        kind: endpoint.kind,
+        name: endpoint.name,
+        connected: endpoint.connected(),
+        needs: endpoint.needs,
+        models: endpoint.models.map(option)
+      };
+
+      return failure === undefined ? info : { ...info, failure };
+    });
   }
 
   view(): SettingsView {
@@ -178,7 +191,45 @@ export class Models {
             fallback: this.resolve("fallback").choice
           };
 
-    return { providers: this.catalog(), purposes };
+    const keyed = new Set(this.#endpoints.map((endpoint) => endpoint.provider.id));
+    const vendors = VENDORS.flatMap((vendor) => (keyed.has(vendor.id) ? [] : [{ id: vendor.id, name: vendor.name }]));
+
+    return { providers: this.catalog(), purposes, vendors };
+  }
+
+  /**
+   * Save the user's API key for a vendor once a test call on its light model succeeds, so its models can be
+   * chosen; why it was refused, when it was. The key goes to the Vault and nowhere else.
+   */
+  async addKey(vendorId: string, key: string): Promise<{ refused?: string }> {
+    const vendor = VENDORS.find((each) => each.id === vendorId);
+
+    if (!vendor) return { refused: `ky has no vendor "${vendorId}".` };
+    const trimmed = key.trim();
+
+    const refused = trimmed
+      ? (vendor.refuse?.(trimmed) ?? (await this.#testCall(vendor, trimmed)))
+      : `Paste your ${vendor.name} API key.`;
+
+    if (refused) return { refused };
+
+    await this.#vault.put("provider", vendor.id, { apiKey: trimmed });
+    this.#records.add(apiKeyRecord(vendor));
+    this.#load();
+    this.#changed();
+
+    return {};
+  }
+
+  /** Forget an api-key provider's key, and the provider with it; what ran on it moves to the next healthy one. */
+  async removeKey(providerId: string): Promise<void> {
+    const record = this.#records.list().find((each) => each.id === providerId);
+
+    if (record?.kind !== "api-key") throw new Error(`${providerId} has no API key to remove.`);
+    await this.#vault.remove("provider", providerId);
+    this.#records.remove(providerId);
+    this.#load();
+    this.#changed();
   }
 
   /** Ask every provider that can go away now, or reuse a fresh answer. */
@@ -258,6 +309,69 @@ export class Models {
     if (answer.stopReason === "error") throw new Error(answer.errorMessage ?? `The ${purpose} model failed.`);
 
     return answer;
+  }
+
+  /** Why a call on `vendor`'s light model with `key` didn't prove the key, when it didn't. */
+  async #testCall(vendor: Vendor, key: string): Promise<string | undefined> {
+    // The test call goes through a registry of its own, so the key is resolved as every later call's will be.
+    const candidate = apiKey(vendor, this.#boundary.fetch, async () => ({ apiKey: key }));
+    const trial = createModels({ authContext: NO_ENV });
+    trial.setProvider(candidate.provider);
+
+    const answer = await trial.completeSimple(
+      candidate.light ?? candidate.models[0]!,
+      { messages: [{ role: "user", content: "Say hi.", timestamp: Date.now() }] },
+      { maxTokens: KEY_TEST.maxTokens, signal: AbortSignal.timeout(KEY_TEST.timeoutMs) }
+    );
+
+    if (answer.stopReason === "error") return `${vendor.name} refused the key: ${answer.errorMessage ?? "no reason given"}`;
+
+    // Only a finished answer proves the key; a timeout or an unfinished call saves nothing.
+    return answer.stopReason === "stop" || answer.stopReason === "length"
+      ? undefined
+      : `${vendor.name} didn't finish the test call (${answer.errorMessage ?? answer.stopReason}). Try again.`;
+  }
+
+  /** Make each enabled record live, keeping the endpoints already live (and their breakers), and plug pi's registry to match. */
+  #load(): void {
+    const before = this.#endpoints;
+
+    this.#endpoints = this.#records
+      .list()
+      .filter((record) => record.enabled)
+      .sort((a, b) => RANK[a.kind] - RANK[b.kind])
+      .flatMap((record) => before.find((endpoint) => endpoint.provider.id === record.id) ?? this.#live(record) ?? []);
+
+    for (const gone of before) if (!this.#endpoints.includes(gone)) this.registry.deleteProvider(gone.provider.id);
+
+    for (const endpoint of this.#endpoints) {
+      if (!before.includes(endpoint)) this.registry.setProvider(compacting(this.#routed(endpoint)));
+    }
+  }
+
+  /** A record's provider made live, when its transport is there now. */
+  #live(record: ProviderRecord): Endpoint | undefined {
+    const boundary = this.#boundary;
+
+    switch (record.kind) {
+      case "workers-ai":
+        return workersAI(boundary.ai);
+      case "api-key": {
+        const vendor = VENDORS.find((each) => each.id === record.vendor);
+
+        return vendor && apiKey(vendor, boundary.fetch, (id) => this.#vault.auth(id));
+      }
+
+      case "runner-local":
+        // Node P reaches runner-local providers through their machine's runner; until then only VibeProxy's tunnel.
+        return record.id === VIBEPROXY_PROVIDER && boundary.vibeProxy
+          ? vibeProxy({ ...boundary.vibeProxy, probeTtlMs: boundary.probeTtlMs, onChange: () => this.#changed() })
+          : undefined;
+    }
+  }
+
+  #changed(): void {
+    for (const listener of this.#listeners) listener();
   }
 
   #endpoint(provider: string): Endpoint {
@@ -382,25 +496,6 @@ export class Models {
     };
 
     return { ...provider, streamSimple };
-  }
-}
-
-/** A record's provider made live, when its transport is there now. */
-function live(record: ProviderRecord, boundary: ModelsBoundary, onChange: () => void): Endpoint | undefined {
-  switch (record.kind) {
-    case "workers-ai":
-      return workersAI(boundary.ai);
-    case "api-key": {
-      const vendor = VENDORS.find((each) => each.id === record.vendor);
-
-      return vendor && boundary.secrets(vendor.secret) ? apiKey(vendor, boundary.fetch) : undefined;
-    }
-
-    case "runner-local":
-      // Node P reaches runner-local providers through their machine's runner; until then only VibeProxy's tunnel.
-      return record.id === VIBEPROXY_PROVIDER && boundary.vibeProxy
-        ? vibeProxy({ ...boundary.vibeProxy, probeTtlMs: boundary.probeTtlMs, onChange })
-        : undefined;
   }
 }
 

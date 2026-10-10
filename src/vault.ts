@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
+import type { ProviderKey } from "./providers/api-key";
 import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 
 /**
@@ -8,19 +9,21 @@ import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
  *
  * - Secrets are JSON values by kind and id: an API key for a provider, the
  *   Claude and ChatGPT subscriptions, GitHub, Executor. `status` lists them
- *   without their values.
+ *   without their values. A kind is any name, so a new kind of secret needs
+ *   no change here.
  * - Tokens are what ky hands out: pairing codes, machine tokens, task tokens.
  *   `mint` returns the raw token once and keeps only its sha-256; a subject
  *   has one live token per kind, so minting again replaces it. `issue` gives
  *   a task its live token again, for every run of it the runner is sent: the
  *   Vault keeps what it derives that token from, so it can make it again.
  *
- * Settings doesn't call the secrets yet, and fallow follows no call through
- * a stub, the Worker's and the agent's included, so fallow/dead-code.json
- * lists the members.
+ * models.ts keeps the api-key providers' keys here. fallow follows no call
+ * through a stub, the Worker's and the agent's included, so
+ * fallow/dead-code.json lists the members.
  */
 
-type SecretKind = "provider" | "claude" | "chatgpt" | "github" | "executor";
+/** What a secret is for, like "provider", "claude" or "github". */
+type SecretKind = string;
 
 export type TokenKind = "pair" | "machine" | "task";
 
@@ -155,9 +158,10 @@ export class Vault extends DurableObject<Env> {
     return refresh;
   }
 
-  /** An API key provider's credential. K fills this in. */
-  auth(_providerId: string): { apiKey: string; headers?: Record<string, string> } | null {
-    return null;
+  /** An api-key provider's credential, which models.ts saved under ("provider", its id) once a test call took it. */
+  auth(providerId: string): ProviderKey | null {
+    // SAFETY: only Models.addKey writes this kind, each value a ProviderKey.
+    return this.#current("provider", providerId) as ProviderKey | null;
   }
 
   /** The credentials a task on a machine runs with; Codex's are refreshed with `refresh`. S fills this in. */

@@ -194,6 +194,7 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           onStopAll={ky.stopAll}
           onSetMachine={ky.setMachine}
           onSetRepo={ky.setRepo}
+          keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
           onClose={() => panel.setOpen(false)}
           tab={panel.tab}
           onTab={panel.setTab}

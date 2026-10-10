@@ -16,7 +16,6 @@ const full: Env = {
   VIBEPROXY: SELF,
   VIBEPROXY_ORIGIN: "http://127.0.0.1:8317",
   VIBEPROXY_KEY: "vibeproxy-key",
-  OPENCODE_API_KEY: "opencode-key",
   EXECUTOR_URL: "https://executor.test/mcp",
   EXECUTOR_TOKEN: "executor-token"
 };
@@ -49,25 +48,9 @@ describe("a deploy's config", () => {
     });
   }
 
-  it("keeps OpenCode Go without its key, as not set up", () => {
-    const { OPENCODE_API_KEY: _key, ...without } = full;
-
-    expect(notSetUp(boundary(without))).toEqual([
-      { id: "opencode-go", name: "OpenCode Go", needs: "the OPENCODE_API_KEY secret" }
-    ]);
-  });
-
-  it("keeps OpenCode Go with its key empty, as not set up", () => {
-    expect(notSetUp(boundary({ ...full, OPENCODE_API_KEY: "" })).map((each) => each.id)).toEqual(["opencode-go"]);
-  });
-
-  it("reads an API key from the deploy's secrets", () => {
-    expect(boundary(full).secrets("OPENCODE_API_KEY")).toBe("opencode-key");
-  });
-
   it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
-    const vendor = { ...VENDORS[0]!, modelIds: ["no-such-model"] };
+    const vendor = { ...VENDORS.find((each) => each.id === "opencode-go")!, modelIds: ["no-such-model"] };
 
-    expect(apiKey(vendor, fetch).models).toEqual([opencodeGoProvider().getModels()[0]]);
+    expect(apiKey(vendor, fetch, async () => null).models).toEqual([opencodeGoProvider().getModels()[0]]);
   });
 });

@@ -4,8 +4,9 @@ import type { Api } from "@earendil-works/pi-ai";
  * The providers this deploy has, one row each in `ky_providers` (C5). A row
  * is added the first time its provider can run: Workers AI always, since
  * every deploy has the AI binding; VibeProxy when the owner overlay has its
- * tunnel; an api-key vendor when its secret is set. models.ts makes each
- * enabled row live, when its transport is there now.
+ * tunnel; an api-key vendor when the user saves a key for it, until they
+ * remove the key. models.ts makes each enabled row live, when its transport
+ * is there now.
  */
 
 export type ProviderKind = "workers-ai" | "api-key" | "runner-local";
@@ -81,5 +82,9 @@ export class ProviderRecords {
       record.label,
       record.enabled ? 1 : 0
     );
+  }
+
+  remove(id: string): void {
+    this.#sql.exec("DELETE FROM ky_providers WHERE id = ?", id);
   }
 }
