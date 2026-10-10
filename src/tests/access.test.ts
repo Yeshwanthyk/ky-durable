@@ -123,7 +123,7 @@ describe("Access", () => {
     expect(await status({ KY_DEV: "0", KY_DEV_EMAIL: OWNER })).toBe(401);
   });
 
-  it("refuses every request when Access's vars are missing, and says `ky init` sets them up", async () => {
+  it("refuses every request when Access's vars are missing", async () => {
     const ky = worker(new Access(new FakeAccess().certs));
     const jwt = await new FakeAccess().sign();
 
