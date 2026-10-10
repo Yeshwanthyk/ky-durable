@@ -9,6 +9,12 @@ import { initCommand } from "./init.ts";
 import { runnerCommand, shareCommand } from "./runner/commands.ts";
 import { bold, Cancelled, dim } from "./output.ts";
 
+/**
+ * What `ky --version` prints after the version. install.sh and the brew formula look for it in a
+ * `ky` already on the PATH, so another program named ky is never taken for this one.
+ */
+export const IDENTITY = "ky-durable-cli";
+
 const help = (settings: string) => `${bold("ky")}: your own durable agent, on your Cloudflare account
 
   ${bold("ky init")}        sign in, pick the account, deploy ky behind Access, and open it; run again, it fills in what's missing
@@ -18,6 +24,7 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
   ${bold("ky doctor")}      check each piece of the deploy and print what fixes the first one missing ${dim("[--json]")}
   ${bold("ky teardown")}    delete the Worker with its chats and files, its bucket and Access apps ${dim("[--confirm <worker>]")}
   ${bold("ky skill")}       the guide for agents that run ky
+  ${bold("ky version")}     this ky's release ${dim("[--version]")}
 
   ${bold("ky runner add")}  pair this computer with ky, pick what it shares, and run it as a service ${dim("[<ky url> <code>] [--name <machine>] [--yes] [--no-service]")}
   ${bold("ky runner run")}  run the runner here, in the foreground (the service runs this)
@@ -42,6 +49,7 @@ const OPTIONS = {
   yes: { type: "boolean", short: "y" },
   "no-service": { type: "boolean" },
   follow: { type: "boolean", short: "f" },
+  version: { type: "boolean", short: "v" },
   help: { type: "boolean", short: "h" }
 } as const;
 
@@ -51,6 +59,12 @@ async function typedName(confirm: string | undefined): Promise<string | undefine
   const answer = await text({ message: "This deletes ky's Worker, its chats and files, and its Access apps. Type the Worker's name to go on" });
 
   return isCancel(answer) ? undefined : answer;
+}
+
+async function versionCommand(context: Context): Promise<number> {
+  context.print(`ky ${(await context.release()).version} (${IDENTITY})`);
+
+  return 0;
 }
 
 export async function ky(args: string[], context: Context): Promise<number> {
@@ -64,12 +78,13 @@ export async function ky(args: string[], context: Context): Promise<number> {
       ["doctor", () => doctorCommand(context, values.json ?? false)],
       ["teardown", async () => teardownCommand(context, await typedName(values.confirm))],
       ["skill", () => skillCommand(context)],
+      ["version", () => versionCommand(context)],
       ["runner", () => runnerCommand(context, positionals.slice(1), values)],
       ["attach", () => shareCommand(context, "attach", positionals.slice(1))],
       ["diff", () => shareCommand(context, "diff", positionals.slice(1))]
     ]);
 
-    const command = commands.get(positionals[0] ?? "");
+    const command = commands.get(values.version ? "version" : (positionals[0] ?? ""));
 
     if (values.help || !command) {
       context.print(help(context.overlay));

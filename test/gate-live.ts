@@ -20,9 +20,10 @@
  *   hello       the session socket says hello with ky's tools
  *   cloud       a cloud model answers: the background model (Workers AI, on
  *               every deploy) titles a new side chat from its first message
- *   vibeproxy   VibeProxy is connected: the Mac is online with it running
+ *   vibeproxy   VibeProxy is connected: a computer that shares it is online,
+ *               or the tunnel answers
  *
- * `vibeproxy` fails, correctly, while the Mac is away. What a read cannot
+ * `vibeproxy` fails, correctly, while that computer is away. What a read cannot
  * prove (Browser Rendering, the real Executor, a real `claude` run, a real
  * main-agent turn) is in FEATURES.md as live-only, with how to try it by hand.
  */

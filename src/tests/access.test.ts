@@ -123,13 +123,14 @@ describe("Access", () => {
     expect(await status({ KY_DEV: "0", KY_DEV_EMAIL: OWNER })).toBe(401);
   });
 
-  it("refuses every request when Access's vars are missing", async () => {
+  it("refuses every request when Access's vars are missing, and says `ky init` sets them up", async () => {
     const ky = worker(new Access(new FakeAccess().certs));
     const jwt = await new FakeAccess().sign();
 
     for (const missing of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "ACCESS_EMAILS"] as const) {
       const response = await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: jwt } }), { ...env, [missing]: undefined });
       expect(response.status, missing).toBe(500);
+      expect(await response.text(), missing).toContain("`ky init` sets them up");
     }
   });
 

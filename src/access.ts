@@ -101,8 +101,12 @@ function valid(claims: Static<typeof Claims>, team: string, aud: string, now: nu
   return claims.iss === `https://${team}` && [claims.aud].flat().includes(aud) && claims.exp > now && (claims.nbf ?? 0) <= now + LEEWAY_S;
 }
 
+// A deploy from the Deploy to Cloudflare button starts here, so this says how to finish it.
 const notSetUp = () =>
-  new Response("ky's Access isn't set up: it needs ACCESS_TEAM_DOMAIN, ACCESS_AUD and ACCESS_EMAILS.", { status: 500 });
+  new Response(
+    "ky's Access isn't set up: it needs ACCESS_TEAM_DOMAIN, ACCESS_AUD and ACCESS_EMAILS. `ky init` sets them up: https://github.com/Yeshwanthyk/ky-durable#quickstart",
+    { status: 500 }
+  );
 
 /** Checks Access's JWT, with the team's keys fetched through `certs`: the network's fetch, or a fake Access's in tests. */
 export class Access {
