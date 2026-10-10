@@ -6,19 +6,20 @@ import { parseArgs } from "node:util";
 import { isCancel, text } from "@clack/prompts";
 import { type Context, deployCommand, doctorCommand, skillCommand, teardownCommand, upgradeCommand } from "./commands.ts";
 import { initCommand } from "./init.ts";
+import { bold, Cancelled, dim } from "./output.ts";
 
-const help = (settings: string) => `ky: your own durable agent, on your Cloudflare account
+const help = (settings: string) => `${bold("ky")}: your own durable agent, on your Cloudflare account
 
-  ky init        sign in, pick the account, deploy ky behind Access, and open it; run again, it fills in what's missing
-                 [--account <id or name>] [--name <worker>] [--email <you@example.com>] [--subdomain <name>]
-  ky deploy      deploy this ky's release with your settings
-  ky upgrade     deploy this ky's release, when the Worker runs another one
-  ky doctor      check each piece of the deploy and print what fixes the first one missing [--json]
-  ky teardown    delete the Worker with its chats and files, its bucket and Access apps [--confirm <worker>]
-  ky skill       the guide for agents that run ky
+  ${bold("ky init")}        sign in, pick the account, deploy ky behind Access, and open it; run again, it fills in what's missing
+                 ${dim("[--account <id or name>] [--name <worker>] [--email <you@example.com>] [--subdomain <name>]")}
+  ${bold("ky deploy")}      deploy this ky's release with your settings
+  ${bold("ky upgrade")}     deploy this ky's release, when the Worker runs another one
+  ${bold("ky doctor")}      check each piece of the deploy and print what fixes the first one missing ${dim("[--json]")}
+  ${bold("ky teardown")}    delete the Worker with its chats and files, its bucket and Access apps ${dim("[--confirm <worker>]")}
+  ${bold("ky skill")}       the guide for agents that run ky
 
-Cloudflare login: CLOUDFLARE_API_TOKEN, or \`wrangler login\`. ky keeps no token.
-Settings: ${settings}`;
+${dim(`Cloudflare login: CLOUDFLARE_API_TOKEN, or \`wrangler login\`. ky keeps no token.
+Settings: ${settings}`)}`;
 
 const OPTIONS = {
   account: { type: "string" },
@@ -62,7 +63,8 @@ export async function ky(args: string[], context: Context): Promise<number> {
 
     return await command();
   } catch (error) {
-    context.fail(`ky: ${error instanceof Error ? error.message : String(error)}`);
+    // A cancelled prompt has said so already.
+    if (!(error instanceof Cancelled)) context.fail(`ky: ${error instanceof Error ? error.message : String(error)}`);
 
     return 1;
   }
