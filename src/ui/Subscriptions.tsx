@@ -78,7 +78,7 @@ function PairFirst() {
 
 function SubscriptionRow({ icon, label, note, ok, children }: { icon: IconName; label: string; note: string; ok: boolean; children: ReactNode }) {
   return (
-    <div className="row">
+    <div className="row subscription-row">
       <span className="row-tile">
         <Icon name={icon} size={15} />
       </span>

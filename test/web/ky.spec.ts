@@ -425,6 +425,31 @@ test("keeps Subscriptions on while a machine is paired", async ({ page }) => {
   await page.screenshot({ path: SHOTS ? `${SHOTS}/7-subscriptions-paired.png` : undefined });
 });
 
+for (const [width, name] of [
+  [1280, "panel"],
+  [390, "phone"]
+] as const) {
+  test(`gives the Claude row's note and form room to read at ${name} width`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page);
+    const show = page.getByRole("button", { name: /Show activity$/ });
+
+    if (await show.isVisible()) await show.click();
+    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    const subscriptions = panel(page).locator("#settings-subscriptions");
+    await subscriptions.scrollIntoViewIfNeeded();
+    await subscriptions.screenshot({ path: SHOTS ? `${SHOTS}/claude-row-${name}.png` : undefined });
+
+    const note = await subscriptions.getByText("Paste what claude setup-token prints").boundingBox();
+    const input = await subscriptions.getByRole("textbox", { name: "Claude subscription token" }).boundingBox();
+
+    // The note stays on one line, and the input gets a line of its own.
+    expect(note?.height).toBeLessThan(20);
+    expect(input?.width).toBeGreaterThan(180);
+    await expect(subscriptions.getByText("Sign in with a code")).toBeVisible();
+  });
+}
+
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

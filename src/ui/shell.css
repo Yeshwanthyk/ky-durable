@@ -899,15 +899,22 @@
   margin-left: 15px;
 }
 
+/* The Claude form takes its own full-width line under the label and note, so neither is squeezed. */
+.subscription-row {
+  flex-wrap: wrap;
+}
+
 .subscription-form {
+  order: 1;
+  flex-basis: 100%;
   display: flex;
   gap: 6px;
-  margin-left: auto;
   min-width: 0;
+  padding-left: 38px;
 }
 
 .subscription-input {
-  width: 9rem;
+  flex: 1;
   min-width: 0;
 }
 
