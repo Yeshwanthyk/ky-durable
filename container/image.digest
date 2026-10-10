@@ -2,3 +2,5 @@
 # .github/workflows/image.yml's pull request pins it, after "# source: <commit>", the commit it was
 # built from. `pnpm compile` puts it in release.json; with no line here, a release deploys no cloud
 # machine, and .github/workflows/release.yml publishes no release without one.
+# source: 1093fe4
+ghcr.io/yeshwanthyk/ky-cloud@sha256:e6c8d059af3797db3d0e219d4905aceb24afc0c79ca76209da02a01bd15f04a3
