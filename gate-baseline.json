@@ -11,7 +11,7 @@
   "items": [
     {
       "check": "node",
-      "name": "ky init and deploy deploys the Worker with the release's config, every migration, ACCESS_* and a KY_TOKEN shown once",
+      "name": "ky init and deploy deploys the Worker with the release's config, every migration and ACCESS_*",
       "outcome": "passed"
     },
     {
@@ -31,7 +31,7 @@
     },
     {
       "check": "node",
-      "name": "ky init and deploy upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration",
+      "name": "ky init and deploy upgrades without running migrations again, keeps the Access apps, and runs only a new migration",
       "outcome": "passed"
     },
     {
@@ -151,11 +151,6 @@
     },
     {
       "check": "node",
-      "name": "ky doctor with 'no KY_TOKEN', each Next leads to a deploy that passes",
-      "outcome": "passed"
-    },
-    {
-      "check": "node",
       "name": "ky doctor with 'no bypass app', each Next leads to a deploy that passes",
       "outcome": "passed"
     },
@@ -191,6 +186,21 @@
     },
     {
       "check": "node",
+      "name": "how ky looks reports every step of a first ky init, upgrade and teardown, in order",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "how ky looks prints plain lines, without escape codes, when piped",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "how ky looks colors a terminal's output, and not under NO_COLOR",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
       "name": "the release pack carries the release the compiled ky deploys",
       "outcome": "passed"
     },
@@ -202,6 +212,41 @@
     {
       "check": "node",
       "name": "the owner overlay merges vars, adds VPC services, and lets anything else replace wrangler.jsonc's",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access refuses pages, the API, sockets and the test routes without Access's JWT, even with Access's email header",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access refuses a JWT for another app or team, signed by another key, out of its time, tampered with, or for another email",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access keeps the team's keys, and fetches them again for a key it lacks at most once a minute",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access answers 503 while the team's certs fail, and fetches them again on the next request",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access signs KY_DEV_EMAIL in without a JWT under KY_DEV=1, if ACCESS_EMAILS lets it in",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access refuses every request when Access's vars are missing",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Access lets runners, pairing and uploads through signed out, to their own checks, and not downloads",
       "outcome": "passed"
     },
     {
@@ -432,16 +477,6 @@
     {
       "check": "worker-e2e",
       "name": "executor tools over MCP cancels the call at Executor when the turn is stopped",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "signing in sends pages to the login form and refuses the API and sockets without the token",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "signing in sets an HttpOnly cookie for the right token, which then signs requests in",
       "outcome": "passed"
     },
     {
@@ -1426,7 +1461,12 @@
     },
     {
       "check": "web",
-      "name": "sends the sign-in form to strangers, refuses a wrong token, and lets the right one in",
+      "name": "shows nothing of ky without Access's sign-in, even with a forged email header, but loads the manifest and icons",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "reloads into Access's sign-in when the socket drops after the sign-in lapses",
       "outcome": "passed"
     },
     {
