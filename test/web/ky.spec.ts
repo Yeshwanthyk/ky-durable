@@ -645,10 +645,10 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
   await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
 
   try {
-    await machine.getByRole("button", { name: "Say what it's for" }).click();
-    await machine.getByRole("textbox", { name: "What webmac is for" }).fill("web builds");
-    await machine.getByRole("textbox", { name: "What webmac is for" }).press("Enter");
-    await expect(machine.getByRole("button", { name: "web builds" })).toBeVisible();
+    const note = machine.getByRole("textbox", { name: "What it's for (optional)" });
+    await expect(machine).toContainText("Finishes what it's doing, takes nothing new");
+    await note.fill("web builds");
+    await note.press("Enter");
 
     await send(page, "machine@webmac build while paused");
     await expect(page.getByText(/webmac is paused/).first()).toBeVisible();
@@ -656,7 +656,7 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
     await page.reload();
     await panel(page).getByRole("tab", { name: "Settings" }).click();
     await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
-    await expect(machine.getByRole("button", { name: "web builds" })).toBeVisible();
+    await expect(note).toHaveValue("web builds");
   } finally {
     // The other tests use webmac.
     await states.getByRole("radio", { name: "On" }).click();
@@ -679,10 +679,10 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   const machine = panel(page).getByRole("listitem").filter({ hasText: "webadd" }).last();
   await expect(machine).toBeVisible();
 
-  await machine.getByRole("button", { name: "Remove" }).click();
-  const confirm = machine.getByRole("alertdialog", { name: "Remove webadd" });
+  await machine.getByRole("button", { name: "Unpair this computer" }).click();
+  const confirm = machine.getByRole("alertdialog", { name: "Unpair webadd" });
   await expect(confirm).toContainText("pair again");
-  await confirm.getByRole("button", { name: "Remove" }).click();
+  await confirm.getByRole("button", { name: "Unpair", exact: true }).click();
   await expect(panel(page).getByRole("listitem").filter({ hasText: "webadd" })).toHaveCount(0);
 });
 

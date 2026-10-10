@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, type ReactNode, useContext, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useContext, useId, useState } from "react";
 import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import { osName } from "../protocol";
@@ -330,10 +330,13 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
 function MachineList({
   machines,
   now,
+  subscribed,
   onSet,
 }: {
   machines: readonly MachineInfo[];
   now: number;
+  /** Whether Settings › Subscriptions has a login saved. */
+  subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   return (
@@ -344,7 +347,7 @@ function MachineList({
       ) : (
         <ul className="card machine-list">
           {machines.map((machine) => (
-            <MachineItem key={machine.name} machine={machine} now={now} onSet={onSet} />
+            <MachineItem key={machine.name} machine={machine} now={now} subscribed={subscribed} onSet={onSet} />
           ))}
         </ul>
       )}
@@ -402,15 +405,17 @@ function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
   );
 }
 
-const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string]> = [
-  ["on", "On"],
-  ["paused", "Paused"],
-  ["off", "Off"],
+/** Whether ky may give the machine work, and what each choice means. */
+const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string, string]> = [
+  ["on", "On", "ky can send it new tasks"],
+  ["paused", "Paused", "Finishes what it's doing, takes nothing new"],
+  ["off", "Off", "Takes no tasks"],
 ];
 
-const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string]> = [
-  ["own", "Its own"],
-  ["ky", "ky's"],
+/** Whose Claude Code and Codex logins its tasks use, and what each choice means. */
+const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string, string]> = [
+  ["own", "This computer's", "Tasks use the logins on that computer; Subscriptions fill in where it isn't signed in"],
+  ["ky", "From Subscriptions", "Tasks always use the logins saved in Settings › Subscriptions"],
 ];
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -427,24 +432,36 @@ function factsLine(facts: MachineFacts | null): string | null {
   return parts.join(" · ");
 }
 
-/** When an offline machine was last seen, and what waits for it. */
-function offlineStatus(machine: MachineInfo, now: number): string {
-  const seen = ago(machine.seenAt, now);
-  const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
+const AGO_UNITS: Record<string, string> = { m: "min", h: "hour", d: "day" };
 
-  return `offline, seen ${seen}${seen === "now" ? "" : " ago"}${waiting}`;
+/** How long ago, in words: "just now", "51 min ago", "3 hours ago". */
+function agoInWords(time: number, now: number): string {
+  const short = ago(time, now);
+
+  if (short === "now") return "just now";
+  const count = Number(short.slice(0, -1));
+  const unit = AGO_UNITS[short.slice(-1)]!;
+
+  return unit === "min" ? `${count} min ago` : `${plural(count, unit)} ago`;
 }
 
-/** How many tasks a machine has, or `none` without one. */
-const tasksOr = (active: number, none: string) => (active === 0 ? none : plural(active, "task"));
+type MachineTone = "online" | "paused" | "off" | "offline";
 
-/** Whether a machine is busy, or when it was last seen; the cloud machine's state, asleep, waking or running, instead. */
-function machineStatus(machine: MachineInfo, now: number): string {
-  if (machine.cloud !== null) return [machine.cloud, tasksOr(machine.active, "")].filter(Boolean).join(" · ");
+/** The machine's status as a tone for its dot and a line of words. */
+function machineStatus(machine: MachineInfo, now: number): { tone: MachineTone; text: string } {
+  if (!machine.online) {
+    const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
 
-  if (!machine.online) return offlineStatus(machine, now);
+    return { tone: "offline", text: `Offline · last seen ${agoInWords(machine.seenAt, now)}${waiting}` };
+  }
 
-  return tasksOr(machine.active, "idle");
+  const busy = machine.active === 0 ? "idle" : `${plural(machine.active, "task")} running`;
+
+  if (machine.state === "paused") return { tone: "paused", text: `Paused · ${busy}` };
+
+  if (machine.state === "off") return { tone: "off", text: `Off · ${busy}` };
+
+  return { tone: "online", text: `Online · ${busy}` };
 }
 
 // A short text shown as a button; click to edit, Enter or leaving saves, Escape cancels.
@@ -503,17 +520,21 @@ function InlineEdit({
   );
 }
 
-// A machine: whether it is up and busy, whether ky may use it, what it is, and what you say it is for.
+// A machine: whether it is up and busy, what it is, whether ky may use it, whose logins it uses, and what it is for.
 function MachineItem({
   machine,
   now,
+  subscribed,
   onSet,
 }: {
   machine: MachineInfo;
   now: number;
+  /** Whether Settings › Subscriptions has a login saved. */
+  subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
-  const about = [machineStatus(machine, now), factsLine(machine.facts)].filter(Boolean).join(" · ");
+  const status = machineStatus(machine, now);
+  const facts = factsLine(machine.facts);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -521,79 +542,131 @@ function MachineItem({
     setConfirming(false);
     const response = await fetch(`/api/runners/${encodeURIComponent(machine.name)}`, { method: "DELETE" });
 
-    setError(response.ok ? null : `ky could not remove ${machine.name} (HTTP ${response.status}).`);
+    setError(response.ok ? null : `ky could not unpair ${machine.name} (HTTP ${response.status}).`);
   };
 
   return (
     <li className="machine" data-state={machine.state}>
       <div className="machine-head">
-        <span className="status-dot" data-connected={machine.online} />
         <span className="machine-name" title={machine.name}>
           {machine.name}
         </span>
-        <MachineSwitch machine={machine} onSet={onSet} />
+        <span className="machine-status" data-tone={status.tone}>
+          <span className="machine-dot" aria-hidden="true" />
+          {status.text}
+        </span>
+        {facts ? <span className="machine-facts">{facts}</span> : null}
       </div>
-      <span className="machine-facts quiet">{about}</span>
-      <MachineLoginSwitch machine={machine} onSet={onSet} />
-      <InlineEdit
-        value={machine.note}
-        className="machine-note"
-        title="Edit what it's for"
-        empty="Say what it's for"
-        label={`What ${machine.name} is for`}
-        placeholder="What it's for, e.g. builds and long jobs"
-        maxLength={200}
-        onSave={(note) => onSet(machine.name, { note })}
-      />
+      {machine.online ? null : <MachineRestart />}
+      <MachineSwitch machine={machine} onSet={onSet} />
+      <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
+      <MachineNote machine={machine} onSet={onSet} />
       {confirming ? (
-        <div className="memory-confirm machine-remove" role="alertdialog" aria-label={`Remove ${machine.name}`}>
+        <div className="machine-confirm" role="alertdialog" aria-label={`Unpair ${machine.name}`}>
           <p>
-            Remove {machine.name}? Its runner stops, its tasks end, and it has to pair again to come back.
+            Unpair {machine.name}? Its runner stops, its tasks end, and it has to pair again to come back.
           </p>
-          <div className="soul-form-actions">
-            <button type="button" className="pill" onClick={() => setConfirming(false)}>
+          <div className="machine-confirm-actions">
+            <button type="button" className="automation-text pressable" onClick={() => setConfirming(false)}>
               Cancel
             </button>
-            <button type="button" className="pill soul-save" onClick={() => void remove()}>
-              Remove
+            <button type="button" className="machine-unpair-confirm pressable" onClick={() => void remove()}>
+              Unpair
             </button>
           </div>
         </div>
       ) : (
-        <button type="button" className="machine-remove-button quiet pressable" onClick={() => setConfirming(true)}>
-          Remove
+        <button type="button" className="machine-unpair pressable" onClick={() => setConfirming(true)}>
+          Unpair this computer
         </button>
       )}
-      {error ? <span className="machine-facts quiet">{error}</span> : null}
+      {error ? (
+        <p className="machine-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </li>
+  );
+}
+
+// How to bring an offline machine back: the service restarts it, or the user starts it by hand.
+function MachineRestart() {
+  return (
+    <div className="machine-restart">
+      <p>Start it on that computer:</p>
+      <code className="machine-command" aria-label="Start command">
+        ky runner run
+      </code>
+      <p>If it was set up as a service, it should restart on its own once that computer is on.</p>
+    </div>
+  );
+}
+
+// A labelled choice in a machine's card, with a hint for what's chosen under it.
+function MachineField({ label, hint, children }: { label: string; hint: ReactNode; children: ReactNode }) {
+  return (
+    <div className="machine-field">
+      <span className="machine-field-label">{label}</span>
+      {children}
+      <span className="machine-hint">{hint}</span>
+    </div>
   );
 }
 
 // On, paused or off: whether ky may use the machine.
 function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
+  const hint = MACHINE_STATES.find(([each]) => each === machine.state)?.[2] ?? "";
+
   return (
-    <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
-      {MACHINE_STATES.map(([each, label]) => (
-        <button
-          key={each}
-          type="button"
-          role="radio"
-          aria-checked={machine.state === each}
-          className="pressable"
-          onClick={() => onSet(machine.name, { state: each })}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <MachineField label="Takes tasks" hint={hint}>
+      <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
+        {MACHINE_STATES.map(([each, label]) => (
+          <button
+            key={each}
+            type="button"
+            role="radio"
+            aria-checked={machine.state === each}
+            className="pressable"
+            onClick={() => onSet(machine.name, { state: each })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </MachineField>
   );
 }
 
-// Whose Claude and ChatGPT logins the machine's tasks use: its own, or ky's subscriptions.
-function MachineLoginSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
+// Whose Claude Code and Codex logins the machine's tasks use: its own, or the ones in Settings › Subscriptions.
+function MachineLoginSwitch({
+  machine,
+  subscribed,
+  onSet,
+}: {
+  machine: MachineInfo;
+  subscribed: boolean;
+  onSet: (machine: string, change: MachineChange) => void;
+}) {
+  const chosen = MACHINE_LOGINS.find(([each]) => each === machine.login)?.[2] ?? "";
+  const saved = (
+    <>
+      Nothing is saved in{" "}
+      <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
+        {SUBSCRIPTIONS}
+      </button>{" "}
+      yet
+    </>
+  );
+  const hint = subscribed ? (
+    chosen
+  ) : machine.login === "ky" ? (
+    <>{saved}, so there is no login to hand over.</>
+  ) : (
+    <>Tasks use the logins on that computer. {saved}.</>
+  );
+
   return (
-    <div className="machine-login">
-      <span className="quiet">Sign in with</span>
+    <MachineField label="Claude & Codex login" hint={hint}>
       <div className="segmented small" role="radiogroup" aria-label={`Whose login ${machine.name} uses`}>
         {MACHINE_LOGINS.map(([each, label]) => (
           <button
@@ -601,6 +674,7 @@ function MachineLoginSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (
             type="button"
             role="radio"
             aria-checked={machine.login === each}
+            data-empty={each === "ky" && !subscribed}
             className="pressable"
             onClick={() => onSet(machine.name, { login: each })}
           >
@@ -608,6 +682,40 @@ function MachineLoginSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (
           </button>
         ))}
       </div>
+    </MachineField>
+  );
+}
+
+// What the user says the machine is for; Enter or leaving the field saves, Escape puts it back.
+function MachineNote({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
+  const id = useId();
+
+  const save = (next: string) => {
+    if (next.trim() !== machine.note) onSet(machine.name, { note: next });
+  };
+
+  return (
+    <div className="machine-field">
+      <label className="machine-field-label" htmlFor={id}>
+        What it's for <span className="quiet">(optional)</span>
+      </label>
+      <input
+        id={id}
+        key={machine.note}
+        className="machine-note-input"
+        placeholder="e.g. work laptop, has Chrome"
+        defaultValue={machine.note}
+        maxLength={200}
+        onBlur={(event) => save(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+
+          if (event.key === "Escape") {
+            event.currentTarget.value = machine.note;
+            event.currentTarget.blur();
+          }
+        }}
+      />
     </div>
   );
 }
@@ -1271,7 +1379,12 @@ function Settings({
       {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
       <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
       <Executor />
-      <MachineList machines={machines} now={now} onSet={onSetMachine} />
+      <MachineList
+        machines={machines}
+        now={now}
+        subscribed={subscriptions.views.some((view) => view.connected)}
+        onSet={onSetMachine}
+      />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}
     </div>
