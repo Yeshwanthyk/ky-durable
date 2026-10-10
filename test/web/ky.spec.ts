@@ -53,6 +53,7 @@ async function release(page: Page): Promise<void> {
 
 /** Bring the stack's Mac (its fake VibeProxy) online ("1"), take it away ("0"), or let it leave unnoticed ("leaves"). */
 async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
+  await signIn(page);
   const response = await page.request.post(`/test/mac?up=${up}`);
   expect(response.status()).toBe(204);
 }
@@ -805,8 +806,10 @@ test("serves the web app manifest and icons to the Home Screen without signing i
     expect(icon.status()).toBe(200);
     expect(icon.headers()["content-type"]).toContain("image/png");
 
-    // Everything else still asks to sign in.
-    expect((await stranger.get("/", { maxRedirects: 0 })).status()).toBe(302);
+    // Everything else is refused without Access's sign-in.
+    const home = await stranger.get("/", { maxRedirects: 0 });
+    expect(home.status()).toBe(401);
+    expect(await home.text()).toBe(REFUSED);
   } finally {
     await stranger.dispose();
   }
