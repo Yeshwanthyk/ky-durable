@@ -412,11 +412,17 @@ const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string, string]> = [
   ["off", "Off", "Takes no tasks"],
 ];
 
-/** Whose Claude Code and Codex logins its tasks use, and what each choice means. */
-const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string, string]> = [
-  ["own", "This computer's", "Tasks use the logins on that computer; Subscriptions fill in where it isn't signed in"],
-  ["ky", "From Subscriptions", "Tasks always use the logins saved in Settings › Subscriptions"],
+/** Whose Claude Code and Codex logins its tasks use. */
+const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string]> = [
+  ["own", "This computer's"],
+  ["ky", "From Subscriptions"],
 ];
+
+/** What each login choice means, once Subscriptions has a login saved. */
+const LOGIN_HINTS: Record<MachineLogin, string> = {
+  own: "Tasks use the logins on that computer; Subscriptions fill in where it isn't signed in",
+  ky: "Tasks always use the logins saved in Settings › Subscriptions",
+};
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -449,21 +455,27 @@ function agoInWords(time: number, now: number): string {
 /** A machine's status: a tone for its dot, and a line of words. */
 type MachineStatus = { tone: "online" | "paused" | "off" | "offline"; text: string };
 
+/** What an online machine's dot and status say for each state. */
+const STATE_STATUS = {
+  on: ["online", "Online"],
+  paused: ["paused", "Paused"],
+  off: ["off", "Off"],
+} as const satisfies Record<MachineState, readonly [MachineStatus["tone"], string]>;
+
+/** When an offline machine was last seen, and what waits for it. */
+function offlineStatus(machine: MachineInfo, now: number): MachineStatus {
+  const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
+
+  return { tone: "offline", text: `Offline · last seen ${agoInWords(machine.seenAt, now)}${waiting}` };
+}
+
 /** The machine's status as a tone for its dot and a line of words. */
 function machineStatus(machine: MachineInfo, now: number): MachineStatus {
-  if (!machine.online) {
-    const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
-
-    return { tone: "offline", text: `Offline · last seen ${agoInWords(machine.seenAt, now)}${waiting}` };
-  }
-
+  if (!machine.online) return offlineStatus(machine, now);
+  const [tone, word] = STATE_STATUS[machine.state];
   const busy = machine.active === 0 ? "idle" : `${plural(machine.active, "task")} running`;
 
-  if (machine.state === "paused") return { tone: "paused", text: `Paused · ${busy}` };
-
-  if (machine.state === "off") return { tone: "off", text: `Off · ${busy}` };
-
-  return { tone: "online", text: `Online · ${busy}` };
+  return { tone, text: `${word} · ${busy}` };
 }
 
 // A short text shown as a button; click to edit, Enter or leaving saves, Escape cancels.
@@ -649,28 +661,8 @@ function MachineLoginSwitch({
   subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
-  const chosen = MACHINE_LOGINS.find(([each]) => each === machine.login)?.[2] ?? "";
-
-  const saved = (
-    <>
-      Nothing is saved in{" "}
-      <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
-        {SUBSCRIPTIONS}
-      </button>{" "}
-      yet
-    </>
-  );
-
-  const hint = subscribed ? (
-    chosen
-  ) : machine.login === "ky" ? (
-    <>{saved}, so there is no login to hand over.</>
-  ) : (
-    <>Tasks use the logins on that computer. {saved}.</>
-  );
-
   return (
-    <MachineField label="Claude & Codex login" hint={hint}>
+    <MachineField label="Claude & Codex login" hint={<LoginHint login={machine.login} subscribed={subscribed} />}>
       <div className="segmented small" role="radiogroup" aria-label={`Whose login ${machine.name} uses`}>
         {MACHINE_LOGINS.map(([each, label]) => (
           <button
@@ -688,6 +680,23 @@ function MachineLoginSwitch({
       </div>
     </MachineField>
   );
+}
+
+// What the chosen login means, or that Subscriptions has nothing to hand over yet.
+function LoginHint({ login, subscribed }: { login: MachineLogin; subscribed: boolean }) {
+  if (subscribed) return LOGIN_HINTS[login];
+
+  const saved = (
+    <>
+      Nothing is saved in{" "}
+      <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
+        {SUBSCRIPTIONS}
+      </button>{" "}
+      yet
+    </>
+  );
+
+  return login === "ky" ? <>{saved}, so there is no login to hand over.</> : <>Tasks use the logins on that computer. {saved}.</>;
 }
 
 // What the user says the machine is for; Enter or leaving the field saves, Escape puts it back.
