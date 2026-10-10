@@ -857,46 +857,204 @@
 .card.machine-list {
   display: flex;
   flex-direction: column;
-  padding: 0 12px;
+  padding: 0 14px;
   font-size: calc(12.5px * var(--text-scale));
 }
 
 .machine-list li {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
   min-width: 0;
-  padding: 10px 0;
+  padding: 14px 0;
 }
 
 .machine-list li + li {
   box-shadow: inset 0 1px 0 var(--line);
 }
 
+/* The name, then its status, then what it is: one block, read top to bottom. */
 .machine-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 
-.machine-head .segmented.small {
-  flex: none;
-  margin-left: auto;
+.machine-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: calc(14px * var(--text-scale));
+  font-weight: 600;
 }
 
-/* Status, facts and note line up with the name, past the dot. */
-.machine-facts,
-.machine-note,
-.machine-note-input {
-  margin-left: 15px;
-}
-
-.machine-login {
+.machine-status {
   display: flex;
   align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.machine-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--quiet);
+}
+
+.machine-status[data-tone="online"] .machine-dot {
+  background: var(--success);
+}
+
+.machine-status[data-tone="paused"] .machine-dot,
+.machine-status[data-tone="waking"] .machine-dot {
+  background: var(--warning);
+}
+
+.machine-status[data-tone="offline"] {
+  color: var(--muted);
+}
+
+.machine-facts {
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  overflow-wrap: anywhere;
+}
+
+/* How to bring an offline machine back. */
+.machine-restart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--hover);
+}
+
+.machine-restart p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.machine-restart .machine-command {
+  align-self: flex-start;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* A labelled choice: its label, the control, then what the chosen value means. */
+.machine-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.machine-field-label {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.machine-field-label .quiet {
+  font-weight: 400;
+}
+
+.machine-hint {
+  color: var(--muted);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.45;
+}
+
+.machine .segmented.small {
+  max-width: 100%;
+}
+
+.machine .segmented.small > button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+}
+
+/* Subscriptions has nothing saved: the choice reads as empty. */
+.machine .segmented.small > button[data-empty="true"]:not([aria-checked="true"]) {
+  color: var(--quiet);
+}
+
+.machine[data-state="off"] .machine-name,
+.machine[data-state="paused"] .machine-name {
+  color: var(--muted);
+}
+
+.machine .machine-note-input {
+  width: 100%;
+}
+
+.machine .machine-note-input::placeholder {
+  color: var(--quiet);
+}
+
+/* Unpairing is quiet until asked for, and red once it is. */
+.machine-unpair {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: calc(12px * var(--text-scale));
+  opacity: 0.8;
+}
+
+.machine-unpair:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.machine-confirm {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin-left: 15px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+}
+
+.machine-confirm p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.machine-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.machine-unpair-confirm {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+}
+
+.machine-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* The Claude form takes its own full-width line under the label and note, so neither is squeezed. */
@@ -934,58 +1092,6 @@
   align-items: center;
   gap: 8px;
   overflow-wrap: anywhere;
-}
-
-.machine[data-state="off"] .machine-name,
-.machine[data-state="paused"] .machine-name {
-  color: var(--muted);
-}
-
-.machine .segmented.small > button {
-  height: 24px;
-  padding: 0 8px;
-  font-size: calc(12px * var(--text-scale));
-}
-
-.machine-note {
-  align-self: flex-start;
-  max-width: calc(100% - 15px);
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-
-
-.machine-name {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-weight: 550;
-}
-
-.machine-list .quiet {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.machine-list .machine-facts {
-  white-space: normal;
-}
-
-.machine .machine-note-input {
-  width: calc(100% - 15px);
-}
-
-.machine-remove-button {
-  align-self: flex-start;
-  margin-left: 15px;
-  font-size: calc(12px * var(--text-scale));
-}
-
-.machine-remove-button:hover {
-  color: var(--ink);
 }
 
 .machine-add {
