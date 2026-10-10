@@ -498,7 +498,7 @@ describe("a deploy's own setup", () => {
         {
           id: "vibeproxy",
           name: "Claude via VibeProxy",
-          needs: "the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
+          needs: "a paired machine whose runner shares port 8317 (KY_RUNNER_PORTS=8317), or the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
         },
         { id: "executor", name: "Executor", needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret" }
       ]
