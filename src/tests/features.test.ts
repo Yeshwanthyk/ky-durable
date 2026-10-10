@@ -557,10 +557,14 @@ describe("a deploy's own setup", () => {
     await prompt(name, "again");
     const after = (await systems()).at(-1);
     expect(after).toContain("your own code is the GitHub repo test-owner/test-repo.");
-    expect(after).toContain("run one machine task, on a machine that has the repo,");
-    expect(after).toContain("1. cd to its working copy of test-owner/test-repo (gh repo clone test-owner/test-repo if it has none).");
-    expect(after).toContain("4. Check that https://ky.test/login answers 200.");
-    expect(after).not.toMatch(/\bMac\b/);
+    expect(after).toContain("run one machine task on cloud,");
+    expect(after).toContain("1. gh repo clone test-owner/test-repo ky");
+    expect(after).toContain("git switch -c ky/<short-name> origin/main");
+    expect(after).toContain("gh pr create --base main");
+    expect(after).toContain("4. Check that https://ky.test/manifest.webmanifest answers 200.");
+    expect(after).toContain("gh workflow run deploy.yml --repo test-owner/test-repo --ref main -f sha=<rollback point>");
+    // The deploy workflow deploys, with its token in the repo's secrets: ky never runs wrangler.
+    expect(after).not.toMatch(/\bMac\b|wrangler|pnpm run deploy/);
 
     // Only setting the repo moves ky's address: a page opened elsewhere leaves it, and setting the repo there takes it.
     const elsewhere = await session(name, "", "https://preview.ky.test");
@@ -569,7 +573,7 @@ describe("a deploy's own setup", () => {
     expect(latest(client, "setup")?.setup.url).toBe("https://preview.ky.test");
 
     await prompt(name, "moved");
-    expect((await systems()).at(-1)).toContain("4. Check that https://preview.ky.test/login answers 200.");
+    expect((await systems()).at(-1)).toContain("4. Check that https://preview.ky.test/manifest.webmanifest answers 200.");
 
     await command(socket, client, { type: "set-repo", repo: "" });
     expect(latest(client, "setup")?.setup.repo).toBeNull();
@@ -667,6 +671,8 @@ describe("machine tasks", () => {
     const mac = await runner(name);
     const { socket, client } = await session(name);
     const machine = (who: string) => latest(client, "tasks")?.machines.find((m) => m.name === who);
+    // The cloud machine, the default when it is on, is off here: this is about choosing among the user's computers.
+    await command(socket, client, { type: "set-machine", machine: "cloud", state: "off" });
 
     // The runner says what it is; the user sees it, and so does the agent.
     mac.send({

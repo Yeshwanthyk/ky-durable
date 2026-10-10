@@ -7,7 +7,7 @@ import {
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { CLOUD, CLOUD_FACTS } from "./cloud-facts";
 import type { FileRow, FileStore } from "./files";
-import { type MachineInfo, osName } from "./protocol";
+import { type CloudState, type MachineInfo, osName } from "./protocol";
 import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
@@ -330,21 +330,35 @@ export class MachineHub {
     return this.#sockets(runnerTag(machine)).some((socket) => socket.readyState === OPEN);
   }
 
+  /** The machines, the cloud machine first, then the user's computers by name. */
   machines(): MachineInfo[] {
     return this.#sql
-      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name")
+      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name = ? DESC, name", CLOUD)
       .toArray()
-      .map((row) => ({
-        name: row.name,
-        online: this.online(row.name),
-        seenAt: row.seen_at,
-        active: this.#feed.open("machine", row.name).length,
-        state: row.state,
-        note: row.note,
+      .map((row) => {
+        const online = this.online(row.name);
         // SAFETY: only #onHello and paired write facts, each a checked MachineFacts.
-        facts: row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts),
-        login: row.login
-      }));
+        const facts = row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts);
+
+        return {
+          name: row.name,
+          online,
+          seenAt: row.seen_at,
+          active: this.#feed.open("machine", row.name).length,
+          state: row.state,
+          note: row.note,
+          facts,
+          login: row.login,
+          cloud: facts?.kind === "cloud" ? this.#cloudState(row.name, online) : null
+        };
+      });
+  }
+
+  /** Running while its runner is connected; else waking while work waits for it, and asleep with none. */
+  #cloudState(machine: string, online: boolean): CloudState {
+    if (online) return "running";
+
+    return this.busy(machine) ? "waking" : "asleep";
   }
 
   machine(name: string): MachineInfo | undefined {
@@ -773,6 +787,11 @@ export class MachineHub {
     if (listed.rowsWritten > 0) for (const watcher of this.#watchers) watcher();
   }
 
+  /** The cloud machine's name while it is listed and the user lets it take tasks. */
+  cloudOn(): string | undefined {
+    return this.machines().find((machine) => machine.cloud !== null && machine.state === "on")?.name;
+  }
+
   /** Whether `machine` has an open task or a command waiting: the cloud machine stays awake while it has. */
   busy(machine: string): boolean {
     return this.#feed.open("machine", machine).length > 0 || this.#pending(machine).length > 0;
@@ -957,6 +976,9 @@ const reply = (text: string) => ({ content: [{ type: "text" as const, text }] })
 
 /** Which agents a machine runs, and each it has but is not signed in to: "runs Codex, Claude Code not signed in". */
 function agentsOf(facts: MachineFacts): string[] {
+  // The cloud machine signs in with the subscriptions in ky's Vault for each task.
+  if (facts.kind === "cloud") return [`runs ${PREFERRED.map((agent) => AGENT_NAMES[agent]).join(" and ")} with ky's subscriptions`];
+
   const running = PREFERRED.flatMap((agent) => (runs(facts, agent) ? [AGENT_NAMES[agent]] : []));
 
   const signedOut = PREFERRED.flatMap((agent) =>
@@ -966,22 +988,23 @@ function agentsOf(facts: MachineFacts): string[] {
   return [running.length > 0 ? `runs ${running.join(" and ")}` : "runs no agent", ...signedOut];
 }
 
-/** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
-function describeMachine(machine: MachineInfo): string {
-  const parts = [
-    machine.state,
-    machine.online ? "online" : machine.facts?.kind === "cloud" ? "asleep (wakes for a task in a minute or two)" : "offline",
-    `${machine.active} running or queued`,
-    ...(machine.facts
-      ? [
-          osName(machine.facts.os),
-          machine.facts.chrome ? "Chrome with the user's logins" : "no logged-in browser",
-          ...agentsOf(machine.facts)
-        ]
-      : [])
-  ];
+/** Whether a machine is up: the cloud machine asleep, waking or online; a computer online or offline. */
+function upness(machine: MachineInfo): string {
+  if (machine.cloud === "asleep") return "asleep (wakes for a task in a minute or two)";
 
-  const lines = [`${machine.name}: ${parts.join(", ")}`];
+  if (machine.cloud === "waking") return "waking for its tasks";
+
+  return machine.online ? "online" : "offline";
+}
+
+/** What a machine is, as it last said: its OS, its browser, its agents. */
+function whatItIs(facts: MachineFacts): string[] {
+  return [osName(facts.os), facts.chrome ? "Chrome with the user's logins" : "no logged-in browser", ...agentsOf(facts)];
+}
+
+/** The lines under a machine's: what the cloud machine is, the user's note, local servers it shares, and its repos. */
+function aboutLines(machine: MachineInfo): string[] {
+  const lines: string[] = [];
 
   if (machine.facts?.kind === "cloud") {
     lines.push("  ky's own Linux machine in Cloudflare: no local files of the user's; it clones from GitHub, and pushes only to ky/* branches of the repos the user picked");
@@ -989,23 +1012,43 @@ function describeMachine(machine: MachineInfo): string {
 
   if (machine.note !== "") lines.push(`  the user says: ${machine.note}`);
 
+  if (machine.facts && machine.facts.ports.length > 0) lines.push(`  shares local servers (such as local models) on ports ${machine.facts.ports.join(", ")}`);
+
   if (machine.facts && machine.facts.repos.length > 0) {
     lines.push(`  repos: ${machine.facts.repos.map((repo) => (repo.remote ? `${repo.name} (${repo.remote})` : repo.name)).join(", ")}`);
   }
 
-  return lines.join("\n");
+  return lines;
 }
 
-const describeAll = (machines: readonly MachineInfo[]) =>
-  machines.length === 0 ? "No machines yet. The user adds one in Settings, under Machines, and runs the `ky runner add` command it shows on that computer." : machines.map(describeMachine).join("\n");
+/** A machine as the agent reads it: what the user allows, whether it is up, how busy, what it is, and its repos. */
+function describeMachine(machine: MachineInfo): string {
+  const parts = [machine.state, upness(machine), `${machine.active} running or queued`, ...(machine.facts ? whatItIs(machine.facts) : [])];
 
-/** The machines a task could go to now, for a refusal or an offline start to offer instead. */
+  return [`${machine.name}: ${parts.join(", ")}`, ...aboutLines(machine)].join("\n");
+}
+
+/**
+ * A machine as the tool's description lists it: only what changes when the
+ * user or the machine changes, not whether it is up or how busy, since a
+ * new description is a new tool to the model.
+ */
+function factsOf(machine: MachineInfo): string {
+  const parts = [machine.state, ...(machine.facts ? whatItIs(machine.facts) : ["has not said what it is yet"])];
+
+  return [`${machine.name}: ${parts.join(", ")}`, ...aboutLines(machine)].join("\n");
+}
+
+const describeAll = (machines: readonly MachineInfo[], describe: (machine: MachineInfo) => string = describeMachine) =>
+  machines.length === 0 ? "No machines yet. The user adds one in Settings, under Machines, and runs the `ky runner add` command it shows on that computer." : machines.map(describe).join("\n");
+
+/** The machines a task could go to now, for a refusal or an offline start to offer instead: the cloud machine wakes for one. */
 function elsewhere(machines: readonly MachineInfo[], not: string): string {
-  const ready = machines.filter((machine) => machine.name !== not && machine.state === "on" && machine.online);
+  const ready = machines.filter((machine) => machine.name !== not && machine.state === "on" && (machine.online || machine.cloud !== null));
 
   return ready.length === 0
     ? "No other machine is on and online."
-    : `On and online: ${ready.map((machine) => `${machine.name} (${machine.active} running or queued)`).join(", ")}.`;
+    : `On and online: ${ready.map((machine) => `${machine.name} (${machine.online ? "" : `${machine.cloud}, wakes for it; `}${machine.active} running or queued)`).join(", ")}.`;
 }
 
 /** Each machine and its recent tasks. */
@@ -1039,10 +1082,20 @@ function setMachine(hub: MachineHub, machines: readonly MachineInfo[], name: str
   }
 }
 
-/** The machine a new task goes to: the one named, or the only one on and online; else why not. */
+/** The machine a new task goes to when none is named: the cloud machine while it is on, else the only one on and online. */
+function defaultMachine(machines: readonly MachineInfo[]): string | undefined {
+  const cloud = machines.find((m) => m.cloud !== null && m.state === "on");
+
+  if (cloud) return cloud.name;
+  const ready = machines.filter((m) => m.state === "on" && m.online);
+
+  return ready.length === 1 ? ready[0]!.name : undefined;
+}
+
+/** The machine a new task goes to: the one named, else the default; else why not. */
 function pickMachine(machines: readonly MachineInfo[], requested: string | undefined): { name: string } | { refusal: string } {
   const ready = machines.filter((m) => m.state === "on" && m.online);
-  const name = requested ?? (ready.length === 1 ? ready[0]!.name : undefined);
+  const name = requested ?? defaultMachine(machines);
 
   if (!name) {
     return {
@@ -1069,7 +1122,7 @@ function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: Task
 
   if (hub.online(task.worker)) return `${started}.`;
 
-  if (hub.machine(task.worker)?.facts?.kind === "cloud") return `${started} (asleep: it wakes for the task in a minute or two).`;
+  if (hub.machine(task.worker)?.cloud) return `${started} (asleep: it wakes for the task in a minute or two).`;
 
   const waiting = machines.some((m) => m.name === task.worker)
     ? `offline: it starts when ${task.worker} connects`
@@ -1163,23 +1216,49 @@ async function onTask(hub: MachineHub, feed: TaskFeed, machines: readonly Machin
   return sendTask(hub, task, args.message, conversation);
 }
 
+/** Where work goes: the cloud machine by default while it is on, a computer for what only it has. */
+function routing(machines: readonly MachineInfo[]): string {
+  const cloud = machines.find((m) => m.cloud !== null && m.state === "on");
+  const personal = "Use one of the user's computers for its Chrome with the user's logins (pages behind them, and screenshots of those pages: only a machine with Chrome takes them), its local files, the local models it shares, or when the user names it. ";
+
+  if (!cloud) {
+    return "Choose the machine by what the user said about it, which one has the repos the task needs, which one has Chrome with the user's logins when the task needs them, and how busy each is. ";
+  }
+
+  return (
+    `Scripts, builds, tests and work on a GitHub repo go to ${cloud.name}, the default when you name no machine: it runs with every computer of the user's off, and wakes for a task in a minute or two. ` +
+    `${personal}Among those, choose by what the user said about each, which has the repos the task needs, and how busy each is. `
+  );
+}
+
+/** The machine tool's description: what tasks are, where each kind of work goes, the machines and what each is, and the actions. */
+function toolDescription(machines: readonly MachineInfo[]): string {
+  return (
+    "Run tasks on machines, each as a Claude Code or Codex session with a shell, git, files, scripts and installed tools. " +
+    "Use it when the user asks for a machine, or for what the cloud tools cannot do: running scripts, builds or tests, work on a repo, web pages that need the user's logins (have a subagent try Exa search and browse first), local files. " +
+    routing(machines) +
+    "Only a machine that is on takes new tasks. Name an agent only when the user asks for one, else a task runs as the machine's own, Claude Code first.\n" +
+    `Machines (list says which are online and how busy):\n${describeAll(machines, factsOf)}\n` +
+    "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; which agents it runs; repos; the user's note, and its recent tasks). " +
+    "run (title, prompt, machine, agent): start a task; the prompt must be self-contained. " +
+    "send (task, message): steer a working task, or resume a finished one with its history; it goes to the task's own agent. Codex takes no message mid-turn: one sent to a working Codex task runs once its turn ends. " +
+    "stop (task): stop it; send resumes it later. " +
+    "move (task, machine): send a task that has not started yet to another machine that runs its agent, such as when its machine is offline. " +
+    "set (machine, state, note): only when the user asks; state on, paused (finishes its tasks, takes no new ones) or off (takes nothing from you); note says what it is for. " +
+    "Results are reported back to this conversation as messages when they arrive; do not poll."
+  );
+}
+
 export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
   return defineExtension({
     name: "machines",
     tools: [
       defineTool({
         name: "machine",
-        description:
-          "Run tasks on the user's real computers, each as a Claude Code or Codex session with a shell, files, scripts, installed tools and a real browser. " +
-          "Use it only when the user asks for a machine, or for what the cloud cannot do: web pages that need the user's logins (have a subagent try Exa search and browse first), running scripts or builds, touching local files. " +
-          "Choose the machine by what the user said about it, which one has the repos the task needs, which one has Chrome with the user's logins when the task needs them, and how busy each is. Only a machine that is on takes new tasks. " +
-          "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; which agents it runs; repos; the user's note, and its recent tasks). " +
-          "run (title, prompt, machine, agent): start a task; name the machine unless only one is on and online; the prompt must be self-contained; agent only when the user asks for one, else the machine's own, Claude Code first. " +
-          "send (task, message): steer a working task, or resume a finished one with its history; it goes to the task's own agent. Codex takes no message mid-turn: one sent to a working Codex task runs once its turn ends. " +
-          "stop (task): stop it; send resumes it later. " +
-          "move (task, machine): send a task that has not started yet to another machine that runs its agent, such as when its machine is offline. " +
-          "set (machine, state, note): only when the user asks; state on, paused (finishes its tasks, takes no new ones) or off (takes nothing from you); note says what it is for. " +
-          "Results are reported back to this conversation as messages when they arrive; do not poll.",
+        // Read for every model request, so it lists the machines as they are now.
+        get description() {
+          return toolDescription(hub.machines());
+        },
         parameters: Type.Object({
           action: Type.Union([
             Type.Literal("list"),

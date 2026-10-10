@@ -625,6 +625,15 @@ test("runs a task on a machine and shows its report", async ({ page }) => {
   await expect(page.getByText("Report from").first()).toBeVisible();
 });
 
+test("lists the cloud machine first in Settings, asleep while it has no task", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const machines = panel(page).locator("#settings-machines").getByRole("listitem");
+  await expect(machines.first()).toContainText("cloud");
+  await expect(machines.first()).toContainText("asleep");
+  await expect(machines.filter({ hasText: "webmac" }).last()).toContainText(/idle|task/);
+});
+
 test("pauses a machine and notes what it is for in Settings, and the agent is refused it", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();

@@ -5,7 +5,7 @@ import type { ClientMessage } from "../protocol";
 import { type GithubLogin, kyRefsOnly, proxyGit } from "../github";
 import { SUBSCRIPTION } from "../vault";
 import { GITHUB_REPOS, REVOKED_GITHUB_TOKEN } from "../../test/fakes/github";
-import { call, connect, FACTS, follow, inside, pair, pairingCode, prompt, runner, until } from "./drive";
+import { call, connect, FACTS, follow, inside, pair, pairingCode, prompt, runner, tasks, until } from "./drive";
 import type { Vault as TestVault } from "./stack";
 
 /**
@@ -155,6 +155,47 @@ describe("the cloud machine", () => {
     // The code wasn't spent on the refusal.
     expect((await pair({ code, name: `m${crypto.randomUUID().slice(0, 8)}`, facts: FACTS })).status).toBe(200);
     expect((await call(`/api/runners/${CLOUD}`, { method: "DELETE" })).status).toBe(409);
+  });
+
+  it("is listed first with its state, the default for work, and the machine tool lists each machine's facts", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name, "mac", { ...FACTS, chrome: true });
+    const listed = () => inside(name, (instance) => instance.machines.machines().map((row) => ({ name: row.name, cloud: row.cloud })));
+
+    expect(await listed()).toEqual([
+      { name: CLOUD, cloud: "asleep" },
+      { name: "mac", cloud: null }
+    ]);
+
+    await prompt(name, "hello");
+    const { system, tools } = await inside(name, (instance) => instance.boundary.calls.at(-1)!);
+    expect(system).toContain(`go to ${CLOUD}, your own machine in the cloud`);
+    const described = tools?.machine ?? "";
+    expect(system).toContain("a page needs a machine with Chrome");
+    expect(described).toContain(`the default when you name no machine`);
+    expect(described).toContain("screenshots of those pages: only a machine with Chrome takes them");
+    expect(described).toContain(`${CLOUD}: on, Linux, no logged-in browser, runs Claude Code and Codex with ky's subscriptions`);
+    expect(described).toContain("mac: on, macOS, Chrome with the user's logins");
+    expect(described.indexOf(`${CLOUD}: on`)).toBeLessThan(described.indexOf("mac: on"));
+    // Only facts: a description that changed with every task would be a new tool to the model.
+    expect(described).not.toMatch(/running or queued|asleep \(/);
+
+    // A task with no machine named waits for the cloud machine, which shows waking till it is up.
+    await prompt(name, `tool machine ${JSON.stringify({ action: "run", prompt: "build it" })}`);
+    expect(await tasks(name)).toEqual([expect.objectContaining({ worker: CLOUD })]);
+    expect((await listed())[0]).toEqual({ name: CLOUD, cloud: "waking" });
+
+    const cloud = await runner(name, CLOUD, CLOUD_FACTS);
+    expect((await cloud.run()).prompt).toContain("build it");
+    expect((await listed())[0]).toEqual({ name: CLOUD, cloud: "running" });
+    expect(mac.commands).toEqual([]);
+
+    // With the cloud machine off, an unnamed task goes to the only computer on and online.
+    await inside(name, (instance) => instance.machines.configure(CLOUD, { state: "off" }));
+    await prompt(name, `tool machine ${JSON.stringify({ action: "run", prompt: "build it here" })}`);
+    expect((await mac.run()).prompt).toContain("build it here");
+    cloud.socket.close();
+    mac.socket.close();
   });
 
   it("is busy while a task is open on it, and hands only its tasks the GitHub token", async () => {

@@ -326,7 +326,7 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
   );
 }
 
-// Your computers, and whether ky may use each.
+// The cloud machine first (the server lists it so), then your computers, and whether ky may use each.
 function MachineList({
   machines,
   now,
@@ -435,11 +435,16 @@ function offlineStatus(machine: MachineInfo, now: number): string {
   return `offline, seen ${seen}${seen === "now" ? "" : " ago"}${waiting}`;
 }
 
-/** Whether a machine is busy, or when it was last seen. */
+/** How many tasks a machine has, or `none` without one. */
+const tasksOr = (active: number, none: string) => (active === 0 ? none : plural(active, "task"));
+
+/** Whether a machine is busy, or when it was last seen; the cloud machine's state, asleep, waking or running, instead. */
 function machineStatus(machine: MachineInfo, now: number): string {
+  if (machine.cloud !== null) return [machine.cloud, tasksOr(machine.active, "")].filter(Boolean).join(" · ");
+
   if (!machine.online) return offlineStatus(machine, now);
 
-  return machine.active === 0 ? "idle" : plural(machine.active, "task");
+  return tasksOr(machine.active, "idle");
 }
 
 // A short text shown as a button; click to edit, Enter or leaving saves, Escape cancels.

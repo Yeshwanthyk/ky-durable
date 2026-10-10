@@ -39,7 +39,12 @@ export type MachineInfo = {
   readonly facts: MachineFacts | null;
   /** Whose login its tasks sign in with: its own, or ky's subscriptions whichever way it is signed in. */
   readonly login: MachineLogin;
+  /** The cloud machine's state; null for one of the user's computers. */
+  readonly cloud: CloudState | null;
 };
+
+/** The cloud machine: asleep with nothing to do, waking for work that waits for it, or running with its runner connected. */
+export type CloudState = "asleep" | "waking" | "running";
 
 export type SubscriptionKind = "claude" | "chatgpt" | "github";
 
