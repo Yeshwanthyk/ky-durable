@@ -130,6 +130,7 @@ describe("Access", () => {
     for (const missing of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "ACCESS_EMAILS"] as const) {
       const response = await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: jwt } }), { ...env, [missing]: undefined });
       expect(response.status, missing).toBe(500);
+      expect(await response.text(), missing).toContain("`ky init` sets them up");
     }
   });
 

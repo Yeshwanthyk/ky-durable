@@ -5,22 +5,25 @@
  * `ky` reads the one `pnpm compile` left in dist/release.
  *
  * On disk and in the pack the layout is the same:
- *   release.json   { version, config, image? }
+ *   release.json   { version, bundle, config, image? }
  *   worker/…       the Worker's modules, the config's `main` among them
  *   assets/…       the web app
  *   SKILL.md       `ky skill`
  */
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Unstable_RawConfig } from "wrangler";
 
 /**
- * release.json. `config` is wrangler.jsonc as built: generic, no owner overlay, its `main` the
- * built entry module. `image` is the cloud machine's image, `ghcr.io/…@sha256:…`, from
- * container/image.digest; a release without one deploys no cloud machine.
+ * release.json. `version` is the release's (`v<version>` is its tag), or the commit it was built
+ * from. `bundle` pins the rest of the release: bundleOf every other file. `config` is wrangler.jsonc
+ * as built: generic, no owner overlay, its `main` the built entry module. `image` is the cloud
+ * machine's image, `ghcr.io/…@sha256:…`, from container/image.digest; a release without one deploys
+ * no cloud machine.
  */
-type Manifest = { version: string; config: Unstable_RawConfig; image?: string };
+type Manifest = { version: string; bundle: string; config: Unstable_RawConfig; image?: string };
 
 export type Release = Manifest & {
   /** Module name (`index.js`, `assets/models-….js`) to content. */
@@ -59,6 +62,21 @@ export async function releaseFiles(dir: string): Promise<Map<string, Uint8Array>
   return files;
 }
 
+/**
+ * `sha256:<hex>` over every file of a release but release.json: each file's path and its own sha-256,
+ * in path order. release.json's `bundle`, and what the release's page lists, so anyone can check
+ * that a `ky` deploys the Worker and web app it says it does.
+ */
+export function bundleOf(files: Map<string, Uint8Array>): string {
+  const hash = createHash("sha256");
+
+  for (const name of [...files.keys()].filter((name) => name !== "release.json").sort()) {
+    hash.update(`${name}\0${createHash("sha256").update(files.get(name)!).digest("hex")}\n`);
+  }
+
+  return `sha256:${hash.digest("hex")}`;
+}
+
 function fromFiles(files: Map<string, Uint8Array>): Release {
   const text = (name: string) => {
     const file = files.get(name);
@@ -69,6 +87,8 @@ function fromFiles(files: Map<string, Uint8Array>): Release {
   };
 
   const manifest: Manifest = JSON.parse(text("release.json"));
+
+  if (manifest.bundle !== bundleOf(files)) throw new Error(`The release's files aren't the ones its release.json pins (${manifest.bundle})`);
 
   const under = (prefix: string, key: (name: string) => string) =>
     new Map([...files].flatMap(([name, content]) => (name.startsWith(prefix) ? [[key(name.slice(prefix.length)), content] as const] : [])));

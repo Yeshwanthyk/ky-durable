@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import { BYPASS } from "../../src/access.ts";
 import { initCommand } from "../../cli/init.ts";
 import * as Cli from "../../cli/ky.ts";
 import { banner, bold } from "../../cli/output.ts";
-import { loadRelease, packOf, type Release, releaseFiles, useRelease } from "../../cli/release.ts";
+import { bundleOf, loadRelease, packOf, type Release, useRelease } from "../../cli/release.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 import { type FakeRegistry, fakeRegistry } from "../fakes/registry.ts";
 import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
@@ -30,6 +30,7 @@ const encode = (text: string) => new TextEncoder().encode(text);
 function release(version: string, config = experimental_readRawConfig({ config: path.join(REPO, "wrangler.jsonc") }).rawConfig): Release {
   return {
     version,
+    bundle: `sha256:${version}`,
     config: { ...config, main: "index.js" },
     modules: new Map([
       ["index.js", encode("export default {}")],
@@ -889,27 +890,51 @@ describe("how ky looks", () => {
 });
 
 describe("the release pack", () => {
-  it("carries the release the compiled ky deploys", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "ky-release-"));
+  /** r1's files as `pnpm compile` lays them out, release.json pinning the rest, in a pack. */
+  async function packed(tamper?: (files: Map<string, Uint8Array>) => void) {
     const r1 = release("r1");
 
-    for (const [name, content] of [
-      ["release.json", encode(JSON.stringify({ version: r1.version, config: r1.config }))],
+    const files = new Map<string, Uint8Array>([
       ["SKILL.md", encode(r1.skill)],
       ...[...r1.modules].map(([module, content]) => [`worker/${module}`, content] as const),
       ...[...r1.assets].map(([asset, content]) => [`assets${asset}`, content] as const)
-    ] as const) {
-      await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
-      await writeFile(path.join(dir, name), content);
-    }
+    ]);
 
-    const pack = path.join(dir, "release.pack");
+    const bundle = bundleOf(files);
 
-    await writeFile(pack, packOf(await releaseFiles(dir)));
+    files.set("release.json", encode(JSON.stringify({ version: r1.version, bundle, config: r1.config })));
+    tamper?.(files);
+
+    const pack = path.join(await mkdtemp(path.join(tmpdir(), "ky-release-")), "release.pack");
+
+    await writeFile(pack, packOf(files));
     useRelease(pack);
+
+    return { ...r1, bundle };
+  }
+
+  it("carries the release the compiled ky deploys", async () => {
+    const r1 = await packed();
     const loaded = await loadRelease();
 
+    expect(r1.bundle).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(loaded).toEqual({ ...r1, modules: new Map([...r1.modules].map(([name, content]) => [name, Buffer.from(content)])), assets: expect.any(Map) });
     expect([...loaded.assets.keys()].sort()).toEqual(["/index.html", "/manifest.webmanifest"]);
+  });
+
+  it("refuses a release whose files aren't the ones release.json pins", async () => {
+    await packed((files) => files.set("worker/index.js", encode("export default { fetch() {} }")));
+    await expect(loadRelease()).rejects.toThrow(/aren't the ones its release.json pins/);
+    await packed((files) => files.set("assets/extra.js", encode("")));
+    await expect(loadRelease()).rejects.toThrow(/aren't the ones its release.json pins/);
+  });
+
+  it("names its version and what it is, so install.sh tells it from another ky", async () => {
+    const ky = await fresh();
+
+    output = [];
+    expect(await Cli.ky(["--version"], ky)).toBe(0);
+    expect(await Cli.ky(["version"], ky)).toBe(0);
+    expect(output).toEqual([`ky r1 (${Cli.IDENTITY})`, `ky r1 (${Cli.IDENTITY})`]);
   });
 });

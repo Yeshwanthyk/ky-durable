@@ -10,6 +10,18 @@ Workers AI for models, and two Cloudflare Access apps, one that lets only the ow
 task uploads, the manifest and icons through. It keeps no Cloudflare token: each run uses `CLOUDFLARE_API_TOKEN`,
 or else `wrangler login`'s.
 
+## Install
+
+```sh
+brew install yeshwanthyk/ky/ky
+# or: curl -fsSL https://github.com/Yeshwanthyk/ky-durable/releases/latest/download/install.sh | sh
+```
+
+Other programs are named `ky` too. This one's `ky --version` prints `ky <version> (ky-durable-cli)`; if it prints
+anything else, another `ky` comes first on the PATH, so run this one by its full path (`$(brew --prefix)/bin/ky`,
+or `~/.local/bin/ky` from install.sh). install.sh never replaces another `ky`: it stops and says what it found;
+`KY_INSTALL_DIR=<folder>` installs beside it, and only the user should choose `KY_INSTALL_FORCE=1`, which replaces it.
+
 ## Set up
 
 ```sh

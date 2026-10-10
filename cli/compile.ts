@@ -2,14 +2,14 @@
  * Builds the `ky` binary for each platform, with the release inside it (cli/binary.ts): `pnpm
  * compile [darwin-arm64 …]`, after `vite build`. The release is gathered in dist/release, packed
  * into dist/release.pack, and the binaries land in dist/bin. The macOS ones are signed only when
- * this runs on macOS.
+ * this runs on macOS. KY_VERSION names the release; without it, the release is the commit's.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { experimental_readRawConfig } from "wrangler";
-import { CHECKOUT, packOf, releaseFiles } from "./release.ts";
+import { bundleOf, CHECKOUT, packOf, releaseFiles } from "./release.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 
@@ -33,7 +33,8 @@ const image = existsSync(digestFile)
   ? (await readFile(digestFile, "utf8")).split("\n").map((line) => line.trim()).find((line) => line !== "" && !line.startsWith("#"))
   : undefined;
 
-const version = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+// A release's own (.github/workflows/release.yml sets it from the tag), else the commit.
+const version = process.env.KY_VERSION || execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
 
 // What the web app's build marks as never served: the resolved config and .dev.vars.
 const ignored = new Set([".assetsignore", ...(await readFile(path.join(CLIENT, ".assetsignore"), "utf8")).split("\n").filter(Boolean)]);
@@ -42,14 +43,17 @@ await rm(CHECKOUT, { recursive: true, force: true });
 
 await mkdir(CHECKOUT, { recursive: true });
 
-await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify({ version, config: { ...config, main: built.main }, image }, null, 2));
-
 await writeFile(path.join(CHECKOUT, "SKILL.md"), await readFile(path.join(import.meta.dirname, "SKILL.md")));
 
 // The Worker's modules, without the build's resolved config and Vite's manifest.
 await cp(BUILT, path.join(CHECKOUT, "worker"), { recursive: true, filter: (file) => ![".vite", "wrangler.json"].includes(path.basename(file)) });
 
 await cp(CLIENT, path.join(CHECKOUT, "assets"), { recursive: true, filter: (file) => !ignored.has(path.relative(CLIENT, file)) });
+
+// Last, as it pins every file above.
+const manifest = { version, bundle: bundleOf(await releaseFiles(CHECKOUT)), config: { ...config, main: built.main }, image };
+
+await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify(manifest, null, 2));
 
 await writeFile(path.join(REPO, "dist/release.pack"), packOf(await releaseFiles(CHECKOUT)));
 

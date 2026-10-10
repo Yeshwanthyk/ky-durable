@@ -754,6 +754,25 @@ These are the machine flows for ChatGPT and Claude.
   - A "Deploy to Cloudflare" button that gives Workers AI only and points to `ky` for the rest.
 - **Done when:** a stranger on a clean Mac and a clean Cloudflare account follows the README to a working ky with
   a cloud machine.
+- **Built (REL):**
+  - `.github/workflows/release.yml` publishes on a tag `v<package.json version>`. It refuses an image pin that
+    isn't public on ghcr, or one whose `# source:` commit is older than the files the image holds. It compiles the
+    four platforms with `KY_VERSION`, and `scripts/release/package.sh` packs `ky-<platform>.tar.gz`, `release.json`,
+    `install.sh` and `checksums.txt` onto GitHub Releases. `scripts/release/formula.sh` writes
+    `Formula/ky.rb` into `Yeshwanthyk/homebrew-ky` (secret `KY_TAP_TOKEN`, environment `release`).
+  - `image.yml` also builds on changes to the `src/` files the CLI imports and to `pnpm-lock.yaml`. It labels the
+    image with its source, and opens a pull request that pins it in `container/image.digest`.
+  - `install.sh` tells this `ky` from another program of that name by the string `ky-durable-cli` in the file,
+    and never replaces another one unless `KY_INSTALL_FORCE=1` (which keeps it as `ky.replaced`).
+  - README is the quickstart and its add-ons. The old README's internals are in `docs/architecture.md`, and
+    publishing is in `docs/release.md`.
+- **Contract changes (added by REL):**
+  - C6: `release.json` gains `bundle`, a `sha256:` digest of every other file of the release (`bundleOf`),
+    checked when the release loads.
+  - `ky --version` / `ky version` prints `ky <version> (ky-durable-cli)`, and `KY_VERSION` sets the version at
+    compile time.
+  - `container/image.digest` carries `# source: <commit>` above the pin.
+  - C3: the 500 for missing `ACCESS_*` says that `ky init` sets them up.
 
 ## Deferred
 

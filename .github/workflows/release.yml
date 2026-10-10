@@ -1,0 +1,136 @@
+name: release
+
+# Publishes ky for a tag v<version>, the version in package.json: the `ky` binary for macOS and
+# Linux on arm64 and x64, each with the release it deploys inside it, plus release.json (the Worker
+# bundle's digest and the cloud machine's image), install.sh and checksums.txt, on GitHub Releases.
+# Then it points the brew tap's formula (Yeshwanthyk/homebrew-ky) at them.
+#
+# The release deploys the image container/image.digest pins, which .github/workflows/image.yml
+# built. So a release is refused while that image is older than the runner it should run: when
+# what image.yml builds from has changed since the image's source commit.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # The macOS binaries are built, and ad-hoc signed (cli/compile.ts), on macOS.
+    runs-on: macos-latest
+    environment: release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The image check compares this commit with the image's source.
+          fetch-depth: 0
+      - name: Check the tag is package.json's version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME is not v$version (package.json)"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Check the cloud machine's image
+        env:
+          # What the image holds: image.yml's paths.
+          IMAGE_INPUTS: container/Dockerfile cli src/runner-protocol.ts src/files.ts src/tool-labels.ts src/access.ts pnpm-lock.yaml
+        run: |
+          file=container/image.digest
+          read -ra inputs <<< "$IMAGE_INPUTS"
+          ref=$(sed -e '/^#/d' -e '/^[[:space:]]*$/d' "$file" | head -n 1 | tr -d '[:space:]')
+          source=$(sed -n 's/^# source: \([0-9a-f]\{7,40\}\)$/\1/p' "$file" | head -n 1)
+          if ! printf '%s' "$ref" | grep -Eq '^ghcr\.io/[a-z0-9._-]+/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
+            echo "::error::$file pins no image. Run the image workflow and merge the pin it opens, then tag again."
+            exit 1
+          fi
+          if [ -z "$source" ]; then
+            echo "::error::$file doesn't say which commit its image was built from (# source: <sha>)"
+            exit 1
+          fi
+          if ! git diff --quiet "$source" HEAD -- "${inputs[@]}"; then
+            echo "::error::The image was built from $source, and what it holds has changed since:"
+            git diff --stat "$source" HEAD -- "${inputs[@]}"
+            echo "Run the image workflow on this commit and merge the pin it opens, then tag again."
+            exit 1
+          fi
+          # Every deploy pulls it signed out, so it must be public.
+          repository=${ref%@*}
+          repository=${repository#ghcr.io/}
+          digest=${ref#*@}
+          token=$(curl -fsSL "https://ghcr.io/token?scope=repository:$repository:pull" | jq -r .token) || token=
+          if [ -z "$token" ] || ! curl -fsSL -o /dev/null -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/$repository/manifests/$digest"; then
+            echo "::error::$ref can't be pulled signed out. Make the ky-cloud package public on GitHub."
+            exit 1
+          fi
+          echo "Image: $ref, built from $source"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: pnpm install --frozen-lockfile
+      - name: Build ky for every platform
+        env:
+          KY_VERSION: ${{ env.VERSION }}
+        run: pnpm compile darwin-arm64 darwin-x64 linux-x64 linux-arm64
+      - name: Check the binary names its release
+        run: |
+          said=$(dist/bin/ky-darwin-arm64 --version)
+          test "$said" = "ky $VERSION (ky-durable-cli)" || { echo "::error::ky --version said: $said"; exit 1; }
+      - name: Package
+        run: scripts/release/package.sh "$VERSION"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A rerun replaces the files of a release the first run published.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/out/* --clobber
+            exit 0
+          fi
+          bundle=$(jq -r .bundle dist/out/release.json)
+          image=$(jq -r '.image // "none"' dist/out/release.json)
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Install with \`brew install yeshwanthyk/ky/ky\`, or:
+
+          \`\`\`sh
+          curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh
+          \`\`\`
+
+          Then run \`ky init\`. On a ky that's running, \`ky upgrade\` deploys this release.
+
+          - Worker bundle: \`$bundle\`
+          - Cloud machine image: \`$image\`
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/out/* --title "ky $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+      - name: Update the brew tap
+        env:
+          TAP_TOKEN: ${{ secrets.KY_TAP_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/Yeshwanthyk/homebrew-ky.git" tap
+          mkdir -p tap/Formula
+          scripts/release/formula.sh "$VERSION" dist/out/checksums.txt > tap/Formula/ky.rb
+          cd tap
+          git add Formula/ky.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has ky $VERSION"
+            exit 0
+          fi
+          git -c user.name=ky-release -c user.email=ky-release@users.noreply.github.com commit -m "ky $VERSION"
+          git push origin HEAD

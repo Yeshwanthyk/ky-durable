@@ -3,19 +3,29 @@ name: image
 # Publishes the cloud machine's image (container/Dockerfile) to GitHub's registry and records its
 # linux/amd64 digest. `ky deploy` copies the ref in container/image.digest into the account's
 # registry.cloudflare.com (cli/image.ts). The package must be public: deploys pull it anonymously.
+# It then opens a pull request that pins the image, with the commit it was built from, in
+# container/image.digest; .github/workflows/release.yml releases only with a pin no older than
+# what the image holds.
 on:
   push:
     branches: [main]
+    # What the image holds: the Dockerfile, and the `ky` built from cli/ with the src/ files it
+    # imports and the locked packages. release.yml checks the pinned image against the same list.
     paths:
       - container/Dockerfile
       - cli/**
       - src/runner-protocol.ts
+      - src/files.ts
+      - src/tool-labels.ts
+      - src/access.ts
+      - pnpm-lock.yaml
       - .github/workflows/image.yml
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 concurrency:
   group: image-${{ github.ref }}
@@ -53,19 +63,44 @@ jobs:
             --platform linux/amd64 \
             --file container/Dockerfile \
             --tag "$tag" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --provenance=false \
             --metadata-file "$RUNNER_TEMP/metadata.json" \
             --push .
           digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/metadata.json")
           case "$digest" in sha256:*) ;; *) echo "no digest in build metadata" >&2; exit 1 ;; esac
+          echo "REF=$repository@$digest" >> "$GITHUB_ENV"
           {
             echo "### Cloud machine image"
             echo
             echo "- tag: \`$tag\`"
             echo "- ref: \`$repository@$digest\`"
-            echo
-            echo "To deploy it, put the ref in \`container/image.digest\` and commit."
+            echo "- source: \`$GITHUB_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Log out
         if: always()
         run: docker logout ghcr.io
+      - name: Open the pull request that pins it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Its comments, then the image's source commit and its ref: `pnpm compile` reads the first
+        # line that isn't a comment, and release.yml the source.
+        run: |
+          file=container/image.digest
+          { grep '^#' "$file" | grep -v '^# source:'; echo "# source: $GITHUB_SHA"; echo "$REF"; } > "$RUNNER_TEMP/image.digest"
+          mv "$RUNNER_TEMP/image.digest" "$file"
+          if git diff --quiet -- "$file"; then
+            echo "$file already pins it"
+            exit 0
+          fi
+          branch="image/${GITHUB_SHA::7}"
+          git switch -c "$branch"
+          git add "$file"
+          git -c user.name=ky-image -c user.email=ky-image@users.noreply.github.com commit -m "Pin the cloud machine's image built from ${GITHUB_SHA::7}"
+          git push "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+          body="The image .github/workflows/image.yml built from $GITHUB_SHA: \`$REF\`. Merge it, and the next release deploys it."
+          if ! gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "[image] Pin ky-cloud from ${GITHUB_SHA::7}" --body "$body"; then
+            echo "::warning::Couldn't open the pull request; open one from $branch (Settings › Actions may not let workflows open pull requests)."
+            echo "- pin: branch \`$branch\`; open a pull request from it" >> "$GITHUB_STEP_SUMMARY"
+          fi
