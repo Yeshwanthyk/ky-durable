@@ -92,43 +92,14 @@ export class RunnerPipe {
     open.timer = this.#timer(report.id);
 
     switch (report.type) {
-      case "http_head": {
-        if (open.body !== undefined) return;
-        open.body = null;
-
-        // Counted in bytes, so desiredSize says how far the reader is behind.
-        const body = NO_BODY.has(report.status)
-          ? null
-          : new ReadableStream<Uint8Array>(
-              {
-                start: (controller) => {
-                  open.body = controller;
-                },
-                cancel: () => {
-                  this.#send(open.socket, { type: "http_cancel", id: report.id });
-                  this.#close(report.id);
-                }
-              },
-              { highWaterMark: 0, size: (chunk) => chunk.byteLength }
-            );
-
-        open.head.resolve(new Response(body, { status: report.status, headers: report.headers }));
+      case "http_head":
+        this.#head(report.id, open, report.status, report.headers);
 
         return;
-      }
-
-      case "http_chunk": {
-        if (!open.body) return;
-        open.body.enqueue(fromBase64(report.data));
-
-        if ((open.body.desiredSize ?? 0) < -MAX_UNREAD_BYTES) {
-          this.#send(open.socket, { type: "http_cancel", id: report.id });
-          this.#fail(report.id, new Error("The response was read too slowly."));
-        }
+      case "http_chunk":
+        this.#chunk(report.id, open, report.data);
 
         return;
-      }
-
       case "http_end":
         open.body?.close();
         this.#close(report.id);
@@ -136,6 +107,40 @@ export class RunnerPipe {
         return;
       case "http_error":
         this.#fail(report.id, new Error(report.message));
+    }
+  }
+
+  /** The head settles the fetch, with a body that the chunks fill. */
+  #head(id: string, open: Open, status: number, headers: Record<string, string>): void {
+    if (open.body !== undefined) return;
+    open.body = null;
+
+    // Counted in bytes, so desiredSize says how far the reader is behind.
+    const body = NO_BODY.has(status)
+      ? null
+      : new ReadableStream<Uint8Array>(
+          {
+            start: (controller) => {
+              open.body = controller;
+            },
+            cancel: () => {
+              this.#send(open.socket, { type: "http_cancel", id });
+              this.#close(id);
+            }
+          },
+          { highWaterMark: 0, size: (chunk) => chunk.byteLength }
+        );
+
+    open.head.resolve(new Response(body, { status, headers }));
+  }
+
+  #chunk(id: string, open: Open, data: string): void {
+    if (!open.body) return;
+    open.body.enqueue(fromBase64(data));
+
+    if ((open.body.desiredSize ?? 0) < -MAX_UNREAD_BYTES) {
+      this.#send(open.socket, { type: "http_cancel", id });
+      this.#fail(id, new Error("The response was read too slowly."));
     }
   }
 

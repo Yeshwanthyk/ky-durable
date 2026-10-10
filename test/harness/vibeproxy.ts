@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 
 /**
@@ -25,6 +25,23 @@ async function bodyOf(request: IncomingMessage): Promise<string | undefined> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function headersOf(request: IncomingMessage): Headers {
+  const headers = new Headers();
+
+  for (let at = 0; at < request.rawHeaders.length; at += 2) headers.append(request.rawHeaders[at]!, request.rawHeaders[at + 1]!);
+
+  return headers;
+}
+
+/** Write `body` out as it comes; the asker hanging up ends it, as VibeProxy stops its upstream call. */
+async function streamTo(response: ServerResponse, body: ReadableStream<Uint8Array> | null): Promise<void> {
+  const reader = body?.getReader();
+  response.on("close", () => void reader?.cancel());
+
+  for (let read = await reader?.read(); read && !read.done && !response.destroyed; read = await reader!.read()) response.write(read.value);
+  response.end();
+}
+
 export async function serveVibeProxy(): Promise<VibeProxyServer> {
   const asked: string[] = [];
   const dropped: string[] = [];
@@ -36,19 +53,10 @@ export async function serveVibeProxy(): Promise<VibeProxyServer> {
       if (!response.writableFinished) dropped.push(path);
     });
 
-    const headers = new Headers();
-
-    for (let at = 0; at < request.rawHeaders.length; at += 2) headers.append(request.rawHeaders[at]!, request.rawHeaders[at + 1]!);
-    const answer = await fakeVibeProxy(new Request(`http://127.0.0.1:${VIBEPROXY_TEST_PORT}${path}`, { method: request.method, headers, body: await bodyOf(request) }));
+    const answer = await fakeVibeProxy(new Request(`http://127.0.0.1:${VIBEPROXY_TEST_PORT}${path}`, { method: request.method, headers: headersOf(request), body: await bodyOf(request) }));
 
     response.writeHead(answer.status, Object.fromEntries(answer.headers));
-
-    const reader = answer.body?.getReader();
-    // The asker hanging up ends the answer, as VibeProxy stops its upstream call.
-    response.on("close", () => void reader?.cancel());
-
-    for (let read = await reader?.read(); read && !read.done && !response.destroyed; read = await reader!.read()) response.write(read.value);
-    response.end();
+    await streamTo(response, answer.body);
   });
 
   await new Promise<void>((resolve, reject) => {
