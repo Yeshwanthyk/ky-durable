@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
+import type { ChatGptCode, ChatGptState } from "./protocol";
 import type { ProviderKey } from "./providers/api-key";
-import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
+import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -16,6 +18,12 @@ import { ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
  *   has one live token per kind, so minting again replaces it. `issue` gives
  *   a task its live token again, for every run of it the runner is sent: the
  *   Vault keeps what it derives that token from, so it can make it again.
+ *
+ * - Subscriptions are the user's Claude and ChatGPT logins, which tasks on
+ *   machines run with (`sessionCreds`). The Claude token is only ever handed
+ *   to the `claude` CLI; the Vault never calls Anthropic with it. ChatGPT's
+ *   is signed in with a device code the Vault's alarm polls for, and
+ *   refreshed here; its refresh token never leaves the Vault.
  *
  * models.ts keeps the api-key providers' keys here. fallow follows no call
  * through a stub, the Worker's and the agent's included, so
@@ -43,6 +51,16 @@ type SecretStatus = {
   readonly error?: string;
 };
 
+/** The id each subscription is kept under: `("claude" | "chatgpt", SUBSCRIPTION)`. */
+export const SUBSCRIPTION = "subscription";
+
+/**
+ * A Codex task is handed a ChatGPT login that lasts at least this long:
+ * `sessionCreds` refreshes one with less left, and the agent pushes the new
+ * one to a task still open, at the runner's next hello.
+ */
+const CODEX_RENEW_BEFORE_MS = 60 * 60_000;
+
 /** A secret's JSON text, and the write that stored it. */
 type Stored = { readonly value: string; readonly generation: number };
 
@@ -66,6 +84,8 @@ export class Vault extends DurableObject<Env> {
   #key: Promise<CryptoKey> | undefined;
   /** The clock for updated_at and token expiry; tests move it. */
   now = (): number => Date.now();
+  /** OpenAI, as ChatGPT's sign-in and refresh reach it; tests answer instead. */
+  openai: Fetch = (input, init) => fetch(input, init);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -93,6 +113,14 @@ export class Vault extends DurableObject<Env> {
     // A machine token from before pairings had ids names only the machine; no route takes it, so it goes.
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = 'machine' AND instr(subject, ':') = 0");
     this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_vault_keys (name TEXT PRIMARY KEY, key TEXT NOT NULL)");
+    // ChatGPT sign-ins: the device code the alarm polls with until `poll_at`, then how it ended.
+    this.#sql.exec(`CREATE TABLE IF NOT EXISTS ky_vault_logins (
+      id TEXT PRIMARY KEY,
+      device TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      poll_at INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      error TEXT)`);
   }
 
   put(kind: SecretKind, id: string, value: JsonValue, meta?: SecretMeta): void {
@@ -164,18 +192,117 @@ export class Vault extends DurableObject<Env> {
     return this.#current("provider", providerId) as ProviderKey | null;
   }
 
-  /** The credentials a task on a machine runs with; Codex's are refreshed with `refresh`. S fills this in. */
-  sessionCreds<A extends keyof RunCreds>(_agent: A): NonNullable<RunCreds[A]> | null {
-    return null;
+  /**
+   * What a task running as `agent` is handed when it doesn't use the
+   * machine's own login, or null without a subscription. A ChatGPT login
+   * with less than CODEX_RENEW_BEFORE_MS left is refreshed first; one whose
+   * refresh failed is handed while it lasts, and the error shows in Settings.
+   */
+  async sessionCreds<A extends Agent>(agent: A): Promise<NonNullable<RunCreds[A]> | null> {
+    const creds: RunCreds = agent === "claude" ? { claude: this.#claudeCreds() } : { codex: await this.#codexCreds() };
+
+    return creds[agent] ?? null;
   }
 
-  /** Starts ChatGPT's device code sign-in. S fills this in. */
-  chatgptLogin(): { userCode: string; verificationUrl: string; loginId: string } {
-    throw new Error("ChatGPT sign-in is not set up.");
+  /** Start a ChatGPT sign-in: the user enters `userCode` at `verificationUrl`, and the Vault's alarm polls until they have. */
+  async chatgptLogin(): Promise<ChatGptCode> {
+    const device = await startDevice(this.openai);
+    const loginId = crypto.randomUUID();
+    // One sign-in at a time: a new one replaces any other.
+    this.#sql.exec("DELETE FROM ky_vault_logins");
+    this.#sql.exec(
+      "INSERT INTO ky_vault_logins (id, device, expires_at, poll_at, state) VALUES (?, ?, ?, ?, 'pending')",
+      loginId,
+      JSON.stringify(device),
+      this.now() + DEVICE_CODE_TTL_MS,
+      this.now() + device.intervalMs
+    );
+    await this.#arm();
+
+    return { userCode: device.userCode, verificationUrl: VERIFICATION_URL, loginId };
   }
 
-  chatgptPoll(_loginId: string): "pending" | "done" | { error: string } {
-    throw new Error("ChatGPT sign-in is not set up.");
+  chatgptPoll(loginId: string): ChatGptState {
+    const row = this.#sql
+      .exec<{ state: "pending" | "done" | "error"; error: string | null }>("SELECT state, error FROM ky_vault_logins WHERE id = ?", loginId)
+      .toArray()[0];
+
+    if (!row) return { error: "This sign-in was replaced or cancelled. Start again." };
+
+    return row.state === "error" ? { error: row.error ?? "The sign-in failed." } : row.state;
+  }
+
+  /** Poll each ChatGPT sign-in that is due, then wait for the next. */
+  override async alarm(): Promise<void> {
+    const due = this.#sql
+      .exec<{ id: string; device: string; expires_at: number }>(
+        "SELECT id, device, expires_at FROM ky_vault_logins WHERE state = 'pending' AND poll_at <= ?",
+        this.now()
+      )
+      .toArray();
+
+    for (const row of due) await this.#poll(row.id, JSON.parse(row.device), row.expires_at);
+    await this.#arm();
+  }
+
+  async #poll(id: string, device: Device, expiresAt: number): Promise<void> {
+    if (expiresAt <= this.now()) return this.#ended(id, "The code expired before it was entered. Start again.");
+
+    try {
+      const login = await pollDevice(this.openai, device);
+
+      if (login === "pending") {
+        this.#sql.exec("UPDATE ky_vault_logins SET poll_at = ? WHERE id = ? AND state = 'pending'", this.now() + device.intervalMs, id);
+
+        return;
+      }
+
+      // A sign-in replaced or cancelled meanwhile stores nothing.
+      if (this.chatgptPoll(id) !== "pending") return;
+      this.put("chatgpt", SUBSCRIPTION, login);
+      this.#sql.exec("UPDATE ky_vault_logins SET state = 'done' WHERE id = ?", id);
+    } catch (error) {
+      this.#ended(id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  #ended(id: string, error: string): void {
+    this.#sql.exec("UPDATE ky_vault_logins SET state = 'error', error = ? WHERE id = ? AND state = 'pending'", error, id);
+  }
+
+  /** Wake for the next sign-in poll, or not at all. The alarm runs on the real clock; polls are due by `now`. */
+  async #arm(): Promise<void> {
+    const next = this.#sql.exec<{ at: number | null }>("SELECT MIN(poll_at) AS at FROM ky_vault_logins WHERE state = 'pending'").one().at;
+
+    if (next === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Date.now() + Math.max(0, next - this.now()));
+  }
+
+  #claudeCreds(): { oauthToken: string } | undefined {
+    // SAFETY: only the set-claude message writes ("claude", SUBSCRIPTION).
+    return (this.#current("claude", SUBSCRIPTION) as { oauthToken: string } | null) ?? undefined;
+  }
+
+  async #codexCreds(): Promise<NonNullable<RunCreds["codex"]> | undefined> {
+    // SAFETY: only #poll and the refresh below write ("chatgpt", SUBSCRIPTION), each a ChatGptLogin.
+    const stored = this.#current("chatgpt", SUBSCRIPTION) as ChatGptLogin | null;
+
+    if (!stored) return undefined;
+    let login: ChatGptLogin | null = stored;
+
+    if (stored.expiresAt - this.now() < CODEX_RENEW_BEFORE_MS) {
+      try {
+        // SAFETY: as above. Null when the login was removed meanwhile.
+        login = (await this.refresh("chatgpt", SUBSCRIPTION, (value) => refreshLogin(this.openai, value as ChatGptLogin))) as ChatGptLogin | null;
+      } catch {
+        // Kept as the secret's error, which Settings shows.
+        if (stored.expiresAt <= this.now()) return undefined;
+      }
+    }
+
+    if (!login) return undefined;
+
+    return { accessToken: login.accessToken, refreshToken: null, idToken: login.idToken, accountId: login.accountId, expiresAt: login.expiresAt };
   }
 
   /** The GitHub token tasks get, and the repos it may touch. CM fills this in. */

@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { type Static, Type } from "typebox";
+import { Value } from "typebox/value";
 import { WebSocket as Socket } from "ws";
 import type { FileRow, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
@@ -184,6 +187,51 @@ function flipped(history: readonly string[]): boolean {
 /** Delete a machine as the user does in Settings; resolves with the HTTP status. */
 async function removeMachine(context: Context, name: string): Promise<number> {
   return (await fetch(`${context.url}/api/runners/${name}`, { method: "DELETE", headers: await signedIn() })).status;
+}
+
+/** A machine with neither the claude nor the codex CLI signed in. */
+const SIGNED_OUT = { FAKE_CLAUDE_SIGNED_OUT: "1", FAKE_CODEX_SIGNED_OUT: "1" };
+
+/** The fake CLIs' fingerprint of a token, as they log it in place of the token. */
+const fingerprint = (token: string) => createHash("sha256").update(token).digest("hex").slice(0, 12);
+
+/** What chatgpt-login answers once OpenAI has given a code. */
+const LoginStarted = Type.Object({ loginId: Type.String() });
+
+/**
+ * Set up both subscriptions in Settings, as the user does: paste a Claude
+ * token, then sign in to ChatGPT with a device code, which the fake OpenAI
+ * approves on the Vault's second poll. Both are removed when the scenario
+ * ends. Resolves with the Claude token.
+ */
+async function subscribe(context: Context): Promise<string> {
+  const claude = `sk-ant-oat01-harness-${crypto.randomUUID()}`;
+  context.cleanup.push(() => {
+    context.main.send({ type: "remove-subscription", id: crypto.randomUUID(), kind: "claude" });
+    context.main.send({ type: "remove-subscription", id: crypto.randomUUID(), kind: "chatgpt" });
+  });
+  const saved = JSON.stringify((await context.main.command({ type: "set-claude", token: claude })).result);
+  check(saved === "{}", `the Claude token was kept, got ${saved}`);
+  const code = (await context.main.command({ type: "chatgpt-login" })).result;
+  check(Value.Check(LoginStarted, code), `ChatGPT's sign-in started, got ${JSON.stringify(code)}`);
+  // SAFETY: checked just above.
+  const login = (code as Static<typeof LoginStarted>).loginId;
+  const deadline = Date.now() + 15_000;
+  let state = "";
+
+  while (state !== '"done"' && Date.now() < deadline) {
+    await sleep(500);
+    state = JSON.stringify((await context.main.command({ type: "chatgpt-poll", login })).result);
+  }
+
+  check(state === '"done"', `the ChatGPT sign-in finished, got ${state}`);
+  await until("both subscriptions in Settings", () => {
+    const latest = context.main.frames.findLast((frame) => frame.type === "subscriptions");
+
+    return latest?.type === "subscriptions" && latest.subscriptions.every((each) => each.connected);
+  });
+
+  return claude;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -538,6 +586,54 @@ export const SCENARIOS: Scenario[] = [
       check(start.auth === path.join(mac.dir, "home", ".codex", "auth.json"), `its auth.json links to the machine's, got ${start.auth}`);
       check(start.instructions === 1, "codex was told it runs a task for ky");
       await until("the report", () => context.main.heard("fake codex did: [tools=Bash:pnpm test,Edit:src/tasks.ts] fix the tests"));
+    }
+  },
+  {
+    name: "subscriptions",
+    expect: "pass",
+    about: "on a machine with neither CLI signed in, a Claude Code task and a Codex task run with the Vault's subscriptions",
+    async run(context) {
+      const claude = await subscribe(context);
+      const { machine: mac, proxy } = await context.machine("bare", SIGNED_OUT);
+      const task = await startTask(context, "bare", "plan the release");
+      await status(context, task, "done");
+      await until("claude's report", () => context.main.heard("fake claude did: plan the release"));
+      const token = fingerprint(claude);
+      check(mac.claude().some((event) => event.event === "start" && event.task === task && event.token === token), "claude ran with the Claude subscription token");
+      const codex = await startCodex(context, "bare", "fix the tests");
+      await status(context, codex, "done");
+      await until("codex's report", () => context.main.heard("fake codex did: fix the tests"));
+      const start = codexStart(mac, codex, 0);
+      check(start.token !== "", "codex ran with ky's ChatGPT login");
+      check(start.auth === "", "the login was written into its own CODEX_HOME, not linked");
+      check(!existsSync(path.join(mac.dir, "state", "codex", codex, "auth.json")), "the task's auth.json is gone once codex exited");
+      // The Claude token crosses one frame, the run that handed it to the runner, and is never logged or shown.
+      const carrying = proxy.frames.filter((frame) => frame.includes(claude)).map((frame) => JSON.parse(frame).type);
+      check(carrying.join() === "run", `the token crossed only in the run frame, got ${carrying.join() || "none"}`);
+      check(!context.main.raw.some((frame) => frame.includes(claude)), "the token never reached the browser");
+      check(!context.runner!.output().includes(claude), "the runner never logged the token");
+      check(!readFileSync(path.join(mac.dir, "claude.jsonl"), "utf8").includes(claude), "claude's log never held the token");
+    }
+  },
+  {
+    name: "subscription-renew",
+    expect: "pass",
+    about: "a Codex task running on ky's ChatGPT login outlives its access token: ky pushes a fresh one before it expires",
+    async run(context) {
+      await subscribe(context);
+      const { machine: mac, proxy } = await context.machine("renew", SIGNED_OUT);
+      const task = await startCodex(context, "renew", "[delay=6000] a long migration");
+      await until("codex to start", () => mac.codex().some((event) => event.event === "start" && event.task === task));
+      // An hour on, the access token has under an hour left; the runner's next hello brings a fresh one.
+      await testRoute(context, `/test/vault-clock?ahead=${61 * 60_000}`);
+      context.cleanup.push(() => testRoute(context, "/test/vault-clock?ahead=0"));
+      proxy.cut();
+      await until("a creds frame", () => proxy.frames.some((frame) => JSON.parse(frame).type === "creds"), 20_000);
+      await status(context, task, "done", 20_000);
+      const before = codexStart(mac, task, 0).token;
+      const after = mac.codex().filter((event) => event.event === "exit" && event.task === task).map((event) => event.token);
+      check(before !== "", "codex started on ky's login");
+      check(after.length === 1 && after[0] !== "" && after[0] !== before, `codex ended on a fresh token, got ${before} then ${after.join()}`);
     }
   },
   {

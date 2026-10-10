@@ -2,8 +2,8 @@ import { evictDurableObject } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../runner/handled.ts";
-import { Runner, type AgentProcess, type Link, type ProcessEvents } from "../../runner/runner.ts";
-import { decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts } from "../runner-protocol";
+import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../runner/runner.ts";
+import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
 
@@ -64,6 +64,8 @@ class FakeClaude implements AgentProcess {
     this.interrupted = true;
   }
 
+  renew(): void {}
+
   session(id: string): void {
     this.#emit({ type: "system", subtype: "init", session_id: id });
   }
@@ -101,14 +103,18 @@ class FakeCodex implements AgentProcess {
   readonly resumed: string | null;
   /** The task token in its env, KY_TASK_TOKEN. */
   readonly taskToken: string;
+  /** The ChatGPT login it started with, and each one it was handed since. */
+  readonly creds: RunCreds | undefined;
+  readonly renewed: CodexCreds[] = [];
   prompt = "";
   interrupted = false;
   #exited = false;
   readonly #events: ProcessEvents;
 
-  constructor(resumed: string | null, taskToken: string, events: ProcessEvents) {
-    this.resumed = resumed;
+  constructor({ session, taskToken, creds }: Launch, events: ProcessEvents) {
+    this.resumed = session;
     this.taskToken = taskToken;
+    this.creds = creds;
     this.#events = events;
   }
 
@@ -121,6 +127,10 @@ class FakeCodex implements AgentProcess {
   interrupt(): void {
     this.interrupted = true;
     this.#exit(130);
+  }
+
+  renew(codex: CodexCreds): void {
+    this.renewed.push(codex);
   }
 
   /** Start its turn in `thread`. */
@@ -196,15 +206,15 @@ class Mac {
 
   #boot(): Runner {
     return new Runner(
-      (agent, _task, taskToken, session, events) => {
+      (agent, _task, launch, events) => {
         if (agent === "codex") {
-          const codex = new FakeCodex(session, taskToken, events);
+          const codex = new FakeCodex(launch, events);
           this.codexes.push(codex);
 
           return codex;
         }
 
-        const claude = new FakeClaude(session, taskToken, events);
+        const claude = new FakeClaude(launch.session, launch.taskToken, events);
         this.claudes.push(claude);
 
         return claude;
@@ -598,6 +608,36 @@ describe("runner protocol", () => {
     await until("the task to be done", async () => (await status(object, id)) === "done");
     await settle();
     expect(await reports(object, id)).toHaveLength(1);
+  });
+
+  it("hands a Codex turn run with ky's login each refreshed one, and the turn queued behind it the newest", async () => {
+    const { mac } = await online(WITH_CODEX);
+    const login = (accessToken: string, expiresAt: number): CodexCreds => ({ accessToken, refreshToken: null, idToken: "id", accountId: "acct", expiresAt });
+    const run = { type: "run", task: "m-c", turn: 1, prompt: "migrate", session: null, taskToken: "", agent: "codex" };
+    mac.runner.message(JSON.stringify({ ...run, seq: 1, creds: { codex: login("first", 1) } }));
+    const first = await mac.codex(0);
+    first.start("t1");
+    await settle();
+    mac.runner.message(JSON.stringify({ ...run, seq: 2, turn: 2, prompt: "and test", session: "t1", creds: { codex: login("first", 1) } }));
+    mac.runner.message(JSON.stringify({ type: "creds", seq: 3, task: "m-c", codex: login("second", 2) }));
+
+    expect(first.creds).toEqual({ codex: login("first", 1) });
+    expect(first.renewed).toEqual([login("second", 2)]);
+    first.answer("migrated");
+    expect((await mac.codex(1)).creds).toEqual({ codex: login("second", 2) });
+  });
+
+  it("keeps a refreshed ChatGPT login from a Codex turn signed in with the machine's own", async () => {
+    const { mac } = await online(WITH_CODEX);
+    mac.runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-own", turn: 1, prompt: "go", session: null, taskToken: "", agent: "codex" }));
+    const codex = await mac.codex(0);
+    mac.runner.message(
+      JSON.stringify({ type: "creds", seq: 2, task: "m-own", codex: { accessToken: "ky", refreshToken: null, idToken: "id", accountId: "acct", expiresAt: 2 } })
+    );
+    await settle();
+
+    expect(codex.creds).toBeUndefined();
+    expect(codex.renewed).toEqual([]);
   });
 
   it("runs two messages sent while a Codex turn runs in order, each in its own process resuming the thread", async () => {

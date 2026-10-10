@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
-import { evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { ISSUED_TTL_MS } from "../runner-protocol";
-import type { Vault } from "../vault";
+import { SUBSCRIPTION, type Vault } from "../vault";
+import { ACCOUNT_ID, type FakeOpenAi, fakeOpenAi } from "../../test/fakes/openai";
 
 /**
  * The Vault (src/vault.ts) through its real Durable Object: over RPC as the
@@ -427,16 +428,109 @@ describe("vault", () => {
     expect(await inside(vault, (instance) => instance.refresh("chatgpt", "codex", async (value) => value))).toEqual(CODEX);
   });
 
-  it("says what S and K have yet to set up: no credentials, and no ChatGPT sign-in", async () => {
+  it("says what CM has yet to set up: no GitHub token", async () => {
+    expect(await fresh().githubToken()).toBeNull();
+  });
+});
+
+describe("subscriptions in the vault", () => {
+  /** A fresh Vault answered by a fake OpenAI of its own, on the Vault's clock. */
+  async function withOpenAi(): Promise<{ vault: DurableObjectStub<Vault>; openai: FakeOpenAi }> {
     const vault = fresh();
 
-    expect(await vault.auth("anthropic")).toBeNull();
-    expect(await vault.sessionCreds("codex")).toBeNull();
-    expect(await vault.githubToken()).toBeNull();
-    // From inside: a throw over RPC also surfaces as an unhandled rejection in vitest-pool-workers.
-    await inside(vault, (instance) => {
-      expect(() => instance.chatgptLogin()).toThrow("not set up");
-      expect(() => instance.chatgptPoll("login")).toThrow("not set up");
+    const openai = await inside(vault, (instance) => {
+      const fake = fakeOpenAi(() => instance.now());
+      instance.openai = fake.fetch;
+
+      return fake;
     });
+
+    return { vault, openai };
+  }
+
+  /** Move the Vault's clock `ms` ahead of the real one. */
+  const ahead = (vault: DurableObjectStub<Vault>, ms: number) =>
+    inside(vault, (instance) => {
+      instance.now = () => Date.now() + ms;
+    });
+
+  it("has nothing to hand out before the user sets anything up", async () => {
+    const vault = fresh();
+
+    expect(await vault.sessionCreds("claude")).toBeNull();
+    expect(await vault.sessionCreds("codex")).toBeNull();
+  });
+
+  it("signs in to ChatGPT: its alarm polls until the code is entered, then keeps the login and stops", async () => {
+    const { vault, openai } = await withOpenAi();
+    const code = await vault.chatgptLogin();
+
+    expect(code).toMatchObject({ userCode: "FAKE-1", verificationUrl: "https://auth.openai.com/codex/device" });
+    expect(await vault.chatgptPoll(code.loginId)).toBe("pending");
+    expect(await inside(vault, (_instance, state) => state.storage.getAlarm())).not.toBeNull();
+
+    // Each poll is due a second after the last: the fake asks to wait once, then approves.
+    await ahead(vault, 1_000);
+    expect(await runDurableObjectAlarm(vault)).toBe(true);
+    expect(await vault.chatgptPoll(code.loginId)).toBe("pending");
+    await ahead(vault, 2_000);
+    expect(await runDurableObjectAlarm(vault)).toBe(true);
+
+    expect(await vault.chatgptPoll(code.loginId)).toBe("done");
+    expect(await inside(vault, (_instance, state) => state.storage.getAlarm())).toBeNull();
+    expect(openai.calls.map((call) => call.grant ?? call.path)).toEqual([
+      "/api/accounts/deviceauth/usercode",
+      "/api/accounts/deviceauth/token",
+      "/api/accounts/deviceauth/token",
+      "authorization_code"
+    ]);
+    expect(await vault.sessionCreds("codex")).toMatchObject({ accountId: ACCOUNT_ID, refreshToken: null });
+    expect(JSON.stringify(await vault.status())).not.toMatch(/refresh-1|eyJ/);
+  });
+
+  it("ends a sign-in whose code expired, and one a newer sign-in replaced", async () => {
+    const { vault } = await withOpenAi();
+    const first = await vault.chatgptLogin();
+    const second = await vault.chatgptLogin();
+
+    expect(await vault.chatgptPoll(first.loginId)).toEqual({ error: "This sign-in was replaced or cancelled. Start again." });
+    await ahead(vault, 16 * 60_000);
+    await runDurableObjectAlarm(vault);
+    expect(await vault.chatgptPoll(second.loginId)).toEqual({ error: "The code expired before it was entered. Start again." });
+    expect(await vault.sessionCreds("codex")).toBeNull();
+  });
+
+  it("refreshes the ChatGPT login under an hour before it expires, and uses a live one while a refresh fails", async () => {
+    const { vault, openai } = await withOpenAi();
+    const expiresAt = Date.now() + 90 * 60_000;
+    const login = { accessToken: "access-0", refreshToken: "refresh-0", idToken: "id-0", accountId: ACCOUNT_ID, expiresAt };
+    await vault.put("chatgpt", SUBSCRIPTION, login);
+
+    // An hour and a half left: as it is.
+    expect(await vault.sessionCreds("codex")).toEqual({ ...login, refreshToken: null });
+
+    // Under an hour left: refreshed, once, keeping the new refresh token for the next.
+    await ahead(vault, 31 * 60_000);
+    // From inside: over RPC the stub loses which agent's creds these are.
+    const refreshed = await inside(vault, (instance) => instance.sessionCreds("codex"));
+    expect(refreshed?.accessToken).not.toBe("access-0");
+    expect(refreshed?.expiresAt).toBeGreaterThan(expiresAt);
+    expect(await vault.sessionCreds("codex")).toEqual(refreshed);
+    expect(openai.calls.filter((call) => call.grant === "refresh_token")).toHaveLength(1);
+
+    // A refused refresh keeps the last token while it lasts, and says why in Settings, without a token.
+    openai.revoke();
+    await ahead(vault, 31 * 60_000 + 61 * 60_000);
+    expect(await vault.sessionCreds("codex")).toEqual(refreshed);
+    expect((await vault.status()).find((secret) => secret.kind === "chatgpt")?.error).toBe("ChatGPT refresh failed: 401 refresh_token_invalidated.");
+    await ahead(vault, 31 * 60_000 + 2 * 60 * 60_000);
+    expect(await vault.sessionCreds("codex")).toBeNull();
+  });
+
+  it("hands out the Claude token as it was saved", async () => {
+    const vault = fresh();
+    await vault.put("claude", SUBSCRIPTION, { oauthToken: "sk-ant-oat01-saved" });
+
+    expect(await vault.sessionCreds("claude")).toEqual({ oauthToken: "sk-ant-oat01-saved" });
   });
 });

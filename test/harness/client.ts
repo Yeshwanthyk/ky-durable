@@ -11,6 +11,8 @@ import { signedIn } from "../../src/tests/fake-access.ts";
 
 export type Client = {
   frames: PiServerMessage[];
+  /** Every frame as it came, ky's or not, decoded or not: for checking that no secret reached the browser. */
+  raw: string[];
   send: (message: PiClientMessage) => void;
   /** Send a command and resolve with its result frame; an error frame rejects. */
   command: (message: PiClientMessage) => Promise<Extract<PiServerMessage, { type: "result" }>>;
@@ -40,10 +42,12 @@ export async function connect(url: string, query = "", headers?: Record<string, 
   const socket = new Socket(`${url.replace(/^http/, "ws")}/agents/pi-agent/me${query}`, { headers: headers ?? (await signedIn()) });
 
   const frames: PiServerMessage[] = [];
+  const raw: string[] = [];
   const histories = new Map<string, string[]>();
   let heardText = "";
 
   socket.on("message", (data) => {
+    raw.push(String(data));
     const frame = decodeServerFrame(String(data));
 
     if (frame === undefined) return;
@@ -83,6 +87,7 @@ export async function connect(url: string, query = "", headers?: Record<string, 
 
   return {
     frames,
+    raw,
     send: (message) => socket.send(JSON.stringify(message)),
     command,
     task: (id) => {

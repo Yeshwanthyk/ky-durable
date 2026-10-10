@@ -32,6 +32,8 @@ const FakeEvent = Type.Object({
   home: Type.Optional(Type.String()),
   auth: Type.Optional(Type.String()),
   instructions: Type.Optional(Type.Number()),
+  /** A fingerprint of the token it signed in with: claude's CLAUDE_CODE_OAUTH_TOKEN at its start, codex's auth.json at its start and exit; "" for none. */
+  token: Type.Optional(Type.String()),
   /** The names of the KY_ variables the CLI was started with. */
   ky: Type.Optional(Type.String())
 });

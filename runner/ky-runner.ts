@@ -31,18 +31,18 @@
  * here also makes Codex bill that API key rather than sign in with auth.json.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../src/runner-protocol.ts";
+import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type CodexCreds, type MachineFacts, type RunCreds } from "../src/runner-protocol.ts";
 import { claudeArgs } from "./claude.ts";
 import { codexArgs } from "./codex.ts";
 import { HandledSeqs } from "./handled.ts";
 import { machineName, readToken, tokenFile } from "./identity.ts";
-import { Runner, type AgentProcess, type Link, type ProcessEvents } from "./runner.ts";
+import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "./runner.ts";
 
 const URL_BASE = required("KY_URL").replace(/\/$/, "");
 
@@ -335,27 +335,58 @@ const CODEX_HOME_KEPT_MS = 14 * 24 * 60 * 60_000;
 /**
  * A Codex task's own CODEX_HOME, which keeps its threads for follow-ups to
  * resume. Nothing of the user's own Codex config (models, MCP servers,
- * profiles) comes in, and its threads stay out of the user's history. It
- * signs in with the machine's login: auth.json links to the machine's, so a
- * token Codex refreshes is refreshed for both. Each turn marks it used, for
- * the sweep.
+ * profiles) comes in, and its threads stay out of the user's history.
+ *
+ * It signs in with the machine's login: auth.json links to the machine's,
+ * so a token Codex refreshes is refreshed for both. Or, when ky sent a
+ * ChatGPT login, with that: auth.json is a file of it in place of the link,
+ * deleted when the turn's process exits (`signOut`). Each turn marks the
+ * home used, for the sweep.
  */
-function codexHome(task: string): string {
+function codexHome(task: string, codex: CodexCreds | undefined): string {
   const home = join(CODEX_HOMES, task);
   mkdirSync(home, { recursive: true, mode: 0o700 });
 
-  try {
-    symlinkSync(join(MACHINE_CODEX_HOME, "auth.json"), join(home, "auth.json"));
-  } catch (error) {
-    // Linked by its first turn.
-    // SAFETY: symlinkSync throws only system errors, each with a code.
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
+  if (codex) writeCodexAuth(home, codex);
+  else linkMachineAuth(home);
 
   const now = new Date();
   utimesSync(home, now, now);
 
   return home;
+}
+
+function linkMachineAuth(home: string): void {
+  try {
+    symlinkSync(join(MACHINE_CODEX_HOME, "auth.json"), join(home, "auth.json"));
+  } catch (error) {
+    // Linked by an earlier turn.
+    // SAFETY: symlinkSync throws only system errors, each with a code.
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+}
+
+/**
+ * Sign a Codex home in with ky's ChatGPT login, as `codex login` writes
+ * auth.json: owner-only, and swapped in whole by a rename, so Codex never
+ * reads half of it. It has no refresh token: ky refreshes the login and
+ * sends the new one to the task.
+ */
+function writeCodexAuth(home: string, codex: CodexCreds): void {
+  const auth = {
+    OPENAI_API_KEY: null,
+    tokens: { id_token: codex.idToken, access_token: codex.accessToken, refresh_token: "", account_id: codex.accountId },
+    last_refresh: new Date().toISOString()
+  };
+
+  const temporary = join(home, `auth.json.${process.pid}.tmp`);
+  writeFileSync(temporary, JSON.stringify(auth), { mode: 0o600 });
+  renameSync(temporary, join(home, "auth.json"));
+}
+
+/** Delete ky's ChatGPT login from a Codex home once its turn's process exits; the next turn brings its own. */
+function signOut(task: string): void {
+  rmSync(join(CODEX_HOMES, task, "auth.json"), { force: true });
 }
 
 /** The tasks with a Codex home: none while there is no folder for them, or one it cannot read. */
@@ -390,14 +421,18 @@ function sweepCodexHomes(): void {
   }
 }
 
-/** How each agent's CLI is started for a task: its executable, arguments, and what it adds to the environment. */
-const LAUNCH: Record<Agent, (task: string, session: string | null) => { command: string; args: string[]; env: Record<string, string> }> = {
-  claude: (_task, session) => ({
+/**
+ * How each agent's CLI is started for a task: its executable, arguments, and
+ * what it adds to the environment. ky's Claude subscription goes into this
+ * one child's env only, as the Claude Code CLI reads it.
+ */
+const LAUNCH: Record<Agent, (task: string, session: string | null, creds: RunCreds | undefined) => { command: string; args: string[]; env: Record<string, string> }> = {
+  claude: (_task, session, creds) => ({
     command: CLAUDE,
     args: claudeArgs({ permissionMode: PERMISSION_MODE, systemPrompt: TASK_PROMPT + (CHROME ? CHROME_PROMPT : ""), chrome: CHROME, session }),
-    env: {}
+    env: { ...(creds?.claude && { CLAUDE_CODE_OAUTH_TOKEN: creds.claude.oauthToken }) }
   }),
-  codex: (task, session) => ({ command: CODEX, args: codexArgs(session, TASK_PROMPT), env: { CODEX_HOME: codexHome(task) } })
+  codex: (task, session, creds) => ({ command: CODEX, args: codexArgs(session, TASK_PROMPT), env: { CODEX_HOME: codexHome(task, creds?.codex) } })
 };
 
 /**
@@ -405,17 +440,20 @@ const LAUNCH: Record<Agent, (task: string, session: string | null) => { command:
  * be made (EPERM, ENOSPC), it exits at once with why, as a CLI that would
  * not start does, and its turn ends failed: the run was already acked.
  */
-function spawnAgent(agent: Agent, task: string, taskToken: string, session: string | null, events: ProcessEvents): AgentProcess {
+function spawnAgent(agent: Agent, task: string, { taskToken, session, creds }: Launch, events: ProcessEvents): AgentProcess {
   let launch: ReturnType<(typeof LAUNCH)[Agent]>;
+  // Only a home ky signed in has a login of ky's to delete; the link to the machine's stays.
+  const handed = agent === "codex" && creds?.codex !== undefined;
 
   try {
     mkdirSync(WORKDIR, { recursive: true });
-    launch = LAUNCH[agent](task, session);
+    launch = LAUNCH[agent](task, session, creds);
   } catch (error) {
+    if (handed) signOut(task);
     // After this returns: the runner records the process before it hears it exit.
     setImmediate(() => events.exit(null, `It could not start: ${String(error)}`));
 
-    return { write: () => {}, end: () => {}, interrupt: () => {} };
+    return { write: () => {}, end: () => {}, interrupt: () => {}, renew: () => {} };
   }
 
   const { command, args, env } = launch;
@@ -438,7 +476,10 @@ function spawnAgent(agent: Agent, task: string, taskToken: string, session: stri
   child.stderr.on("data", (chunk) => {
     stderr = (stderr + chunk).slice(-2000);
   });
-  child.on("close", (code) => events.exit(code, stderr));
+  child.on("close", (code) => {
+    if (handed) signOut(task);
+    events.exit(code, stderr);
+  });
   child.on("error", (error) => {
     stderr += String(error);
   });
@@ -453,6 +494,9 @@ function spawnAgent(agent: Agent, task: string, taskToken: string, session: stri
     interrupt: () => {
       child.kill("SIGINT");
       setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+    },
+    renew: (codex) => {
+      if (handed) writeCodexAuth(join(CODEX_HOMES, task), codex);
     }
   };
 }

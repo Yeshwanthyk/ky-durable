@@ -4,7 +4,7 @@ import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
 import type { AutomationDraft, AutomationView } from "./automations";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
-import type { MachineState } from "./machines";
+import type { MachineLogin, MachineState } from "./machines";
 import type { MachineFacts } from "./runner-protocol";
 import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
@@ -37,7 +37,27 @@ export type MachineInfo = {
   readonly note: string;
   /** What its runner last said it is; null until a runner that says so connects. */
   readonly facts: MachineFacts | null;
+  /** Whose login its tasks sign in with: its own, or ky's subscriptions whichever way it is signed in. */
+  readonly login: MachineLogin;
 };
+
+export type SubscriptionKind = "claude" | "chatgpt";
+
+/** A subscription as Settings shows it: never its token. */
+export type SubscriptionView = {
+  readonly kind: SubscriptionKind;
+  readonly connected: boolean;
+  /** When the Claude token stops working, a year after `claude setup-token` made it. */
+  readonly expiresAt: number | null;
+  /** Why the last refresh failed. */
+  readonly error: string | null;
+};
+
+/** A ChatGPT sign-in as it starts: the code the user enters at `verificationUrl`, and the id to ask after it by. */
+export type ChatGptCode = { readonly userCode: string; readonly verificationUrl: string; readonly loginId: string };
+
+/** How a ChatGPT sign-in is going. */
+export type ChatGptState = "pending" | "done" | { readonly error: string };
 
 /** An automation as Activity shows it: its view, and the chat it reports to by name. */
 export type { AutomationDraft };
@@ -82,12 +102,24 @@ export type PiClientMessage =
       readonly machine: string;
       readonly state?: MachineState;
       readonly note?: string;
+      readonly login?: MachineLogin;
     }
   /**
    * Set ky's GitHub repo, owner/name, for self-edits, and this page's origin as ky's address; an empty repo
    * clears it. The result is `{ refused }` when it cannot be saved.
    */
   | { readonly type: "set-repo"; readonly id?: string; readonly repo: string }
+  /**
+   * Keep the Claude subscription: what `claude setup-token` prints. The result is `{ refused }` when it isn't one.
+   * The token is never sent back.
+   */
+  | { readonly type: "set-claude"; readonly id?: string; readonly token: string }
+  /** Forget a subscription; tasks sign in with their machine's own login. */
+  | { readonly type: "remove-subscription"; readonly id?: string; readonly kind: SubscriptionKind }
+  /** Start ChatGPT's device code sign-in; the result is `{ userCode, verificationUrl, loginId }`. */
+  | { readonly type: "chatgpt-login"; readonly id?: string }
+  /** How a ChatGPT sign-in is going: the result is "pending", "done" or `{ error }`. */
+  | { readonly type: "chatgpt-poll"; readonly id?: string; readonly login: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
@@ -187,6 +219,8 @@ export type PiServerMessage =
   | { readonly type: "settings"; readonly settings: SettingsView }
   /** ky's repo and address, and what this deploy has no config for; sent on connect and on change. */
   | { readonly type: "setup"; readonly setup: SetupView }
+  /** Whether each subscription is set up, never its token; sent on connect and on change. */
+  | { readonly type: "subscriptions"; readonly subscriptions: readonly SubscriptionView[] }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 

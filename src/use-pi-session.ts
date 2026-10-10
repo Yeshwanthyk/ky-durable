@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MachineChange } from "./machines";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import { cachedShared, cachedView, saveView } from "./view-cache";
@@ -21,6 +21,10 @@ import type {
   ServerMessage,
   SettingsView,
   SetupView,
+  ChatGptCode,
+  ChatGptState,
+  SubscriptionKind,
+  SubscriptionView,
   SkillChange,
   SkillRow,
   SkillVersion,
@@ -62,6 +66,8 @@ type State = SessionView & {
   readonly settings: SettingsView | null;
   /** ky's repo and the tools this deploy lacks; null until the server sends them. */
   readonly setup: SetupView | null;
+  /** Whether each subscription is set up. */
+  readonly subscriptions: readonly SubscriptionView[];
   /** A newer deploy is serving than the one this page loaded from. */
   readonly updated: boolean;
 };
@@ -82,6 +88,7 @@ const INITIAL_STATE: State = {
   automations: [],
   settings: null,
   setup: null,
+  subscriptions: [],
   updated: false
 };
 
@@ -173,6 +180,10 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, setup: message.setup }));
 
           return;
+        case "subscriptions":
+          setState((current) => ({ ...current, subscriptions: message.subscriptions }));
+
+          return;
         case "chats":
           setState((current) => ({ ...current, chats: message.chats, mainUpdatedAt: message.main }));
 
@@ -238,6 +249,7 @@ export function usePiSession(session: string) {
       automations: current.automations,
       settings: current.settings,
       setup: current.setup,
+      subscriptions: current.subscriptions,
       updated: current.updated
     }));
   }, [session]);
@@ -333,6 +345,8 @@ export function usePiSession(session: string) {
     (provider: string) => send({ type: "remove-key", id: crypto.randomUUID(), provider }),
     [send]
   );
+
+  const subscriptionActions = useSubscriptionActions(ask, send);
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -447,6 +461,7 @@ export function usePiSession(session: string) {
     setRepo,
     addKey,
     removeKey,
+    subscriptionActions,
     newChat,
     archiveChat,
     changeSkill,
@@ -483,6 +498,21 @@ async function reloadIfSignedOut(): Promise<void> {
 function refusal(result: JsonValue): string | undefined {
   // SAFETY: the server answers each save it may refuse with `{ refused? }`.
   return (result as { refused?: string }).refused;
+}
+
+/** Settings › Subscriptions' actions, answered over the socket. */
+function useSubscriptionActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>, send: (message: ClientMessage) => void) {
+  return useMemo(
+    () => ({
+      onSetClaude: (token: string) => ask((id) => ({ type: "set-claude", id, token })).then(refusal),
+      onRemove: (kind: SubscriptionKind) => send({ type: "remove-subscription", id: crypto.randomUUID(), kind }),
+      // SAFETY: the server answers chatgpt-login with a ChatGptCode or `{ refused }`.
+      onChatGptLogin: () => ask((id) => ({ type: "chatgpt-login", id })).then((result) => result as ChatGptCode | { refused: string }),
+      // SAFETY: the server answers chatgpt-poll with "pending", "done" or `{ error }`.
+      onChatGptPoll: (login: string) => ask((id) => ({ type: "chatgpt-poll", id, login })).then((result) => result as ChatGptState)
+    }),
+    [ask, send]
+  );
 }
 
 /** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */
