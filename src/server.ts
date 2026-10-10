@@ -12,7 +12,7 @@ import { Access, bypassed } from "./access";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
-import { EXECUTOR_NOT_SET_UP, type ExecutorConfig, executorExtension } from "./executor";
+import { ExecutorLink, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
 import { MachineHub, machineExtension, type TaskTokens } from "./machines";
@@ -26,6 +26,7 @@ import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { Dreaming, DREAM_CRON } from "./dreaming";
 import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
+import { seed } from "./seeds";
 import { Soul, soulExtension } from "./soul";
 import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
@@ -52,18 +53,17 @@ const BACKGROUND = Object.freeze({
 export type Boundary = ModelsBoundary & {
   /** Browser Rendering, for browse. */
   readonly browser: BrowserWorker;
-  /** When this deploy has Executor. */
-  readonly executor?: ExecutorConfig;
+  /** How requests reach Executor, once the user connects it in Settings; global fetch unless set. */
+  readonly executorFetch?: typeof fetch;
+  /** Seed the starter skills, specialist and automations on the first start (src/seeds.ts). */
+  readonly seeds: boolean;
   /** More tools for every agent, after ky's own. */
   readonly extensions: readonly Extension[];
 };
 
-/** What a deploy lacks: the overlay's add-ons, VibeProxy unless a paired machine shares it (one of `providers`). */
-export function notSetUp({ vibeProxy, executor }: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
-  return [
-    ...(vibeProxy.tunnel || providers.includes(VIBEPROXY_PROVIDER) ? [] : [VIBEPROXY_NOT_SET_UP]),
-    ...(executor ? [] : [EXECUTOR_NOT_SET_UP])
-  ];
+/** What a deploy lacks: VibeProxy unless a paired machine shares it (one of `providers`). Executor is connected in Settings instead. */
+export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
+  return vibeProxy.tunnel || providers.includes(VIBEPROXY_PROVIDER) ? [] : [VIBEPROXY_NOT_SET_UP];
 }
 
 /** The user's one agent, one Durable Object. */
@@ -119,6 +119,10 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
+  /** The user's Executor, connected in Settings and kept in the Vault; its tools are installed while it is. */
+  readonly executor = new ExecutorLink(() => this.env.Vault.getByName("owner"), this.ctx.id.name ?? "me", this.boundary.executorFetch);
+  /** Bumped by every connect and disconnect, so an install read before one never lands after it. */
+  #executorGeneration = 0;
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
   readonly automations = new Automations(this.ctx.storage.sql, {
@@ -172,14 +176,14 @@ export class PiAgent extends DurableObject<Env> {
         sections: [
           {
             key: "preamble",
-            render: () => preamble({ executor: Boolean(this.boundary.executor), selfEdit: this.setup.selfEdit() }),
+            render: () => preamble({ executor: this.registry.snapshot().extension("executor") !== undefined, selfEdit: this.setup.selfEdit() }),
             tag: false
           }
         ],
         tools: createWorkspaceTools(this.workspace)
       });
 
-      if (this.boundary.executor) this.registry.install(executorExtension(this.boundary.executor));
+      await this.#installExecutor();
       this.registry.install(this.browse);
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
@@ -255,6 +259,7 @@ export class PiAgent extends DurableObject<Env> {
     this.models,
     this.subscriptions,
     this.pipe,
+    this.executor,
     this.chats,
     this.skills,
     this.soul,
@@ -282,6 +287,24 @@ export class PiAgent extends DurableObject<Env> {
     // When the providers change, the chats move to what main resolves to now.
     this.models.onChange(() => this.ctx.waitUntil(this.applyMain()));
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
+    this.executor.onChange(async () => {
+      await this.#installExecutor();
+      await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
+    });
+  }
+
+  /** Install Executor's tools on the connection the Vault has now, or remove them without one. */
+  async #installExecutor(): Promise<void> {
+    const generation = ++this.#executorGeneration;
+    const config = await this.executor.config();
+
+    // A connect or disconnect since has its own install.
+    if (generation !== this.#executorGeneration) return;
+
+    const installed = this.registry.snapshot().extension("executor");
+
+    if (config) this.registry.install(executorExtension(config));
+    else if (installed) this.registry.uninstall(installed);
   }
 
   /** The main chat or a side chat, as against a subagent, a review or a dream. */
@@ -302,18 +325,18 @@ export class PiAgent extends DurableObject<Env> {
 
   /**
    * Production's boundary: Workers AI, the internet, Browser Rendering, and VibeProxy's tunnel
-   * and Executor when this deploy has their vars and secrets (wrangler.local.example.jsonc).
+   * when this deploy has its vars and secret (wrangler.local.example.jsonc).
    */
   boundaryFor(env: Env): Boundary {
-    const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key, EXECUTOR_URL: url, EXECUTOR_TOKEN: token } = env;
+    const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key } = env;
 
     return {
       ai: env.AI,
       fetch: (input, init) => fetch(input, init),
       vibeProxy: { port: VIBEPROXY_PORT, key: key || undefined, tunnel: binding && origin && key ? { binding, origin } : undefined },
       browser: env.BROWSER,
-      executor: url && token ? { url, token } : undefined,
-      extensions: []
+      extensions: [],
+      seeds: true
     };
   }
 
@@ -327,6 +350,8 @@ export class PiAgent extends DurableObject<Env> {
     await this.models.probe();
     await this.applyMain();
     await this.automations.recover();
+
+    if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.
     this.ctx.waitUntil(this.memory.compress());
   }

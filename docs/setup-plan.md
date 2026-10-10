@@ -198,6 +198,7 @@ auth(providerId): { apiKey: string; headers?: Record<string,string> } | null   /
 sessionCreds(agent: "claude" | "codex"): Promise<RunCreds[agent] | null>   // async (S); refreshes codex with the internal refresh (below)
 chatgptLogin(): Promise<{ userCode, verificationUrl, loginId }>; chatgptPoll(loginId): "pending" | "done" | { error }
 githubToken(): { token, repos } | null
+executor(agent): { url, token } | null                       // added by F: the ("executor", agent) secret, with meta { url }
 // tokens: kind = "pair" | "machine" | "task"
 mint(kind, subject, ttlMs?): string                          // returns raw once; stores sha-256; one live token per (kind, subject), so minting again replaces it
 check(kind, token): subject | null                           // a lookup by hash
@@ -608,6 +609,27 @@ These are the machine flows for ChatGPT and Claude.
 - **Executor:** an optional connect (URL and token) stored in the Vault. `executor.ts` reads from it.
 - **Done when:** a fresh deploy walks a new user from empty to a configured ky without touching a terminal past
   `ky init`.
+- **Built (F):**
+  - The main chat's Welcome shows first-run cards while anything is left to set up: tell ky who you are (SOUL
+    interview), add a key, connect ChatGPT for machines, add Claude for machines, add a machine, connect Executor.
+    Each card opens and scrolls to the existing Settings section (`settings-providers`, `settings-subscriptions`,
+    `settings-machines`, `settings-executor`); a done card is checked. The title reads "You're on Workers AI." while
+    Workers AI is the only provider.
+  - The SOUL interview is a prompt sent into the main chat: ky asks three or four questions one at a time, then
+    writes SOUL.md with `soul_edit`. Its card is done once SOUL.md has a second version.
+  - Seeds run once per ky (`Setup` key `seeded`), on its first start: skills `research-brief` and `inbox-triage`
+    (archived), specialist `editor`, automations "Daily digest" (`0 8 * * *`) and "Weekly review" (`0 9 * * 1`)
+    (paused). Automation runs get no memory, so the weekly review reviews skills, not memory or dreams.
+  - Welcome pills: "What's connected" only with Executor; "Use my computer" only with a machine; "Code on my
+    machine" only with a machine and a Claude or ChatGPT subscription.
+- **Contract changes (added by F):**
+  - Vault: `executor(agent)` (C4). Executor's URL and token are no longer config: `EXECUTOR_URL` and
+    `EXECUTOR_TOKEN` are gone, and "Not set up" lists VibeProxy only.
+  - Browser socket: `set-executor { url, token }` tests the token with `tools/list` and answers `{ refused? }`;
+    `remove-executor`. Server frames `executor { url | null }` (never the token) and `tools` (the tool list after
+    Executor's tools are installed or removed at runtime).
+  - Boundary: `executorFetch` (the test stack's MCP fake) and `seeds` (whether a new ky is seeded; the stack seeds
+    only objects named `fresh-…`).
 
 ### CM. cloud-machine
 - **The container:**

@@ -33,6 +33,7 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
+import { Executor } from "./Executor";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
@@ -335,7 +336,7 @@ function MachineList({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   return (
-    <section className="group machines">
+    <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
         <p className="panel-note">None yet. Add one to run tasks on your own computer.</p>
@@ -958,7 +959,7 @@ function Providers({
   keyActions: KeyActions;
 }) {
   return (
-    <section className="group">
+    <section className="group" id="settings-providers">
       <h3 className="group-label">Providers</h3>
       {providers.length > 0 ? (
         <ul className="card">
@@ -1247,6 +1248,7 @@ function Settings({
       </section>
       {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
       <Subscriptions {...subscriptions} now={now} />
+      <Executor />
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}

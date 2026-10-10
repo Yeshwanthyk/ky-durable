@@ -100,6 +100,8 @@ const ServerFrame = Type.Union([
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("setup"), setup: Setup }),
   Type.Object({ type: Type.Literal("subscriptions"), subscriptions: Type.Array(Subscription) }),
+  Type.Object({ type: Type.Literal("executor"), executor: Type.Object({ url: Type.Union([Type.String(), Type.Null()]) }) }),
+  Type.Object({ type: Type.Literal("tools"), tools: Type.Array(Type.Object({ name: Type.String(), description: Type.String() })) }),
   Type.Object({ type: Type.Literal("result"), id: Type.String(), result: Json }),
   Type.Object({ type: Type.Literal("error"), id: Type.Optional(Type.String()), message: Type.String() })
 ]);

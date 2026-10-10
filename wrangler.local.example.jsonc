@@ -4,8 +4,6 @@
   // replaces wrangler.jsonc's. Anything left out shows as "Not set up" in Settings. Secrets stay secrets:
   // see .dev.vars.example.
   "vars": {
-    // Executor's MCP endpoint for your organization, with approvals in the browser. Needs EXECUTOR_TOKEN.
-    "EXECUTOR_URL": "https://v2.executor.sh/org/<org>/mcp?elicitation_mode=browser",
     // VibeProxy's listen address on your computer; the VIBEPROXY tunnel forwards here. Needs VIBEPROXY_KEY.
     "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317"
   },

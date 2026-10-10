@@ -46,6 +46,25 @@ async function send(page: Page, text: string): Promise<void> {
   await composer(page).press("Enter");
 }
 
+/** The stack's fake Executor (src/tests/stack.ts): its address, and the token it takes. */
+const EXECUTOR = { url: "https://executor.test/mcp", token: "ky-stack-executor" };
+
+/** Connect Executor in Settings › Executor, unless it is connected already. */
+async function connectExecutor(page: Page): Promise<void> {
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const form = panel(page).getByRole("form", { name: "Connect Executor" });
+  const connected = panel(page).getByText(EXECUTOR.url, { exact: true });
+  await expect(form.or(connected)).toBeVisible();
+
+  if (await form.isVisible()) {
+    await form.getByLabel("Executor URL").fill(EXECUTOR.url);
+    await form.getByLabel("Executor token").fill(EXECUTOR.token);
+    await form.getByRole("button", { name: "Test and connect" }).click();
+  }
+
+  await expect(connected).toBeVisible();
+}
+
 /** Open every gate tool started so far (src/tests/stack.ts). */
 async function release(page: Page): Promise<void> {
   const response = await page.request.post("/test/release");
@@ -173,6 +192,35 @@ test("reloads into Access's sign-in when the socket drops after the sign-in laps
   await closers.at(-1)!();
 
   await expect(page.getByText(REFUSED)).toBeVisible();
+});
+
+// First, while the main chat is still empty.
+test("walks a new ky through setup from the main chat's first-run cards", async ({ page }) => {
+  await open(page);
+  const cards = chat(page).getByRole("list", { name: "Set up ky" });
+  await expect(cards).toBeVisible();
+  await expect(chat(page).getByRole("button", { name: "What's connected" })).toHaveCount(0);
+
+  await cards.getByRole("button", { name: /Add a machine/ }).click();
+  await expect(panel(page).getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+  await expect(panel(page).locator("#settings-machines")).toBeInViewport();
+
+  await cards.getByRole("button", { name: /Add Claude for machines/ }).click();
+  await expect(panel(page).locator("#settings-subscriptions")).toBeInViewport();
+
+  await cards.getByRole("button", { name: /Connect Executor/ }).click();
+  const form = panel(page).getByRole("form", { name: "Connect Executor" });
+  await expect(form).toBeInViewport();
+  await form.getByLabel("Executor URL").fill(EXECUTOR.url);
+  await form.getByLabel("Executor token").fill("not-the-token");
+  await form.getByRole("button", { name: "Test and connect" }).click();
+  await expect(panel(page).getByRole("alert")).toHaveText("Executor refused that token.");
+  await connectExecutor(page);
+  await expect(cards.getByRole("button", { name: /Connect Executor/ })).toHaveAttribute("data-done", "true");
+  await expect(chat(page).getByRole("button", { name: "What's connected" })).toBeVisible();
+
+  await cards.getByRole("button", { name: /Tell ky who you are/ }).click();
+  await expect(chat(page).getByText(/^Interview me so you know who I am/).first()).toBeVisible();
 });
 
 test("streams the answer to a message", async ({ page }) => {
@@ -468,7 +516,7 @@ test.describe("automations in Activity", () => {
 
 test("lists the tools ky can use", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await connectExecutor(page);
   await panel(page).getByRole("button", { name: /What ky can use/ }).click();
   await expect(panel(page).getByText("machine", { exact: true })).toBeVisible();
   await expect(panel(page).getByText("executor_skills", { exact: true })).toBeVisible();

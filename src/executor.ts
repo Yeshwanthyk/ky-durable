@@ -11,7 +11,8 @@ import {
   StreamableHTTPError
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { NotSetUp } from "./setup";
+import type { ExecutorView } from "./protocol";
+import type { Vault } from "./vault";
 
 /**
  * Executor (v2.executor.sh) over MCP. Executor holds the accounts and turns
@@ -24,20 +25,16 @@ import type { NotSetUp } from "./setup";
  * and the agent calls `resume` after.
  */
 
-/** What Settings shows when this deploy has no Executor. */
-export const EXECUTOR_NOT_SET_UP: NotSetUp = {
-  id: "executor",
-  name: "Executor",
-  needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret"
-};
+/** Where Executor is and the token it takes, as the user connects it in Settings; kept in the Vault. */
+export type ExecutorConnection = { readonly url: string; readonly token: string };
 
-/** Only a deploy with EXECUTOR_URL and EXECUTOR_TOKEN has one; ky installs no Executor tools without. */
-export type ExecutorConfig = {
-  readonly url: string;
-  readonly token: string;
+/** ky installs Executor's tools only while one is connected. */
+export type ExecutorConfig = ExecutorConnection & {
   /** How requests reach Executor; global fetch unless set. */
   readonly fetch?: typeof fetch;
 };
+
+/** What Settings shows of Executor: its address once connected, never the token. */
 
 type CallResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
@@ -71,6 +68,20 @@ function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
   return { content, isError: result.isError === true };
 }
 
+/** An MCP session with Executor, signed in with the token. */
+async function open(config: ExecutorConfig): Promise<Client> {
+  const client = new Client({ name: "ky", version: "0.1.0" });
+
+  const options: StreamableHTTPClientTransportOptions = {
+    requestInit: { headers: { Authorization: `Bearer ${config.token}` } }
+  };
+
+  if (config.fetch) options.fetch = config.fetch;
+  await client.connect(new StreamableHTTPClientTransport(new URL(config.url), options));
+
+  return client;
+}
+
 class ExecutorClient {
   readonly #config: ExecutorConfig;
   #client: Promise<Client> | undefined;
@@ -82,20 +93,7 @@ class ExecutorClient {
   #connect(): Promise<Client> {
     if (this.#client) return this.#client;
 
-    const connecting = (async () => {
-      const client = new Client({ name: "ky", version: "0.1.0" });
-
-      const options: StreamableHTTPClientTransportOptions = {
-        requestInit: { headers: { Authorization: `Bearer ${this.#config.token}` } }
-      };
-
-      if (this.#config.fetch) options.fetch = this.#config.fetch;
-      const transport = new StreamableHTTPClientTransport(new URL(this.#config.url), options);
-
-      await client.connect(transport);
-
-      return client;
-    })();
+    const connecting = open(this.#config);
 
     // A failed connect is not kept; the caller still sees its error.
     connecting.catch(() => this.#forget(connecting));
@@ -214,4 +212,106 @@ export function executorExtension(config: ExecutorConfig): Extension {
       })
     ]
   });
+}
+
+/** Executor's address: https, or http on localhost for a local Executor. */
+function checkUrl(url: string): string | undefined {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "That isn't a URL. Paste Executor's MCP address, like https://v2.executor.sh/org/<org>/mcp.";
+  }
+
+  if (parsed.protocol === "https:" || (parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
+    return undefined;
+  }
+
+  return "Executor's address must start with https://.";
+}
+
+/** Why a test connection failed, in words that hold no secret. */
+function whyRefused(error: Error, url: string): string {
+  if (answered(error, 401, 403)) return "Executor refused that token.";
+
+  return `ky couldn't reach Executor at ${new URL(url).origin}: ${error.message}`;
+}
+
+/**
+ * Settings › Executor: the user connects Executor with its URL and a
+ * personal access token. ky signs in and lists its tools first, and keeps
+ * the connection in the Vault only once that works; the token never comes
+ * back to the browser. While connected, the agent has Executor's tools.
+ */
+export class ExecutorLink {
+  readonly #vault: () => DurableObjectStub<Vault>;
+  /** The Vault's id for it, `("executor", id)`: the agent's name, so each agent has its own. */
+  readonly #id: string;
+  readonly #fetch: typeof fetch | undefined;
+  readonly #listeners = new Set<() => Promise<void> | void>();
+
+  constructor(vault: () => DurableObjectStub<Vault>, id: string, reach?: typeof fetch) {
+    this.#vault = vault;
+    this.#id = id;
+    this.#fetch = reach;
+  }
+
+  /** Called on connect and disconnect, which resolve once every listener has. */
+  onChange(listener: () => Promise<void> | void): void {
+    this.#listeners.add(listener);
+  }
+
+  /** The connection the agent's tools use, or null while none is. */
+  async config(): Promise<ExecutorConfig | null> {
+    const connection = await this.#vault().executor(this.#id);
+
+    if (!connection) return null;
+
+    return this.#fetch ? { ...connection, fetch: this.#fetch } : connection;
+  }
+
+  async view(): Promise<ExecutorView> {
+    const secret = (await this.#vault().status()).find((each) => each.kind === "executor" && each.id === this.#id);
+    const url = secret?.meta?.url;
+
+    return { url: url ? String(url) : null };
+  }
+
+  /** Sign in to Executor at `url` with `token` and list its tools; keep it only if that works, else `{ refused }`. */
+  async connect(url: string, token: string): Promise<{ refused?: string }> {
+    const connection = { url: url.trim(), token: token.trim() };
+
+    if (connection.token === "") return { refused: "Paste an Executor personal access token." };
+    const bad = checkUrl(connection.url);
+
+    if (bad) return { refused: bad };
+
+    try {
+      const client = await open(this.#fetch ? { ...connection, fetch: this.#fetch } : connection);
+
+      try {
+        await client.listTools(undefined, { timeout: 30_000 });
+      } finally {
+        await client.close().catch(() => undefined);
+      }
+    } catch (error) {
+      return { refused: whyRefused(error instanceof Error ? error : new Error(String(error)), connection.url) };
+    }
+
+    await this.#vault().put("executor", this.#id, connection, { url: connection.url });
+    await this.#changed();
+
+    return {};
+  }
+
+  /** Forget the connection: the agent loses Executor's tools. */
+  async disconnect(): Promise<void> {
+    await this.#vault().remove("executor", this.#id);
+    await this.#changed();
+  }
+
+  async #changed(): Promise<void> {
+    await Promise.all([...this.#listeners].map((listener) => listener()));
+  }
 }

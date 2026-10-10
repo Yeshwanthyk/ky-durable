@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inside, prompt, promptTool, submit, until } from "./drive";
+import { connectExecutor, inside, prompt, promptTool, submit, until } from "./drive";
 
 /** What the fake Executor saw: how often `code` ran, cancellations, sessions opened. */
 function executorSaw(name: string, code: string): Promise<{ runs: number; cancelled: number; sessions: number }> {
@@ -13,6 +13,7 @@ function executorSaw(name: string, code: string): Promise<{ runs: number; cancel
 describe("executor tools over MCP", () => {
   it("runs a program once and answers with its result", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
 
     expect((await prompt(name, "executor hello")).text).toBe("tool said: ran 1");
     expect(await executorSaw(name, "hello")).toEqual({ runs: 1, cancelled: 0, sessions: 1 });
@@ -20,6 +21,7 @@ describe("executor tools over MCP", () => {
 
   it("never runs a program again when its response is lost after it ran", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
 
     expect(await promptTool(name, "executor lose-response")).toEqual({
       text: expect.stringMatching(/^tool said: Executor call failed: .*Network connection lost/),
@@ -30,6 +32,7 @@ describe("executor tools over MCP", () => {
 
   it("retries once on a fresh session when Executor expired the old one", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
     await prompt(name, "executor first");
     await inside(name, (agent) => agent.boundary.executorFake.open.clear());
 
@@ -39,12 +42,15 @@ describe("executor tools over MCP", () => {
 
   it("retries once when the connection cannot be made, and reports a second failure", async () => {
     const once = crypto.randomUUID();
+    await connectExecutor(once);
     await inside(once, (agent) => {
       agent.boundary.executorFake.refuseConnects = 1;
     });
     expect((await prompt(once, "executor once")).text).toBe("tool said: ran 1");
 
     const never = crypto.randomUUID();
+
+    await connectExecutor(never);
     await inside(never, (agent) => {
       agent.boundary.executorFake.refuseConnects = 2;
     });
@@ -54,6 +60,7 @@ describe("executor tools over MCP", () => {
 
   it("does not retry when Executor refuses the token", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
     await inside(name, (agent) => {
       agent.boundary.executorFake.token = "another-token";
     });
@@ -65,6 +72,7 @@ describe("executor tools over MCP", () => {
 
   it("cancels the call at Executor when the turn is stopped", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
     await submit(name, "executor hang");
     await until(async () => (await executorSaw(name, "hang")).runs === 1, "the program started");
 

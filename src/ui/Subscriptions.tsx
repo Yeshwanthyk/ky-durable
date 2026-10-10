@@ -47,7 +47,7 @@ export function Subscriptions({ views, actions, now }: SubscriptionsData & { now
     views.find((each) => each.kind === kind) ?? { kind, connected: false, expiresAt: null, error: null };
 
   return (
-    <section className="group">
+    <section className="group" id="settings-subscriptions">
       <h3 className="group-label">Subscriptions</h3>
       <div className="card">
         <ClaudeRow view={view("claude")} actions={actions} now={now} />
@@ -82,7 +82,8 @@ function RemoveButton({ onRemove }: { onRemove: () => void }) {
   );
 }
 
-function Problem({ text }: { text: string | undefined }) {
+/** Why something was refused, as an alert; nothing without one. */
+export function Problem({ text }: { text: string | undefined }) {
   return text ? (
     <p className="automation-refused" role="alert">
       {text}

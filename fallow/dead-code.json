@@ -73,6 +73,7 @@
     "unused-class-member:src/vault.ts:Vault:chatgptPoll",
     "unused-class-member:src/vault.ts:Vault:check",
     "unused-class-member:src/vault.ts:Vault:consume",
+    "unused-class-member:src/vault.ts:Vault:executor",
     "unused-class-member:src/vault.ts:Vault:githubToken",
     "unused-class-member:src/vault.ts:Vault:issue",
     "unused-class-member:src/vault.ts:Vault:mint",
