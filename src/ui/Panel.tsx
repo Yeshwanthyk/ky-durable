@@ -432,7 +432,7 @@ function factsLine(facts: MachineFacts | null): string | null {
   return parts.join(" · ");
 }
 
-const AGO_UNITS: Record<string, string> = { m: "min", h: "hour", d: "day" };
+const AGO_UNITS = { m: "min", h: "hour", d: "day" } satisfies Record<string, string>;
 
 /** How long ago, in words: "just now", "51 min ago", "3 hours ago". */
 function agoInWords(time: number, now: number): string {
@@ -440,15 +440,17 @@ function agoInWords(time: number, now: number): string {
 
   if (short === "now") return "just now";
   const count = Number(short.slice(0, -1));
-  const unit = AGO_UNITS[short.slice(-1)]!;
+  // SAFETY: ago() ends every answer but "now" in m, h or d.
+  const unit = AGO_UNITS[short.slice(-1) as keyof typeof AGO_UNITS];
 
   return unit === "min" ? `${count} min ago` : `${plural(count, unit)} ago`;
 }
 
-type MachineTone = "online" | "paused" | "off" | "offline";
+/** A machine's status: a tone for its dot, and a line of words. */
+type MachineStatus = { tone: "online" | "paused" | "off" | "offline"; text: string };
 
 /** The machine's status as a tone for its dot and a line of words. */
-function machineStatus(machine: MachineInfo, now: number): { tone: MachineTone; text: string } {
+function machineStatus(machine: MachineInfo, now: number): MachineStatus {
   if (!machine.online) {
     const waiting = machine.active > 0 ? ` · ${machine.active} waiting` : "";
 
@@ -648,6 +650,7 @@ function MachineLoginSwitch({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   const chosen = MACHINE_LOGINS.find(([each]) => each === machine.login)?.[2] ?? "";
+
   const saved = (
     <>
       Nothing is saved in{" "}
@@ -657,6 +660,7 @@ function MachineLoginSwitch({
       yet
     </>
   );
+
   const hint = subscribed ? (
     chosen
   ) : machine.login === "ky" ? (
