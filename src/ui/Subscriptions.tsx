@@ -46,7 +46,8 @@ function chatgptNote(view: SubscriptionView): string {
 }
 
 function githubNote(view: SubscriptionView): string {
-  if (!view.connected) return "For the cloud machine: paste a fine-grained token";
+  // Actions too: shipping a self-edit watches the deploy workflow, and a rollback runs it.
+  if (!view.connected) return "For the cloud machine: a fine-grained token with Contents, Pull requests and Actions read and write";
   const repos = view.repos ?? [];
 
   return `${repos.length} ${repos.length === 1 ? "repo" : "repos"}: ${repos.join(", ")}`;

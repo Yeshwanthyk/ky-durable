@@ -29,6 +29,8 @@ export type AiCall = {
   readonly headers: Readonly<Record<string, string>>;
   /** The thinking the request asked for, when it sent any. */
   readonly reasoning: string | null;
+  /** Each tool's description by its name, as a chat-completions request offered them. */
+  readonly tools?: Readonly<Record<string, string>>;
 };
 
 export type Script = (messages: readonly WireMessage[]) => Reply;
@@ -59,6 +61,7 @@ export function chatCompletions(
       model: string;
       messages: WireMessage[];
       reasoning_effort?: string;
+      tools?: readonly { function: { name: string; description?: string } }[];
     };
 
     calls.push({
@@ -66,7 +69,8 @@ export function chatCompletions(
       model: body.model,
       system: body.messages.flatMap((message) => (message.role === "system" ? [wireText(message.content)] : [])).join("\n"),
       headers: Object.fromEntries(request.headers),
-      reasoning: body.reasoning_effort ?? null
+      reasoning: body.reasoning_effort ?? null,
+      tools: Object.fromEntries((body.tools ?? []).map((tool) => [tool.function.name, tool.function.description ?? ""]))
     });
 
     const refused = await refuse();

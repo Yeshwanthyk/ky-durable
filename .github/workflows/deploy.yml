@@ -1,0 +1,97 @@
+name: deploy
+
+# Deploys ky when a pull request merges to main, so a self-edit ky opened (src/prompt.ts) ships
+# without a Cloudflare token anywhere in ky: the token lives only in this repo's secrets.
+# A rollback is this workflow run on an earlier commit of main:
+#   gh workflow run deploy.yml --ref main -f sha=<commit>
+#
+# It runs `ky deploy` from the checkout, as on the owner's own computer, with two repo secrets:
+#   CLOUDFLARE_API_TOKEN  a token scoped to the account ky runs in, with
+#                         Account Settings: Read, Workers Scripts: Edit, Workers R2 Storage: Edit,
+#                         Access: Apps and Policies: Edit,
+#                         Access: Organizations, Identity Providers, and Groups: Read,
+#                         and Containers: Edit when the deploy has the cloud machine
+#   KY_OVERLAY            the contents of ~/.config/ky/wrangler.local.jsonc, which `ky init` wrote
+# Without them it deploys nothing and says so.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: A commit of main to deploy, such as the one before a bad merge; empty deploys main
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One deploy at a time, in order: a rollback waits for the deploy it undoes.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      KY_OVERLAY: ${{ secrets.KY_OVERLAY }}
+      SHA: ${{ inputs.sha }}
+    steps:
+      - name: Check the secrets
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$KY_OVERLAY" ]; then
+            echo "::notice::Not deploying: add the CLOUDFLARE_API_TOKEN and KY_OVERLAY repo secrets (see .github/workflows/deploy.yml)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the commit
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          commit="${SHA:-$GITHUB_SHA}"
+          # Only a commit of main deploys: a rollback goes back along main, never to an unmerged branch.
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$commit is not a commit of main."
+            exit 1
+          fi
+          git checkout --detach "$commit"
+          echo "Deploying $(git rev-parse --short HEAD): $(git log -1 --format=%s)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: pnpm/action-setup@v4
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        if: steps.secrets.outputs.ready == 'true'
+      - if: steps.secrets.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Build the release
+        if: steps.secrets.outputs.ready == 'true'
+        run: pnpm compile linux-x64
+      - name: Write the overlay
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/config/ky"
+          umask 077
+          printf '%s\n' "$KY_OVERLAY" > "$RUNNER_TEMP/config/ky/wrangler.local.jsonc"
+      - name: Deploy
+        if: steps.secrets.outputs.ready == 'true'
+        run: pnpm ky deploy
+      - name: Remove the overlay
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/config"

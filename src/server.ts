@@ -181,7 +181,12 @@ export class PiAgent extends DurableObject<Env> {
         sections: [
           {
             key: "preamble",
-            render: () => preamble({ executor: this.registry.snapshot().extension("executor") !== undefined, selfEdit: this.setup.selfEdit() }),
+            render: () =>
+              preamble({
+                executor: this.registry.snapshot().extension("executor") !== undefined,
+                cloud: this.machines.cloudOn(),
+                selfEdit: this.setup.selfEdit()
+              }),
             tag: false
           }
         ],

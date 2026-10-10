@@ -713,6 +713,36 @@ These are the machine flows for ChatGPT and Claude.
 - **UI:** Machines shows `cloud` first, with its state (asleep, waking, running).
 - **FEATURES rows:** `machine-facts` and `task-screenshot` become "machines with Chrome".
 - **Done when:** ky edits itself, opens a PR from `cloud`, and the merge deploys, with the Mac off.
+- **Built (RT):**
+  - `machine` tool: its description is a getter (`toolDescription` in `src/machines.ts`), read on every model
+    request. It lists each machine's stable facts: state, OS, Chrome, agents, ports, repos and note, `cloud` first.
+    Whether a machine is up and how busy it is stay in `list`, so the tool's text changes only when a machine does.
+    The routing text sends scripts, builds, tests and GitHub repo work to `cloud` while it is on. Pages behind
+    logins and their screenshots, local files, local models and a named machine go to the user's computers.
+  - Default machine: a `run` with no machine goes to `cloud` while it is listed and on. Otherwise it goes to the
+    only machine on and online. Otherwise the tool asks the agent to name one.
+  - `src/prompt.ts`: the machines bullet names `cloud` when it is on. Self-edit and ship-it run as one task on
+    `cloud` (or, without it, on a computer where gh is signed in):
+    - self-edit: `gh repo clone`, `git switch -c ky/<name> origin/main`, typecheck, lint, test, push,
+      `gh pr create --base main`;
+    - ship-it: `gh pr merge --squash`, then `gh run watch` on the deploy run of the merge commit, then a check that
+      `<url>/manifest.webmanifest` answers 200. On a failure, it runs
+      `gh workflow run deploy.yml --ref main -f sha=<parent of the merge commit>`.
+  - `.github/workflows/deploy.yml` deploys on a push to main and on `workflow_dispatch` with `sha`, which must be a
+    commit of main. It runs `pnpm compile linux-x64` and `pnpm ky deploy` with the overlay written from the
+    `KY_OVERLAY` secret into a temporary `XDG_CONFIG_HOME`. Without `CLOUDFLARE_API_TOKEN` and `KY_OVERLAY` it
+    deploys nothing and leaves a notice. Deploys run one at a time.
+  - UI: the server lists `cloud` first (`ORDER BY name = 'cloud' DESC, name`). The cloud card shows
+    asleep, waking or running instead of idle or offline.
+- **Contract changes (added by RT):**
+  - `MachineInfo.cloud: "asleep" | "waking" | "running" | null`, null for the user's computers. It is derived in
+    the agent: running while its runner is online, waking while a task waits for it, asleep otherwise.
+  - `PromptConfig.cloud`: the cloud machine's name while it is listed and on (`MachineHub.cloudOn()`).
+  - Machine tool `run` without `machine` defaults to `cloud` as above.
+  - Repo secrets the user adds: `CLOUDFLARE_API_TOKEN` (the `ky deploy` permissions in `cli/cloudflare.ts`, plus
+    Containers: Edit with the cloud machine) and `KY_OVERLAY` (`~/.config/ky/wrangler.local.jsonc`). The GitHub
+    token in Settings › Subscriptions needs Actions read and write as well, for `gh run watch` and
+    `gh workflow run`.
 
 ### REL. release
 - **Distribution:**
