@@ -37,7 +37,7 @@ function aim(panel: HTMLDivElement | null, who: HTMLButtonElement | null) {
 const REVEAL_FRAMES = 30;
 
 // Scroll a Settings section into view once it renders, and focus its first field or button.
-function reveal(id: string, frames = REVEAL_FRAMES) {
+export function reveal(id: string, frames = REVEAL_FRAMES) {
   requestAnimationFrame(() => {
     const section = document.getElementById(id);
 

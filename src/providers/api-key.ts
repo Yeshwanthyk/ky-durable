@@ -34,6 +34,10 @@ export type Vendor = {
   readonly refuse?: (key: string) => string | undefined;
 };
 
+/** Why a Claude subscription token is refused as an API key, and where it goes instead. */
+export const CLAUDE_TOKEN_HERE =
+  "That's a Claude subscription token. It goes in Settings › Subscriptions, where tasks on your machines use it. Here, paste an Anthropic API key (sk-ant-api…).";
+
 export const VENDORS: readonly Vendor[] = [
   {
     id: "anthropic",
@@ -43,8 +47,7 @@ export const VENDORS: readonly Vendor[] = [
     light: "claude-haiku-4-5",
     thinkingLevel: "medium",
     // pi sends a subscription token as Claude Code would, which policy 8 rules out.
-    refuse: (key) =>
-      key.includes("sk-ant-oat") ? "That is a Claude subscription token. Paste an Anthropic API key." : undefined
+    refuse: (key) => (key.includes("sk-ant-oat") ? CLAUDE_TOKEN_HERE : undefined)
   },
   {
     id: "openai",

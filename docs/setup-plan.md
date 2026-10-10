@@ -622,6 +622,10 @@ These are the machine flows for ChatGPT and Claude.
     (paused). Automation runs get no memory, so the weekly review reviews skills, not memory or dreams.
   - Welcome pills: "What's connected" only with Executor; "Use my computer" only with a machine; "Code on my
     machine" only with a machine and a Claude or ChatGPT subscription.
+  - Fixes from live testing: K's refusal of a Claude subscription token as an Anthropic key now says it goes in
+    Settings › Subscriptions and links there; Settings › Subscriptions is disabled until a machine is paired, with a
+    link to Settings › Machines; S's `set-claude` strips all whitespace (a terminal's wrap) before matching, and its
+    refusals say what is wrong without echoing the paste.
 - **Contract changes (added by F):**
   - Vault: `executor(agent)` (C4). Executor's URL and token are no longer config: `EXECUTOR_URL` and
     `EXECUTOR_TOKEN` are gone, and "Not set up" lists VibeProxy only.

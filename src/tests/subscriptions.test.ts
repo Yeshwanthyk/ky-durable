@@ -62,7 +62,7 @@ describe("Settings › Subscriptions", () => {
     await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "good"));
 
     expect(client.frames.find((frame) => frame.type === "result" && frame.id === "bad")).toMatchObject({
-      result: { refused: "That isn't a Claude subscription token. Paste what `claude setup-token` prints." }
+      result: { refused: "That's an Anthropic API key; it goes in Settings › Providers. Here, paste what `claude setup-token` prints." }
     });
     expect(client.frames.find((frame) => frame.type === "result" && frame.id === "good")).toMatchObject({ result: {} });
     await client.until(() =>
@@ -83,6 +83,40 @@ describe("Settings › Subscriptions", () => {
       return latest?.type === "subscriptions" && latest.subscriptions.every((each) => !each.connected);
     });
     expect(await vault().sessionCreds("claude")).toBeNull();
+    socket.close();
+  });
+
+  it("joins a Claude token the terminal wrapped, and says what is wrong with a paste without repeating it", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name);
+    const client = follow(socket);
+    const result = (id: string) => client.frames.find((frame) => frame.type === "result" && frame.id === id);
+    const token = claudeToken();
+    const set = (id: string, paste: string) => socket.send(JSON.stringify({ type: "set-claude", id, token: paste }));
+
+    set("empty", " \n ");
+    set("other", "not-a-token-at-all");
+    set("short", "sk-ant-oat01-\n");
+    set("odd", `${token}!@#`);
+    await client.until(() => result("odd") !== undefined);
+    expect(result("empty")).toMatchObject({ result: { refused: "Paste what `claude setup-token` prints." } });
+    expect(result("other")).toMatchObject({ result: { refused: "A Claude subscription token starts with sk-ant-oat. Paste what `claude setup-token` prints." } });
+    expect(result("short")).toMatchObject({ result: { refused: "That token is cut short. Paste what `claude setup-token` prints." } });
+    expect(result("odd")).toMatchObject({ result: { refused: expect.stringContaining("characters a Claude subscription token can't have") } });
+    expect(JSON.stringify(client.frames)).not.toContain("not-a-token-at-all");
+    expect(JSON.stringify(client.frames)).not.toContain(token);
+
+    for (const [id, paste] of [
+      ["newline", `${token.slice(0, 20)}\n${token.slice(20)}\n`],
+      ["spaces", `  ${token.slice(0, 12)} ${token.slice(12, 30)}   ${token.slice(30)}`]
+    ] as const) {
+      set(id, paste);
+      await client.until(() => result(id) !== undefined);
+      expect(result(id)).toMatchObject({ result: {} });
+      expect(await vault().sessionCreds("claude")).toMatchObject({ oauthToken: token });
+    }
+
+    await vault().remove("claude", SUBSCRIPTION);
     socket.close();
   });
 

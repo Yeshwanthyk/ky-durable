@@ -35,6 +35,9 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Activity 
 
 const chat = (page: Page) => page.getByRole("region", { name: "Chat" });
 
+/** Where to save screenshots for a PR, when set. */
+const SHOTS = process.env.KY_SHOTS;
+
 async function open(page: Page, path = "/"): Promise<void> {
   await signIn(page);
   await page.goto(path);
@@ -368,6 +371,58 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
     await expect(main).toContainText("Glm 5.3 Flash · Workers AI");
   }
+});
+
+test("refuses a Claude subscription token as an Anthropic key, and links to Subscriptions where it goes", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
+
+  await providers.getByRole("combobox", { name: "Vendor" }).selectOption({ label: "Anthropic" });
+  await providers.getByRole("textbox", { name: "API key", exact: true }).fill("sk-ant-oat01-a-subscription-token");
+  await providers.getByRole("button", { name: "Test and save" }).click();
+  await expect(providers.getByRole("alert")).toContainText("It goes in Settings › Subscriptions");
+  await expect(providers.getByRole("button", { name: "Remove the Anthropic key" })).toBeHidden();
+
+  await providers.getByRole("alert").getByRole("button", { name: "Settings › Subscriptions" }).click();
+  await expect(panel(page).getByRole("heading", { name: "Subscriptions" })).toBeInViewport();
+});
+
+test("turns Subscriptions off until a machine is paired, and links to Machines", async ({ page }) => {
+  // A ky with no paired machine: the server's machine list arrives empty.
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      const frame = decodeServerFrame(String(message));
+
+      socket.send(frame?.type === "tasks" ? JSON.stringify({ ...frame, machines: [] }) : message);
+    });
+  });
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const subscriptions = panel(page).locator("#settings-subscriptions");
+
+  await expect(subscriptions.getByText("Pair a machine first; Claude Code and Codex run there.")).toBeVisible();
+  await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeDisabled();
+  await expect(subscriptions.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  await subscriptions.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/6-subscriptions-unpaired.png` : undefined });
+
+  await subscriptions.getByRole("button", { name: "Go to Machines" }).click();
+  await expect(panel(page).locator("#settings-machines")).toBeInViewport();
+});
+
+test("keeps Subscriptions on while a machine is paired", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const subscriptions = panel(page).locator("#settings-subscriptions");
+
+  await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeEnabled();
+  await expect(subscriptions.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  await expect(subscriptions.getByText("Pair a machine first")).toHaveCount(0);
+  await subscriptions.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/7-subscriptions-paired.png` : undefined });
 });
 
 test("switches the theme and keeps it after a reload", async ({ page }) => {
