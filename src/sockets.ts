@@ -22,10 +22,11 @@ import type { Skills } from "./skills";
 import type { Memory } from "./memory";
 import type { Soul } from "./soul";
 import { mentions, type Specialists } from "./specialists";
-import type { PiClientMessage, PiServerMessage } from "./protocol";
+import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
+import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
 
@@ -132,6 +133,7 @@ export class PiSessionSockets {
   readonly #models: Models;
   readonly #subscriptions: Subscriptions;
   readonly #pipe: RunnerPipe;
+  readonly #executor: ExecutorLink;
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
@@ -155,6 +157,7 @@ export class PiSessionSockets {
     models: Models,
     subscriptions: Subscriptions,
     pipe: RunnerPipe,
+    executor: ExecutorLink,
     chats: ChatList,
     skills: Skills,
     soul: Soul,
@@ -177,6 +180,7 @@ export class PiSessionSockets {
     this.#models = models;
     this.#subscriptions = subscriptions;
     this.#pipe = pipe;
+    this.#executor = executor;
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
@@ -243,6 +247,27 @@ export class PiSessionSockets {
     subscriptions.onChange(() => {
       this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
     });
+  }
+
+  async #executorMessage(): Promise<PiServerMessage> {
+    return { type: "executor", executor: await this.#executor.view() };
+  }
+
+  /** Send Executor's state and the tools it brought or took away; the agent calls it once they are installed. */
+  async broadcastExecutor(): Promise<void> {
+    const message = await this.#executorMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) {
+      send(socket, message);
+      send(socket, { type: "tools", tools: this.#tools() });
+    }
+  }
+
+  #tools(): PiToolInfo[] {
+    return this.#registry
+      .snapshot()
+      .tools()
+      .map(({ tool }) => ({ name: tool.name, description: tool.description }));
   }
 
   async #subscriptionsMessage(): Promise<PiServerMessage> {
@@ -426,15 +451,13 @@ export class PiSessionSockets {
       type: "hello",
       session,
       version: this.#version,
-      tools: this.#registry
-        .snapshot()
-        .tools()
-        .map(({ tool }) => ({ name: tool.name, description: tool.description }))
+      tools: this.#tools()
     });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
     send(connection, await this.#subscriptionsMessage());
+    send(connection, await this.#executorMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
@@ -702,6 +725,12 @@ export class PiSessionSockets {
         return await this.#subscriptions.setClaude(message.token);
       case "remove-subscription":
         await this.#subscriptions.remove(message.kind);
+
+        return null;
+      case "set-executor":
+        return await this.#executor.connect(message.url, message.token);
+      case "remove-executor":
+        await this.#executor.disconnect();
 
         return null;
       case "chatgpt-login":

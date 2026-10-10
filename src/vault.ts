@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
+import type { ExecutorConnection } from "./executor";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
@@ -303,6 +304,12 @@ export class Vault extends DurableObject<Env> {
     if (!login) return undefined;
 
     return { accessToken: login.accessToken, refreshToken: null, idToken: login.idToken, accountId: login.accountId, expiresAt: login.expiresAt };
+  }
+
+  /** The agent's Executor connection, which Settings saved under ("executor", agent) once ky signed in with it. */
+  executor(agent: string): ExecutorConnection | null {
+    // SAFETY: only ExecutorLink.connect writes this kind, each value an ExecutorConnection.
+    return this.#current("executor", agent) as ExecutorConnection | null;
   }
 
   /** The GitHub token tasks get, and the repos it may touch. CM fills this in. */

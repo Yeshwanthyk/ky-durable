@@ -899,15 +899,22 @@
   margin-left: 15px;
 }
 
+/* The Claude form takes its own full-width line under the label and note, so neither is squeezed. */
+.subscription-row {
+  flex-wrap: wrap;
+}
+
 .subscription-form {
+  order: 1;
+  flex-basis: 100%;
   display: flex;
   gap: 6px;
-  margin-left: auto;
   min-width: 0;
+  padding-left: 38px;
 }
 
 .subscription-input {
-  width: 9rem;
+  flex: 1;
   min-width: 0;
 }
 
@@ -2587,6 +2594,27 @@
   text-wrap: pretty;
 }
 
+.subscriptions-rows {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.subscriptions-rows:disabled {
+  opacity: 0.5;
+}
+
+.refused-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* Leaving it on the left, quiet; saving on the right, filled. */
 .automation-foot {
   display: flex;
@@ -2662,4 +2690,27 @@
   /* 16px stops iOS from zooming into the field. */
   font-size: max(16px, calc(12.5px * var(--text-scale)));
   resize: vertical;
+}
+
+/* ---------- First run ---------- */
+
+.first-run {
+  width: min(100%, 26rem);
+  margin-top: 24px;
+}
+
+.first-run .row {
+  min-height: 52px;
+}
+
+.first-run li + li .row {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.first-run .row[data-done="true"] .row-tile {
+  color: var(--accent);
+}
+
+.first-run .row[data-done="true"] .row-label {
+  color: var(--muted);
 }

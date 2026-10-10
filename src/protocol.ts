@@ -43,6 +43,9 @@ export type MachineInfo = {
 
 export type SubscriptionKind = "claude" | "chatgpt";
 
+/** Executor as Settings shows it: the URL ky reaches it at, or null when it isn't connected. Never its token. */
+export type ExecutorView = { readonly url: string | null };
+
 /** A subscription as Settings shows it: never its token. */
 export type SubscriptionView = {
   readonly kind: SubscriptionKind;
@@ -116,6 +119,13 @@ export type PiClientMessage =
   | { readonly type: "set-claude"; readonly id?: string; readonly token: string }
   /** Forget a subscription; tasks sign in with their machine's own login. */
   | { readonly type: "remove-subscription"; readonly id?: string; readonly kind: SubscriptionKind }
+  /**
+   * Connect Executor: ky lists its tools with the token before keeping it. The result is `{ refused }` when it
+   * can't. The token is never sent back.
+   */
+  | { readonly type: "set-executor"; readonly id?: string; readonly url: string; readonly token: string }
+  /** Forget Executor; its tools go away. */
+  | { readonly type: "remove-executor"; readonly id?: string }
   /** Start ChatGPT's device code sign-in; the result is `{ userCode, verificationUrl, loginId }`. */
   | { readonly type: "chatgpt-login"; readonly id?: string }
   /** How a ChatGPT sign-in is going: the result is "pending", "done" or `{ error }`. */
@@ -221,6 +231,10 @@ export type PiServerMessage =
   | { readonly type: "setup"; readonly setup: SetupView }
   /** Whether each subscription is set up, never its token; sent on connect and on change. */
   | { readonly type: "subscriptions"; readonly subscriptions: readonly SubscriptionView[] }
+  /** Whether Executor is connected, and where; sent on connect and on change. */
+  | { readonly type: "executor"; readonly executor: ExecutorView }
+  /** The tools ky has, as in hello; sent when they change, as when Executor is connected or removed. */
+  | { readonly type: "tools"; readonly tools: readonly PiToolInfo[] }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 

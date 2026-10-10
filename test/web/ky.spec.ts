@@ -35,6 +35,9 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Activity 
 
 const chat = (page: Page) => page.getByRole("region", { name: "Chat" });
 
+/** Where to save screenshots for a PR, when set. */
+const SHOTS = process.env.KY_SHOTS;
+
 async function open(page: Page, path = "/"): Promise<void> {
   await signIn(page);
   await page.goto(path);
@@ -44,6 +47,25 @@ async function open(page: Page, path = "/"): Promise<void> {
 async function send(page: Page, text: string): Promise<void> {
   await composer(page).fill(text);
   await composer(page).press("Enter");
+}
+
+/** The stack's fake Executor (src/tests/stack.ts): its address, and the token it takes. */
+const EXECUTOR = { url: "https://executor.test/mcp", token: "ky-stack-executor" };
+
+/** Connect Executor in Settings › Executor, unless it is connected already. */
+async function connectExecutor(page: Page): Promise<void> {
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const form = panel(page).getByRole("form", { name: "Connect Executor" });
+  const connected = panel(page).getByText(EXECUTOR.url, { exact: true });
+  await expect(form.or(connected)).toBeVisible();
+
+  if (await form.isVisible()) {
+    await form.getByLabel("Executor URL").fill(EXECUTOR.url);
+    await form.getByLabel("Executor token").fill(EXECUTOR.token);
+    await form.getByRole("button", { name: "Test and connect" }).click();
+  }
+
+  await expect(connected).toBeVisible();
 }
 
 /** Open every gate tool started so far (src/tests/stack.ts). */
@@ -173,6 +195,35 @@ test("reloads into Access's sign-in when the socket drops after the sign-in laps
   await closers.at(-1)!();
 
   await expect(page.getByText(REFUSED)).toBeVisible();
+});
+
+// First, while the main chat is still empty.
+test("walks a new ky through setup from the main chat's first-run cards", async ({ page }) => {
+  await open(page);
+  const cards = chat(page).getByRole("list", { name: "Set up ky" });
+  await expect(cards).toBeVisible();
+  await expect(chat(page).getByRole("button", { name: "What's connected" })).toHaveCount(0);
+
+  await cards.getByRole("button", { name: /Add a machine/ }).click();
+  await expect(panel(page).getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+  await expect(panel(page).locator("#settings-machines")).toBeInViewport();
+
+  await cards.getByRole("button", { name: /Add Claude for machines/ }).click();
+  await expect(panel(page).locator("#settings-subscriptions")).toBeInViewport();
+
+  await cards.getByRole("button", { name: /Connect Executor/ }).click();
+  const form = panel(page).getByRole("form", { name: "Connect Executor" });
+  await expect(form).toBeInViewport();
+  await form.getByLabel("Executor URL").fill(EXECUTOR.url);
+  await form.getByLabel("Executor token").fill("not-the-token");
+  await form.getByRole("button", { name: "Test and connect" }).click();
+  await expect(panel(page).getByRole("alert")).toHaveText("Executor refused that token.");
+  await connectExecutor(page);
+  await expect(cards.getByRole("button", { name: /Connect Executor/ })).toHaveAttribute("data-done", "true");
+  await expect(chat(page).getByRole("button", { name: "What's connected" })).toBeVisible();
+
+  await cards.getByRole("button", { name: /Tell ky who you are/ }).click();
+  await expect(chat(page).getByText(/^Interview me so you know who I am/).first()).toBeVisible();
 });
 
 test("streams the answer to a message", async ({ page }) => {
@@ -322,6 +373,83 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
   }
 });
 
+test("refuses a Claude subscription token as an Anthropic key, and links to Subscriptions where it goes", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
+
+  await providers.getByRole("combobox", { name: "Vendor" }).selectOption({ label: "Anthropic" });
+  await providers.getByRole("textbox", { name: "API key", exact: true }).fill("sk-ant-oat01-a-subscription-token");
+  await providers.getByRole("button", { name: "Test and save" }).click();
+  await expect(providers.getByRole("alert")).toContainText("It goes in Settings › Subscriptions");
+  await expect(providers.getByRole("button", { name: "Remove the Anthropic key" })).toBeHidden();
+
+  await providers.getByRole("alert").getByRole("button", { name: "Settings › Subscriptions" }).click();
+  await expect(panel(page).getByRole("heading", { name: "Subscriptions" })).toBeInViewport();
+});
+
+test("turns Subscriptions off until a machine is paired, and links to Machines", async ({ page }) => {
+  // A ky with no paired machine: the server's machine list arrives empty.
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      const frame = decodeServerFrame(String(message));
+
+      socket.send(frame?.type === "tasks" ? JSON.stringify({ ...frame, machines: [] }) : message);
+    });
+  });
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const subscriptions = panel(page).locator("#settings-subscriptions");
+
+  await expect(subscriptions.getByText("Pair a machine first; Claude Code and Codex run there.")).toBeVisible();
+  await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeDisabled();
+  await expect(subscriptions.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  await subscriptions.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/6-subscriptions-unpaired.png` : undefined });
+
+  await subscriptions.getByRole("button", { name: "Go to Machines" }).click();
+  await expect(panel(page).locator("#settings-machines")).toBeInViewport();
+});
+
+test("keeps Subscriptions on while a machine is paired", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const subscriptions = panel(page).locator("#settings-subscriptions");
+
+  await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeEnabled();
+  await expect(subscriptions.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  await expect(subscriptions.getByText("Pair a machine first")).toHaveCount(0);
+  await subscriptions.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/7-subscriptions-paired.png` : undefined });
+});
+
+for (const [width, name] of [
+  [1280, "panel"],
+  [390, "phone"]
+] as const) {
+  test(`gives the Claude row's note and form room to read at ${name} width`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page);
+    const show = page.getByRole("button", { name: /Show activity$/ });
+
+    if (await show.isVisible()) await show.click();
+    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    const subscriptions = panel(page).locator("#settings-subscriptions");
+    await subscriptions.scrollIntoViewIfNeeded();
+    await subscriptions.screenshot({ path: SHOTS ? `${SHOTS}/claude-row-${name}.png` : undefined });
+
+    const note = await subscriptions.getByText("Paste what claude setup-token prints").boundingBox();
+    const input = await subscriptions.getByRole("textbox", { name: "Claude subscription token" }).boundingBox();
+
+    // The note stays on one line, and the input gets a line of its own.
+    expect(note?.height).toBeLessThan(20);
+    expect(input?.width).toBeGreaterThan(180);
+    await expect(subscriptions.getByText("Sign in with a code")).toBeVisible();
+  });
+}
+
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();
@@ -468,7 +596,7 @@ test.describe("automations in Activity", () => {
 
 test("lists the tools ky can use", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await connectExecutor(page);
   await panel(page).getByRole("button", { name: /What ky can use/ }).click();
   await expect(panel(page).getByText("machine", { exact: true })).toBeVisible();
   await expect(panel(page).getByText("executor_skills", { exact: true })).toBeVisible();

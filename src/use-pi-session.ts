@@ -23,6 +23,7 @@ import type {
   SetupView,
   ChatGptCode,
   ChatGptState,
+  ExecutorView,
   SubscriptionKind,
   SubscriptionView,
   SkillChange,
@@ -68,9 +69,29 @@ type State = SessionView & {
   readonly setup: SetupView | null;
   /** Whether each subscription is set up. */
   readonly subscriptions: readonly SubscriptionView[];
+  /** Whether Executor is connected; null until the server says. */
+  readonly executor: ExecutorView | null;
   /** A newer deploy is serving than the one this page loaded from. */
   readonly updated: boolean;
 };
+
+type Frame<Type extends ServerMessage["type"]> = Extract<ServerMessage, { type: Type }>;
+
+/** The frames that replace a part of the state outright, and what they replace it with. */
+const REPLACES = {
+  tasks: ({ tasks, machines, files }) => ({ tasks, machines, files }),
+  settings: ({ settings }) => ({ settings }),
+  setup: ({ setup }) => ({ setup }),
+  subscriptions: ({ subscriptions }) => ({ subscriptions }),
+  executor: ({ executor }) => ({ executor }),
+  tools: ({ tools }) => ({ catalog: tools }),
+  chats: ({ chats, main }) => ({ chats, mainUpdatedAt: main }),
+  skills: ({ skills }) => ({ skills }),
+  soul: ({ soul }) => ({ soul }),
+  specialists: ({ specialists }) => ({ specialists }),
+  memory: ({ memory }) => ({ memory }),
+  automations: ({ automations }) => ({ automations })
+} satisfies { readonly [Type in ServerMessage["type"]]?: (frame: Frame<Type>) => Partial<State> };
 
 const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
@@ -89,6 +110,7 @@ const INITIAL_STATE: State = {
   settings: null,
   setup: null,
   subscriptions: [],
+  executor: null,
   updated: false
 };
 
@@ -163,51 +185,6 @@ export function usePiSession(session: string) {
           }));
 
           return;
-        case "tasks":
-          setState((current) => ({
-            ...current,
-            tasks: message.tasks,
-            machines: message.machines,
-            files: message.files
-          }));
-
-          return;
-        case "settings":
-          setState((current) => ({ ...current, settings: message.settings }));
-
-          return;
-        case "setup":
-          setState((current) => ({ ...current, setup: message.setup }));
-
-          return;
-        case "subscriptions":
-          setState((current) => ({ ...current, subscriptions: message.subscriptions }));
-
-          return;
-        case "chats":
-          setState((current) => ({ ...current, chats: message.chats, mainUpdatedAt: message.main }));
-
-          return;
-        case "skills":
-          setState((current) => ({ ...current, skills: message.skills }));
-
-          return;
-        case "soul":
-          setState((current) => ({ ...current, soul: message.soul }));
-
-          return;
-        case "specialists":
-          setState((current) => ({ ...current, specialists: message.specialists }));
-
-          return;
-        case "memory":
-          setState((current) => ({ ...current, memory: message.memory }));
-
-          return;
-        case "automations":
-          setState((current) => ({ ...current, automations: message.automations }));
-
-          return;
         case "result":
           unanswered.current.delete(message.id);
           waiting.current.get(message.id)?.(message.result);
@@ -220,8 +197,12 @@ export function usePiSession(session: string) {
           setState((current) => ({ ...current, error: message.message }));
 
           return;
-        default:
-          return;
+        default: {
+          // SAFETY: REPLACES is keyed by frame type, so the entry for message.type takes that very frame.
+          const replace = (REPLACES as Partial<Record<ServerMessage["type"], (frame: ServerMessage) => Partial<State>>>)[message.type];
+
+          if (replace) setState((current) => ({ ...current, ...replace(message) }));
+        }
       }
     }
   });
@@ -250,6 +231,7 @@ export function usePiSession(session: string) {
       settings: current.settings,
       setup: current.setup,
       subscriptions: current.subscriptions,
+      executor: current.executor,
       updated: current.updated
     }));
   }, [session]);
@@ -347,6 +329,15 @@ export function usePiSession(session: string) {
   );
 
   const subscriptionActions = useSubscriptionActions(ask, send);
+
+  /** Settings › Executor: connect it, tested by the server first, or forget it. */
+  const executorActions = useMemo(
+    () => ({
+      onConnect: (url: string, token: string) => ask((id) => ({ type: "set-executor", id, url, token })).then(refusal),
+      onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
+    }),
+    [ask, send]
+  );
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -462,6 +453,7 @@ export function usePiSession(session: string) {
     addKey,
     removeKey,
     subscriptionActions,
+    executorActions,
     newChat,
     archiveChat,
     changeSkill,

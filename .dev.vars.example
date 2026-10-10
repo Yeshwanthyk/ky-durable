@@ -9,5 +9,3 @@
 
 # VibeProxy's x-api-key; with VIBEPROXY and VIBEPROXY_ORIGIN in wrangler.local.jsonc.
 # VIBEPROXY_KEY=
-# An Executor personal access token; with EXECUTOR_URL in wrangler.local.jsonc.
-# EXECUTOR_TOKEN=

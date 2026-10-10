@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "../protocol";
 import { Icon, type IconName } from "./Icon";
 import { clock } from "./time";
+import { reveal } from "./use-panel";
 
 type SubscriptionActions = {
   /** Resolves with why the token was refused, if it was. */
@@ -41,26 +42,43 @@ function chatgptNote(view: SubscriptionView): string {
   return view.error ?? "Signed in; ky renews it";
 }
 
-// Your Claude and ChatGPT subscriptions, which tasks on machines that aren't signed in run with.
-export function Subscriptions({ views, actions, now }: SubscriptionsData & { now: number }) {
+// Your Claude and ChatGPT subscriptions, which tasks on machines that aren't signed in run with; off until a machine is paired, as nothing else uses them.
+export function Subscriptions({ views, actions, now, paired }: SubscriptionsData & { now: number; paired: boolean }) {
   const view = (kind: SubscriptionKind): SubscriptionView =>
     views.find((each) => each.kind === kind) ?? { kind, connected: false, expiresAt: null, error: null };
 
   return (
-    <section className="group">
+    <section className="group" id="settings-subscriptions">
       <h3 className="group-label">Subscriptions</h3>
-      <div className="card">
-        <ClaudeRow view={view("claude")} actions={actions} now={now} />
-        <ChatGptRow view={view("chatgpt")} actions={actions} />
-      </div>
-      <p className="panel-note">Machines run Claude Code and Codex with these when they aren't signed in, or when you pick ky's login.</p>
+      <fieldset className="subscriptions-rows" disabled={!paired}>
+        <div className="card">
+          <ClaudeRow view={view("claude")} actions={actions} now={now} />
+          <ChatGptRow view={view("chatgpt")} actions={actions} />
+        </div>
+      </fieldset>
+      {paired ? (
+        <p className="panel-note">Machines run Claude Code and Codex with these when they aren't signed in, or when you pick ky's login.</p>
+      ) : (
+        <PairFirst />
+      )}
     </section>
+  );
+}
+
+function PairFirst() {
+  return (
+    <p className="panel-note">
+      Pair a machine first; Claude Code and Codex run there.{" "}
+      <button type="button" className="refused-link" onClick={() => reveal("settings-machines")}>
+        Go to Machines
+      </button>
+    </p>
   );
 }
 
 function SubscriptionRow({ icon, label, note, ok, children }: { icon: IconName; label: string; note: string; ok: boolean; children: ReactNode }) {
   return (
-    <div className="row">
+    <div className="row subscription-row">
       <span className="row-tile">
         <Icon name={icon} size={15} />
       </span>
@@ -82,7 +100,8 @@ function RemoveButton({ onRemove }: { onRemove: () => void }) {
   );
 }
 
-function Problem({ text }: { text: string | undefined }) {
+/** Why something was refused, as an alert; nothing without one. */
+export function Problem({ text }: { text: string | undefined }) {
   return text ? (
     <p className="automation-refused" role="alert">
       {text}

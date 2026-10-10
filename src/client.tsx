@@ -11,6 +11,7 @@ import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
 import { paletteCommands } from "./ui/commands";
 import { ComposerDock } from "./ui/ComposerDock";
+import { ExecutorContext } from "./ui/Executor";
 import { LightboxProvider } from "./ui/Lightbox";
 import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
@@ -26,7 +27,7 @@ import { usePanel, type PanelState } from "./ui/use-panel";
 import { useSessionRoute } from "./ui/use-session-route";
 import { useShell, type Shell } from "./ui/use-shell";
 import { useTheme } from "./ui/use-theme";
-import { Welcome } from "./ui/Welcome";
+import { type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
 import "./ui/scotty.css";
@@ -49,6 +50,28 @@ const canSend = (connected: boolean, reading: number, cantSee: string | null) =>
 
 type Ky = ReturnType<typeof usePiSession>;
 
+/** What is set up, for the first-run cards and the pills. */
+function setUp({ settings, executor, soul, machines, subscriptions }: Ky): SetUp {
+  const connected = (kind: "claude" | "chatgpt") => subscriptions.some((each) => each.kind === kind && each.connected);
+
+  return {
+    known: [settings, executor, soul].every((each) => each !== null),
+    onlyProvider: settings && onlyProvider(settings),
+    machines: machines.length > 0,
+    claude: connected("claude"),
+    chatgpt: connected("chatgpt"),
+    executor: Boolean(executor?.url),
+    soul: Number(soul?.version) > 1
+  };
+}
+
+/** The main chat's provider while Workers AI is the only one there is. */
+function onlyProvider({ providers }: SettingsView): string | null {
+  const [only] = providers.filter((each) => providers.length === 1 && each.id === "workers-ai");
+
+  return only?.name ?? null;
+}
+
 /** What the open chat looks like, worked out once per render for every part of the page. */
 function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
   const open = openChat(session, ky.chats, ky.tasks);
@@ -66,7 +89,8 @@ function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
     mainModel: mainModelName(ky.settings),
     working: workingCount(ky.tasks),
     background: backgroundLine(ky.tasks),
-    variantId: speakerBlob(open.subagent, theme)
+    variantId: speakerBlob(open.subagent, theme),
+    setUp: setUp(ky)
   };
 }
 
@@ -130,7 +154,9 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
               variantId={variantId}
               running={ky.running}
               connected={view.connected}
+              setUp={view.setUp}
               onPick={draft.setPrompt}
+              onGo={(target) => (target === "soul" ? ky.submit(SOUL_INTERVIEW) : panel.openSection(target))}
             />
           }
         />
@@ -162,44 +188,46 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           onSave: ky.saveAutomation,
         }}
       >
-        <Panel
-          name={NAME}
-          variantId={KY_BLOB[view.theme]}
-          active={ky.running || view.working > 0}
-          status={view.status}
-          model={view.mainModel}
-          tasks={ky.tasks}
-          machines={ky.machines}
-          running={toolLabels(ky.tools, ky.messages)}
-          catalog={ky.catalog}
-          session={view.session}
-          now={now}
-          settings={ky.settings}
-          setup={ky.setup}
-          skills={ky.skills}
-          soul={ky.soul}
-          memory={ky.memory}
-          memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
-          specialists={ky.specialists}
-          specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
-          subscriptions={{ views: ky.subscriptions, actions: ky.subscriptionActions }}
-          theme={view.theme}
-          onTheme={setTheme}
-          onSetModel={ky.setModel}
-          onSkillChange={ky.changeSkill}
-          onSkillHistory={ky.skillHistory}
-          onSoulChange={ky.changeSoul}
-          onSoulHistory={ky.soulHistory}
-          onOpen={shell.openSession}
-          onStop={ky.stopTask}
-          onStopAll={ky.stopAll}
-          onSetMachine={ky.setMachine}
-          onSetRepo={ky.setRepo}
-          keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
-          onClose={() => panel.setOpen(false)}
-          tab={panel.tab}
-          onTab={panel.setTab}
-        />
+        <ExecutorContext.Provider value={{ view: ky.executor, actions: ky.executorActions }}>
+          <Panel
+            name={NAME}
+            variantId={KY_BLOB[view.theme]}
+            active={ky.running || view.working > 0}
+            status={view.status}
+            model={view.mainModel}
+            tasks={ky.tasks}
+            machines={ky.machines}
+            running={toolLabels(ky.tools, ky.messages)}
+            catalog={ky.catalog}
+            session={view.session}
+            now={now}
+            settings={ky.settings}
+            setup={ky.setup}
+            skills={ky.skills}
+            soul={ky.soul}
+            memory={ky.memory}
+            memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
+            specialists={ky.specialists}
+            specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
+            subscriptions={{ views: ky.subscriptions, actions: ky.subscriptionActions }}
+            theme={view.theme}
+            onTheme={setTheme}
+            onSetModel={ky.setModel}
+            onSkillChange={ky.changeSkill}
+            onSkillHistory={ky.skillHistory}
+            onSoulChange={ky.changeSoul}
+            onSoulHistory={ky.soulHistory}
+            onOpen={shell.openSession}
+            onStop={ky.stopTask}
+            onStopAll={ky.stopAll}
+            onSetMachine={ky.setMachine}
+            onSetRepo={ky.setRepo}
+            keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
+            onClose={() => panel.setOpen(false)}
+            tab={panel.tab}
+            onTab={panel.setTab}
+          />
+        </ExecutorContext.Provider>
       </AutomationsContext.Provider>
     </PanelSlot>
   );

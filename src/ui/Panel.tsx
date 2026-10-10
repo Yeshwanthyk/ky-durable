@@ -33,9 +33,11 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
+import { Executor } from "./Executor";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
+import { reveal } from "./use-panel";
 
 export type Theme = "light" | "dark";
 
@@ -335,7 +337,7 @@ function MachineList({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   return (
-    <section className="group machines">
+    <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
         <p className="panel-note">None yet. Add one to run tasks on your own computer.</p>
@@ -947,6 +949,26 @@ function ProviderRow({ provider, onRemove }: { provider: ProviderInfo; onRemove:
   );
 }
 
+const SUBSCRIPTIONS = "Settings › Subscriptions";
+
+// Why a key was refused; where it names Settings › Subscriptions, that is a link to it.
+function KeyRefusal({ text }: { text: string | undefined }) {
+  if (!text) return null;
+  const [before, ...after] = text.split(SUBSCRIPTIONS);
+
+  return (
+    <p className="automation-refused" role="alert">
+      {before}
+      {after.length > 0 ? (
+        <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
+          {SUBSCRIPTIONS}
+        </button>
+      ) : null}
+      {after.join(SUBSCRIPTIONS)}
+    </p>
+  );
+}
+
 // The model providers this deploy has, then a key to add for a vendor that has none.
 function Providers({
   providers,
@@ -958,7 +980,7 @@ function Providers({
   keyActions: KeyActions;
 }) {
   return (
-    <section className="group">
+    <section className="group" id="settings-providers">
       <h3 className="group-label">Providers</h3>
       {providers.length > 0 ? (
         <ul className="card">
@@ -1059,11 +1081,7 @@ function AddKey({
           />
         </label>
       </div>
-      {refused ? (
-        <p className="automation-refused" role="alert">
-          {refused}
-        </p>
-      ) : null}
+      <KeyRefusal text={refused} />
       <div className="automation-foot">
         <button type="submit" className="pill primary pressable" disabled={testing || key.trim() === ""}>
           {testing ? "Testing…" : "Test and save"}
@@ -1246,7 +1264,8 @@ function Settings({
         )}
       </section>
       {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
-      <Subscriptions {...subscriptions} now={now} />
+      <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
+      <Executor />
       <MachineList machines={machines} now={now} onSet={onSetMachine} />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}

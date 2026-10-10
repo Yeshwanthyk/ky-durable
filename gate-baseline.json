@@ -215,6 +215,71 @@
       "outcome": "passed"
     },
     {
+      "check": "node",
+      "name": "ky runner add pairs, keeps the token in the Keychain, writes runner.json, installs the launchd agent and waits for it online",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner add keeps the token in a 0600 file on Linux, and installs a systemd user unit with linger",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner add refuses a used or wrong code, and keeps nothing",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner add says so when the runner ky turned away doesn't come online",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner add installs no service with --no-service, and says how to start it",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner add asks for the URL and code it isn't given only at a terminal",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the runner on this computer lists it, online, and shows its status",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the runner on this computer is restarted by ky upgrade's restart, and not once it's removed",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "the runner on this computer prints its log",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner run's settings are runner.json's, each overridden by its KY_ variable",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner run's settings need KY_URL without runner.json, and keep the token in its file",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky runner run's settings refuse to run with no token kept",
+      "outcome": "passed"
+    },
+    {
+      "check": "node",
+      "name": "ky attach and ky diff run only inside a ky task",
+      "outcome": "passed"
+    },
+    {
       "check": "worker-e2e",
       "name": "Access refuses pages, the API, sockets and the test routes without Access's JWT, even with Access's email header",
       "outcome": "passed"
@@ -401,7 +466,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config builds VibeProxy and Executor when all their config is set",
+      "name": "a deploy's config builds VibeProxy when all its config is set, and seeds a new ky",
       "outcome": "passed"
     },
     {
@@ -417,16 +482,6 @@
     {
       "check": "worker-e2e",
       "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY_KEY, or with it empty",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config leaves out Executor without EXECUTOR_URL, or with it empty",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config leaves out Executor without EXECUTOR_TOKEN, or with it empty",
       "outcome": "passed"
     },
     {
@@ -566,7 +621,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's own setup shows VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI",
+      "name": "a deploy's own setup shows VibeProxy as not set up on a deploy without it, and runs on Workers AI without Executor until Settings connects it",
       "outcome": "passed"
     },
     {
@@ -627,6 +682,26 @@
     {
       "check": "worker-e2e",
       "name": "subagents waits for a whole run before answering a message sent as a follow-up",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Settings › Executor connects with a token ky tests first, never sends the token back, and removing it drops the tools",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "Settings › Executor keeps the connection across a restart",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a new ky's seeds starts with starter skills, a specialist and automations, all off, once",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a new ky's seeds leaves a ky that isn't new as it is",
       "outcome": "passed"
     },
     {
@@ -1271,6 +1346,11 @@
     },
     {
       "check": "worker-e2e",
+      "name": "Settings › Subscriptions joins a Claude token the terminal wrapped, and says what is wrong with a paste without repeating it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "Settings › Subscriptions signs in to ChatGPT with a device code the Vault polls for",
       "outcome": "passed"
     },
@@ -1606,6 +1686,11 @@
     },
     {
       "check": "web",
+      "name": "walks a new ky through setup from the main chat's first-run cards",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
       "name": "streams the answer to a message",
       "outcome": "passed"
     },
@@ -1647,6 +1732,31 @@
     {
       "check": "web",
       "name": "adds an Anthropic key in Settings once its test call passes, runs on Claude, and falls back when it is removed",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "refuses a Claude subscription token as an Anthropic key, and links to Subscriptions where it goes",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "turns Subscriptions off until a machine is paired, and links to Machines",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "keeps Subscriptions on while a machine is paired",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "gives the Claude row's note and form room to read at panel width",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "gives the Claude row's note and form room to read at phone width",
       "outcome": "passed"
     },
     {

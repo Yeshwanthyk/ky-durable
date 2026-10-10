@@ -16,6 +16,8 @@ export type PanelState = {
   readonly setOpen: (open: boolean) => void;
   readonly toggle: () => void;
   readonly openTab: (tab: PanelTab) => void;
+  /** Open Settings at one of its sections, by its element id, and put focus in it. */
+  readonly openSection: (id: string) => void;
   /** Ends the genie: the closing panel goes away, the opening one stays. */
   readonly settle: () => void;
   readonly whoRef: RefObject<HTMLButtonElement | null>;
@@ -29,6 +31,25 @@ function aim(panel: HTMLDivElement | null, who: HTMLButtonElement | null) {
   const to = panel.getBoundingClientRect();
   panel.style.setProperty("--genie-x", `${from.left + from.width / 2 - (to.left + to.width / 2)}px`);
   panel.style.setProperty("--genie-y", `${from.top + from.height / 2 - to.top}px`);
+}
+
+/** How long to wait for a Settings section to render before giving up on scrolling to it. */
+const REVEAL_FRAMES = 30;
+
+// Scroll a Settings section into view once it renders, and focus its first field or button.
+export function reveal(id: string, frames = REVEAL_FRAMES) {
+  requestAnimationFrame(() => {
+    const section = document.getElementById(id);
+
+    if (section === null) {
+      if (frames > 0) reveal(id, frames - 1);
+
+      return;
+    }
+
+    section.scrollIntoView({ block: "start", behavior: "smooth" });
+    section.querySelector<HTMLElement>("input, select, button")?.focus({ preventScroll: true });
+  });
 }
 
 // The activity and settings panel: which tab, and opening and closing it with the genie.
@@ -86,6 +107,11 @@ export function usePanel(): PanelState {
     openTab: (next) => {
       setTab(next);
       setOpen(true);
+    },
+    openSection: (id) => {
+      setTab("settings");
+      setOpen(true);
+      reveal(id);
     },
     settle,
     whoRef,

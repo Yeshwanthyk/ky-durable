@@ -100,10 +100,15 @@ type FakeProvider = keyof typeof REFUSALS;
 const downKey = (provider: FakeProvider) => `test:down:${provider}`;
 
 /** The token the fake Executor wants. */
-const EXECUTOR_TOKEN = "ky-stack-executor";
+export const EXECUTOR_TOKEN = "ky-stack-executor";
+
+export const EXECUTOR_URL = "https://executor.test/mcp";
 
 /** Objects whose name starts with this have no VibeProxy and no Executor, as a deploy without the owner overlay. */
 export const BARE = "bare-";
+
+/** Objects whose name starts with this are seeded on first start, as a new deploy is; the rest start empty. */
+export const FRESH = "fresh-";
 
 /** A key OpenCode Go's fake takes; it takes any. */
 export const OPENCODE_KEY = "opencode-test-key";
@@ -287,7 +292,8 @@ export class PiAgent extends ProductionAgent {
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
       probeTtlMs: 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
-      executor: bare ? undefined : { url: "https://executor.test/mcp", token: EXECUTOR_TOKEN, fetch: executorFake.fetch },
+      executorFetch: executorFake.fetch,
+      seeds: this.ctx.id.name?.startsWith(FRESH) === true,
       extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       executorFake,
       calls

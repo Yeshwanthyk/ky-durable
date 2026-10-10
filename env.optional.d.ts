@@ -10,9 +10,6 @@ interface Env {
   /** VibeProxy's listen address on that computer, which the tunnel forwards to. */
   readonly VIBEPROXY_ORIGIN?: string;
   readonly VIBEPROXY_KEY?: string;
-  /** Executor's MCP endpoint for the organization. */
-  readonly EXECUTOR_URL?: string;
-  readonly EXECUTOR_TOKEN?: string;
   /** Cloudflare Access (src/access.ts): the team's domain, `<team>.cloudflareaccess.com`. `ky deploy` sets all three. */
   readonly ACCESS_TEAM_DOMAIN?: string;
   /** The audience tag of ky's Access app. */

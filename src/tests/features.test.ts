@@ -5,6 +5,7 @@ import {
   agent,
   call,
   connect,
+  connectExecutor,
   FACTS,
   follow,
   type Follower,
@@ -177,6 +178,7 @@ describe("the tools", () => {
 
   it("calls Executor over MCP", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
     const skills = await prompt(name, "tool executor_skills {}");
     expect(skills.text).toBe("tool said: fake executor apps: calendar (2 skills), github (3 skills)");
 
@@ -486,7 +488,7 @@ describe("API keys in Settings", () => {
 });
 
 describe("a deploy's own setup", () => {
-  it("shows VibeProxy and Executor as not set up on a deploy without them, and runs on Workers AI", async () => {
+  it("shows VibeProxy as not set up on a deploy without it, and runs on Workers AI without Executor until Settings connects it", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);
 
@@ -499,8 +501,7 @@ describe("a deploy's own setup", () => {
           id: "vibeproxy",
           name: "Claude via VibeProxy",
           needs: "a paired machine whose runner shares port 8317 (KY_RUNNER_PORTS=8317), or the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
-        },
-        { id: "executor", name: "Executor", needs: "EXECUTOR_URL and the EXECUTOR_TOKEN secret" }
+        }
       ]
     });
 
@@ -534,6 +535,7 @@ describe("a deploy's own setup", () => {
 
   it("offers self-edits in the main prompt once Settings has ky's repo, at the address of the page that set it", async () => {
     const name = crypto.randomUUID();
+    await connectExecutor(name);
     const { socket, client } = await session(name);
     const systems = () => inside(name, (instance) => instance.boundary.calls.map((each) => each.system));
 

@@ -25,6 +25,9 @@ export type SelfEdit = { readonly repo: string; readonly url: string };
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 
+/** `seeded`: when the first start seeded ky's starter skills, specialist and automations. */
+type Key = "repo" | "url" | "seeded";
+
 export class Setup {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<() => void>();
@@ -77,7 +80,15 @@ export class Setup {
     return repo && url ? { repo, url } : undefined;
   }
 
-  #set(key: "repo" | "url", value: string): void {
+  /** True only the first time it is asked, ever: the first start seeds what a new ky starts with (src/seeds.ts). */
+  firstStart(): boolean {
+    if (this.#get("seeded") !== undefined) return false;
+    this.#set("seeded", String(Date.now()));
+
+    return true;
+  }
+
+  #set(key: Key, value: string): void {
     this.#sql.exec(
       "INSERT INTO ky_setup (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       key,
@@ -85,7 +96,7 @@ export class Setup {
     );
   }
 
-  #get(key: "repo" | "url"): string | undefined {
+  #get(key: Key): string | undefined {
     return this.#sql.exec<{ value: string }>("SELECT value FROM ky_setup WHERE key = ?", key).toArray()[0]?.value;
   }
 }

@@ -14,6 +14,23 @@ const KINDS: readonly SubscriptionKind[] = ["claude", "chatgpt"];
 /** What `claude setup-token` prints: a long-lived OAuth token. */
 const CLAUDE_TOKEN = /^sk-ant-oat\d+-[\w-]+$/;
 
+const SETUP_TOKEN = "Paste what `claude setup-token` prints.";
+
+/**
+ * What is wrong with a paste that isn't a Claude token, first match wins; each
+ * says so without repeating any of the paste.
+ */
+const CLAUDE_TOKEN_PROBLEMS: readonly (readonly [RegExp, string])[] = [
+  [/^$/, SETUP_TOKEN],
+  [/^sk-ant-api/, `That's an Anthropic API key; it goes in Settings › Providers. Here, ${SETUP_TOKEN.toLowerCase()}`],
+  [/^(?!sk-ant-oat)/, `A Claude subscription token starts with sk-ant-oat. ${SETUP_TOKEN}`],
+  [/^sk-ant-oat\d+-?$/, `That token is cut short. ${SETUP_TOKEN}`],
+  [/./, "That token has characters a Claude subscription token can't have; copy it again from `claude setup-token`."]
+];
+
+/** Why a whitespace-free paste isn't a Claude token. */
+const claudeProblem = (token: string) => CLAUDE_TOKEN_PROBLEMS.find(([pattern]) => pattern.test(token))?.[1];
+
 /** How long a `claude setup-token` token lasts, as Claude Code says when it makes one. */
 const CLAUDE_TOKEN_TTL_MS = 365 * 24 * 60 * 60_000;
 
@@ -42,15 +59,16 @@ export class Subscriptions {
   }
 
   /**
-   * Keep what `claude setup-token` printed; `{ refused }` when it isn't one.
+   * Keep what `claude setup-token` printed, whitespace and all removed; `{ refused }`, saying what is wrong, when it isn't one.
    * Only its shape is checked: nothing ky runs calls Anthropic with it, and
    * only the `claude` CLI on a machine is ever handed it.
    */
   async setClaude(token: string): Promise<{ refused?: string }> {
-    const trimmed = token.trim();
+    // The terminal wraps the long token, so a copy can carry line breaks and spaces anywhere in it.
+    const joined = token.replace(/\s+/g, "");
 
-    if (!CLAUDE_TOKEN.test(trimmed)) return { refused: "That isn't a Claude subscription token. Paste what `claude setup-token` prints." };
-    await this.#vault().put("claude", SUBSCRIPTION, { oauthToken: trimmed }, { expiresAt: Date.now() + CLAUDE_TOKEN_TTL_MS });
+    if (!CLAUDE_TOKEN.test(joined)) return { refused: claudeProblem(joined) };
+    await this.#vault().put("claude", SUBSCRIPTION, { oauthToken: joined }, { expiresAt: Date.now() + CLAUDE_TOKEN_TTL_MS });
     this.#changed();
 
     return {};

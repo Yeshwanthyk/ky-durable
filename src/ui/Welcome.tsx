@@ -3,25 +3,108 @@ import { BotAvatar } from "./BotAvatar";
 import { Icon, type IconName } from "./Icon";
 import type { ChatKind } from "./open-chat";
 
-const SUGGESTIONS: ReadonlyArray<{ icon: IconName; label: string; value: string }> = [
+/** What is set up, which decides the first-run cards and the pills. */
+export type SetUp = {
+  /** The server has said what is set up; until then no first-run cards show. */
+  readonly known: boolean;
+  /** The main chat's provider while it is the only one, like "Workers AI"; null once there is another. */
+  readonly onlyProvider: string | null;
+  readonly machines: boolean;
+  readonly claude: boolean;
+  readonly chatgpt: boolean;
+  readonly executor: boolean;
+  /** SOUL.md has been written past its template. */
+  readonly soul: boolean;
+};
+
+/** Where a first-run card goes: a Settings section, or the SOUL interview in this chat. */
+export type FirstRunTarget = "settings-providers" | "settings-subscriptions" | "settings-machines" | "settings-executor" | "soul";
+
+type Suggestion = { icon: IconName; label: string; value: string; shown: (setUp: SetUp) => boolean };
+
+const SUGGESTIONS: readonly Suggestion[] = [
   {
     icon: "plug",
     label: "What's connected",
-    value: "What apps do I have connected in Executor, and what can you do with them?"
+    value: "What apps do I have connected in Executor, and what can you do with them?",
+    shown: (setUp) => setUp.executor
   },
   {
     icon: "search",
     label: "Research in the background",
     value:
-      "Start a subagent to research the best way to back up an iPhone to a NAS, and tell me when it is done."
+      "Start a subagent to research the best way to back up an iPhone to a NAS, and tell me when it is done.",
+    shown: () => true
   },
   {
     icon: "monitor",
-    label: "Use my Mac",
+    label: "Use my computer",
     value:
-      "On my machine, open https://news.ycombinator.com in a browser and tell me the top 3 stories."
+      "On my machine, open https://news.ycombinator.com in a browser and tell me the top 3 stories.",
+    shown: (setUp) => setUp.machines
+  },
+  {
+    icon: "terminal",
+    label: "Code on my machine",
+    value: "On my machine, start a coding agent in my most recent project and tell me what changed there this week.",
+    shown: (setUp) => setUp.machines && (setUp.claude || setUp.chatgpt)
   }
 ];
+
+/** The first interview message: ky asks, then writes SOUL.md with soul_edit. */
+export const SOUL_INTERVIEW =
+  "Interview me so you know who I am. Ask three or four short questions, one at a time: what I do, what I care about, " +
+  "how I like answers, and anything you should never do. Then write SOUL.md with soul_edit and show me what changed.";
+
+const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: string; sub: string; done: (setUp: SetUp) => boolean }> = [
+  {
+    target: "soul",
+    icon: "fingerprint",
+    label: "Tell ky who you are",
+    sub: "A short interview that writes SOUL.md",
+    done: (setUp) => setUp.soul
+  },
+  {
+    target: "settings-providers",
+    icon: "plus",
+    label: "Add a key",
+    sub: "OpenCode Go, OpenRouter and more",
+    done: (setUp) => setUp.onlyProvider === null
+  },
+  {
+    target: "settings-subscriptions",
+    icon: "cloud",
+    label: "Connect ChatGPT for machines",
+    sub: "Codex runs with it on your machines",
+    done: (setUp) => setUp.chatgpt
+  },
+  {
+    target: "settings-subscriptions",
+    icon: "terminal",
+    label: "Add Claude for machines",
+    sub: "Claude Code runs with it on your machines",
+    done: (setUp) => setUp.claude
+  },
+  {
+    target: "settings-machines",
+    icon: "monitor",
+    label: "Add a machine",
+    sub: "Run tasks on your own computer",
+    done: (setUp) => setUp.machines
+  },
+  {
+    target: "settings-executor",
+    icon: "plug",
+    label: "Connect Executor",
+    sub: "Your apps' tools, like email and calendar",
+    done: (setUp) => setUp.executor
+  }
+];
+
+/** Whether the chat shows first-run cards: the main chat, once the server has said what is set up, until each is done. */
+function firstRun(kind: ChatKind, setUp: SetUp): boolean {
+  return kind === "main" && setUp.known && CARDS.some((card) => !card.done(setUp));
+}
 
 const COPY: Record<ChatKind, { title: string; text: string }> = {
   main: {
@@ -38,22 +121,66 @@ const COPY: Record<ChatKind, { title: string; text: string }> = {
   }
 };
 
-function Suggestions({ disabled, onPick }: { disabled: boolean; onPick: (value: string) => void }) {
+const welcomeCopy = (kind: ChatKind, first: boolean, provider: string | null) =>
+  first && provider !== null ? FIRST_COPY(provider) : COPY[kind];
+
+const FIRST_COPY = (provider: string) => ({
+  title: `You're on ${provider}.`,
+  text: "ky works now. Each step below adds more: your own keys, your subscriptions for machines, a machine, your apps."
+});
+
+function Suggestions({ setUp, disabled, onPick }: { setUp: SetUp; disabled: boolean; onPick: (value: string) => void }) {
   return (
     <div className="suggestions">
-      {SUGGESTIONS.map((suggestion) => (
-        <button
-          key={suggestion.label}
-          type="button"
-          className="pill pressable"
-          disabled={disabled}
-          onClick={() => onPick(suggestion.value)}
-        >
-          <Icon name={suggestion.icon} size={14} />
-          {suggestion.label}
-        </button>
-      ))}
+      {SUGGESTIONS.flatMap((suggestion) =>
+        suggestion.shown(setUp)
+          ? [
+              <button
+                key={suggestion.label}
+                type="button"
+                className="pill pressable"
+                disabled={disabled}
+                onClick={() => onPick(suggestion.value)}
+              >
+                <Icon name={suggestion.icon} size={14} />
+                {suggestion.label}
+              </button>
+            ]
+          : []
+      )}
     </div>
+  );
+}
+
+// The main chat before ky is set up: each step opens its Settings flow, or starts the SOUL interview.
+function FirstRun({ setUp, disabled, onGo }: { setUp: SetUp; disabled: boolean; onGo: (target: FirstRunTarget) => void }) {
+  return (
+    <ul className="card first-run" aria-label="Set up ky">
+      {CARDS.map((card) => {
+        const done = card.done(setUp);
+
+        return (
+          <li key={card.label}>
+            <button
+              type="button"
+              className="row pressable"
+              data-done={done}
+              disabled={card.target === "soul" && disabled}
+              onClick={() => onGo(card.target)}
+            >
+              <span className="row-tile">
+                <Icon name={done ? "checkCircle" : card.icon} size={15} />
+              </span>
+              <span className="row-text">
+                <span className="row-label">{card.label}</span>
+                <span className="row-sub">{card.sub}</span>
+              </span>
+              <Icon name="chevronRight" size={14} className="row-chevron" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -64,21 +191,29 @@ export function Welcome({
   variantId,
   running,
   connected,
+  setUp,
   onPick,
+  onGo,
 }: {
   kind: ChatKind;
   speaker: string;
   variantId: BlobVariantId | undefined;
   running: boolean;
   connected: boolean;
+  setUp: SetUp;
   onPick: (value: string) => void;
+  onGo: (target: FirstRunTarget) => void;
 }) {
+  const first = firstRun(kind, setUp);
+  const copy = welcomeCopy(kind, first, setUp.onlyProvider);
+
   return (
     <div className="welcome">
       <BotAvatar name={speaker} variantId={variantId} active={running} size={88} />
-      <h1 className="welcome-title">{COPY[kind].title}</h1>
-      <p className="welcome-text">{COPY[kind].text}</p>
-      {kind === "subagent" ? null : <Suggestions disabled={!connected} onPick={onPick} />}
+      <h1 className="welcome-title">{copy.title}</h1>
+      <p className="welcome-text">{copy.text}</p>
+      {first ? <FirstRun setUp={setUp} disabled={!connected} onGo={onGo} /> : null}
+      {kind === "subagent" ? null : <Suggestions setUp={setUp} disabled={!connected} onPick={onPick} />}
     </div>
   );
 }

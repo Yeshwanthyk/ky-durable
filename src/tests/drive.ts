@@ -17,7 +17,7 @@ import {
 import { ASSERTION } from "../access";
 import { FakeAccess } from "./fake-access";
 import { decodeServerFrame } from "./frames";
-import { agents, type PiAgent } from "./stack";
+import { agents, EXECUTOR_TOKEN, EXECUTOR_URL, type PiAgent } from "./stack";
 
 /**
  * Drives ky's real Worker the way its clients do: the browser's WebSocket
@@ -168,6 +168,17 @@ export function agent(name: string): DurableObjectStub<PiAgent> {
 /** Run `work` inside the agent object, on its real composition and storage. */
 export function inside<T>(name: string, work: (agent: PiAgent, state: DurableObjectState) => Promise<T> | T): Promise<T> {
   return runInDurableObject(agent(name), (instance: PiAgent, state) => work(instance, state));
+}
+
+/**
+ * Connect the stack's fake Executor as Settings does; its tools are installed when this resolves. The fake's counts
+ * start over after, so a test sees only its own calls.
+ */
+export async function connectExecutor(name: string): Promise<void> {
+  await inside(name, async (instance) => {
+    expect(await instance.executor.connect(EXECUTOR_URL, EXECUTOR_TOKEN)).toEqual({});
+    instance.boundary.executorFake.sessions = 0;
+  });
 }
 
 /** Prompt the root session and wait; the result without its transcript. */

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { Models } from "../models";
+import { CLAUDE_TOKEN_HERE } from "../providers/api-key";
 import type { ModelChoice, Purpose } from "../settings";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
@@ -338,7 +339,7 @@ describe("an API key added in Settings", () => {
 
     expect(await addKey(name, "openai", "sk-proj-wrong")).toEqual({ refused: expect.stringMatching(/^OpenAI refused the key: OpenAI API error \(401\)/) });
     expect(await addKey(name, "anthropic", "sk-ant-oat01-token")).toEqual({
-      refused: "That is a Claude subscription token. Paste an Anthropic API key."
+      refused: CLAUDE_TOKEN_HERE
     });
     expect(await addKey(name, "anthropic", "  ")).toEqual({ refused: "Paste your Anthropic API key." });
     expect(await addKey(name, "mistral", "key")).toEqual({ refused: 'ky has no vendor "mistral".' });

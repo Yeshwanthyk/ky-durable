@@ -15,7 +15,6 @@ describe("the owner overlay", () => {
 
     expect(config).toMatchObject({
       vars: {
-        EXECUTOR_URL: "https://v2.executor.sh/org/<org>/mcp?elicitation_mode=browser",
         VIBEPROXY_ORIGIN: "http://127.0.0.1:8317"
       },
       vpc_services: [{ binding: "VIBEPROXY", remote: true }],

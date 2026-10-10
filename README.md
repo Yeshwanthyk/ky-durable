@@ -26,7 +26,7 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | exec sandbox | `exec` runs JavaScript in a fresh Dynamic Worker over the DO's workspace (`/workspace`). No network except git over HTTPS, no shell or npm. | `src/workspace.ts`, binding `LOADER` |
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
-| Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`, var `EXECUTOR_URL` in `wrangler.local.jsonc` |
+| Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`; its URL and token are added in Settings › Executor and kept in the Vault |
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
 | API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/api-key.ts`, `src/vault.ts` |
 | VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
@@ -88,10 +88,10 @@ they were last issued.
 
 `wrangler.jsonc` is generic: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `AI` and the `PiAgent` object.
 What is yours goes in `wrangler.local.jsonc` (gitignored), which `vite.config.ts` merges over it for
-`pnpm start` and `pnpm run deploy`: `EXECUTOR_URL`, `VIBEPROXY_ORIGIN` (VibeProxy's address on your
+`pnpm start` and `pnpm run deploy`: `VIBEPROXY_ORIGIN` (VibeProxy's address on your
 computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunnel. Copy
-`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. Executor and VibeProxy each show as "Not set up" in Settings until their config and secret are
-there, and ky runs without them.
+`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. VibeProxy shows as "Not set up" in Settings until its config and secret are
+there, and ky runs without it. Executor is connected in Settings › Executor, with its URL and a token.
 
 For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from the address ky answers on:
 setting it also saves that page's origin as ky's address, shown under it. Until then the system prompt
@@ -101,7 +101,6 @@ setting it also saves that page's origin as ky's address, shown under it. Until 
 pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
 npx wrangler r2 bucket create ky-files
-npx wrangler secret put EXECUTOR_TOKEN    # an Executor personal access token
 npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
 pnpm run deploy                           # vite build && wrangler deploy
 ```
