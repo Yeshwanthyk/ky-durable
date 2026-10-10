@@ -1,8 +1,10 @@
 import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { TaskTokens } from "../machines";
-import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
+import { Access } from "../access";
+import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
+import { edge, FakeAccess } from "./fake-access";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
@@ -383,18 +385,24 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
   ],
 ]);
 
+/** Access with the team's keys from the fake: every FakeAccess signs with them. */
+const access = new Access(new FakeAccess().certs);
+
+const ky = worker(access);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+    const signed = edge(request);
+    const url = new URL(signed.url);
 
-    if (!url.pathname.startsWith("/test/")) return server.fetch(request, env);
+    if (!url.pathname.startsWith("/test/")) return ky.fetch(signed, env);
 
-    // The CLI harness and Playwright drive the fakes over HTTP, behind the same sign-in as everything else.
-    if (request.headers.get("Authorization") !== `Bearer ${env.KY_TOKEN}`) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+    // The CLI harness and Playwright drive the fakes over HTTP, behind the same Access as everything else.
+    const refused = await access.refuse(signed, env);
 
-    const route = ROUTES.get(`${request.method} ${url.pathname}`);
+    if (refused) return refused;
+
+    const route = ROUTES.get(`${signed.method} ${url.pathname}`);
 
     return route ? route(agents(env).getByName("me"), url, env) : new Response("Not found", { status: 404 });
   }

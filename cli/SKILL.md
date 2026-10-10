@@ -26,8 +26,6 @@ Identity Providers, and Groups: Read) and runs with `CLOUDFLARE_API_TOKEN` set.
 Run again, `ky init` keeps the settings it saved and asks only for what's missing. A Worker or bucket of that name,
 or an Access app already guarding its address, that ky didn't make is never changed: pick another `--name`.
 
-`ky init` prints a KY_TOKEN once, the owner's sign-in until Access replaces it. Hand it to the user; don't store it.
-
 ## Keep it running
 
 - `ky doctor` checks each piece and ends with `Next:`, the command or dashboard step that fixes the first one

@@ -8,7 +8,7 @@ import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
-import { authenticate, loginPage, login } from "./auth";
+import { Access, bypassed } from "./access";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
@@ -417,57 +417,46 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
-/** Answers for anyone, signed in or not: the sign-in page, and what iOS needs to add ky to the Home Screen. */
-function openRoute(request: Request, env: Env, url: URL): Promise<Response> | Response | undefined {
-  if (url.pathname === "/login") return request.method === "POST" ? login(request, env) : loginPage();
+/**
+ * ky's Worker, with Access checked by `access`: production's fetches the team's keys, the stack's
+ * (src/tests/stack.ts) a fake Access's.
+ */
+export function worker(access: Access) {
+  return {
+    async fetch(request: Request, env: Env): Promise<Response> {
+      const url = new URL(request.url);
 
-  // iOS fetches the manifest and icons without the cookie.
-  if (url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/")) return env.ASSETS.fetch(request);
+      // What Access lets through signed out: runners and their tasks, which sign in with their own tokens
+      // (src/runners.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
+      if (bypassed(url.pathname)) return tokenRoute(request, env, url) ?? env.ASSETS.fetch(request);
 
-  return undefined;
+      const refused = await access.refuse(request, env);
+
+      if (refused) return refused;
+
+      const owner = ownerRoute(request, env, url);
+
+      if (owner) return owner;
+
+      const file = /^\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
+
+      if (file && request.method === "GET") return download(request, env.FILES, file);
+
+      try {
+        return (
+          (await routeAgentRequest(request, env)) ??
+          env.ASSETS.fetch(request)
+        );
+      } catch (error) {
+        console.error("ky request failed", error);
+
+        return Response.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 500 }
+        );
+      }
+    }
+  } satisfies ExportedHandler<Env>;
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    const open = openRoute(request, env, url);
-
-    if (open) return open;
-
-    // Runners and their tasks sign in with their own tokens (src/runners.ts), and never with the user's.
-    const runner = tokenRoute(request, env, url);
-
-    if (runner) return runner;
-
-    if (!(await authenticate(request, env))) {
-      if (request.headers.get("Upgrade") === "websocket" || url.pathname.startsWith("/api/")) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-
-      return Response.redirect(new URL("/login", url).toString(), 302);
-    }
-
-    const owner = ownerRoute(request, env, url);
-
-    if (owner) return owner;
-
-    const file = /^\/api\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
-
-    if (file && request.method === "GET") return download(request, env.FILES, file);
-
-    try {
-      return (
-        (await routeAgentRequest(request, env)) ??
-        env.ASSETS.fetch(request)
-      );
-    } catch (error) {
-      console.error("ky request failed", error);
-
-      return Response.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        { status: 500 }
-      );
-    }
-  }
-} satisfies ExportedHandler<Env>;
+export default worker(new Access());

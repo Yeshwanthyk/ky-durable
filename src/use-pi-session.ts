@@ -121,7 +121,10 @@ export function usePiSession(session: string) {
         if (pending.session === live.current?.session) live.current.send(JSON.stringify(pending.message));
       }
     },
-    onClose: () => setState((current) => ({ ...current, status: "closed" })),
+    onClose: () => {
+      setState((current) => ({ ...current, status: "closed" }));
+      void reloadIfSignedOut();
+    },
     onMessage: (event) => {
       let message: ServerMessage;
 
@@ -472,6 +475,21 @@ export function usePiSession(session: string) {
     changeAutomation,
     saveAutomation
   };
+}
+
+/**
+ * A socket upgrade Access or the Worker refused shows the browser only a close, not its status.
+ * So on each close, ask for the page: if Access redirects it to its login or the Worker refuses it,
+ * reload, and Access takes the page to its login.
+ */
+async function reloadIfSignedOut(): Promise<void> {
+  try {
+    const page = await fetch("/", { method: "HEAD", redirect: "manual", cache: "no-store" });
+
+    if (page.type === "opaqueredirect" || page.status === 401) location.reload();
+  } catch {
+    // Offline: the socket keeps retrying.
+  }
 }
 
 /** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */

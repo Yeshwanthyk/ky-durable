@@ -12,10 +12,10 @@ import { defineConfig } from "vite";
  * fakes at the outside boundary: a fake AI binding, a fake VibeProxy (the
  * Mac starts away; `POST /test/mac?up=1` brings it online), a fake Executor
  * and a fake browser. `pnpm stack` serves it on KY_STACK_PORT (default 8790),
- * signed in with the token `ky-stack-token`. Every start gets fresh state in
+ * behind a fake Access (src/tests/fake-access.ts). Every start gets fresh state in
  * a temporary directory.
  *
- * Ready when `GET /login` answers 200. Stop it with Ctrl-C or SIGTERM; the
+ * Ready when `GET /manifest.webmanifest` answers 200. Stop it with Ctrl-C or SIGTERM; the
  * state directory is left for inspection.
  */
 

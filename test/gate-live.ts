@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --experimental-strip-types --no-warnings
 /**
- * The live checks: `KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... pnpm gate:live`.
+ * The live checks: `KY_URL=https://ky.<you>.workers.dev pnpm gate:live`.
  *
  * Opt-in, never part of `pnpm gate`: they need a deployed ky and its real
  * bindings, which the local stack replaces with fakes or leaves out. All but
@@ -9,10 +9,14 @@
  * background model's title and archives the chat. It calls models twice at
  * most: one title call, and at most one main-model request, aborted. No tool
  * runs and no task is started, so running them against the real deployment
- * is safe. One line per check, PASS or FAIL; exit 1 on any FAIL.
+ * is safe. One line per check, PASS or FAIL; exit 1 on any FAIL. They sign
+ * in as the owner with `cloudflared access token`; run
+ * `cloudflared access login <KY_URL>` once first.
  *
- *   login       the sign-in page answers
- *   auth        a wrong token is refused, the right one opens the app
+ *   access      signed out, and with only a forged email header, the app is
+ *               refused; with the owner's Access token it opens
+ *   bypass      the manifest loads signed out, and a runner path reaches the
+ *               Worker's own token check
  *   hello       the session socket says hello with ky's tools
  *   cloud       a cloud model answers: the background model (Workers AI, on
  *               every deploy) titles a new side chat from its first message
@@ -22,17 +26,28 @@
  * prove (Browser Rendering, the real Executor, a real `claude` run, a real
  * main-agent turn) is in FEATURES.md as live-only, with how to try it by hand.
  */
+import { spawnSync } from "node:child_process";
 import { decodeNewChat } from "../src/tests/frames.ts";
 import { connect } from "./harness/client.ts";
 
 const url = process.env.KY_URL?.replace(/\/$/, "");
 
-const token = process.env.KY_TOKEN;
-
-if (!url || !token) {
-  console.error("usage: KY_URL=https://ky.<you>.workers.dev KY_TOKEN=... pnpm gate:live");
+if (!url) {
+  console.error("usage: KY_URL=https://ky.<you>.workers.dev pnpm gate:live");
   process.exit(2);
 }
+
+const login = spawnSync("cloudflared", ["access", "token", `-app=${url}`], { encoding: "utf8" });
+
+const token = login.status === 0 ? login.stdout.trim() : "";
+
+if (!token) {
+  console.error(`No Access token for ${url}: run \`cloudflared access login ${url}\`, then try again.\n${login.stderr ?? ""}`);
+  process.exit(2);
+}
+
+/** How Access takes a `cloudflared` token in place of the browser's cookie. */
+const signedIn = { "cf-access-token": token };
 
 let failed = false;
 
@@ -48,22 +63,27 @@ async function check(name: string, run: () => Promise<string | undefined>): Prom
   }
 }
 
-await check("login", async () => {
-  const response = await fetch(`${url}/login`);
+await check("access", async () => {
+  const get = (headers: Record<string, string>) => fetch(`${url}/`, { headers, redirect: "manual" });
 
-  return response.status === 200 ? undefined : `GET /login answered ${response.status}`;
+  if ((await get({})).status === 200) return "the app opened signed out";
+
+  if ((await get({ "Cf-Access-Authenticated-User-Email": "owner@example.com" })).status === 200) return "a forged email header opened the app";
+  const owner = await get(signedIn);
+
+  return owner.status === 200 ? undefined : `the owner's Access token was refused (${owner.status})`;
 });
 
-await check("auth", async () => {
-  const wrong = await fetch(`${url}/`, { headers: { Authorization: "Bearer not-the-token" }, redirect: "manual" });
-  const right = await fetch(`${url}/`, { headers: { Authorization: `Bearer ${token}` }, redirect: "manual" });
+await check("bypass", async () => {
+  const manifest = await fetch(`${url}/manifest.webmanifest`, { redirect: "manual" });
 
-  if (wrong.status === 200) return "a wrong token opened the app";
+  if (manifest.status !== 200) return `the manifest answered ${manifest.status} signed out`;
+  const runner = await fetch(`${url}/runner/gate-live`, { redirect: "manual" });
 
-  return right.status === 200 ? undefined : `the token was refused (${right.status})`;
+  return runner.status === 401 ? undefined : `a runner path answered ${runner.status}, not the Worker's 401`;
 });
 
-const client = await connect(url, "", token);
+const client = await connect(url, "", signedIn);
 
 try {
   await client.until("hello and settings", () =>
@@ -89,7 +109,7 @@ async function unrenamed(first: string): Promise<string | undefined> {
 
   if (!session) return "new-chat gave no session";
 
-  const side = await connect(url!, `?session=${session}`, token);
+  const side = await connect(url!, `?session=${session}`, signedIn);
   const title = () => client.frames.findLast((frame) => frame.type === "chats")?.chats.find((row) => row.session === session)?.title;
   // A new chat's row has no title; its first message titles it, until the background model's title replaces that.
   const named = () => ![undefined, "", first].includes(title());

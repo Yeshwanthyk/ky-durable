@@ -1,7 +1,7 @@
 import { WebSocket as Socket } from "ws";
 import type { PiClientMessage, PiServerMessage, TaskRow } from "../../src/protocol.ts";
 import { decodeServerFrame } from "../../src/tests/frames.ts";
-import { TOKEN } from "./stack.ts";
+import { signedIn } from "../../src/tests/fake-access.ts";
 
 /**
  * The browser's side of ky, as the CLI harness drives it: a session socket
@@ -35,10 +35,9 @@ export async function until(what: string, check: () => boolean, timeoutMs = 15_0
   }
 }
 
-export async function connect(url: string, query = "", token = TOKEN): Promise<Client> {
-  const socket = new Socket(`${url.replace(/^http/, "ws")}/agents/pi-agent/me${query}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+/** A session socket, signed in with `headers`: the fake Access's JWT, or a live Access's token. */
+export async function connect(url: string, query = "", headers?: Record<string, string>): Promise<Client> {
+  const socket = new Socket(`${url.replace(/^http/, "ws")}/agents/pi-agent/me${query}`, { headers: headers ?? (await signedIn()) });
 
   const frames: PiServerMessage[] = [];
   const histories = new Map<string, string[]>();

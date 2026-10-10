@@ -231,7 +231,6 @@ export async function initCommand(context: Context, flags: InitFlags): Promise<n
     }
   });
 
-  if (deployed.token) out.note("Your KY_TOKEN, shown once (sign in with it)", [deployed.token]);
 
   if (terminal()) out.note("Scan to open it on your phone", [qr(deployed.url)]);
   out.outro(`${green("ky is live")} at ${bold(deployed.url)}, behind Access for ${allowed}`);

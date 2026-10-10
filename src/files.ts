@@ -145,10 +145,10 @@ export async function upload(
     return reply(404, refused);
   }
 
-  return Response.json({ id, url: `/api/files/${id}` });
+  return Response.json({ id, url: `/files/${id}` });
 }
 
-/** GET /api/files/<id>, with byte ranges: iOS Safari plays a video only from 206 responses. */
+/** GET /files/<id>, with byte ranges: iOS Safari plays a video only from 206 responses. */
 export async function download(request: Request, bucket: R2Bucket, id: string): Promise<Response> {
   const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") ?? "");
 

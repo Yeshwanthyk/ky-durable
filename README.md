@@ -74,8 +74,11 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 
 ## Sign-in
 
-Every request needs the `KY_TOKEN` secret (`src/auth.ts`). The browser signs in once at `/login` and
-gets an HttpOnly cookie for a year. Runners never use it: each machine pairs once and gets its own
+Cloudflare Access signs the owner in, and the Worker checks Access's JWT again on every request
+(`src/access.ts`): its signature against the team's keys, ky's app, the team and the emails in
+`ACCESS_EMAILS`. Only the paths in `BYPASS` skip it: the runner, pairing and upload routes, which check
+their own tokens, and the manifest and icons. `ky deploy` sets up both Access apps and the `ACCESS_*` vars;
+for `pnpm run deploy`, set them in `wrangler.local.jsonc` and make the apps yourself. Runners never use it: each machine pairs once and gets its own
 machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`). The Vault
 keeps a machine token's hash only. For a task token it keeps the hash and the nonce the token is derived
 from, with the key in the same storage, so it can derive the token again; task tokens expire a day after
@@ -87,8 +90,7 @@ they were last issued.
 What is yours goes in `wrangler.local.jsonc` (gitignored), which `vite.config.ts` merges over it for
 `pnpm start` and `pnpm run deploy`: `EXECUTOR_URL`, `VIBEPROXY_ORIGIN` (VibeProxy's address on your
 computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunnel. Copy
-`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; only `KY_TOKEN` is
-required. Executor and VibeProxy each show as "Not set up" in Settings until their config and secret are
+`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. Executor and VibeProxy each show as "Not set up" in Settings until their config and secret are
 there, and ky runs without them.
 
 For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from the address ky answers on:
@@ -99,7 +101,6 @@ setting it also saves that page's origin as ky's address, shown under it. Until 
 pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
 npx wrangler r2 bucket create ky-files
-npx wrangler secret put KY_TOKEN          # the one sign-in secret
 npx wrangler secret put EXECUTOR_TOKEN    # an Executor personal access token
 npx wrangler secret put OPENCODE_API_KEY  # OpenCode Go
 npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
@@ -205,8 +206,8 @@ name closes the older one (code 4409), and the older one exits. `runner/runner.t
 ## Develop
 
 ```sh
-cp .dev.vars.example .dev.vars   # gitignored; set KY_TOKEN=dev
-pnpm start   # vite dev with the Worker and DO; sign in at /login with "dev"
+cp .dev.vars.example .dev.vars   # gitignored; set KY_DEV=1, KY_DEV_EMAIL and ACCESS_EMAILS
+pnpm start   # vite dev with the Worker and DO, signed in as KY_DEV_EMAIL
 ```
 
 `BROWSER` and `AI` (and `VIBEPROXY`, with the overlay) are remote bindings, so `pnpm start` needs

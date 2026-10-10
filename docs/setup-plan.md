@@ -158,6 +158,7 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | `POST /api/runners/pair` | none | Body `{ code, name, facts }`; returns `{ machine, token }`. Rate limited: 10 a minute per `CF-Connecting-IP`, the `PAIR_LIMIT` Workers rate-limit binding (429). A bad name or facts is a 400 and leaves the code unspent; a wrong, used or expired code is a 401. |
 | `DELETE /api/runners/<machine>` | Access | Forgets the machine, closes the socket and revokes the token. 204, or 404 for no such machine. Any method but `POST` on `/api/runners/codes` is a 405. |
 | `POST /api/files?task=<id>` | `Bearer <taskToken>` | Matched to the task. |
+| `GET /files/<id>` | Access | Serves a shared file, whole or by range. (A changed it from `GET /api/files/<id>`: Access treats the bypass path `/api/files` as covering everything under it, so downloads there would skip the login.) |
 | `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. The token is checked before the upgrade: a bad one is a 401 even without `Upgrade`, so a runner can probe it with a plain GET; a good one without `Upgrade` is a 426. |
 
 **Pairings (added by T):** each pairing gets a random id, which the agent keeps in the machine's `ky_machines` row.
@@ -170,18 +171,21 @@ the token of the pairing it replaced. So of two pairings of one name racing, the
 one's token, which already exists.
 
 **Access bypass paths:** `/runner/*`, `/api/runners/pair`, `/api/files`, `/manifest.webmanifest`, `/icons/*`.
-`BYPASS` in `cli/deployer.ts` holds this list; the deployer's bypass app covers exactly it, so A's check must match it.
+`BYPASS` in `src/access.ts` holds this list (A moved it from `cli/deployer.ts`), and both the Worker's check and the
+deployer's bypass app read it. As in Access, `/a` covers `/a` and every path under it, and `/a/*` every path under it.
 
 ### C3. Access (`src/access.ts`)
 
 - **Env:** `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`), `ACCESS_AUD`, `ACCESS_EMAILS` (comma separated).
 - **Every non-bypass request and socket upgrade:**
   - Verify `Cf-Access-Jwt-Assertion`: an RS256 signature against `https://<team>/cdn-cgi/access/certs` (keys
-    cached), `aud` contains `ACCESS_AUD`, and `exp`/`nbf`.
+    cached an hour; a key id they lack fetches them again at most once a minute), `aud` contains `ACCESS_AUD`,
+    `iss` is `https://<team>`, and `exp`/`nbf`. A failed certs fetch is a 503.
   - The email must be in `ACCESS_EMAILS`.
   - A bare `cf-access-authenticated-user-email` header is never trusted.
-- **Dev:** when `KY_DEV=1`, `KY_DEV_EMAIL` stands in. Set only in local and test configs.
-- `KY_TOKEN`, `auth.ts`, the login form and the cookie are deleted.
+- **Dev:** when `KY_DEV=1`, `KY_DEV_EMAIL` stands in; it must still be in `ACCESS_EMAILS`. Set only in local and test configs.
+- Missing `ACCESS_*` vars close ky: every non-bypass request is a 500.
+- `KY_TOKEN`, `auth.ts`, the login form and the cookie are deleted, and `ky deploy` no longer sets or checks a `KY_TOKEN`.
 
 ### C4. Vault (`src/vault.ts`, DO class `Vault`, `getByName("owner")`, SQLite, migration v2)
 

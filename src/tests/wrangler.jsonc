@@ -16,7 +16,12 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  "vars": { "KY_TOKEN": "ky-stack-token" },
+  // Access's team, app and owner, as src/tests/fake-access.ts signs for them.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "ky-test.cloudflareaccess.com",
+    "ACCESS_AUD": "ky-test-aud",
+    "ACCESS_EMAILS": "owner@ky.test"
+  },
   // Pairing is open to anyone: at most 10 attempts a minute from one address (src/runners.ts).
   "ratelimits": [{ "name": "PAIR_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
   "durable_objects": {

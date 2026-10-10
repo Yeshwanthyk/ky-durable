@@ -7,7 +7,7 @@ import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
 import { Cloudflare, SCOPES, tokenPage } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand, doctorCommand, teardownCommand, upgradeCommand } from "../../cli/commands.ts";
 import { readOverlay, writeOverlay } from "../../cli/config.ts";
-import { BYPASS } from "../../cli/deployer.ts";
+import { BYPASS } from "../../src/access.ts";
 import { initCommand } from "../../cli/init.ts";
 import * as Cli from "../../cli/ky.ts";
 import { banner, bold } from "../../cli/output.ts";
@@ -172,7 +172,7 @@ afterEach(async () => {
 });
 
 describe("ky init and deploy", () => {
-  it("deploys the Worker with the release's config, every migration, ACCESS_* and a KY_TOKEN shown once", async () => {
+  it("deploys the Worker with the release's config, every migration and ACCESS_*", async () => {
     const ky = await setUp();
     const worker = script();
     const metadata = worker?.metadata;
@@ -207,10 +207,7 @@ describe("ky init and deploy", () => {
     expect([text("ACCESS_TEAM_DOMAIN"), text("ACCESS_EMAILS")]).toEqual(["test.cloudflareaccess.com", EMAIL]);
     expect(text("ACCESS_AUD")).toBe(apps().find((app) => app.name === "ky")?.aud);
     expect(account.buckets).toEqual(new Map([["ky-files", new Set([".ky"])]]));
-    const kyToken = worker?.secrets.get("KY_TOKEN");
-
-    expect(kyToken).toMatch(/^[\w-]{32}$/);
-    expect(output.filter((line) => line.includes(String(kyToken)))).toHaveLength(1);
+    expect(worker?.secrets.size).toBe(0);
     expect(output).toContain(`ky is live at https://${HOST}, behind Access for ${EMAIL}`);
   });
 
@@ -297,10 +294,8 @@ describe("ky init and deploy", () => {
     expect(apps()).toEqual([theirs]);
   });
 
-  it("upgrades without running migrations again, keeps the KY_TOKEN and the Access apps, and runs only a new migration", async () => {
+  it("upgrades without running migrations again, keeps the Access apps, and runs only a new migration", async () => {
     const ky = await setUp();
-    const kyToken = script()?.secrets.get("KY_TOKEN");
-
     output = [];
     expect(await upgradeCommand(ky)).toBe(0);
     expect(output).toEqual(["Already on r1"]);
@@ -310,8 +305,6 @@ describe("ky init and deploy", () => {
     expect(script()).toMatchObject({ tags: ["ky", "ky-release-r2"], migrationTag: "v2" });
     expect(script()?.migrations).toHaveLength(1);
     expect(script()?.metadata.migrations).toBeUndefined();
-    expect(script()?.secrets.get("KY_TOKEN")).toBe(kyToken);
-    expect(output.some((line) => line.includes("KY_TOKEN"))).toBe(false);
     expect(output).toContain(`ky r2 is live at https://${HOST} (was r1)`);
     expect(apps()).toHaveLength(2);
 
@@ -460,7 +453,6 @@ describe("ky doctor", () => {
       "✓ Worker: ky",
       "✓ Release: r1",
       "✓ Migrations: v2",
-      "✓ KY_TOKEN: set",
       `✓ Access for the owner: ${HOST}`,
       "✓ Access bypass: 5 paths",
       `✓ workers.dev: https://${HOST}`
@@ -600,13 +592,6 @@ describe("ky doctor", () => {
       state: "a migration behind",
       breaks: (worker) => {
         worker.migrationTag = "v1";
-      },
-      nexts: ["ky deploy"]
-    },
-    {
-      state: "no KY_TOKEN",
-      breaks: (worker) => {
-        worker.secrets.delete("KY_TOKEN");
       },
       nexts: ["ky deploy"]
     },
