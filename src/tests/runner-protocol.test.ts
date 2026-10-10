@@ -5,12 +5,15 @@ import { HandledSeqs } from "../../runner/handled.ts";
 import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../runner/runner.ts";
 import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../runner-protocol";
 import type { TaskRow } from "../tasks";
+import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
+import { BARE } from "./stack";
 
 /**
  * The machine protocol end to end: the real runner logic (runner/runner.ts)
  * on a real WebSocket to the real PiAgent, with a
- * scripted `claude` or `codex` in place of the binary. The wire between them can hold or drop the runner's frames,
+ * scripted `claude` or `codex` in place of the binary, and the fake VibeProxy
+ * on the machine's ports for the pipe. The wire between them can hold or drop the runner's frames,
  * so each test replays one counterexample from
  * explainers/ky-architecture/quint/runner_protocol.qnt step by step.
  */
@@ -173,7 +176,8 @@ class Wire {
       else if (this.mode === "hold") this.held.push(text);
 
       return true;
-    }
+    },
+    buffered: () => 0
   };
 
   constructor(socket: WebSocket, mode: "pass" | "hold" | "drop") {
@@ -195,6 +199,9 @@ class Mac {
   readonly #facts: MachineFacts;
   readonly claudes: FakeClaude[] = [];
   readonly codexes: FakeCodex[] = [];
+  /** The paths asked of the machine's ports over the pipe, and those whose request was then aborted. */
+  readonly asked: string[] = [];
+  readonly aborted: string[] = [];
   runner: Runner;
   wire: Wire | undefined;
 
@@ -223,7 +230,13 @@ class Mac {
       // The same file across restarts, as on a real machine.
       new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`),
       "test",
-      () => this.#facts
+      () => this.#facts,
+      (port, path, init) => {
+        this.asked.push(path);
+        init.signal?.addEventListener("abort", () => this.aborted.push(path));
+
+        return fakeVibeProxy(new Request(`http://127.0.0.1:${port}${path}`, init));
+      }
     );
   }
 
@@ -281,9 +294,7 @@ class Mac {
 /** A fresh object and its machine, not yet connected. */
 type Fixture = { readonly object: string; readonly mac: Mac };
 
-function fixture(facts?: MachineFacts): Fixture {
-  const object = crypto.randomUUID();
-
+function fixture(facts?: MachineFacts, object = crypto.randomUUID()): Fixture {
   return { object, mac: new Mac(object, facts) };
 }
 
@@ -526,16 +537,6 @@ describe("runner protocol", () => {
       expect.objectContaining({ type: "result", task: "m-x", turn: 1, ok: false, agent: "codex", text: "Codex is not installed on this machine." })
     );
     expect((await mac.claude(0)).prompts).toEqual(["go"]);
-  });
-
-  it("answers a request to a port with an error: the machine shares none", async () => {
-    const { mac } = await online();
-    mac.wire!.mode = "hold";
-    mac.runner.message(JSON.stringify({ type: "http_request", id: "r1", port: 3000, method: "GET", path: "/", headers: {} }));
-
-    expect(mac.wire!.held.map((text) => JSON.parse(text))).toEqual([
-      { type: "http_error", id: "r1", message: "This machine shares no ports." }
-    ]);
   });
 
   it("fences turns: a repeated result posts once, and a late step does not reopen the task", async () => {
@@ -846,5 +847,96 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     await until("the cut-off report", async () => (await reports(object, id)).length === 2);
     expect((await reports(object, id))[1]).toContain("cut off");
     expect(await inside(object, (_agent, state) => state.storage.sql.exec("SELECT * FROM ky_machine_reports").toArray())).toEqual([]);
+  });
+});
+
+/** A machine whose runner shares the fake VibeProxy's port. */
+const SHARES_VIBEPROXY: MachineFacts = { ...FACTS, ports: [VIBEPROXY_TEST_PORT] };
+
+/** The provider and endpoint a purpose resolves to. */
+function resolved(object: string, purpose: "main" | "fallback"): Promise<{ provider: string; name: string | undefined }> {
+  return inside(object, (instance) => {
+    const { choice } = instance.models.resolve(purpose);
+
+    return { provider: choice.provider, name: instance.models.catalog().find((provider) => provider.id === choice.provider)?.name };
+  });
+}
+
+/** Send a request over the pipe from inside the object, as a provider does; see stack.ts's `overPipe`. */
+function overPipe(object: string, port: number, path: string, options?: { abortAfterMs?: number; timeoutMs?: number }) {
+  return inside(object, (instance) => instance.overPipe("mac", port, path, options));
+}
+
+describe("the pipe", () => {
+  /** A deploy without the overlay's tunnel, its machine online and sharing VibeProxy, and main on it. */
+  async function piped(): Promise<Fixture> {
+    const machine = fixture(SHARES_VIBEPROXY, `${BARE}${crypto.randomUUID()}`);
+    await machine.mac.connect();
+    await until("main on VibeProxy", async () => (await resolved(machine.object, "main")).provider === "vibeproxy");
+
+    return machine;
+  }
+
+  it("streams a tool-using turn on Claude via VibeProxy on the machine", async () => {
+    const { object, mac } = await piped();
+
+    expect(await resolved(object, "main")).toEqual({ provider: "vibeproxy", name: "Claude via VibeProxy on mac" });
+    expect((await prompt(object, "multiply 7")).text).toBe("tool said: 21");
+    expect(mac.asked.filter((path) => path.startsWith("/v1/messages"))).toEqual(["/v1/messages?beta=true", "/v1/messages?beta=true"]);
+  });
+
+  it("fails over to the fallback once the machine goes offline, and back once it returns", async () => {
+    const { object, mac } = await piped();
+    mac.disconnect();
+
+    await until("main off VibeProxy", async () => (await resolved(object, "main")).provider !== "vibeproxy");
+    expect((await prompt(object, "hello")).text).toBe("echo: hello");
+
+    await mac.connect();
+    await until("main on VibeProxy", async () => (await resolved(object, "main")).provider === "vibeproxy");
+    expect((await prompt(object, "again")).text).toBe('Title: "Claude claude-opus-5-5 (thinking adaptive)"\nagain');
+  });
+
+  it("fails a request still open the moment its machine goes offline", async () => {
+    const { object, mac } = await piped();
+    const answer = overPipe(object, VIBEPROXY_TEST_PORT, "/hang");
+    await until("the request to reach the machine", () => mac.asked.includes("/hang"));
+    mac.disconnect();
+
+    expect(await answer).toEqual({ failed: "mac went offline." });
+    expect(mac.aborted).toContain("/hang");
+  });
+
+  it("refuses a port the machine doesn't share, and asks nothing of it", async () => {
+    const { object, mac } = await piped();
+
+    expect(await overPipe(object, 3000, "/elsewhere")).toEqual({ failed: "This machine doesn't share port 3000." });
+    expect(mac.asked).not.toContain("/elsewhere");
+  });
+
+  it("cancels a streaming answer on the machine when the reader aborts", async () => {
+    const { object, mac } = await piped();
+    const { failed } = await overPipe(object, VIBEPROXY_TEST_PORT, "/slow", { abortAfterMs: 200 });
+
+    expect(failed).toBeDefined();
+    await until("the machine to stop answering", () => mac.aborted.includes("/slow"));
+  });
+
+  it("fails a request that gets no answer in time, and cancels it on the machine", async () => {
+    const { object, mac } = await piped();
+
+    expect(await overPipe(object, VIBEPROXY_TEST_PORT, "/hang", { timeoutMs: 200 })).toEqual({ failed: "No answer for 0.2s." });
+    await until("the machine to give up", () => mac.aborted.includes("/hang"));
+  });
+
+  it("prefers the pipe to the overlay's tunnel when a machine shares VibeProxy", async () => {
+    const { object, mac } = fixture(SHARES_VIBEPROXY);
+    await agent(object).mac(true);
+    expect(await resolved(object, "main")).toEqual({ provider: "vibeproxy", name: "Claude via VibeProxy" });
+
+    await mac.connect();
+    await until("VibeProxy on the machine", async () => (await resolved(object, "main")).name === "Claude via VibeProxy on mac");
+    expect((await prompt(object, "hello")).text).toBe('Title: "Claude claude-opus-5-5 (thinking adaptive)"\nhello');
+    expect(mac.asked).toContain("/v1/messages?beta=true");
   });
 });

@@ -13,6 +13,7 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
+import type { RunnerPipe } from "./pipe";
 import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations";
@@ -130,6 +131,7 @@ export class PiSessionSockets {
   readonly #files: FileStore;
   readonly #models: Models;
   readonly #subscriptions: Subscriptions;
+  readonly #pipe: RunnerPipe;
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
@@ -137,7 +139,7 @@ export class PiSessionSockets {
   readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #setup: Setup;
-  readonly #notSetUp: readonly NotSetUp[];
+  readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
@@ -152,6 +154,7 @@ export class PiSessionSockets {
     files: FileStore,
     models: Models,
     subscriptions: Subscriptions,
+    pipe: RunnerPipe,
     chats: ChatList,
     skills: Skills,
     soul: Soul,
@@ -159,8 +162,8 @@ export class PiSessionSockets {
     memory: Memory,
     automations: Automations,
     setup: Setup,
-    /** What this deploy has no config for, sent with the setup. */
-    notSetUp: readonly NotSetUp[],
+    /** What this deploy has no config for now, sent with the setup. */
+    notSetUp: () => readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
     /** The deploy's version id, sent in each hello. */
     version: string
@@ -173,6 +176,7 @@ export class PiSessionSockets {
     this.#files = files;
     this.#models = models;
     this.#subscriptions = subscriptions;
+    this.#pipe = pipe;
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
@@ -223,13 +227,19 @@ export class PiSessionSockets {
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     };
 
-    models.settings.onChange(broadcastSettings);
-    models.onChange(broadcastSettings);
-    setup.onChange(() => {
+    const broadcastSetup = () => {
       const message = this.#setupMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    };
+
+    models.settings.onChange(broadcastSettings);
+    // A machine that shares VibeProxy sets it up.
+    models.onChange(() => {
+      broadcastSettings();
+      broadcastSetup();
     });
+    setup.onChange(broadcastSetup);
     subscriptions.onChange(() => {
       this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
     });
@@ -341,7 +351,7 @@ export class PiSessionSockets {
   }
 
   #setupMessage(): PiServerMessage {
-    return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp } };
+    return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp() } };
   }
 
   /** Send the task feed to every UI socket. */
@@ -464,7 +474,9 @@ export class PiSessionSockets {
 
     if (machine) {
       this.#hub.seen(machine);
+      this.#pipe.dropped(machine);
       this.broadcastTasks();
+      await this.#models.refresh();
 
       return;
     }
@@ -528,9 +540,6 @@ export class PiSessionSockets {
 
     const { report } = decoded;
 
-    // Answers to http_request, which nothing sends until the runner pipe does.
-    if (isPipeReport(report)) return;
-
     // The machine was removed or paired again since this socket came: its pairing is over.
     if (!this.#hub.pairedAs(machine, pairingOf(connection.tags))) {
       goodbye(connection, { type: "goodbye", reason: "This machine is not paired with ky; pair it again." }, REVOKED, "Removed from ky; pair again.");
@@ -538,10 +547,19 @@ export class PiSessionSockets {
       return;
     }
 
+    if (isPipeReport(report)) {
+      this.#pipe.onReport(report);
+
+      return;
+    }
+
     if (report.type === "hello") this.#replaceRunner(connection, machine);
     await this.#hub.onReport(machine, report);
 
-    if (report.type === "hello") this.broadcastTasks();
+    if (report.type !== "hello") return;
+    this.broadcastTasks();
+    // The ports it shares, and its coming online, may move a runner-local provider to it.
+    await this.#models.refresh();
   }
 
   async #onMessage(connection: Connection, raw: WebSocketMessage) {

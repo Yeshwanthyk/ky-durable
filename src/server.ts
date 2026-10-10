@@ -31,7 +31,8 @@ import { Specialists, specialistExtension } from "./specialists";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
-import { VIBEPROXY_NOT_SET_UP } from "./providers/vibeproxy";
+import { RunnerPipe } from "./pipe";
+import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
@@ -57,10 +58,10 @@ export type Boundary = ModelsBoundary & {
   readonly extensions: readonly Extension[];
 };
 
-/** What a boundary lacks: the overlay's add-ons. */
-export function notSetUp({ vibeProxy, executor }: Boundary): readonly NotSetUp[] {
+/** What a deploy lacks: the overlay's add-ons, VibeProxy unless a paired machine shares it (one of `providers`). */
+export function notSetUp({ vibeProxy, executor }: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
   return [
-    ...(vibeProxy ? [] : [VIBEPROXY_NOT_SET_UP]),
+    ...(vibeProxy.tunnel || providers.includes(VIBEPROXY_PROVIDER) ? [] : [VIBEPROXY_NOT_SET_UP]),
     ...(executor ? [] : [EXECUTOR_NOT_SET_UP])
   ];
 }
@@ -68,7 +69,21 @@ export function notSetUp({ vibeProxy, executor }: Boundary): readonly NotSetUp[]
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
-  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"));
+  readonly feed = new TaskFeed(this.ctx.storage.sql);
+  readonly files = new FileStore(this.ctx.storage.sql);
+  /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
+  readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
+  readonly machines = new MachineHub(
+    this.ctx.storage.sql,
+    this.feed,
+    (tag) => this.ctx.getWebSockets(tag),
+    this.files,
+    this.taskTokens(),
+    (agent) => this.subscriptions.creds(agent)
+  );
+  /** Requests to ports on the user's machines, over their runners' sockets. */
+  readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
+  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   readonly workspace = new Workspace({
@@ -85,8 +100,6 @@ export class PiAgent extends DurableObject<Env> {
       })
     ]
   });
-  readonly feed = new TaskFeed(this.ctx.storage.sql);
-  readonly files = new FileStore(this.ctx.storage.sql);
   /** Its summaries are written on the background model, as notes come in. */
   readonly memory = new Memory(this.ctx.storage.sql, (system, messages) =>
     this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
@@ -106,16 +119,6 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
-  /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
-  readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
-  readonly machines = new MachineHub(
-    this.ctx.storage.sql,
-    this.feed,
-    (tag) => this.ctx.getWebSockets(tag),
-    this.files,
-    this.taskTokens(),
-    (agent) => this.subscriptions.creds(agent)
-  );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
   readonly automations = new Automations(this.ctx.storage.sql, {
@@ -251,6 +254,7 @@ export class PiAgent extends DurableObject<Env> {
     this.files,
     this.models,
     this.subscriptions,
+    this.pipe,
     this.chats,
     this.skills,
     this.soul,
@@ -258,7 +262,7 @@ export class PiAgent extends DurableObject<Env> {
     this.memory,
     this.automations,
     this.setup,
-    notSetUp(this.boundary),
+    () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
   );
@@ -306,7 +310,7 @@ export class PiAgent extends DurableObject<Env> {
     return {
       ai: env.AI,
       fetch: (input, init) => fetch(input, init),
-      vibeProxy: binding && origin && key ? { binding, origin, key } : undefined,
+      vibeProxy: { port: VIBEPROXY_PORT, key: key || undefined, tunnel: binding && origin && key ? { binding, origin } : undefined },
       browser: env.BROWSER,
       executor: url && token ? { url, token } : undefined,
       extensions: []

@@ -19,9 +19,11 @@ import {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AgentChange } from "@earendil-works/pi-durable";
 import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
+import type { MachineHub } from "./machines";
+import type { RunnerPipe } from "./pipe";
 import type { Breaker } from "./providers/breaker";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
-import { type VibeProxyConfig, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
+import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
 import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./providers/workers-ai";
 import {
   type ModelChoice,
@@ -39,11 +41,12 @@ import {
  * registry every call goes through, the user's choice per purpose (kept by
  * Settings), and `resolve(purpose, need)`, the only way a model is picked.
  *
- * A provider is healthy while it is connected (VibeProxy's probe answers)
- * and its circuit breaker is closed. Each call asks once when it starts,
- * then streams from exactly one provider: the one asked for while it is
- * healthy, else a stand-in on another provider that is healthy now, else the
- * one asked for, so the call fails fast and pi's retry applies.
+ * A provider is healthy while it is connected (a runner-local one's machine
+ * is online and its probe answers) and its circuit breaker is closed. Each
+ * call asks once when it starts, then streams from exactly one provider: the
+ * one asked for while it is healthy, else a stand-in on another provider that
+ * is healthy now, else the one asked for, so the call fails fast and pi's
+ * retry applies.
  */
 
 /** The context window pi's harness is told for every model; see `compacting`. */
@@ -89,9 +92,9 @@ export type ModelsBoundary = {
   readonly ai: AiBinding;
   /** How api-key providers reach their vendors. */
   readonly fetch: FetchFunction;
-  /** The tunnel to VibeProxy on a computer of the user's, when this deploy has one. */
-  readonly vibeProxy?: Pick<VibeProxyConfig, "binding" | "origin" | "key">;
-  /** How long a VibeProxy probe's answer is reused; vibeproxy.ts's default when unset. */
+  /** VibeProxy on a computer of the user's: the port a runner shares it on, its key, and the overlay's tunnel when this deploy has one. */
+  readonly vibeProxy: VibeProxyBoundary;
+  /** How long a runner-local provider's probe answer is reused; runner-local.ts's default when unset. */
   readonly probeTtlMs?: number;
 };
 
@@ -139,17 +142,28 @@ export class Models {
   readonly #records: ProviderRecords;
   readonly #boundary: ModelsBoundary;
   readonly #vault: KeyVault;
+  readonly #machines: Pick<MachineHub, "machines" | "online">;
+  readonly #pipe: Pick<RunnerPipe, "fetcher">;
   readonly #listeners = new Set<() => void>();
   #endpoints: readonly Endpoint[] = [];
+  /** The record each endpoint was made live from: one whose machine, port or API changed is made live again. */
+  readonly #madeFrom = new WeakMap<Endpoint, string>();
 
-  constructor(sql: SqlStorage, boundary: ModelsBoundary, vault: KeyVault) {
+  constructor(
+    sql: SqlStorage,
+    boundary: ModelsBoundary,
+    vault: KeyVault,
+    /** The paired machines, with the ports each shares, and the pipe to them: how runner-local providers are reached. */
+    machines: Pick<MachineHub, "machines" | "online">,
+    pipe: Pick<RunnerPipe, "fetcher">
+  ) {
     this.#records = new ProviderRecords(sql);
     this.#boundary = boundary;
     this.#vault = vault;
+    this.#machines = machines;
+    this.#pipe = pipe;
     this.#records.add(WORKERS_AI_RECORD);
-
-    if (boundary.vibeProxy) this.#records.add(vibeProxyRecord(boundary.vibeProxy.origin));
-
+    this.#placeVibeProxy();
     this.settings = new Settings(sql, (choice) => this.valid(choice));
     this.registry = createModels({ authContext: NO_ENV });
     this.#load();
@@ -230,6 +244,20 @@ export class Models {
     this.#records.remove(providerId);
     this.#load();
     this.#changed();
+  }
+
+  /**
+   * A runner said hello or left. VibeProxy moves to where it is reached now (#placeVibeProxy), and every provider
+   * that can go away is asked again: one whose machine left is down at once, so what ran on it moves now.
+   */
+  async refresh(): Promise<void> {
+    const before = this.#endpoints;
+
+    this.#placeVibeProxy();
+    this.#load();
+
+    if (this.#endpoints.some((endpoint) => !before.includes(endpoint))) this.#changed();
+    await this.probe();
   }
 
   /** Ask every provider that can go away now, or reuse a fresh answer. */
@@ -340,13 +368,35 @@ export class Models {
       .list()
       .filter((record) => record.enabled)
       .sort((a, b) => RANK[a.kind] - RANK[b.kind])
-      .flatMap((record) => before.find((endpoint) => endpoint.provider.id === record.id) ?? this.#live(record) ?? []);
+      .flatMap((record) => before.find((endpoint) => this.#madeFrom.get(endpoint) === made(record)) ?? this.#made(record) ?? []);
 
     for (const gone of before) if (!this.#endpoints.includes(gone)) this.registry.deleteProvider(gone.provider.id);
 
     for (const endpoint of this.#endpoints) {
       if (!before.includes(endpoint)) this.registry.setProvider(compacting(this.#routed(endpoint)));
     }
+  }
+
+  #made(record: ProviderRecord): Endpoint | undefined {
+    const endpoint = this.#live(record);
+
+    if (endpoint) this.#madeFrom.set(endpoint, made(record));
+
+    return endpoint;
+  }
+
+  /**
+   * Record where VibeProxy is reached now. The pipe wins: on the paired machine whose runner shares its port, an
+   * online one first; else through the overlay's tunnel. With neither, its record stays where it last was, so a
+   * machine that is off keeps it, down until the machine is back.
+   */
+  #placeVibeProxy(): void {
+    const { port, tunnel } = this.#boundary.vibeProxy;
+    const sharing = this.#machines.machines().filter((machine) => machine.facts?.ports.includes(port));
+    const machine = sharing.find((each) => each.online) ?? sharing[0];
+
+    if (machine) this.#records.add(vibeProxyRecord(machine.name, port));
+    else if (tunnel) this.#records.add(vibeProxyRecord(null, tunnelPort(tunnel)));
   }
 
   /** A record's provider made live, when its transport is there now. */
@@ -362,11 +412,25 @@ export class Models {
         return vendor && apiKey(vendor, boundary.fetch, (id) => this.#vault.auth(id));
       }
 
-      case "runner-local":
-        // Node P reaches runner-local providers through their machine's runner; until then only VibeProxy's tunnel.
-        return record.id === VIBEPROXY_PROVIDER && boundary.vibeProxy
-          ? vibeProxy({ ...boundary.vibeProxy, probeTtlMs: boundary.probeTtlMs, onChange: () => this.#changed() })
-          : undefined;
+      case "runner-local": {
+        // Only VibeProxy has a record yet: node C's runner.json declares a machine's other local servers, with their models.
+        if (record.id !== VIBEPROXY_PROVIDER) return undefined;
+        const { key, tunnel } = boundary.vibeProxy;
+        const common = { key, probeTtlMs: boundary.probeTtlMs, onChange: () => this.#changed() };
+        const { machine, port } = record;
+
+        if (machine !== null && port !== null) {
+          return vibeProxy({
+            ...common,
+            machine,
+            origin: `http://127.0.0.1:${port}`,
+            transport: this.#pipe.fetcher(machine, port),
+            online: () => this.#machines.online(machine)
+          });
+        }
+
+        return tunnel && vibeProxy({ ...common, machine: null, origin: tunnel.origin, transport: (input, init) => tunnel.binding.fetch(input, init), online: () => true });
+      }
     }
   }
 
@@ -497,6 +561,11 @@ export class Models {
 
     return { ...provider, streamSimple };
   }
+}
+
+/** What of a record its endpoint is made from. */
+function made({ id, kind, vendor, machine, port, api }: ProviderRecord): string {
+  return JSON.stringify([id, kind, vendor, machine, port, api]);
 }
 
 /** The light model of the last of `endpoints`, which are ranked dearest first. */

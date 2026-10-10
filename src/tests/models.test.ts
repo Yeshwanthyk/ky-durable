@@ -123,7 +123,7 @@ describe("which model each purpose uses", () => {
     const disabled = (name: string) =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
-        const models = new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"));
+        const models = new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
         const { purposes } = models.view();
 
         try {
@@ -147,7 +147,7 @@ describe("which model each purpose uses", () => {
     const reboot = () =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET port = 1, enabled = 0 WHERE id = 'vibeproxy'");
-        new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"));
+        new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
 
         return state.storage.sql
           .exec<{ port: number; enabled: number }>("SELECT port, enabled FROM ky_providers WHERE id = 'vibeproxy'")

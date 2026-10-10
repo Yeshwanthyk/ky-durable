@@ -406,27 +406,32 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY, or with it empty",
+      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY, or with it empty",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY_ORIGIN, or with it empty",
+      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY_ORIGIN, or with it empty",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config leaves out vibeProxy without VIBEPROXY_KEY, or with it empty",
+      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY_KEY, or with it empty",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config leaves out executor without EXECUTOR_URL, or with it empty",
+      "name": "a deploy's config leaves out Executor without EXECUTOR_URL, or with it empty",
       "outcome": "passed"
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config leaves out executor without EXECUTOR_TOKEN, or with it empty",
+      "name": "a deploy's config leaves out Executor without EXECUTOR_TOKEN, or with it empty",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a deploy's config counts VibeProxy as set up without the tunnel while a machine shares it",
       "outcome": "passed"
     },
     {
@@ -896,11 +901,6 @@
     },
     {
       "check": "worker-e2e",
-      "name": "runner protocol answers a request to a port with an error: the machine shares none",
-      "outcome": "passed"
-    },
-    {
-      "check": "worker-e2e",
       "name": "runner protocol fences turns: a repeated result posts once, and a late step does not reopen the task",
       "outcome": "passed"
     },
@@ -977,6 +977,41 @@
     {
       "check": "worker-e2e",
       "name": "runner protocol: reports reach the conversation that sent the work posts a report a restart cut off once the object starts again",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe streams a tool-using turn on Claude via VibeProxy on the machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe fails over to the fallback once the machine goes offline, and back once it returns",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe fails a request still open the moment its machine goes offline",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe refuses a port the machine doesn't share, and asks nothing of it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe cancels a streaming answer on the machine when the reader aborts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe fails a request that gets no answer in time, and cancels it on the machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the pipe prefers the pipe to the overlay's tunnel when a machine shares VibeProxy",
       "outcome": "passed"
     },
     {
@@ -1532,6 +1567,31 @@
     {
       "check": "harness",
       "name": "reconnect-outage",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pipe-turn",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pipe-offline",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pipe-refused",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pipe-cancel",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pipe-timeout",
       "outcome": "PASS"
     },
     {

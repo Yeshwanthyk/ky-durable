@@ -28,25 +28,31 @@ describe("a deploy's config", () => {
   it("builds VibeProxy and Executor when all their config is set", () => {
     const built = boundary(full);
 
-    expect(built.vibeProxy).toMatchObject({ origin: "http://127.0.0.1:8317", key: "vibeproxy-key" });
+    expect(built.vibeProxy).toMatchObject({ port: 8317, key: "vibeproxy-key", tunnel: { origin: "http://127.0.0.1:8317" } });
     expect(built.executor).toEqual({ url: "https://executor.test/mcp", token: "executor-token" });
     expect(notSetUp(built)).toEqual([]);
   });
 
   for (const name of OPTIONAL) {
-    const service = name.startsWith("VIBEPROXY") ? "vibeProxy" : "executor";
+    const vibeProxy = name.startsWith("VIBEPROXY");
 
-    it(`leaves out ${service} without ${name}, or with it empty`, () => {
+    it(`leaves out ${vibeProxy ? "VibeProxy's tunnel" : "Executor"} without ${name}, or with it empty`, () => {
       const { [name]: _left, ...without } = full;
 
       for (const config of [without, { ...full, [name]: "" }]) {
         const built = boundary(config);
 
-        expect(built[service]).toBeUndefined();
-        expect(notSetUp(built).map((each) => each.id)).toEqual([service.toLowerCase()]);
+        expect(vibeProxy ? built.vibeProxy.tunnel : built.executor).toBeUndefined();
+        expect(notSetUp(built).map((each) => each.id)).toEqual([vibeProxy ? "vibeproxy" : "executor"]);
       }
     });
   }
+
+  it("counts VibeProxy as set up without the tunnel while a machine shares it", () => {
+    const { VIBEPROXY: _tunnel, ...without } = full;
+
+    expect(notSetUp(boundary(without), ["vibeproxy"])).toEqual([]);
+  });
 
   it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
     const vendor = { ...VENDORS.find((each) => each.id === "opencode-go")!, modelIds: ["no-such-model"] };

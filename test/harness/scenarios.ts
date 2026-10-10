@@ -11,6 +11,8 @@ import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
 import { type FakeEvent, machine, type Machine, pairingCode, type Runner } from "./runner.ts";
+import { serveVibeProxy, type VibeProxyServer } from "./vibeproxy.ts";
+import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
@@ -232,6 +234,32 @@ async function subscribe(context: Context): Promise<string> {
   });
 
   return claude;
+}
+
+/** The fake VibeProxy on its port, closed when the scenario ends, and a machine `name` whose runner shares that port. */
+async function sharingVibeProxy(context: Context, name: string): Promise<VibeProxyServer> {
+  const server = await serveVibeProxy();
+  context.cleanup.push(() => server.close());
+  await context.machine(name, { KY_RUNNER_PORTS: String(VIBEPROXY_TEST_PORT) });
+
+  return server;
+}
+
+/** VibeProxy as the newest Settings shows it. */
+function vibeProxyShown(context: Context): { name: string; connected: boolean } | undefined {
+  const latest = context.main.frames.findLast((frame) => frame.type === "settings");
+
+  return latest?.type === "settings" ? latest.settings.providers.find((provider) => provider.id === "vibeproxy") : undefined;
+}
+
+/** Send a request over the pipe from inside `me`, through the stack's test route: its status and body, or why it failed. */
+async function overPipe(context: Context, query: Record<string, string>): Promise<{ status?: number; body?: string; failed?: string }> {
+  const response = await fetch(`${context.url}/test/pipe?${new URLSearchParams(query)}`, { method: "POST", headers: await signedIn() });
+
+  if (!response.ok) throw new Error(`/test/pipe answered ${response.status}`);
+
+  // SAFETY: /test/pipe answers with overPipe's result.
+  return (await response.json()) as { status?: number; body?: string; failed?: string };
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -849,6 +877,67 @@ export const SCENARIOS: Scenario[] = [
       } catch {
         throw new Violation("the runner never reconnected after one failed retry");
       }
+    }
+  },
+  {
+    name: "pipe-turn",
+    expect: "pass",
+    about: "main runs on Claude via VibeProxy on a machine sharing its port, and a tool-using turn streams over the pipe",
+    async run(context) {
+      const server = await sharingVibeProxy(context, "piped");
+      await until("Claude via VibeProxy on piped", () => vibeProxyShown(context)?.name === "Claude via VibeProxy on piped" && vibeProxyShown(context)?.connected === true);
+      context.main.send({ type: "submit", input: "multiply 11" });
+      await until("the tool's answer", () => context.main.heard("tool said: 33"));
+      const messages = server.asked.filter((path) => path.startsWith("/v1/messages"));
+      check(messages.length === 2, `both of the turn's calls went over the pipe, got ${JSON.stringify(messages)}`);
+    }
+  },
+  {
+    name: "pipe-offline",
+    expect: "pass",
+    about: "a machine sharing VibeProxy going offline moves main to the fallback at once",
+    async run(context) {
+      const server = await sharingVibeProxy(context, "piped-off");
+      await until("Claude via VibeProxy on piped-off", () => vibeProxyShown(context)?.name === "Claude via VibeProxy on piped-off" && vibeProxyShown(context)?.connected === true);
+      await context.runner!.kill();
+      await until("VibeProxy shown not connected", () => vibeProxyShown(context)?.connected === false);
+      const before = server.asked.length;
+      context.main.send({ type: "submit", input: "multiply 13" });
+      await until("the fallback's answer", () => context.main.heard("tool said: 39"));
+      check(server.asked.length === before, "nothing went to the machine while it was offline");
+    }
+  },
+  {
+    name: "pipe-refused",
+    expect: "pass",
+    about: "the runner refuses a request to a port it doesn't share, and the server behind a shared one never hears of it",
+    async run(context) {
+      const server = await sharingVibeProxy(context, "piped-refuse");
+      const answer = await overPipe(context, { machine: "piped-refuse", port: "3000", path: "/elsewhere" });
+      check(answer.failed === "This machine doesn't share port 3000.", `refused, got ${JSON.stringify(answer)}`);
+      check(!server.asked.includes("/elsewhere"), "the request never reached a server");
+    }
+  },
+  {
+    name: "pipe-cancel",
+    expect: "pass",
+    about: "aborting a streaming answer over the pipe stops the request on the machine",
+    async run(context) {
+      const server = await sharingVibeProxy(context, "piped-cancel");
+      const answer = await overPipe(context, { machine: "piped-cancel", port: String(VIBEPROXY_TEST_PORT), path: "/slow", "abort-after": "300" });
+      check(answer.failed !== undefined, `the read failed, got ${JSON.stringify(answer)}`);
+      await until("the machine to stop answering", () => server.dropped.includes("/slow"));
+    }
+  },
+  {
+    name: "pipe-timeout",
+    expect: "pass",
+    about: "a request over the pipe that gets no answer in time fails, and is cancelled on the machine",
+    async run(context) {
+      const server = await sharingVibeProxy(context, "piped-timeout");
+      const answer = await overPipe(context, { machine: "piped-timeout", port: String(VIBEPROXY_TEST_PORT), path: "/hang", timeout: "500" });
+      check(answer.failed === "No answer for 0.5s.", `timed out, got ${JSON.stringify(answer)}`);
+      await until("the machine to give up", () => server.dropped.includes("/hang"));
     }
   }
 ];

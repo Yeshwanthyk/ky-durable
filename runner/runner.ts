@@ -8,6 +8,7 @@
 import type { Adapter, AgentEvent } from "./agent.ts";
 import { claude } from "./claude.ts";
 import { codex } from "./codex.ts";
+import { Forwarder, type LocalFetch } from "./forward.ts";
 import type { HandledSeqs } from "./handled.ts";
 import {
   AGENT_NAMES,
@@ -23,8 +24,8 @@ import {
   type RunnerReport
 } from "../src/runner-protocol.ts";
 
-/** One open socket to the object. `send` is false once it can no longer send. */
-export type Link = { send(text: string): boolean };
+/** One open socket to the object. `send` is false once it can no longer send; `buffered` is what waits to go out, in bytes. */
+export type Link = { send(text: string): boolean; buffered(): number };
 
 /** A running agent CLI. */
 export type AgentProcess = {
@@ -116,6 +117,7 @@ export class Runner {
   readonly #handled: HandledSeqs;
   readonly #version: string;
   readonly #facts: () => MachineFacts;
+  readonly #forwarder: Forwarder;
   /** Reports made while disconnected, sent on the next connect. */
   readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
@@ -126,14 +128,17 @@ export class Runner {
     handled: HandledSeqs,
     /** The runner's build, sent with each hello. */
     version: string,
-    /** What this machine is, sent with each hello. */
-    facts: () => MachineFacts
+    /** What this machine is, sent with each hello. Its `ports` are the only ones `http_request`s may reach. */
+    facts: () => MachineFacts,
+    /** How a request reaches one of those ports. */
+    local: LocalFetch
   ) {
     this.#spawn = spawn;
     this.#log = log;
     this.#handled = handled;
     this.#version = version;
     this.#facts = facts;
+    this.#forwarder = new Forwarder(local, () => facts().ports);
   }
 
   /** Tasks with a live agent process. */
@@ -156,7 +161,10 @@ export class Runner {
   }
 
   closed(link: Link): void {
-    if (this.#link === link) this.#link = undefined;
+    if (this.#link !== link) return;
+
+    this.#link = undefined;
+    this.#forwarder.closed();
   }
 
   /** The 30s hello that keeps the socket alive through idle proxies. */
@@ -183,11 +191,12 @@ export class Runner {
 
         return;
       case "http_request":
-        // Its facts share no ports, so no request is for an allowed one. Not kept for a reconnect: the request dies with the socket.
-        this.#link?.send(JSON.stringify({ type: "http_error", id: frame.id, message: "This machine shares no ports." } satisfies RunnerReport));
+        if (this.#link) this.#forwarder.request(this.#link, frame);
 
         return;
       case "http_cancel":
+        this.#forwarder.cancel(frame.id);
+
         return;
       default:
         this.#onCommand(frame);
