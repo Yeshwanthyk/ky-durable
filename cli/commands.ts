@@ -10,6 +10,8 @@ import { incomplete, merged, readOverlay } from "./config.ts";
 import { type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import { bold, dim, green, type Output, output, red } from "./output.ts";
 import type { Release } from "./release.ts";
+import { restartRunner } from "./runner/commands.ts";
+import type { System } from "./runner/system.ts";
 
 export type Context = {
   /** The overlay `ky init` writes (cli/config.ts). */
@@ -19,6 +21,10 @@ export type Context = {
   print: (line: string) => void;
   /** Where a failure is reported. */
   fail: (line: string) => void;
+  /** The computer it runs on, for `ky runner` (cli/runner/system.ts). */
+  system: System;
+  env: NodeJS.ProcessEnv;
+  sleep: (ms: number) => Promise<void>;
 };
 
 /** The `ky init` that fills in what the overlay lacks. */
@@ -81,12 +87,22 @@ export async function upgradeCommand(context: Context): Promise<number> {
   if (!from) throw new Error("There's no ky Worker to upgrade; run `ky deploy`");
 
   if (from === release.version) {
+    await restarted(context, out);
     out.outro(`Already on ${release.version}`);
 
     return 0;
   }
 
+  await restarted(context, out);
+
   return deployTo(out, to, release);
+}
+
+/** Restarts this computer's runner, so it runs this `ky` too. */
+async function restarted(context: Context, out: Output): Promise<void> {
+  const restart = await restartRunner(context);
+
+  if (restart) out.done(restart);
 }
 
 /** The overlay, checked: there, readable, and with everything a deploy needs. */

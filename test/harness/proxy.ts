@@ -8,7 +8,7 @@ import { freePort } from "./stack.ts";
  * The network between a runner and the stack, which the harness can break
  * on purpose: hold the runner's reports, drop some, cut the connection, or
  * refuse new ones. Everything else passes through untouched, HTTP included
- * (ky-attach uploads and pairing go through it), so reconnects are tested
+ * (ky attach uploads and pairing go through it), so reconnects are tested
  * without touching the runner. Each proxy is its machine's own address to
  * ky (CF-Connecting-IP, which only the local stack takes from a client), so
  * pairing's per-address limit counts each machine apart.

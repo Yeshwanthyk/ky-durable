@@ -31,11 +31,11 @@ export function pause(prompt: string, fallback: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delay === undefined ? fallback : Number(delay)));
 }
 
-/** `[attach]`: share a 1x1 PNG through `ky-attach`, as a screenshot would be, run with `env`; what it printed. */
+/** `[attach]`: share a 1x1 PNG through `ky attach`, as a screenshot would be, run with `env`; what it printed. */
 export async function attach(env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const file = join(mkdtempSync(join(tmpdir(), "fake-agent-")), "screenshot.png");
   writeFileSync(file, PIXEL);
-  const { stdout } = await promisify(execFile)("ky-attach", [file, "a fake screenshot"], { env });
+  const { stdout } = await promisify(execFile)("ky", ["attach", file, "a fake screenshot"], { env });
 
   return stdout.trim();
 }

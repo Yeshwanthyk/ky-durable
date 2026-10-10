@@ -2,7 +2,7 @@ import type { FileDiffMetadata } from "@pierre/diffs";
 import { DIFF_TYPE, type FileRow } from "../files";
 
 /**
- * A machine task's code changes: the newest patch its `ky-diff` shared, how
+ * A machine task's code changes: the newest patch its `ky diff` shared, how
  * big each file's change is, and the user's line comments on it, written up
  * as one message for the task.
  */
@@ -107,7 +107,7 @@ export function feedbackMessage(comments: readonly LineComment[]): string {
 
   const count = `${comments.length} comment${comments.length === 1 ? "" : "s"}`;
 
-  return `Review of your changes (${count}). Address each, then run ky-diff again.\n\n${notes.join("\n\n")}`;
+  return `Review of your changes (${count}). Address each, then run ky diff again.\n\n${notes.join("\n\n")}`;
 }
 
 /** A line the user picked and is still writing a comment for. */

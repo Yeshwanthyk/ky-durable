@@ -1,5 +1,5 @@
 /**
- * What `ky-diff` captures: a repository's changes as one git patch, from
+ * What `ky diff` captures: a repository's changes as one git patch, from
  * where its branch left the default branch to the working copy, untracked
  * files included. Kept apart from the process so the tests can give it a
  * scripted git.

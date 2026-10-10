@@ -12,6 +12,7 @@ import { initCommand } from "../../cli/init.ts";
 import * as Cli from "../../cli/ky.ts";
 import { banner, bold } from "../../cli/output.ts";
 import { loadRelease, packOf, type Release, releaseFiles, useRelease } from "../../cli/release.ts";
+import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
@@ -58,8 +59,11 @@ const token = () => new Cloudflare("test-token", "CLOUDFLARE_API_TOKEN");
 
 const wrangler = () => new Cloudflare(WRANGLER_TOKEN, "wrangler login");
 
-function context(overlay: string): Context {
+function context(overlay: string, system: FakeSystem): Context {
   return {
+    system,
+    env: {},
+    sleep: async () => {},
     overlay,
     release: async () => {
       if (!current) throw new Error("There's no release: run `pnpm compile` first");
@@ -77,7 +81,7 @@ function context(overlay: string): Context {
 }
 
 async function fresh(): Promise<Context> {
-  return context(path.join(await mkdtemp(path.join(tmpdir(), "ky-cli-")), "wrangler.local.jsonc"));
+  return context(path.join(await mkdtemp(path.join(tmpdir(), "ky-cli-")), "wrangler.local.jsonc"), await fakeSystem());
 }
 
 const script = (name = "ky") => account.scripts.get(name);

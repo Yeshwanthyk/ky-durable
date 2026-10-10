@@ -2,7 +2,7 @@
 /**
  * A fake `codex` for the runner: it speaks `codex exec --json` as Codex
  * 0.160 does, and does no work. The CLI harness and the web e2e hand it to
- * runner/ky-runner.ts as KY_CODEX.
+ * `ky runner run` as KY_CODEX.
  *
  * `codex exec [resume <thread>] ... -` reads the prompt from stdin, runs
  * one turn on it and exits: the thread starts (new, or the one resumed), the
@@ -15,7 +15,7 @@
  * Directives in a prompt:
  *   [delay=MS]   this turn takes MS milliseconds (default 50)
  *   [fail]       the turn fails, with the API's error body as Codex gives it
- *   [attach]     a command that shares a 1x1 PNG through `ky-attach`, run with
+ *   [attach]     a command that shares a 1x1 PNG through `ky attach`, run with
  *                the environment Codex gives its commands: unless
  *                shell_environment_policy.ignore_default_excludes=true, none
  *                named like a key, secret or token; the answer ends with what
@@ -124,7 +124,7 @@ function commandEnv(): NodeJS.ProcessEnv {
 /** `[attach]` as a command item: a line saying what it printed, or how it failed; nothing without the directive. */
 async function attached(prompt: string): Promise<string> {
   if (!prompt.includes("[attach]")) return "";
-  const item: ToolItem = { id: "item_attach", type: "command_execution", command: "/bin/zsh -lc 'ky-attach screenshot.png'", aggregated_output: "", exit_code: 0, status: "in_progress" };
+  const item: ToolItem = { id: "item_attach", type: "command_execution", command: "/bin/zsh -lc 'ky attach screenshot.png'", aggregated_output: "", exit_code: 0, status: "in_progress" };
   emit({ type: "item.started", item });
 
   try {
@@ -135,7 +135,7 @@ async function attached(prompt: string): Promise<string> {
   } catch (error) {
     emit({ type: "item.completed", item: { ...item, aggregated_output: String(error), exit_code: 1, status: "failed" } });
 
-    return `\nky-attach failed: ${String(error)}`;
+    return `\nky attach failed: ${String(error)}`;
   }
 }
 

@@ -532,7 +532,7 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   await panel(page).getByRole("tab", { name: "Settings" }).click();
   await panel(page).getByRole("button", { name: "Add a machine" }).click();
   const command = panel(page).getByLabel("Pairing command");
-  await expect(command).toContainText(`node runner/pair.ts ${process.env.KY_STACK_URL}`);
+  await expect(command).toContainText(`ky runner add ${process.env.KY_STACK_URL}`);
   await expect(panel(page).getByText(/run this before \d/)).toBeVisible();
   const code = (await command.textContent())!.trim().split(" ").at(-1)!;
 

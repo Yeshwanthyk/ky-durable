@@ -30,7 +30,7 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
 | API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/api-key.ts`, `src/vault.ts` |
 | VibeProxy on the Mac | Claude, reached only through the `VIBEPROXY` Workers VPC service over a cloudflared tunnel with no public hostname. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/vibeproxy.ts`, `vpc_services` in `wrangler.local.jsonc` |
-| ky-runner on the Mac | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `runner/ky-runner.ts` |
+| `ky runner run` on each machine | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `cli/runner/` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
@@ -127,31 +127,45 @@ worker leaves tasks queued without an error, so never update the runner first.
 
 ## Run a machine
 
-Needs Node 22.6 or later (the runner is TypeScript run directly; before Node 23.6 that takes
-`--experimental-strip-types`), and `claude` or `codex` (or both) installed and signed in on that machine.
-
-The runner imports the shared protocol (`src/runner-protocol.ts`) and `typebox`, so run it from a checkout
-of this repo after `pnpm install`.
+Needs `ky` (the release binary, or `pnpm ky` in a checkout), and `claude` or `codex` (or both) installed and
+signed in on that machine. macOS and Linux.
 
 Pair it once: in ky, Settings → Machines → Add a machine shows a code good for ten minutes. On the
-machine, run the command it shows; it writes the machine token to `~/.config/ky/runner-token` (0600).
+machine, run the command it shows:
 
 ```sh
-pnpm install
-KY_MACHINE=mac node --experimental-strip-types runner/pair.ts https://ky.<account>.workers.dev <code>
-KY_URL=https://ky.<account>.workers.dev \
-KY_MACHINE=mac \
-node --experimental-strip-types runner/ky-runner.ts
+ky runner add https://ky.<account>.workers.dev <code>
 ```
+
+It finds the machine's `claude` and `codex` logins, Chrome, the folders holding git repositories, and local
+model servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each (`--yes` shares what it found,
+but never Chrome). It keeps the machine token in the Keychain on macOS (service `ky runner`) or in
+`~/.config/ky/runner-token` (0600) on Linux, writes the rest to `~/.config/ky/runner.json`, installs a
+launchd agent (`dev.ky.runner`) or a `systemd --user` unit (`ky-runner`, with linger), and waits until ky shows
+the machine online. `--no-service` skips the service; run `ky runner run` yourself.
+
+| Command | What it does |
+| --- | --- |
+| `ky runner add [url code]` | Pair this computer, keep its settings and start its service |
+| `ky runner run` | The runner itself, in the foreground (what the service runs) |
+| `ky runner ls` | This computer's runner and whether it's online |
+| `ky runner status [--json]` | Its settings, token store, service and status |
+| `ky runner logs [-f]` | Its log, `~/.ky/runner.log` |
+| `ky runner rm` | Stop and remove the service, the token and the settings; then Remove the machine in ky |
+| `ky attach <file> [caption]`, `ky diff [base]` | Run by a task, to share a file or its changes |
+
+`ky upgrade` restarts the runner service, so it runs the new release.
 
 Remove in the same list revokes the token: the runner exits and says to pair again. Each task's
 agent, `claude` or `codex`, gets only `KY_URL`, `KY_TASK` and `KY_TASK_TOKEN` from ky, never the machine
 token; it still runs as your user, so it could read the token file.
 
+Each variable below overrides `runner.json` for `ky runner run`; without `runner.json`, `KY_URL` is required.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `KY_URL` | (required) | The deployed Worker |
-| `KY_RUNNER_TOKEN_FILE` | `~/.config/ky/runner-token` | The machine token from pairing; refused unless only you can read it |
+| `KY_URL` | `runner.json` | The deployed Worker |
+| `KY_RUNNER_TOKEN_FILE` | the Keychain on macOS, else `~/.config/ky/runner-token` | The machine token from pairing, in a file; refused unless only you can read it |
 | `KY_MACHINE` | host name | Name the agent uses for this machine (`[a-z0-9-]`, 32 chars) |
 | `KY_WORKDIR` | `~/ky-work` | Working directory for tasks |
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |
@@ -172,11 +186,11 @@ Claude Code task is one `claude -p` session in stream-json mode. A message sent 
 one sent after it finished resumes it with `--resume`. A Codex task is one `codex exec --json` per turn,
 in its own `CODEX_HOME` (`KY_STATE_DIR/codex/<task>`) whose `auth.json` links to the machine's, so none of
 your Codex config (`config.toml`: models, MCP servers, profiles) or history comes in; its commands get the
-runner's whole environment, which Codex would otherwise strip of `*TOKEN*` names, so `ky-attach` works. A
+runner's whole environment, which Codex would otherwise strip of `*TOKEN*` names, so `ky attach` works. A
 home not used for 14 days is deleted, and a later follow-up to that task fails. A message sent while it works
 waits for the turn to end; each follow-up resumes the thread with `codex exec resume`. Stop sends SIGINT, then SIGKILL after 5s. Commands wait in `ky_machine_inbox` until the runner acks them, so work sent while the machine is
-offline starts when it reconnects. Tasks share files with `ky-attach <file> [caption]`, which the runner
-installs in `~/.ky/bin` and which uploads to `/api/files`. `ky-diff [base]`, installed beside it, uploads
+offline starts when it reconnects. Tasks share files with `ky attach <file> [caption]` (the runner puts a `ky`
+on each task's PATH, in `~/.ky/bin`), which uploads to `/api/files`. `ky diff [base]` uploads
 the repository's changes as one `text/x-diff` patch (up to 2 MB); the task shows them as a diff, and line
 comments on it go back to the task as one message.
 
@@ -199,8 +213,8 @@ with the one ky speaks, its socket closes with 4426, and it exits. A machine is 
 the agent used, labelled ("Editing tasks.ts"; a Codex command or file change reads as Bash, Write or Edit), or what it said between tools; a `result` carries the agent and the
 session's turns and cost so far. Every report carries its turn, and reports for a closed turn are dropped. The runner records a command
 before acking it, so a command never runs twice. One socket per machine: a newer runner with the same
-name closes the older one (code 4409), and the older one exits. `runner/runner.ts` is the logic and
-`runner/ky-runner.ts` the process.
+name closes the older one (code 4409), and the older one exits. `cli/runner/runner.ts` is the logic and
+`cli/runner/run.ts` the process.
 
 ## Develop
 

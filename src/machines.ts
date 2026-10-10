@@ -12,7 +12,7 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's
- * Mac. A machine runs `runner/ky-runner.ts`, which dials into this object
+ * Mac. A machine runs `ky runner run`, which dials into this object
  * over a WebSocket (`/runner/<name>`), so nothing on the machine listens on
  * a port. Each task runs as a Claude Code or Codex session on that machine,
  * with its shell, browser, files and the user's own login to that agent.
@@ -965,7 +965,7 @@ function describeMachine(machine: MachineInfo): string {
 }
 
 const describeAll = (machines: readonly MachineInfo[]) =>
-  machines.length === 0 ? "No machines yet. The user adds one in Settings, under Machines, and starts runner/ky-runner.ts on it." : machines.map(describeMachine).join("\n");
+  machines.length === 0 ? "No machines yet. The user adds one in Settings, under Machines, and runs the `ky runner add` command it shows on that computer." : machines.map(describeMachine).join("\n");
 
 /** The machines a task could go to now, for a refusal or an offline start to offer instead. */
 function elsewhere(machines: readonly MachineInfo[], not: string): string {
