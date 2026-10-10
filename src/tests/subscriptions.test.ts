@@ -71,7 +71,8 @@ describe("Settings › Subscriptions", () => {
     expect(client.frames.findLast((frame) => frame.type === "subscriptions")).toMatchObject({
       subscriptions: [
         { kind: "claude", connected: true, expiresAt: expect.any(Number) },
-        { kind: "chatgpt", connected: false }
+        { kind: "chatgpt", connected: false },
+        { kind: "github", connected: false }
       ]
     });
     expect(raw.some((frame) => frame.includes(token))).toBe(false);

@@ -41,7 +41,7 @@ export type MachineInfo = {
   readonly login: MachineLogin;
 };
 
-export type SubscriptionKind = "claude" | "chatgpt";
+export type SubscriptionKind = "claude" | "chatgpt" | "github";
 
 /** Executor as Settings shows it: the URL ky reaches it at, or null when it isn't connected. Never its token. */
 export type ExecutorView = { readonly url: string | null };
@@ -54,6 +54,8 @@ export type SubscriptionView = {
   readonly expiresAt: number | null;
   /** Why the last refresh failed. */
   readonly error: string | null;
+  /** GitHub's: the repos (owner/name) the cloud machine may fetch and push to. */
+  readonly repos?: readonly string[];
 };
 
 /** A ChatGPT sign-in as it starts: the code the user enters at `verificationUrl`, and the id to ask after it by. */
@@ -117,6 +119,10 @@ export type PiClientMessage =
    * The token is never sent back.
    */
   | { readonly type: "set-claude"; readonly id?: string; readonly token: string }
+  /** The repos a GitHub token reaches: the result is `{ repos }` or `{ refused }`. The token is never sent back. */
+  | { readonly type: "github-repos"; readonly id?: string; readonly token: string }
+  /** Keep a GitHub token for the cloud machine and the repos it may touch; the result is `{ refused }` when it can't. */
+  | { readonly type: "set-github"; readonly id?: string; readonly token: string; readonly repos: readonly string[] }
   /** Forget a subscription; tasks sign in with their machine's own login. */
   | { readonly type: "remove-subscription"; readonly id?: string; readonly kind: SubscriptionKind }
   /**

@@ -15,7 +15,8 @@ import { browseExtension } from "./browse";
 import { ExecutorLink, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
-import { MachineHub, machineExtension, type TaskTokens } from "./machines";
+import { CLOUD } from "./cloud-facts";
+import { type CloudHook, MachineHub, machineExtension, type TaskTokens } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble } from "./prompt";
@@ -38,6 +39,10 @@ import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
 
 export { Vault } from "./vault";
+
+export { CloudMachine } from "./cloud";
+
+export { GithubProxy } from "./github";
 
 /** A pi context with no values that is never cancelled. */
 const BACKGROUND = Object.freeze({
@@ -280,6 +285,7 @@ export class PiAgent extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
+    this.machines.cloud = this.cloudHook();
     this.#nameThings();
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
@@ -312,6 +318,26 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
+  /** The cloud machine, on a deploy `ky deploy` gave a container (KY_CLOUD); tests replace its container. */
+  cloudHook(): CloudHook | undefined {
+    if (!this.env.KY_CLOUD) return undefined;
+
+    return {
+      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined)),
+      // Only the token: which repos it may touch is the proxy's to check.
+      github: async () => {
+        const login = await this.env.Vault.getByName("owner").githubToken();
+
+        return login && { token: login.token };
+      }
+    };
+  }
+
+  /** Whether the cloud machine has work: an open task or a command waiting. Its alarm keeps it awake while it has. */
+  cloudBusy(): boolean {
+    return this.machines.busy(CLOUD);
+  }
+
   /** The hub's task tokens: the Vault's. Runs as a field initializer, so only ctx and env are set; tests wrap it. */
   taskTokens(): TaskTokens {
     const vault = () => this.env.Vault.getByName("owner");
@@ -341,6 +367,7 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   async onStart(): Promise<void> {
+    if (this.machines.cloud) this.machines.listCloud();
     await this.sockets.reattach();
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.

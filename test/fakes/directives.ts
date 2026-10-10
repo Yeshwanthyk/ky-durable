@@ -2,7 +2,7 @@
  * What the fake claude and the fake codex both do for a directive in a
  * prompt, each then speaking its own CLI's JSON.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,4 +38,20 @@ export async function attach(env: NodeJS.ProcessEnv = process.env): Promise<stri
   const { stdout } = await promisify(execFile)("ky", ["attach", file, "a fake screenshot"], { env });
 
   return stdout.trim();
+}
+
+/** `[sh] COMMAND`: run everything after the directive in a shell, in the task's directory; its exit code and output, else undefined. */
+export function shell(prompt: string, env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const at = prompt.indexOf("[sh] ");
+
+  if (at === -1) return Promise.resolve(undefined);
+
+  return new Promise((resolve) => {
+    const child = spawn("sh", ["-c", prompt.slice(at + "[sh] ".length)], { env, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+
+    child.stdout.on("data", (chunk: Buffer) => (output += chunk));
+    child.stderr.on("data", (chunk: Buffer) => (output += chunk));
+    child.on("close", (code) => resolve(`sh exited ${code}: ${output.trim()}`));
+  });
 }

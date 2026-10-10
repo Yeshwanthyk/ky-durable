@@ -617,7 +617,7 @@ describe("machine tasks", () => {
     expect(row()).toMatchObject({ summary: "built and tested", turns: 7, cost_usd: 0.25 });
     expect(row()?.finished_at).toBeGreaterThanOrEqual(row()?.started_at ?? Infinity);
     await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === run.task)?.summary.startsWith("Named:") === true);
-    expect(latest(client, "tasks")?.machines).toMatchObject([{ name: "mac", online: true }]);
+    expect(latest(client, "tasks")?.machines).toMatchObject([{ name: "cloud", online: false }, { name: "mac", online: true }]);
 
     socket.close();
     mac.socket.close();

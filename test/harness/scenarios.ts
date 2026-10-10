@@ -10,7 +10,9 @@ import { signedIn } from "../../src/tests/fake-access.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
-import { type FakeEvent, machine, type Machine, pairingCode, type Runner } from "./runner.ts";
+import { FAKE_CLAUDE, FAKE_CODEX, type FakeEvent, KY_COMMAND, machine, type Machine, pairingCode, type Runner } from "./runner.ts";
+import { type ContainerHost, serveContainer } from "../fakes/container.ts";
+import { type GitServer, serveGit } from "../fakes/git.ts";
 import { serveVibeProxy, type VibeProxyServer } from "./vibeproxy.ts";
 import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 
@@ -230,7 +232,7 @@ async function subscribe(context: Context): Promise<string> {
   await until("both subscriptions in Settings", () => {
     const latest = context.main.frames.findLast((frame) => frame.type === "subscriptions");
 
-    return latest?.type === "subscriptions" && latest.subscriptions.every((each) => each.connected);
+    return latest?.type === "subscriptions" && latest.subscriptions.filter((each) => each.kind !== "github").every((each) => each.connected);
   });
 
   return claude;
@@ -260,6 +262,55 @@ async function overPipe(context: Context, query: Record<string, string>): Promis
 
   // SAFETY: /test/pipe answers with overPipe's result.
   return (await response.json()) as { status?: number; body?: string; failed?: string };
+}
+
+/** The fine-grained GitHub token the cloud scenarios set up in Settings, which the fake github.com takes. */
+const GITHUB_TOKEN = "github_pat_harness";
+
+/** The cloud machine's name: one per deploy. */
+const CLOUD = "cloud";
+
+type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer };
+
+/**
+ * The cloud machine for one scenario: its container on a fake host whose runner dials ky through a
+ * proxy the scenario can break, git on a fake github.com, and GitHub set up in Settings with me/app.
+ * It sleeps once idle `idleMs`, if given. The container starts when a task is sent to it; when the
+ * scenario ends it is reset: stopped, and its save forgotten.
+ */
+async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
+  const logs = machine(CLOUD, context.dir);
+  const proxy = await startProxy(context.url);
+  const git = await serveGit(GITHUB_TOKEN);
+
+  const host = await serveContainer({
+    ky: KY_COMMAND,
+    kyUrl: proxy.url,
+    github: `${context.url}/github.internal/api/git/`,
+    env: {
+      KY_CLAUDE: FAKE_CLAUDE,
+      FAKE_CLAUDE_LOG: path.join(logs.dir, "claude.jsonl"),
+      FAKE_CLAUDE_SESSIONS: "1",
+      KY_CODEX: FAKE_CODEX,
+      FAKE_CODEX_LOG: path.join(logs.dir, "codex.jsonl")
+    },
+    logs: logs.dir
+  });
+
+  context.cleanup.push(
+    () => proxy.close(),
+    () => git.close(),
+    () => host.close(),
+    () => testRoute(context, "/test/cloud-reset"),
+    () => void context.main.send({ type: "remove-subscription", id: crypto.randomUUID(), kind: "github" })
+  );
+  const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }) });
+
+  await testRoute(context, `/test/cloud-host?${query}`);
+  const saved = JSON.stringify((await context.main.command({ type: "set-github", token: GITHUB_TOKEN, repos: ["me/app"] })).result);
+  check(saved === "{}", `the GitHub token was kept, got ${saved}`);
+
+  return { logs, host, proxy, git };
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -938,6 +989,165 @@ export const SCENARIOS: Scenario[] = [
       const answer = await overPipe(context, { machine: "piped-timeout", port: String(VIBEPROXY_TEST_PORT), path: "/hang", timeout: "500" });
       check(answer.failed === "No answer for 0.5s.", `timed out, got ${JSON.stringify(answer)}`);
       await until("the machine to give up", () => server.dropped.includes("/hang"));
+    }
+  },
+  {
+    name: "cloud-script",
+    expect: "pass",
+    about: "a task on the cloud machine wakes it, runs a script there and reports back, with no computer of the user's",
+    async run(context) {
+      const { host } = await cloudMachine(context);
+      check(!host.running(), "the cloud machine sleeps until a task comes");
+      const task = await startTask(context, CLOUD, "[sh] node -e 'console.log(6 * 7)'");
+      await status(context, task, "done", 60_000);
+      await until("the report", () => context.main.heard("sh exited 0: 42"));
+      check(host.starts() === 1, `one container started, got ${host.starts()}`);
+    }
+  },
+  {
+    name: "cloud-claude",
+    expect: "pass",
+    about: "a Claude Code task on the cloud machine runs with ky's Claude subscription",
+    async run(context) {
+      const claude = await subscribe(context);
+      const { logs } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "review the code");
+      await status(context, task, "done", 60_000);
+      await until("the report", () => context.main.heard("fake claude did: review the code"));
+      const start = logs.claude().find((event) => event.event === "start" && event.task === task);
+      check(start?.token === fingerprint(claude), `claude was handed ky's token, got ${start?.token}`);
+    }
+  },
+  {
+    name: "cloud-codex",
+    expect: "pass",
+    about: "a Codex task on the cloud machine runs as Codex with ky's ChatGPT login",
+    async run(context) {
+      await subscribe(context);
+      const { logs } = await cloudMachine(context);
+      const task = await startCodex(context, CLOUD, "build it in the cloud");
+      await status(context, task, "done", 60_000);
+      check(turns(logs, task, logs.codex()).length === 1, "codex ran it");
+      const start = codexStart(logs, task, 0);
+      // Written into the task's own CODEX_HOME, as for a machine not signed in; the runner deletes it when codex exits.
+      check(start.auth === "" && start.token !== "", `codex was handed ky's ChatGPT login, got ${JSON.stringify(start)}`);
+    }
+  },
+  {
+    name: "cloud-follow-up",
+    expect: "pass",
+    about: "a message to a finished task on the cloud machine resumes its Claude session",
+    async run(context) {
+      const { logs } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
+      sendTo(context, task, "now polish it");
+      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 30_000);
+      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2);
+      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
+      check(resumed !== undefined && resumed.resume === first?.session, "the follow-up resumed the first session");
+    }
+  },
+  {
+    name: "cloud-sleep-resume",
+    expect: "pass",
+    about: "the cloud machine sleeps once idle, saving its sessions to R2; a follow-up wakes a new container, which resumes the session",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context, 3_000);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
+      await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 30_000);
+      sendTo(context, task, "now polish it");
+      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
+      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2);
+      check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
+      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
+      // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
+      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-steer-folded",
+    expect: "pass",
+    about: "on the cloud machine, a message Claude Code folds into the running turn ends with that turn's one result",
+    async run(context) {
+      await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "[fold] [delay=3000] build the thing");
+      await status(context, task, "working", 60_000);
+      sendTo(context, task, "and test it");
+      await until("the task to end", () => terminal(context.main.task(task)), 20_000);
+      check(context.main.task(task)?.status === "done", `the task ends done, not ${context.main.task(task)?.status}`);
+      await until("the report", () => context.main.heard("fake claude did: [fold] [delay=3000] build the thing + and test it"));
+      await sleep(1_500);
+      check(context.main.task(task)?.status === "done", "the task does not reopen as working");
+    }
+  },
+  {
+    name: "cloud-reconnect-outage",
+    expect: "pass",
+    about: "the cloud machine's runner, its socket cut and its first retry refused, reconnects and delivers its result",
+    async run(context) {
+      const { proxy } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "[delay=6000] survive an outage");
+      await status(context, task, "working", 60_000);
+      proxy.cut("refuse");
+      await sleep(1_500);
+      proxy.open();
+
+      try {
+        await until("the runner to reconnect", () => proxy.connections() >= 2, 10_000);
+      } catch {
+        throw new Violation("the cloud runner never reconnected after one failed retry");
+      }
+
+      await status(context, task, "done", 20_000);
+      check(!context.main.history(task).some((entry) => entry.startsWith("failed")), "no false failure");
+    }
+  },
+  {
+    name: "cloud-move",
+    expect: "pass",
+    about: "a task queued for an offline computer moves to the cloud machine, which wakes and runs it",
+    async run(context) {
+      const { logs } = await cloudMachine(context);
+      const { machine: away } = await context.machine("cloudaway");
+      await context.runner?.stop();
+      await until("cloudaway to go offline", () => !online(context, "cloudaway"));
+      const task = await startTask(context, "cloudaway", "build it elsewhere");
+      context.main.send({ type: "submit", input: `tool machine ${JSON.stringify({ action: "move", task, machine: CLOUD })}` });
+      await status(context, task, "done", 60_000);
+      check(context.main.task(task)?.worker === CLOUD, `the task moved, got ${context.main.task(task)?.worker}`);
+      check(turns(logs, task).length === 1 && turns(away, task).length === 0, "it ran on the cloud machine only");
+    }
+  },
+  {
+    name: "cloud-push",
+    expect: "pass",
+    about: "the cloud machine clones through ky's GitHub proxy and pushes to ky/*; a push to main is refused",
+    async run(context) {
+      const { git } = await cloudMachine(context);
+      const main = git.head("me/app", "main");
+
+      const script = [
+        "git clone -q https://github.com/me/app.git app",
+        "cd app",
+        "git checkout -qb ky/harness",
+        "echo cloud > cloud.txt",
+        "git add cloud.txt",
+        "git commit -qm cloud",
+        "git push -q origin ky/harness && echo pushed=ky",
+        "git push -q origin HEAD:main; echo main=$?",
+        "git clone -q https://github.com/me/site.git site; echo site=$?"
+      ].join("; ");
+
+      const task = await startTask(context, CLOUD, `[sh] ${script}`);
+      await status(context, task, "done", 60_000);
+      await until("the report", () => context.main.heard("pushed=ky"));
+      check(git.branches("me/app").includes("ky/harness"), `the ky/ branch reached GitHub, got ${git.branches("me/app").join(", ")}`);
+      check(context.main.heard("main=1") && git.head("me/app", "main") === main, "the push to main was refused");
+      check(context.main.heard("site=128"), "a repo not picked in Settings is refused");
     }
   }
 ];

@@ -48,7 +48,13 @@ const Specialist = Type.Unsafe<SpecialistView>(
 );
 
 const Subscription = Type.Unsafe<SubscriptionView>(
-  Type.Object({ kind: Type.Union([Type.Literal("claude"), Type.Literal("chatgpt")]), connected: Type.Boolean(), expiresAt: Type.Union([Type.Number(), Type.Null()]), error: Type.Union([Type.String(), Type.Null()]) })
+  Type.Object({
+    kind: Type.Union([Type.Literal("claude"), Type.Literal("chatgpt"), Type.Literal("github")]),
+    connected: Type.Boolean(),
+    expiresAt: Type.Union([Type.Number(), Type.Null()]),
+    error: Type.Union([Type.String(), Type.Null()]),
+    repos: Type.Optional(Type.Array(Type.String()))
+  })
 );
 
 const Json = Type.Unsafe<JsonValue>(Type.Any());

@@ -34,6 +34,12 @@
         // Every secret ky keeps, and the tokens it hands out (src/vault.ts).
         "name": "Vault",
         "class_name": "Vault"
+      },
+      {
+        // The cloud machine (src/cloud.ts). Its container is attached by `ky deploy` on Workers Paid,
+        // which adds `containers` and KY_CLOUD; without them it is never started.
+        "name": "CloudMachine",
+        "class_name": "CloudMachine"
       }
     ]
   },
@@ -45,6 +51,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["Vault"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["CloudMachine"]
     }
   ],
   "observability": {

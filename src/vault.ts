@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
 import type { ExecutorConnection } from "./executor";
+import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
@@ -52,7 +53,7 @@ type SecretStatus = {
   readonly error?: string;
 };
 
-/** The id each subscription is kept under: `("claude" | "chatgpt", SUBSCRIPTION)`. */
+/** The id each subscription is kept under: `("claude" | "chatgpt" | "github", SUBSCRIPTION)`. */
 export const SUBSCRIPTION = "subscription";
 
 /**
@@ -87,6 +88,8 @@ export class Vault extends DurableObject<Env> {
   now = (): number => Date.now();
   /** OpenAI, as ChatGPT's sign-in and refresh reach it; tests answer instead. */
   openai: Fetch = (input, init) => fetch(input, init);
+  /** GitHub's API, as Settings lists a token's repos; tests answer instead. */
+  github: Fetch = (input, init) => fetch(input, init);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -312,9 +315,35 @@ export class Vault extends DurableObject<Env> {
     return this.#current("executor", agent) as ExecutorConnection | null;
   }
 
-  /** The GitHub token tasks get, and the repos it may touch. CM fills this in. */
-  githubToken(): { token: string; repos: string[] } | null {
-    return null;
+  /**
+   * The GitHub token tasks on the cloud machine get, and the repos (owner/name) it may touch: `gh`
+   * reads it as GH_TOKEN, and the github.internal proxy pushes and fetches with it.
+   */
+  githubToken(): GithubLogin | null {
+    // SAFETY: only setGithub writes ("github", SUBSCRIPTION), each a GithubLogin.
+    return (this.#current("github", SUBSCRIPTION) as GithubLogin | null) ?? null;
+  }
+
+  /** The repos a GitHub token reaches, for Settings to pick from, or why GitHub refused it. */
+  githubRepos(token: string): Promise<{ repos: string[] } | { refused: string }> {
+    return listRepos(this.github, token.trim());
+  }
+
+  /** Keep a GitHub token for the cloud machine, with the repos it may touch: some of those it reaches. */
+  async setGithub(token: string, repos: readonly string[]): Promise<{ refused?: string }> {
+    const listed = await this.githubRepos(token);
+
+    if ("refused" in listed) return listed;
+
+    if (repos.length === 0) return { refused: "Pick at least one repo." };
+    const unknown = repos.filter((repo) => !listed.repos.includes(repo));
+
+    if (unknown.length > 0) return { refused: `The token doesn't reach ${unknown.join(", ")}.` };
+    const login: GithubLogin = { token: token.trim(), repos: [...repos] };
+
+    this.put("github", SUBSCRIPTION, login, { repos: login.repos });
+
+    return {};
   }
 
   /** A new token for `subject`, replacing its last one of this kind; without `ttlMs` it never expires. */

@@ -497,6 +497,9 @@ function useSubscriptionActions(ask: (message: (id: string) => ClientMessage) =>
   return useMemo(
     () => ({
       onSetClaude: (token: string) => ask((id) => ({ type: "set-claude", id, token })).then(refusal),
+      // SAFETY: the server answers github-repos with `{ repos }` or `{ refused }`.
+      onGithubRepos: (token: string) => ask((id) => ({ type: "github-repos", id, token })).then((result) => result as { repos: string[] } | { refused: string }),
+      onSetGithub: (token: string, repos: readonly string[]) => ask((id) => ({ type: "set-github", id, token, repos })).then(refusal),
       onRemove: (kind: SubscriptionKind) => send({ type: "remove-subscription", id: crypto.randomUUID(), kind }),
       // SAFETY: the server answers chatgpt-login with a ChatGptCode or `{ refused }`.
       onChatGptLogin: () => ask((id) => ({ type: "chatgpt-login", id })).then((result) => result as ChatGptCode | { refused: string }),

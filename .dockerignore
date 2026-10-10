@@ -1,0 +1,3 @@
+# The cloud machine's image (container/Dockerfile) needs only the linux ky.
+*
+!dist/bin/ky-linux-x64

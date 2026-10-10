@@ -15,14 +15,16 @@ import { REPO } from "./stack.ts";
  * (KY_RUNNER_TOKEN_FILE), so no Keychain and no launchd agent.
  */
 
-const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
+export const FAKE_CLAUDE = path.join(REPO, "test/fakes/claude.ts");
 
-const FAKE_CODEX = path.join(REPO, "test/fakes/codex.ts");
+export const FAKE_CODEX = path.join(REPO, "test/fakes/codex.ts");
 
 /** `ky`: this checkout's cli/main.ts, or the compiled binary KY_HARNESS_KY names. */
-const [KY, ...KY_ARGS] = process.env.KY_HARNESS_KY
+export const KY_COMMAND: readonly string[] = process.env.KY_HARNESS_KY
   ? [process.env.KY_HARNESS_KY]
   : [process.execPath, "--experimental-strip-types", "--no-warnings", path.join(REPO, "cli/main.ts")];
+
+const [KY, ...KY_ARGS] = KY_COMMAND;
 
 /** What a fake agent CLI logged: a start, a turn, a SIGINT or an exit. */
 const FakeEvent = Type.Object({

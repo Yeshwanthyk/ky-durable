@@ -8,11 +8,13 @@
  * Worker's is refused, a Worker's main module must be among its files, assets need the upload
  * session's completion token, a bucket with objects in it can't be deleted, and an Access app's
  * tags must be the account's already. A wrangler login (WRANGLER_TOKEN) is refused on every Access
- * route, as Cloudflare refuses wrangler's OAuth scopes.
+ * route, as Cloudflare refuses wrangler's OAuth scopes. Containers answer only on a paid account,
+ * and a container app attaches only to a Durable Object class its Worker marks as a container.
  */
 import { createServer, type IncomingMessage } from "node:http";
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
+import { REGISTRY_LOGIN } from "./registry.ts";
 
 const Migration = Type.Object({
   old_tag: Type.Optional(Type.String()),
@@ -41,6 +43,7 @@ const Metadata = Type.Object({
     )
   ),
   migrations: Type.Optional(Migration),
+  containers: Type.Optional(Type.Array(Type.Object({ class_name: Type.String() }))),
   observability: Type.Optional(Type.Object({ enabled: Type.Boolean() })),
   assets: Type.Optional(
     Type.Object({
@@ -60,6 +63,18 @@ const AppBody = Type.Object({
   policies: Type.Array(Type.Object({ name: Type.String(), decision: Type.String(), include: Type.Array(Type.Unknown()) }))
 });
 
+const Configuration = Type.Object({ image: Type.String(), instance_type: Type.Optional(Type.String()) });
+
+const ContainerAppBody = Type.Object({
+  name: Type.String(),
+  max_instances: Type.Number(),
+  instances: Type.Optional(Type.Number()),
+  scheduling_policy: Type.Optional(Type.String()),
+  constraints: Type.Optional(Type.Unknown()),
+  configuration: Configuration,
+  durable_objects: Type.Optional(Type.Object({ namespace_id: Type.String() }))
+});
+
 export type FakeScript = {
   tags: string[];
   migrationTag?: string;
@@ -73,6 +88,8 @@ export type FakeScript = {
 };
 
 export type FakeApp = Static<typeof AppBody> & { id: string; aud: string };
+
+export type FakeContainerApp = Static<typeof ContainerAppBody> & { id: string; rollouts: Static<typeof Configuration>[] };
 
 export type FakeAccount = {
   id: string;
@@ -88,6 +105,10 @@ export type FakeAccount = {
   tags: Set<string>;
   /** Asset hashes uploaded so far. */
   assets: Set<string>;
+  /** Workers Paid: containers answer. */
+  paid: boolean;
+  /** Container apps by id. */
+  containerApps: Map<string, FakeContainerApp>;
 };
 
 export type FakeCloudflare = {
@@ -117,7 +138,7 @@ class Failure extends Error {
 }
 
 export function fakeAccount(id: string, name: string, account: Partial<FakeAccount> = {}): FakeAccount {
-  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), ...account };
+  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), paid: false, containerApps: new Map(), ...account };
 }
 
 async function body(message: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
@@ -323,6 +344,61 @@ function deleteApp({ account, name }: Call) {
   return { id: name };
 }
 
+/** The Durable Object namespaces the Workers' migrations made, as Cloudflare lists them. */
+function namespaceList(account: FakeAccount) {
+  return [...account.scripts].flatMap(([script, { migrations }]) => {
+    const classes = new Set<string>();
+
+    for (const step of migrations.flatMap((migration) => migration.steps)) {
+      for (const made of [...(step.new_sqlite_classes ?? []), ...(step.new_classes ?? [])]) classes.add(made);
+
+      for (const gone of step.deleted_classes ?? []) classes.delete(gone);
+    }
+
+    return [...classes].map((name) => ({ id: `ns-${script}-${name}`, class: name, name: `${script}_${name}`, script, use_sqlite: true }));
+  });
+}
+
+function paid({ account }: Call): void {
+  if (!account.paid) throw new Failure(403, 1000, "Containers are only available on the Workers Paid plan");
+}
+
+function containerApp(found: FakeContainerApp, accountId: string) {
+  const { rollouts: _, ...app } = found;
+
+  return { ...app, account_id: accountId, instances: app.instances ?? 0, scheduling_policy: app.scheduling_policy ?? "default", created_at: "2026-01-01T00:00:00Z", version: found.rollouts.length + 1 };
+}
+
+function containerAppNamed(call: Call): FakeContainerApp {
+  paid(call);
+  const found = call.account.containerApps.get(call.name);
+
+  if (!found) throw new Failure(404, 1609, "Container application not found");
+
+  return found;
+}
+
+/** A new container app: its namespace must exist, have no app yet, and be a container class of its Worker. */
+async function createContainerApp(call: Call) {
+  paid(call);
+  const sent = decode(ContainerAppBody, await call.request.text());
+  const namespaceId = sent.durable_objects?.namespace_id;
+  const namespace = namespaceList(call.account).find((each) => each.id === namespaceId);
+
+  if (!namespace) throw new Failure(400, 1000, "Error checking the application durable object namespace");
+
+  if ([...call.account.containerApps.values()].some((each) => each.durable_objects?.namespace_id === namespaceId))
+    throw new Failure(400, 1608, "DURABLE_OBJECT_ALREADY_HAS_APPLICATION");
+
+  if (!call.account.scripts.get(namespace.script)?.metadata.containers?.some((each) => each.class_name === namespace.class))
+    throw new Failure(400, 1607, "DURABLE_OBJECT_NOT_CONTAINER_ENABLED");
+  const created = { ...sent, id: `container-${call.account.containerApps.size + 1}`, rollouts: [] };
+
+  call.account.containerApps.set(created.id, created);
+
+  return containerApp(created, call.account.id);
+}
+
 /** Every route under /accounts/{id}, by method and path; `:name` is a Worker, bucket or app, `:key` an object. */
 const ROUTES = new Map<string, Handler>([
   ["GET workers/subdomain", subdomain],
@@ -374,7 +450,41 @@ const ROUTES = new Map<string, Handler>([
   ["GET access/apps", ({ account, url }) => new Page([...account.apps.values()].map(app), url)],
   ["POST access/apps", saveApp],
   ["PUT access/apps/:name", saveApp],
-  ["DELETE access/apps/:name", deleteApp]
+  ["DELETE access/apps/:name", deleteApp],
+  ["GET workers/durable_objects/namespaces", ({ account, url }) => new Page(namespaceList(account), url)],
+  ["GET containers/me", (call) => (paid(call), { account_id: call.account.id })],
+  ["GET containers/applications", (call) => (paid(call), [...call.account.containerApps.values()].map((each) => containerApp(each, call.account.id)))],
+  ["POST containers/applications", createContainerApp],
+  [
+    "PATCH containers/applications/:name",
+    async (call) => {
+      const found = containerAppNamed(call);
+
+      found.configuration = decode(Type.Object({ configuration: Configuration }), await call.request.text()).configuration;
+
+      return containerApp(found, call.account.id);
+    }
+  ],
+  [
+    "POST containers/applications/:name/rollouts",
+    async (call) => {
+      const found = containerAppNamed(call);
+
+      found.rollouts.push(decode(Type.Object({ target_configuration: Configuration }), await call.request.text()).target_configuration);
+
+      return containerApp(found, call.account.id);
+    }
+  ],
+  [
+    "DELETE containers/applications/:name",
+    (call) => {
+      containerAppNamed(call);
+      call.account.containerApps.delete(call.name);
+
+      return {};
+    }
+  ],
+  ["POST containers/registries/:name/credentials", (call) => (paid(call), { username: REGISTRY_LOGIN.username, password: REGISTRY_LOGIN.password })]
 ]);
 
 /** The route's handler, by its exact path or with `:name` for the third part and `:key` for the fifth. */
