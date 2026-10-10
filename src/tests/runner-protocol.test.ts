@@ -33,6 +33,8 @@ const settle = () => pause(300);
 /** A `claude -p` stand-in: the test decides what it says and when it exits. */
 class FakeClaude implements AgentProcess {
   readonly resumed: string | null;
+  /** The task token in its env, KY_TASK_TOKEN. */
+  readonly taskToken: string;
   readonly prompts: string[] = [];
   /** Prompts written after it was told to stop; they die with it. */
   readonly afterStop: string[] = [];
@@ -42,8 +44,9 @@ class FakeClaude implements AgentProcess {
   #taken = 0;
   readonly #events: ProcessEvents;
 
-  constructor(resumed: string | null, events: ProcessEvents) {
+  constructor(resumed: string | null, taskToken: string, events: ProcessEvents) {
     this.resumed = resumed;
+    this.taskToken = taskToken;
     this.#events = events;
   }
 
@@ -96,13 +99,16 @@ class FakeClaude implements AgentProcess {
 /** A `codex exec --json` stand-in: one turn, on the prompt it was given before stdin closed. */
 class FakeCodex implements AgentProcess {
   readonly resumed: string | null;
+  /** The task token in its env, KY_TASK_TOKEN. */
+  readonly taskToken: string;
   prompt = "";
   interrupted = false;
   #exited = false;
   readonly #events: ProcessEvents;
 
-  constructor(resumed: string | null, events: ProcessEvents) {
+  constructor(resumed: string | null, taskToken: string, events: ProcessEvents) {
     this.resumed = resumed;
+    this.taskToken = taskToken;
     this.#events = events;
   }
 
@@ -190,15 +196,15 @@ class Mac {
 
   #boot(): Runner {
     return new Runner(
-      (agent, _task, session, events) => {
+      (agent, _task, taskToken, session, events) => {
         if (agent === "codex") {
-          const codex = new FakeCodex(session, events);
+          const codex = new FakeCodex(session, taskToken, events);
           this.codexes.push(codex);
 
           return codex;
         }
 
-        const claude = new FakeClaude(session, events);
+        const claude = new FakeClaude(session, taskToken, events);
         this.claudes.push(claude);
 
         return claude;
@@ -614,6 +620,9 @@ describe("runner protocol", () => {
     expect([third.resumed, third.prompt]).toEqual(["t1", "and ship it"]);
     third.start("t1");
     third.answer("shipped");
+    // Each turn's new process gets the task's one token in its env, as KY_TASK_TOKEN.
+    expect(first.taskToken).not.toBe("");
+    expect([second.taskToken, third.taskToken]).toEqual([first.taskToken, first.taskToken]);
 
     await until("three reports", async () => (await reports(object, id)).length === 3);
     expect(await task(object, id)).toMatchObject({ status: "done", agent: "codex", turns: 3 });
@@ -758,9 +767,9 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     mac.disconnect();
     const id = await start(object);
 
-    // The run as an object of the last protocol queued it: no agent, no task token.
+    // The run as an object of the last protocol queued it: no agent.
     await inside(object, (_agent, state) => {
-      state.storage.sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.agent', '$.taskToken')");
+      state.storage.sql.exec("UPDATE ky_machine_inbox SET payload = json_remove(payload, '$.agent')");
     });
 
     await evictDurableObject(agent(object));
@@ -769,7 +778,7 @@ describe("runner protocol: reports reach the conversation that sent the work", (
       state.storage.sql.exec<{ payload: string }>("SELECT payload FROM ky_machine_inbox").toArray().map((row) => JSON.parse(row.payload))
     );
 
-    expect(queued).toMatchObject([{ type: "run", task: id, agent: "claude", taskToken: "" }]);
+    expect(queued).toMatchObject([{ type: "run", task: id, agent: "claude" }]);
 
     await mac.connect();
     (await mac.claude(0)).answer("built");

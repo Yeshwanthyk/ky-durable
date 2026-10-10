@@ -171,6 +171,13 @@ export class TaskFeed {
     return this.#rows("SELECT * FROM ky_tasks WHERE source = ? ORDER BY created_at DESC LIMIT 1", source)[0];
   }
 
+  /** The ids of the tasks of a kind that ended, last changed at or after `since`. */
+  closedSince(kind: TaskKind, since: number): string[] {
+    return this.#rows("SELECT * FROM ky_tasks WHERE kind = ? AND status NOT IN ('queued', 'working') AND updated_at >= ?", kind, since).map(
+      (task) => task.id
+    );
+  }
+
   /** A worker's queued and working tasks, oldest first. */
   open(kind: TaskKind, worker: string): TaskRow[] {
     return this.#rows(

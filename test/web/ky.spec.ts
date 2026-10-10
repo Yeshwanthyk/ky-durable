@@ -3,7 +3,8 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
-import { TOKEN } from "../harness/stack.ts";
+import { machine as pairable } from "../harness/runner.ts";
+import { REPO, TOKEN } from "../harness/stack.ts";
 
 /**
  * One check per local web feature in FEATURES.md, through the real app in
@@ -468,6 +469,28 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
     await states.getByRole("radio", { name: "On" }).click();
     await expect(states.getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
   }
+});
+
+test("adds a machine with a pairing code, then removes it", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await panel(page).getByRole("button", { name: "Add a machine" }).click();
+  const command = panel(page).getByLabel("Pairing command");
+  await expect(command).toContainText(`node runner/pair.ts ${process.env.KY_STACK_URL}`);
+  await expect(panel(page).getByText(/run this before \d/)).toBeVisible();
+  const code = (await command.textContent())!.trim().split(" ").at(-1)!;
+
+  // The command, run on the new machine.
+  const added = pairable("webadd", `${REPO}/test-results/web-stack`);
+  expect((await added.pair(process.env.KY_STACK_URL!, code)).code).toBe(0);
+  const machine = panel(page).getByRole("listitem").filter({ hasText: "webadd" }).last();
+  await expect(machine).toBeVisible();
+
+  await machine.getByRole("button", { name: "Remove" }).click();
+  const confirm = machine.getByRole("alertdialog", { name: "Remove webadd" });
+  await expect(confirm).toContainText("pair again");
+  await confirm.getByRole("button", { name: "Remove" }).click();
+  await expect(panel(page).getByRole("listitem").filter({ hasText: "webadd" })).toHaveCount(0);
 });
 
 test("shows what a machine task is doing, then how long it took and what it cost", async ({ page }) => {

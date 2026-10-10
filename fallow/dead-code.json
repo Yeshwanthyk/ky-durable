@@ -73,11 +73,13 @@
     "unused-class-member:src/vault.ts:Vault:check",
     "unused-class-member:src/vault.ts:Vault:consume",
     "unused-class-member:src/vault.ts:Vault:githubToken",
+    "unused-class-member:src/vault.ts:Vault:issue",
     "unused-class-member:src/vault.ts:Vault:mint",
     "unused-class-member:src/vault.ts:Vault:put",
     "unused-class-member:src/vault.ts:Vault:refresh",
     "unused-class-member:src/vault.ts:Vault:remove",
     "unused-class-member:src/vault.ts:Vault:revoke",
+    "unused-class-member:src/vault.ts:Vault:revokeAll",
     "unused-class-member:src/vault.ts:Vault:sessionCreds",
     "unused-class-member:src/vault.ts:Vault:status"
   ],

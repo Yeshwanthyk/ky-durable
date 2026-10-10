@@ -11,12 +11,39 @@ import {
 } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { TaskTokens } from "../machines";
 import type { Endpoint } from "../models";
 import server, { type Boundary, PiAgent as ProductionAgent } from "../server";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY } from "./fake-vibeproxy";
+import { Vault as ProductionVault, type TokenKind } from "../vault";
 
-export { Vault } from "../vault";
+/**
+ * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes,
+ * and machine mints it can slow (`slowMachineMints`), to make two pairings race.
+ */
+export class Vault extends ProductionVault {
+  #slow = { count: 0, ms: 0 };
+
+  ahead(ms: number): void {
+    this.now = () => Date.now() + ms;
+  }
+
+  /** Make each of the next `count` machine mints wait `ms` first. */
+  slowMachineMints(count: number, ms: number): void {
+    this.#slow = { count, ms };
+  }
+
+  override async mint(kind: TokenKind, subject: string, ttlMs?: number): Promise<string> {
+    if (kind === "machine" && this.#slow.count > 0) {
+      this.#slow.count -= 1;
+      await scheduler.wait(this.#slow.ms);
+    }
+
+    return super.mint(kind, subject, ttlMs);
+  }
+
+}
 
 /**
  * ky's real composition with fakes at its outside boundary, for the worker
@@ -225,6 +252,32 @@ const NoParameters = Type.Object({});
 /** The real agent with the fakes above, a multiply tool, and gate tools the test opens. */
 export class PiAgent extends ProductionAgent {
   declare readonly boundary: TestBoundary;
+  /** Task token issues still to fail; read only once the hub calls, after this field is set. */
+  #failingIssues = 0;
+
+  /** Fail the next `count` task token issues, as a Vault call that failed: the agent's own catch sees the error. */
+  failIssues(count: number): void {
+    this.#failingIssues = count;
+  }
+
+  /** The task token issues still to fail. */
+  failingIssues(): number {
+    return this.#failingIssues;
+  }
+
+  override taskTokens(): TaskTokens {
+    const tokens = super.taskTokens();
+
+    return {
+      ...tokens,
+      issue: async (task) => {
+        if (this.#failingIssues === 0) return tokens.issue(task);
+        this.#failingIssues -= 1;
+
+        throw new Error("The test agent failed this issue.");
+      }
+    };
+  }
 
   override boundaryFor(): TestBoundary {
     // Runs as the first field initializer: only ctx and env are set.
@@ -330,8 +383,8 @@ export function agents(env: Env): DurableObjectNamespace<PiAgent> {
 
 type Me = DurableObjectStub<PiAgent>;
 
-/** The test routes: method and path, and what they do to the agent `me`. */
-const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
+/** The test routes: method and path, and what they do to the agent `me` or the Vault. */
+const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>>([
   [
     "POST /test/release",
     async (me) => {
@@ -367,7 +420,16 @@ const ROUTES = new Map<string, (me: Me, url: URL) => Promise<Response>>([
 
       return new Response(null, { status: 204 });
     }
-  ]
+  ],
+  [
+    "POST /test/vault-clock",
+    async (_me, url, env) => {
+      // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
+      await (env.Vault as DurableObjectNamespace<Vault>).getByName("owner").ahead(Number(url.searchParams.get("ahead") ?? "0"));
+
+      return new Response(null, { status: 204 });
+    }
+  ],
 ]);
 
 export default {
@@ -383,6 +445,6 @@ export default {
 
     const route = ROUTES.get(`${request.method} ${url.pathname}`);
 
-    return route ? route(agents(env).getByName("me"), url) : new Response("Not found", { status: 404 });
+    return route ? route(agents(env).getByName("me"), url, env) : new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;

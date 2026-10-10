@@ -1,6 +1,7 @@
 /**
  * One user, one secret. The browser signs in once with `KY_TOKEN` and keeps
- * it in an HttpOnly cookie; a runner sends it as a bearer token.
+ * it in an HttpOnly cookie; scripts send it as a bearer token. Runners and
+ * their tasks never use it: they have their own tokens (src/runners.ts).
  */
 
 // The Workers runtime has this; the DOM typings, which win for `crypto`, do not.

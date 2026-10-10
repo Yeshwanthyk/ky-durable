@@ -73,7 +73,11 @@ Mac: ky-runner ──wss /runner/<name>─────────────�
 ## Sign-in
 
 Every request needs the `KY_TOKEN` secret (`src/auth.ts`). The browser signs in once at `/login` and
-gets an HttpOnly cookie for a year. A runner sends the same token as `Authorization: Bearer`.
+gets an HttpOnly cookie for a year. Runners never use it: each machine pairs once and gets its own
+machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`). The Vault
+keeps a machine token's hash only. For a task token it keeps the hash and the nonce the token is derived
+from, with the key in the same storage, so it can derive the token again; task tokens expire a day after
+they were last issued.
 
 ## Setup and deploy
 
@@ -122,18 +126,25 @@ Needs Node 22.6 or later (the runner is TypeScript run directly; before Node 23.
 The runner imports the shared protocol (`src/runner-protocol.ts`) and `typebox`, so run it from a checkout
 of this repo after `pnpm install`.
 
+Pair it once: in ky, Settings → Machines → Add a machine shows a code good for ten minutes. On the
+machine, run the command it shows; it writes the machine token to `~/.config/ky/runner-token` (0600).
+
 ```sh
 pnpm install
+KY_MACHINE=mac node --experimental-strip-types runner/pair.ts https://ky.<account>.workers.dev <code>
 KY_URL=https://ky.<account>.workers.dev \
-KY_TOKEN_FILE=~/.config/ky/token \
 KY_MACHINE=mac \
 node --experimental-strip-types runner/ky-runner.ts
 ```
 
+Remove in the same list revokes the token: the runner exits and says to pair again. Each task's
+agent, `claude` or `codex`, gets only `KY_URL`, `KY_TASK` and `KY_TASK_TOKEN` from ky, never the machine
+token; it still runs as your user, so it could read the token file.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `KY_URL` | (required) | The deployed Worker |
-| `KY_TOKEN` / `KY_TOKEN_FILE` | (one required) | `KY_TOKEN`, inline or read from a file |
+| `KY_RUNNER_TOKEN_FILE` | `~/.config/ky/runner-token` | The machine token from pairing; refused unless only you can read it |
 | `KY_MACHINE` | host name | Name the agent uses for this machine (`[a-z0-9-]`, 32 chars) |
 | `KY_WORKDIR` | `~/ky-work` | Working directory for tasks |
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |

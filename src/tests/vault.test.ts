@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
-import { runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import { ISSUED_TTL_MS } from "../runner-protocol";
 import type { Vault } from "../vault";
 
 /**
@@ -146,6 +147,90 @@ describe("vault", () => {
 
     expect(results.filter((subject) => subject !== null)).toEqual(["code"]);
     expect(await vault.check("pair", code)).toBeNull();
+  });
+
+  it("issues a task its one live token again until it is revoked, then a new one, kept as its hash and nonce", async () => {
+    const vault = fresh();
+    const [first, racing] = await Promise.all([vault.issue("task", "t1"), vault.issue("task", "t1")]);
+    const other = await vault.issue("task", "t2");
+
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(racing).toBe(first);
+    expect(await vault.issue("task", "t1")).toBe(first);
+    expect(other).not.toBe(first);
+    expect(await vault.check("task", first)).toBe("t1");
+
+    // An eviction loses nothing it needs: the token comes again from what is stored.
+    await evictDurableObject(vault);
+    expect(await vault.issue("task", "t1")).toBe(first);
+
+    const stored = await inside(vault, (_instance, state) =>
+      JSON.stringify([
+        state.storage.sql.exec("SELECT * FROM ky_vault_tokens").toArray(),
+        state.storage.sql.exec("SELECT * FROM ky_vault_keys").toArray()
+      ])
+    );
+
+    expect(stored).not.toContain(first);
+    expect(stored).not.toContain(other);
+
+    await vault.revoke("task", "t1");
+    expect(await vault.check("task", first)).toBeNull();
+    const next = await vault.issue("task", "t1");
+    expect(next).not.toBe(first);
+    expect(await vault.check("task", next)).toBe("t1");
+  });
+
+  it("lets an issued token expire a day after its last issue", async () => {
+    const vault = fresh();
+
+    await inside(vault, async (instance) => {
+      let clock = 1_000_000;
+      instance.now = () => clock;
+      const token = await instance.issue("task", "t1");
+      clock += ISSUED_TTL_MS - 1;
+
+      // Issued again just before it ends: a new day from now.
+      expect(await instance.issue("task", "t1")).toBe(token);
+      clock += ISSUED_TTL_MS - 1;
+
+      expect(await instance.check("task", token)).toBe("t1");
+      clock += 1;
+
+      expect(await instance.check("task", token)).toBeNull();
+      expect(await instance.issue("task", "t1")).not.toBe(token);
+    });
+  });
+
+  it("lets a revoke that comes while an issue derives its token win: the issue stores a new one after it", async () => {
+    const vault = fresh();
+
+    await inside(vault, async (instance) => {
+      const first = await instance.issue("task", "t1");
+      const issuing = instance.issue("task", "t1");
+      // The issue is deriving; it has read nothing yet.
+      instance.revoke("task", "t1");
+      const next = await issuing;
+
+      expect(next).not.toBe(first);
+      expect(await instance.check("task", first)).toBeNull();
+      expect(await instance.check("task", next)).toBe("t1");
+    });
+  });
+
+  it("revokes the issued tokens of all the subjects named, and no others", async () => {
+    const vault = fresh();
+    const one = await vault.issue("task", "t1");
+    const two = await vault.issue("task", "t2");
+    const three = await vault.issue("task", "t3");
+    const machine = await vault.mint("machine", "t1");
+
+    await vault.revokeAll("task", ["t1", "t3", "t9"]);
+
+    expect(await vault.check("task", one)).toBeNull();
+    expect(await vault.check("task", two)).toBe("t2");
+    expect(await vault.check("task", three)).toBeNull();
+    expect(await vault.check("machine", machine)).toBe("t1");
   });
 
   it("shares one refresh among concurrent callers and stores its result", async () => {

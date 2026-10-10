@@ -5,6 +5,7 @@
     "cli/binary.ts",
     "runner/ky-runner.ts",
     "runner/ky-diff.ts",
+    "runner/pair.ts",
     "test/fakes/claude.ts",
     "test/fakes/codex.ts",
     "test/web/global-setup.ts",

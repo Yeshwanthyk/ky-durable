@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocket as Socket } from "ws";
 import type { FileRow, TaskRow } from "../../src/protocol.ts";
@@ -6,7 +6,7 @@ import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } 
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";
 import { type Proxy, startProxy } from "./proxy.ts";
-import { type FakeEvent, machine, type Machine, type Runner } from "./runner.ts";
+import { type FakeEvent, machine, type Machine, pairingCode, type Runner } from "./runner.ts";
 import { TOKEN } from "./stack.ts";
 
 /**
@@ -30,7 +30,9 @@ export type Context = {
   /** A directory for this scenario's machines and logs. */
   dir: string;
   main: Client;
-  /** A machine and its runner, connected through a fresh proxy, online once this resolves. */
+  /** A machine paired with a fresh code, through `through` or a proxy of its own; its runner not started. */
+  paired: (name: string, through?: Proxy) => Promise<Machine>;
+  /** A machine and its runner, paired and connected through a fresh proxy, online once this resolves. */
   machine: (name: string, env?: Record<string, string>) => Promise<{ machine: Machine; proxy: Proxy }>;
   /** The scenario's runner, stopped when it ends. */
   runner: Runner | undefined;
@@ -179,6 +181,11 @@ function flipped(history: readonly string[]): boolean {
   return first !== -1 && first < statuses.length - 1;
 }
 
+/** Delete a machine as the user does in Settings; resolves with the HTTP status. */
+async function removeMachine(context: Context, name: string): Promise<number> {
+  return (await fetch(`${context.url}/api/runners/${name}`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } })).status;
+}
+
 export const SCENARIOS: Scenario[] = [
   {
     name: "chat",
@@ -270,6 +277,99 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
+    name: "pair",
+    expect: "pass",
+    about: "runner/pair.ts trades a code for a machine token, kept 0600, and ky lists the machine",
+    async run(context) {
+      const proxy = await startProxy(context.url);
+      context.cleanup.push(() => proxy.close());
+      const box = machine("paired", context.dir);
+      const paired = await box.pair(proxy.url, await pairingCode(context.url));
+      check(paired.code === 0 && paired.output.includes("Paired as paired."), `pair.ts paired, got ${paired.code}: ${paired.output}`);
+      const mode = statSync(box.tokenFile).mode & 0o777;
+      check(mode === 0o600, `the token file is 0600, got ${mode.toString(8)}`);
+      check(!paired.output.includes(readFileSync(box.tokenFile, "utf8").trim()), "pair.ts never prints the token");
+      await until("the paired machine in the list", () => {
+        const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+        return latest?.type === "tasks" && latest.machines.some((each) => each.name === "paired");
+      });
+      context.runner = box.launch(context.url);
+      await until("the runner online with its token", () => online(context, "paired"));
+    }
+  },
+  {
+    name: "pair-code-once",
+    expect: "pass",
+    about: "a code pairs one machine; the same code again, or a made-up one, is refused and writes no token",
+    async run(context) {
+      const proxy = await startProxy(context.url);
+      context.cleanup.push(() => proxy.close());
+      const code = await pairingCode(context.url);
+      check((await machine("first", context.dir).pair(proxy.url, code)).code === 0, "the first machine paired");
+
+      for (const [name, tried] of [["second", code], ["guess", "not-a-code"]] as const) {
+        const other = machine(name, context.dir);
+        const refused = await other.pair(proxy.url, tried);
+        check(refused.code === 1 && refused.output.includes("wrong, used or expired"), `${name} was refused, got ${refused.code}: ${refused.output}`);
+        check(!existsSync(other.tokenFile), `${name} has no token file`);
+      }
+    }
+  },
+  {
+    name: "pair-code-expired",
+    expect: "pass",
+    about: "a code past its ten minutes is refused and writes no token",
+    async run(context) {
+      const proxy = await startProxy(context.url);
+      context.cleanup.push(() => proxy.close());
+      const code = await pairingCode(context.url);
+      await testRoute(context, `/test/vault-clock?ahead=${10 * 60_000 + 1}`);
+      context.cleanup.push(() => testRoute(context, "/test/vault-clock?ahead=0"));
+      const late = machine("late", context.dir);
+      const refused = await late.pair(proxy.url, code);
+      check(refused.code === 1 && refused.output.includes("wrong, used or expired"), `the expired code was refused, got ${refused.code}: ${refused.output}`);
+      check(!existsSync(late.tokenFile), "no token file");
+    }
+  },
+  {
+    name: "token-file-loose",
+    expect: "pass",
+    about: "a runner refuses a machine token file others can read, and says to chmod it",
+    async run(context) {
+      const loose = await context.paired("loose");
+      chmodSync(loose.tokenFile, 0o644);
+      const runner = loose.launch(context.url);
+      context.runner = runner;
+      await until("the runner to exit", () => runner.exitCode() !== null);
+      check(runner.exitCode() === 1, `exited 1, got ${runner.exitCode()}`);
+      check(runner.output().includes("run chmod 600"), `said to chmod it, got ${runner.output()}`);
+    }
+  },
+  {
+    name: "remove-machine",
+    expect: "pass",
+    about: "removing a machine ends its task, and its runner exits saying to pair again; its token is refused after",
+    async run(context) {
+      const { machine: gone } = await context.machine("gone");
+      const task = await startTask(context, "gone", "[delay=30000] a long job");
+      await status(context, task, "working");
+      check((await removeMachine(context, "gone")) === 204, "the machine was removed");
+      const runner = context.runner!;
+      await until("the runner to exit", () => runner.exitCode() !== null);
+      check(runner.exitCode() === 1, `exited 1, got ${runner.exitCode()}`);
+      check(runner.output().includes("Pair again"), `said to pair again, got ${runner.output()}`);
+      await status(context, task, "failed");
+      check((await removeMachine(context, "gone")) === 404, "a second remove finds no machine");
+
+      // A runner started again with the old token exits the same way.
+      const again = gone.launch(context.url);
+      context.runner = again;
+      await until("the relaunched runner to exit", () => again.exitCode() !== null);
+      check(again.exitCode() === 1 && again.output().includes("Pair again"), `the old token is refused, got ${again.output()}`);
+    }
+  },
+  {
     name: "machine-run",
     expect: "pass",
     about: "a machine task runs on the real runner and its result reaches the main agent",
@@ -280,6 +380,9 @@ export const SCENARIOS: Scenario[] = [
       check(turns(mac, task).length === 1, "the task ran once");
       await until("the report", () => context.main.heard("fake claude did: build the thing"));
       check(context.main.heard(`task ${task}`), "the report names the task");
+      // claude gets ky's address and its task's own token, never the machine token or the user's.
+      const ky = mac.claude().find((event) => event.event === "start" && event.task === task)?.ky;
+      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `claude's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
     }
   },
   {
@@ -314,7 +417,9 @@ export const SCENARIOS: Scenario[] = [
     expect: "pass",
     about: "a runner of another protocol is told goodbye with the protocol ky speaks, and its socket closes as outdated",
     async run(context) {
-      const socket = new Socket(`${context.url.replace(/^http/, "ws")}${RUNNER_PATH}old`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      const old = await context.paired("old");
+      const token = readFileSync(old.tokenFile, "utf8").trim();
+      const socket = new Socket(`${context.url.replace(/^http/, "ws")}${RUNNER_PATH}old`, { headers: { Authorization: `Bearer ${token}` } });
       const frames: ObjectFrame[] = [];
       let closedBy: number | undefined;
       context.cleanup.push(() => socket.close());
@@ -341,8 +446,9 @@ export const SCENARIOS: Scenario[] = [
     async run(context) {
       const proxy = await startProxy(context.url);
       context.cleanup.push(() => proxy.close());
+      const newer = await context.paired("newer", proxy);
       proxy.speak(PROTOCOL + 1);
-      const runner = machine("newer", context.dir).launch(proxy.url);
+      const runner = newer.launch(proxy.url);
       context.runner = runner;
 
       await until("the runner to exit", () => runner.exitCode() !== null);
@@ -500,13 +606,16 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "codex-attach",
     expect: "pass",
-    about: "a Codex task's commands get KY_TOKEN, which Codex drops by default, so ky-attach shares a screenshot",
+    about: "a Codex task's commands get KY_TASK_TOKEN, which Codex drops by default, so ky-attach shares a screenshot; never the machine token",
     async run(context) {
-      await context.machine("codexshots");
+      const { machine: shots } = await context.machine("codexshots");
       const task = await startCodex(context, "codexshots", "[attach] screenshot the page");
       await status(context, task, "done");
       const file = sharedBy(context, task);
       check(file?.caption === "a fake screenshot", "the task lists the screenshot");
+      // codex gets ky's address and its task's own token, never the machine token or the user's.
+      const ky = shots.codex().find((event) => event.event === "start" && event.task === task)?.ky;
+      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `codex's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
     }
   },
   {

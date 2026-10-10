@@ -772,15 +772,23 @@ describe("machine tasks", () => {
     const run = await mac.run();
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
 
-    const upload = (task: string, type = "image/png") =>
+    const upload = (task: string, type = "image/png", token = run.taskToken) =>
       call(`/api/files?task=${task}`, {
         method: "PUT",
         body: png,
-        headers: { "Content-Type": type, "Content-Length": String(png.byteLength), "X-Ky-Name": "shot.png", "X-Ky-Caption": "the page" }
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": type,
+          "Content-Length": String(png.byteLength),
+          "X-Ky-Name": "shot.png",
+          "X-Ky-Caption": "the page"
+        }
       });
 
     expect((await upload(run.task, "image/svg+xml")).status).toBe(415);
-    expect((await upload("not-a-task")).status).toBe(404);
+    // Only the task's own token: not for another task, and not the user's sign-in.
+    expect((await upload("not-a-task")).status).toBe(401);
+    expect((await upload(run.task, "image/png", TOKEN)).status).toBe(401);
 
     const uploaded = await upload(run.task);
     expect(uploaded.status).toBe(200);
@@ -811,7 +819,7 @@ describe("machine tasks", () => {
       call(`/api/files?task=${run.task}`, {
         method: "PUT",
         body: size === patch.byteLength ? patch : new Uint8Array(size),
-        headers: { "Content-Type": "text/x-diff", "Content-Length": String(size), "X-Ky-Name": "ky.diff", "X-Ky-Caption": encodeURIComponent("ky · fix") }
+        headers: { Authorization: `Bearer ${run.taskToken}`, "Content-Type": "text/x-diff", "Content-Length": String(size), "X-Ky-Name": "ky.diff", "X-Ky-Caption": encodeURIComponent("ky · fix") }
       });
 
     expect((await upload(2 * 1024 * 1024 + 1)).status).toBe(413);

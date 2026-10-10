@@ -128,7 +128,14 @@ process.on("SIGINT", () => {
   process.exit(130);
 });
 
-record("start", { resume: resume ?? "", home, auth: authLink(), instructions: args.some((arg) => arg.startsWith("developer_instructions=")) ? 1 : 0 });
+// Which of ky's variables the runner gave it, by name only: never a token's value.
+record("start", {
+  resume: resume ?? "",
+  home,
+  auth: authLink(),
+  instructions: args.some((arg) => arg.startsWith("developer_instructions=")) ? 1 : 0,
+  ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
+});
 
 let prompt = "";
 

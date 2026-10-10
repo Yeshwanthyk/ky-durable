@@ -194,7 +194,8 @@ describe("ky init and deploy", () => {
         { type: "worker_loader", name: "LOADER" },
         { type: "r2_bucket", name: "FILES", bucket_name: "ky-files" },
         { type: "durable_object_namespace", name: "PiAgent", class_name: "PiAgent" },
-        { type: "durable_object_namespace", name: "Vault", class_name: "Vault" }
+        { type: "durable_object_namespace", name: "Vault", class_name: "Vault" },
+        { type: "ratelimit", name: "PAIR_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } }
       ])
     );
     expect([text("ACCESS_TEAM_DOMAIN"), text("ACCESS_EMAILS")]).toEqual(["test.cloudflareaccess.com", EMAIL]);

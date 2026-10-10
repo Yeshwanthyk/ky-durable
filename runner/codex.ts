@@ -16,7 +16,7 @@ import { describeTool } from "../src/tool-labels.ts";
 /**
  * Flags every `codex exec` takes: JSON events, run anywhere, nothing to
  * approve. Its commands get the whole environment the runner gives it,
- * KY_TOKEN and KY_TASK too, which ky-attach and ky-diff need: by default
+ * KY_TASK_TOKEN and KY_TASK too, which ky-attach and ky-diff need: by default
  * Codex drops every variable named like a token, key or secret. And its
  * home keeps only what a follow-up resumes from: no prompt history, no
  * plugins synced in, no memories.

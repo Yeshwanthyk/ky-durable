@@ -13,13 +13,14 @@ import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { EXECUTOR_NOT_SET_UP, type ExecutorConfig, executorExtension } from "./executor";
-import { download, type FileRow, FileStore, upload } from "./files";
+import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
-import { MachineHub, machineExtension } from "./machines";
+import { MachineHub, machineExtension, type TaskTokens } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { CLAUDE_MODEL, CLAUDE_SMALL, type Endpoint, kyDefaults, Models, opencodeGo } from "./models";
 import { preamble } from "./prompt";
-import { RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
+import type { MachineFacts } from "./runner-protocol";
+import { ownerRoute, tokenRoute } from "./runners";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Dreaming, DREAM_CRON } from "./dreaming";
@@ -127,7 +128,8 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.storage.sql,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
-    this.files
+    this.files,
+    this.taskTokens()
   );
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
@@ -297,6 +299,17 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
+  /** The hub's task tokens: the Vault's. Runs as a field initializer, so only ctx and env are set; tests wrap it. */
+  taskTokens(): TaskTokens {
+    const vault = () => this.env.Vault.getByName("owner");
+
+    return {
+      issue: (task) => vault().issue("task", task),
+      revoke: (task) => vault().revoke("task", task),
+      revokeAll: (tasks) => vault().revokeAll("task", tasks)
+    };
+  }
+
   /**
    * Production's boundary: OpenCode Go, Browser Rendering, and VibeProxy's tunnel and Executor when this deploy
    * has their vars and secrets (wrangler.local.example.jsonc).
@@ -318,6 +331,8 @@ export class PiAgent extends DurableObject<Env> {
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.
     this.ctx.waitUntil(this.machines.post());
+    // Task tokens whose revoke a failure or a restart lost.
+    this.ctx.waitUntil(this.machines.sweepTokens());
     await this.claude?.reachable();
     await this.applyMain();
     await this.automations.recover();
@@ -333,6 +348,26 @@ export class PiAgent extends DurableObject<Env> {
     this.files.record(file);
 
     return null;
+  }
+
+  /**
+   * A runner paired as `machine`, with the pairing id its new token names;
+   * a runner already connected under that name has an old token, so it goes.
+   * Returns the pairing replaced, whose token the caller revokes.
+   */
+  pairMachine(machine: string, facts: MachineFacts, pairing: string): string | null {
+    const previous = this.machines.paired(machine, facts, pairing);
+    this.sockets.revokeRunner(machine, `${machine} was paired again, so this runner's token no longer works; pair it again.`);
+
+    return previous;
+  }
+
+  /** Forget a machine the user removed; its pairing, whose token the caller revokes, or undefined if ky never knew it. */
+  async removeMachine(machine: string): Promise<{ pairing: string | null } | undefined> {
+    if (this.machines.machine(machine) === undefined) return undefined;
+    this.sockets.revokeRunner(machine, `${machine} was removed from ky; pair it again to use it.`);
+
+    return { pairing: await this.machines.remove(machine) };
   }
 
   /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
@@ -393,15 +428,6 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
-/** A runner's socket goes to the user's one agent, which tags it as the machine its path names. */
-function runnerRoute(request: Request, env: Env, url: URL): Promise<Response> | Response {
-  if (!runnerPathMachine(url.pathname)) return new Response("Not found", { status: 404 });
-
-  if (request.headers.get("Upgrade") !== "websocket") return new Response("Upgrade Required", { status: 426 });
-
-  return env.PiAgent.getByName("me").fetch(request);
-}
-
 /** Answers for anyone, signed in or not: the sign-in page, and what iOS needs to add ky to the Home Screen. */
 function openRoute(request: Request, env: Env, url: URL): Promise<Response> | Response | undefined {
   if (url.pathname === "/login") return request.method === "POST" ? login(request, env) : loginPage();
@@ -420,6 +446,11 @@ export default {
 
     if (open) return open;
 
+    // Runners and their tasks sign in with their own tokens (src/runners.ts), and never with the user's.
+    const runner = tokenRoute(request, env, url);
+
+    if (runner) return runner;
+
     if (!(await authenticate(request, env))) {
       if (request.headers.get("Upgrade") === "websocket" || url.pathname.startsWith("/api/")) {
         return new Response("Unauthorized", { status: 401 });
@@ -428,11 +459,9 @@ export default {
       return Response.redirect(new URL("/login", url).toString(), 302);
     }
 
-    if (url.pathname.startsWith(RUNNER_PATH)) return runnerRoute(request, env, url);
+    const owner = ownerRoute(request, env, url);
 
-    if (url.pathname === "/api/files") {
-      return upload(request, env.FILES, (file) => env.PiAgent.getByName("me").attachFile(file));
-    }
+    if (owner) return owner;
 
     const file = /^\/api\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
 

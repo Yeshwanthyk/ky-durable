@@ -184,7 +184,8 @@ process.on("SIGINT", () => {
   }, sigintDelay);
 });
 
-record("start", { resume: resume ?? "" });
+// Which of ky's variables the runner gave it, by name only: never a token's value.
+record("start", { resume: resume ?? "", ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",") });
 
 emit({ type: "system", subtype: "init" });
 

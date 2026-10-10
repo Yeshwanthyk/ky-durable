@@ -7,6 +7,7 @@ import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import {
   decodeObjectFrame,
   type MachineFacts,
+  PAIRING_HEADER,
   PROTOCOL,
   RUNNER_PATH,
   type RunCommand,
@@ -37,6 +38,34 @@ export function call(path: string, init: RequestInit = {}, origin = ORIGIN): Pro
   return SELF.fetch(`${origin}${path}`, { ...init, headers });
 }
 
+/** A pairing code, as the signed-in user makes one in Settings. */
+export async function pairingCode(): Promise<{ code: string; expiresAt: number }> {
+  const response = await call("/api/runners/codes", { method: "POST" });
+  expect(response.status).toBe(200);
+
+  return response.json();
+}
+
+/**
+ * Pair as a runner does, signed in with nothing, from the address `from`; a
+ * fresh one by default, so only a test that means to meets the rate limit.
+ */
+export function pair(body: { code: string; name: string; facts: object }, from: string = crypto.randomUUID()): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/runners/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": from },
+    body: JSON.stringify(body)
+  });
+}
+
+/** A machine token for `machine`, from a code and a pairing. */
+export async function machineToken(machine: string): Promise<string> {
+  const response = await pair({ code: (await pairingCode()).code, name: machine, facts: FACTS });
+  expect(response.status).toBe(200);
+
+  return (await response.json<{ token: string }>()).token;
+}
+
 /** Accept the WebSocket a fetch upgraded to. */
 function accepted(response: Response): WebSocket {
   expect(response.status).toBe(101);
@@ -51,11 +80,28 @@ export async function connect(name: string, query = "", origin = ORIGIN): Promis
   return accepted(await call(`/agents/pi-agent/${name}${query}`, { headers: { Upgrade: "websocket" } }, origin));
 }
 
-/** A runner's WebSocket to the agent `name`, as the machine `machine`, past the Worker's route to "me". */
-export async function connectRunner(name: string, machine: string): Promise<WebSocket> {
-  const request = new Request(`${ORIGIN}${RUNNER_PATH}${machine}`, { headers: { Upgrade: "websocket" } });
+/** The machine's pairing on the agent `name`, as `POST /api/runners/pair` leaves one; a new one if it has none. */
+export function pairing(name: string, machine: string): Promise<string> {
+  return inside(name, (instance, state) => {
+    const [row] = state.storage.sql.exec<{ pairing: string | null }>("SELECT pairing FROM ky_machines WHERE name = ?", machine).toArray();
 
-  return accepted(await agent(name).fetch(request));
+    if (row?.pairing) return row.pairing;
+    const fresh = crypto.randomUUID();
+    instance.machines.paired(machine, FACTS, fresh);
+
+    return fresh;
+  });
+}
+
+/**
+ * A runner's WebSocket to the agent `name`, as the machine `machine`, past
+ * the Worker's route to "me": with the header the Worker adds, naming the
+ * machine's pairing, or `as`.
+ */
+export async function connectRunner(name: string, machine: string, as?: string): Promise<WebSocket> {
+  const headers = { Upgrade: "websocket", [PAIRING_HEADER]: as ?? (await pairing(name, machine)) };
+
+  return accepted(await agent(name).fetch(new Request(`${ORIGIN}${RUNNER_PATH}${machine}`, { headers })));
 }
 
 /** A Mac with Claude Code signed in, as ky-runner reports one. */

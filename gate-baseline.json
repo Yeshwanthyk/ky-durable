@@ -866,6 +866,106 @@
     },
     {
       "check": "worker-e2e",
+      "name": "pairing a machine lists the machine with what it said, and its token opens its socket",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "pairing a machine takes a code once, even from two runners at the same moment",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "pairing a machine refuses a code after its ten minutes",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "pairing a machine refuses a bad name or facts without spending the code, and floods from one address",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "pairing a machine makes codes and removes machines only for the signed-in user",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine says goodbye and closes its socket with REVOKED, ends its tasks, and refuses its token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine turns away a socket whose token the Worker took just before the remove, and keeps no machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine turns away a hello that comes after the remove on a socket taken before it, and keeps no machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "removing a machine turns away the last pairing's socket once the machine pairs again, and takes the new one",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "pairing one name twice at the same moment leaves only the winning pairing's token working",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "a machine token from before pairings had ids is gone once the Vault starts",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "the methods of the runner routes answers 405 to anything but POST on the codes path, and never takes it for a machine",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens are the task's alone, last through a follow-up, and stop when the task ends",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens refuse an upload with another task's token after the first ends",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens are revoked when the agent starts, for a task that ended and whose revoke was lost",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens survive the start's sweep while a follow-up runs after a stop, though the task shows as ended",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens survive the start's sweep for an open task",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens deliver a run again, a moment later, after the Vault failed to issue its token",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens wait for the next hello once every retry of a delivery failed",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "task tokens are the same in a resend after the agent restarts, and never kept in the agent's storage",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "skills creates, opens, patches and reverts a skill, keeping every version",
       "outcome": "passed"
     },
@@ -926,7 +1026,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the runner's WebSocket goes through the Worker, signed in, to the one agent, as the machine its path names",
+      "name": "the runner's WebSocket goes through the Worker, with its own machine token, to the one agent, as the machine its path names",
       "outcome": "passed"
     },
     {
@@ -936,7 +1036,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the runner's WebSocket keeps no machine for a runner that never says a valid hello",
+      "name": "the runner's WebSocket keeps no machine for a socket whose machine was never paired, or that never says a valid hello",
       "outcome": "passed"
     },
     {
@@ -1051,6 +1151,26 @@
     },
     {
       "check": "worker-e2e",
+      "name": "vault issues a task its one live token again until it is revoked, then a new one, kept as its hash and nonce",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault lets an issued token expire a day after its last issue",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault lets a revoke that comes while an issue derives its token win: the issue stores a new one after it",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
+      "name": "vault revokes the issued tokens of all the subjects named, and no others",
+      "outcome": "passed"
+    },
+    {
+      "check": "worker-e2e",
       "name": "vault shares one refresh among concurrent callers and stores its result",
       "outcome": "passed"
     },
@@ -1107,6 +1227,31 @@
     {
       "check": "harness",
       "name": "dreaming",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pair",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pair-code-once",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "pair-code-expired",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "token-file-loose",
+      "outcome": "PASS"
+    },
+    {
+      "check": "harness",
+      "name": "remove-machine",
       "outcome": "PASS"
     },
     {
@@ -1312,6 +1457,11 @@
     {
       "check": "web",
       "name": "pauses a machine and notes what it is for in Settings, and the agent is refused it",
+      "outcome": "passed"
+    },
+    {
+      "check": "web",
+      "name": "adds a machine with a pairing code, then removes it",
       "outcome": "passed"
     },
     {

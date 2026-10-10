@@ -155,10 +155,19 @@ outside Access. The Worker checks the token against the Vault and routes the soc
 | Route | Auth | What it does |
 |---|---|---|
 | `POST /api/runners/codes` | Access | Returns `{ code, expiresAt }`. 10 minutes, single use. |
-| `POST /api/runners/pair` | none | Body `{ code, name, facts }`; returns `{ machine, token }`. Rate limited. |
-| `DELETE /api/runners/<machine>` | Access | Revokes the token and closes the socket. |
+| `POST /api/runners/pair` | none | Body `{ code, name, facts }`; returns `{ machine, token }`. Rate limited: 10 a minute per `CF-Connecting-IP`, the `PAIR_LIMIT` Workers rate-limit binding (429). A bad name or facts is a 400 and leaves the code unspent; a wrong, used or expired code is a 401. |
+| `DELETE /api/runners/<machine>` | Access | Forgets the machine, closes the socket and revokes the token. 204, or 404 for no such machine. Any method but `POST` on `/api/runners/codes` is a 405. |
 | `POST /api/files?task=<id>` | `Bearer <taskToken>` | Matched to the task. |
-| `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. |
+| `GET /runner/<machine>` | `Bearer <machine token>` | The runner socket. The token is checked before the upgrade: a bad one is a 401 even without `Upgrade`, so a runner can probe it with a plain GET; a good one without `Upgrade` is a 426. |
+
+**Pairings (added by T):** each pairing gets a random id, which the agent keeps in the machine's `ky_machines` row.
+The row is the machine's paired state: pairing writes it, remove deletes it, and a hello only updates it. The
+machine token's subject is `<machine>:<pairing>`. The Worker passes the pairing to the agent in `X-Ky-Pairing`, and
+the agent takes the socket, and later its hello, only if that pairing is still the machine's. Otherwise it sends
+`goodbye` and closes with 4401. So a remove or a new pairing that lands between the Worker's token check and the
+socket's hello brings nothing back. `/pair` mints the new token before the agent takes the pairing, then revokes
+the token of the pairing it replaced. So of two pairings of one name racing, the later write revokes the earlier
+one's token, which already exists.
 
 **Access bypass paths:** `/runner/*`, `/api/runners/pair`, `/api/files`, `/manifest.webmanifest`, `/icons/*`.
 `BYPASS` in `cli/deployer.ts` holds this list; the deployer's bypass app covers exactly it, so A's check must match it.
@@ -190,7 +199,11 @@ mint(kind, subject, ttlMs?): string                          // returns raw once
 check(kind, token): subject | null                           // a lookup by hash
 consume(kind, token): subject | null                         // check, and delete it: single use, one winner when callers race
 revoke(kind, subject): void
+issue("task", subject): string                              // added by T: the subject's live token again, or a new one if none; never replaces
+revokeAll("task", subjects: string[]): void                  // added by T: revoke each subject's token
 ```
+
+- **`issue` (added by T):** a task's token has to reach the runner again in every resend and follow-up while the task lives, without the agent keeping it. So the Vault stores a random nonce with the token's hash, and derives the token as HMAC-SHA256 of the nonce under a key it keeps (`ky_vault_keys`). The key and the nonce are in the same SQLite, so the Vault can derive an issued token again whenever it likes: unlike a minted token, an issued one is as safe as the Vault's storage, not only as its hash. `issue` derives it again while the row is live; once it is revoked or expired it makes a new one. Every await comes before its read and write of the row, so racing calls share one token, and a revoke that lands while it derives wins. Each issue sets the token to expire `ISSUED_TTL_MS` (24 hours, `src/runner-protocol.ts`) from now: a resend refreshes it, so it outlives any turn, and a revoke that was lost leaves a token that works for a day at most. `check` and `revoke` work on it as on a minted token.
 
 - **Pair codes:** each one is minted with a fresh random subject (for example `crypto.randomUUID()`), so codes outstanding at once never replace each other, and is redeemed with `consume`.
 - **`refresh(kind, id, fn)` is internal**, used inside the Vault only (by `sessionCreds`): its callback can't cross the typed RPC stub. It is a CAS on the secret's generation, which every `put` and every successful refresh bump. Callers of one generation share one `fn`. A `put` or `remove` that lands first wins, and the refresh answers with what is stored now, or null, whether `fn` succeeded or failed.
@@ -355,7 +368,19 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
   - Code from `mint("pair", crypto.randomUUID(), ttl)`, redeemed with `consume("pair", code)` and exchanged for
     `mint("machine", name)`.
   - Revoke closes the live socket with `goodbye` and 4401.
-- **Task tokens:** `run` carries `taskToken = mint("task", taskId)`, revoked when the task ends.
+- **Task tokens:** `run` carries `taskToken = issue("task", taskId)` (C4), issued as each run is sent so the agent
+  never stores it, and revoked when the task ends.
+  - Revokes are best effort, so the agent also sweeps at start: `revokeAll("task", …)` with its machine tasks that
+    ended within `ISSUED_TTL_MS` and are over by the rule the end revoke uses: every turn reported over, and no run
+    of the task in the inbox. Status alone is not enough: a stop with a follow-up queued sets the task stopped while
+    the follow-up turn runs with the same token. A token of a task that ended earlier has expired. The sweep names
+    only the agent's own tasks, because the one Vault serves every agent object.
+  - A delivery whose `issue` fails is tried again 1, 2, 4, 8 and 16 seconds later, while the inbox keeps the runs.
+    After that, the runner's next hello (it says one on every connect) or the next command for the machine delivers.
+    A retry is a timer in memory, so an eviction loses it, and the runs wait the same way.
+- **Pairings:** see C2. A machine row with no pairing, from before T, is listed but refused until the machine pairs
+  again. A machine token from before T has the subject `<machine>`, with no pairing. No route takes it, and the
+  Vault deletes it when it starts.
 - **Uploads:** `/api/files` checks the token. `ky-attach` and `ky-diff` use `KY_TASK_TOKEN`.
 - **Runner:**
   - Reads its machine token from `KY_RUNNER_TOKEN_FILE` (default `~/.config/ky/runner-token`, mode 0600).
@@ -364,8 +389,10 @@ At most four sessions run at once (wave 2). The longest chain is R1 → T → S 
 - **UI:** Machines panel gets "Add a machine", which shows the code and the command (`ky runner add <url> <code>`;
   until C exists, a `node runner/pair.ts <url> <code>` helper). It also gets "Remove". Use the current panel's
   look.
-- **Fallow:** remove the `unused-class-member:src/vault.ts:Vault:*` entries R3 added to `fallow/dead-code.json`
-  (every one that has a caller by then; the rest go with the node that adds their caller).
+- **Fallow:** the `unused-class-member:src/vault.ts:Vault:*` entries stay in `fallow/dead-code.json`, and T adds
+  `issue` and `revokeAll`. fallow does not follow calls through a Durable Object stub into a class declared outside the Worker's
+  entry (it counts `PiAgent`'s members only because `src/server.ts` declares it), so `mint`, `check`, `consume`,
+  `revoke`, `issue` and `revokeAll` look unused even with T's callers in `src/runners.ts`.
 - **Done when:** the harness covers pair, run, upload, revoke, an expired code, and a reused code.
 
 ### X. codex-agent

@@ -13,7 +13,7 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
-import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PROTOCOL, REPLACED, runnerPathMachine } from "./runner-protocol";
+import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations";
 import type { ChatList } from "./chats";
@@ -61,6 +61,15 @@ function runnerFromRequest(request: Request): string | undefined {
   return runnerPathMachine(new URL(request.url).pathname);
 }
 
+const PAIRING_TAG_PREFIX = "pairing:";
+
+/** The tag of a runner socket whose pairing was not its machine's when it came: it gets a goodbye and nothing else. */
+const REFUSED_TAG = "runner-refused";
+
+function pairingOf(tags: readonly string[]): string | undefined {
+  return tags.find((tag) => tag.startsWith(PAIRING_TAG_PREFIX))?.slice(PAIRING_TAG_PREFIX.length);
+}
+
 function sessionOf(tags: readonly string[]): string | undefined {
   const tag = tags.find((candidate) =>
     candidate.startsWith(SESSION_TAG_PREFIX)
@@ -86,6 +95,16 @@ function send(socket: WebSocket, message: PiServerMessage): void {
     socket.send(JSON.stringify(message));
   } catch {
     // The socket closed between the state check and the send.
+  }
+}
+
+/** Tell a runner why its socket closes for good, then close it with `code`; its runner exits on these codes. */
+function goodbye(socket: WebSocket, frame: Extract<ObjectFrame, { type: "goodbye" }>, code: number, reason: string): void {
+  try {
+    socket.send(JSON.stringify(frame));
+    socket.close(code, reason);
+  } catch {
+    // Already closing.
   }
 }
 
@@ -325,9 +344,11 @@ export class PiSessionSockets {
       getConnectionTags: (_connection, ctx) => {
         const machine = runnerFromRequest(ctx.request);
 
-        return machine
-          ? [runnerTag(machine)]
-          : [sessionTag(sessionFromRequest(ctx.request, ROOT_SESSION)), UI_TAG];
+        if (!machine) return [sessionTag(sessionFromRequest(ctx.request, ROOT_SESSION)), UI_TAG];
+        // The Worker names the pairing the token was minted for; a removed or re-paired machine has another, or none.
+        const pairing = ctx.request.headers.get(PAIRING_HEADER) ?? undefined;
+
+        return this.#hub.pairedAs(machine, pairing) ? [runnerTag(machine), `${PAIRING_TAG_PREFIX}${pairing}`] : [REFUSED_TAG];
       },
       handlers: {
         onConnect: (connection, ctx) => this.#onConnect(connection, ctx),
@@ -359,10 +380,14 @@ export class PiSessionSockets {
   }
 
   async #onConnect(connection: Connection, ctx: ConnectionContext) {
-    const machine = runnerFromRequest(ctx.request);
+    if (connection.tags.includes(REFUSED_TAG)) {
+      goodbye(connection, { type: "goodbye", reason: "This machine is not paired with ky; pair it again." }, REVOKED, "Removed from ky; pair again.");
 
-    // A runner is a machine once it says hello.
-    if (machine) return;
+      return;
+    }
+
+    // A runner is online once it says hello.
+    if (runnerFromRequest(ctx.request)) return;
 
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
@@ -412,6 +437,7 @@ export class PiSessionSockets {
   }
 
   async #onClose(connection: Connection) {
+    if (connection.tags.includes(REFUSED_TAG)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
@@ -452,6 +478,13 @@ export class PiSessionSockets {
     }
   }
 
+  /** Close the machine's runner sockets for good: its token no longer works, and `reason` says what to do. */
+  revokeRunner(machine: string, reason: string): void {
+    for (const socket of this.#getWebSockets(runnerTag(machine))) {
+      if (socket.readyState === OPEN) goodbye(socket, { type: "goodbye", reason }, REVOKED, "Removed from ky; pair again.");
+    }
+  }
+
   /** A frame on a runner's socket. */
   async #onReport(connection: Connection, machine: string, raw: string): Promise<void> {
     const decoded = decodeReport(raw);
@@ -465,14 +498,8 @@ export class PiSessionSockets {
 
     if (decoded.kind === "outdated") {
       // A runner of another version: tell it which one ky speaks, so it can say to update it.
-      const goodbye: ObjectFrame = {
-        type: "goodbye",
-        reason: `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${decoded.protocol}; update ky-runner.`,
-        expected: PROTOCOL
-      };
-
-      connection.send(JSON.stringify(goodbye));
-      connection.close(OUTDATED, "Outdated ky-runner; update it.");
+      const reason = `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${decoded.protocol}; update ky-runner.`;
+      goodbye(connection, { type: "goodbye", reason, expected: PROTOCOL }, OUTDATED, "Outdated ky-runner; update it.");
 
       return;
     }
@@ -482,6 +509,13 @@ export class PiSessionSockets {
     // Answers to http_request, which nothing sends until the runner pipe does.
     if (isPipeReport(report)) return;
 
+    // The machine was removed or paired again since this socket came: its pairing is over.
+    if (!this.#hub.pairedAs(machine, pairingOf(connection.tags))) {
+      goodbye(connection, { type: "goodbye", reason: "This machine is not paired with ky; pair it again." }, REVOKED, "Removed from ky; pair again.");
+
+      return;
+    }
+
     if (report.type === "hello") this.#replaceRunner(connection, machine);
     await this.#hub.onReport(machine, report);
 
@@ -489,7 +523,7 @@ export class PiSessionSockets {
   }
 
   async #onMessage(connection: Connection, raw: WebSocketMessage) {
-    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return;
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw) || connection.tags.includes(REFUSED_TAG)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
