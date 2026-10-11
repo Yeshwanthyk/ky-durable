@@ -346,7 +346,7 @@ number of stopped instances.
 
 1. **Project = a GitHub repo.** Accepted.
 2. **Lock a repo to its sandbox?** Still open. Recommend: locked, and made a wall by the egress
-   node of section 8 (token out of the container).
+   node of section 8 (token out of the container), which lands before PR 1.
 3. **Cap.** 8 sandboxes, `maxInstances: 9`. Accepted.
 4. **Agent.** Settings only creates, renames and deletes. The agent lists, picks, and sets on/off and
    note. Accepted.
@@ -420,123 +420,212 @@ How ky would use each block:
 
 ### 8.2 The design: the token never enters the container
 
-1. **The CloudMachine registers HTTPS intercepts before each start:**
+Reviewed in round 3b: Fable's review, plus a state model (8.7). Both found the same gap in the first
+draft: the token goes to the runner, not just to tasks.
+
+1. **ky stops sending the token to the container at all.**
+   - Today the PiAgent reads `cloud.github()` and puts the token in every run command
+     (`src/machines.ts:474-477`, `:497`). The runner keeps it in memory, and the task gets it as
+     `GH_TOKEN` (`cli/runner/tasks.ts:210`).
+   - Delete all of that:
+     - the `github` field of `RunCreds` (`src/runner-protocol.ts:67`)
+     - the `github()` method (`src/machines.ts:103`)
+     - the two reads in `machines.ts`
+   - With the field gone, the type system makes sure nothing in the container holds the token.
+2. **Tasks get a constant placeholder.** `tasks.ts` sets `GH_TOKEN=ky-egress` on the cloud machine,
+   so `gh` thinks it is signed in and sends a header. The Worker replaces the header.
+3. **Before each start, the CloudMachine registers two HTTPS intercepts:**
    `interceptOutboundHttps(host, ctx.exports.GithubEgress({ props: { sandbox: id } }))` for
-   `github.com` and `api.github.com`. That's 4 of the 128 intercept entries.
-2. **`GithubEgress`** is today's `GithubProxy`, moved to the real hosts.
-   - `github.com`:
-     - Smart HTTP (`info/refs`, `git-upload-pack`, `git-receive-pack`) for this sandbox's repos only.
-     - Pushes only to `refs/heads/ky/*`.
-     - The handler replaces any `Authorization` header with the real token.
-     - Anything else on github.com (web pages, archives) is passed through without the token.
-   - `api.github.com`:
-     - REST paths `/repos/{owner}/{repo}/…` must name one of this sandbox's repos.
-     - A few repo-free paths are allowed: `/user`, `/rate_limit`, `/meta`.
-     - Everything else gets 403.
-     - GraphQL: see "what breaks".
-3. **Tasks get no `GH_TOKEN`.** They get a placeholder like `GH_TOKEN=ky-egress`, so `gh` thinks it is
-   signed in and sends a header, which the Worker replaces.
-4. **git needs no rewrite.** The `insteadOf` line (cli/runner/cloud.ts:61) goes away, and so does
-   `github.internal`. A URL with a token in it no longer gets around anything; the Worker overwrites
-   the header.
-5. **The container trusts the CA.** Cloudflare writes it to
-   `/etc/cloudflare/certs/cloudflare-containers-ca.crt` (workerd `server/container-client.c++:1695-1727`).
-   - The CA exists only when an HTTPS intercept is registered (`outbound-traffic.mdx:182-201`).
-   - At startup, `ky runner cloud` writes one bundle: the system CAs plus this file.
-   - It points `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` at the
-     bundle, and `NODE_EXTRA_CA_CERTS` at the Cloudflare file.
-   - This is runner code, so the Dockerfile doesn't change. (`update-ca-certificates` in the
-     entrypoint also works but needs root and touches the image.)
+   `github.com` and `api.github.com`. That's 4 of the 128 intercept entries. Props carry the
+   sandbox's id, which never changes, not its name.
+4. **`GithubEgress`** is today's `GithubProxy`, moved to the real hosts. One handler, split by host.
+   - `github.com`: git smart HTTP only (`info/refs`, `git-upload-pack`, `git-receive-pack`).
+     - Only this sandbox's repos.
+     - Pushes only to `refs/heads/ky/*`, as today.
+     - Anything else gets 403.
+   - `api.github.com`: an allowlist, never a denylist.
+     - REST `/repos/{owner}/{repo}/…` only for this sandbox's repos.
+     - Also `/user`, `/rate_limit`, and `/graphql` (see 8.4).
+     - Anything else gets 403.
+   - Both:
+     - Any `Authorization` from the container is replaced.
+     - Upstream fetches use `redirect: "manual"`. Today's `fetch` follows redirects
+       (`src/github.ts:107`), and GitHub redirects a renamed or moved repo, so the token could follow
+       to a repo outside the list.
+   - Fail closed. An unknown or deleted sandbox, or no saved login, gets 403.
+5. **git needs no rewrite.** The `insteadOf` line (cli/runner/cloud.ts:61), `KY_GITHUB_PROXY` and
+   `github.internal` all go away.
+6. **The container trusts Cloudflare's CA.**
+   - Production puts it at `/etc/cloudflare/certs/cloudflare-containers-ca.crt`
+     (`durable-object-container.mdx:612`).
+   - If that file exists, `ky runner cloud` writes one bundle at startup: the system CAs plus it.
+   - It points `SSL_CERT_FILE` (gh) and `GIT_SSL_CAINFO` (git) at the bundle, and
+     `NODE_EXTRA_CA_CERTS` at the Cloudflare file.
+   - This is runner code, so the Dockerfile doesn't change.
 
-That is the wall: no token in the container, so nothing in the container can use GitHub except
-through the checks. Open internet doesn't matter for the token. ssh to github.com works at the network
-level, but the container has no key.
+That is the wall: nothing in the container holds the GitHub token, so GitHub can be used only
+through the checks. Open internet doesn't matter for the token. Other GitHub hosts (`codeload`,
+`uploads.github.com`, a raw IP with another SNI), and ssh on port 22, reach GitHub with no
+credentials: public data at most.
 
-### 8.3 Optional second layer: closed internet
+### 8.3 Optional second layer: closed internet (deferred)
 
 `enableInternet: false` plus `interceptAllOutboundHttp` and `interceptOutboundHttps("*")` route all
-traffic through one ky handler. Then an allowlist decides where a sandbox can go.
+traffic through one ky handler, with an allowlist of hosts.
 
-- **What it adds:** it stops a task from sending code or other secrets anywhere it likes.
-- **Needed on the allowlist:**
-  - ky's own origin: the runner's WebSocket. This could instead be `http://ky.internal`, intercepted to
-    the Worker.
-  - Model hosts: `api.anthropic.com`, the OpenAI and ChatGPT hosts, and their sign-in hosts.
-  - Package registries: npm, PyPI, crates, Go proxy.
-  - GitHub's download hosts: `objects.githubusercontent.com`, `codeload.github.com`.
-- **Cost of it:** an allowlist that has to be kept up to date. Every blocked host is a task that fails.
-  HTTPS to a bare IP fails under a `*` intercept (`durable-object-container.mdx:611-640`).
+- **What it adds:** a task can't send code or other secrets anywhere it likes.
+- **What it costs:** an allowlist to keep up to date, with every blocked host a failed task.
+  - It would need ky's origin (the runner's WebSocket), the model and sign-in hosts, the package
+    registries, and GitHub's download hosts.
+  - HTTPS to a bare IP fails under a `*` intercept (`durable-object-container.mdx:611-640`).
 
-Recommendation: not now. Do 8.2 first. Add the closed internet later as a per-sandbox switch if the
-owner wants it.
+Not now. Maybe later, as a per-sandbox switch.
 
 ### 8.4 What breaks, and what doesn't
 
 | Use | With 8.2 |
 | --- | --- |
 | git over https: clone, fetch, pull | Works, for this sandbox's repos. Other repos get 403. |
-| Pushing | Works to `ky/*` on this sandbox's repos. Other refs and repos get 403, as today. |
-| git over ssh | No key in the container, so it fails today too. Blocked outright under 8.3. Use https. |
-| gh CLI auth | Works with the placeholder token. `gh auth status` shows the real user, because the Worker answers `/user` with the real token. `gh auth login` and `gh auth token` are useless. |
-| GitHub REST API (`gh api repos/...`, `gh issue`, `gh run`) | Works for this sandbox's repos. Other repos get 403. |
-| GitHub GraphQL (`gh pr create`, `gh pr view`, `gh pr list`) | **The hard part.** gh uses GraphQL for PRs. One endpoint, so a path check can't scope it. Options: (a) allow queries whose `owner`/`name`/`repo` variables match, and block the rest. That covers gh's own PR commands, but a hand-written query could name another repo inside its text. (b) A GitHub App installation token minted for only this sandbox's repos (GitHub's `repositories` parameter), held only in the Worker. Then GitHub itself enforces scope for REST and GraphQL. |
-| Other https tools (npm, pip, curl) | Unchanged under 8.2. They need the CA bundle only for github hosts. |
-| A tool with its own CA list or pinning | Fails on GitHub hosts only. To check: Codex (Rust) and anything else not Node or Go. |
+| Pushing | Works to `ky/*` on this sandbox's repos. Other refs and repos get 403, as today. **A wall.** |
+| git over ssh | No key in the container, so it fails today too. Use https. |
+| gh CLI auth | Works with the placeholder token. `gh auth status` shows the real user. `gh auth login` and `gh auth token` are useless. |
+| GitHub REST API (`gh api repos/...`, `gh issue`, `gh run`) | Works for this sandbox's repos; anything outside the allowlist gets 403. **A wall.** |
+| GitHub GraphQL (`gh pr create`, `gh pr view`) | Passed through unchecked. `gh pr create` names the repo by an opaque node id (`createPullRequest(input:{repositoryId})`), so checking query variables can't scope it. The ceiling is the token's own repo list: the repos picked in Settings › Subscriptions, not one sandbox's. Code still can't move between sandboxes, because that needs a push. |
+| Other https tools (npm, pip, curl) | Unchanged. They go straight to the internet. |
+| A tool with its own CA list or pinning | Fails on the two GitHub hosts only. To check: Codex. |
 
-So git and REST become a wall. GraphQL is a strong guardrail with (a), and a wall with (b).
+The GitHub token's own permissions are the ceiling for anything allowed. Settings should name the
+minimum fine-grained token permissions: Contents, Pull requests, Issues, Metadata. Inside an allowed
+repo, routes like `keys`, `hooks` and `actions/secrets` are only blocked if the token lacks
+Administration and Secrets.
 
 ### 8.5 Recommendation
 
-- **Do 8.2 with GraphQL option (a).** It's one PR.
-  - `src/cloud.ts`: intercepts.
-  - `src/github.ts`: GithubProxy becomes GithubEgress on the real hosts, adding the api.github.com
-    checks.
-  - `cli/runner/cloud.ts`: the CA bundle; drop the `insteadOf`.
-  - `cli/runner/tasks.ts`: the placeholder `GH_TOKEN`.
-  - Tests for each refusal.
-- **Its own node, not PR 1.**
-  - It fixes a gap that exists today with one sandbox, so it can land before or after PR 1.
-  - Before is better: PR 1's "check the calling sandbox's repos" then lands as a wall from day one,
-    and it is just a props lookup in GithubEgress.
-  - The runner code is baked into the image, so it ships with the CI node's next image. Coordinate
-    with that node; no workflow or digest file changes from here.
-- **Later:**
-  - GraphQL option (b), the GitHub App token, if the owner wants a full API wall. It needs a GitHub
-    App set up once, so it's the owner's call.
-  - The closed internet of 8.3, as a per-sandbox switch.
-  - The same edge injection for the Claude and ChatGPT logins, which are also handed to the
-    container today.
+**One PR, its own node, before PR 1.** Size M.
+
+- `src/runner-protocol.ts`, `src/machines.ts`: delete the token's path to the container.
+- `src/cloud.ts`: two `interceptOutboundHttps` calls instead of one `interceptOutboundHttp`.
+- `src/github.ts`: GithubProxy becomes GithubEgress. It splits by host, adds the `api.github.com`
+  allowlist and `redirect: "manual"`, and fails closed.
+- `cli/runner/cloud.ts`: the CA bundle; drop `insteadOf` and `KY_GITHUB_PROXY`.
+- `cli/runner/tasks.ts`: the placeholder `GH_TOKEN`.
+
+Why before PR 1:
+
+- The gap exists today, with one sandbox.
+- PR 1's per-sandbox lock then becomes a lookup from the props id in GithubEgress, and a wall from
+  day one.
+- Before PR 1, props are `{ sandbox: "cloud" }`, and the check is today's picked repos.
+
+The runner code ships inside the image, so the change rides the CI node's next image. Coordinate
+with that node; nothing here touches workflows, the digest or the image inputs.
+
+**Cut from the first draft:**
+
+- the GraphQL variable checker
+- `/meta`
+- `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE`
+- closed internet (8.3)
+
+**Later, the owner's call:**
+
+- A GitHub App token minted for one sandbox's repos, so GitHub scopes GraphQL per sandbox too. It's
+  a large change, and it only adds per-sandbox scoping of PR metadata.
+- Edge injection of the Claude and Codex logins and `KY_TASK_TOKEN`, which are still in the
+  container today.
 
 **Cost.**
 
 - Containers cost the same.
-- Intercepted requests run in ky's Worker. I found no doc saying whether they count as billed
-  requests (unknown).
-- Even if they count, git and gh make tens to hundreds of requests per task. That's far under
-  Workers Paid's 10M included requests a month.
-- Pass-through streams large packs without parsing them, so CPU stays low.
+- Intercepted requests run in ky's Worker. git and gh make tens to hundreds per task, far under
+  Workers Paid's 10M included a month, even if they are billed.
+- Pack data streams through without parsing.
 
 **Limits.**
 
-- Workers Paid is needed (already true for containers).
-- 128 intercept entries per container; this uses 4, or 8 with 8.3.
-- An intercept can't be removed while the container runs. That's fine: props carry only the sandbox
-  id, and the repos are read live.
-- HTTPS interception needs a compatibility date of 2026-04-02 or later (containers
-  `src/lib/container.ts:1582`). ky's is 2026-10-03.
+- Workers Paid, as today.
+- 4 of 128 intercept entries.
+- Compatibility date 2026-04-02 or later (containers `src/lib/container.ts:1582`); ky's is
+  2026-10-03.
 
-### 8.6 Still unknown, to test on a dev deploy first
+### 8.6 Still unknown, each a short test on a dev deploy
 
-1. **Does HTTPS interception work with ky's `default` scheduling policy?**
-   - The API reference gives `interceptOutboundHttps` no "durable_object policy only" badge, though it
-     does give one to `image`, `instance` and `snapshotContainer`.
-   - But both GitHub guides list the `durable_object` policy as a prerequisite.
-   - If it does need it: the policy is public beta, and it can't be changed on an existing app. ky
-     would need a new container app, which is a bigger deployer change and its own node.
-2. **Are intercepted requests billed** as Worker requests?
-3. **Codex's trust store.** Does it read `SSL_CERT_FILE`? If not, it only matters under 8.3, or if
-   Codex talks to GitHub itself.
-4. **WebSocket through an intercept.** Only matters for 8.3, where the runner's socket to ky would go
-   through the handler.
-5. **Which GraphQL queries gh sends** for the PR commands ky's agents use, to set the allowlist for
-   option (a).
+1. **HTTPS interception on ky's `default` scheduling policy.** Likely fine.
+   - The API reference badges only `image`, `instance` and `snapshotContainer` as "durable_object
+     policy only" (`durable-object-container.mdx:61, 109-111, 312`).
+   - The HTTPS changelog points to `@cloudflare/containers@0.3.0`, which targets the default policy
+     (changelog `2026-04-13-…mdx:122`).
+   - ky already uses `interceptOutboundHttp` on the default policy.
+   - If it does fail: a new container app (the `durable_object` policy is beta and can't be changed
+     on an existing app), which would be its own node.
+2. **Do intercepts survive a Worker deploy while the container runs?** Today's `github.internal`
+   has the same question. If they don't, git and gh fail closed until the next start. Not a leak.
+3. **Is the CA file there when the runner starts?** If not, the runner waits briefly or the start
+   fails loudly.
+4. **Codex's trust store.** It only matters if Codex talks to GitHub itself.
+5. **Are intercepted requests billed** as Worker requests? Small either way.
+
+### 8.7 State model: how many moving parts?
+
+**Stored state: none new.** The checks read state that already exists, live, on each request:
+
+- The Vault: the token and the picked repos. Owner: Vault.
+- `ky_sandboxes`: the sandbox's repos and `deleted_at`. Owner: PiAgent; arrives with PR 1.
+
+The allowed set is derived, never stored:
+
+```
+allowed(sandbox) = picked ∩ (sandbox.repos, or all picked if empty)
+                   empty if the sandbox is unknown or deleted, or there is no login
+```
+
+**Per-container runtime state**, rebuilt on every start:
+
+- two intercept registrations (owner: CloudMachine)
+- Cloudflare's CA file (owner: Cloudflare)
+- the CA bundle and env (owner: the runner)
+
+**Removed:**
+
+- the token in run commands, in runner memory and in task env
+- `RunCreds.github` and `github()`
+- `github.internal`, `insteadOf` and `KY_GITHUB_PROXY`
+
+**Transitions:**
+
+| Trigger | Actor | Writes | If it fails or races |
+| --- | --- | --- | --- |
+| Sandbox starts | CloudMachine | Registers intercepts (props: id), then starts | A failed registration stops the start. A start without intercepts can't reach GitHub with a token: fails closed. |
+| git or gh request | GithubEgress | Nothing. Reads Vault and `ky_sandboxes`, checks, injects, fetches with manual redirects | A missing sandbox, deleted sandbox or missing login gets 403. |
+| Repos or picked repos change | Settings → PiAgent or Vault | One row | The next request sees it. No restart or re-registration, since props carry only the id. An in-flight push finishes under the old set. |
+| Token rotated | Settings → Vault | Vault | The next request uses the new token. Better than today, where a running task keeps the old one. |
+| Sandbox deleted | PiAgent | Destroys the container, then sets `deleted_at` | A container still dying gets 403 from then on. |
+| New sandbox from a kept disk (reuses the id) | PiAgent | Clears `deleted_at`, new repos | Props id → the current row, so the new repos apply. |
+| Rename (PR 2) | PiAgent | The name | Props carry the id, so nothing changes. |
+| ky upgrade with an old container running | Deployer | New Worker; the old image keeps running until restart | The old runner gets no token, and its `insteadOf` points at `github.internal`, now gone: git and gh fail closed until the sandbox restarts on the new image. Acceptable: idle sleep restarts it soon. |
+
+**Invariants and where each is enforced:**
+
+1. **The token never goes into a container.** Enforced in `src/machines.ts`, the only sender, and by
+   the type: `RunCreds` has no `github` field.
+2. **Every request carrying the token names a repo in `allowed(sandbox)`.** Enforced in
+   GithubEgress, the only code that adds the token for containers.
+3. **Pushes only update `refs/heads/ky/*`.** Enforced in GithubEgress (existing).
+4. **Sandbox identity comes only from props the CloudMachine sets, keyed by the id that never
+   changes.** Enforced in `CloudMachine` start.
+5. **Fail closed.** Enforced in GithubEgress.
+
+Security depends only on 1. The intercepts, the CA and the placeholder are for things to work; if any
+of them is missing, git and gh just fail.
+
+**Proof:**
+
+- **Unit tests on GithubEgress**, a table of host × path × method × sandbox × redirect:
+  - the token is added only when allowed
+  - 403 otherwise
+  - a 3xx is returned, not followed
+- **A property test:** for random repo sets and request paths, the token is added exactly when the
+  path names a repo in `allowed`. The reference is the derivation formula above.
+- **A test that no run command sent to a cloud machine contains the token.**
+- **A fuzz test** of the receive-pack ref parsing, if there isn't one yet.
+- **A dev-deploy check** for each unknown in 8.6.
