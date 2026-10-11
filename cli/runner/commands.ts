@@ -21,7 +21,7 @@ import { attach, diff } from "./share.ts";
 import { asInstance, compiled, defaultWorkdir, type System } from "./system.ts";
 import { deleteToken, describeStore, keychainRemoval, readToken, tokenStore, writeToken } from "./token.ts";
 
-export type RunnerFlags = { name?: string; as?: string; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
+export type RunnerFlags = { name?: string; as?: string; replace?: boolean; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
 
 /** How long `ky runner add` waits for the service's runner to come online. */
 const ONLINE_WITHIN_MS = 60_000;
@@ -162,6 +162,30 @@ function foundWords(found: Found): string {
   return names.filter(Boolean).join(", ") || "no agents yet";
 }
 
+/** Why `ky runner add` won't pair this runner with `url`: it is another ky's, and pairing would take it from that ky. */
+function taken(system: System, theirs: string, url: string): string {
+  const runner = system.instance ? `The runner ${system.instance} on this computer` : "This computer's runner";
+  const beside = system.instance ? "pick another name for --as" : "add --as <name>, such as --as work";
+
+  return `${runner} is for ${theirs}. To add one for ${url} beside it, ${beside}. To move it to ${url}, which takes it from ${theirs}, add --replace`;
+}
+
+/** The runner `ky runner add` replaces, if any; refused when it is another ky's and `replace` isn't given. Checked before pairing, so a refusal leaves the code unused. */
+async function earlier(context: Context, url: string, replace: boolean): Promise<Settings | undefined> {
+  const before = await saved(context).catch(() => undefined);
+
+  if (before && kyUrl(before.url) !== url && !replace) throw new Error(taken(context.system, before.url, url));
+
+  return before;
+}
+
+/** The earlier pairing's token stays in the Keychain: removing it is the user's call. */
+function leftover(out: Output, before: Settings | undefined): void {
+  const removal = before && keychainRemoval(before.token);
+
+  if (removal) out.done(`The earlier token is still in the Keychain, and no longer used. Remove it: ${bold(removal)}`);
+}
+
 /** Pairs this computer with what the user shares, and keeps its token and runner.json; its settings. */
 async function pairHere(context: Context, out: Output, positionals: string[], flags: RunnerFlags): Promise<Settings> {
   const { system, env } = context;
@@ -170,13 +194,13 @@ async function pairHere(context: Context, out: Output, positionals: string[], fl
 
   if (!typedUrl || !code) throw new Error("usage: ky runner add <ky url> <code>; the code is in ky's Settings, Machines, Add a machine");
   const url = kyUrl(typedUrl);
+  const before = await earlier(context, url, Boolean(flags.replace));
   const name = machineName(flags.name ?? env.KY_MACHINE);
   const workdir = env.KY_WORKDIR ?? defaultWorkdir(system);
   const found = await out.waiting("Looking at what this computer has", () => detect(context));
 
   out.done(`Found ${foundWords(found)}`);
   const shared = await choose(found, terminal() && !flags.yes, workdir);
-  const before = await saved(context).catch(() => undefined);
   const settings: Settings = { url, name, token: tokenStore(system, env), workdir, permissionMode: env.KY_PERMISSION_MODE ?? "bypassPermissions", ...shared };
   const paired = await out.waiting(`Pairing with ${url}`, () => pair(url, code, name, factsFor(settings, found)));
 
@@ -184,10 +208,7 @@ async function pairHere(context: Context, out: Output, positionals: string[], fl
   await writeToken(system, settings.token, paired.token);
   await writeSettings(settingsFile(system), settings);
   out.done(`Paired as ${bold(paired.machine)}. Its token is in ${describeStore(settings.token)}`);
-  const removal = before && keychainRemoval(before.token);
-
-  // The earlier pairing's token stays in the Keychain: removing it is the user's call.
-  if (removal) out.done(`The earlier token is still in the Keychain, and no longer used. Remove it: ${bold(removal)}`);
+  leftover(out, before);
 
   return settings;
 }

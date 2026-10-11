@@ -4,7 +4,8 @@
  * systemd units or ~/.config/ky.
  *
  *   security   a Keychain in memory: `-i` with add-generic-password on stdin, find- and delete-generic-password
- *   launchctl  bootstrap, bootout, kickstart and print, over a set of loaded labels
+ *   launchctl  bootstrap, bootout, kickstart and print, over a set of loaded labels; a job booted out
+ *              lingers for `lingers` prints, and bootstrap fails with launchd's error 5 until it's gone
  *   systemctl  --user daemon-reload, enable --now, restart, disable --now and is-active, the same way
  *   loginctl   enable-linger
  *   cloudflared  access token, and access login, which signs in with `accessLogin`
@@ -25,6 +26,8 @@ export type FakeSystem = System & {
   keychain: Map<string, string>;
   /** Labels loaded into launchd, or units active in systemd. */
   loaded: Set<string>;
+  /** How many `launchctl print`s still find a job after bootout, as launchd stops it in the background. */
+  lingers: number;
   /** What the runner the service starts says: online, or turned away. */
   online: "online" | "stopped" | "never";
   /** Ports something listens on. */
@@ -99,20 +102,45 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     return ok();
   };
 
+  /** Jobs booted out but not yet gone: label to the prints that still find them. */
+  const stopping = new Map<string, number>();
+
   // Each verb with the label its last argument names: `gui/<uid>/<label>`, or bootstrap's plist.
   const launchd = new Map<string, (label: string) => Ran>([
     [
       "bootstrap",
       (label) => {
+        if (stopping.has(label)) return failed("Bootstrap failed: 5: Input/output error", 5);
         fake.loaded.add(label);
         started(label);
 
         return ok();
       }
     ],
-    ["bootout", (label) => (fake.loaded.delete(label) ? ok() : failed("No such process", 3))],
+    [
+      "bootout",
+      (label) => {
+        if (!fake.loaded.delete(label)) return failed("No such process", 3);
+
+        if (fake.lingers > 0) stopping.set(label, fake.lingers);
+
+        return ok();
+      }
+    ],
     ["kickstart", (label) => ifLoaded(label, () => started(label))],
-    ["print", (label) => ifLoaded(label)]
+    [
+      "print",
+      (label) => {
+        const left = stopping.get(label);
+
+        if (left === undefined) return ifLoaded(label);
+
+        if (left <= 1) stopping.delete(label);
+        else stopping.set(label, left - 1);
+
+        return ok();
+      }
+    ]
   ]);
 
   const launchctl = (args: string[]): Ran => {
@@ -194,6 +222,7 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     ran: [],
     keychain: new Map(),
     loaded: new Set(),
+    lingers: 0,
     online: "online"
   };
 
