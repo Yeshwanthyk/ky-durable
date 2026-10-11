@@ -12,5 +12,6 @@
     "test/gate-live.ts"
   ],
   "ignorePatterns": ["explainers/**", "test-results/**"],
-  "ignoreUnresolvedImports": ["../dist/release.pack"]
+  "ignoreUnresolvedImports": ["../dist/release.pack"],
+  "dynamicallyLoaded": ["cli/commands.ts", "cli/backup.ts", "cli/runner/commands.ts"]
 }

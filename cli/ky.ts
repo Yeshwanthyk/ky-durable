@@ -79,6 +79,8 @@ export async function ky(args: string[], context: Context): Promise<number> {
   try {
     const { positionals, values } = parseArgs({ args, allowPositionals: true, options: OPTIONS });
 
+    // Each command's module loads only when it runs. fallow doesn't follow `(await import(…)).name`:
+    // a module whose commands load only here is in .fallowrc.json's dynamicallyLoaded.
     const commands = new Map<string, () => Promise<number>>([
       ["init", async () => (await import("./init.ts")).initCommand(context, values)],
       ["deploy", async () => (await import("./commands.ts")).deployCommand(context)],

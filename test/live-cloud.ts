@@ -164,7 +164,8 @@ async function wake(task: string, since: number, name: string): Promise<number> 
   return running;
 }
 
-async function open(task: string, running: number): Promise<number> {
+/** When `task` ended, failing if the machine left running before it did. */
+async function heldUntilEnd(task: string): Promise<number> {
   let dropped: CloudState | undefined;
 
   const ended = await when(
@@ -181,13 +182,24 @@ async function open(task: string, running: number): Promise<number> {
 
   if (dropped) fail(`went ${dropped} while the task was open`);
 
+  return ended;
+}
+
+/** How long `task`'s turn lasted, failing unless it ended done. */
+function turnOf(task: string, ended: number, running: number) {
   const { status, summary, started_at, finished_at, steps } = row(task);
 
   if (status !== "done") fail(`the task ended ${status}: ${summary}`);
-  const held = (finished_at ?? ended) - (started_at ?? running);
+
+  return { held: (finished_at ?? ended) - (started_at ?? running), steps: steps.map((step) => step.text).join(" / ") };
+}
+
+async function open(task: string, running: number): Promise<number> {
+  const ended = await heldUntilEnd(task);
+  const { held, steps } = turnOf(task, ended, running);
 
   // A turn shorter than its waits didn't wait for them: the machine wasn't held, whatever it showed.
-  if (held < HOLD_S * 1000 - 5_000) fail(`the task's turn lasted ${seconds(held)}, not the ${HOLD_S}s its waits take; Claude's steps: ${steps.map((step) => step.text).join(" / ")}`);
+  if (held < HOLD_S * 1000 - 5_000) fail(`the task's turn lasted ${seconds(held)}, not the ${HOLD_S}s its waits take; Claude's steps: ${steps}`);
   const up = ended - running;
 
   if (up < IDLE_MS) fail(`the task ended ${seconds(up)} after the wake, before the idle timeout (${seconds(IDLE_MS)}), so this proves nothing`);
