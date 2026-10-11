@@ -1,5 +1,6 @@
 /**
- * ~/.config/ky/runner.json: this computer's runner, as `ky runner add` set it up. Which ky it
+ * ~/.config/ky/runner.json: this computer's runner, as `ky runner add` set it up (a second runner's
+ * is ~/.config/ky/<as>/runner.json). Which ky it
  * joins and as what name, where its token is kept, and what it shares: which agents, the user's
  * Chrome, which folders of repositories, and which local ports (a model server such as VibeProxy
  * or Ollama). `ky runner run` reads it; each KY_ variable below overrides its setting, and with no
@@ -19,7 +20,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import type { System } from "./system.ts";
+import { defaultWorkdir, kyConfig, type System } from "./system.ts";
 
 /** Where the machine token is kept: a file only the user can read, or a Keychain item (macOS, paired before ky kept it in the file). */
 const TokenStoreSchema = Type.Union([
@@ -50,7 +51,7 @@ export const LOCAL_SERVERS: readonly { port: number; name: string }[] = [
 ];
 
 export function settingsFile(system: System): string {
-  return path.join(system.config, "ky", "runner.json");
+  return path.join(kyConfig(system), "runner.json");
 }
 
 /** This machine's name in ky, from `name`, else the host's: lower case, as a runner path allows it. */
@@ -116,8 +117,8 @@ function defaults(url: string, system: System): Settings {
   return {
     url,
     name: machineName(),
-    token: { file: path.join(system.config, "ky", "runner-token") },
-    workdir: path.join(system.home, "ky-work"),
+    token: { file: path.join(kyConfig(system), "runner-token") },
+    workdir: defaultWorkdir(system),
     repos: [],
     permissionMode: "bypassPermissions",
     chrome: false,

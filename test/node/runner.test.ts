@@ -303,6 +303,79 @@ describe("the runner on this computer", () => {
   });
 });
 
+describe("a second runner, for another ky (--as)", () => {
+  let theirs: FakeKy;
+
+  beforeEach(async () => {
+    computer = await fakeSystem("darwin");
+    theirs = await fakeKy("WXYZ-9876");
+    expect(await run(["runner", "add", ours.url, "ABCD-1234", "--name", "mac", "--yes"])).toBe(0);
+    printed = [];
+  });
+
+  afterEach(() => theirs.close());
+
+  const mine = (file: string) => path.join(computer.config, "ky", "work", file);
+
+  it("pairs beside the first, with its own label, settings, token, state and workdir, and leaves the first alone", async () => {
+    const first = await readFile(settingsFile(), "utf8");
+    const firstAgent = await readFile(path.join(computer.launchAgents, "test.ky.runner.plist"), "utf8");
+
+    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "work", "--name", "mac", "--yes"])).toBe(0);
+
+    expect(theirs.pairings.map(({ name }) => name)).toEqual(["mac"]);
+    expect(await readSettings(mine("runner.json"))).toMatchObject({ url: theirs.url, token: { file: mine("runner-token") }, workdir: path.join(computer.home, "ky-work-work") });
+    expect((await readFile(mine("runner-token"), "utf8")).trim()).toBe(TOKEN);
+    expect(statSync(mine("runner-token")).mode & 0o777).toBe(0o600);
+
+    const agent = await readFile(path.join(computer.launchAgents, "test.ky.runner.work.plist"), "utf8");
+
+    expect(agent).toContain("<string>test.ky.runner.work</string>");
+    expect(agent).toContain("<key>KY_RUNNER_AS</key>\n    <string>work</string>");
+    expect(agent).toContain(path.join(computer.state, "work", "runner.log"));
+    // The state dir is the default one: KY_RUNNER_AS alone puts it in ~/.ky/work.
+    expect(agent).not.toContain("KY_STATE_DIR");
+    expect(computer.loaded).toEqual(new Set(["test.ky.runner", "test.ky.runner.work"]));
+
+    expect(await readFile(settingsFile(), "utf8")).toBe(first);
+    expect(await readFile(path.join(computer.launchAgents, "test.ky.runner.plist"), "utf8")).toBe(firstAgent);
+  });
+
+  it("is listed beside the first, restarted with it, and removed on its own", async () => {
+    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "work", "--yes"])).toBe(0);
+    printed = [];
+
+    expect(await run(["runner", "ls"])).toBe(0);
+    expect(printed).toHaveLength(2);
+    expect(printed[0]).toMatch(new RegExp(`^mac  ${ours.url}  online since`));
+    expect(printed[1]).toContain(theirs.url);
+    expect(printed[1]).toContain("--as work");
+
+    expect(await restartRunner(context())).toMatch(/^Restarted the runner for mac and /);
+    expect(computer.ran).toContain("launchctl kickstart -k gui/501/test.ky.runner.work");
+
+    expect(await run(["runner", "rm", "--as", "work"])).toBe(0);
+    expect(existsSync(mine("runner.json"))).toBe(false);
+    expect(existsSync(mine("runner-token"))).toBe(false);
+    expect(computer.loaded).toEqual(new Set(["test.ky.runner"]));
+    expect(existsSync(settingsFile())).toBe(true);
+  });
+
+  it("runs as the service runs it, from KY_RUNNER_AS", async () => {
+    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "work", "--yes"])).toBe(0);
+    printed = [];
+
+    expect(await run(["runner", "status", "--json"], { KY_RUNNER_AS: "work" })).toBe(0);
+    expect(JSON.parse(printed.join("\n")).settings.url).toBe(theirs.url);
+  });
+
+  it("refuses a name that isn't a short lower-case word", async () => {
+    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "../evil", "--yes"])).toBe(1);
+    expect(printed.join("\n")).toContain("--as takes a short lower-case name");
+    expect(theirs.pairings).toEqual([]);
+  });
+});
+
 describe("ky runner run's settings", () => {
   beforeEach(async () => {
     computer = await fakeSystem("darwin");

@@ -8,11 +8,11 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { TokenStore } from "./settings.ts";
-import type { System } from "./system.ts";
+import { kyConfig, type System } from "./system.ts";
 
-/** Where `ky runner add` keeps the token: KY_RUNNER_TOKEN_FILE, else ~/.config/ky/runner-token, on every OS. */
+/** Where `ky runner add` keeps the token: KY_RUNNER_TOKEN_FILE, else runner-token beside runner.json, on every OS. */
 export function tokenStore(system: System, env: NodeJS.ProcessEnv): TokenStore {
-  return { file: env.KY_RUNNER_TOKEN_FILE || path.join(system.config, "ky", "runner-token") };
+  return { file: env.KY_RUNNER_TOKEN_FILE || path.join(kyConfig(system), "runner-token") };
 }
 
 /** The command that removes an earlier pairing's Keychain item, which ky leaves for the user to remove. */

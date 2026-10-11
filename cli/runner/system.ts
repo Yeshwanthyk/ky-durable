@@ -27,6 +27,8 @@ export type System = {
   state: string;
   /** The service's label (launchd) or unit name (systemd). */
   label: string;
+  /** A second runner's name on this computer (`ky runner add --as`), for another ky; undefined for the first. */
+  instance?: string;
   /** Where launchd agents' plists go. */
   launchAgents: string;
   /** Where systemd user units go. */
@@ -123,4 +125,32 @@ export function system(): System {
     listening,
     chrome: () => hasChrome(process.platform, home)
   };
+}
+
+/** What `--as` takes: a short lower-case name, as a label, a folder and a unit name all allow. */
+const INSTANCE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * This computer as a second runner named `as` sees it, so it runs beside the first for another
+ * ky: its own label, its settings and token in ~/.config/ky/<as>/, its state in ~/.ky/<as>/.
+ */
+export function asInstance(system: System, as: string): System {
+  if (!INSTANCE.test(as)) throw new Error(`--as takes a short lower-case name, such as "work": letters, digits and dashes, not "${as}"`);
+
+  return {
+    ...system,
+    instance: as,
+    label: system.platform === "darwin" ? `${system.label}.${as}` : `${system.label}-${as}`,
+    state: path.join(system.state, as)
+  };
+}
+
+/** Where this runner's runner.json and token are: ~/.config/ky, or ~/.config/ky/<as> for a second runner. */
+export function kyConfig(system: System): string {
+  return path.join(system.config, "ky", ...(system.instance ? [system.instance] : []));
+}
+
+/** Where tasks run unless KY_WORKDIR says: ~/ky-work, or ~/ky-work-<as> for a second runner. */
+export function defaultWorkdir(system: System): string {
+  return path.join(system.home, system.instance ? `ky-work-${system.instance}` : "ky-work");
 }
