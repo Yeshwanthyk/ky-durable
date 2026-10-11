@@ -69,9 +69,8 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
         </div>
       </fieldset>
       {paired ? (
-        <p className="panel-note">
-          Machines run Claude Code and Codex with these when they aren't signed in, or when you pick ky's login. The cloud machine clones and pushes with
-          GitHub's, to ky/ branches only.
+        <p className="group-note">
+          Machines use these where they aren't signed in, or when set to From Subscriptions. Sandboxes push with GitHub's, to ky/ branches only.
         </p>
       ) : (
         <PairFirst />
@@ -82,7 +81,7 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
 
 function PairFirst() {
   return (
-    <p className="panel-note">
+    <p className="group-note">
       Pair a machine first; Claude Code and Codex run there.{" "}
       <button type="button" className="refused-link" onClick={() => reveal("settings-machines")}>
         Go to Machines

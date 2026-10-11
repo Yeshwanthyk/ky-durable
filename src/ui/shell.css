@@ -854,54 +854,19 @@
   text-align: center;
 }
 
-.card.machine-list {
-  display: flex;
-  flex-direction: column;
-  padding: 0 14px;
-  font-size: calc(12.5px * var(--text-scale));
-}
-
-.machine-list li {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-  padding: 14px 0;
-}
-
-.machine-list li + li {
-  box-shadow: inset 0 1px 0 var(--line);
-}
-
-/* The name, then its status, then what it is: one block, read top to bottom. */
-.machine-head {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.machine-name {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: calc(14px * var(--text-scale));
-  font-weight: 600;
-}
-
+/* A machine's row: the status dot and words under its name, then what it is. */
 .machine-status {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-weight: 500;
-  color: var(--ink);
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
 }
 
 .machine-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: var(--quiet);
 }
@@ -915,78 +880,8 @@
   background: var(--warning);
 }
 
-.machine-status[data-tone="offline"] {
-  color: var(--muted);
-}
-
-.machine-facts {
-  color: var(--quiet);
-  font-size: calc(12px * var(--text-scale));
-  overflow-wrap: anywhere;
-}
-
-/* How to bring an offline machine back. */
-.machine-restart {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--hover);
-}
-
-.machine-restart p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
-.machine-restart .machine-command {
-  align-self: flex-start;
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--surface);
-}
-
-/* A labelled choice: its label, the control, then what the chosen value means. */
-.machine-field {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-}
-
-.machine-field-label {
-  font-weight: 500;
+.machine-status[data-tone="online"] {
   color: var(--ink);
-}
-
-.machine-field-label .quiet {
-  font-weight: 400;
-}
-
-.machine-hint {
-  color: var(--muted);
-  font-size: calc(12px * var(--text-scale));
-  line-height: 1.45;
-}
-
-.machine .segmented.small {
-  max-width: 100%;
-}
-
-.machine .segmented.small > button {
-  height: 26px;
-  padding: 0 10px;
-  font-size: calc(12px * var(--text-scale));
-  white-space: nowrap;
-}
-
-/* Subscriptions has nothing saved: the choice reads as empty. */
-.machine .segmented.small > button[data-empty="true"]:not([aria-checked="true"]) {
-  color: var(--quiet);
 }
 
 .machine[data-state="off"] .machine-name,
@@ -994,29 +889,47 @@
   color: var(--muted);
 }
 
-.machine .machine-note-input {
-  width: 100%;
+/* How to bring an offline computer back: one line and the command, on a sunken patch. */
+.machine-restart {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--hover);
 }
 
-.machine .machine-note-input::placeholder {
+.machine-restart p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.machine-restart .machine-command {
+  display: inline;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* Subscriptions has nothing saved: the choice reads as empty. */
+.field .segmented.small > button[data-empty="true"]:not([aria-checked="true"]) {
   color: var(--quiet);
 }
 
-/* Unpairing is quiet until asked for, and red once it is. */
+/* Unpairing and deleting close an open row, quiet until asked for and red once they are. */
 .machine-unpair {
   align-self: flex-start;
-  padding: 0;
+  height: 28px;
+  margin: 0 -8px;
+  padding: 0 8px;
   border: 0;
+  border-radius: 999px;
   background: none;
   color: var(--danger);
   font: inherit;
-  font-size: calc(12px * var(--text-scale));
-  opacity: 0.8;
-}
-
-.machine-unpair:hover {
-  opacity: 1;
-  text-decoration: underline;
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
 }
 
 .machine-confirm {
@@ -1024,13 +937,15 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--line-strong);
   border-radius: 10px;
+  background: var(--hover);
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .machine-confirm p {
   margin: 0;
   line-height: 1.45;
+  text-wrap: pretty;
 }
 
 .machine-confirm-actions {
@@ -1055,6 +970,12 @@
   margin: 0;
   color: var(--danger);
   font-size: calc(12px * var(--text-scale));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .machine-unpair:hover {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+  }
 }
 
 /* The Claude form takes its own full-width line under the label and note, so neither is squeezed. */
@@ -1094,14 +1015,6 @@
   overflow-wrap: anywhere;
 }
 
-.machine-add {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 8px;
-}
-
 /* A sandbox's idle minutes: a quiet value that edits in place. */
 .sandbox-idle {
   padding: 0;
@@ -1124,23 +1037,11 @@
 }
 
 .sandbox-add {
-  margin-top: 8px;
-}
-
-.sandbox-add input,
-.sandbox-add select {
-  width: 100%;
+  flex-basis: 100%;
 }
 
 .sandbox-kept {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.sandbox-kept h4 {
-  margin: 0;
+  margin-top: 16px;
 }
 
 .machine-code {
@@ -1173,25 +1074,82 @@
   min-width: 0;
 }
 
-/* ---------- Settings ----------
-   Grouped cards, as in iOS: a small label over each card, rows split by hairlines inset
-   past the label's start, the value at the right in the quiet colour. */
+/* ---------- The panel's system ----------
+   Every tab is built from the same few pieces:
+   - a group: a quiet label, with an action at its right when it has one, over its content;
+   - a card: one surface of rows split by hairlines;
+   - a row: an icon tile, a label with one line under it, then a value, a control or a chevron;
+   - an item: a row that opens in place, its body lined up with the card's edge;
+   - a field: in an open item or a form card, a label on the left and its control on the right,
+     wrapping under the label when it doesn't fit, with one line of hint;
+   - notes and empty states: one quiet line under a group, or in place of its card. */
 
 .settings {
   padding-inline: 14px;
 }
 
-
 .group + .group {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
-.group-label {
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  margin: 0 0 4px;
+  padding: 0 4px;
+}
+
+.group-label,
+.group-sublabel {
   margin: 0 0 6px;
   padding: 0 4px;
   font-size: calc(12px * var(--text-scale));
   font-weight: 550;
   color: var(--quiet);
+  text-wrap: balance;
+}
+
+.group-head > .group-label {
+  margin: 0;
+  padding: 0;
+}
+
+.group-sublabel {
+  margin-top: 14px;
+}
+
+.group-note,
+.group-empty {
+  margin: 6px 4px 0;
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.45;
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+/* In place of the card: the same footprint, so an empty group reads as a group. */
+.group-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.group-actions > .machine-code,
+.group-actions > .group-note {
+  flex-basis: 100%;
 }
 
 .card {
@@ -1204,21 +1162,22 @@
   overflow: hidden;
 }
 
+/* Hairlines between a card's rows and items, wherever they come from. */
+.card > * + *,
+.row + .tool-list {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
 .row {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   padding: 8px 12px 8px 14px;
   font-size: calc(13.5px * var(--text-scale));
   text-align: left;
-}
-
-.row + .row,
-.row + .tool-list {
-  box-shadow: inset 0 1px 0 var(--line);
 }
 
 .row-text {
@@ -1226,10 +1185,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .row-label {
   color: var(--ink);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .row > .row-label {
@@ -1237,8 +1199,23 @@
 }
 
 .row-sub {
-  font-size: calc(11.5px * var(--text-scale));
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.35;
   color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A sub line that must stay one line: it ends in an ellipsis instead. */
+.row-sub-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The parts of a "model · provider · price" line: it breaks between parts, never inside one. */
+.part {
+  white-space: nowrap;
 }
 
 .row-value {
@@ -1267,18 +1244,14 @@
   color: var(--ink);
 }
 
-.model-row + .model-row {
-  box-shadow: inset 0 1px 0 var(--line);
-}
-
-/* Opening a role grows its row in place: grid rows from 0fr to 1fr animate to the real height. */
+/* Opening an item grows it in place: grid rows from 0fr to 1fr animate to the real height. */
 .expand {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 200ms var(--ease-out);
 }
 
-.model-row[data-open="true"] .expand {
+[data-open="true"] > .expand {
   grid-template-rows: 1fr;
 }
 
@@ -1289,28 +1262,140 @@
   transition: opacity 200ms var(--ease-out);
 }
 
-.model-row[data-open="true"] .expand-inner {
+[data-open="true"] > .expand > .expand-inner {
   opacity: 1;
+}
+
+/* An open item's body: fields split by hairlines, inside the card's edge. */
+.item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 14px 14px;
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.item-body > .field + .field {
+  padding-top: 12px;
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.field-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.field-label .quiet {
+  font-weight: 400;
+}
+
+/* The control after the label keeps to the right, and drops under it when the row is too narrow. */
+.field > :not(.field-label, .field-hint) {
+  margin-left: auto;
+  max-width: 100%;
+}
+
+.field[data-stack] > :not(.field-label, .field-hint),
+.field > fieldset {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+.field-value {
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  text-align: right;
+}
+
+.field-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.field .segmented.small > button {
+  height: 28px;
+  padding: 0 10px;
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+}
+
+.field-input,
+.field-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  /* 16px stops iOS from zooming into the field. */
+  font-size: max(16px, calc(12.5px * var(--text-scale)));
+}
+
+.field-select {
+  width: auto;
+}
+
+/* A form inside a card: its fields, then its actions in the card's own footer. */
+.form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.form-card > * + * {
+  box-shadow: none;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.form-card > .card-foot {
+  padding: 0;
+}
+
+.card > .automation-refused {
+  padding: 10px 14px 0;
 }
 
 .row-current {
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .choices-note {
   margin: 0;
-  padding: 0 14px 6px 60px;
+  padding: 0 14px 4px 52px;
   font-size: calc(12px * var(--text-scale));
   color: var(--quiet);
   text-wrap: pretty;
 }
 
+/* The choices line up with the row's label: 52px is the tile, its gap and the row's padding. */
 .choices {
   margin: 0;
-  padding: 0 8px 4px 52px;
+  padding: 0 8px 4px 44px;
   list-style: none;
 }
 
@@ -1332,6 +1417,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .choice-check {
@@ -1354,16 +1440,23 @@
   background: var(--selected);
 }
 
+/* How hard to think: its label over a full-width switch, so five levels fit the narrow panel. */
 .thinking {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 12px 14px 60px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 14px 14px 52px;
 }
 
 .thinking .segmented.small {
-  flex: 1;
   margin: 0;
+}
+
+.thinking .segmented.small > button {
+  padding: 0 4px;
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
 }
 
 .row .status-dot {
@@ -1385,11 +1478,14 @@
   cursor: pointer;
 }
 
+/* scotty's own rule turns a chevron with transform; this one turns it with rotate, once. */
 .disclosure .chevron {
+  transform: none;
   transition: rotate 200ms var(--ease-out);
 }
 
-.disclosure[aria-expanded="true"] .chevron {
+.disclosure[aria-expanded="true"] > .chevron {
+  transform: none;
   rotate: 90deg;
 }
 
