@@ -21,10 +21,11 @@ import { Value } from "typebox/value";
 
 /**
  * C2: the paths Access lets through without a login, written as an Access
- * app's paths. The deployer's bypass app covers exactly these, and the Worker
- * sends them only to routes that check their own tokens, or are public.
+ * app's paths; `/peer/*` is other kys' (src/peers.ts). The deployer's bypass
+ * app covers exactly these, and the Worker sends them only to routes that
+ * check their own tokens, or are public.
  */
-export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/manifest.webmanifest", "/icons/*"];
+export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*"];
 
 /** The header Access puts its JWT in. */
 export const ASSERTION = "Cf-Access-Jwt-Assertion";

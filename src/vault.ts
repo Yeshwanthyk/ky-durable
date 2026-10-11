@@ -35,7 +35,8 @@ import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 /** What a secret is for, like "provider", "claude" or "github". */
 type SecretKind = string;
 
-export type TokenKind = "pair" | "machine" | "task";
+/** `peer-invite` and `peer` are src/peers.ts's: a code another ky pairs with, and the token it calls this ky with. */
+export type TokenKind = "pair" | "machine" | "task" | "peer-invite" | "peer";
 
 /** The kinds `issue` can give out again: a task's runs all carry its one token. */
 export type ReissuedKind = "task";
@@ -323,6 +324,12 @@ export class Vault extends DurableObject<Env> {
   githubToken(): GithubLogin | null {
     // SAFETY: only setGithub writes ("github", SUBSCRIPTION), each a GithubLogin.
     return (this.#current("github", SUBSCRIPTION) as GithubLogin | null) ?? null;
+  }
+
+  /** The token ky calls the peer `name` with, which its ky minted when they paired (src/peers.ts); null once unpaired. */
+  peerToken(name: string): string | null {
+    // SAFETY: only src/peers.ts writes this kind, each value a token string.
+    return this.#current("peer", name) as string | null;
   }
 
   /** The repos a GitHub token reaches, for Settings to pick from, or why GitHub refused it. */

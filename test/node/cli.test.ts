@@ -194,7 +194,7 @@ describe("ky init and deploy", () => {
     ]);
     expect(metadata).toMatchObject({
       compatibility_date: "2026-10-03",
-      compatibility_flags: ["nodejs_compat"],
+      compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
       observability: { enabled: true },
       assets: { jwt: "assets-complete", config: { not_found_handling: "single-page-application", run_worker_first: true } },
       keep_bindings: ["secret_text"]
@@ -251,7 +251,7 @@ describe("ky init and deploy", () => {
       })
     ]);
     expect(account.tags).toEqual(new Set(["ky"]));
-    expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/manifest.webmanifest", "/icons/*"]);
+    expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*"]);
   });
 
   it("finds ky's Access apps by what they guard and their tag, not by name", async () => {
@@ -474,7 +474,7 @@ describe("ky doctor", () => {
       "✓ Release: r1",
       "✓ Migrations: v3",
       `✓ Access for the owner: ${HOST}`,
-      "✓ Access bypass: 5 paths",
+      "✓ Access bypass: 6 paths",
       `✓ workers.dev: https://${HOST}`,
       "✓ Cloud machine: off, so tasks run on your computers: this ky's release has no cloud machine image"
     ]);

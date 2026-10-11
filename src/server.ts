@@ -26,6 +26,7 @@ import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
+import { peerExtension, peerRoute, Peers } from "./peers";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -41,6 +42,8 @@ import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
+
+import type { Vault } from "./vault";
 
 export { Vault } from "./vault";
 
@@ -66,6 +69,8 @@ export type Boundary = ModelsBoundary & {
   readonly executorFetch?: typeof fetch;
   /** Seed the starter skills, specialist and automations on the first start (src/seeds.ts). */
   readonly seeds: boolean;
+  /** How requests reach other people's kys (src/peers.ts); global fetch unless set. */
+  readonly peerFetch?: typeof fetch;
   /** More tools for every agent, after ky's own. */
   readonly extensions: readonly Extension[];
 };
@@ -96,6 +101,8 @@ export class PiAgent extends DurableObject<Env> {
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
   readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
+  /** Other people's kys this one is paired with (src/peers.ts). */
+  readonly peers = new Peers(this.ctx.storage.sql);
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   readonly workspace = new Workspace({
@@ -253,6 +260,12 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(subagentProgressExtension(this.feed));
       this.registry.install(checkInGuardExtension(this.automations));
       this.registry.install(chatActivityExtension(this.chats));
+      this.registry.install(
+        peerExtension(
+          { peers: this.peers, vault: () => this.peerVault(), fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)), origin: () => this.setup.origin() },
+          chat
+        )
+      );
 
       return Harness.open(
         storage,
@@ -614,6 +627,21 @@ export class PiAgent extends DurableObject<Env> {
     return previous;
   }
 
+  /** The Vault the peer tool keeps tokens in: the one the peer routes check (src/peers.ts). Tests give each test ky its own. */
+  protected peerVault(): DurableObjectStub<Vault> {
+    return this.env.Vault.getByName("owner");
+  }
+
+  /** Another ky paired with an invite for `name`; false when the name is taken. */
+  peerJoined(name: string, address: string): boolean {
+    return this.peers.add(name, address);
+  }
+
+  /** Forget a peer whose pairing failed after it joined. */
+  peerLeft(name: string): void {
+    this.peers.remove(name);
+  }
+
   /** Forget a machine the user removed; its pairing, whose token the caller revokes, or undefined if ky never knew it. */
   async removeMachine(machine: string): Promise<{ pairing: string | null } | undefined> {
     if (this.machines.machine(machine) === undefined) return undefined;
@@ -685,6 +713,11 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
+/** What Access lets through signed out: the routes that take their own tokens, then the public files. */
+function signedOut(request: Request, env: Env, url: URL): Promise<Response> {
+  return tokenRoute(request, env, url) ?? peerRoute(request, env, url) ?? env.ASSETS.fetch(request);
+}
+
 /**
  * ky's Worker, with Access checked by `access`: production's fetches the team's keys, the stack's
  * (src/tests/stack.ts) a fake Access's.
@@ -694,9 +727,9 @@ export function worker(access: Access) {
     async fetch(request: Request, env: Env): Promise<Response> {
       const url = new URL(request.url);
 
-      // What Access lets through signed out: runners and their tasks, which sign in with their own tokens
-      // (src/runners.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
-      if (bypassed(url.pathname)) return tokenRoute(request, env, url) ?? env.ASSETS.fetch(request);
+      // What Access lets through signed out: runners and their tasks, and other kys, which sign in with their
+      // own tokens (src/runners.ts, src/peers.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
+      if (bypassed(url.pathname)) return signedOut(request, env, url);
 
       const refused = await access.refuse(request, env);
 
