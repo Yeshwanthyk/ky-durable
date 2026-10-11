@@ -183,7 +183,7 @@ export function Automations({ now, session }: { now: number; session: string }) 
         )}
       </ul>
       {automations.length === 0 && editing === null && (
-        <p className="panel-note">Nothing scheduled. Add one, or ask ky.</p>
+        <p className="group-empty">Nothing scheduled. Add one, or ask ky.</p>
       )}
     </section>
   );
