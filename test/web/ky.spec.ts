@@ -639,8 +639,12 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
   await open(page);
   await panel(page).getByRole("tab", { name: "Settings" }).click();
   const machine = panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last();
+  // A machine's settings sit under its row, closed until it is opened.
+  const row = machine.getByRole("button", { name: /^webmac/ });
   const states = machine.getByRole("radiogroup", { name: "Let ky use webmac" });
   await expect(machine).toContainText(process.platform === "darwin" ? "macOS" : "Linux");
+  await row.click();
+  await expect(row).toHaveAttribute("aria-expanded", "true");
 
   await states.getByRole("radio", { name: "Paused" }).click();
   await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
@@ -656,6 +660,7 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
 
     await page.reload();
     await panel(page).getByRole("tab", { name: "Settings" }).click();
+    await row.click();
     await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
     await expect(note).toHaveValue("web builds");
   } finally {
@@ -680,6 +685,7 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   const machine = panel(page).getByRole("listitem").filter({ hasText: "webadd" }).last();
   await expect(machine).toBeVisible();
 
+  await machine.getByRole("button", { name: /^webadd/ }).click();
   await machine.getByRole("button", { name: "Unpair this computer" }).click();
   const confirm = machine.getByRole("alertdialog", { name: "Unpair webadd" });
   await expect(confirm).toContainText("pair again");

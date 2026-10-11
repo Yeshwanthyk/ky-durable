@@ -43,7 +43,7 @@ export function Executor() {
       ) : (
         <ConnectExecutor onConnect={actions.onConnect} />
       )}
-      <p className="panel-note">Executor gives ky the tools of your apps, like email and calendar. The token stays in ky's Vault.</p>
+      <p className="group-note">Gives ky your apps' tools, like email and calendar. The token stays in ky's Vault.</p>
     </section>
   );
 }
@@ -93,12 +93,12 @@ function ConnectExecutor({ onConnect }: { onConnect: ExecutorActions["onConnect"
             onChange={(event) => setToken(event.target.value)}
           />
         </label>
-      </div>
-      <Problem text={refused} />
-      <div className="automation-foot">
-        <button type="submit" className="pill primary pressable" disabled={testing || !filled(url, token)}>
-          {testing ? "Testing…" : "Test and connect"}
-        </button>
+        <Problem text={refused} />
+        <div className="card-foot">
+          <button type="submit" className="pill primary pressable" disabled={testing || !filled(url, token)}>
+            {testing ? "Testing…" : "Test and connect"}
+          </button>
+        </div>
       </div>
     </form>
   );

@@ -354,9 +354,9 @@ function MachineList({
     <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
-        <p className="panel-note">None yet. Add one to run tasks on your own computer.</p>
+        <p className="group-empty">None yet. Add one to run tasks on your own computer.</p>
       ) : (
-        <ul className="card machine-list">
+        <ul className="card">
           {machines.map((machine) => (
             <MachineItem
               key={machine.name}
@@ -372,14 +372,45 @@ function MachineList({
           ))}
         </ul>
       )}
-      <AddMachine now={now} />
-      {sandboxes?.enabled ? (
-        <>
-          <AddSandbox view={sandboxes} live={machines.filter((machine) => machine.sandbox !== null).length} repos={repos} owned={owned} onAdded={reload} />
-          <KeptDisks view={sandboxes} now={now} onChanged={reload} />
-        </>
-      ) : null}
+      <MachineActions machines={machines} sandboxes={sandboxes} repos={repos} owned={owned} now={now} onChanged={reload} />
     </section>
+  );
+}
+
+// Under the machine list: adding a computer or a sandbox, then the disks deleted sandboxes kept.
+function MachineActions({
+  machines,
+  sandboxes,
+  repos,
+  owned,
+  now,
+  onChanged,
+}: {
+  machines: readonly MachineInfo[];
+  sandboxes: SandboxesView | null;
+  repos: readonly string[];
+  owned: readonly string[];
+  now: number;
+  onChanged: () => void;
+}) {
+  const live = machines.filter((machine) => machine.sandbox !== null).length;
+
+  if (!sandboxes?.enabled) {
+    return (
+      <div className="group-actions">
+        <AddMachine now={now} />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="group-actions">
+        <AddMachine now={now} />
+        <AddSandbox view={sandboxes} live={live} repos={repos} owned={owned} onAdded={onChanged} />
+      </div>
+      <KeptDisks view={sandboxes} now={now} onChanged={onChanged} />
+    </>
   );
 }
 
@@ -444,7 +475,7 @@ function RepoPicks({
 }) {
   const all = [...new Set([...repos.map((repo) => repo.toLowerCase()), ...chosen])].sort();
 
-  if (all.length === 0) return <span className="machine-hint">Pick repos in Settings › Subscriptions › GitHub first.</span>;
+  if (all.length === 0) return <span className="field-value">Pick repos in Subscriptions › GitHub first</span>;
 
   return (
     <fieldset className="github-repos sandbox-repos" aria-label={label}>
@@ -492,11 +523,7 @@ function SandboxFields({
     <>
       <MachineField
         label="Repos"
-        hint={
-          sandbox.repos.length === 0
-            ? "None: it may reach every picked repo, and gets a task only by name or as the default"
-            : "Tasks for these come here, and it pushes only to these"
-        }
+        hint={sandbox.repos.length === 0 ? "None: it reaches every picked repo, and gets tasks by name or as the default" : "Tasks for these come here; it pushes only to these"}
       >
         <RepoPicks
           label={`Repos ${machine.name} works on`}
@@ -506,19 +533,16 @@ function SandboxFields({
           onChange={(next) => void change({ repos: next })}
         />
       </MachineField>
-      <MachineField
-        label="Default"
-        hint={sandbox.isDefault ? "Tasks that name no machine, and no repo of another sandbox, come here" : "Another sandbox takes tasks that name no machine"}
-      >
+      <MachineField label="Default" hint={sandbox.isDefault ? "Tasks that name no machine come here" : "Another sandbox takes tasks that name no machine"}>
         {sandbox.isDefault ? (
-          <span className="machine-hint">The default sandbox</span>
+          <span className="field-value">This one</span>
         ) : (
           <button type="button" className="automation-text pressable" onClick={() => void change({ isDefault: true })}>
             Make it the default
           </button>
         )}
       </MachineField>
-      <MachineField label="Stays up idle" hint="Minutes with no task before it saves its disk and sleeps">
+      <MachineField label="Stays up idle" hint="Minutes, then it saves its disk and sleeps">
         <InlineEdit
           value={sandbox.idleMinutes === null ? "" : String(sandbox.idleMinutes)}
           className="sandbox-idle"
@@ -530,9 +554,9 @@ function SandboxFields({
           onSave={(next) => void change({ idleMinutes: next.trim() === "" ? null : Number(next) })}
         />
       </MachineField>
-      <span className="machine-hint">
-        {saved ? `Saved disk: ${diskSize(saved.size)}, saved ${agoInWords(saved.savedAt, now)}` : "No saved disk yet: it saves one when it sleeps"}
-      </span>
+      <MachineField label="Saved disk" hint={saved ? undefined : "It saves one when it sleeps"}>
+        <span className="field-value">{saved ? `${diskSize(saved.size)} · ${agoInWords(saved.savedAt, now)}` : "None yet"}</span>
+      </MachineField>
       {error ? (
         <p className="machine-error" role="alert">
           {error}
@@ -607,16 +631,14 @@ function AddSandbox({
   const [from, setFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  if (live >= view.cap) return <p className="panel-note">ky runs at most {view.cap} sandboxes; delete one to add another.</p>;
+  if (live >= view.cap) return <p className="group-note">ky runs at most {view.cap} sandboxes; delete one to add another.</p>;
 
   if (!open) {
     return (
-      <div className="machine-add">
-        <button type="button" className="pill pressable" onClick={() => setOpen(true)}>
-          <Icon name="monitor" />
-          Add a sandbox
-        </button>
-      </div>
+      <button type="button" className="pill pressable" onClick={() => setOpen(true)}>
+        <Icon name="cloud" />
+        Add a sandbox
+      </button>
     );
   }
 
@@ -636,19 +658,19 @@ function AddSandbox({
   };
 
   return (
-    <form className="machine-confirm sandbox-add" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
-      <p>A sandbox is ky's own Linux machine in Cloudflare. It starts when a task wakes it, and sleeps when idle.</p>
-      <label className="machine-field">
-        <span className="machine-field-label">Name</span>
-        <input value={name} placeholder="e.g. web" maxLength={32} required onChange={(event) => setName(event.currentTarget.value)} />
+    <form className="card form-card sandbox-add" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
+      <p className="field-hint">ky's own Linux machine in Cloudflare. A task wakes it; it sleeps when idle.</p>
+      <label className="field" data-stack>
+        <span className="field-label">Name</span>
+        <input className="field-input" value={name} placeholder="e.g. web" maxLength={32} required onChange={(event) => setName(event.currentTarget.value)} />
       </label>
-      <MachineField label="Repos" hint="Tasks for these go to it, and it pushes only to these; none lets it reach every picked repo">
+      <MachineField label="Repos" hint="Tasks for these go to it; none lets it reach every picked repo">
         <RepoPicks label="The new sandbox's repos" repos={repos} chosen={chosen} taken={owned} onChange={setChosen} />
       </MachineField>
       {view.kept.length === 0 ? null : (
-        <label className="machine-field">
-          <span className="machine-field-label">Disk</span>
-          <select value={from} onChange={(event) => setFrom(event.currentTarget.value)}>
+        <label className="field">
+          <span className="field-label">Disk</span>
+          <select className="field-select" value={from} onChange={(event) => setFrom(event.currentTarget.value)}>
             <option value="">A fresh disk</option>
             {view.kept.map((disk) => (
               <option key={disk.id} value={disk.id}>
@@ -663,15 +685,73 @@ function AddSandbox({
           {error}
         </p>
       ) : null}
-      <div className="machine-confirm-actions">
+      <div className="card-foot">
         <button type="button" className="automation-text pressable" onClick={() => setOpen(false)}>
           Cancel
         </button>
-        <button type="submit" className="pill pressable">
+        <button type="submit" className="pill primary pressable">
           Add
         </button>
       </div>
     </form>
+  );
+}
+
+type KeptDiskInfo = SandboxesView["kept"][number];
+
+/** A kept disk in a few words: its size, when its sandbox went, and the repos it had. */
+function keptLine(disk: KeptDiskInfo, now: number): string {
+  const repos = disk.repos.length > 0 ? ` · ${disk.repos.join(", ")}` : "";
+
+  return `${disk.save ? diskSize(disk.save.size) : "no save"} · deleted ${agoInWords(disk.deletedAt, now)}${repos}`;
+}
+
+// A kept disk's row, and deleting it once the user confirms.
+function KeptDisk({
+  disk,
+  now,
+  confirming,
+  onConfirm,
+  onDelete,
+}: {
+  disk: KeptDiskInfo;
+  now: number;
+  confirming: boolean;
+  onConfirm: (yes: boolean) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li className="item">
+      <div className="row">
+        <span className="row-tile">
+          <Icon name="archive" size={15} />
+        </span>
+        <span className="row-text">
+          <span className="row-label">{disk.name}</span>
+          <span className="row-sub">{keptLine(disk, now)}</span>
+        </span>
+        {confirming ? null : (
+          <button type="button" className="automation-text danger pressable" onClick={() => onConfirm(true)}>
+            Delete this disk
+          </button>
+        )}
+      </div>
+      {confirming ? (
+        <div className="item-body">
+          <div className="machine-confirm" role="alertdialog" aria-label={`Delete ${disk.name}'s disk`}>
+            <p>Delete {disk.name}'s disk for good? Its files are gone after this.</p>
+            <div className="machine-confirm-actions">
+              <button type="button" className="automation-text pressable" onClick={() => onConfirm(false)}>
+                Cancel
+              </button>
+              <button type="button" className="machine-unpair-confirm pressable" onClick={onDelete}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
@@ -690,35 +770,17 @@ function KeptDisks({ view, now, onChanged }: { view: SandboxesView; now: number;
 
   return (
     <div className="sandbox-kept">
-      <h4 className="machine-field-label">Kept disks</h4>
-      <ul className="card machine-list">
+      <h4 className="group-sublabel">Kept disks</h4>
+      <ul className="card">
         {view.kept.map((disk) => (
-          <li key={disk.id} className="machine">
-            <div className="machine-head">
-              <span className="machine-name">{disk.name}</span>
-              <span className="machine-facts">
-                {disk.save ? diskSize(disk.save.size) : "no save"} · deleted {agoInWords(disk.deletedAt, now)}
-                {disk.repos.length > 0 ? ` · ${disk.repos.join(", ")}` : ""}
-              </span>
-            </div>
-            {confirming === disk.id ? (
-              <div className="machine-confirm" role="alertdialog" aria-label={`Delete ${disk.name}'s disk`}>
-                <p>Delete {disk.name}'s disk for good? Its files are gone after this.</p>
-                <div className="machine-confirm-actions">
-                  <button type="button" className="automation-text pressable" onClick={() => setConfirming(null)}>
-                    Cancel
-                  </button>
-                  <button type="button" className="machine-unpair-confirm pressable" onClick={() => void remove(disk.id)}>
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="machine-unpair pressable" onClick={() => setConfirming(disk.id)}>
-                Delete this disk
-              </button>
-            )}
-          </li>
+          <KeptDisk
+            key={disk.id}
+            disk={disk}
+            now={now}
+            confirming={confirming === disk.id}
+            onConfirm={(yes) => setConfirming(yes ? disk.id : null)}
+            onDelete={() => void remove(disk.id)}
+          />
         ))}
       </ul>
       {error ? (
@@ -751,24 +813,24 @@ function AddMachine({ now }: { now: number }) {
   };
 
   return (
-    <div className="machine-add">
+    <>
       <button type="button" className="pill pressable" onClick={() => void add()}>
         <Icon name="monitor" />
         {code === null ? "Add a machine" : "New code"}
       </button>
-      {error ? <p className="panel-note">{error}</p> : null}
+      {error ? <p className="group-note">{error}</p> : null}
       {code === null ? null : <PairingCommand code={code} now={now} />}
-    </div>
+    </>
   );
 }
 
 // The command that pairs a computer with `code`, until the code expires.
 function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
-  if (code.expiresAt <= now) return <p className="panel-note">That code has expired. Make a new one.</p>;
+  if (code.expiresAt <= now) return <p className="group-note">That code has expired. Make a new one.</p>;
 
   return (
     <div className="machine-code">
-      <p className="panel-note">
+      <p className="group-note">
         On the computer, with <code>ky</code> installed, run this before {clock(code.expiresAt)}; it works once. It sets up
         the runner, starts it at login, and waits for it to come online here.
       </p>
@@ -794,8 +856,8 @@ const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string]> = [
 
 /** What each login choice means, once Subscriptions has a login saved. */
 const LOGIN_HINTS: Record<MachineLogin, string> = {
-  own: "Tasks use the logins on that computer; Subscriptions fill in where it isn't signed in",
-  ky: "Tasks always use the logins saved in Settings › Subscriptions",
+  own: "Its own logins; Subscriptions fill in where it isn't signed in",
+  ky: "Always the logins saved in Subscriptions",
 };
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -927,7 +989,22 @@ function InlineEdit({
 /** Whether the machine is a sandbox, which sleeps instead of going offline and is deleted instead of unpaired. */
 const isCloud = (machine: MachineInfo) => machine.cloud !== null;
 
-// A machine: whether it is up and busy, what it is, whether ky may use it, whose logins it uses, and what it is for.
+/** What a machine is, in a few words: its OS and Chrome and repos, or a sandbox's default and repos. */
+function machineSummary(machine: MachineInfo): string | null {
+  const facts = factsLine(machine.facts);
+
+  if (!machine.sandbox) return facts;
+  const parts = [facts ?? "Linux", reachOf(machine.sandbox)];
+
+  if (machine.sandbox.isDefault) parts.splice(1, 0, "default");
+
+  return parts.join(" · ");
+}
+
+/** Which repos a sandbox takes: its own, or every picked one when it has none. */
+const reachOf = (sandbox: SandboxInfo) => (sandbox.repos.length === 0 ? "every picked repo" : plural(sandbox.repos.length, "repo"));
+
+// A machine's row: its name, whether it is up and busy, and what it is; open, whether ky may use it, whose logins it uses, what it is for, and a sandbox's own choices.
 function MachineItem({
   machine,
   now,
@@ -952,35 +1029,67 @@ function MachineItem({
   /** A sandbox changed in a way the machine list doesn't carry. */
   onChanged: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const status = machineStatus(machine, now);
-  const facts = factsLine(machine.facts);
+  const summary = machineSummary(machine);
 
   return (
-    <li className="machine" data-state={machine.state}>
-      <div className="machine-head">
-        <span className="machine-name" title={machine.name}>
-          {machine.name}
+    <li className="item machine" data-open={open} data-state={machine.state}>
+      <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className="row-tile">
+          <Icon name={isCloud(machine) ? "cloud" : "monitor"} size={15} />
         </span>
-        <span className="machine-status" data-tone={status.tone}>
-          <span className="machine-dot" aria-hidden="true" />
-          {status.text}
+        <span className="row-text">
+          <span className="row-label machine-name">{machine.name}</span>
+          <span className="row-sub machine-status" data-tone={status.tone}>
+            <span className="machine-dot" aria-hidden="true" />
+            <span className="row-sub-text">{status.text}</span>
+          </span>
+          {summary ? <span className="row-sub row-sub-text">{summary}</span> : null}
         </span>
-        {facts ? <span className="machine-facts">{facts}</span> : null}
+        <Icon name="chevronRight" size={14} className="row-chevron chevron" />
+      </button>
+      <div className="expand" inert={!open}>
+        <div className="expand-inner">
+          <div className="item-body">
+            <MachineRestart machine={machine} />
+            <MachineSwitch machine={machine} onSet={onSet} />
+            <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
+            <MachineNote machine={machine} onSet={onSet} />
+            <MachineEnd machine={machine} repos={repos} taken={taken} saved={saved} now={now} onChanged={onChanged} />
+          </div>
+        </div>
       </div>
-      <MachineRestart machine={machine} />
-      <MachineSwitch machine={machine} onSet={onSet} />
-      <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
-      <MachineNote machine={machine} onSet={onSet} />
-      {machine.sandbox ? (
-        <>
-          <SandboxFields machine={machine} sandbox={machine.sandbox} repos={repos} taken={taken} saved={saved} now={now} />
-          <SandboxDelete machine={machine} sandbox={machine.sandbox} onDeleted={onChanged} />
-        </>
-      ) : isCloud(machine) ? null : (
-        <MachineUnpair machine={machine} />
-      )}
     </li>
   );
+}
+
+// The end of an open machine: a sandbox's own choices and deleting it, or unpairing a computer.
+function MachineEnd({
+  machine,
+  repos,
+  taken,
+  saved,
+  now,
+  onChanged,
+}: {
+  machine: MachineInfo;
+  repos: readonly string[];
+  taken: readonly string[];
+  saved: SavedDisk | null | undefined;
+  now: number;
+  onChanged: () => void;
+}) {
+  if (machine.sandbox) {
+    return (
+      <>
+        <SandboxFields machine={machine} sandbox={machine.sandbox} repos={repos} taken={taken} saved={saved} now={now} />
+        <SandboxDelete machine={machine} sandbox={machine.sandbox} onDeleted={onChanged} />
+      </>
+    );
+  }
+
+  return isCloud(machine) ? null : <MachineUnpair machine={machine} />;
 }
 
 // Unpairing a computer, once the user confirms it.
@@ -1031,22 +1140,24 @@ function MachineRestart({ machine }: { machine: MachineInfo }) {
 
   return (
     <div className="machine-restart">
-      <p>Start it on that computer:</p>
-      <code className="machine-command" aria-label="Start command">
-        ky runner run
-      </code>
-      <p>If it was set up as a service, it should restart on its own once that computer is on.</p>
+      <p>
+        Start it there with{" "}
+        <code className="machine-command" aria-label="Start command">
+          ky runner run
+        </code>
+      </p>
+      <p className="field-hint">As a service, it restarts once that computer is on.</p>
     </div>
   );
 }
 
-// A labelled choice in a machine's card, with a hint for what's chosen under it.
-function MachineField({ label, hint, children }: { label: string; hint: ReactNode; children: ReactNode }) {
+// A labelled choice in an open row: the label on the left, the control on the right or under it when it doesn't fit, and a line on what's chosen.
+function MachineField({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="machine-field">
-      <span className="machine-field-label">{label}</span>
+    <div className="field">
+      <span className="field-label">{label}</span>
       {children}
-      <span className="machine-hint">{hint}</span>
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   );
 }
@@ -1114,13 +1225,13 @@ function LoginHint({ login, subscribed }: { login: MachineLogin; subscribed: boo
     <>
       Nothing is saved in{" "}
       <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
-        {SUBSCRIPTIONS}
+        Subscriptions
       </button>{" "}
       yet
     </>
   );
 
-  return login === "ky" ? <>{saved}, so there is no login to hand over.</> : <>Tasks use the logins on that computer. {saved}.</>;
+  return login === "ky" ? <>{saved}, so there is no login to hand over.</> : <>Its own logins. {saved}.</>;
 }
 
 // What the user says the machine is for; Enter or leaving the field saves, Escape puts it back.
@@ -1132,8 +1243,8 @@ function MachineNote({ machine, onSet }: { machine: MachineInfo; onSet: (machine
   };
 
   return (
-    <div className="machine-field">
-      <label className="machine-field-label" htmlFor={id}>
+    <div className="field" data-stack>
+      <label className="field-label" htmlFor={id}>
         What it's for <span className="quiet">(optional)</span>
       </label>
       <input
@@ -1324,12 +1435,28 @@ const LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = {
 const PURPOSE_ICONS: Record<Purpose, IconName> = { main: "chat", worker: "nodes", background: "pencil", fallback: "cloud" };
 
 // What a purpose runs, as its row shows it: the model, its provider and, when the model has a choice, how hard it thinks.
-function summaryOf(current: ModelChoice, provider: ProviderInfo | undefined, model: ModelOption | undefined): string {
+function summaryOf(current: ModelChoice, provider: ProviderInfo | undefined, model: ModelOption | undefined): string[] {
   const parts = [model?.name ?? current.modelId, provider?.name ?? current.provider];
 
   if ((model?.levels.length ?? 0) > 1) parts.push(LEVELS[current.thinkingLevel] ?? current.thinkingLevel);
 
-  return parts.join(" · ");
+  return parts;
+}
+
+// Words joined with dots that break only between the parts, so a long provider name moves to the next line whole.
+function Parts({ parts }: { parts: readonly string[] }) {
+  // The dot stays with the part before it; the line breaks only at the space after.
+  return parts.map((part, index) =>
+    index < parts.length - 1 ? (
+      <Fragment key={part}>
+        <span className="part">{part}&nbsp;·</span>{" "}
+      </Fragment>
+    ) : (
+      <span key={part} className="part">
+        {part}
+      </span>
+    ),
+  );
 }
 
 // A purpose's row shows what it runs; open, it lists the models to pick from and how hard to think.
@@ -1358,14 +1485,16 @@ function ModelRow({
   const levels = model?.levels ?? [];
 
   return (
-    <li className="model-row" data-open={open}>
+    <li className="item model-row" data-open={open}>
       <button type="button" className="row disclosure" aria-expanded={open} onClick={onToggle}>
         <span className="row-tile">
           <Icon name={PURPOSE_ICONS[purpose]} size={15} />
         </span>
         <span className="row-text">
           <span className="row-label">{label}</span>
-          <span className="row-sub row-current">{summaryOf(current, provider, model)}</span>
+          <span className="row-sub row-current">
+            <Parts parts={summaryOf(current, provider, model)} />
+          </span>
         </span>
         <Icon name="chevronRight" size={14} className="row-chevron chevron" />
       </button>
@@ -1397,8 +1526,7 @@ function ModelRow({
                       <span className="choice-text">
                         <span>{each.name}</span>
                         <span className="row-sub">
-                          {provider.name}
-                          {each.cost ? ` · $${each.cost.input} / $${each.cost.output} per M` : ""}
+                          <Parts parts={each.cost ? [provider.name, `$${each.cost.input} / $${each.cost.output} per M`] : [provider.name]} />
                         </span>
                       </span>
                       <Icon name="check" size={14} className="choice-check" />
@@ -1410,7 +1538,7 @@ function ModelRow({
           </ul>
           {levels.length > 1 ? (
             <div className="thinking">
-              <span className="row-sub">Thinking</span>
+              <span className="field-label">Thinking</span>
               <div className="segmented small" role="radiogroup" aria-label={`${label} thinking`}>
                 {levels.map((each) => (
                   <button
@@ -1454,9 +1582,8 @@ function ServiceRow({
       </span>
       <span className="row-text">
         <span className="row-label">{name}</span>
-        {sub ? <span className="row-sub">{sub}</span> : null}
+        <span className="row-sub">{sub ? `${value} · ${sub}` : value}</span>
       </span>
-      <span className="row-value tabular">{value}</span>
       {children}
       <span className="status-dot" data-connected={on} />
     </li>
@@ -1609,6 +1736,7 @@ function AddKey({
 
   return (
     <form className="automation-form key-form" aria-label="Add an API key" onSubmit={save}>
+      <h4 className="group-sublabel">Add an API key</h4>
       <div className="card">
         <Pick label="Vendor" value={vendor} onChange={setChosen}>
           {vendors.map((each) => (
@@ -1630,12 +1758,12 @@ function AddKey({
             onChange={(event) => setKey(event.target.value)}
           />
         </label>
-      </div>
-      <KeyRefusal text={refused} />
-      <div className="automation-foot">
-        <button type="submit" className="pill primary pressable" disabled={testing || key.trim() === ""}>
-          {testing ? "Testing…" : "Test and save"}
-        </button>
+        <KeyRefusal text={refused} />
+        <div className="card-foot">
+          <button type="submit" className="pill primary pressable" disabled={testing || key.trim() === ""}>
+            {testing ? "Testing…" : "Test and save"}
+          </button>
+        </div>
       </div>
     </form>
   );
@@ -1786,9 +1914,9 @@ function Settings({
       <section className="group">
         <h3 className="group-label">Models</h3>
         {settings === null ? (
-          <p className="panel-note">Loading models…</p>
+          <p className="group-empty">Loading models…</p>
         ) : Object.keys(settings.purposes).length === 0 ? (
-          <p className="panel-note">No model provider is enabled.</p>
+          <p className="group-empty">No model provider is enabled.</p>
         ) : (
           <ul className="card">
             {PURPOSES.flatMap(({ purpose, label, hint }) => {
@@ -1814,8 +1942,6 @@ function Settings({
         )}
       </section>
       {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
-      <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
-      <Executor />
       <MachineList
         machines={machines}
         repos={subscriptions.views.find((view) => view.kind === "github")?.repos ?? []}
@@ -1823,6 +1949,8 @@ function Settings({
         subscribed={subscriptions.views.some((view) => view.connected && view.kind !== "github")}
         onSet={onSetMachine}
       />
+      <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
+      <Executor />
       <ToolsGroup catalog={catalog} />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}
     </div>
