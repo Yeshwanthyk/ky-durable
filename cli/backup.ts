@@ -120,16 +120,10 @@ function fileName(url: string, at: Date): string {
   return `${worker}-${stamp}.tar.gz`;
 }
 
-export async function backupCommand(context: Context, flags: Flags): Promise<number> {
-  const url = await kyUrl(context, flags);
-  const send = sender(url, await signIn(context, url));
-  const out = path.resolve(flags.out ?? path.join(context.system.home, "ky-backups", fileName(url, new Date())));
-  const partial = `${out}.partial`;
-
-  context.print(`Backing up ${bold(url)}`);
-  const response = await send("/api/backup", { method: "GET" });
-
+/** Writes the backup `response` streams to `out`, checked whole first: a cut-off one is never kept. */
+async function save(response: Response, out: string): Promise<Archive> {
   if (!response.ok || !response.body) throw new Error(`The backup failed (${response.status}): ${(await response.text()).trim()}`);
+  const partial = `${out}.partial`;
 
   // Only the owner reads it: it holds every chat and note, if no key.
   await mkdir(path.dirname(out), { recursive: true, mode: 0o700 });
@@ -152,7 +146,17 @@ export async function backupCommand(context: Context, flags: Flags): Promise<num
 
   await chmod(partial, 0o600);
   await rename(partial, out);
-  const { manifest } = archive;
+
+  return archive;
+}
+
+export async function backupCommand(context: Context, flags: Flags): Promise<number> {
+  const url = await kyUrl(context, flags);
+  const send = sender(url, await signIn(context, url));
+  const out = path.resolve(flags.out ?? path.join(context.system.home, "ky-backups", fileName(url, new Date())));
+
+  context.print(`Backing up ${bold(url)}`);
+  const { manifest } = await save(await send("/api/backup", { method: "GET" }), out);
   const size = (await readFile(out)).length;
 
   context.print(`${green("Backed up")} to ${bold(out)} ${dim(`(${bytes(size)})`)}`);

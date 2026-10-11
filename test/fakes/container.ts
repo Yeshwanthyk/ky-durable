@@ -22,7 +22,7 @@ import path from "node:path";
 import { portOf } from "./port.ts";
 
 /** Marks the fake's answer for a start it refused: Cloudflare's `fetch` throws its error then. */
-export const REFUSED_HEADER = "x-fake-refused";
+const REFUSED_HEADER = "x-fake-refused";
 
 /** What Cloudflare says when it has no container to give the Durable Object. */
 const NO_INSTANCE = "There is no container instance that can be provided to this Durable Object, try again later";
