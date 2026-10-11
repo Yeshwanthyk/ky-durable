@@ -32,7 +32,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/api-key.ts`, `src/vault.ts` |
 | VibeProxy on a computer | Claude in ky's chat: VibeProxy on port 8317 of a paired computer that shares it, reached over that computer's runner socket; or, from a checkout, the `VIBEPROXY` Workers VPC service over a cloudflared tunnel. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/vibeproxy.ts`, `src/pipe.ts` |
 | `ky runner run` on each machine | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `cli/runner/` |
-| Cloud machine | A container on the user's account (Workers Paid) running `ky runner cloud`, so tasks run with every computer off; git reaches GitHub through the Worker's `github.internal` proxy. | `src/cloud.ts`, `src/github.ts`, `cli/runner/cloud.ts`, `container/Dockerfile` |
+| Cloud machine | A container on the user's account (Workers Paid) running `ky runner cloud`, so tasks run with every computer off; git and `ky github` reach GitHub through the Worker's `github.internal`, which holds the token. | `src/cloud.ts`, `src/github.ts`, `src/github-tools.ts`, `cli/runner/cloud.ts`, `cli/runner/github.ts`, `container/Dockerfile` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),

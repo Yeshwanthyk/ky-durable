@@ -97,10 +97,9 @@ export type TaskTokens = {
 /** The Vault's subscriptions: what a run is handed for `agent` when the machine doesn't use its own login; none without one. */
 export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
 
-/** The cloud machine, on a deploy that has one: started when a command waits for it, and handed GitHub. */
+/** The cloud machine, on a deploy that has one: started when a command waits for it. */
 export type CloudHook = {
   wake(): void;
-  github(): Promise<{ token: string } | null>;
 };
 
 /** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
@@ -468,13 +467,12 @@ export class MachineHub {
         })
       );
 
-      const [tokens, creds, github] = await Promise.all([
+      const [tokens, creds] = await Promise.all([
         Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)).then((issued) => new Map(issued)),
-        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all)),
-        info?.facts?.kind === "cloud" && tasks.size > 0 ? this.cloud?.github() : undefined
+        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all))
       ]);
 
-      this.#send(machine, this.#outgoing(machine, tokens, github ? { ...creds, github } : creds, agents));
+      this.#send(machine, this.#outgoing(machine, tokens, creds, agents));
       this.#retries.delete(machine);
     }, () => this.#retry(machine));
   }
@@ -494,9 +492,7 @@ export class MachineHub {
       else {
         const handed = agents.has(command.agent) ? creds[command.agent] : undefined;
         const run: RunnerCommand = { ...command, taskToken: tokens.get(command.task)! };
-        const given: RunCreds = { ...(handed && { [command.agent]: handed }), ...(creds.github && { github: creds.github }) };
-
-        commands.push(Object.keys(given).length > 0 ? { ...run, creds: given } : run);
+        commands.push(handed ? { ...run, creds: { [command.agent]: handed } } : run);
       }
     }
 

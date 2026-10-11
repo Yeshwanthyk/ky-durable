@@ -40,6 +40,7 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
 
   ${bold("ky attach")}      inside a task: show the user an image or video ${dim("<file> [caption]")}
   ${bold("ky diff")}        inside a task: share the repository's changes ${dim("[base]")}
+  ${bold("ky github")}      inside a task on ky's cloud machine: open, view and merge a ky/ PR, and watch or roll back its deploy ${dim("<tool> <owner/repo> …")}
 
 ${dim(`Cloudflare login: CLOUDFLARE_API_TOKEN, or \`wrangler login\`. ky keeps no token.
 Settings: ${settings}`)}`;
@@ -94,7 +95,8 @@ export async function ky(args: string[], context: Context): Promise<number> {
       // What the cloud machine runs.
       ["runner", async () => (await import("./runner/commands.ts")).runnerCommand(context, positionals.slice(1), values)],
       ["attach", async () => (await import("./runner/commands.ts")).shareCommand(context, "attach", positionals.slice(1))],
-      ["diff", async () => (await import("./runner/commands.ts")).shareCommand(context, "diff", positionals.slice(1))]
+      ["diff", async () => (await import("./runner/commands.ts")).shareCommand(context, "diff", positionals.slice(1))],
+      ["github", async () => (await import("./runner/commands.ts")).githubCommand(context, positionals.slice(1))]
     ]);
 
     const command = commands.get(values.version ? "version" : (positionals[0] ?? ""));

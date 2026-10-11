@@ -332,19 +332,18 @@ export class PiAgent extends DurableObject<Env> {
     if (!this.env.KY_CLOUD) return undefined;
 
     return {
-      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined)),
-      // Only the token: which repos it may touch is the proxy's to check.
-      github: async () => {
-        const login = await this.env.Vault.getByName("owner").githubToken();
-
-        return login && { token: login.token };
-      }
+      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined))
     };
   }
 
   /** Whether the cloud machine has work: an open task or a command waiting. Its alarm keeps it awake while it has. */
   cloudBusy(): boolean {
     return this.machines.busy(CLOUD);
+  }
+
+  /** ky's own repo, owner/name, as Settings has it: the only one GitHub tools merge in or roll back (src/github-tools.ts). */
+  selfEditRepo(): string | null {
+    return this.setup.view().repo;
   }
 
   /** The hub's task tokens: the Vault's. Runs as a field initializer, so only ctx and env are set; tests wrap it. */

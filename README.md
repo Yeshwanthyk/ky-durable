@@ -70,8 +70,8 @@ wakes. To let it work on your repos, add a fine-grained GitHub token in Settings
 (contents and pull requests) and pick the repos; it may push only to `ky/*` branches. On the free plan
 `ky doctor` says tasks run on your computers instead.
 
-**Changing itself.** ky can change its own code: a task (on `cloud`, or a computer where `gh` is signed in)
-clones your copy of this repo, pushes a `ky/*` branch and opens a pull request; "ship it" merges it, watches the
+**Changing itself.** ky can change its own code: a task (on `cloud`, which holds no GitHub token and asks ky's Worker instead, or a
+computer where `gh` is signed in) clones your copy of this repo, pushes a `ky/*` branch and opens a pull request; "ship it" merges it, watches the
 deploy, and rolls back to the commit before if it fails. ky never holds a Cloudflare token; the deploy runs in
 GitHub Actions (`.github/workflows/deploy.yml`) on every merge to `main`, with two repo secrets you add in your
 copy's Settings › Secrets and variables › Actions:

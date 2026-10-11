@@ -1,13 +1,18 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { CLOUD } from "./cloud-facts";
+import { githubTool } from "./github-tools";
 
 /**
  * github.internal: git's smart HTTP to github.com for the cloud machine, as Scotty's creds proxy
  * does it. The container's git is set to fetch and push `https://github.com/<owner>/<repo>` through
  * `http://github.internal/api/git/<owner>/<repo>`, which the CloudMachine routes here; this adds the
- * Vault's GitHub token, so the container's git never holds it.
+ * Vault's GitHub token, so nothing in the container ever holds it.
  *
- * Only the repos the user picked in Settings › Subscriptions are reached, and a push may only
- * update branches under `ky/`: the work happens on a branch, and the user merges it.
+ * Its GitHub tools are there too, under `/api/github/` (src/github-tools.ts).
+ *
+ * Which machine is asking comes only from the props the CloudMachine registered the route with,
+ * never from the request. Only the repos that machine may reach are fetched (`allowedRepos`), and a
+ * push may only update branches under `ky/`: the work happens on a branch, and the user merges it.
  */
 
 /** The upstream ref every pushed update must name. */
@@ -38,6 +43,23 @@ const DROPPED = [
 
 /** The GitHub login the proxy fetches and pushes with: a token and the repos (owner/name) it may touch. */
 export type GithubLogin = { token: string; repos: readonly string[] };
+
+/**
+ * Who calls the proxy, as the CloudMachine registers its route (`ctx.exports.GithubProxy({ props })`):
+ * the container can't set or forge it. `machine` is the name that never changes, today only `cloud`.
+ */
+export type GithubProps = { machine: string };
+
+/**
+ * The login `machine` reaches GitHub with: the token, and the repos it may touch. Today the one
+ * cloud machine may touch every repo picked in Settings; a per-machine list narrows this, never
+ * widens it. Any other machine, or none, gets nothing.
+ */
+export function allowedRepos(login: GithubLogin | null, machine: string | undefined): GithubLogin | null {
+  if (!login || machine !== CLOUD) return null;
+
+  return login;
+}
 
 const refuse = (status: number, text: string) => new Response(`${text}\n`, { status });
 
@@ -104,7 +126,8 @@ export async function proxyGit(request: Request, login: GithubLogin | null, upst
 
   for (const name of DROPPED) headers.delete(name);
   headers.set("authorization", `Basic ${btoa(`x-access-token:${login.token}`)}`);
-  const answer = await fetch(`${upstream}/${repo}.git/${route}${url.search}`, { method: request.method, headers, body });
+  // Manual: GitHub redirects a renamed or moved repo, and the token must not follow it there.
+  const answer = await fetch(`${upstream}/${repo}.git/${route}${url.search}`, { method: request.method, headers, body, redirect: "manual" });
 
   // GitHub says some rate limits with 403; git retries only 429.
   if (answer.status === 403 && rateLimited(answer.headers)) {
@@ -151,9 +174,20 @@ export async function listRepos(fetch: GithubFetch, token: string): Promise<{ re
   return { repos };
 }
 
-/** What the CloudMachine routes github.internal to; exported from server.ts so `ctx.exports` has it. */
-export class GithubProxy extends WorkerEntrypoint<Env> {
+/**
+ * What the CloudMachine routes github.internal to; exported from server.ts so `ctx.exports` has it.
+ * Without the props the CloudMachine gives it, it answers nothing: 404, as no route.
+ */
+export class GithubProxy extends WorkerEntrypoint<Env, Partial<GithubProps>> {
   override async fetch(request: Request): Promise<Response> {
-    return proxyGit(request, await this.env.Vault.getByName("owner").githubToken());
+    const { machine } = this.ctx.props;
+
+    if (!machine) return refuse(404, "Not found");
+    const login = allowedRepos(await this.env.Vault.getByName("owner").githubToken(), machine);
+
+    if (!new URL(request.url).pathname.startsWith("/api/github/")) return proxyGit(request, login);
+
+    // ky's own repo, as the prompt names it: the only one the tools merge in or roll back.
+    return githubTool(request, login, (input, init) => fetch(input, init), await this.env.PiAgent.getByName("me").selfEditRepo());
   }
 }

@@ -558,11 +558,14 @@ describe("a deploy's own setup", () => {
     const after = (await systems()).at(-1);
     expect(after).toContain("your own code is the GitHub repo test-owner/test-repo.");
     expect(after).toContain("run one machine task on cloud,");
-    expect(after).toContain("1. gh repo clone test-owner/test-repo ky");
+    // On cloud no task holds a GitHub token: git goes through github.internal, and the rest through ky github.
+    expect(after).toContain("1. git clone https://github.com/test-owner/test-repo ky");
     expect(after).toContain("git switch -c ky/<short-name> origin/main");
-    expect(after).toContain("gh pr create --base main");
+    expect(after).toContain('ky github pr-create test-owner/test-repo main "<title>"');
+    expect(after).toContain("ky github pr-merge test-owner/test-repo <number>");
     expect(after).toContain("4. Check that https://ky.test/manifest.webmanifest answers 200.");
-    expect(after).toContain("gh workflow run deploy.yml --repo test-owner/test-repo --ref main -f sha=<rollback point>");
+    expect(after).toContain("ky github rollback test-owner/test-repo <rollback point>");
+    expect(after).not.toMatch(/\bgh (pr|repo|run|workflow|api)\b/);
     // The deploy workflow deploys, with its token in the repo's secrets: ky never runs wrangler.
     expect(after).not.toMatch(/\bMac\b|wrangler|pnpm run deploy/);
 

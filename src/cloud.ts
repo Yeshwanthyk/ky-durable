@@ -17,7 +17,9 @@ import { pairAs } from "./runners";
  *   home, the runner's handled seqs, the work trees); the next start restores it before the runner
  *   dials ky, so a follow-up resumes its session.
  * - git reaches github.com only through github.internal, which this routes to the Worker's
- *   GithubProxy (src/github.ts): it holds the token and lets pushes reach `ky/*` only.
+ *   GithubProxy (src/github.ts) with `{ machine: "cloud" }` in its props: it holds the token and
+ *   lets pushes reach `ky/*` only. `ky github` reaches the PR and deploy tools there too
+ *   (src/github-tools.ts). Nothing in the container holds a GitHub token.
  */
 
 /** The container's runner, as the CloudMachine drives it; the stack replaces it with a fake host. */
@@ -73,8 +75,9 @@ function containerBox(ctx: DurableObjectState): CloudBox | undefined {
   return {
     running: async () => container.running,
     start: async (env) => {
-      // Before every start: a new container has no interceptor.
-      await container.interceptOutboundHttp("github.internal", ctx.exports.GithubProxy);
+      // Before every start: a new container has no interceptor. The props say which machine calls, where
+      // the container can't reach: GithubProxy trusts nothing the container sends.
+      await container.interceptOutboundHttp("github.internal", ctx.exports.GithubProxy({ props: { machine: CLOUD } }));
       container.start({ enableInternet: true, env });
     },
     fetch: async (path, init) => {
@@ -183,15 +186,7 @@ export class CloudMachine extends DurableObject<Env> {
     const began = Date.now();
     const starting = !(await box.running());
 
-    if (starting) {
-      const origin = await this.ctx.storage.get<string>(ORIGIN_KEY);
-
-      if (!origin) throw new Error("ky's address isn't known yet: open ky in a browser once");
-      const token = await pairAs(this.env, CLOUD, CLOUD_FACTS);
-
-      await box.start({ KY_URL: origin, KY_MACHINE: CLOUD, KY_RUNNER_TOKEN: token });
-    }
-
+    if (starting) await this.#start(box);
     const state = await this.#ping(box);
     const listening = Date.now() - began;
 
@@ -203,12 +198,29 @@ export class CloudMachine extends DurableObject<Env> {
     }
 
     if (state !== "waiting") return;
+    const size = await this.#restore(box);
+    // Where a wake's time goes, in the Worker's logs; the runner dials ky right after the restore.
+    console.log(`the cloud machine ${starting ? "started" : "was running"}: listening after ${listening}ms, its files (${size} bytes) restored after ${Date.now() - began}ms`);
+  }
+
+  /** Start a container, paired as the cloud machine, that dials ky where a browser last opened it. */
+  async #start(box: CloudBox): Promise<void> {
+    const origin = await this.ctx.storage.get<string>(ORIGIN_KEY);
+
+    if (!origin) throw new Error("ky's address isn't known yet: open ky in a browser once");
+    const token = await pairAs(this.env, CLOUD, CLOUD_FACTS);
+
+    await box.start({ KY_URL: origin, KY_MACHINE: CLOUD, KY_RUNNER_TOKEN: token });
+  }
+
+  /** Give a waiting container its saved files, none if there is no save; how many bytes they were. */
+  async #restore(box: CloudBox): Promise<number> {
     const save = await this.env.FILES.get(SAVE_KEY);
     const restored = await box.fetch("/restore", { method: "PUT", body: save?.body ?? "" });
 
     if (!restored.ok && restored.status !== 409) throw new Error(`The cloud machine didn't take its files: ${restored.status} ${await restored.text()}`);
-    // Where a wake's time goes, in the Worker's logs; the runner dials ky right after the restore.
-    console.log(`the cloud machine ${starting ? "started" : "was running"}: listening after ${listening}ms, its files (${save?.size ?? 0} bytes) restored after ${Date.now() - began}ms`);
+
+    return save?.size ?? 0;
   }
 
   /** What the runner says it is doing, once it answers. */

@@ -15,6 +15,7 @@ import { cloudCommand } from "./cloud.ts";
 import { checkoutVersion, runRunner, type Status, statusFile } from "./run.ts";
 import { logFile, service, serviceDirs } from "./service.ts";
 import { kyUrl, LOCAL_SERVERS, machineName, readSettings, removeSettings, type Settings, settingsFile, withEnv, writeSettings } from "./settings.ts";
+import { github } from "./github.ts";
 import { attach, diff } from "./share.ts";
 import { compiled, type System } from "./system.ts";
 import { deleteToken, describeStore, keychainRemoval, readToken, tokenStore, writeToken } from "./token.ts";
@@ -362,6 +363,11 @@ export async function runnerCommand(context: Context, positionals: string[], fla
   if (!run) throw new Error(`usage: ky runner ${[...commands.keys()].join("|")}`);
 
   return run();
+}
+
+/** `ky github …`, inside a task on the cloud machine. */
+export function githubCommand(context: Context, args: string[]): Promise<number> {
+  return github(args, context.env, context.print, context.sleep);
 }
 
 /** `ky attach` or `ky diff`, inside a task. */

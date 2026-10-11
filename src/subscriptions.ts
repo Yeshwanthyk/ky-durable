@@ -5,7 +5,7 @@ import { SUBSCRIPTION, type Vault } from "./vault";
 /**
  * Settings › Subscriptions: the user's Claude and ChatGPT logins, which the
  * Vault keeps and tasks on machines run with (MachineHub hands them out), and
- * the GitHub token the cloud machine's git and `gh` use. What crosses to the
+ * the GitHub token the Worker reaches GitHub with for the cloud machine. What crosses to the
  * browser is only whether each is set up, when the Claude token runs out, the
  * last refresh error and GitHub's repos; never a token.
  */

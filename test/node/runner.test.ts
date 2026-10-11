@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Context } from "../../cli/commands.ts";
 import { ky } from "../../cli/ky.ts";
 import { restartRunner } from "../../cli/runner/commands.ts";
+import { github } from "../../cli/runner/github.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
 import { stableKy } from "../../cli/runner/system.ts";
@@ -349,6 +350,63 @@ describe("ky attach and ky diff", () => {
     expect(await run(["attach", "shot.png"])).toBe(1);
     expect(await run(["diff"])).toBe(1);
     expect(printed).toEqual(["ky: run this inside a ky task", "ky: run this inside a ky task"]);
+  });
+});
+
+describe("ky github", () => {
+  /** The Worker's GitHub tools, answering `answers` in order; what each call posted. */
+  async function fakeTools(...answers: [number, Record<string, string | number>][]) {
+    const calls: { url: string; input: unknown }[] = [];
+
+    const server = createServer(async (request, response) => {
+      let body = "";
+
+      for await (const chunk of request) body += chunk;
+      calls.push({ url: `${request.method} ${request.url}`, input: JSON.parse(body) });
+      const [status, answer] = answers.shift() ?? [500, { error: "unexpected" }];
+
+      response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(answer));
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    // SAFETY: a server listening on a TCP port has an AddressInfo address.
+    const api = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/github`;
+
+    return { api, calls, close: () => new Promise((resolve) => server.close(resolve)) };
+  }
+
+  it("opens a PR from the current branch, and watches a run until it ends", async () => {
+    const tools = await fakeTools([200, { number: 7, state: "open" }], [200, { id: 9, status: "in_progress" }], [200, { id: 9, status: "completed", conclusion: "failure" }]);
+    const lines: string[] = [];
+    const env = { KY_GITHUB_API: tools.api };
+    const sleep = async () => {};
+
+    try {
+      expect(await github(["pr-create", "me/app", "main", "Fix it", "why"], env, (line) => lines.push(line), sleep, () => "ky/fix")).toBe(0);
+      expect(JSON.parse(lines[0] ?? "")).toEqual({ number: 7, state: "open" });
+      // A failed deploy fails the watch, so the task rolls back.
+      expect(await github(["watch", "me/app", "9"], env, (line) => lines.push(line), sleep)).toBe(1);
+      expect(tools.calls).toEqual([
+        { url: "POST /api/github/pr-create", input: { repo: "me/app", base: "main", head: "ky/fix", title: "Fix it", body: "why" } },
+        { url: "POST /api/github/run", input: { repo: "me/app", id: 9 } },
+        { url: "POST /api/github/run", input: { repo: "me/app", id: 9 } }
+      ]);
+    } finally {
+      await tools.close();
+    }
+  });
+
+  it("says why the Worker refused, and how to call it", async () => {
+    const tools = await fakeTools([403, { error: "ky's GitHub token isn't for me/site" }]);
+    const env = { KY_GITHUB_API: tools.api };
+
+    try {
+      await expect(github(["pr-view", "me/site", "7"], env, () => {}, async () => {})).rejects.toThrow("HTTP 403: ky's GitHub token isn't for me/site");
+      await expect(github(["pr-view", "me/app", "seven"], env, () => {}, async () => {})).rejects.toThrow("usage: ky github");
+      await expect(github(["pr-close", "me/app", "7"], env, () => {}, async () => {})).rejects.toThrow("usage: ky github");
+    } finally {
+      await tools.close();
+    }
   });
 });
 

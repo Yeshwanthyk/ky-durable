@@ -216,7 +216,7 @@
     },
     {
       "check": "node",
-      "name": "ky runner add pairs, keeps the token in the Keychain, writes runner.json, installs the launchd agent and waits for it online",
+      "name": "ky runner add pairs, keeps the token in a 0600 file, writes runner.json, installs the launchd agent and waits for it online",
       "outcome": "passed"
     },
     {
