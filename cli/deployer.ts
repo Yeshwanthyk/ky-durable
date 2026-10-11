@@ -25,7 +25,7 @@ import { answeredWithError, type Cloudflare, getService, refused, SCOPES, tokenP
 import { emails, writeDeployed } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
 import { copyImage, imageDigest, TARGET } from "./image.ts";
-import type { Release } from "./release.ts";
+import { type Release, releaseImage } from "./release.ts";
 
 /** The tag every Worker and Access app the CLI makes carries, and the one that names a Worker's release. */
 const TAG = "ky";
@@ -461,12 +461,15 @@ async function runsContainers(cloudflare: Cloudflare, accountId: string): Promis
 
 /** Whether the cloud machine deploys: the release has its image, and the account runs containers. */
 async function cloudState(cloudflare: Cloudflare, accountId: string, release: Release): Promise<{ image: string } | { off: string }> {
-  if (!release.image) return { off: "this ky's release has no cloud machine image" };
+  const none = { off: "this ky's release has no cloud machine image" };
+
+  if (!release.image && !release.imageFrom) return none;
 
   if (!(await runsContainers(cloudflare, accountId)))
     return { off: `this account can't run containers: it needs Workers Paid (${plansPage(accountId)}), and a login with Containers: Edit` };
+  const image = await releaseImage(release);
 
-  return { image: release.image };
+  return image ? { image } : none;
 }
 
 /** The cloud machine's Durable Object namespace, once the Worker has run migration v3. */

@@ -2,11 +2,13 @@
 # Packs what `KY_VERSION=<version> pnpm compile` built into the files a release publishes, in
 # dist/out (.github/workflows/release.yml):
 #   ky-<platform>.tar.gz   the `ky` binary for each platform, with the release inside it
-#   release.json           what this release deploys: the Worker bundle's digest and the image
+#   release.json           what this release deploys: the Worker bundle's digest and the image. The
+#                          binaries' own release.json names this file, not the image, which holds
+#                          the linux-x64 binary (cli/release.ts); KY_IMAGE=<ref> is the image
 #   install.sh             the installer, which takes the latest release's binary
 #   checksums.txt          sha-256 of each of them; install.sh and the brew formula check against it
 #
-#   scripts/release/package.sh <version> [platform …]   (default: all four)
+#   KY_IMAGE=ghcr.io/…@sha256:… scripts/release/package.sh <version> [platform …]   (default: all four)
 set -eu
 
 cd "$(dirname "$0")/../.."
@@ -36,7 +38,16 @@ for platform in "$@"; do
 done
 rm -rf "$stage"
 
-cp dist/release/release.json "$out/release.json"
+# The binaries' release.json, with the image: `ky deploy` checks it's the same release by its version and bundle.
+# shellcheck disable=SC2016 # JavaScript, not shell.
+KY_IMAGE=${KY_IMAGE:-} node -e '
+  const fs = require("fs");
+  const manifest = JSON.parse(fs.readFileSync("dist/release/release.json", "utf8"));
+  const image = process.env.KY_IMAGE;
+  if (manifest.imageFrom && !image) { console.error("package: the binaries read their image from the release: set KY_IMAGE=<ref>"); process.exit(1); }
+  if (image && !/^ghcr\.io\/[a-z0-9._-]+\/[a-z0-9._\/-]+@sha256:[0-9a-f]{64}$/.test(image)) { console.error(`package: KY_IMAGE is ${image}, not ghcr.io/…@sha256:…`); process.exit(1); }
+  fs.writeFileSync(process.argv[1], JSON.stringify(image ? { ...manifest, image } : manifest, null, 2));
+' "$out/release.json"
 cp install.sh "$out/install.sh"
 
 if command -v sha256sum >/dev/null 2>&1; then sum() { sha256sum "$@"; }; else sum() { shasum -a 256 "$@"; }; fi

@@ -1,13 +1,15 @@
 /**
  * `ky <command> [flags]`: parses the arguments, runs the command, and returns the exit code. A
  * failure, a bad flag among them, prints its message rather than a stack.
+ *
+ * Each command's module is imported when it runs, not before. The cloud machine runs only `ky
+ * runner cloud`, `ky attach` and `ky diff` (./runner/commands.ts), so only what those load can
+ * change what it does: container/image.inputs lists it, and a release builds a new image only when
+ * one of those files changed (scripts/image/inputs.ts).
  */
 import { parseArgs } from "node:util";
 import { isCancel, text } from "@clack/prompts";
-import { type Context, deployCommand, doctorCommand, skillCommand, teardownCommand, upgradeCommand } from "./commands.ts";
-import { backupCommand, restoreCommand } from "./backup.ts";
-import { initCommand } from "./init.ts";
-import { runnerCommand, shareCommand } from "./runner/commands.ts";
+import type { Context } from "./commands.ts";
 import { bold, Cancelled, dim } from "./output.ts";
 
 /**
@@ -78,18 +80,19 @@ export async function ky(args: string[], context: Context): Promise<number> {
     const { positionals, values } = parseArgs({ args, allowPositionals: true, options: OPTIONS });
 
     const commands = new Map<string, () => Promise<number>>([
-      ["init", () => initCommand(context, values)],
-      ["deploy", () => deployCommand(context)],
-      ["upgrade", () => upgradeCommand(context)],
-      ["doctor", () => doctorCommand(context, values.json ?? false)],
-      ["teardown", async () => teardownCommand(context, await typedName(values.confirm))],
-      ["backup", () => backupCommand(context, values)],
-      ["restore", () => restoreCommand(context, positionals[1], values)],
-      ["skill", () => skillCommand(context)],
+      ["init", async () => (await import("./init.ts")).initCommand(context, values)],
+      ["deploy", async () => (await import("./commands.ts")).deployCommand(context)],
+      ["upgrade", async () => (await import("./commands.ts")).upgradeCommand(context)],
+      ["doctor", async () => (await import("./commands.ts")).doctorCommand(context, values.json ?? false)],
+      ["teardown", async () => (await import("./commands.ts")).teardownCommand(context, await typedName(values.confirm))],
+      ["backup", async () => (await import("./backup.ts")).backupCommand(context, values)],
+      ["restore", async () => (await import("./backup.ts")).restoreCommand(context, positionals[1], values)],
+      ["skill", async () => (await import("./commands.ts")).skillCommand(context)],
       ["version", () => versionCommand(context)],
-      ["runner", () => runnerCommand(context, positionals.slice(1), values)],
-      ["attach", () => shareCommand(context, "attach", positionals.slice(1))],
-      ["diff", () => shareCommand(context, "diff", positionals.slice(1))]
+      // What the cloud machine runs.
+      ["runner", async () => (await import("./runner/commands.ts")).runnerCommand(context, positionals.slice(1), values)],
+      ["attach", async () => (await import("./runner/commands.ts")).shareCommand(context, "attach", positionals.slice(1))],
+      ["diff", async () => (await import("./runner/commands.ts")).shareCommand(context, "diff", positionals.slice(1))]
     ]);
 
     const command = commands.get(values.version ? "version" : (positionals[0] ?? ""));

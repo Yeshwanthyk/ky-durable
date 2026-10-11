@@ -1,39 +1,17 @@
 name: image
 
-# Publishes the cloud machine's image (container/Dockerfile) to GitHub's registry and records its
-# linux/amd64 digest. `ky deploy` copies the ref in container/image.digest into the account's
-# registry.cloudflare.com (cli/image.ts). The package must be public: deploys pull it signed out
-# (with KY_GHCR_TOKEN set, `ky deploy` can pull a private one, but a release can't). It then
-# opens a pull request that pins the image, with the commit it was built from, in
-# container/image.digest; .github/workflows/release.yml releases only with a pin no older than
-# what the image holds.
-#
-# The image's layers are cached between runs (type=gha) and the ky binary is the last, so a run for
-# a ky change rebuilds and pushes only that layer, and a deploy copies only that one.
-#
-# Run it by hand: gh workflow run image.yml --ref <branch> (GitHub lists it only once the file is on
-# main; until then a push to setup-untether that touches the paths below runs it). The pin's pull
-# request goes to the branch it ran on.
+# A preview of the cloud machine's image for a branch, by hand: gh workflow run image.yml --ref <branch>.
+# Releases don't need it: release.yml builds the image itself, around the released binary, when
+# what the image runs (container/image.inputs) has changed. This builds the same way
+# (.github/actions/cloud-image), around a checkout's linux-x64 build, and prints the lines that pin
+# it in container/image.digest, the image `pnpm compile` puts in a checkout's build (a local
+# `ky deploy`, deploy.yml). Its runs on main also warm the layer cache tag runs read.
 on:
-  push:
-    branches: [main, setup-untether]
-    # What the image holds: the Dockerfile, and the `ky` built from cli/ with the src/ files it
-    # imports and the locked packages. release.yml checks the pinned image against the same list.
-    paths:
-      - container/Dockerfile
-      - cli/**
-      - src/runner-protocol.ts
-      - src/files.ts
-      - src/tool-labels.ts
-      - src/access.ts
-      - pnpm-lock.yaml
-      - .github/workflows/image.yml
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   packages: write
-  pull-requests: write
 
 concurrency:
   group: image-${{ github.ref }}
@@ -55,85 +33,27 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
       - name: Build ky for linux-x64
         run: pnpm compile linux-x64
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to GitHub's registry
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: Read the tools' current versions
-        id: tools
-        # Passed as build-args, so the tools' cached layer is rebuilt when one is released, not on every run.
-        run: |
-          {
-            echo "repository=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ky-cloud"
-            echo "claude=$(npm view @anthropic-ai/claude-code version)"
-            echo "codex=$(npm view @openai/codex version)"
-          } >> "$GITHUB_OUTPUT"
-      - name: Build and push
-        id: build
-        uses: docker/build-push-action@v6
+      - name: Build the image
+        id: image
+        uses: ./.github/actions/cloud-image
         with:
-          context: .
-          file: container/Dockerfile
-          platforms: linux/amd64
-          push: true
-          # One linux/amd64 manifest, no index or attestation: its digest is what the account's copy goes by.
-          provenance: false
-          sbom: false
-          tags: ${{ steps.tools.outputs.repository }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          build-args: |
-            CLAUDE_CODE_VERSION=${{ steps.tools.outputs.claude }}
-            CODEX_VERSION=${{ steps.tools.outputs.codex }}
-          cache-from: type=gha,scope=ky-cloud
-          cache-to: type=gha,scope=ky-cloud,mode=max
-      - name: Summary
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source: ${{ github.sha }}
+      - name: Say how to pin it
         env:
-          REPOSITORY: ${{ steps.tools.outputs.repository }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-          CLAUDE: ${{ steps.tools.outputs.claude }}
-          CODEX: ${{ steps.tools.outputs.codex }}
+          REF: ${{ steps.image.outputs.ref }}
         run: |
-          case "$DIGEST" in sha256:*) ;; *) echo "no digest from the build" >&2; exit 1 ;; esac
-          echo "REF=$REPOSITORY@$DIGEST" >> "$GITHUB_ENV"
-          # In the log too, for `gh run view --log` to find.
-          echo "published $REPOSITORY@$DIGEST"
           {
-            echo "### Cloud machine image"
             echo
-            echo "- tag: \`$REPOSITORY:$GITHUB_SHA\`"
-            echo "- ref: \`$REPOSITORY@$DIGEST\`"
-            echo "- source: \`$GITHUB_SHA\`"
-            echo "- Claude Code $CLAUDE, Codex $CODEX"
+            echo "To have a checkout build with it, put these last in container/image.digest:"
+            echo
+            echo '```'
+            echo "# source: $GITHUB_SHA"
+            echo "$REF"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Log out
-        if: always()
-        run: docker logout ghcr.io
-      - name: Open the pull request that pins it
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # Its comments, then the image's source commit and its ref: `pnpm compile` reads the first
-        # line that isn't a comment, and release.yml the source.
-        run: |
-          file=container/image.digest
-          { grep '^#' "$file" | grep -v '^# source:'; echo "# source: $GITHUB_SHA"; echo "$REF"; } > "$RUNNER_TEMP/image.digest"
-          mv "$RUNNER_TEMP/image.digest" "$file"
-          if git diff --quiet -- "$file"; then
-            echo "$file already pins it"
-            exit 0
-          fi
-          branch="image/${GITHUB_SHA::7}"
-          git switch -c "$branch"
-          git add "$file"
-          git -c user.name=ky-image -c user.email=ky-image@users.noreply.github.com commit -m "Pin the cloud machine's image built from ${GITHUB_SHA::7}"
-          git push "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
-          body="The image .github/workflows/image.yml built from $GITHUB_SHA: \`$REF\`. Merge it, and the next release deploys it."
-          if ! gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "[image] Pin ky-cloud from ${GITHUB_SHA::7}" --body "$body"; then
-            echo "::warning::Couldn't open the pull request; open one from $branch (Settings › Actions may not let workflows open pull requests)."
-            echo "- pin: branch \`$branch\`; open a pull request from it" >> "$GITHUB_STEP_SUMMARY"
-          fi

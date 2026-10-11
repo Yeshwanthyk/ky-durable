@@ -26,15 +26,21 @@ const config = experimental_readRawConfig({ config: path.join(REPO, "wrangler.js
 
 const built: { main: string } = JSON.parse(await readFile(path.join(BUILT, "wrangler.json"), "utf8"));
 
-// The cloud machine's image, as .github/workflows/image.yml published it: the file's first line that isn't a comment.
-const digestFile = path.join(REPO, "container/image.digest");
-
-const image = existsSync(digestFile)
-  ? (await readFile(digestFile, "utf8")).split("\n").map((line) => line.trim()).find((line) => line !== "" && !line.startsWith("#"))
-  : undefined;
-
 // A release's own (.github/workflows/release.yml sets it from the tag), else the commit.
 const version = process.env.KY_VERSION || execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+
+// The cloud machine's image. A release's binary names the release.json published beside it, which
+// names the image (cli/release.ts): the image holds this binary, so it can't hold the image's digest.
+// A checkout's build carries container/image.digest's: the file's first line that isn't a comment.
+const digestFile = path.join(REPO, "container/image.digest");
+
+const cloud = process.env.KY_VERSION
+  ? { imageFrom: `https://github.com/${process.env.GITHUB_REPOSITORY || "Yeshwanthyk/ky-durable"}/releases/download/v${version}/release.json` }
+  : {
+      image: existsSync(digestFile)
+        ? (await readFile(digestFile, "utf8")).split("\n").map((line) => line.trim()).find((line) => line !== "" && !line.startsWith("#"))
+        : undefined
+    };
 
 // What the web app's build marks as never served: the resolved config and .dev.vars.
 const ignored = new Set([".assetsignore", ...(await readFile(path.join(CLIENT, ".assetsignore"), "utf8")).split("\n").filter(Boolean)]);
@@ -51,7 +57,7 @@ await cp(BUILT, path.join(CHECKOUT, "worker"), { recursive: true, filter: (file)
 await cp(CLIENT, path.join(CHECKOUT, "assets"), { recursive: true, filter: (file) => !ignored.has(path.relative(CLIENT, file)) });
 
 // Last, as it pins every file above.
-const manifest = { version, bundle: bundleOf(await releaseFiles(CHECKOUT)), config: { ...config, main: built.main }, image };
+const manifest = { version, bundle: bundleOf(await releaseFiles(CHECKOUT)), config: { ...config, main: built.main }, ...cloud };
 
 await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify(manifest, null, 2));
 

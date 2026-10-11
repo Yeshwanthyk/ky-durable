@@ -3,11 +3,23 @@ name: release
 # Publishes ky for a tag v<version>, the version in package.json: the `ky` binary for macOS and
 # Linux on arm64 and x64, each with the release it deploys inside it, plus release.json (the Worker
 # bundle's digest and the cloud machine's image), install.sh and checksums.txt, on GitHub Releases.
-# Then it points the brew tap's formula (Yeshwanthyk/homebrew-ky) at them.
+# Then it points the brew tap's formula (Yeshwanthyk/homebrew-ky) at them. Pushing the tag is all
+# a release takes:
 #
-# The release deploys the image container/image.digest pins, which .github/workflows/image.yml
-# built. So a release is refused while that image is older than the runner it should run: when
-# what image.yml builds from has changed since the image's source commit.
+#   build    compiles the binaries once (macOS, which signs the Mac ones)
+#   image    keeps the image the newest release deploys while nothing it runs has changed
+#            (container/image.inputs, scripts/image/current.ts); else builds one around the
+#            linux-x64 binary `build` compiled, so the cloud machine runs the released `ky`
+#   publish  packs the binaries with the image's ref in release.json, publishes, updates the tap
+#
+# Keeping the image keeps its digest, so `ky upgrade` leaves the cloud machine running rather than
+# rolling it out for nothing (cli/deployer.ts). The binaries can't carry the image's digest, as the
+# image holds one of them: each names the release.json published beside it (cli/release.ts).
+#
+# A rerun of the tag is safe. A published release is never changed: Bun doesn't build the same bytes
+# twice, so new binaries would no longer be the ones in its image. The rerun keeps the image the
+# release names, and only finishes the tap, from the release's own checksums.txt. The release is a
+# draft until every file is up, so a run that fails halfway leaves a draft, which a rerun replaces.
 on:
   push:
     tags: ["v*"]
@@ -20,60 +32,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build:
     # The macOS binaries are built, and ad-hoc signed (cli/compile.ts), on macOS.
     runs-on: macos-latest
-    environment: release
     timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          # The image check compares this commit with the image's source.
-          fetch-depth: 0
       - name: Check the tag is package.json's version
+        id: version
         run: |
           version=$(node -p 'require("./package.json").version')
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::the tag $GITHUB_REF_NAME is not v$version (package.json)"
             exit 1
           fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
-      - name: Check the cloud machine's image
-        env:
-          # What the image holds: image.yml's paths.
-          IMAGE_INPUTS: container/Dockerfile cli src/runner-protocol.ts src/files.ts src/tool-labels.ts src/access.ts pnpm-lock.yaml
-        run: |
-          file=container/image.digest
-          read -ra inputs <<< "$IMAGE_INPUTS"
-          ref=$(sed -e '/^#/d' -e '/^[[:space:]]*$/d' "$file" | head -n 1 | tr -d '[:space:]')
-          source=$(sed -n 's/^# source: \([0-9a-f]\{7,40\}\)$/\1/p' "$file" | head -n 1)
-          if ! printf '%s' "$ref" | grep -Eq '^ghcr\.io/[a-z0-9._-]+/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'; then
-            echo "::error::$file pins no image. Run the image workflow and merge the pin it opens, then tag again."
-            exit 1
-          fi
-          if [ -z "$source" ]; then
-            echo "::error::$file doesn't say which commit its image was built from (# source: <sha>)"
-            exit 1
-          fi
-          if ! git diff --quiet "$source" HEAD -- "${inputs[@]}"; then
-            echo "::error::The image was built from $source, and what it holds has changed since:"
-            git diff --stat "$source" HEAD -- "${inputs[@]}"
-            echo "Run the image workflow on this commit and merge the pin it opens, then tag again."
-            exit 1
-          fi
-          # Every deploy pulls it signed out, so it must be public.
-          repository=${ref%@*}
-          repository=${repository#ghcr.io/}
-          digest=${ref#*@}
-          token=$(curl -fsSL "https://ghcr.io/token?scope=repository:$repository:pull" | jq -r .token) || token=
-          if [ -z "$token" ] || ! curl -fsSL -o /dev/null -H "Authorization: Bearer $token" \
-            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
-            "https://ghcr.io/v2/$repository/manifests/$digest"; then
-            echo "::error::$ref can't be pulled signed out. Make the ky-cloud package public on GitHub."
-            exit 1
-          fi
-          echo "Image: $ref, built from $source"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -83,27 +62,155 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
       - name: Build ky for every platform
         env:
-          KY_VERSION: ${{ env.VERSION }}
+          KY_VERSION: ${{ steps.version.outputs.version }}
         run: pnpm compile darwin-arm64 darwin-x64 linux-x64 linux-arm64
       - name: Check the binary names its release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           said=$(dist/bin/ky-darwin-arm64 --version)
           test "$said" = "ky $VERSION (ky-durable-cli)" || { echo "::error::ky --version said: $said"; exit 1; }
+      # A tarball keeps the binaries' modes; the jobs below use these very files.
+      - name: Keep the build
+        run: tar -czf "$RUNNER_TEMP/build.tar.gz" dist/bin dist/release/release.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: ${{ runner.temp }}/build.tar.gz
+          retention-days: 7
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.chosen.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # The check compares this commit with the last image's source.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # scripts/image/current.ts reads Bun's module graph to check container/image.inputs.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Find the image the newest release deploys
+        id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/image/last.sh "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
+      - name: Check whether it runs what this commit would
+        id: current
+        env:
+          SOURCE: ${{ steps.last.outputs.source }}
+        run: |
+          if [ -z "$SOURCE" ]; then
+            echo "No earlier image whose source is known: building one."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node --experimental-strip-types --no-warnings scripts/image/current.ts "$SOURCE" HEAD
+      - uses: actions/download-artifact@v4
+        if: steps.current.outputs.current != 'true'
+        with:
+          name: build
+          path: ${{ runner.temp }}
+      - name: Unpack the build
+        if: steps.current.outputs.current != 'true'
+        run: tar -xzf "$RUNNER_TEMP/build.tar.gz"
+      - name: Build the image around the released binary
+        id: built
+        if: steps.current.outputs.current != 'true'
+        uses: ./.github/actions/cloud-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          source: ${{ github.sha }}
+      - name: Choose the image
+        id: chosen
+        env:
+          CURRENT: ${{ steps.current.outputs.current }}
+          LAST: ${{ steps.last.outputs.ref }}
+          FROM: ${{ steps.last.outputs.from }}
+          SOURCE: ${{ steps.last.outputs.source }}
+          BUILT: ${{ steps.built.outputs.ref }}
+        run: |
+          if [ "$CURRENT" = true ]; then
+            ref=$LAST
+            # Every deploy pulls it signed out.
+            scripts/image/registry.sh public "$ref" || { echo "::error::$ref can't be pulled signed out. Make the ky-cloud package public on GitHub."; exit 1; }
+            line="kept \`$ref\` (from $FROM, built from \`$SOURCE\`): nothing it runs changed"
+          else
+            ref=$BUILT
+            line="built \`$ref\` from \`$GITHUB_SHA\`"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Image: $line"
+          {
+            echo "### Cloud machine image"
+            echo
+            echo "- $line"
+            echo "- A checkout builds with container/image.digest; to have it match this release:"
+            echo
+            echo '```'
+            echo "# source: $( [ "$CURRENT" = true ] && echo "$SOURCE" || echo "$GITHUB_SHA" )"
+            echo "$ref"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [build, image]
+    runs-on: ubuntu-latest
+    # Holds KY_TAP_DEPLOY_KEY.
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      KY_IMAGE: ${{ needs.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: ${{ runner.temp }}
+      - name: Unpack the build
+        run: tar -xzf "$RUNNER_TEMP/build.tar.gz"
       - name: Package
         run: scripts/release/package.sh "$VERSION"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        # A rerun replaces the files of a release the first run published.
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/out/* --clobber
-            exit 0
-          fi
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | \"\(.id) \(.draft)\"" | head -n 1)
+          case "$existing" in
+            *" false")
+              echo "$GITHUB_REF_NAME is published already: leaving its files as they are."
+              mkdir -p "$RUNNER_TEMP/published"
+              gh release download "$GITHUB_REF_NAME" --pattern checksums.txt --dir "$RUNNER_TEMP/published"
+              echo "CHECKSUMS=$RUNNER_TEMP/published/checksums.txt" >> "$GITHUB_ENV"
+              exit 0
+              ;;
+            *" true")
+              echo "Replacing the draft an earlier run left."
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/${existing%% *}"
+              ;;
+          esac
+          echo "CHECKSUMS=dist/out/checksums.txt" >> "$GITHUB_ENV"
           bundle=$(jq -r .bundle dist/out/release.json)
           image=$(jq -r '.image // "none"' dist/out/release.json)
           cat > "$RUNNER_TEMP/notes.md" <<EOF
@@ -118,7 +225,8 @@ jobs:
           - Worker bundle: \`$bundle\`
           - Cloud machine image: \`$image\`
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/out/* --title "ky $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" dist/out/* --draft --title "ky $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release edit "$GITHUB_REF_NAME" --draft=false
       - name: Update the brew tap
         env:
           TAP_DEPLOY_KEY: ${{ secrets.KY_TAP_DEPLOY_KEY }}
@@ -130,7 +238,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           git clone --depth 1 git@github.com:Yeshwanthyk/homebrew-ky.git tap
           mkdir -p tap/Formula
-          scripts/release/formula.sh "$VERSION" dist/out/checksums.txt > tap/Formula/ky.rb
+          scripts/release/formula.sh "$VERSION" "$CHECKSUMS" > tap/Formula/ky.rb
           cd tap
           git add Formula/ky.rb
           if git diff --cached --quiet; then

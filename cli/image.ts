@@ -1,7 +1,7 @@
 /**
  * Copies the cloud machine's image into the account's registry, as Scotty's deploy/image.ts does:
  * Cloudflare runs containers only from registry.cloudflare.com, and ky's image is published to
- * GitHub's registry by .github/workflows/image.yml, pinned by digest in the release.
+ * GitHub's registry by .github/workflows/release.yml, pinned by digest in the release.
  *
  * Every manifest and blob is checked against its digest before anything is pushed, and a layer is
  * spooled to disk, never held in memory. A blob the account's registry has already is skipped, so

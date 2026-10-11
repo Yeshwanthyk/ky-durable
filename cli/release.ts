@@ -5,7 +5,7 @@
  * `ky` reads the one `pnpm compile` left in dist/release.
  *
  * On disk and in the pack the layout is the same:
- *   release.json   { version, bundle, config, image? }
+ *   release.json   { version, bundle, config, image? | imageFrom? }
  *   worker/…       the Worker's modules, the config's `main` among them
  *   assets/…       the web app
  *   SKILL.md       `ky skill`
@@ -19,11 +19,15 @@ import type { Unstable_RawConfig } from "wrangler";
 /**
  * release.json. `version` is the release's (`v<version>` is its tag), or the commit it was built
  * from. `bundle` pins the rest of the release: bundleOf every other file. `config` is wrangler.jsonc
- * as built: generic, no owner overlay, its `main` the built entry module. `image` is the cloud
- * machine's image, `ghcr.io/…@sha256:…`, from container/image.digest; a release without one deploys
- * no cloud machine.
+ * as built: generic, no owner overlay, its `main` the built entry module.
+ *
+ * The cloud machine's image, `ghcr.io/…@sha256:…`, is `image` in a checkout's build, from
+ * container/image.digest. A published release's binary can't carry it: the image holds that
+ * binary, so the image's digest can't be inside it. Its `imageFrom` is the URL of the release.json
+ * published beside it, which names the image (releaseImage). A release with neither deploys no
+ * cloud machine.
  */
-type Manifest = { version: string; bundle: string; config: Unstable_RawConfig; image?: string };
+type Manifest = { version: string; bundle: string; config: Unstable_RawConfig; image?: string; imageFrom?: string };
 
 export type Release = Manifest & {
   /** Module name (`index.js`, `assets/models-….js`) to content. */
@@ -117,4 +121,34 @@ export async function loadRelease(): Promise<Release> {
   const pack: Record<string, string> = JSON.parse(await readFile(packed, "utf8"));
 
   return fromFiles(new Map(Object.entries(pack).map(([name, base64]) => [name, Buffer.from(base64, "base64")])));
+}
+
+/** How long a deploy waits for the published release.json. */
+const PUBLISHED_TIMEOUT_MS = 30_000;
+
+/**
+ * The cloud machine's image the release deploys: its own `image`, or the one its published
+ * release.json names, which must be this release's (the same version and bundle). Undefined when
+ * the release has none. A published release.json that can't be read is an error, not "no image":
+ * a deploy without the image would turn the cloud machine off.
+ */
+export async function releaseImage(release: Manifest): Promise<string | undefined> {
+  if (release.image || !release.imageFrom) return release.image;
+  const url = release.imageFrom;
+  let published: Partial<Manifest>;
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(PUBLISHED_TIMEOUT_MS) });
+
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    published = await response.json();
+  } catch (error) {
+    throw new Error(`Couldn't read the cloud machine's image from ${url} (${error instanceof Error ? error.message : String(error)}); check the network, then run it again`);
+  }
+
+  if (published.version !== release.version || published.bundle !== release.bundle) {
+    throw new Error(`${url} is another release's (${published.version}, ${published.bundle}), not ky ${release.version}'s`);
+  }
+
+  return published.image;
 }
