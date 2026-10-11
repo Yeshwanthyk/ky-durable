@@ -121,9 +121,14 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/out/* --title "ky $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
       - name: Update the brew tap
         env:
-          TAP_TOKEN: ${{ secrets.KY_TAP_TOKEN }}
+          TAP_DEPLOY_KEY: ${{ secrets.KY_TAP_DEPLOY_KEY }}
+        # A deploy key with write access on the tap, and nothing else.
         run: |
-          git clone --depth 1 "https://x-access-token:$TAP_TOKEN@github.com/Yeshwanthyk/homebrew-ky.git" tap
+          key="$RUNNER_TEMP/tap-key"
+          printf '%s\n' "$TAP_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:Yeshwanthyk/homebrew-ky.git tap
           mkdir -p tap/Formula
           scripts/release/formula.sh "$VERSION" dist/out/checksums.txt > tap/Formula/ky.rb
           cd tap
