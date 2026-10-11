@@ -460,7 +460,11 @@ const ROUTES = new Map<string, Handler>([
     async (call) => {
       const found = containerAppNamed(call);
 
-      found.configuration = decode(Type.Object({ configuration: Configuration }), await call.request.text()).configuration;
+      const sent = decode(Type.Object({ configuration: Type.Optional(Configuration), max_instances: Type.Optional(Type.Number()) }), await call.request.text());
+
+      if (sent.configuration) found.configuration = sent.configuration;
+
+      if (sent.max_instances !== undefined) found.max_instances = sent.max_instances;
 
       return containerApp(found, call.account.id);
     }

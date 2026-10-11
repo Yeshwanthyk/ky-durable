@@ -123,11 +123,14 @@ describe("the github.internal proxy", () => {
     expect(init?.redirect).toBe("manual");
   });
 
-  it("knows the machine only from its props: the cloud machine reaches the picked repos, any other none", () => {
-    expect(allowedRepos(LOGIN, CLOUD)).toEqual(LOGIN);
-    expect(allowedRepos(LOGIN, "mac")).toBeNull();
-    expect(allowedRepos(LOGIN, undefined)).toBeNull();
-    expect(allowedRepos(null, CLOUD)).toBeNull();
+  it("narrows the picked repos to the sandbox's own, never widens them, and gives a deleted one none", () => {
+    const login: GithubLogin = { token: "github_pat_test", repos: ["Me/App", "me/site"] };
+
+    expect(allowedRepos(login, "all")).toEqual(login);
+    expect(allowedRepos(login, ["me/app", "me/other"])).toEqual({ token: login.token, repos: ["Me/App"] });
+    expect(allowedRepos(login, [])).toEqual({ token: login.token, repos: [] });
+    expect(allowedRepos(login, null)).toBeNull();
+    expect(allowedRepos(null, "all")).toBeNull();
   });
 
   it("turns GitHub's rate-limit 403 into the 429 git retries", async () => {
@@ -370,7 +373,7 @@ describe("the cloud machine", () => {
 
     await prompt(name, "hello");
     const { system, tools } = await inside(name, (instance) => instance.boundary.calls.at(-1)!);
-    expect(system).toContain(`go to ${CLOUD}, your own machine in the cloud`);
+    expect(system).toContain(`it goes to ${CLOUD}, the default`);
     const described = tools?.machine ?? "";
     expect(system).toContain("a page needs a machine with Chrome");
     expect(described).toContain(`the default when you name no machine`);

@@ -557,8 +557,9 @@ describe("a deploy's own setup", () => {
     await prompt(name, "again");
     const after = (await systems()).at(-1);
     expect(after).toContain("your own code is the GitHub repo test-owner/test-repo.");
-    expect(after).toContain("run one machine task on cloud,");
-    // On cloud no task holds a GitHub token: git goes through github.internal, and the rest through ky github.
+    // No sandbox owns the repo, so it goes to the default, which reaches every picked repo.
+    expect(after).toContain("run one machine task on cloud with repo test-owner/test-repo,");
+    // On a sandbox no task holds a GitHub token: git goes through github.internal, and the rest through ky github.
     expect(after).toContain("1. git clone https://github.com/test-owner/test-repo ky");
     expect(after).toContain("git switch -c ky/<short-name> origin/main");
     expect(after).toContain('ky github pr-create test-owner/test-repo main "<title>"');

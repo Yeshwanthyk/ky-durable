@@ -1,17 +1,16 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { CLOUD } from "./cloud-facts";
 import { githubTool } from "./github-tools";
 
 /**
- * github.internal: git's smart HTTP to github.com for the cloud machine, as Scotty's creds proxy
+ * github.internal: git's smart HTTP to github.com for the sandboxes, as Scotty's creds proxy
  * does it. The container's git is set to fetch and push `https://github.com/<owner>/<repo>` through
  * `http://github.internal/api/git/<owner>/<repo>`, which the CloudMachine routes here; this adds the
  * Vault's GitHub token, so nothing in the container ever holds it.
  *
  * Its GitHub tools are there too, under `/api/github/` (src/github-tools.ts).
  *
- * Which machine is asking comes only from the props the CloudMachine registered the route with,
- * never from the request. Only the repos that machine may reach are fetched (`allowedRepos`), and a
+ * Which sandbox is asking comes only from the props the CloudMachine registered the route with,
+ * never from the request. Only the repos that sandbox may reach are fetched (`allowedRepos`), and a
  * push may only update branches under `ky/`: the work happens on a branch, and the user merges it.
  */
 
@@ -46,19 +45,23 @@ export type GithubLogin = { token: string; repos: readonly string[] };
 
 /**
  * Who calls the proxy, as the CloudMachine registers its route (`ctx.exports.GithubProxy({ props })`):
- * the container can't set or forge it. `machine` is the name that never changes, today only `cloud`.
+ * the container can't set or forge it. `machine` is the sandbox's id, which never changes.
  */
 export type GithubProps = { machine: string };
 
 /**
- * The login `machine` reaches GitHub with: the token, and the repos it may touch. Today the one
- * cloud machine may touch every repo picked in Settings; a per-machine list narrows this, never
- * widens it. Any other machine, or none, gets nothing.
+ * The login a sandbox reaches GitHub with: the token, and the repos it may touch, given what the
+ * agent says it may reach (`reposFor`): every repo picked in Settings for `all`, as `cloud` with no
+ * repos of its own has; else those of its repos that are picked, so its list narrows the picked
+ * ones and never widens them. A deleted or unknown sandbox (null) gets nothing.
  */
-export function allowedRepos(login: GithubLogin | null, machine: string | undefined): GithubLogin | null {
-  if (!login || machine !== CLOUD) return null;
+export function allowedRepos(login: GithubLogin | null, reach: readonly string[] | "all" | null): GithubLogin | null {
+  if (!login || reach === null) return null;
 
-  return login;
+  if (reach === "all") return login;
+  const own = new Set(reach.map((repo) => repo.toLowerCase()));
+
+  return { token: login.token, repos: login.repos.filter((repo) => own.has(repo.toLowerCase())) };
 }
 
 const refuse = (status: number, text: string) => new Response(`${text}\n`, { status });
@@ -183,11 +186,12 @@ export class GithubProxy extends WorkerEntrypoint<Env, Partial<GithubProps>> {
     const { machine } = this.ctx.props;
 
     if (!machine) return refuse(404, "Not found");
-    const login = allowedRepos(await this.env.Vault.getByName("owner").githubToken(), machine);
+    const agent = this.env.PiAgent.getByName("me");
+    const login = allowedRepos(await this.env.Vault.getByName("owner").githubToken(), await agent.reposFor(machine));
 
     if (!new URL(request.url).pathname.startsWith("/api/github/")) return proxyGit(request, login);
 
     // ky's own repo, as the prompt names it: the only one the tools merge in or roll back.
-    return githubTool(request, login, (input, init) => fetch(input, init), await this.env.PiAgent.getByName("me").selfEditRepo());
+    return githubTool(request, login, (input, init) => fetch(input, init), await agent.selfEditRepo());
   }
 }

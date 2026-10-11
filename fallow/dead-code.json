@@ -53,6 +53,8 @@
   "unused_enum_members": [],
   "unused_class_members": [
     "unused-class-member:src/cloud.ts:CloudMachine:alarm",
+    "unused-class-member:src/cloud.ts:CloudMachine:forget",
+    "unused-class-member:src/cloud.ts:CloudMachine:settled",
     "unused-class-member:src/cloud.ts:CloudMachine:wake",
     "unused-class-member:src/github.ts:GithubProxy:fetch",
     "unused-class-member:src/sockets.ts:PiSessionSockets:close",

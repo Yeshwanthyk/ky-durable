@@ -1,11 +1,15 @@
-import { type FormEvent, Fragment, type ReactNode, useContext, useId, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useContext, useEffect, useId, useState } from "react";
 import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
+import type { SandboxChange, SandboxDraft } from "../sandboxes";
 import { osName } from "../protocol";
 import type {
   CloudState,
   MachineInfo,
   ProviderInfo,
+  SandboxesView,
+  SandboxInfo,
+  SavedDisk,
   SettingsView,
   SetupView,
   VendorOption,
@@ -327,19 +331,25 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
   );
 }
 
-// The cloud machine first (the server lists it so), then your computers, and whether ky may use each.
+// The sandboxes first (the server lists them so), then your computers, and whether ky may use each; then adding either, and the disks of deleted sandboxes.
 function MachineList({
   machines,
+  repos,
   now,
   subscribed,
   onSet,
 }: {
   machines: readonly MachineInfo[];
+  /** The repos picked in Settings › Subscriptions › GitHub, which sandboxes may take. */
+  repos: readonly string[];
   now: number;
   /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
   subscribed: boolean;
   onSet: (machine: string, change: MachineChange) => void;
 }) {
+  const [sandboxes, reload] = useSandboxes(machines);
+  const owned = machines.flatMap((machine) => machine.sandbox?.repos ?? []);
+
   return (
     <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
@@ -348,12 +358,375 @@ function MachineList({
       ) : (
         <ul className="card machine-list">
           {machines.map((machine) => (
-            <MachineItem key={machine.name} machine={machine} now={now} subscribed={subscribed} onSet={onSet} />
+            <MachineItem
+              key={machine.name}
+              machine={machine}
+              now={now}
+              subscribed={subscribed}
+              repos={repos}
+              taken={owned.filter((repo) => !machine.sandbox?.repos.includes(repo))}
+              saved={machine.sandbox ? sandboxes?.saves[machine.sandbox.id] : undefined}
+              onSet={onSet}
+              onChanged={reload}
+            />
           ))}
         </ul>
       )}
       <AddMachine now={now} />
+      {sandboxes?.enabled ? (
+        <>
+          <AddSandbox view={sandboxes} live={machines.filter((machine) => machine.sandbox !== null).length} repos={repos} owned={owned} onAdded={reload} />
+          <KeptDisks view={sandboxes} now={now} onChanged={reload} />
+        </>
+      ) : null}
     </section>
+  );
+}
+
+/** Settings' sandboxes, asked for again when the live ones change or `reload` is called; null until they come. */
+function useSandboxes(machines: readonly MachineInfo[]): readonly [SandboxesView | null, () => void] {
+  const [view, setView] = useState<SandboxesView | null>(null);
+  const [asked, setAsked] = useState(0);
+  const live = machines.flatMap((machine) => (machine.sandbox ? [machine.sandbox.id] : [])).join(" ");
+
+  useEffect(() => {
+    let current = true;
+
+    void fetch("/api/sandboxes").then(async (response) => {
+      if (current && response.ok) setView(await response.json());
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [live, asked]);
+
+  return [view, () => setAsked((count) => count + 1)];
+}
+
+/** What Settings sends the sandbox routes: a new sandbox, or a change to one. */
+type SandboxBody = SandboxDraft | SandboxChange;
+
+/** Send a sandbox change; resolves with what went wrong, or null. */
+async function sandboxCall(path: string, method: string, body?: SandboxBody): Promise<string | null> {
+  const response = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  // SAFETY: the sandbox routes answer JSON: { problem } or a sandbox when they did it, { refused } when they didn't.
+  const answer = (await response.json().catch(() => null)) as { problem?: string | null; refused?: string } | null;
+
+  if (response.ok) return answer?.problem ?? null;
+
+  return answer?.refused ?? `ky could not do that (HTTP ${response.status}).`;
+}
+
+/** A disk's size in words: "640 MB", "1.2 GB". */
+function diskSize(bytes: number): string {
+  return bytes < 1e9 ? `${Math.max(1, Math.round(bytes / 1e6))} MB` : `${(bytes / 1e9).toFixed(1)} GB`;
+}
+
+// Checkboxes for the picked repos, and any the sandbox already has; `taken` ones are another sandbox's.
+function RepoPicks({
+  label,
+  repos,
+  chosen,
+  taken,
+  onChange,
+}: {
+  label: string;
+  repos: readonly string[];
+  chosen: readonly string[];
+  taken: readonly string[];
+  onChange: (repos: string[]) => void;
+}) {
+  const all = [...new Set([...repos.map((repo) => repo.toLowerCase()), ...chosen])].sort();
+
+  if (all.length === 0) return <span className="machine-hint">Pick repos in Settings › Subscriptions › GitHub first.</span>;
+
+  return (
+    <fieldset className="github-repos sandbox-repos" aria-label={label}>
+      {all.map((repo) => {
+        const on = chosen.includes(repo);
+
+        return (
+          <label key={repo} className="github-repo">
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={!on && taken.includes(repo)}
+              onChange={() => onChange(on ? chosen.filter((each) => each !== repo) : [...chosen, repo])}
+            />
+            {repo}
+            {!on && taken.includes(repo) ? <span className="quiet">another sandbox's</span> : null}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+// A sandbox's own choices: its repos, whether it is the default, how long it stays up idle, and its saved disk.
+function SandboxFields({
+  machine,
+  sandbox,
+  repos,
+  taken,
+  saved,
+  now,
+}: {
+  machine: MachineInfo;
+  sandbox: SandboxInfo;
+  repos: readonly string[];
+  taken: readonly string[];
+  saved: SavedDisk | null | undefined;
+  now: number;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const path = `/api/sandboxes/${encodeURIComponent(sandbox.id)}`;
+  const change = async (body: SandboxChange) => setError(await sandboxCall(path, "PATCH", body));
+
+  return (
+    <>
+      <MachineField
+        label="Repos"
+        hint={
+          sandbox.repos.length === 0
+            ? "None: it may reach every picked repo, and gets a task only by name or as the default"
+            : "Tasks for these come here, and it pushes only to these"
+        }
+      >
+        <RepoPicks
+          label={`Repos ${machine.name} works on`}
+          repos={repos}
+          chosen={sandbox.repos}
+          taken={taken}
+          onChange={(next) => void change({ repos: next })}
+        />
+      </MachineField>
+      <MachineField
+        label="Default"
+        hint={sandbox.isDefault ? "Tasks that name no machine, and no repo of another sandbox, come here" : "Another sandbox takes tasks that name no machine"}
+      >
+        {sandbox.isDefault ? (
+          <span className="machine-hint">The default sandbox</span>
+        ) : (
+          <button type="button" className="automation-text pressable" onClick={() => void change({ isDefault: true })}>
+            Make it the default
+          </button>
+        )}
+      </MachineField>
+      <MachineField label="Stays up idle" hint="Minutes with no task before it saves its disk and sleeps">
+        <InlineEdit
+          value={sandbox.idleMinutes === null ? "" : String(sandbox.idleMinutes)}
+          className="sandbox-idle"
+          title="Change how long it stays up idle"
+          empty="The deploy's setting"
+          label={`Idle minutes for ${machine.name}`}
+          placeholder="Minutes, 1 to 1440; empty for the deploy's"
+          maxLength={4}
+          onSave={(next) => void change({ idleMinutes: next.trim() === "" ? null : Number(next) })}
+        />
+      </MachineField>
+      <span className="machine-hint">
+        {saved ? `Saved disk: ${diskSize(saved.size)}, saved ${agoInWords(saved.savedAt, now)}` : "No saved disk yet: it saves one when it sleeps"}
+      </span>
+      {error ? (
+        <p className="machine-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+// Deleting a sandbox, once the user confirms it; its disk is kept.
+function SandboxDelete({ machine, sandbox, onDeleted }: { machine: MachineInfo; sandbox: SandboxInfo; onDeleted: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    setBusy(true);
+    setError(await sandboxCall(`/api/sandboxes/${encodeURIComponent(sandbox.id)}`, "DELETE"));
+    setBusy(false);
+    setConfirming(false);
+    onDeleted();
+  };
+
+  return (
+    <>
+      {confirming ? (
+        <div className="machine-confirm" role="alertdialog" aria-label={`Delete ${machine.name}`}>
+          <p>
+            Delete {machine.name}? Its tasks end, and its container saves its disk and stops. The disk is kept under Kept
+            disks, to start a new sandbox from.
+          </p>
+          <div className="machine-confirm-actions">
+            <button type="button" className="automation-text pressable" disabled={busy} onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+            <button type="button" className="machine-unpair-confirm pressable" disabled={busy} onClick={() => void remove()}>
+              {busy ? "Saving its disk…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="machine-unpair pressable" onClick={() => setConfirming(true)}>
+          Delete this sandbox
+        </button>
+      )}
+      {error ? (
+        <p className="machine-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+// A new sandbox: its name, its repos, and a fresh disk or a kept one; up to the cap.
+function AddSandbox({
+  view,
+  live,
+  repos,
+  owned,
+  onAdded,
+}: {
+  view: SandboxesView;
+  live: number;
+  repos: readonly string[];
+  owned: readonly string[];
+  onAdded: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [from, setFrom] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  if (live >= view.cap) return <p className="panel-note">ky runs at most {view.cap} sandboxes; delete one to add another.</p>;
+
+  if (!open) {
+    return (
+      <div className="machine-add">
+        <button type="button" className="pill pressable" onClick={() => setOpen(true)}>
+          <Icon name="monitor" />
+          Add a sandbox
+        </button>
+      </div>
+    );
+  }
+
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    const draft: SandboxDraft = from === "" ? { name, repos: chosen } : { name, repos: chosen, from };
+    const problem = await sandboxCall("/api/sandboxes", "POST", draft);
+
+    setError(problem);
+
+    if (problem !== null) return;
+    setOpen(false);
+    setName("");
+    setChosen([]);
+    setFrom("");
+    onAdded();
+  };
+
+  return (
+    <form className="machine-confirm sandbox-add" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
+      <p>A sandbox is ky's own Linux machine in Cloudflare. It starts when a task wakes it, and sleeps when idle.</p>
+      <label className="machine-field">
+        <span className="machine-field-label">Name</span>
+        <input value={name} placeholder="e.g. web" maxLength={32} required onChange={(event) => setName(event.currentTarget.value)} />
+      </label>
+      <MachineField label="Repos" hint="Tasks for these go to it, and it pushes only to these; none lets it reach every picked repo">
+        <RepoPicks label="The new sandbox's repos" repos={repos} chosen={chosen} taken={owned} onChange={setChosen} />
+      </MachineField>
+      {view.kept.length === 0 ? null : (
+        <label className="machine-field">
+          <span className="machine-field-label">Disk</span>
+          <select value={from} onChange={(event) => setFrom(event.currentTarget.value)}>
+            <option value="">A fresh disk</option>
+            {view.kept.map((disk) => (
+              <option key={disk.id} value={disk.id}>
+                {disk.name}'s kept disk
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {error ? (
+        <p className="machine-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="machine-confirm-actions">
+        <button type="button" className="automation-text pressable" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <button type="submit" className="pill pressable">
+          Add
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// The disks of deleted sandboxes, until the user deletes them for good.
+function KeptDisks({ view, now, onChanged }: { view: SandboxesView; now: number; onChanged: () => void }) {
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (view.kept.length === 0) return null;
+
+  const remove = async (id: string) => {
+    setConfirming(null);
+    setError(await sandboxCall(`/api/sandboxes/kept/${encodeURIComponent(id)}`, "DELETE"));
+    onChanged();
+  };
+
+  return (
+    <div className="sandbox-kept">
+      <h4 className="machine-field-label">Kept disks</h4>
+      <ul className="card machine-list">
+        {view.kept.map((disk) => (
+          <li key={disk.id} className="machine">
+            <div className="machine-head">
+              <span className="machine-name">{disk.name}</span>
+              <span className="machine-facts">
+                {disk.save ? diskSize(disk.save.size) : "no save"} · deleted {agoInWords(disk.deletedAt, now)}
+                {disk.repos.length > 0 ? ` · ${disk.repos.join(", ")}` : ""}
+              </span>
+            </div>
+            {confirming === disk.id ? (
+              <div className="machine-confirm" role="alertdialog" aria-label={`Delete ${disk.name}'s disk`}>
+                <p>Delete {disk.name}'s disk for good? Its files are gone after this.</p>
+                <div className="machine-confirm-actions">
+                  <button type="button" className="automation-text pressable" onClick={() => setConfirming(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="machine-unpair-confirm pressable" onClick={() => void remove(disk.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="machine-unpair pressable" onClick={() => setConfirming(disk.id)}>
+                Delete this disk
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {error ? (
+        <p className="machine-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -551,7 +924,7 @@ function InlineEdit({
   );
 }
 
-/** Whether the machine is the deploy's cloud machine, which sleeps instead of going offline and can't be unpaired. */
+/** Whether the machine is a sandbox, which sleeps instead of going offline and is deleted instead of unpaired. */
 const isCloud = (machine: MachineInfo) => machine.cloud !== null;
 
 // A machine: whether it is up and busy, what it is, whether ky may use it, whose logins it uses, and what it is for.
@@ -559,13 +932,25 @@ function MachineItem({
   machine,
   now,
   subscribed,
+  repos,
+  taken,
+  saved,
   onSet,
+  onChanged,
 }: {
   machine: MachineInfo;
   now: number;
   /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
   subscribed: boolean;
+  /** The picked GitHub repos a sandbox may take. */
+  repos: readonly string[];
+  /** The repos other sandboxes have. */
+  taken: readonly string[];
+  /** A sandbox's saved disk; undefined until Settings has asked. */
+  saved: SavedDisk | null | undefined;
   onSet: (machine: string, change: MachineChange) => void;
+  /** A sandbox changed in a way the machine list doesn't carry. */
+  onChanged: () => void;
 }) {
   const status = machineStatus(machine, now);
   const facts = factsLine(machine.facts);
@@ -586,7 +971,14 @@ function MachineItem({
       <MachineSwitch machine={machine} onSet={onSet} />
       <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
       <MachineNote machine={machine} onSet={onSet} />
-      {isCloud(machine) ? null : <MachineUnpair machine={machine} />}
+      {machine.sandbox ? (
+        <>
+          <SandboxFields machine={machine} sandbox={machine.sandbox} repos={repos} taken={taken} saved={saved} now={now} />
+          <SandboxDelete machine={machine} sandbox={machine.sandbox} onDeleted={onChanged} />
+        </>
+      ) : isCloud(machine) ? null : (
+        <MachineUnpair machine={machine} />
+      )}
     </li>
   );
 }
@@ -1426,6 +1818,7 @@ function Settings({
       <Executor />
       <MachineList
         machines={machines}
+        repos={subscriptions.views.find((view) => view.kind === "github")?.repos ?? []}
         now={now}
         subscribed={subscriptions.views.some((view) => view.connected && view.kind !== "github")}
         onSet={onSetMachine}

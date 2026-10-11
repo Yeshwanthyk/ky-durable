@@ -10,7 +10,8 @@ import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
-import { type CloudBox, CloudMachine as ProductionCloudMachine, SAVE_KEY } from "../cloud";
+import { type CloudBox, CloudMachine as ProductionCloudMachine } from "../cloud";
+import { saveKey } from "../sandboxes";
 import { CLOUD } from "../cloud-facts";
 import { allowedRepos, proxyGit } from "../github";
 import { githubTool } from "../github-tools";
@@ -25,6 +26,9 @@ const UPSTREAM_KEY = "test:github";
 
 const IDLE_KEY = "test:idle-ms";
 
+/** The sandbox the fake host's container was last started for: its github.internal is that sandbox's, as production's props say. */
+const CALLER_KEY = "test:github-machine";
+
 /** The test alarm's tick: a start that failed is tried again soon. */
 const TEST_TICK_MS = 2_000;
 
@@ -35,7 +39,7 @@ const REFUSED_HEADER = "x-fake-refused";
  * A container on the fake host (test/fakes/container.ts) at `host`, which the harness starts; with no
  * host set, none runs and a start fails, as a container that never comes up.
  */
-function hostBox(host: () => Promise<string | undefined>): CloudBox {
+function hostBox(host: () => Promise<string | undefined>, startedFor: (id: string) => Promise<void>): CloudBox {
   const at = async (path: string) => {
     const url = await host();
 
@@ -46,7 +50,8 @@ function hostBox(host: () => Promise<string | undefined>): CloudBox {
 
   return {
     running: async () => ((await host()) ? (await (await fetch(await at("/running"))).text()) === "true" : false),
-    start: async (env) => {
+    start: async (env, id) => {
+      await startedFor(id);
       const started = await fetch(await at("/start"), { method: "POST", body: JSON.stringify(env) });
 
       if (started.status !== 204) throw new Error(`The fake container didn't start: ${started.status}`);
@@ -66,16 +71,96 @@ function hostBox(host: () => Promise<string | undefined>): CloudBox {
 }
 
 /**
- * The CloudMachine, with its container on the harness's fake host (`POST /test/cloud-host`), a tick
- * of TEST_TICK_MS, and an idle time the harness may shorten.
+ * A container in memory, for what the fake host can't stage in workerd's tests: whether it is up,
+ * what its runner says (`ky runner cloud`'s states), and its disk, as text.
  */
-export class CloudMachine extends ProductionCloudMachine {
-  override box(): CloudBox {
-    return hostBox(() => this.ctx.storage.get<string>(HOST_KEY));
+export class FakeBox implements CloudBox {
+  up = false;
+  state: "waiting" | "running" | "stopped" = "waiting";
+  disk = "";
+  /** The disks restored into it, in order. */
+  restored: string[] = [];
+  starts = 0;
+  destroys = 0;
+  /** Awaited as a start begins, before the container is up: what lands meanwhile, such as a delete. */
+  onStart: (() => Promise<void>) | undefined;
+
+  async running(): Promise<boolean> {
+    return this.up;
   }
 
-  override async timing(): Promise<{ tickMs: number; idleMs: number }> {
-    return { tickMs: TEST_TICK_MS, idleMs: (await this.ctx.storage.get<number>(IDLE_KEY)) ?? (await super.timing()).idleMs };
+  async start(): Promise<void> {
+    this.starts++;
+    await this.onStart?.();
+    this.up = true;
+    this.state = "waiting";
+    this.disk = "";
+  }
+
+  async fetch(path: string, init?: RequestInit): Promise<Response> {
+    if (!this.up) throw new Error("No container runs.");
+
+    if (path === "/ping") return new Response(this.state);
+
+    if (path === "/restore") {
+      this.disk = await new Response(init?.body).text();
+      this.restored.push(this.disk);
+      this.state = "running";
+
+      return new Response(null, { status: 204 });
+    }
+
+    if (path === "/save") {
+      this.state = "stopped";
+
+      return new Response(this.disk, { headers: { "content-length": String(new TextEncoder().encode(this.disk).byteLength) } });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }
+
+  async destroy(): Promise<void> {
+    this.destroys++;
+    this.up = false;
+  }
+}
+
+/**
+ * The CloudMachine, with its container on the harness's fake host (`POST /test/cloud-host`), or in
+ * memory once a test sets `fake`, a tick of TEST_TICK_MS, and an idle time the harness may shorten.
+ */
+export class CloudMachine extends ProductionCloudMachine {
+  fake: FakeBox | undefined;
+
+  override box(): CloudBox {
+    return (
+      this.fake ??
+      hostBox(
+        () => this.ctx.storage.get<string>(HOST_KEY),
+        (id) => this.ctx.storage.put(CALLER_KEY, id)
+      )
+    );
+  }
+
+  /** As a wake for the sandbox `id` at `origin`, with no alarm: the test runs `tick`. */
+  async primed(id: string, origin: string): Promise<void> {
+    await this.wake(id, origin);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /** Run the alarm once, now, and drop the next one it books: the test says when it comes. */
+  async tick(): Promise<void> {
+    await this.alarm();
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  /** Idle since `ms` ago, as the alarm counts it. */
+  async idleFor(ms: number): Promise<void> {
+    await this.ctx.storage.put("idleSince", Date.now() - ms);
+  }
+
+  override async timing(idleMinutes: number | null): Promise<{ tickMs: number; idleMs: number }> {
+    return { tickMs: TEST_TICK_MS, idleMs: (await this.ctx.storage.get<number>(IDLE_KEY)) ?? (await super.timing(idleMinutes)).idleMs };
   }
 
   /** Use the fake container host at `host`, the fake github.com at `github`, and sleep after `idleMs` idle. */
@@ -93,20 +178,27 @@ export class CloudMachine extends ProductionCloudMachine {
     return this.ctx.storage.get<string>(UPSTREAM_KEY);
   }
 
-  /** Stop the container, forget its save, its alarm and its host, for the next scenario. */
-  async reset(): Promise<void> {
+  /** The sandbox the fake host's container runs for, which the stack's github.internal route acts as; none before a start. */
+  async caller(): Promise<string | undefined> {
+    return this.ctx.storage.get<string>(CALLER_KEY);
+  }
+
+  /** Stop the container, forget the sandbox `id`'s save, its alarm and its host, for the next scenario. */
+  async reset(id: string): Promise<void> {
     if (await this.box().running()) await this.box().destroy();
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
-    await this.env.FILES.delete(SAVE_KEY);
+    await this.env.FILES.delete(saveKey(id));
   }
 }
 
-/** The CloudMachine binding, which the test wrangler config points at this subclass. */
-function cloud(env: Env): DurableObjectStub<CloudMachine> {
+/** The sandbox `id`'s CloudMachine, `cloud` unless the request's `sandbox` says; the test wrangler config points the binding at this subclass. */
+function cloud(env: Env, id: string = CLOUD): DurableObjectStub<CloudMachine> {
   // SAFETY: src/tests/wrangler.jsonc binds CloudMachine to this module's subclass.
-  return (env.CloudMachine as DurableObjectNamespace<CloudMachine>).getByName(CLOUD);
+  return (env.CloudMachine as DurableObjectNamespace<CloudMachine>).getByName(id);
 }
+
+const sandboxOf = (url: URL) => url.searchParams.get("sandbox") ?? CLOUD;
 
 /**
  * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes
@@ -544,17 +636,17 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
     async (_me, url, env) => {
       const { searchParams } = url;
 
-      await cloud(env).configure(searchParams.get("url") ?? "", searchParams.get("github"), searchParams.has("idle") ? Number(searchParams.get("idle")) : null);
+      await cloud(env, sandboxOf(url)).configure(searchParams.get("url") ?? "", searchParams.get("github"), searchParams.has("idle") ? Number(searchParams.get("idle")) : null);
 
       return new Response(null, { status: 204 });
     }
   ],
   // Put the cloud machine to sleep now, as its idle time running out does: 409 while it has work, or nothing runs.
-  ["POST /test/cloud-sleep", async (_me, _url, env) => new Response(null, { status: (await cloud(env).sleep()) ? 204 : 409 })],
+  ["POST /test/cloud-sleep", async (_me, url, env) => new Response(null, { status: (await cloud(env, sandboxOf(url)).sleep()) ? 204 : 409 })],
   [
     "POST /test/cloud-reset",
-    async (_me, _url, env) => {
-      await cloud(env).reset();
+    async (_me, url, env) => {
+      await cloud(env, sandboxOf(url)).reset(sandboxOf(url));
 
       return new Response(null, { status: 204 });
     }
@@ -578,11 +670,13 @@ export default {
     // fake container host's git and `ky github` reach it here, with no sign-in, as the container has none.
     if (url.pathname.startsWith("/github.internal/")) {
       const upstream = await cloud(env).upstream();
-      const vault = env.Vault.getByName("owner");
+      const caller = await cloud(env).caller();
+      const me = agents(env).getByName("me");
       url.pathname = url.pathname.slice("/github.internal".length);
-      const login = allowedRepos(await vault.githubToken(), CLOUD);
+      // As GithubProxy: the repos the calling sandbox may reach, none before its container started.
+      const login = allowedRepos(await env.Vault.getByName("owner").githubToken(), caller === undefined ? null : await me.reposFor(caller));
 
-      if (url.pathname.startsWith("/api/github/")) return githubTool(new Request(url, request), login, githubRest, await agents(env).getByName("me").selfEditRepo());
+      if (url.pathname.startsWith("/api/github/")) return githubTool(new Request(url, request), login, githubRest, await me.selfEditRepo());
 
       return proxyGit(new Request(url, request), login, upstream);
     }

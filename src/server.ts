@@ -17,13 +17,15 @@ import { browseExtension } from "./browse";
 import { ExecutorLink, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
-import { CLOUD } from "./cloud-facts";
+import type { SandboxNow } from "./cloud";
+import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
+import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, MachineHub, machineExtension, type TaskTokens } from "./machines";
 import { Memory, memoryExtension } from "./memory";
 import { agentModel, Models, type ModelsBoundary } from "./models";
-import { preamble } from "./prompt";
+import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
-import { ownerRoute, tokenRoute } from "./runners";
+import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -78,6 +80,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage.sql);
+  /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
+  readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
   readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(
@@ -86,7 +90,8 @@ export class PiAgent extends DurableObject<Env> {
     (tag) => this.ctx.getWebSockets(tag),
     this.files,
     this.taskTokens(),
-    (agent) => this.subscriptions.creds(agent)
+    (agent) => this.subscriptions.creds(agent),
+    this.sandboxes
   );
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
@@ -189,7 +194,7 @@ export class PiAgent extends DurableObject<Env> {
               preamble({
                 executor: this.registry.snapshot().extension("executor") !== undefined,
                 cloud: this.machines.cloudOn(),
-                selfEdit: this.setup.selfEdit()
+                ...this.#selfEditing()
               }),
             tag: false
           }
@@ -295,6 +300,9 @@ export class PiAgent extends DurableObject<Env> {
     super(ctx, env);
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
+
+    // Before anything asks: the pair route asks whether a name is a sandbox's.
+    if (this.machines.cloud) this.sandboxes.migrate();
     this.#nameThings();
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
@@ -327,18 +335,95 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
-  /** The cloud machine, on a deploy `ky deploy` gave a container (KY_CLOUD); tests replace its container. */
+  /** The sandboxes, on a deploy `ky deploy` gave containers (KY_CLOUD); tests replace their containers. */
   cloudHook(): CloudHook | undefined {
     if (!this.env.KY_CLOUD) return undefined;
 
     return {
-      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined))
+      wake: (machine) => {
+        const id = this.sandboxes.named(machine)?.id;
+
+        if (id) this.ctx.waitUntil(this.env.CloudMachine.getByName(id).wake(id, this.setup.origin() ?? undefined));
+      }
     };
   }
 
-  /** Whether the cloud machine has work: an open task or a command waiting. Its alarm keeps it awake while it has. */
-  cloudBusy(): boolean {
-    return this.machines.busy(CLOUD);
+  /** Whether the sandbox `id` has work: an open task or a command waiting. Its alarm keeps it awake while it has. */
+  cloudBusy(id: string): boolean {
+    const sandbox = this.sandboxes.get(id);
+
+    return sandbox !== undefined && sandbox.deletedAt === null && this.machines.busy(sandbox.name);
+  }
+
+  /** What the sandbox `id`'s alarm needs: the name it pairs as, its idle minutes, whether it has work; null once deleted. */
+  sandboxNow(id: string): SandboxNow {
+    const sandbox = this.sandboxes.get(id);
+
+    if (!sandbox || sandbox.deletedAt !== null) return null;
+
+    return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name) };
+  }
+
+  /** Whether `name` is a live sandbox's, which no runner may pair as or unpair. */
+  isSandbox(name: string): boolean {
+    return this.sandboxes.named(name) !== undefined;
+  }
+
+  /**
+   * The repos the sandbox `id` may reach on GitHub: its own, `all` the picked ones, or none (null)
+   * once it is deleted. For the github.internal handler, which knows the calling sandbox's id.
+   */
+  reposFor(id: string): readonly string[] | "all" | null {
+    return this.sandboxes.reposFor(id);
+  }
+
+  /** The live sandboxes and the kept disks, for Settings. */
+  sandboxList() {
+    return { live: this.sandboxes.live(), kept: this.sandboxes.kept() };
+  }
+
+  /** A new sandbox, listed at once; it starts when a task wakes it. Throws why not. */
+  createSandbox(draft: SandboxDraft): Sandbox {
+    if (!this.machines.cloud) throw new Error("This deploy has no containers: `ky deploy` adds them on Workers Paid.");
+    const sandbox = this.sandboxes.create(draft, (name) => this.machines.machine(name) !== undefined);
+
+    this.machines.listSandboxes();
+
+    return sandbox;
+  }
+
+  /** Change a live sandbox's repos, idle minutes, or make it the default. Throws why not. */
+  changeSandbox(id: string, change: SandboxChange): Sandbox {
+    const sandbox = this.sandboxes.change(id, change);
+
+    this.machines.changed();
+
+    return sandbox;
+  }
+
+  /**
+   * Delete a live sandbox, keeping its disk: from here it is no machine, its tasks end, and its
+   * runner is refused. Returns its name and pairing, whose token the caller revokes before it has
+   * the container save and stop.
+   */
+  async deleteSandbox(id: string): Promise<{ name: string; pairing: string | null }> {
+    // First, before any await: from here no start pairs as it, and no wake starts it.
+    const { name } = this.sandboxes.delete(id);
+    const removed = await this.removeMachine(name);
+
+    return { name, pairing: removed?.pairing ?? null };
+  }
+
+  /** Forget a kept disk's row; the caller stops its container, if one still runs, and deletes its save. */
+  forgetKeptDisk(id: string): void {
+    this.sandboxes.forget(id);
+  }
+
+  /** ky's repo and address for the preamble, once Settings has the repo, and the sandbox its tasks go to. */
+  #selfEditing(): Pick<PromptConfig, "selfEdit" | "selfEditOn"> {
+    const selfEdit = this.setup.selfEdit();
+
+    return selfEdit ? { selfEdit, selfEditOn: this.machines.sandboxFor(selfEdit.repo) } : {};
   }
 
   /** ky's own repo, owner/name, as Settings has it: the only one GitHub tools merge in or roll back (src/github-tools.ts). */
@@ -375,7 +460,16 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   async onStart(): Promise<void> {
-    if (this.machines.cloud) this.machines.listCloud();
+    if (this.machines.cloud) {
+      const { stale, clashes } = this.machines.listSandboxes();
+
+      // Cloud machines a restore left listed with no sandbox now.
+      for (const machine of stale) this.ctx.waitUntil(this.#removeStale(machine));
+
+      if (clashes.length > 0) console.warn(`the sandboxes ${clashes.join(", ")} share a paired computer's name, which keeps it: rename the computer, or delete the sandbox and add it again`);
+      this.ctx.waitUntil(this.#dropLostDisks());
+    }
+
     await this.sockets.reattach();
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.
@@ -391,6 +485,25 @@ export class PiAgent extends DurableObject<Env> {
     // Asked last and not awaited: a runner's answer over the pipe is a socket message, which waits for this start to
     // end. Awaited here, the probe timed out and its "down" was kept for 30s. A provider that answers moves main to it.
     this.ctx.waitUntil(this.models.probe());
+  }
+
+  /** Forget a cloud machine that is no sandbox, as after a restore, and revoke its token. */
+  async #removeStale(machine: string): Promise<void> {
+    const removed = await this.removeMachine(machine);
+
+    if (removed?.pairing) await this.env.Vault.getByName("owner").revoke("machine", machineSubject(machine, removed.pairing));
+  }
+
+  /**
+   * Kept disks whose save is gone, as a restore into another deploy brings them: nothing to keep.
+   * One whose container still runs, or whose first save is under way, is left for now.
+   */
+  async #dropLostDisks(): Promise<void> {
+    for (const kept of this.sandboxes.kept()) {
+      if (await this.env.FILES.head(saveKey(kept.id))) continue;
+
+      if (await this.env.CloudMachine.getByName(kept.id).settled()) this.sandboxes.forget(kept.id);
+    }
   }
 
   /** What a backup holds, for its manifest (src/backup.ts). */
@@ -435,8 +548,13 @@ export class PiAgent extends DurableObject<Env> {
       if (job.callback === "automation") await this.automations.scheduler.cancel(job.id);
     }
 
+    // This deploy's sandboxes: their containers and saves stay, so those the backup lacks are kept disks.
+    const sandboxes = this.sandboxes.all();
+
     const { rows, leftOut } = this.backups.finish(force, () => {
       const sql = this.ctx.storage.sql;
+      this.sandboxes.keep(sandboxes);
+      this.sandboxes.seeded();
       sql.exec("UPDATE ky_automations SET schedule_id = NULL");
       sql.exec("UPDATE ky_tasks SET status = 'stopped', finished_at = coalesce(finished_at, ?) WHERE status IN ('queued', 'working')", Date.now());
       this.setup.moved(origin);
@@ -469,7 +587,14 @@ export class PiAgent extends DurableObject<Env> {
    * a runner already connected under that name has an old token, so it goes.
    * Returns the pairing replaced, whose token the caller revokes.
    */
-  pairMachine(machine: string, facts: MachineFacts, pairing: string): string | null {
+  pairMachine(machine: string, facts: MachineFacts, pairing: string, sandbox?: string): string | null {
+    const named = this.sandboxes.named(machine);
+
+    // A sandbox's container pairs as its own name only while it lives; nothing else pairs as one.
+    if (sandbox !== undefined ? named?.id !== sandbox : named !== undefined) {
+      throw new Error(sandbox !== undefined ? `The sandbox ${sandbox} is not ${machine} now.` : `${machine} is one of ky's sandboxes.`);
+    }
+
     const previous = this.machines.paired(machine, facts, pairing);
     this.sockets.revokeRunner(machine, `${machine} was paired again, so this runner's token no longer works; pair it again.`);
 
@@ -564,7 +689,7 @@ export function worker(access: Access) {
 
       if (refused) return refused;
 
-      const owner = ownerRoute(request, env, url) ?? backupRoute(request, env, url);
+      const owner = ownerRoute(request, env, url) ?? sandboxRoute(request, env, url) ?? backupRoute(request, env, url);
 
       if (owner) return owner;
 

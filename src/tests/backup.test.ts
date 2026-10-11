@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { type Archive, readArchive, readTar, restoreArchive, type Send } from "../archive";
 import { backupRoute } from "../backup";
 import { ASSERTION } from "../access";
-import { agent, call, inside, pairing, prompt } from "./drive";
+import { CLOUD } from "../cloud-facts";
+import { saveKey } from "../sandboxes";
+import { agent, call, connect, inside, pairing, prompt, until } from "./drive";
 
 /**
  * B1: `ky backup` and `ky restore`, through the Worker's routes and the
@@ -75,6 +77,10 @@ async function fill(): Promise<{ chat: string; upload: string }> {
   );
 
   await pairing("me", "laptop");
+
+  // A second sandbox, and a saved disk for each: the disks stay in the old deploy's bucket.
+  const web = await inside("me", (instance) => instance.createSandbox({ name: "web", repos: ["me/web"] }));
+  await Promise.all([CLOUD, web.id].map((id) => env.FILES.put(saveKey(id), "a disk")));
   await env.Vault.getByName("owner").put("provider", "openai", { apiKey: SECRET });
 
   return { chat, upload };
@@ -91,9 +97,13 @@ describe("backup and restore", () => {
     expect(manifest.summary.workspaceFiles).toBe(1);
     // Secrets stay in the Vault; the manifest says which there were.
     expect(new TextDecoder().decode(tar)).not.toContain(SECRET);
-    expect(manifest.leftOut.map((each) => each.what)).toEqual(expect.arrayContaining(["API key for openai", "Machine laptop"]));
+    expect(manifest.leftOut.map((each) => each.what)).toEqual(
+      expect.arrayContaining(["API key for openai", "Machine laptop", `Sandbox ${CLOUD}'s saved disk`, "Sandbox web's saved disk"])
+    );
+    // A sandbox isn't a computer to pair again.
+    expect(manifest.leftOut.map((each) => each.what)).not.toContain("Machine web");
     expect(Object.keys(manifest.skipped)).toEqual(expect.arrayContaining(["ky_machines", "ky_providers", "ky_history", "cf_agents_jobs"]));
-    expect(manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["pi_entries", "memo_log", "ky_skill_versions", "vfs_nodes"]));
+    expect(manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["pi_entries", "memo_log", "ky_skill_versions", "vfs_nodes", "ky_sandboxes"]));
 
     // A new deploy's bucket: the upload isn't there until the restore puts it back.
     await env.FILES.delete(upload);
@@ -103,7 +113,7 @@ describe("backup and restore", () => {
     expect(restored.leftOut).toEqual(manifest.leftOut);
 
     // Every table restored row for row, but those the restore sets right for its new deploy.
-    const fixed = ["ky_setup", "ky_automations", "ky_tasks"];
+    const fixed = ["ky_setup", "ky_automations", "ky_tasks", "ky_sandboxes_seeded"];
 
     for (const table of manifest.tables.filter((each) => !fixed.includes(each.name))) {
       expect(await rows(target, table.name), table.name).toBe(await rows("me", table.name));
@@ -133,6 +143,51 @@ describe("backup and restore", () => {
     expect(await inside(target, (_instance, state) => state.storage.sql.exec("SELECT count(*) AS n FROM ky_automations WHERE schedule_id IS NULL").one().n)).toBe(0);
     expect((await prompt(target, 'tool read {"path":"/workspace/notes.txt"}')).text).toContain("kept across deploys");
     expect(await inside(target, (instance) => instance.setup.origin())).toBe(null);
+  });
+
+  it("keeps the sandboxes of the deploy it restores over as kept disks, and sets its machines right", async () => {
+    const web = `web-${crypto.randomUUID().slice(0, 8)}`;
+    const backedUp = await inside("me", (instance) => instance.createSandbox({ name: web, repos: [`me/${web}`] }));
+    const { archive } = await backUp();
+    const target = "sandboxed-target";
+
+    // The deploy restored over: a sandbox with a saved disk, a kept disk with none, and a computer named as the backup's sandbox.
+    const own = await inside(target, (instance) => {
+      const api = instance.createSandbox({ name: "api" });
+      const old = instance.createSandbox({ name: "old" });
+
+      instance.sandboxes.delete(old.id);
+
+      return { api: api.id, old: old.id };
+    });
+
+    await env.FILES.put(saveKey(own.api), "the api's disk");
+    await pairing(target, web);
+    await restoreArchive(archive, restoreInto(target), true);
+
+    // The object starts when the browser opens it.
+    const socket = await connect(target);
+
+    const state = () =>
+      inside(target, (instance) => ({
+        live: instance.sandboxes.live().map((each) => each.id),
+        kept: instance.sandboxes.kept().map((each) => each.id),
+        api: instance.machines.machine("api")?.name ?? null
+      }));
+
+    // The backup's sandboxes; this deploy's api kept with its disk, the old one dropped with none, and api no machine now.
+    await until(async () => {
+      const now = await state();
+
+      return now.api === null && !now.kept.includes(own.old);
+    }, "the stale machine removed, the lost disk dropped");
+    expect(await state()).toEqual({ live: expect.arrayContaining([CLOUD, backedUp.id]), kept: [own.api], api: null });
+    expect(await rows(target, "ky_sandboxes")).toContain(`"${own.api}"`);
+    expect(await inside(target, (instance) => instance.sandboxes.get(own.api))).toMatchObject({ name: "api", isDefault: false, deletedAt: expect.any(Number) });
+    // The computer keeps its name, and the restart says so.
+    expect(await inside(target, (instance) => instance.machines.listSandboxes().clashes)).toEqual([web]);
+    socket.close();
+    await env.FILES.delete(saveKey(own.api));
   });
 
   it("refuses to restore over a ky with chats or memory, unless forced", async () => {
