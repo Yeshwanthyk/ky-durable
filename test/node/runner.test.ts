@@ -232,6 +232,38 @@ describe("ky runner add", () => {
     expect(printed.join("\n")).toContain(`The service keeps KY_STATE_DIR=${computer.state}`);
   });
 
+  it("won't take the runner from another ky: it names --as and --replace, and leaves the code unused", async () => {
+    const other = await fakeKy("WXYZ-9876");
+
+    try {
+      expect(await run(["runner", "add", ours.url, "ABCD-1234", "--name", "mac", "--yes"])).toBe(0);
+      const first = await readFile(settingsFile(), "utf8");
+      printed = [];
+
+      expect(await run(["runner", "add", other.url, "WXYZ-9876", "--yes"])).toBe(1);
+      expect(printed.join("\n")).toContain(`This computer's runner is for ${ours.url}. To add one for ${other.url} beside it, add --as <name>`);
+      expect(other.pairings).toEqual([]);
+      expect(await readFile(settingsFile(), "utf8")).toBe(first);
+
+      expect(await run(["runner", "add", other.url, "WXYZ-9876", "--yes", "--replace"])).toBe(0);
+      expect((await saved()).url).toBe(other.url);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("waits for launchd to finish stopping the runner it replaces before starting the new one", async () => {
+    expect(await run(["runner", "add", ours.url, "ABCD-1234", "--name", "mac", "--yes"])).toBe(0);
+    await ours.close();
+    ours = await fakeKy("EFGH-5678");
+    computer.lingers = 2;
+
+    // The same ky again: the service is booted out and, until launchd lets it go, can't be bootstrapped.
+    expect(await run(["runner", "add", ours.url, "EFGH-5678", "--name", "mac", "--yes", "--replace"])).toBe(0);
+    expect(computer.loaded).toEqual(new Set(["test.ky.runner"]));
+    expect(printed.join("\n")).toContain("mac is online");
+  });
+
   it("asks for the URL and code it isn't given only at a terminal", async () => {
     expect(await run(["runner", "add", "--yes"])).toBe(1);
     expect(printed.join("\n")).toContain("usage: ky runner add <ky url> <code>");

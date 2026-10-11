@@ -112,6 +112,19 @@ WantedBy=default.target
 `;
 }
 
+/** How long `install` waits for launchd to finish stopping the service it replaces. */
+const STOPPED_WITHIN_MS = 10_000;
+
+const STOP_POLL_MS = 200;
+
+/** Waits until launchd no longer has `target`: bootout returns before the job is gone, and bootstrap fails with "5: Input/output error" until it is. */
+async function stopped(system: System, target: string): Promise<void> {
+  for (let waited = 0; waited < STOPPED_WITHIN_MS; waited += STOP_POLL_MS) {
+    if ((await system.exec("launchctl", ["print", target])).code !== 0) return;
+    await new Promise((resolve) => setTimeout(resolve, STOP_POLL_MS));
+  }
+}
+
 /** Runs a service manager's command, throwing what it said when it fails. */
 async function must(system: System, command: string, args: string[]): Promise<void> {
   const ran = await system.exec(command, args);
@@ -132,6 +145,7 @@ function launchd(system: System): Service {
       await writeFile(file, plist(system));
       // One already loaded is replaced: bootout fails when there is none, which is fine.
       await system.exec("launchctl", ["bootout", target]);
+      await stopped(system, target);
       await must(system, "launchctl", ["bootstrap", domain, file]);
     },
     restart: () => must(system, "launchctl", ["kickstart", "-k", target]),

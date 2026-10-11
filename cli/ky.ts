@@ -31,7 +31,7 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
   ${bold("ky skill")}       the guide for agents that run ky
   ${bold("ky version")}     this ky's release ${dim("[--version]")}
 
-  ${bold("ky runner add")}  pair this computer with ky, pick what it shares, and run it as a service ${dim("[<ky url> <code>] [--name <machine>] [--as <runner>] [--yes] [--no-service]")}
+  ${bold("ky runner add")}  pair this computer with ky, pick what it shares, and run it as a service ${dim("[<ky url> <code>] [--name <machine>] [--as <runner>] [--replace] [--yes] [--no-service]")}
   ${bold("ky runner run")}  run the runner here, in the foreground (the service runs this)
   ${bold("ky runner ls")}   this computer's runner, and whether it's online
   ${bold("ky runner status")} what it shares, where its token, service and log are ${dim("[--json]")}
@@ -50,6 +50,7 @@ const OPTIONS = {
   account: { type: "string" },
   name: { type: "string" },
   as: { type: "string" },
+  replace: { type: "boolean" },
   email: { type: "string" },
   subdomain: { type: "string" },
   confirm: { type: "string" },
