@@ -609,8 +609,7 @@
 }
 
 /* A row's padding matches a Settings row: glyphs on edge A, 14px in; text on edge B, 40px in. */
-.feed-button,
-.feed-row {
+.feed-button {
   width: 100%;
   display: flex;
   align-items: flex-start;
@@ -646,10 +645,6 @@
   color: var(--working);
 }
 
-.feed-glyph[data-tone="failed"] {
-  color: var(--danger);
-}
-
 .feed-text {
   flex: 1;
   min-width: 0;
@@ -673,15 +668,11 @@
   text-wrap: pretty;
 }
 
-.feed-step,
-.feed-summary {
+.feed-step {
   font-size: calc(12.5px * var(--text-scale));
   line-height: 1.4;
   color: var(--muted);
   overflow: hidden;
-}
-
-.feed-step {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -691,52 +682,56 @@
   font-style: italic;
 }
 
-.feed-summary {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  text-wrap: pretty;
+/* Activity's ledger: each task one line of when, what and how it went. Three columns run through
+   every card: the time, 14px in (a live task's spinner sits there instead); the title and the line
+   of who did it and what it cost; then the state word, or Stop, on the right edge. */
+.ledger-button {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 14px;
+  text-align: left;
 }
 
-/* Secondary data: who did it as a token, then figures that wrap only between whole tokens. */
-.feed-meta {
-  margin-top: 3px;
-  font-size: calc(12px * var(--text-scale));
-  line-height: 20px;
-  color: var(--quiet);
+.ledger-item[data-live] .ledger-button {
+  align-items: flex-start;
 }
 
-.feed-meta .figure {
-  white-space: nowrap;
+.ledger-item:has(.feed-stop) .ledger-button {
+  padding-right: 40px;
 }
 
-.token {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 140px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 6px;
-  background: var(--hover);
-  color: var(--muted);
-  font-size: calc(11.5px * var(--text-scale));
-  vertical-align: top;
-  margin-top: 1px;
-  /* One line, always: a token is a fixed height, so wrapped words would draw over the lines below. */
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.token .icon {
+.ledger-lead {
   flex: none;
+  width: calc(54px * var(--text-scale));
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--quiet);
+  white-space: nowrap;
 }
 
-.token-text {
-  min-width: 0;
+.ledger-title {
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.ledger-button[aria-expanded="true"] .ledger-title {
+  white-space: normal;
+  text-wrap: pretty;
+}
+
+.ledger-item .row-sub {
+  margin-top: 1px;
+}
+
+/* What an opened task holds hangs from the title's edge, past the time. */
+.ledger-item > :is(.feed-detail, .feed-files, .feed-changes) {
+  padding-left: calc(24px + 54px * var(--text-scale));
 }
 
 /* What an opened task holds sits on edge B, under its text. */
