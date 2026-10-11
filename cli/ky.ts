@@ -31,12 +31,13 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
   ${bold("ky skill")}       the guide for agents that run ky
   ${bold("ky version")}     this ky's release ${dim("[--version]")}
 
-  ${bold("ky runner add")}  pair this computer with ky, pick what it shares, and run it as a service ${dim("[<ky url> <code>] [--name <machine>] [--yes] [--no-service]")}
+  ${bold("ky runner add")}  pair this computer with ky, pick what it shares, and run it as a service ${dim("[<ky url> <code>] [--name <machine>] [--as <runner>] [--yes] [--no-service]")}
   ${bold("ky runner run")}  run the runner here, in the foreground (the service runs this)
   ${bold("ky runner ls")}   this computer's runner, and whether it's online
   ${bold("ky runner status")} what it shares, where its token, service and log are ${dim("[--json]")}
   ${bold("ky runner logs")} its log ${dim("[--follow]")}
   ${bold("ky runner rm")}   take it off this computer: its service, token and settings
+                 ${dim("--as <runner> on any of these: a second runner beside the first, for another ky, with its own service, token, settings and ~/ky-work-<runner>")}
 
   ${bold("ky attach")}      inside a task: show the user an image or video ${dim("<file> [caption]")}
   ${bold("ky diff")}        inside a task: share the repository's changes ${dim("[base]")}
@@ -48,6 +49,7 @@ Settings: ${settings}`)}`;
 const OPTIONS = {
   account: { type: "string" },
   name: { type: "string" },
+  as: { type: "string" },
   email: { type: "string" },
   subdomain: { type: "string" },
   confirm: { type: "string" },

@@ -28,15 +28,18 @@ export function logFile(system: System): string {
  * setting is gone once `ky runner add` runs without it.
  */
 export function serviceDirs(system: System) {
+  // A second runner's state is <state dir>/<as>; KY_RUNNER_AS adds the <as> again.
+  const state = system.instance ? path.dirname(system.state) : system.state;
+
   return {
     ...(system.config !== path.join(system.home, ".config") && { XDG_CONFIG_HOME: system.config }),
-    ...(system.state !== path.join(system.home, ".ky") && { KY_STATE_DIR: system.state })
+    ...(state !== path.join(system.home, ".ky") && { KY_STATE_DIR: state })
   };
 }
 
-/** What the service runs with besides its own environment: this shell's PATH, so it finds `claude` and `codex`, and where ky keeps things. */
+/** What the service runs with besides its own environment: this shell's PATH, so it finds `claude` and `codex`, where ky keeps things, and which runner it is. */
 function environment(system: System) {
-  return { PATH: system.path, HOME: system.home, KY_RUNNER_SERVICE: "1", ...serviceDirs(system) };
+  return { PATH: system.path, HOME: system.home, KY_RUNNER_SERVICE: "1", ...serviceDirs(system), ...(system.instance && { KY_RUNNER_AS: system.instance }) };
 }
 
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -92,7 +95,7 @@ export function unit(system: System): string {
     .join("\n");
 
   return `[Unit]
-Description=ky runner
+Description=ky runner${system.instance ? ` (${system.instance})` : ""}
 After=network-online.target
 Wants=network-online.target
 

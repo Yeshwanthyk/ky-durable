@@ -5,7 +5,8 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
 import { confirm, isCancel, multiselect, text } from "@clack/prompts";
 import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/runner-protocol.ts";
 import type { Context } from "../commands.ts";
@@ -17,10 +18,10 @@ import { logFile, service, serviceDirs } from "./service.ts";
 import { kyUrl, LOCAL_SERVERS, machineName, readSettings, removeSettings, type Settings, settingsFile, withEnv, writeSettings } from "./settings.ts";
 import { github } from "./github.ts";
 import { attach, diff } from "./share.ts";
-import { compiled, type System } from "./system.ts";
+import { asInstance, compiled, defaultWorkdir, type System } from "./system.ts";
 import { deleteToken, describeStore, keychainRemoval, readToken, tokenStore, writeToken } from "./token.ts";
 
-export type RunnerFlags = { name?: string; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
+export type RunnerFlags = { name?: string; as?: string; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
 
 /** How long `ky runner add` waits for the service's runner to come online. */
 const ONLINE_WITHIN_MS = 60_000;
@@ -170,7 +171,7 @@ async function pairHere(context: Context, out: Output, positionals: string[], fl
   if (!typedUrl || !code) throw new Error("usage: ky runner add <ky url> <code>; the code is in ky's Settings, Machines, Add a machine");
   const url = kyUrl(typedUrl);
   const name = machineName(flags.name ?? env.KY_MACHINE);
-  const workdir = env.KY_WORKDIR ?? `${system.home}/ky-work`;
+  const workdir = env.KY_WORKDIR ?? defaultWorkdir(system);
   const found = await out.waiting("Looking at what this computer has", () => detect(context));
 
   out.done(`Found ${foundWords(found)}`);
@@ -231,7 +232,11 @@ async function saved(context: Context): Promise<Settings | undefined> {
 async function settingsOrFail(context: Context): Promise<Settings> {
   const settings = await saved(context);
 
-  if (!settings) throw new Error("This computer has no runner. Add one: in ky, open Settings, Machines, Add a machine, and run the command it shows");
+  if (!settings) {
+    const which = context.system.instance ? `no runner named ${context.system.instance}` : "no runner";
+
+    throw new Error(`This computer has ${which}. Add one: in ky, open Settings, Machines, Add a machine, and run the command it shows`);
+  }
 
   return settings;
 }
@@ -258,18 +263,46 @@ function stateOf(status: Status | undefined, loaded: boolean | undefined): strin
   return `${STATE_WORDS[status.state](status.state)} since ${since(status.at)}${status.reason ? dim(` (${status.reason})`) : ""}`;
 }
 
-async function lsCommand(context: Context): Promise<number> {
-  const settings = await saved(context);
+/** The second runners on this computer, each as `--as` sees it: a folder of ~/.config/ky with a runner.json. */
+async function instances(system: System): Promise<System[]> {
+  const folders = await readdir(path.join(system.config, "ky"), { withFileTypes: true }).catch(() => []);
 
-  if (!settings) {
+  return folders.flatMap((folder) => {
+    if (!folder.isDirectory()) return [];
+
+    try {
+      const instance = asInstance(system, folder.name);
+
+      return existsSync(settingsFile(instance)) ? [instance] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** This computer's runners: the first, if it has one, and each second runner, unless `--as` names one. */
+async function runners(context: Context): Promise<System[]> {
+  const here = existsSync(settingsFile(context.system)) ? [context.system] : [];
+
+  return context.system.instance ? here : [...here, ...(await instances(context.system))];
+}
+
+async function lsCommand(context: Context): Promise<number> {
+  const found = await runners(context);
+
+  if (found.length === 0) {
     context.print("No runner on this computer. Add one: ky runner add <ky url> <code>");
 
     return 0;
   }
 
-  const status = await readStatus(context.system.state);
+  for (const system of found) {
+    const settings = await settingsOrFail({ ...context, system });
+    const status = await readStatus(system.state);
+    const as = system.instance ? dim(`  --as ${system.instance}`) : "";
 
-  context.print(`${bold(settings.name)}  ${settings.url}  ${stateOf(status, await service(context.system)?.loaded())}`);
+    context.print(`${bold(settings.name)}  ${settings.url}  ${stateOf(status, await service(system)?.loaded())}${as}`);
+  }
 
   return 0;
 }
@@ -328,24 +361,32 @@ async function rmCommand(context: Context): Promise<number> {
   await deleteToken(system, settings.token);
   await removeSettings(settingsFile(system));
   await rm(statusFile(system.state), { force: true });
-  context.print(`Removed ${settings.name} from this computer. ky still lists it: remove it there in Settings, Machines, which also revokes its token.`);
+  context.print(`Removed ${settings.name}${system.instance ? ` (--as ${system.instance})` : ""} from this computer. ky still lists it: remove it there in Settings, Machines, which also revokes its token.`);
 
   return 0;
 }
 
-/** Restarts this computer's runner service, if it has one, so it runs this `ky`; what it did, if anything. */
+/** Restarts this computer's runner services, each that is loaded, so they run this `ky`; what it did, if anything. */
 export async function restartRunner(context: Context): Promise<string | undefined> {
-  const settings = await saved(context);
-  const manager = service(context.system);
+  const restarted: string[] = [];
 
-  if (!settings || !manager || !(await manager.loaded())) return undefined;
-  await manager.restart();
+  for (const system of await runners(context)) {
+    const settings = await saved({ ...context, system });
+    const manager = service(system);
 
-  return `Restarted the runner for ${settings.name}`;
+    if (!settings || !manager || !(await manager.loaded())) continue;
+    await manager.restart();
+    restarted.push(settings.name);
+  }
+
+  return restarted.length > 0 ? `Restarted the runner for ${restarted.join(" and ")}` : undefined;
 }
 
-export async function runnerCommand(context: Context, positionals: string[], flags: RunnerFlags): Promise<number> {
+export async function runnerCommand(given: Context, positionals: string[], flags: RunnerFlags): Promise<number> {
   const [command, ...rest] = positionals;
+  // A second runner, for another ky: `--as`, or KY_RUNNER_AS, which its service sets.
+  const as = flags.as ?? (given.env.KY_RUNNER_AS || undefined);
+  const context = as ? { ...given, system: asInstance(given.system, as) } : given;
 
   const commands = new Map<string, () => Promise<number>>([
     ["add", () => addCommand(context, rest, flags)],

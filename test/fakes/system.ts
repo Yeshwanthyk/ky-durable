@@ -58,11 +58,14 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
 
   mkdirSync(home, { recursive: true });
 
-  const started = () => {
+  /** The runner `label` starts writes its status to its state dir: a second runner's (`<label>.<as>`) is <state>/<as>. */
+  const started = (label: string) => {
     if (fake.online === "never") return;
-    mkdirSync(fake.state, { recursive: true });
+    const as = label.startsWith(`${fake.label}.`) || label.startsWith(`${fake.label}-`) ? label.slice(fake.label.length + 1) : undefined;
+    const dir = as ? path.join(fake.state, as) : fake.state;
+    mkdirSync(dir, { recursive: true });
     const status = { state: fake.online, machine: "fake", url: "", version: "test", pid: 4242, at: Date.now(), ...(fake.online === "stopped" && { reason: "removed from ky" }) };
-    writeFileSync(path.join(fake.state, "runner-status.json"), JSON.stringify(status));
+    writeFileSync(path.join(dir, "runner-status.json"), JSON.stringify(status));
   };
 
   const security = (args: string[], input = ""): Ran => {
@@ -102,13 +105,13 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
       "bootstrap",
       (label) => {
         fake.loaded.add(label);
-        started();
+        started(label);
 
         return ok();
       }
     ],
     ["bootout", (label) => (fake.loaded.delete(label) ? ok() : failed("No such process", 3))],
-    ["kickstart", (label) => ifLoaded(label, started)],
+    ["kickstart", (label) => ifLoaded(label, () => started(label))],
     ["print", (label) => ifLoaded(label)]
   ]);
 
@@ -130,7 +133,7 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
       case "enable":
       case "restart":
         fake.loaded.add(unit);
-        started();
+        started(unit);
 
         return ok();
       case "disable":
