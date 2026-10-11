@@ -107,9 +107,9 @@ export class Cloudflare {
   }
 }
 
-/** The user's Cloudflare login for this run: CLOUDFLARE_API_TOKEN, or else wrangler's. */
+/** The user's Cloudflare login for this run: CLOUDFLARE_API_TOKEN, or else wrangler's. A blank one, such as `$(cat missing)`'s, is unset. */
 export async function login(): Promise<Cloudflare> {
-  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
 
   if (token) return new Cloudflare(token, "CLOUDFLARE_API_TOKEN");
   const wrangler = await wranglerToken();
@@ -121,7 +121,9 @@ export async function login(): Promise<Cloudflare> {
 /** wrangler's own login, refreshed by wrangler; undefined when wrangler is missing or signed out. */
 async function wranglerToken(): Promise<string | undefined> {
   try {
-    const { stdout } = await promisify(execFile)("wrangler", ["auth", "token"], { timeout: 30_000 });
+    // Without a blank CLOUDFLARE_API_TOKEN, which wrangler would take as its login.
+    const { CLOUDFLARE_API_TOKEN: _blank, ...env } = process.env;
+    const { stdout } = await promisify(execFile)("wrangler", ["auth", "token"], { timeout: 30_000, env });
 
     return stdout.trim().split("\n").at(-1)?.trim() || undefined;
   } catch {

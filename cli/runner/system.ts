@@ -5,6 +5,7 @@
  * config.
  */
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import { hasChrome, listening } from "./facts.ts";
@@ -64,9 +65,31 @@ export function compiled(): boolean {
   return import.meta.url.includes("$bunfs") || import.meta.url.includes("~BUN");
 }
 
+/**
+ * The path that keeps running this binary across upgrades: the first `ky` on `PATH` that resolves to `binary`,
+ * such as Homebrew's /opt/homebrew/bin/ky, a link into /opt/homebrew/Cellar/ky/<version>/bin/ky that `brew
+ * upgrade` deletes. `binary` itself when none does.
+ */
+export function stableKy(binary: string, PATH: string): string {
+  const real = (file: string) => {
+    try {
+      return realpathSync(file);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const target = real(binary) ?? binary;
+
+  return PATH.split(path.delimiter)
+    .filter((dir) => path.isAbsolute(dir))
+    .map((dir) => path.join(dir, "ky"))
+    .find((candidate) => real(candidate) === target) ?? binary;
+}
+
 /** The command line that runs this `ky`: the binary itself, or Node on this checkout's cli/main.ts. */
 function kyCommand(): string[] {
-  if (compiled()) return [process.execPath];
+  if (compiled()) return [stableKy(process.execPath, process.env.PATH ?? "")];
 
   return [process.execPath, "--experimental-strip-types", "--no-warnings", path.join(import.meta.dirname, "..", "main.ts")];
 }

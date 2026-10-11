@@ -7,7 +7,7 @@ import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type 
 import type { TaskRow } from "../tasks";
 import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
-import { BARE } from "./stack";
+import { BARE, STEADY } from "./stack";
 
 /**
  * The machine protocol end to end: the real runner logic (cli/runner/runner.ts)
@@ -202,6 +202,8 @@ class Mac {
   /** The paths asked of the machine's ports over the pipe, and those whose request was then aborted. */
   readonly asked: string[] = [];
   readonly aborted: string[] = [];
+  /** What the runner logged. */
+  readonly logged: string[] = [];
   runner: Runner;
   wire: Wire | undefined;
 
@@ -226,7 +228,7 @@ class Mac {
 
         return claude;
       },
-      () => {},
+      (line) => this.logged.push(line),
       // The same file across restarts, as on a real machine.
       new HandledSeqs(`/tmp/ky-runner-test/${this.#object}/handled.json`, `https://example.com ${this.#object}`),
       "test",
@@ -234,6 +236,9 @@ class Mac {
       (port, path, init) => {
         this.asked.push(path);
         init.signal?.addEventListener("abort", () => this.aborted.push(path));
+
+        // Nothing listens on the port, as when VibeProxy is not running.
+        if (path === "/refused") return Promise.reject(new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1"), { code: "ECONNREFUSED" }) }));
 
         return fakeVibeProxy(new Request(`http://127.0.0.1:${port}${path}`, init));
       }
@@ -912,6 +917,20 @@ describe("the pipe", () => {
 
     expect(await overPipe(object, 3000, "/elsewhere")).toEqual({ failed: "This machine doesn't share port 3000." });
     expect(mac.asked).not.toContain("/elsewhere");
+    expect(mac.logged).toContain("forward GET :3000/elsewhere: refused, this machine doesn't share port 3000");
+  });
+
+  it("logs each forwarded request that fails or gets an error status on one line, without its query", async () => {
+    const { object, mac } = await piped();
+
+    expect(await overPipe(object, VIBEPROXY_TEST_PORT, "/refused")).toEqual({ failed: "fetch failed" });
+    // Sent without VibeProxy's key, which the fake refuses.
+    expect((await overPipe(object, VIBEPROXY_TEST_PORT, "/v1/models?key=secret")).status).toBe(401);
+
+    expect(mac.logged.filter((line) => line.startsWith("forward "))).toEqual([
+      `forward GET :${VIBEPROXY_TEST_PORT}/refused: failed, fetch failed (ECONNREFUSED)`,
+      `forward GET :${VIBEPROXY_TEST_PORT}/v1/models: answered 401`
+    ]);
   });
 
   it("cancels a streaming answer on the machine when the reader aborts", async () => {
@@ -927,6 +946,21 @@ describe("the pipe", () => {
 
     expect(await overPipe(object, VIBEPROXY_TEST_PORT, "/hang", { timeoutMs: 200 })).toEqual({ failed: "No answer for 0.2s." });
     await until("the machine to give up", () => mac.aborted.includes("/hang"));
+  });
+
+  it("has VibeProxy on the machine as soon as the object starts again under its runner's socket", async () => {
+    // Production's probe TTL: an answer the start got is kept for 30s, so a failed one would keep VibeProxy off.
+    const machine = fixture(SHARES_VIBEPROXY, `${BARE}${STEADY}${crypto.randomUUID()}`);
+    await machine.mac.connect();
+    await until("main on VibeProxy", async () => (await resolved(machine.object, "main")).provider === "vibeproxy");
+
+    // The object leaves memory while the runner's socket stays open, as a hibernated one does, and the runner's
+    // 30s keepalive hello wakes it. Its start asks VibeProxy again, over that socket.
+    await evictDurableObject(agent(machine.object));
+    machine.mac.runner.keepalive();
+
+    await until("main on VibeProxy again", async () => (await resolved(machine.object, "main")).provider === "vibeproxy");
+    expect(await inside(machine.object, (instance) => instance.models.catalog().find((provider) => provider.id === "vibeproxy")?.connected)).toBe(true);
   });
 
   it("prefers the pipe to the overlay's tunnel when a machine shares VibeProxy", async () => {

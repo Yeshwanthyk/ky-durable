@@ -383,13 +383,15 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.machines.post());
     // Task tokens whose revoke a failure or a restart lost.
     this.ctx.waitUntil(this.machines.sweepTokens());
-    await this.models.probe();
     await this.applyMain();
     await this.automations.recover();
 
     if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.
     this.ctx.waitUntil(this.memory.compress());
+    // Asked last and not awaited: a runner's answer over the pipe is a socket message, which waits for this start to
+    // end. Awaited here, the probe timed out and its "down" was kept for 30s. A provider that answers moves main to it.
+    this.ctx.waitUntil(this.models.probe());
   }
 
   /** What a backup holds, for its manifest (src/backup.ts). */

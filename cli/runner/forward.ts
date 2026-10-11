@@ -4,8 +4,14 @@
  * `http_head`, `http_chunk`s and an `http_end`, or an `http_error`. Nothing
  * is kept for a reconnect: a request dies with the socket it came on, and
  * the object fails it there too.
+ *
+ * Each request that fails, or that the local server answers with an error
+ * status, is logged on one line: method, port, path without its query, and
+ * why. No headers or bodies, which may hold keys.
  */
 
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { fromBase64, type HttpRequest, type RunnerReport, toBase64 } from "../../src/runner-protocol.ts";
 import type { Link } from "./runner.ts";
 
@@ -30,16 +36,19 @@ const RESPONSE_HOP = new Set([...REQUEST_HOP, "content-encoding"]);
 export class Forwarder {
   readonly #fetch: LocalFetch;
   readonly #ports: () => readonly number[];
+  readonly #log: (line: string) => void;
   readonly #open = new Map<string, AbortController>();
 
-  constructor(fetch: LocalFetch, ports: () => readonly number[]) {
+  constructor(fetch: LocalFetch, ports: () => readonly number[], log: (line: string) => void) {
     this.#fetch = fetch;
     this.#ports = ports;
+    this.#log = log;
   }
 
   /** Forward `request` and answer it on `link`, the socket it came on; a port this machine doesn't share is refused. */
   request(link: Link, request: HttpRequest): void {
     if (!this.#ports().includes(request.port)) {
+      this.#log(`${described(request)}: refused, this machine doesn't share port ${request.port}`);
       link.send(JSON.stringify({ type: "http_error", id: request.id, message: `This machine doesn't share port ${request.port}.` } satisfies RunnerReport));
 
       return;
@@ -56,7 +65,14 @@ export class Forwarder {
     try {
       await this.#forward(link, request, abort.signal);
     } catch (error) {
-      if (!abort.signal.aborted) link.send(JSON.stringify({ type: "http_error", id: request.id, message: error instanceof Error ? error.message : String(error) } satisfies RunnerReport));
+      if (!abort.signal.aborted) {
+        const message = error instanceof Error ? error.message : String(error);
+        const cause = error instanceof Error ? causeOf(error.cause) : undefined;
+
+        this.#log(`${described(request)}: failed, ${cause ? `${message} (${cause})` : message}`);
+        link.send(JSON.stringify({ type: "http_error", id: request.id, message } satisfies RunnerReport));
+      }
+
       abort.abort();
     } finally {
       if (this.#open.get(request.id) === abort) this.#open.delete(request.id);
@@ -75,7 +91,9 @@ export class Forwarder {
     this.#open.clear();
   }
 
-  async #forward(link: Link, { id, port, method, path, headers, body }: HttpRequest, signal: AbortSignal): Promise<void> {
+  async #forward(link: Link, request: HttpRequest, signal: AbortSignal): Promise<void> {
+    const { id, port, method, path, headers, body } = request;
+
     const report = (message: RunnerReport) => {
       if (!link.send(JSON.stringify(message))) throw new Error("The socket to ky closed.");
     };
@@ -87,6 +105,7 @@ export class Forwarder {
       signal
     });
 
+    if (response.status >= 400) this.#log(`${described(request)}: answered ${response.status}`);
     report({ type: "http_head", id, status: response.status, headers: without(response.headers.entries(), RESPONSE_HOP) });
 
     const reader = response.body?.getReader();
@@ -105,6 +124,21 @@ export class Forwarder {
 
     report({ type: "http_end", id });
   }
+}
+
+/** A request as its log line names it: `GET :8317/v1/models`, without the query, which may hold a key. */
+function described({ method, port, path }: HttpRequest): string {
+  return `${method} :${port}${path.split("?")[0]}`;
+}
+
+/** A system error's code, as Node's errors carry it. */
+const Coded = Type.Object({ code: Type.String() });
+
+/** What fetch hides under "fetch failed": the cause's code, such as ECONNREFUSED, else its message. */
+function causeOf(cause: Error["cause"]): string | undefined {
+  if (Value.Check(Coded, cause)) return cause.code;
+
+  return cause instanceof Error ? cause.message : undefined;
 }
 
 function without(headers: Iterable<[string, string]>, dropped: ReadonlySet<string>): Record<string, string> {

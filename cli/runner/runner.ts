@@ -138,7 +138,7 @@ export class Runner {
     this.#handled = handled;
     this.#version = version;
     this.#facts = facts;
-    this.#forwarder = new Forwarder(local, () => facts().ports);
+    this.#forwarder = new Forwarder(local, () => facts().ports, (line) => log(`forward ${line}`));
   }
 
   /** Tasks with a live agent process. */

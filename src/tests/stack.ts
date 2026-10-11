@@ -208,6 +208,9 @@ export const BARE = "bare-";
 /** Objects whose name starts with this are seeded on first start, as a new deploy is; the rest start empty. */
 export const FRESH = "fresh-";
 
+/** Objects whose name holds this reuse a runner-local probe's answer for 30s, as production does; the rest ask afresh each time. */
+export const STEADY = "steady-";
+
 /** A key OpenCode Go's fake takes; it takes any. */
 export const OPENCODE_KEY = "opencode-test-key";
 
@@ -388,7 +391,7 @@ export class PiAgent extends ProductionAgent {
             }
       },
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
-      probeTtlMs: 0,
+      probeTtlMs: this.ctx.id.name?.includes(STEADY) === true ? undefined : 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
       executorFetch: executorFake.fetch,
       seeds: this.ctx.id.name?.startsWith(FRESH) === true,

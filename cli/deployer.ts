@@ -22,7 +22,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
 import { answeredWithError, type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
-import { emails } from "./config.ts";
+import { emails, writeDeployed } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
 import { copyImage, imageDigest, TARGET } from "./image.ts";
 import type { Release } from "./release.ts";
@@ -606,6 +606,8 @@ export async function deploy(target: Target, release: Release, say: (step: strin
 
   say("Turning on workers.dev");
   await cloudflare.run(Workers.createScriptSubdomain({ accountId, scriptName: name.script, enabled: true, previewsEnabled: false }));
+  // So ky backup and ky restore find it with no Cloudflare login, only cloudflared's.
+  await writeDeployed(target.settings, { account: accountId, name: name.script, url: `https://${address}` });
 
   return { url: `https://${address}`, from: script ? (releaseOf(script) ?? "an unknown release") : undefined };
 }

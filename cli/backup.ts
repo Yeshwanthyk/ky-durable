@@ -10,18 +10,24 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { type Archive, type LeftOut, readArchive, readTar, restoreArchive, type Send, type Summary } from "../src/archive.ts";
 import { type Context, target } from "./commands.ts";
+import { readDeployed, readOverlay } from "./config.ts";
 import { address } from "./deployer.ts";
 import { bold, dim, green } from "./output.ts";
 
 type Flags = { url?: string; out?: string; force?: boolean };
 
-/** The ky to back up or restore into: --url, else KY_URL, else the deploy `ky init` set up here. */
+/**
+ * The ky to back up or restore into: --url, else KY_URL, else the deploy `ky init` set up here, at the address
+ * its last deploy saved. Only a deploy from before ky saved it asks Cloudflare, which needs a Cloudflare login.
+ */
 async function kyUrl(context: Context, flags: Flags): Promise<string> {
   const given = flags.url ?? context.env.KY_URL;
 
   if (given) return new URL(given).origin;
+  const overlay = await readOverlay(context.overlay);
+  const saved = overlay && (await readDeployed(context.overlay, overlay));
 
-  return address((await target(context)).target);
+  return saved ?? address((await target(context)).target);
 }
 
 /** The headers that sign in to `url` as its owner, from `cloudflared access token`. */
