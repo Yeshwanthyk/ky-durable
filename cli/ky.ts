@@ -5,6 +5,7 @@
 import { parseArgs } from "node:util";
 import { isCancel, text } from "@clack/prompts";
 import { type Context, deployCommand, doctorCommand, skillCommand, teardownCommand, upgradeCommand } from "./commands.ts";
+import { backupCommand, restoreCommand } from "./backup.ts";
 import { initCommand } from "./init.ts";
 import { runnerCommand, shareCommand } from "./runner/commands.ts";
 import { bold, Cancelled, dim } from "./output.ts";
@@ -23,6 +24,8 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
   ${bold("ky upgrade")}     deploy this ky's release, when the Worker runs another one
   ${bold("ky doctor")}      check each piece of the deploy and print what fixes the first one missing ${dim("[--json]")}
   ${bold("ky teardown")}    delete the Worker with its chats and files, its bucket and Access apps ${dim("[--confirm <worker>]")}
+  ${bold("ky backup")}      download a copy of ky, chats, memory, skills and files, to ~/ky-backups ${dim("[--out <file>] [--url <ky>]")}
+  ${bold("ky restore")}     put a backup into a fresh ky; refuses one with chats or memory ${dim("<file> [--url <ky>] [--force]")}
   ${bold("ky skill")}       the guide for agents that run ky
   ${bold("ky version")}     this ky's release ${dim("[--version]")}
 
@@ -45,6 +48,9 @@ const OPTIONS = {
   email: { type: "string" },
   subdomain: { type: "string" },
   confirm: { type: "string" },
+  out: { type: "string", short: "o" },
+  url: { type: "string" },
+  force: { type: "boolean" },
   json: { type: "boolean" },
   yes: { type: "boolean", short: "y" },
   "no-service": { type: "boolean" },
@@ -77,6 +83,8 @@ export async function ky(args: string[], context: Context): Promise<number> {
       ["upgrade", () => upgradeCommand(context)],
       ["doctor", () => doctorCommand(context, values.json ?? false)],
       ["teardown", async () => teardownCommand(context, await typedName(values.confirm))],
+      ["backup", () => backupCommand(context, values)],
+      ["restore", () => restoreCommand(context, positionals[1], values)],
       ["skill", () => skillCommand(context)],
       ["version", () => versionCommand(context)],
       ["runner", () => runnerCommand(context, positionals.slice(1), values)],

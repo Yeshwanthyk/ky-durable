@@ -155,6 +155,13 @@ export class History {
     return conversation === ROOT_SESSION ? "main chat" : `chat "${this.#name(conversation)}"`;
   }
 
+  /** Index every chat message again, as after a restore replaced the transcripts. */
+  rebuild(): void {
+    this.#sql.exec("DELETE FROM ky_history");
+    this.#sql.exec("DELETE FROM ky_history_mark");
+    this.#catchUp();
+  }
+
   /** Copy the chat messages pi committed since the last search. */
   #catchUp(): void {
     let last = this.#sql.exec<{ last: number }>("SELECT last FROM ky_history_mark").toArray()[0]?.last ?? 0;

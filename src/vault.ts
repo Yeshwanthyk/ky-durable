@@ -44,7 +44,7 @@ export type ReissuedKind = "task";
 type SecretMeta = { readonly [field: string]: string | number | boolean | null | readonly string[] };
 
 /** A secret as Settings may show it: never its value. */
-type SecretStatus = {
+export type SecretStatus = {
   readonly kind: SecretKind;
   readonly id: string;
   readonly meta: SecretMeta | null;

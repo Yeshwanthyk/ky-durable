@@ -103,6 +103,18 @@ export class Setup {
     if (this.#get("origin") !== origin) this.#set("origin", origin);
   }
 
+  /**
+   * ky was restored at `origin` from a backup of another deploy: its address
+   * is this one, not the old one's, and it is no new ky to seed.
+   */
+  moved(origin: string): void {
+    if (this.#get("seeded") === undefined) this.#set("seeded", String(Date.now()));
+
+    if (this.#get("url") !== undefined) this.#set("url", origin);
+
+    if (this.#get("origin") !== undefined) this.#set("origin", origin);
+  }
+
   #set(key: Key, value: string): void {
     this.#sql.exec(
       "INSERT INTO ky_setup (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",

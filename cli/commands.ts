@@ -40,7 +40,7 @@ function lacking(file: string, overlay: Unstable_RawConfig): string | undefined 
 }
 
 /** The deploy the overlay describes; `ky init` makes one. */
-async function target(context: Context): Promise<{ target: Target; release: Release }> {
+export async function target(context: Context): Promise<{ target: Target; release: Release }> {
   const overlay = await readOverlay(context.overlay);
 
   if (!overlay) throw new Error(`ky isn't set up here (no ${context.overlay}); run \`${initFor({})}\``);
