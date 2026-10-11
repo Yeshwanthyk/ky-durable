@@ -761,7 +761,7 @@ These are the machine flows for ChatGPT and Claude.
     isn't public on ghcr, or one whose `# source:` commit is older than the files the image holds. It compiles the
     four platforms with `KY_VERSION`, and `scripts/release/package.sh` packs `ky-<platform>.tar.gz`, `release.json`,
     `install.sh` and `checksums.txt` onto GitHub Releases. `scripts/release/formula.sh` writes
-    `Formula/ky.rb` into `Yeshwanthyk/homebrew-ky` (secret `KY_TAP_TOKEN`, environment `release`).
+    `Formula/ky.rb` into `Yeshwanthyk/homebrew-ky` (deploy key secret `KY_TAP_DEPLOY_KEY`, environment `release`).
   - `image.yml` also builds on changes to the `src/` files the CLI imports and to `pnpm-lock.yaml`. It labels the
     image with its source, and opens a pull request that pins it in `container/image.digest`.
   - `install.sh` tells this `ky` from another program of that name by the string `ky-durable-cli` in the file,

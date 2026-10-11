@@ -41,9 +41,14 @@ These are done once, on GitHub, by the owner.
    download from it signed out.
 3. Create the tap: a public repo `Yeshwanthyk/homebrew-ky` with one commit (a README is enough; the workflow
    clones it, so it can't be empty).
-4. Make a fine-grained token with **Contents: Read and write** on `Yeshwanthyk/homebrew-ky` only. In
-   `ky-durable` › Settings › Environments, create `release` (limit it to tags `v*`), and add the token there as
-   the secret `KY_TAP_TOKEN`.
+4. Give the release workflow a deploy key that can push to the tap and nothing else. In
+   `ky-durable` › Settings › Environments, create `release` (limit it to tags `v*`). Then:
+   ```sh
+   ssh-keygen -t ed25519 -N "" -f tap-key
+   gh repo deploy-key add tap-key.pub -R Yeshwanthyk/homebrew-ky --allow-write -t "ky-durable release"
+   gh secret set KY_TAP_DEPLOY_KEY -R Yeshwanthyk/ky-durable --env release < tap-key
+   rm tap-key tap-key.pub
+   ```
 5. In `ky-durable` › Settings › Actions › General › Workflow permissions, tick **Allow GitHub Actions to create
    and approve pull requests**, so the image workflow can open its pin. Without it, it pushes the branch and says
    to open the pull request by hand.
