@@ -63,7 +63,8 @@ It pairs, keeps the token in `~/.config/ky/runner-token` (0600), writes `~/.conf
 installs a launchd agent or `systemd --user` unit, and waits until ky shows the machine online. Then:
 `ky runner ls`, `ky runner status [--json]` (exits 1 unless online), `ky runner logs [-f]`, and `ky runner rm`, which
 removes it from this computer only: the user removes the machine in ky's Settings too. `ky runner run` is the runner
-itself, in the foreground. Tasks run `ky attach <file>` and `ky diff` to share files and changes.
+itself, in the foreground. Tasks run `ky attach <file>` and `ky diff` to share files and changes; on the cloud machine, which holds no
+GitHub token, `ky github` opens, views and merges a `ky/*` pull request and watches or rolls back its deploy.
 
 ## Back it up, or move it
 

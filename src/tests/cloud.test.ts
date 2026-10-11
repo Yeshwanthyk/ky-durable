@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { idleTimeout } from "../cloud";
 import { CLOUD, CLOUD_FACTS } from "../cloud-facts";
 import type { ClientMessage } from "../protocol";
-import { type GithubLogin, kyRefsOnly, proxyGit } from "../github";
+import { allowedRepos, type GithubLogin, kyRefsOnly, proxyGit } from "../github";
+import { githubTool } from "../github-tools";
 import { SUBSCRIPTION } from "../vault";
 import { GITHUB_REPOS, REVOKED_GITHUB_TOKEN } from "../../test/fakes/github";
 import { call, connect, FACTS, follow, inside, pair, pairingCode, prompt, runner, tasks, until } from "./drive";
@@ -11,9 +12,9 @@ import type { Vault as TestVault } from "./stack";
 
 /**
  * The cloud machine's Worker side (src/github.ts, src/cloud.ts, src/machines.ts): the github.internal
- * proxy that holds the token and lets pushes reach `ky/*` only, the GitHub row of Settings ›
- * Subscriptions, the name `cloud` no runner may take, and the GitHub token handed only to cloud
- * tasks. The container itself runs in the harness's cloud scenarios.
+ * proxy that holds the token and lets pushes reach `ky/*` only, its GitHub tools, the GitHub row of
+ * Settings › Subscriptions, the name `cloud` no runner may take, and no GitHub token in any task.
+ * The container itself runs in the harness's cloud scenarios.
  */
 
 // SAFETY: src/tests/wrangler.jsonc binds Vault to the test stack's subclass.
@@ -92,12 +93,129 @@ describe("the github.internal proxy", () => {
     expect(headers.get("authorization")).toBe(`Basic ${btoa("x-access-token:github_pat_test")}`);
     expect(headers.get("cookie")).toBeNull();
     expect(headers.get("content-type")).toBe("application/x-git-receive-pack-request");
+    // A renamed repo's redirect isn't followed with the token.
+    expect(init?.redirect).toBe("manual");
+  });
+
+  it("knows the machine only from its props: the cloud machine reaches the picked repos, any other none", () => {
+    expect(allowedRepos(LOGIN, CLOUD)).toEqual(LOGIN);
+    expect(allowedRepos(LOGIN, "mac")).toBeNull();
+    expect(allowedRepos(LOGIN, undefined)).toBeNull();
+    expect(allowedRepos(null, CLOUD)).toBeNull();
   });
 
   it("turns GitHub's rate-limit 403 into the 429 git retries", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("slow down", { status: 403, headers: { "x-ratelimit-remaining": "0" } }));
 
     expect((await proxyGit(git("me/app.git/info/refs?service=git-upload-pack"), LOGIN)).status).toBe(429);
+  });
+});
+
+/** A call to a GitHub tool, as `ky github` posts it. */
+const tool = (name: string, input: Record<string, string | number>) => new Request(`http://github.internal/api/github/${name}`, { method: "POST", body: JSON.stringify(input) });
+
+/** A pull request as GitHub's REST API answers one. */
+const pr = (ref: string, from = "me/app", merged = false) => ({
+  number: 7,
+  html_url: "https://github.com/me/app/pull/7",
+  title: "Fix it",
+  state: merged ? "closed" : "open",
+  merged,
+  merge_commit_sha: merged ? "abc1234" : "test-merge",
+  head: { ref, repo: { full_name: from } },
+  base: { ref: "main" }
+});
+
+/** GitHub's REST API, answering `answers` in order, and the calls it was given. */
+function fakeApi(...answers: Response[]) {
+  const calls: { url: string; init: RequestInit }[] = [];
+
+  const fetch = async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+
+    return answers.shift() ?? new Response("unexpected", { status: 500 });
+  };
+
+  return { fetch, calls };
+}
+
+describe("the github.internal GitHub tools", () => {
+  it("opens a PR from a ky/ branch with the token, which reaches only GitHub's API", async () => {
+    const api = fakeApi(Response.json(pr("ky/fix"), { status: 201 }));
+    const answer = await githubTool(tool("pr-create", { repo: "Me/App", base: "main", head: "ky/fix", title: "Fix it", body: "why" }), LOGIN, api.fetch);
+
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ number: 7, url: "https://github.com/me/app/pull/7", title: "Fix it", state: "open", head: "ky/fix", base: "main", mergeCommit: null });
+    expect(api.calls).toHaveLength(1);
+    const { url, init } = api.calls[0]!;
+    // The picked repo's own spelling, GitHub's API, and never a redirect followed with the token.
+    expect(url).toBe("https://api.github.com/repos/me/app/pulls");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer github_pat_test");
+    expect(init.redirect).toBe("manual");
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Fix it", head: "ky/fix", base: "main", body: "why" });
+  });
+
+  it("refuses a repo not picked, a branch outside ky/, bad input, and no GitHub login, asking GitHub nothing", async () => {
+    const api = fakeApi();
+    const create = { repo: "me/app", base: "main", head: "ky/fix", title: "Fix it", body: "" };
+
+    const site = await githubTool(tool("pr-create", { ...create, repo: "me/site" }), LOGIN, api.fetch);
+    expect(site.status).toBe(403);
+    expect(await site.json()).toEqual({ error: expect.stringContaining("me/site") });
+
+    for (const head of ["main", "feature/ky/x", "ky/../main", "other:ky/fix"]) {
+      expect((await githubTool(tool("pr-create", { ...create, head }), LOGIN, api.fetch)).status).toBe(403);
+    }
+
+    expect((await githubTool(tool("pr-view", { repo: "me/app", number: "7" }), LOGIN, api.fetch)).status).toBe(400);
+    expect((await githubTool(tool("pr-view", { repo: "me/app/../x", number: 7 }), LOGIN, api.fetch)).status).toBe(400);
+    expect((await githubTool(tool("pr-close", { repo: "me/app", number: 7 }), LOGIN, api.fetch)).status).toBe(404);
+    expect((await githubTool(new Request("http://github.internal/api/github/pr-view"), LOGIN, api.fetch)).status).toBe(405);
+    expect((await githubTool(tool("pr-view", { repo: "me/app", number: 7 }), null, api.fetch)).status).toBe(401);
+    expect(api.calls).toEqual([]);
+  });
+
+  it("merges only a ky/ branch of the repo itself: squashed, then its branch deleted", async () => {
+    const api = fakeApi(Response.json(pr("ky/fix")), new Response(JSON.stringify({ merged: true })), new Response(null, { status: 204 }), Response.json(pr("ky/fix", "me/app", true)));
+    const merged = await githubTool(tool("pr-merge", { repo: "me/app", number: 7 }), LOGIN, api.fetch);
+
+    expect(merged.status).toBe(200);
+    expect(await merged.json()).toMatchObject({ state: "merged", mergeCommit: "abc1234" });
+    expect(api.calls.map(({ url, init }) => `${init.method} ${url}`)).toEqual([
+      "GET https://api.github.com/repos/me/app/pulls/7",
+      "PUT https://api.github.com/repos/me/app/pulls/7/merge",
+      "DELETE https://api.github.com/repos/me/app/git/refs/heads/ky/fix",
+      "GET https://api.github.com/repos/me/app/pulls/7"
+    ]);
+    expect(JSON.parse(String(api.calls[1]?.init.body))).toEqual({ merge_method: "squash" });
+
+    // Someone else's branch, or a fork's ky/ branch: looked at, never merged.
+    for (const refused of [pr("feature"), pr("ky/fix", "stranger/app")]) {
+      const other = fakeApi(Response.json(refused));
+
+      expect((await githubTool(tool("pr-merge", { repo: "me/app", number: 7 }), LOGIN, other.fetch)).status).toBe(403);
+      expect(other.calls).toHaveLength(1);
+    }
+  });
+
+  it("views a PR and a commit's parent, and passes GitHub's own refusal on", async () => {
+    const api = fakeApi(Response.json(pr("ky/fix", "me/app", true)), Response.json({ sha: "abc1234", parents: [{ sha: "def5678" }] }), Response.json({ message: "Not Found" }, { status: 404 }));
+
+    expect(await (await githubTool(tool("pr-view", { repo: "me/app", number: 7 }), LOGIN, api.fetch)).json()).toMatchObject({ state: "merged", mergeCommit: "abc1234" });
+    expect(await (await githubTool(tool("parent", { repo: "me/app", sha: "abc1234" }), LOGIN, api.fetch)).json()).toEqual({ commit: "abc1234", parent: "def5678" });
+
+    const missing = await githubTool(tool("pr-view", { repo: "me/app", number: 8 }), LOGIN, api.fetch);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "GitHub answered 404: Not Found" });
+  });
+
+  it("runs the deploy workflow only, on main", async () => {
+    const api = fakeApi(new Response(null, { status: 204 }));
+    const answer = await githubTool(tool("rollback", { repo: "me/app", sha: "def5678" }), LOGIN, api.fetch);
+
+    expect(await answer.json()).toEqual({ started: true, workflow: "deploy.yml", ref: "main", sha: "def5678" });
+    expect(api.calls[0]?.url).toBe("https://api.github.com/repos/me/app/actions/workflows/deploy.yml/dispatches");
+    expect(JSON.parse(String(api.calls[0]?.init.body))).toEqual({ ref: "main", inputs: { sha: "def5678" } });
   });
 });
 
@@ -207,7 +325,7 @@ describe("the cloud machine", () => {
     mac.socket.close();
   });
 
-  it("is busy while a task is open on it, and hands only its tasks the GitHub token", async () => {
+  it("is busy while a task is open on it, and hands no task a GitHub token", async () => {
     await vault().put("github", SUBSCRIPTION, LOGIN, { repos: LOGIN.repos });
 
     try {
@@ -218,11 +336,15 @@ describe("the cloud machine", () => {
 
       await prompt(name, `tool machine ${JSON.stringify({ action: "run", machine: CLOUD, agent: "claude", prompt: "fix it" })}`);
       const run = await cloud.run();
-      expect(run.creds).toEqual({ github: { token: LOGIN.token } });
+      // GitHub is connected, yet the cloud task gets no token: github.internal holds it.
+      expect(run.creds).toBeUndefined();
+      expect(JSON.stringify(run)).not.toContain(LOGIN.token);
       expect(await inside(name, (instance) => instance.machines.busy(CLOUD))).toBe(true);
 
       await prompt(name, `tool machine ${JSON.stringify({ action: "run", machine: "mac", agent: "claude", prompt: "fix it here" })}`);
-      expect((await mac.run()).creds).toBeUndefined();
+      const here = await mac.run();
+      expect(here.creds).toBeUndefined();
+      expect(JSON.stringify(here)).not.toContain(LOGIN.token);
 
       cloud.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "fixed", session: "s-1", agent: "claude" });
       await until(async () => !(await inside(name, (instance) => instance.machines.busy(CLOUD))), "the cloud machine idle once its task ended");

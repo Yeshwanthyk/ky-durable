@@ -12,7 +12,7 @@ import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } 
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 import { type CloudBox, CloudMachine as ProductionCloudMachine, SAVE_KEY } from "../cloud";
 import { CLOUD } from "../cloud-facts";
-import { proxyGit } from "../github";
+import { allowedRepos, proxyGit } from "../github";
 import { fakeGithubApi } from "../../test/fakes/github";
 
 export { GithubProxy } from "../github";
@@ -577,7 +577,7 @@ export default {
       const vault = env.Vault.getByName("owner");
       url.pathname = url.pathname.slice("/github.internal".length);
 
-      return proxyGit(new Request(url, request), await vault.githubToken(), upstream);
+      return proxyGit(new Request(url, request), allowedRepos(await vault.githubToken(), CLOUD), upstream);
     }
 
     if (!url.pathname.startsWith("/test/")) return ky.fetch(signed, env);

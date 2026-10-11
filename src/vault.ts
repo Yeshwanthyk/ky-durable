@@ -316,8 +316,9 @@ export class Vault extends DurableObject<Env> {
   }
 
   /**
-   * The GitHub token tasks on the cloud machine get, and the repos (owner/name) it may touch: `gh`
-   * reads it as GH_TOKEN, and the github.internal proxy pushes and fetches with it.
+   * ky's GitHub token, and the repos (owner/name) it may touch. Only the Worker uses it: the
+   * github.internal proxy fetches and pushes with it, and its GitHub tools call GitHub's API with it
+   * (src/github.ts). No task ever gets it.
    */
   githubToken(): GithubLogin | null {
     // SAFETY: only setGithub writes ("github", SUBSCRIPTION), each a GithubLogin.

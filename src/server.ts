@@ -332,13 +332,7 @@ export class PiAgent extends DurableObject<Env> {
     if (!this.env.KY_CLOUD) return undefined;
 
     return {
-      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined)),
-      // Only the token: which repos it may touch is the proxy's to check.
-      github: async () => {
-        const login = await this.env.Vault.getByName("owner").githubToken();
-
-        return login && { token: login.token };
-      }
+      wake: () => this.ctx.waitUntil(this.env.CloudMachine.getByName(CLOUD).wake(this.setup.origin() ?? undefined))
     };
   }
 

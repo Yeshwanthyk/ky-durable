@@ -17,7 +17,9 @@ import { pairAs } from "./runners";
  *   home, the runner's handled seqs, the work trees); the next start restores it before the runner
  *   dials ky, so a follow-up resumes its session.
  * - git reaches github.com only through github.internal, which this routes to the Worker's
- *   GithubProxy (src/github.ts): it holds the token and lets pushes reach `ky/*` only.
+ *   GithubProxy (src/github.ts) with `{ machine: "cloud" }` in its props: it holds the token and
+ *   lets pushes reach `ky/*` only. `ky github` reaches the PR and deploy tools there too
+ *   (src/github-tools.ts). Nothing in the container holds a GitHub token.
  */
 
 /** The container's runner, as the CloudMachine drives it; the stack replaces it with a fake host. */
@@ -73,8 +75,9 @@ function containerBox(ctx: DurableObjectState): CloudBox | undefined {
   return {
     running: async () => container.running,
     start: async (env) => {
-      // Before every start: a new container has no interceptor.
-      await container.interceptOutboundHttp("github.internal", ctx.exports.GithubProxy);
+      // Before every start: a new container has no interceptor. The props say which machine calls, where
+      // the container can't reach: GithubProxy trusts nothing the container sends.
+      await container.interceptOutboundHttp("github.internal", ctx.exports.GithubProxy({ props: { machine: CLOUD } }));
       container.start({ enableInternet: true, env });
     },
     fetch: async (path, init) => {

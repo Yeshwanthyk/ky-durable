@@ -202,12 +202,11 @@ export function tasks(config: TaskConfig) {
 
     const child: ChildProcessWithoutNullStreams = spawn(command, args, {
       cwd: config.workdir,
-      // C1's env, for either agent: where ky is, which task this is, and the task's own token; on the
-      // cloud machine, ky's GitHub token for `gh`.
+      // C1's env, for either agent: where ky is, which task this is, and the task's own token. Never a
+      // GitHub token of ky's: the cloud machine reaches GitHub through github.internal, which holds it.
       env: {
         ...outsideEnv(),
         ...env,
-        ...(creds?.github && { GH_TOKEN: creds.github.token }),
         KY_URL: config.url,
         KY_TASK: task,
         KY_TASK_TOKEN: taskToken,

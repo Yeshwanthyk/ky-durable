@@ -49,25 +49,49 @@ function machines(cloud: string | undefined, selfEdit: boolean): string {
  * request; merging it to main deploys it through the repo's deploy workflow
  * (.github/workflows/deploy.yml), and a rollback is that workflow run on the
  * commit before. ky never holds a Cloudflare token: the workflow's is a repo secret.
+ *
+ * On the cloud machine no task holds a GitHub token: git goes through the
+ * Worker's github.internal, and `ky github` asks the Worker's GitHub tools
+ * (src/github-tools.ts). On a computer, `gh` is signed in as the user.
  */
 function selfEditing({ repo, url }: SelfEdit, cloud: string | undefined): string {
   const where = cloud ? `on ${cloud}` : "on a machine of the user's where gh is signed in";
 
+  const github = cloud
+    ? {
+        clone: `git clone https://github.com/${repo} ky`,
+        create: `ky github pr-create ${repo} main "<title>" "<what changed and why>"`,
+        merge: `ky github pr-merge ${repo} <number>`,
+        mergeCommit: `ky github pr-view ${repo} <number> (its mergeCommit)`,
+        parent: `ky github parent ${repo} <merge commit> (its parent)`,
+        watch: `find its run with ky github runs ${repo} <merge commit>, then ky github watch ${repo} <run id>`,
+        rollback: `ky github rollback ${repo} <rollback point>, find that run with ky github runs ${repo}`
+      }
+    : {
+        clone: `gh repo clone ${repo} ky`,
+        create: "gh pr create --base main (what changed and why)",
+        merge: `gh pr merge <number> --repo ${repo} --squash --delete-branch`,
+        mergeCommit: `gh pr view <number> --repo ${repo} --json mergeCommit --jq .mergeCommit.oid`,
+        parent: `gh api repos/${repo}/commits/<merge commit> --jq '.parents[0].sha'`,
+        watch: `find its run with gh run list --repo ${repo} --workflow deploy.yml --commit <merge commit>, then gh run watch <run id> --repo ${repo} --exit-status`,
+        rollback: `gh workflow run deploy.yml --repo ${repo} --ref main -f sha=<rollback point>`
+      };
+
   return `Changing yourself: your own code is the GitHub repo ${repo}. Changes go through a pull request, and merging it to main deploys it: the repo's deploy workflow does, never you. Never deploy unmerged work.
 
 When the user asks you to change how you work or look, run one machine task ${where}, with the change and these steps:
-1. gh repo clone ${repo} ky (if ky is already there, cd into it and git fetch origin), then git switch -c ky/<short-name> origin/main. pnpm install.
+1. ${github.clone} (if ky is already there, cd into it and git fetch origin), then git switch -c ky/<short-name> origin/main. pnpm install.
 2. Make the change.
 3. Run pnpm typecheck, pnpm lint and pnpm test, and fix failures.
-4. Commit with a clear message, git push -u origin HEAD (only ky/ branches push), and open a pull request with gh pr create --base main (what changed and why).
+4. Commit with a clear message, git push -u origin HEAD (only ky/ branches push), and open a pull request from that branch with ${github.create}.
 5. Report the PR URL and a short summary of the diff.
 Then tell the user the PR is ready and to say "ship it" or merge it on GitHub.
 
 When the user says to ship it or that they merged it, run one machine task ${where}:
-1. If the PR is still open, gh pr merge <number> --repo ${repo} --squash --delete-branch.
-2. Its merge commit is gh pr view <number> --repo ${repo} --json mergeCommit --jq .mergeCommit.oid, and the commit before it, the rollback point, is gh api repos/${repo}/commits/<merge commit> --jq '.parents[0].sha'.
-3. The merge starts the deploy workflow on main: find its run with gh run list --repo ${repo} --workflow deploy.yml --commit <merge commit>, then gh run watch <run id> --repo ${repo} --exit-status.
+1. If the PR is still open, ${github.merge}.
+2. Its merge commit is ${github.mergeCommit}, and the commit before it, the rollback point, is ${github.parent}.
+3. The merge starts the deploy workflow on main: ${github.watch}.
 4. Check that ${url}/manifest.webmanifest answers 200.
-5. If the deploy or the check failed, roll back: gh workflow run deploy.yml --repo ${repo} --ref main -f sha=<rollback point>, watch that run the same way, and report both. main still has the change, so offer a revert PR.
+5. If the deploy or the check failed, roll back: ${github.rollback}, watch that run the same way, and report both. main still has the change, so offer a revert PR.
 The deploy restarts you, which cuts off your current turn; the task's report still reaches you after. Never print or commit secrets.`;
 }
