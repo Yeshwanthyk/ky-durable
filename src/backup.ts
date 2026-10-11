@@ -26,8 +26,7 @@ import {
   tarHeader,
   tarPadding
 } from "./archive";
-import { SAVE_KEY } from "./cloud";
-import { CLOUD } from "./cloud-facts";
+import { saveKey } from "./sandboxes";
 import { fromBase64, toBase64 } from "./runner-protocol";
 import type { SecretStatus } from "./vault";
 
@@ -99,7 +98,10 @@ export type Page = { readonly text: string; readonly rows: number; readonly afte
 /** What the agent says about itself for the manifest; the Worker adds the bucket and the Vault. */
 export type Plan = Pick<Manifest, "tables" | "skipped" | "schemas" | "unfinished"> & {
   readonly summary: Omit<Summary, "uploads" | "uploadBytes">;
+  /** The computers to pair again: every listed machine but the sandboxes. */
   readonly machines: readonly string[];
+  /** Every sandbox, and whether it is a kept disk, for the saved disks a backup leaves out. */
+  readonly sandboxes: readonly { readonly id: string; readonly name: string; readonly kept: boolean }[];
 };
 
 /**
@@ -267,9 +269,13 @@ export class Backups {
         workspaceFiles: count("SELECT count(*) FROM vfs_nodes WHERE type = 'file'")
       },
       machines: this.#sql
-        .exec<{ name: string }>("SELECT name FROM ky_machines WHERE name != ? ORDER BY name", CLOUD)
+        .exec<{ name: string }>("SELECT name FROM ky_machines WHERE name NOT IN (SELECT name FROM ky_sandboxes WHERE deleted_at IS NULL) ORDER BY name")
         .toArray()
-        .map((machine) => machine.name)
+        .map((machine) => machine.name),
+      sandboxes: this.#sql
+        .exec<{ id: string; name: string; kept: number }>("SELECT id, name, deleted_at IS NOT NULL AS kept FROM ky_sandboxes ORDER BY kept, name")
+        .toArray()
+        .map((sandbox) => ({ id: sandbox.id, name: sandbox.name, kept: sandbox.kept === 1 }))
     };
   }
 
@@ -585,7 +591,7 @@ async function* archive(env: Env, target: BackupAgent, manifest: Manifest): Asyn
 async function backup(env: Env, target: BackupAgent, origin: string): Promise<Response> {
   const plan = await target.backupPlan();
   const files = await uploads(env.FILES);
-  const save = await env.FILES.head(SAVE_KEY);
+  const saved = (await Promise.all(plan.sandboxes.map(async (sandbox) => ((await env.FILES.head(saveKey(sandbox.id))) ? [sandbox] : [])))).flat();
 
   const leftOut: LeftOut[] = [
     ...secretsLeftOut(await env.Vault.getByName("owner").status()),
@@ -594,7 +600,11 @@ async function backup(env: Env, target: BackupAgent, origin: string): Promise<Re
       why: "a pairing's token is the old deploy's",
       next: `pair it again: on ${machine}, \`ky runner add <ky url> <code>\` with a code from Settings`
     })),
-    ...(save ? [{ what: "The cloud machine's saved disk", why: "it is the old deploy's container", next: "the cloud machine starts with a fresh disk" }] : [])
+    ...saved.map((sandbox) =>
+      sandbox.kept
+        ? { what: `The kept disk of ${sandbox.name}`, why: "it is the old deploy's container", next: "a sandbox started from it starts with a fresh disk" }
+        : { what: `Sandbox ${sandbox.name}'s saved disk`, why: "it is the old deploy's container", next: `${sandbox.name} starts with a fresh disk` }
+    )
   ];
 
   const manifest: Manifest = {

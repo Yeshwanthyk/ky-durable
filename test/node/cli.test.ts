@@ -749,7 +749,7 @@ describe("the cloud machine", () => {
     expect(binding("KY_CLOUD")).toMatchObject({ type: "plain_text", text: "1" });
     expect(container()).toMatchObject({
       name: "ky-cloud",
-      max_instances: 1,
+      max_instances: 9,
       instances: 0,
       configuration: { image, instance_type: "standard-1" },
       durable_objects: { namespace_id: "ns-ky-CloudMachine" }
@@ -784,6 +784,22 @@ describe("the cloud machine", () => {
     expect(output).toContain("· Rolling out the cloud machine's new image");
     expect(app.configuration.image).toBe(image);
     expect(app.rollouts).toEqual([{ image, instance_type: "standard-1" }]);
+
+    // An app from before sandboxes, with room for one: a deploy raises it, and rolls nothing out.
+    app.max_instances = 1;
+    fake.requests.splice(0);
+    await deployCommand(ky);
+    expect(output).toContain("· Making room for the sandboxes");
+    expect(app.max_instances).toBe(9);
+    expect(app.rollouts).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.includes("rollouts"))).toEqual([]);
+
+    // A higher limit the user set: a deploy leaves it.
+    app.max_instances = 20;
+    fake.requests.splice(0);
+    await deployCommand(ky);
+    expect(app.max_instances).toBe(20);
+    expect(fake.requests.filter((request) => request.startsWith("PATCH"))).toEqual([]);
 
     account.containerApps.clear();
     expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky deploy" });

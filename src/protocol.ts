@@ -39,8 +39,29 @@ export type MachineInfo = {
   readonly facts: MachineFacts | null;
   /** Whose login its tasks sign in with: its own, or ky's subscriptions whichever way it is signed in. */
   readonly login: MachineLogin;
-  /** The cloud machine's state; null for one of the user's computers. */
+  /** A sandbox's state; null for one of the user's computers. */
   readonly cloud: CloudState | null;
+  /** What makes it a sandbox (src/sandboxes.ts); null for one of the user's computers. */
+  readonly sandbox: SandboxInfo | null;
+};
+
+/** A live sandbox as a machine shows it: its id, its repos (owner/name), whether it is the default, and its idle minutes (null: the deploy's). */
+export type SandboxInfo = {
+  readonly id: string;
+  readonly repos: readonly string[];
+  readonly isDefault: boolean;
+  readonly idleMinutes: number | null;
+};
+
+/** A sandbox's saved disk in R2: how big, and when it was saved. */
+export type SavedDisk = { readonly size: number; readonly savedAt: number };
+
+/** Settings' sandboxes: whether the deploy has containers, the cap, each live one's saved disk, and the kept disks of deleted ones. */
+export type SandboxesView = {
+  readonly enabled: boolean;
+  readonly cap: number;
+  readonly saves: Readonly<Record<string, SavedDisk | null>>;
+  readonly kept: readonly { readonly id: string; readonly name: string; readonly repos: readonly string[]; readonly deletedAt: number; readonly save: SavedDisk | null }[];
 };
 
 /** The cloud machine: asleep with nothing to do, waking for work that waits for it, or running with its runner connected. */

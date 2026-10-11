@@ -1102,6 +1102,47 @@
   margin-top: 8px;
 }
 
+/* A sandbox's idle minutes: a quiet value that edits in place. */
+.sandbox-idle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+}
+
+.sandbox-idle-input {
+  width: 100%;
+}
+
+.sandbox-repos {
+  margin: 0;
+}
+
+.sandbox-repos .quiet {
+  color: var(--quiet);
+}
+
+.sandbox-add {
+  margin-top: 8px;
+}
+
+.sandbox-add input,
+.sandbox-add select {
+  width: 100%;
+}
+
+.sandbox-kept {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.sandbox-kept h4 {
+  margin: 0;
+}
+
 .machine-code {
   display: flex;
   flex-direction: column;

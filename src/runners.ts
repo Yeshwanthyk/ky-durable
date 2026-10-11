@@ -1,4 +1,3 @@
-import { CLOUD } from "./cloud-facts";
 import { upload } from "./files";
 import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./runner-protocol";
 
@@ -35,7 +34,7 @@ function bearer(request: Request): string | undefined {
 const unauthorized = () => new Response("Unauthorized", { status: 401 });
 
 /** The subject of the machine token minted for a pairing. Machine names have no colon. */
-const machineSubject = (machine: string, pairing: string) => `${machine}:${pairing}`;
+export const machineSubject = (machine: string, pairing: string) => `${machine}:${pairing}`;
 
 /** A runner's socket, for the machine its token was minted for; the agent tags it as that machine. */
 async function runnerSocket(request: Request, env: Env, url: URL): Promise<Response> {
@@ -89,7 +88,7 @@ async function pair(request: Request, env: Env): Promise<Response> {
 
   if (!isMachineFacts(body.facts)) return new Response("facts is not what a runner says about its machine.", { status: 400 });
 
-  if (body.name === CLOUD) return new Response(`${CLOUD} is ky's own cloud machine; pick another name.`, { status: 409 });
+  if (await agent(env).isSandbox(body.name)) return new Response(`${body.name} is one of ky's sandboxes; pick another name.`, { status: 409 });
 
   if ((await vault(env).consume("pair", body.code)) === null) {
     return new Response("That code is wrong, used or expired. Make a new one in ky.", { status: 401 });
@@ -102,9 +101,10 @@ async function pair(request: Request, env: Env): Promise<Response> {
 
 /**
  * Pair `machine` as a new pairing and return its token. The pair route does it for a runner's
- * code; the CloudMachine for itself, each time it starts its container.
+ * code; the CloudMachine for itself, each time it starts its container, as its `sandbox`, which
+ * the agent refuses once that sandbox is deleted.
  */
-export async function pairAs(env: Env, machine: string, facts: MachineFacts): Promise<string> {
+export async function pairAs(env: Env, machine: string, facts: MachineFacts, sandbox?: string): Promise<string> {
   // Minted before the agent takes the pairing, so whichever pairing replaces this one finds its token to revoke,
   // even a pairing of the same name racing this one. From the agent's write on, the name's last token opens nothing.
   const pairing = crypto.randomUUID();
@@ -113,7 +113,7 @@ export async function pairAs(env: Env, machine: string, facts: MachineFacts): Pr
   let previous: string | null;
 
   try {
-    previous = await agent(env).pairMachine(machine, facts, pairing);
+    previous = await agent(env).pairMachine(machine, facts, pairing, sandbox);
   } catch (error) {
     // No pairing has this token, so nothing else would revoke it.
     await vault(env).revoke("machine", subject);
@@ -161,7 +161,7 @@ async function newCode(env: Env): Promise<Response> {
 async function remove(env: Env, machine: string): Promise<Response> {
   if (!isMachineName(machine)) return new Response("Not found", { status: 404 });
 
-  if (machine === CLOUD) return new Response(`${CLOUD} comes with ky's deploy, and stays while the deploy does.`, { status: 409 });
+  if (await agent(env).isSandbox(machine)) return new Response(`${machine} is one of ky's sandboxes: delete it in Settings, under Machines.`, { status: 409 });
   const removed = await agent(env).removeMachine(machine);
 
   if (!removed) return new Response(`No machine ${machine}.`, { status: 404 });

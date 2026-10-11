@@ -5,9 +5,10 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
-import { CLOUD, CLOUD_FACTS } from "./cloud-facts";
+import { CLOUD_FACTS } from "./cloud-facts";
 import type { FileRow, FileStore } from "./files";
 import { type CloudState, type MachineInfo, osName } from "./protocol";
+import type { Sandboxes } from "./sandboxes";
 import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
 import { summarize, type TaskFeed, type TaskRow } from "./tasks";
 
@@ -44,6 +45,10 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * The user decides which machines ky may use (on, paused, off) and what each
  * is for (a note); the runner says what each is (its OS, Chrome, repos). The
  * agent chooses among the machines that are on, and the tool refuses the rest.
+ *
+ * Sandboxes (src/sandboxes.ts), ky's own machines in Cloudflare, are listed
+ * here like computers, under their names, while they live. A run that names
+ * a repo goes to the sandbox that has it; the agent never guesses one.
  */
 
 const RUNNER_TAG_PREFIX = "runner:";
@@ -97,9 +102,10 @@ export type TaskTokens = {
 /** The Vault's subscriptions: what a run is handed for `agent` when the machine doesn't use its own login; none without one. */
 export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
 
-/** The cloud machine, on a deploy that has one: started when a command waits for it. */
+/** The sandboxes, on a deploy that has them: each started when a command waits for it. */
 export type CloudHook = {
-  wake(): void;
+  /** Start the sandbox listed as `machine`. */
+  wake(machine: string): void;
 };
 
 /** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
@@ -165,6 +171,7 @@ export class MachineHub {
   readonly #files: FileStore;
   readonly #tokens: TaskTokens;
   readonly #creds: SessionCreds;
+  readonly #sandboxes: Sandboxes;
   /** Token work in call order, so a task's token is never issued for a run after its revoke was asked for. */
   #tokenWork: Promise<void> = Promise.resolve();
   /** The retries of each machine's failed delivery so far. */
@@ -186,7 +193,9 @@ export class MachineHub {
     /** Files tasks share; a report lists them so the agent can mention them. */
     files: FileStore,
     tokens: TaskTokens,
-    creds: SessionCreds
+    creds: SessionCreds,
+    /** Which machines are sandboxes, and their repos. */
+    sandboxes: Sandboxes
   ) {
     this.#sql = sql;
     this.#feed = feed;
@@ -194,6 +203,7 @@ export class MachineHub {
     this.#files = files;
     this.#tokens = tokens;
     this.#creds = creds;
+    this.#sandboxes = sandboxes;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_machine_inbox (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
       machine TEXT NOT NULL,
@@ -329,15 +339,19 @@ export class MachineHub {
     return this.#sockets(runnerTag(machine)).some((socket) => socket.readyState === OPEN);
   }
 
-  /** The machines, the cloud machine first, then the user's computers by name. */
+  /** The machines: the sandboxes first, the default one first, then the user's computers, each by name. */
   machines(): MachineInfo[] {
+    const sandboxes = new Map(this.#sandboxes.live().map((sandbox, at) => [sandbox.name, { sandbox, at }]));
+
     return this.#sql
-      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name = ? DESC, name", CLOUD)
+      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name")
       .toArray()
+      .sort((a, b) => (sandboxes.get(a.name)?.at ?? Infinity) - (sandboxes.get(b.name)?.at ?? Infinity))
       .map((row) => {
         const online = this.online(row.name);
         // SAFETY: only #onHello and paired write facts, each a checked MachineFacts.
         const facts = row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts);
+        const sandbox = sandboxes.get(row.name)?.sandbox;
 
         return {
           name: row.name,
@@ -348,7 +362,8 @@ export class MachineHub {
           note: row.note,
           facts,
           login: row.login,
-          cloud: facts?.kind === "cloud" ? this.#cloudState(row.name, online) : null
+          cloud: sandbox ? this.#cloudState(row.name, online) : null,
+          sandbox: sandbox ? { id: sandbox.id, repos: sandbox.repos, isDefault: sandbox.isDefault, idleMinutes: sandbox.idleMinutes } : null
         };
       });
   }
@@ -367,6 +382,11 @@ export class MachineHub {
   /** Call `listener` when the user's choices for a machine change. */
   onChange(listener: () => void): void {
     this.#watchers.add(listener);
+  }
+
+  /** Tell the watchers the machines changed, as when a sandbox's repos did. */
+  changed(): void {
+    for (const watcher of this.#watchers) watcher();
   }
 
   /** Set whether ky may use a machine, or what it is for. Throws for a machine that never connected. */
@@ -450,7 +470,7 @@ export class MachineHub {
   #deliver(machine: string): Promise<void> {
     return this.#afterTokens(`delivery to ${machine}`, async () => {
       if (!this.online(machine)) {
-        if (machine === CLOUD && this.#pending(machine).length > 0) this.cloud?.wake();
+        if (this.#sandboxes.named(machine) && this.#pending(machine).length > 0) this.cloud?.wake(machine);
 
         return;
       }
@@ -776,16 +796,44 @@ export class MachineHub {
     return previous;
   }
 
-  /** List the cloud machine, unpaired until it first starts, so tasks can be sent to it while it sleeps. */
-  listCloud(): void {
-    const listed = this.#sql.exec("INSERT OR IGNORE INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)", CLOUD, Date.now(), JSON.stringify(CLOUD_FACTS));
+  /**
+   * List each live sandbox, unpaired until it first starts, so tasks can be sent to it while it
+   * sleeps. Returns the listed cloud machines that are no sandbox now, as after a restore, for the
+   * caller to remove (`stale`), and the sandboxes whose name a paired computer has (`clashes`), as
+   * after restoring a backup over a deploy where a computer took that name: the computer keeps it.
+   */
+  listSandboxes() {
+    let listed = 0;
 
-    if (listed.rowsWritten > 0) for (const watcher of this.#watchers) watcher();
+    for (const sandbox of this.#sandboxes.live()) {
+      listed += this.#sql.exec("INSERT OR IGNORE INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?)", sandbox.name, Date.now(), JSON.stringify(CLOUD_FACTS)).rowsWritten;
+    }
+
+    if (listed > 0) for (const watcher of this.#watchers) watcher();
+    const kinds = this.#sql.exec<{ name: string; kind: string | null }>("SELECT name, json_extract(facts, '$.kind') AS kind FROM ky_machines ORDER BY name").toArray();
+
+    return {
+      stale: kinds.filter((row) => row.kind === "cloud" && !this.#sandboxes.named(row.name)).map((row) => row.name),
+      clashes: kinds.filter((row) => row.kind !== "cloud" && this.#sandboxes.named(row.name)).map((row) => row.name)
+    };
   }
 
-  /** The cloud machine's name while it is listed and the user lets it take tasks. */
+  /**
+   * The sandbox a task on `repo` goes to, while the user lets it take tasks: the one that owns the
+   * repo, else the default, if it reaches every picked repo. Undefined when none may take it.
+   */
+  sandboxFor(repo: string): string | undefined {
+    const machines = this.machines();
+    const wanted = repo.trim().toLowerCase();
+    const owner = machines.find((machine) => machine.sandbox?.repos.includes(wanted));
+    const target = owner ?? machines.find((machine) => machine.sandbox?.isDefault && machine.sandbox.repos.length === 0);
+
+    return target?.state === "on" ? target.name : undefined;
+  }
+
+  /** The default sandbox, while the user lets it take tasks. */
   cloudOn(): string | undefined {
-    return this.machines().find((machine) => machine.cloud !== null && machine.state === "on")?.name;
+    return this.machines().find((machine) => machine.sandbox?.isDefault && machine.state === "on")?.name;
   }
 
   /** Whether `machine` has an open task or a command waiting: the cloud machine stays awake while it has. */
@@ -1002,8 +1050,13 @@ function whatItIs(facts: MachineFacts): string[] {
 function aboutLines(machine: MachineInfo): string[] {
   const lines: string[] = [];
 
-  if (machine.facts?.kind === "cloud") {
-    lines.push("  ky's own Linux machine in Cloudflare: no local files of the user's; it clones from GitHub, and pushes only to ky/* branches of the repos the user picked");
+  if (machine.sandbox) {
+    const { repos, isDefault } = machine.sandbox;
+
+    lines.push(
+      `  a sandbox, ky's own Linux machine in Cloudflare${isDefault ? ", the default" : ""}: no local files of the user's; it clones from GitHub, and pushes only to ky/* branches of ` +
+        (repos.length > 0 ? `its repos: ${repos.join(", ")}` : "the repos the user picked")
+    );
   }
 
   if (machine.note !== "") lines.push(`  the user says: ${machine.note}`);
@@ -1078,20 +1131,45 @@ function setMachine(hub: MachineHub, machines: readonly MachineInfo[], name: str
   }
 }
 
-/** The machine a new task goes to when none is named: the cloud machine while it is on, else the only one on and online. */
+/** The machine a new task goes to when none is named and no sandbox has its repo: the default sandbox while it is on, else the only one on and online. */
 function defaultMachine(machines: readonly MachineInfo[]): string | undefined {
-  const cloud = machines.find((m) => m.cloud !== null && m.state === "on");
+  const sandbox = machines.find((m) => m.sandbox?.isDefault && m.state === "on");
 
-  if (cloud) return cloud.name;
+  if (sandbox) return sandbox.name;
   const ready = machines.filter((m) => m.state === "on" && m.online);
 
   return ready.length === 1 ? ready[0]!.name : undefined;
 }
 
-/** The machine a new task goes to: the one named, else the default; else why not. */
-function pickMachine(machines: readonly MachineInfo[], requested: string | undefined): { name: string } | { refusal: string } {
+/**
+ * Why a task on `repo` can't run on the sandbox `target`, or null if it can: the repo is another
+ * sandbox's, or not one of the target's. GitHub would refuse its pushes there anyway.
+ */
+function wrongSandbox(machines: readonly MachineInfo[], target: MachineInfo, repo: string): string | null {
+  const home = machines.find((m) => m.sandbox?.repos.includes(repo));
+
+  if (!target.sandbox || home === target || (home === undefined && target.sandbox.repos.length === 0)) return null;
+
+  return home
+    ? `${repo} is the sandbox ${home.name}'s, not ${target.name}'s: run it on ${home.name}, or leave machine out. The user moves a repo between sandboxes in Settings.`
+    : `${repo} is no sandbox's, and ${target.name} works only on its repos (${target.sandbox.repos.join(", ")}): name a computer for it, or the user adds it to a sandbox in Settings.`;
+}
+
+/**
+ * The machine a new task goes to: the one named; else the sandbox that has its repo; else the
+ * default; else why not. A task on a repo never goes to a sandbox that isn't the repo's, however
+ * that sandbox was picked.
+ */
+function pickMachine(machines: readonly MachineInfo[], requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
   const ready = machines.filter((m) => m.state === "on" && m.online);
-  const name = requested ?? defaultMachine(machines);
+  const wanted = repo?.trim().toLowerCase() || undefined;
+  const home = wanted === undefined ? undefined : machines.find((m) => m.sandbox?.repos.includes(wanted));
+
+  if (requested === undefined && home && home.state !== "on") {
+    return { refusal: `${wanted} is the sandbox ${home.name}'s, which is ${home.state}: the user is not letting it take new tasks. Ask the user to turn it on.` };
+  }
+
+  const name = requested ?? home?.name ?? defaultMachine(machines);
 
   if (!name) {
     return {
@@ -1103,6 +1181,9 @@ function pickMachine(machines: readonly MachineInfo[], requested: string | undef
   }
 
   const target = machines.find((m) => m.name === name);
+  const wrong = target && wanted !== undefined ? wrongSandbox(machines, target, wanted) : null;
+
+  if (wrong) return { refusal: wrong };
 
   if (target && target.state !== "on") {
     return { refusal: `${name} is ${target.state}: the user is not letting it take new tasks. ${elsewhere(machines, name)}` };
@@ -1134,6 +1215,11 @@ function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskR
   if (!target) return `No machine ${to}.\n${describeAll(machines)}`;
 
   if (target.state !== "on") return `${target.name} is ${target.state}: it takes no new tasks. ${elsewhere(machines, task.worker)}`;
+  const from = machines.find((m) => m.name === task.worker);
+
+  if (from?.sandbox && target.sandbox && from !== target) {
+    return `${task.id} is on the sandbox ${from.name}, and a task doesn't move between sandboxes: each reaches only its own repos. Start a new task with its repo, and it goes to the sandbox that owns it.`;
+  }
 
   return hub.move(task, target.name) ?? `Moved ${task.id} to ${target.name}${target.online ? "" : " (offline: it starts when it connects)"}.`;
 }
@@ -1142,6 +1228,7 @@ function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskR
 type MachineArgs = {
   action: "list" | "run" | "send" | "stop" | "move" | "set";
   machine?: string;
+  repo?: string;
   agent?: Agent;
   title?: string;
   prompt?: string;
@@ -1162,7 +1249,7 @@ function changeOf(args: MachineArgs): MachineChange {
 }
 
 function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo[], args: MachineArgs, id: string, conversation: string): string {
-  const picked = pickMachine(machines, args.machine);
+  const picked = pickMachine(machines, args.machine, args.repo);
 
   if ("refusal" in picked) return picked.refusal;
 
@@ -1212,17 +1299,23 @@ async function onTask(hub: MachineHub, feed: TaskFeed, machines: readonly Machin
   return sendTask(hub, task, args.message, conversation);
 }
 
-/** Where work goes: the cloud machine by default while it is on, a computer for what only it has. */
+/** Where work goes: a sandbox, by its repo or the default, while one is on; a computer for what only it has. */
 function routing(machines: readonly MachineInfo[]): string {
-  const cloud = machines.find((m) => m.cloud !== null && m.state === "on");
+  const sandboxes = machines.filter((m) => m.sandbox !== null && m.state === "on");
+  const fallback = sandboxes.find((m) => m.sandbox?.isDefault);
   const personal = "Use one of the user's computers for its Chrome with the user's logins (pages behind them, and screenshots of those pages: only a machine with Chrome takes them), its local files, the local models it shares, or when the user names it. ";
 
-  if (!cloud) {
+  if (sandboxes.length === 0) {
     return "Choose the machine by what the user said about it, which one has the repos the task needs, which one has Chrome with the user's logins when the task needs them, and how busy each is. ";
   }
 
+  const where =
+    sandboxes.length === 1 && fallback
+      ? `go to ${fallback.name}, the default when you name no machine`
+      : `go to a sandbox: give run the task's repo (owner/name) and it goes to the sandbox that has it, else ${fallback ? `to ${fallback.name}, the default when you name no machine` : "name the sandbox"}`;
+
   return (
-    `Scripts, builds, tests and work on a GitHub repo go to ${cloud.name}, the default when you name no machine: it runs with every computer of the user's off, and wakes for a task in a minute or two. ` +
+    `Scripts, builds, tests and work on a GitHub repo ${where}. A sandbox runs with every computer of the user's off, and wakes for a task in a minute or two. ` +
     `${personal}Among those, choose by what the user said about each, which has the repos the task needs, and how busy each is. `
   );
 }
@@ -1236,7 +1329,7 @@ function toolDescription(machines: readonly MachineInfo[]): string {
     "Only a machine that is on takes new tasks. Name an agent only when the user asks for one, else a task runs as the machine's own, Claude Code first.\n" +
     `Machines (list says which are online and how busy):\n${describeAll(machines, factsOf)}\n` +
     "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; which agents it runs; repos; the user's note, and its recent tasks). " +
-    "run (title, prompt, machine, agent): start a task; the prompt must be self-contained. " +
+    "run (title, prompt, machine, repo, agent): start a task; the prompt must be self-contained. Give repo only when the user or the task names the GitHub repo it works on; never guess one. " +
     "send (task, message): steer a working task, or resume a finished one with its history; it goes to the task's own agent. Codex takes no message mid-turn: one sent to a working Codex task runs once its turn ends. " +
     "stop (task): stop it; send resumes it later. " +
     "move (task, machine): send a task that has not started yet to another machine that runs its agent, such as when its machine is offline. " +
@@ -1265,6 +1358,7 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
             Type.Literal("set")
           ]),
           machine: Type.Optional(Type.String()),
+          repo: Type.Optional(Type.String({ description: "The GitHub repo (owner/name) a run works on: it goes to the sandbox that has it." })),
           agent: Type.Optional(Type.Union([Type.Literal("claude"), Type.Literal("codex")], { description: "claude (Claude Code) or codex (Codex)." })),
           title: Type.Optional(Type.String({ description: "3-6 words for the task list." })),
           prompt: Type.Optional(Type.String()),

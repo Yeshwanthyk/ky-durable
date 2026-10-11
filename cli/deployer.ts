@@ -502,7 +502,16 @@ async function registryLogin(cloudflare: Cloudflare, accountId: string) {
   return { username, password: credential.password };
 }
 
-/** Attaches the image to the cloud machine's namespace: a new container app, or a rollout of the one there. */
+/**
+ * How many containers the app may run: one per sandbox (SANDBOX_CAP in src/sandboxes.ts), and one
+ * more for a sandbox that wakes while its last container still saves its disk.
+ */
+const CLOUD_MAX_INSTANCES = 9;
+
+/**
+ * Attaches the image to the cloud machine's namespace: a new container app, or a rollout of the one
+ * there; an app from before sandboxes gets room for them.
+ */
 async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string, say: (step: string) => void): Promise<void> {
   const accountId = name.account;
   const namespaceId = await cloudNamespace(cloudflare, name);
@@ -517,8 +526,8 @@ async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string
       Containers.createContainerApplication({
         accountId,
         name: name.cloud,
-        // One cloud machine per deploy; it starts when a task wakes it.
-        maxInstances: 1,
+        // Each sandbox starts when a task wakes it.
+        maxInstances: CLOUD_MAX_INSTANCES,
         instances: 0,
         schedulingPolicy: "default",
         constraints: {},
@@ -528,6 +537,12 @@ async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string
     );
 
     return;
+  }
+
+  // Only ever raised: a higher limit the user set stays.
+  if (app.maxInstances < CLOUD_MAX_INSTANCES) {
+    say("Making room for the sandboxes");
+    await cloudflare.run(Containers.updateContainerApplication({ accountId, applicationId: app.id, maxInstances: CLOUD_MAX_INSTANCES }));
   }
 
   if (app.configuration.image === image) return;

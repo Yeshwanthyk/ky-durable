@@ -3,7 +3,15 @@
 Goal (from the owner): "Be able to add multiple cloud sandboxes, not just one. In case I want sandboxes
 for separate projects, etc."
 
-Status: design only. No feature code yet.
+Status: PR 1 built (named sandboxes, routed by name and repo). What it changed from this design:
+
+- The default sandbox is an `is_default` column on `ky_sandboxes`, not a settings key. One table holds
+  all of a sandbox's state, and "make default" is one UPDATE.
+- The GitHub side is node GT's (setup/github-egress): it takes the token out of the container.
+  PR 1 builds no proxy identity or lock of its own. It gives the handler one function,
+  `reposFor(id)` on the agent: the sandbox's repos, `"all"` when it has none, `null` once deleted.
+  Wiring that into GT's handler, with the sandbox id in its props, follows GT's merge.
+- Sandboxes are created and deleted only from Settings (`/api/sandboxes`), never by the agent.
 
 ## Today, in short
 
