@@ -29,9 +29,9 @@ export function Skills({
 
   const group = (label: string, rows: readonly SkillRow[]) =>
     rows.length === 0 ? null : (
-      <section className="feed-group">
-        <h3 className="feed-head">{label}</h3>
-        <ul className="feed">
+      <section className="group">
+        <h3 className="group-label">{label}</h3>
+        <ul className="card">
           {rows.map((skill) => (
             <SkillItem
               key={skill.name}
@@ -88,53 +88,53 @@ function SkillItem({
   };
 
   return (
-    <li className="feed-item skill" data-open={open}>
-      <button type="button" className="feed-button disclosure pressable" aria-expanded={open} onClick={onToggle}>
-        <span className="feed-glyph">
-          <Icon name="list" size={16} />
+    <li className="skill" data-open={open}>
+      <button type="button" className="row disclosure" aria-expanded={open} onClick={onToggle}>
+        <span className="row-tile">
+          <Icon name={archived ? "archive" : "list"} size={15} />
         </span>
-        <span className="feed-text">
-          <span className="feed-title">{skill.name}</span>
-          <span className="feed-step">{skill.description}</span>
+        <span className="row-text">
+          <span className="row-label">{skill.name}</span>
+          <span className="row-sub row-sub-text">{skill.description}</span>
         </span>
-        <span className="feed-glyph">
-          <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-        </span>
+        <Icon name="chevronRight" size={14} className="row-chevron chevron" />
       </button>
       <div className="expand" inert={!open}>
-        <div className="expand-inner skill-detail">
-          <p className="row-sub">
-            Used {times(skill.uses)} · changed {since(skill.updated_at, now)}
-          </p>
-          {mode === "edit" ? (
-            <SkillForm
-              skill={skill}
-              onCancel={() => setMode("read")}
-              onSave={(description, body) => {
-                onChange({ action: "edit", name: skill.name, description, body });
-                setMode("read");
-              }}
+        <div className="expand-inner">
+          <div className="item-body skill-detail">
+            <p className="row-sub">
+              Used {times(skill.uses)} · changed {since(skill.updated_at, now)}
+            </p>
+            {mode === "edit" ? (
+              <SkillForm
+                skill={skill}
+                onCancel={() => setMode("read")}
+                onSave={(description, body) => {
+                  onChange({ action: "edit", name: skill.name, description, body });
+                  setMode("read");
+                }}
+              />
+            ) : mode === "history" ? (
+              <SkillVersions
+                name={skill.name}
+                versions={versions}
+                now={now}
+                onRevert={(version) => {
+                  onChange({ action: "revert", name: skill.name, version });
+                  setMode("read");
+                }}
+              />
+            ) : (
+              <pre className="skill-body">{skill.body}</pre>
+            )}
+            <SkillActions
+              mode={mode}
+              archived={archived}
+              onMode={setMode}
+              onHistory={showHistory}
+              onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
             />
-          ) : mode === "history" ? (
-            <SkillVersions
-              name={skill.name}
-              versions={versions}
-              now={now}
-              onRevert={(version) => {
-                onChange({ action: "revert", name: skill.name, version });
-                setMode("read");
-              }}
-            />
-          ) : (
-            <pre className="skill-body">{skill.body}</pre>
-          )}
-          <SkillActions
-            mode={mode}
-            archived={archived}
-            onMode={setMode}
-            onHistory={showHistory}
-            onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
-          />
+          </div>
         </div>
       </div>
     </li>
