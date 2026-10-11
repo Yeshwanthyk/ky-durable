@@ -37,6 +37,9 @@ async function ask(given: string | undefined, flag: string, prompt: () => Return
   return answer;
 }
 
+/** A pasted token's check: a blank one would reach Cloudflare as "Invalid request headers". */
+const blank = (value: string | undefined) => (value?.trim() ? undefined : "Paste the token");
+
 function validName(name: string): string | undefined {
   return NAME.test(name) ? undefined : "Lowercase letters, digits and dashes, at most 57";
 }
@@ -95,7 +98,7 @@ async function signIn(context: Context, out: Output): Promise<Cloudflare> {
     if (!terminal()) throw error;
 
     return new Cloudflare(
-      await ask(undefined, "", () => password({ message: `Create a Cloudflare API token at ${tokenPage()} and paste it here` })),
+      (await ask(undefined, "", () => password({ message: `Create a Cloudflare API token at ${tokenPage()} and paste it here`, validate: blank }))).trim(),
       "a pasted token"
     );
   }
@@ -110,7 +113,7 @@ async function accessLogin(out: Output, cloudflare: Cloudflare, account: string)
     if (!(refused(error) && cloudflare.login === "wrangler login" && terminal())) throw error;
 
     const token = new Cloudflare(
-      await ask(undefined, "", () => password({ message: `wrangler's login can't set up Access. Create a token at ${tokenPage()} and paste it here` })),
+      (await ask(undefined, "", () => password({ message: `wrangler's login can't set up Access. Create a token at ${tokenPage()} and paste it here`, validate: blank }))).trim(),
       "a pasted token"
     );
 

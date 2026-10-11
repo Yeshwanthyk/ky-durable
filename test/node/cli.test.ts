@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
 import { Cloudflare, SCOPES, tokenPage } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand, doctorCommand, teardownCommand, upgradeCommand } from "../../cli/commands.ts";
-import { readOverlay, writeOverlay } from "../../cli/config.ts";
+import { deployedPath, readOverlay, writeOverlay } from "../../cli/config.ts";
 import { BYPASS } from "../../src/access.ts";
 import { initCommand } from "../../cli/init.ts";
 import * as Cli from "../../cli/ky.ts";
@@ -215,6 +215,18 @@ describe("ky init and deploy", () => {
     expect(account.buckets).toEqual(new Map([["ky-files", new Set([".ky"])]]));
     expect(worker?.secrets.size).toBe(0);
     expect(output).toContain(`ky is live at https://${HOST}, behind Access for ${EMAIL}`);
+  });
+
+  it("saves where it went live beside the overlay, for ky backup and ky restore, with no token in it", async () => {
+    const ky = await setUp();
+    const saved = await readFile(deployedPath(ky.overlay), "utf8");
+
+    expect(JSON.parse(saved)).toEqual({ account: "acc", name: "ky", url: `https://${HOST}` });
+    expect(saved).not.toContain("test-token");
+
+    await writeFile(deployedPath(ky.overlay), "{}");
+    await deployCommand(ky);
+    expect(JSON.parse(await readFile(deployedPath(ky.overlay), "utf8"))).toEqual({ account: "acc", name: "ky", url: `https://${HOST}` });
   });
 
   it("sets up an Access app for the owner and a bypass app for the C2 paths", async () => {

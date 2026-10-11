@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { END, FORMAT, FORMAT_VERSION, MANIFEST, type Manifest, partPath, type Restored, tarEnd, tarEntry } from "../../src/archive.ts";
 import type { Context } from "../../cli/commands.ts";
 import { ky } from "../../cli/ky.ts";
+import { writeDeployed, writeOverlay } from "../../cli/config.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 
 /**
@@ -130,6 +131,26 @@ describe("ky backup", () => {
 
     expect(await ky(["backup", "--out", out], { ...context(), env: { KY_URL: `${url}/chat` } })).toBe(0);
     expect(statSync(out).mode & 0o777).toBe(0o600);
+  });
+
+  it("finds the ky at the address its last deploy saved, with no Cloudflare login", async () => {
+    const overlay = path.join(system.home, ".config", "ky", "wrangler.local.jsonc");
+    await writeOverlay(overlay, { account_id: "acc", name: "ky" });
+    await writeDeployed(overlay, { account: "acc", name: "ky", url });
+
+    expect(await ky(["backup"], { ...context(), overlay })).toBe(0);
+    expect(system.ran).toContain(`cloudflared access token -app=${url}`);
+  });
+
+  it("looks the deploy up, as before, when the saved address is another deploy's", async () => {
+    const overlay = path.join(system.home, ".config", "ky", "wrangler.local.jsonc");
+    await writeOverlay(overlay, { account_id: "acc", name: "ky-renamed", vars: { ACCESS_EMAILS: "owner@example.com" } });
+    await writeDeployed(overlay, { account: "acc", name: "ky", url });
+
+    expect(await ky(["backup"], { ...context(), overlay })).toBe(1);
+    // The context has no release or login to look it up with; what matters is the saved address went unused.
+    expect(output.join("\n")).toContain("no release");
+    expect(system.ran.some((command) => command.includes(url))).toBe(false);
   });
 
   it("keeps no archive that was cut off", async () => {

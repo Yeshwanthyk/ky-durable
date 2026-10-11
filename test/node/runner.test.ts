@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import { ky } from "../../cli/ky.ts";
 import { restartRunner } from "../../cli/runner/commands.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
+import { stableKy } from "../../cli/runner/system.ts";
 import type { MachineFacts } from "../../src/runner-protocol.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 
@@ -178,6 +179,29 @@ describe("ky runner add", () => {
   it("asks for the URL and code it isn't given only at a terminal", async () => {
     expect(await run(["runner", "add", "--yes"])).toBe(1);
     expect(printed.join("\n")).toContain("usage: ky runner add <ky url> <code>");
+  });
+});
+
+describe("the service's ky", () => {
+  it("is the ky on PATH that links to this binary, not Homebrew's versioned Cellar path, which brew upgrade deletes", async () => {
+    const prefix = await mkdtemp(path.join(tmpdir(), "ky-brew-"));
+    const cellar = path.join(prefix, "Cellar/ky/0.1.0-rc.1/bin/ky");
+    const other = path.join(prefix, "other");
+    await mkdir(path.dirname(cellar), { recursive: true });
+    await mkdir(path.join(prefix, "bin"));
+    await mkdir(other);
+    await writeFile(cellar, "");
+    await symlink("../Cellar/ky/0.1.0-rc.1/bin/ky", path.join(prefix, "bin/ky"));
+    // Another ky earlier on PATH, which is not this one.
+    await writeFile(path.join(other, "ky"), "");
+
+    try {
+      expect(stableKy(cellar, [other, "relative", path.join(prefix, "bin"), "/usr/bin"].join(path.delimiter))).toBe(path.join(prefix, "bin/ky"));
+      // Nothing on PATH runs it: the binary's own path.
+      expect(stableKy(cellar, [other, "/usr/bin"].join(path.delimiter))).toBe(cellar);
+    } finally {
+      await rm(prefix, { recursive: true, force: true });
+    }
   });
 });
 

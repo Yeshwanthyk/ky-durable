@@ -78,6 +78,39 @@ export async function writeOverlay(file: string, overlay: Unstable_RawConfig): P
   );
 }
 
+/** Where ky's Worker answers, as the last `ky init` or `ky deploy` here saw it go live, for the account and Worker it named. */
+export type DeployedAt = { account: string; name: string; url: string };
+
+const DEPLOYED_AT = Type.Object({ account: Type.String(), name: Type.String(), url: Type.String() });
+
+/** deployed.json, beside the overlay: wrangler.local.jsonc may hold only wrangler's settings. */
+export function deployedPath(overlay: string): string {
+  return path.join(path.dirname(overlay), "deployed.json");
+}
+
+export async function writeDeployed(overlay: string, at: DeployedAt): Promise<void> {
+  await mkdir(path.dirname(overlay), { recursive: true });
+  await writeFile(deployedPath(overlay), `${JSON.stringify(at, null, 2)}\n`);
+}
+
+/** The saved address, while the overlay still names its account and Worker; undefined when none is saved, or it is another deploy's. */
+export async function readDeployed(overlay: string, config: Unstable_RawConfig): Promise<string | undefined> {
+  const file = deployedPath(overlay);
+
+  if (!existsSync(file)) return undefined;
+  let saved: unknown;
+
+  try {
+    saved = JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return undefined;
+  }
+
+  if (!Value.Check(DEPLOYED_AT, saved) || saved.account !== config.account_id || saved.name !== config.name) return undefined;
+
+  return new URL(saved.url).origin;
+}
+
 /** The release's generic config with the overlay over it. */
 export function merged(release: Release, overlay: Unstable_RawConfig): Unstable_RawConfig {
   const config: Unstable_RawConfig = structuredClone(release.config);
