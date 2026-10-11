@@ -13,7 +13,8 @@ import { Vault as ProductionVault, type TokenKind } from "../vault";
 import { type CloudBox, CloudMachine as ProductionCloudMachine, SAVE_KEY } from "../cloud";
 import { CLOUD } from "../cloud-facts";
 import { allowedRepos, proxyGit } from "../github";
-import { fakeGithubApi } from "../../test/fakes/github";
+import { githubTool } from "../github-tools";
+import { fakeGithubApi, fakeGithubRest } from "../../test/fakes/github";
 
 export { GithubProxy } from "../github";
 
@@ -565,19 +566,25 @@ const access = new Access(new FakeAccess().certs);
 
 const ky = worker(access);
 
+/** GitHub's REST API, for the GitHub tools on the stack's github.internal. */
+const githubRest = fakeGithubRest();
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const signed = edge(request);
     const url = new URL(signed.url);
 
     // The container's github.internal, which production intercepts in the container's network: the
-    // fake container host's git reaches it here, with no sign-in, as git in the container has none.
+    // fake container host's git and `ky github` reach it here, with no sign-in, as the container has none.
     if (url.pathname.startsWith("/github.internal/")) {
       const upstream = await cloud(env).upstream();
       const vault = env.Vault.getByName("owner");
       url.pathname = url.pathname.slice("/github.internal".length);
+      const login = allowedRepos(await vault.githubToken(), CLOUD);
 
-      return proxyGit(new Request(url, request), allowedRepos(await vault.githubToken(), CLOUD), upstream);
+      if (url.pathname.startsWith("/api/github/")) return githubTool(new Request(url, request), login, githubRest, await agents(env).getByName("me").selfEditRepo());
+
+      return proxyGit(new Request(url, request), login, upstream);
     }
 
     if (!url.pathname.startsWith("/test/")) return ky.fetch(signed, env);

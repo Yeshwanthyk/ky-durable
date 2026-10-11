@@ -11,20 +11,29 @@ import type { GithubFetch, GithubLogin } from "./github";
  *
  * Exactly what ky's self-edit steps need (src/prompt.ts), and nothing else:
  *
- *   pr-create  { repo, base, head, title, body }  open a PR; head must be a ky/ branch of the repo
- *   pr-merge   { repo, number }                   squash it, then delete its branch; only a ky/ head
+ *   pr-create  { repo, base, head, title, body }  open a PR from a ky/ branch of the repo into its default branch
+ *   pr-merge   { repo, number }                   squash it, then delete its branch: ky's own repo only
  *   pr-view    { repo, number }                   its state, and its merge commit once merged
  *   parent     { repo, sha }                      a commit's first parent: the rollback point
  *   runs       { repo, commit? }                  the deploy workflow's runs, of a commit or the latest
- *   run        { repo, id }                       one run's status and conclusion
- *   rollback   { repo, sha }                      run the deploy workflow on main for sha
+ *   run        { repo, id }                       one run of the deploy workflow: status and conclusion
+ *   rollback   { repo, sha }                      run the deploy workflow for a commit of the default branch: ky's own repo only
+ *
+ * Merging and rolling back deploy, so they reach only ky's own repo (Settings › Self-edits, the repo
+ * the prompt names): a task told otherwise can open a PR in another picked repo, which a person merges.
  */
 
 /** The branches a PR may come from, as pushes may only reach them (src/github.ts); never with `..`, which a URL would resolve. */
 const HEAD = /^ky\/(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 
-/** The workflow `runs`, `run` and `rollback` reach: the deploy, and only on main. */
+/** The workflow `runs`, `run` and `rollback` reach: the deploy, and only on the default branch. */
 const DEPLOY_WORKFLOW = "deploy.yml";
+
+/** A run's `path` when it is the deploy workflow's. */
+const DEPLOY_PATH = `.github/workflows/${DEPLOY_WORKFLOW}`;
+
+/** The tools that deploy: only in ky's own repo. */
+const SELF_EDIT_ONLY: ReadonlySet<string> = new Set(["pr-merge", "rollback"]);
 
 const API = "https://api.github.com";
 
@@ -77,7 +86,7 @@ type Pull = {
 };
 
 /** The parts of a workflow run the tools read. */
-type Run = { id: number; status: string; conclusion: string | null; head_sha: string; event: string; html_url: string; created_at: string };
+type Run = { id: number; path: string; status: string; conclusion: string | null; head_sha: string; event: string; html_url: string; created_at: string };
 
 /** What the tools answer. */
 type PullView = { number: number; url: string; title: string; state: "open" | "closed" | "merged"; head: string; base: string; mergeCommit: string | null };
@@ -141,11 +150,23 @@ function rest(fetch: GithubFetch, token: string) {
 
 type Rest = ReturnType<typeof rest>;
 
-/** `pr`, if its branch is one ky pushed: under ky/, and in `repo` itself, where a fork's PR has another head repo. */
-function kyPull(pr: Pull, repo: string): Pull {
-  if (pr.head.repo && same(pr.head.repo.full_name, repo) && HEAD.test(pr.head.ref)) return pr;
+/** `repo`'s default branch, which PRs go into and deploys run on. */
+async function defaultBranch(call: Rest, repo: string): Promise<string> {
+  return (await call<{ default_branch: string }>("GET", `/repos/${repo}`)).default_branch;
+}
 
-  throw new Refused(403, `ky merges only PRs from its own ky/ branches: #${pr.number} is from ${pr.head.repo?.full_name ?? "a deleted repo"}:${pr.head.ref}`);
+/**
+ * `pr`, if ky may merge it: from a branch ky pushed, under ky/ and in `repo` itself (a fork's PR
+ * has another head repo), into `base`, the default branch.
+ */
+function kyPull(pr: Pull, repo: string, base: string): Pull {
+  if (!pr.head.repo || !same(pr.head.repo.full_name, repo) || !HEAD.test(pr.head.ref)) {
+    throw new Refused(403, `ky merges only PRs from its own ky/ branches: #${pr.number} is from ${pr.head.repo?.full_name ?? "a deleted repo"}:${pr.head.ref}`);
+  }
+
+  if (pr.base.ref !== base) throw new Refused(403, `ky merges only PRs into ${base}, the default branch: #${pr.number} is into ${pr.base.ref}`);
+
+  return pr;
 }
 
 /** Delete a merged PR's branch; one already gone, as when the repo deletes merged branches itself, is fine. */
@@ -163,11 +184,14 @@ type Handler<T extends GithubTool> = (call: Rest, input: GithubToolInput<T>) => 
 const HANDLERS = {
   "pr-create": async (call, { repo, base, head, title, body }) => {
     if (!HEAD.test(head)) throw new Refused(403, `A PR's branch must be under ky/ in ${repo} itself, as pushes are: not ${head}`);
+    const branch = await defaultBranch(call, repo);
+
+    if (base !== branch) throw new Refused(403, `A PR goes into ${branch}, ${repo}'s default branch: not ${base}`);
 
     return pull(await call<Pull>("POST", `/repos/${repo}/pulls`, { title, head, base, body }));
   },
   "pr-merge": async (call, { repo, number }) => {
-    const pr = kyPull(await call<Pull>("GET", `/repos/${repo}/pulls/${number}`), repo);
+    const pr = kyPull(await call<Pull>("GET", `/repos/${repo}/pulls/${number}`), repo, await defaultBranch(call, repo));
 
     if (pr.merged) return pull(pr);
 
@@ -189,11 +213,22 @@ const HANDLERS = {
 
     return { runs: listed.workflow_runs.map(run) };
   },
-  run: async (call, { repo, id }) => run(await call<Run>("GET", `/repos/${repo}/actions/runs/${id}`)),
-  rollback: async (call, { repo, sha }) => {
-    await call("POST", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches`, { ref: "main", inputs: { sha } });
+  run: async (call, { repo, id }) => {
+    const found = await call<Run>("GET", `/repos/${repo}/actions/runs/${id}`);
 
-    return { started: true, workflow: DEPLOY_WORKFLOW, ref: "main", sha };
+    if (found.path !== DEPLOY_PATH) throw new Refused(403, `Run ${id} isn't of ${DEPLOY_PATH}`);
+
+    return run(found);
+  },
+  rollback: async (call, { repo, sha }) => {
+    const branch = await defaultBranch(call, repo);
+    // From the branch to sha: "behind" or "identical" only when sha is one of its commits.
+    const { status } = await call<{ status: string }>("GET", `/repos/${repo}/compare/${branch}...${sha}`);
+
+    if (status !== "behind" && status !== "identical") throw new Refused(403, `${sha} isn't a commit of ${branch}: ky rolls back only to one`);
+    await call("POST", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches`, { ref: branch, inputs: { sha } });
+
+    return { started: true, workflow: DEPLOY_WORKFLOW, ref: branch, sha };
   }
 } satisfies { [T in GithubTool]: Handler<T> };
 
@@ -204,9 +239,10 @@ const refuse = (status: number, error: string) => Response.json({ error }, { sta
 /**
  * One tool call from a cloud task, `POST /api/github/<tool>` with its JSON input, answered with the
  * tool's JSON, or `{ error }`: 404 for no such tool, 401 with no GitHub login, 400 for bad input,
- * 403 for a repo the machine may not reach or a branch outside ky/, else GitHub's own status.
+ * 403 for a repo the machine may not reach, a deploy outside `selfEdit` (ky's own repo, or null
+ * until Settings has it) or a branch outside ky/, else GitHub's own status.
  */
-export async function githubTool(request: Request, login: GithubLogin | null, fetch: GithubFetch): Promise<Response> {
+export async function githubTool(request: Request, login: GithubLogin | null, fetch: GithubFetch, selfEdit: string | null): Promise<Response> {
   const name = /^\/api\/github\/([a-z-]+)$/.exec(new URL(request.url).pathname)?.[1];
 
   if (!name || !isTool(name)) return refuse(404, "No such GitHub tool");
@@ -228,6 +264,10 @@ export async function githubTool(request: Request, login: GithubLogin | null, fe
   const repo = login.repos.find((allowed) => same(allowed, checked.repo));
 
   if (!repo) return refuse(403, `ky's GitHub token isn't for ${checked.repo}: pick it in Settings › Subscriptions`);
+
+  if (SELF_EDIT_ONLY.has(name) && !(selfEdit && same(selfEdit, repo))) {
+    return refuse(403, `ky's ${name} reaches only its own repo (${selfEdit ?? "not set in Settings"}): not ${repo}`);
+  }
 
   try {
     // SAFETY: HANDLERS[name] takes TOOLS[name]'s input, which `checked` is; the repo is the picked one's spelling.

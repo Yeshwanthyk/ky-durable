@@ -270,6 +270,19 @@ const GITHUB_TOKEN = "github_pat_harness";
 /** The cloud machine's name: one per deploy. */
 const CLOUD = "cloud";
 
+/** A shell script's lines that clone me/app and commit a file on a new `branch`, then `push` it. */
+function kyBranch(branch: string, push: string): string[] {
+  return ["git clone -q https://github.com/me/app.git app", "cd app", `git checkout -qb ${branch}`, "echo cloud > cloud.txt", "git add cloud.txt", "git commit -qm cloud", push];
+}
+
+/** Run a shell script as a task on the cloud machine, until its report has `last`, the script's last line's echo. */
+async function cloudScript(context: Context, lines: string[], last: string): Promise<void> {
+  const task = await startTask(context, CLOUD, `[sh] ${lines.join("; ")}`);
+  await status(context, task, "done", 60_000);
+  // The report streams: wait for its last line before checking the earlier ones.
+  await until("the report", () => context.main.heard(last));
+}
+
 type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer };
 
 /**
@@ -1143,25 +1156,49 @@ export const SCENARIOS: Scenario[] = [
       const { git } = await cloudMachine(context);
       const main = git.head("me/app", "main");
 
-      const script = [
-        "git clone -q https://github.com/me/app.git app",
-        "cd app",
-        "git checkout -qb ky/harness",
-        "echo cloud > cloud.txt",
-        "git add cloud.txt",
-        "git commit -qm cloud",
-        "git push -q origin ky/harness && echo pushed=ky",
-        "git push -q origin HEAD:main; echo main=$?",
-        "git clone -q https://github.com/me/site.git site; echo site=$?"
-      ].join("; ");
-
-      const task = await startTask(context, CLOUD, `[sh] ${script}`);
-      await status(context, task, "done", 60_000);
-      // The report streams: wait for its last line before checking the earlier ones.
-      await until("the report", () => context.main.heard("site="));
+      await cloudScript(
+        context,
+        [
+          ...kyBranch("ky/harness", "git push -q origin ky/harness && echo pushed=ky"),
+          "git push -q origin HEAD:main; echo main=$?",
+          "git clone -q https://github.com/me/site.git site; echo site=$?"
+        ],
+        "site="
+      );
       check(git.branches("me/app").includes("ky/harness"), `the ky/ branch reached GitHub, got ${git.branches("me/app").join(", ")}`);
       check(context.main.heard("main=1") && git.head("me/app", "main") === main, "the push to main was refused");
       check(context.main.heard("site=128"), "a repo not picked in Settings is refused");
+    }
+  },
+  {
+    name: "cloud-github-tools",
+    expect: "pass",
+    about: "the cloud machine opens and merges a ky/ PR of ky's own repo with ky github, holding no token; another repo is refused",
+    async run(context) {
+      await cloudMachine(context);
+      const saved = JSON.stringify((await context.main.command({ type: "set-repo", repo: "me/app" })).result);
+      check(saved === "{}", `ky's repo was set, got ${saved}`);
+      context.cleanup.push(async () => void (await context.main.command({ type: "set-repo", repo: "" })));
+
+      await cloudScript(
+        context,
+        [
+          `export KY_GITHUB_API=${context.url}/github.internal/api/github`,
+          "env | grep -c -i -E '^(GH|GITHUB)_TOKEN=' ; echo tokens=$?",
+          ...kyBranch("ky/tools", "git push -q origin ky/tools"),
+          `n=$(ky github pr-create me/app main "Tools" "end to end" | sed -n 's/.*"number": \\([0-9]*\\).*/\\1/p'); echo opened=$n`,
+          'ky github pr-view me/app "$n" | grep -q \'"state": "open"\' && echo viewed=open',
+          'ky github pr-merge me/app "$n" | grep -q \'"state": "merged"\' && echo merged=yes',
+          'ky github pr-create me/app release "Elsewhere" 2>&1 | grep -q "default branch" && echo base=refused',
+          'ky github pr-merge me/site 1 2>&1 | grep -q 403 && echo site=refused'
+        ],
+        "site="
+      );
+      check(context.main.heard("tokens=1"), "the task's env has no GitHub token");
+      check(context.main.heard("opened=1"), "the PR was opened");
+      check(context.main.heard("viewed=open") && context.main.heard("merged=yes"), "the PR was viewed open, then merged");
+      check(context.main.heard("base=refused"), "a PR into a branch that isn't the default is refused");
+      check(context.main.heard("site=refused"), "a repo not picked in Settings is refused");
     }
   }
 ];

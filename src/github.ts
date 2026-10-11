@@ -185,6 +185,9 @@ export class GithubProxy extends WorkerEntrypoint<Env, Partial<GithubProps>> {
     if (!machine) return refuse(404, "Not found");
     const login = allowedRepos(await this.env.Vault.getByName("owner").githubToken(), machine);
 
-    return new URL(request.url).pathname.startsWith("/api/github/") ? githubTool(request, login, (input, init) => fetch(input, init)) : proxyGit(request, login);
+    if (!new URL(request.url).pathname.startsWith("/api/github/")) return proxyGit(request, login);
+
+    // ky's own repo, as the prompt names it: the only one the tools merge in or roll back.
+    return githubTool(request, login, (input, init) => fetch(input, init), await this.env.PiAgent.getByName("me").selfEditRepo());
   }
 }

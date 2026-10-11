@@ -341,6 +341,11 @@ export class PiAgent extends DurableObject<Env> {
     return this.machines.busy(CLOUD);
   }
 
+  /** ky's own repo, owner/name, as Settings has it: the only one GitHub tools merge in or roll back (src/github-tools.ts). */
+  selfEditRepo(): string | null {
+    return this.setup.view().repo;
+  }
+
   /** The hub's task tokens: the Vault's. Runs as a field initializer, so only ctx and env are set; tests wrap it. */
   taskTokens(): TaskTokens {
     const vault = () => this.env.Vault.getByName("owner");
