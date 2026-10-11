@@ -2107,26 +2107,19 @@
 }
 
 /* ---------- Skills ----------
-   Each skill opens in place like a model row: its steps, then edit, history and archive. */
+   Each skill is a card row that opens in place: when it was used, its steps, then edit, history and archive. */
 
-.skill[data-open="true"] .expand {
-  grid-template-rows: 1fr;
+/* Closed, a skill's description is one line; open, it shows in full. */
+.skill[data-open="true"] .row-sub-text {
+  white-space: normal;
 }
 
-.skill[data-open="true"] .expand-inner {
-  opacity: 1;
-}
-
-/* The bottom space is the last child's margin, so a closed skill folds to nothing. */
 .skill-detail {
-  padding: 0 12px 0 40px;
-  display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
-.skill-detail > :last-child {
-  margin-bottom: 14px;
+.skill-detail > .row-sub {
+  margin: 0;
 }
 
 .skill-body {
@@ -2147,7 +2140,7 @@
 }
 
 /* ---------- Soul ----------
-   After Muse: an Edit pill, then tall grainy cards; SOUL.md opens in a dark sheet. */
+   After Muse: tall grainy cards under the group's Edit, then the specialists' card of rows; SOUL.md opens in a dark sheet. */
 
 .soul {
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
@@ -2159,9 +2152,38 @@
   gap: 12px;
 }
 
-.specialist-row .row-text {
-  flex: 1;
-  min-width: 0;
+/* A group's one action, at the right of its label: Edit, + Specialist. */
+.group-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin-right: -4px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 500;
+}
+
+.group-action:disabled {
+  opacity: 0.5;
+}
+
+.specialist-row {
+  cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group-action:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+
+  .specialist-row:hover {
+    background: var(--hover);
+  }
 }
 
 .soul-card {

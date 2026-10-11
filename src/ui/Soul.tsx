@@ -44,7 +44,7 @@ const SOUL_NOTE =
 const BRIEF_NOTE =
   "This brief is the specialist's standing instructions, in every conversation it has. ky may refine it and tells you when it does. Ask it in chat with @id. This note is not part of the brief.";
 
-// ky's persona, memory and specialists: an Edit pill, the SOUL and MEMORY cards, and the specialists' rows, each opening its sheet.
+// ky's persona, memory and specialists: an Edit action, the SOUL and MEMORY cards, and the specialists' rows, each opening its sheet.
 export function Soul({
   soul,
   now,
@@ -73,29 +73,29 @@ export function Soul({
 
   return (
     <div className="panel-body soul" data-scroll>
-      <section className="feed-group">
-        <h3 className="feed-head">
-          Soul and memory
-          <button type="button" className="feed-action pressable" disabled={soul === null} onClick={() => setMode("edit")}>
+      <section className="group">
+        <div className="group-head">
+          <h3 className="group-label">Soul and memory</h3>
+          <button type="button" className="group-action pressable" disabled={soul === null} onClick={() => setMode("edit")}>
             Edit
           </button>
-        </h3>
+        </div>
         <div className="soul-cards">
-        <button
-          type="button"
-          className="soul-card pressable"
-          disabled={soul === null}
-          aria-label="Open SOUL.md"
-          onClick={() => setMode("read")}
-        >
-          <span className="soul-card-title">Soul</span>
-          <span className="soul-card-caption">Access with care</span>
-          <span className="soul-card-foot">
-            <span className="soul-card-date">{soul ? stamp(soul.updated_at) : "--.--.--"}</span>
-            <Icon name="heart" size={18} />
-          </span>
-        </button>
-        <MemoryCard memory={memory} onOpen={() => setRemembering(true)} />
+          <button
+            type="button"
+            className="soul-card pressable"
+            disabled={soul === null}
+            aria-label="Open SOUL.md"
+            onClick={() => setMode("read")}
+          >
+            <span className="soul-card-title">Soul</span>
+            <span className="soul-card-caption">Access with care</span>
+            <span className="soul-card-foot">
+              <span className="soul-card-date">{soul ? stamp(soul.updated_at) : "--.--.--"}</span>
+              <Icon name="heart" size={18} />
+            </span>
+          </button>
+          <MemoryCard memory={memory} onOpen={() => setRemembering(true)} />
         </div>
       </section>
       <SpecialistList
@@ -149,14 +149,14 @@ function SpecialistList({
   const history = useCallback(() => onHistory(id ?? ""), [onHistory, id]);
 
   return (
-    <section className="feed-group specialists">
-      <h3 className="feed-head">
-        Specialists
-        <button type="button" className="feed-action pressable" aria-label="+ Specialist" onClick={() => setEditing("")}>
+    <section className="group specialists">
+      <div className="group-head">
+        <h3 className="group-label">Specialists</h3>
+        <button type="button" className="group-action pressable" aria-label="+ Specialist" onClick={() => setEditing("")}>
           <Icon name="plus" size={12} />
           Specialist
         </button>
-      </h3>
+      </div>
       <SpecialistRows specialists={specialists} onOpen={(id) => setBrief({ id, mode: "read" })} />
       {open && brief ? (
         <SoulSheet
@@ -195,15 +195,19 @@ function SpecialistRows({ specialists, onOpen }: { specialists: readonly Special
   }
 
   return (
-    <ul className="feed">
+    <ul className="card">
       {specialists.map((each) => (
         <li key={each.id}>
-          <button type="button" className="row specialist-row pressable" onClick={() => onOpen(each.id)}>
+          <button type="button" className="row specialist-row" onClick={() => onOpen(each.id)}>
+            <span className="row-tile">
+              <Icon name="fingerprint" size={15} />
+            </span>
             <span className="row-text">
               <span className="row-label">@{each.id}</span>
-              <span className="row-sub">{each.description}</span>
+              <span className="row-sub row-sub-text">{each.description}</span>
             </span>
-            <span className="row-sub">v{each.brief.version}</span>
+            <span className="row-value tabular">v{each.brief.version}</span>
+            <Icon name="chevronRight" size={14} className="row-chevron" />
           </button>
         </li>
       ))}
