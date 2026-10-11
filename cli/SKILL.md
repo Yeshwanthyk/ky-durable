@@ -65,6 +65,21 @@ installs a launchd agent or `systemd --user` unit, and waits until ky shows the 
 removes it from this computer only: the user removes the machine in ky's Settings too. `ky runner run` is the runner
 itself, in the foreground. Tasks run `ky attach <file>` and `ky diff` to share files and changes.
 
+## Back it up, or move it
+
+```sh
+ky backup [--out <file>] [--url <ky>]
+ky restore <file> [--url <ky>] [--force]
+```
+
+`ky backup` downloads ky's chats, memory, skills, SOUL.md, specialists, automations, workspace and shared files to
+`~/ky-backups/<worker>-<time>.tar.gz`, readable by the user only, and prints what it holds. It signs in with
+`cloudflared access token`; when it says there's no token, run the `cloudflared access login <url>` it prints. It holds
+no secret: API keys, subscription sign-ins, GitHub, Executor and machine pairings are listed as left out. Back up
+while ky is idle. `ky restore` puts a backup into a fresh ky (a new deploy: `ky init --name <other>`) and lists what
+to add again; it refuses a ky that already has chats or memory unless `--force`, which replaces them: use it only
+when the user asked for it. Both reach `--url`, else KY_URL, else the deploy `ky init` set up here.
+
 ## Remove it
 
 ```sh

@@ -109,6 +109,8 @@ ky upgrade             # deploys the new release, then restarts this computer's 
 | `ky init` | Set up and deploy ky; run again, it fills in what's missing |
 | `ky deploy`, `ky upgrade` | Deploy this `ky`'s release with your settings |
 | `ky doctor [--json]` | Check each piece of the deploy, and print what fixes the first one missing |
+| `ky backup [--out <file>]` | Download a copy of ky, its chats, memory, skills and files, to `~/ky-backups` |
+| `ky restore <file> [--force]` | Put a backup into a fresh ky; it lists the keys and machines to add again |
 | `ky teardown --confirm <worker>` | Delete the Worker with its chats and files, its bucket and Access apps |
 | `ky runner add\|run\|ls\|status\|logs\|rm` | This computer as a machine |
 | `ky skill` | The guide for an agent that runs `ky` for you |

@@ -29,6 +29,8 @@ export type FakeSystem = System & {
   /** Ports something listens on. */
   ports: Set<number>;
   hasChrome: boolean;
+  /** What `cloudflared access token` prints; undefined when signed out of Access. */
+  accessToken: string | undefined;
 };
 
 const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
@@ -143,7 +145,8 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     ["security", security],
     ["launchctl", launchctl],
     ["systemctl", systemctl],
-    ["loginctl", () => ok()]
+    ["loginctl", () => ok()],
+    ["cloudflared", () => (fake.accessToken === undefined ? failed("Unable to find token for provided application.") : ok(`${fake.accessToken}\n`))]
   ]);
 
   const exec: Exec = async (command, args, input) => {
@@ -169,6 +172,7 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     chrome: () => fake.hasChrome,
     ports: new Set(),
     hasChrome: false,
+    accessToken: "access-token",
     ran: [],
     keychain: new Map(),
     loaded: new Set(),

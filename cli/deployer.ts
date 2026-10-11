@@ -222,6 +222,13 @@ async function host(cloudflare: Cloudflare, accountId: string, name: string): Pr
   return `${name}.${subdomain.subdomain}.workers.dev`;
 }
 
+/** The address the deployed ky answers on, `https://<worker>.<subdomain>.workers.dev`. */
+export async function address(target: Target): Promise<string> {
+  const name = names(target.config);
+
+  return `https://${await host(target.cloudflare, name.account, name.script)}`;
+}
+
 /** The account's Access team domain, `<team>.cloudflareaccess.com`; undefined until Zero Trust is on. */
 export async function teamDomain(cloudflare: Cloudflare, accountId: string): Promise<string | undefined> {
   const organization = await cloudflare.find(ZeroTrust.listOrganizationsForAccount({ accountId }), "OrganizationNotFound");

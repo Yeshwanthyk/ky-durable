@@ -9,6 +9,8 @@ import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { Access, bypassed } from "./access";
+import type { ArchivedFile, End, Manifest, Restored } from "./archive";
+import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension } from "./automations";
 import { browseExtension } from "./browse";
@@ -123,6 +125,8 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.isChat(session),
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
+  /** Its SQLite, dumped for a backup and swapped whole by a restore. */
+  readonly backups = new Backups(this.ctx.storage);
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
   /** The user's Executor, connected in Settings and kept in the Vault; its tools are installed while it is. */
   readonly executor = new ExecutorLink(() => this.env.Vault.getByName("owner"), this.ctx.id.name ?? "me", this.boundary.executorFetch);
@@ -388,6 +392,67 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.memory.compress());
   }
 
+  /** What a backup holds, for its manifest (src/backup.ts). */
+  backupPlan(): Plan {
+    return this.backups.plan();
+  }
+
+  /** The next part of a table's rows, for a backup. */
+  backupRows(table: string, after: SqlStorageValue[] | null): Page {
+    return this.backups.rows(table, after);
+  }
+
+  /** Start a restore; throws why it can't. */
+  restoreBegin(manifest: Manifest, end: End, force: boolean): void {
+    this.backups.begin(manifest, end, force);
+  }
+
+  /** The upload at `key` the restore expects. */
+  restoreFile(key: string): ArchivedFile | undefined {
+    return this.backups.file(key);
+  }
+
+  restoreFiles(): ArchivedFile[] {
+    return this.backups.files();
+  }
+
+  /** Keep a part of a table's rows aside for the restore; how many. */
+  restoreRows(table: string, text: string): number {
+    return this.backups.stage(table, text);
+  }
+
+  /**
+   * Swap the restored tables in, at `origin`, the address it was restored at, and set right what
+   * belonged to the old deploy: bookings, unfinished tasks, the address, and chat search. Then
+   * `restart`, which the Worker calls next, starts the agent over on them.
+   */
+  async restoreFinish(origin: string, force: boolean): Promise<Restored> {
+    const files = this.backups.files().length;
+
+    // The automations the restore replaces; the restart books the restored ones (Automations.recover).
+    for (const job of await this.automations.scheduler.list()) {
+      if (job.callback === "automation") await this.automations.scheduler.cancel(job.id);
+    }
+
+    const { rows, leftOut } = this.backups.finish(force, () => {
+      const sql = this.ctx.storage.sql;
+      sql.exec("UPDATE ky_automations SET schedule_id = NULL");
+      sql.exec("UPDATE ky_tasks SET status = 'stopped', finished_at = coalesce(finished_at, ?) WHERE status IN ('queued', 'working')", Date.now());
+      this.setup.moved(origin);
+      this.history.rebuild();
+    });
+
+    const { summary } = this.backups.plan();
+    const uploadBytes = (await this.env.FILES.list({ prefix: "files/" })).objects.reduce((total, object) => total + object.size, 0);
+
+    return { summary: { ...summary, uploads: files, uploadBytes }, rows, files, leftOut };
+  }
+
+  /** Start the object over, dropping all it holds in memory; this call never returns. */
+  restart(): void {
+    this.ctx.abort("ky was restored from a backup");
+  }
+
   /** Record a file a machine task shared; null, or why it was refused. */
   async attachFile(file: Omit<FileRow, "created_at">): Promise<string | null> {
     const task = this.feed.get(file.task);
@@ -498,7 +563,7 @@ export function worker(access: Access) {
 
       if (refused) return refused;
 
-      const owner = ownerRoute(request, env, url);
+      const owner = ownerRoute(request, env, url) ?? backupRoute(request, env, url);
 
       if (owner) return owner;
 
