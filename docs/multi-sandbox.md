@@ -250,6 +250,9 @@ Recommendation: **locked at the proxy** in PR 1. It's a few lines on top of the 
 catches the real risk: an agent pushing project A's work from project B's sandbox. Say plainly in
 Settings that it's a guardrail. Per-sandbox tokens for a hard wall come later, if wanted.
 
+Update (round 3): Cloudflare's HTTPS egress interception can take the token out of the container
+entirely, which makes the lock a wall without per-sandbox tokens. See section 8.
+
 ## 4. Migration
 
 Nothing moves. Today's machine *is* the first sandbox.
@@ -335,14 +338,15 @@ number of stopped instances.
 - Per-sandbox GitHub token (a different account or org).
 - Bigger sandboxes (a second class and app per instance type).
 - Saved disks in backups, so a restore keeps them.
-- Per-sandbox GitHub token, scoped to its repos: the hard wall of 3b.
+- Per-sandbox GitHub token, scoped to its repos: the hard wall of 3b. Mostly replaced by section 8.
 - Clone a sandbox (copy its save), reset a sandbox's disk.
 - Agent can create or delete sandboxes.
 
 ## 7. Open questions: answers
 
 1. **Project = a GitHub repo.** Accepted.
-2. **Lock a repo to its sandbox?** Still open. Recommend: locked at the proxy, as a guardrail (3b).
+2. **Lock a repo to its sandbox?** Still open. Recommend: locked, and made a wall by the egress
+   node of section 8 (token out of the container).
 3. **Cap.** 8 sandboxes, `maxInstances: 9`. Accepted.
 4. **Agent.** Settings only creates, renames and deletes. The agent lists, picks, and sets on/off and
    note. Accepted.
@@ -353,3 +357,186 @@ number of stopped instances.
 8. **Logins and size.** Shared logins, standard-1 for now. Accepted.
 9. **Where sandbox state lives.** Still open. Recommend: option 1, the PiAgent's `ky_sandboxes`
    table (3a).
+
+## 8. Making the repo lock a wall: Cloudflare egress
+
+Round 3 research. The question: can Cloudflare's own pieces take the GitHub token out of the
+container, so the repo checks of 3b become a wall and not a guardrail?
+
+Short answer: yes, with pieces that are already GA. Cloudflare's own docs describe our exact case.
+
+Sources were cloned to `/tmp/cf-research` on 2026-10-11:
+
+- `workerd` at e00652e
+- `containers` at a17055c (`@cloudflare/containers` 0.3.7)
+- `sandbox-sdk` at 864d929
+- `cloudflare-docs` at 0d35c2c
+- `computer` at 61f5aea
+
+Paths under `docs/` below are in `cloudflare-docs/src/content/docs/`.
+
+### 8.1 The building blocks
+
+| Block | What it does | Status | Where |
+| --- | --- | --- | --- |
+| `interceptOutboundHttp(host, worker)` | Port-80 traffic to a host (or glob) goes to a Worker entrypoint, not the network. ky already uses it for `github.internal`. | GA | workerd `api/container.h:343`; `docs/containers/api/durable-object-container.mdx:531-585` |
+| `interceptAllOutboundHttp(worker)` | All port-80 traffic goes to a Worker. | GA | workerd `api/container.h:345`, `container.c++:610-640` |
+| `interceptOutboundHttps(sniGlob, worker)` | Port-443 traffic, matched by TLS SNI, is decrypted and goes to a Worker. A per-container CA is used; its key never leaves Cloudflare's sidecar. | GA since 2026-04-13 | workerd `api/container.h:347`, `io/container.capnp:268-292`; changelog `2026-04-13-sandbox-outbound-workers-tls-auth.mdx` |
+| `enableInternet: false` | With it off, only 80 and 443 leave the container, and only to an intercept. Other ports (ssh 22, raw TCP) are denied. DNS gives placeholder answers only for covered hosts, so DNS can't leak data. | GA | workerd `api/container.h:265-281`; `docs/containers/configuration/outbound-traffic.mdx:35` and "Non-HTTP traffic" (~305-315) |
+| Allow and deny lists | `allowedHosts` and `deniedHosts` in the `Container` class of `@cloudflare/containers`. Not needed if we write the handler ourselves. | GA (library) | containers `docs/egress.md:112-141, 206-258` |
+| Credential injection at egress | The handler adds the secret, so the container never sees it. Per instance, keyed by `ctx.containerId` or by props. | GA (documented pattern) | `docs/containers/configuration/outbound-traffic.mdx:138-180` |
+| Container identity | The DO registers the intercept with `ctx.exports.X({ props })`. Props are set Worker-side, so the container can't forge them. `ContainerProxy` passes `containerId` and `className` the same way. | GA | containers `src/lib/container.ts:321-428`; computer `backends/container/container-host.ts:322-344` |
+| `interceptOutboundTcp` | Raw TCP to a Worker. | Experimental only (`workerdExperimental`); not usable in production | workerd `api/container.h:365-380` |
+| `durable_object` scheduling policy | Per-instance image and size, plus snapshots. Can't be changed on an existing app. | Public beta | changelog `2026-09-30-durable-object-scheduling-policy.mdx`; `docs/containers/platform-details/scheduling-policy.mdx:18-22` |
+| Secrets Store | An account-level secret store a Worker can read. | GA | `docs/containers/examples/env-vars-and-secrets.mdx:20-60` |
+| Workers VPC | Lets Workers reach private networks. | GA | `docs/sandbox/coding-agents/claude-managed-agents.mdx:44` |
+
+Cloudflare's worked examples of this exact pattern:
+
+- `docs/sandbox/network/clone-a-private-repository.mdx` (reviewed 2026-09-24):
+  - A `GitGateway` entrypoint gets `interceptOutboundHttps("github.com", …)` and
+    `enableInternet: false`.
+  - It allows only `git-upload-pack` for one repo and adds `Basic x-access-token:<token>`.
+  - A push gets 403. The container trusts the CA through `GIT_SSL_CAINFO`.
+- `sandbox-sdk/examples/coding-agents/runner/sandbox.ts:193-207` and `outbound.ts:1-41`:
+  - Cloudflare's own coding-agent runner starts with `enableInternet: false`.
+  - It registers `interceptAllOutboundHttp` and `interceptOutboundHttps("*")` on every start.
+  - The handler refuses plain http, injects the GitHub token for github.com and the AI token for
+    its gateway, and returns 403 for everything else.
+
+How ky would use each block:
+
+- **HTTPS intercept and injection:** the core of this. git and gh go to `github.com` and
+  `api.github.com` as usual. The Worker adds the token and checks the repo.
+- **Props `{ sandbox: id }`:** these tell the handler which sandbox is calling. The handler reads that
+  sandbox's repos from `ky_sandboxes` on each request. Changing repos needs no re-registration.
+- **`enableInternet: false`:** optional. It's a second layer (see 8.3).
+- **Not useful here:**
+  - Secrets Store: the token already lives in the Vault DO, which the handler can read.
+  - Workers VPC: it's for reaching private networks, not for limiting them.
+  - `interceptOutboundTcp`: experimental only.
+  - `cloudflare-os`'s `gatekeeper-github`: an OAuth gateway for its own gadgets, not container
+    egress.
+
+### 8.2 The design: the token never enters the container
+
+1. **The CloudMachine registers HTTPS intercepts before each start:**
+   `interceptOutboundHttps(host, ctx.exports.GithubEgress({ props: { sandbox: id } }))` for
+   `github.com` and `api.github.com`. That's 4 of the 128 intercept entries.
+2. **`GithubEgress`** is today's `GithubProxy`, moved to the real hosts.
+   - `github.com`:
+     - Smart HTTP (`info/refs`, `git-upload-pack`, `git-receive-pack`) for this sandbox's repos only.
+     - Pushes only to `refs/heads/ky/*`.
+     - The handler replaces any `Authorization` header with the real token.
+     - Anything else on github.com (web pages, archives) is passed through without the token.
+   - `api.github.com`:
+     - REST paths `/repos/{owner}/{repo}/…` must name one of this sandbox's repos.
+     - A few repo-free paths are allowed: `/user`, `/rate_limit`, `/meta`.
+     - Everything else gets 403.
+     - GraphQL: see "what breaks".
+3. **Tasks get no `GH_TOKEN`.** They get a placeholder like `GH_TOKEN=ky-egress`, so `gh` thinks it is
+   signed in and sends a header, which the Worker replaces.
+4. **git needs no rewrite.** The `insteadOf` line (cli/runner/cloud.ts:61) goes away, and so does
+   `github.internal`. A URL with a token in it no longer gets around anything; the Worker overwrites
+   the header.
+5. **The container trusts the CA.** Cloudflare writes it to
+   `/etc/cloudflare/certs/cloudflare-containers-ca.crt` (workerd `server/container-client.c++:1695-1727`).
+   - The CA exists only when an HTTPS intercept is registered (`outbound-traffic.mdx:182-201`).
+   - At startup, `ky runner cloud` writes one bundle: the system CAs plus this file.
+   - It points `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` at the
+     bundle, and `NODE_EXTRA_CA_CERTS` at the Cloudflare file.
+   - This is runner code, so the Dockerfile doesn't change. (`update-ca-certificates` in the
+     entrypoint also works but needs root and touches the image.)
+
+That is the wall: no token in the container, so nothing in the container can use GitHub except
+through the checks. Open internet doesn't matter for the token. ssh to github.com works at the network
+level, but the container has no key.
+
+### 8.3 Optional second layer: closed internet
+
+`enableInternet: false` plus `interceptAllOutboundHttp` and `interceptOutboundHttps("*")` route all
+traffic through one ky handler. Then an allowlist decides where a sandbox can go.
+
+- **What it adds:** it stops a task from sending code or other secrets anywhere it likes.
+- **Needed on the allowlist:**
+  - ky's own origin: the runner's WebSocket. This could instead be `http://ky.internal`, intercepted to
+    the Worker.
+  - Model hosts: `api.anthropic.com`, the OpenAI and ChatGPT hosts, and their sign-in hosts.
+  - Package registries: npm, PyPI, crates, Go proxy.
+  - GitHub's download hosts: `objects.githubusercontent.com`, `codeload.github.com`.
+- **Cost of it:** an allowlist that has to be kept up to date. Every blocked host is a task that fails.
+  HTTPS to a bare IP fails under a `*` intercept (`durable-object-container.mdx:611-640`).
+
+Recommendation: not now. Do 8.2 first. Add the closed internet later as a per-sandbox switch if the
+owner wants it.
+
+### 8.4 What breaks, and what doesn't
+
+| Use | With 8.2 |
+| --- | --- |
+| git over https: clone, fetch, pull | Works, for this sandbox's repos. Other repos get 403. |
+| Pushing | Works to `ky/*` on this sandbox's repos. Other refs and repos get 403, as today. |
+| git over ssh | No key in the container, so it fails today too. Blocked outright under 8.3. Use https. |
+| gh CLI auth | Works with the placeholder token. `gh auth status` shows the real user, because the Worker answers `/user` with the real token. `gh auth login` and `gh auth token` are useless. |
+| GitHub REST API (`gh api repos/...`, `gh issue`, `gh run`) | Works for this sandbox's repos. Other repos get 403. |
+| GitHub GraphQL (`gh pr create`, `gh pr view`, `gh pr list`) | **The hard part.** gh uses GraphQL for PRs. One endpoint, so a path check can't scope it. Options: (a) allow queries whose `owner`/`name`/`repo` variables match, and block the rest. That covers gh's own PR commands, but a hand-written query could name another repo inside its text. (b) A GitHub App installation token minted for only this sandbox's repos (GitHub's `repositories` parameter), held only in the Worker. Then GitHub itself enforces scope for REST and GraphQL. |
+| Other https tools (npm, pip, curl) | Unchanged under 8.2. They need the CA bundle only for github hosts. |
+| A tool with its own CA list or pinning | Fails on GitHub hosts only. To check: Codex (Rust) and anything else not Node or Go. |
+
+So git and REST become a wall. GraphQL is a strong guardrail with (a), and a wall with (b).
+
+### 8.5 Recommendation
+
+- **Do 8.2 with GraphQL option (a).** It's one PR.
+  - `src/cloud.ts`: intercepts.
+  - `src/github.ts`: GithubProxy becomes GithubEgress on the real hosts, adding the api.github.com
+    checks.
+  - `cli/runner/cloud.ts`: the CA bundle; drop the `insteadOf`.
+  - `cli/runner/tasks.ts`: the placeholder `GH_TOKEN`.
+  - Tests for each refusal.
+- **Its own node, not PR 1.**
+  - It fixes a gap that exists today with one sandbox, so it can land before or after PR 1.
+  - Before is better: PR 1's "check the calling sandbox's repos" then lands as a wall from day one,
+    and it is just a props lookup in GithubEgress.
+  - The runner code is baked into the image, so it ships with the CI node's next image. Coordinate
+    with that node; no workflow or digest file changes from here.
+- **Later:**
+  - GraphQL option (b), the GitHub App token, if the owner wants a full API wall. It needs a GitHub
+    App set up once, so it's the owner's call.
+  - The closed internet of 8.3, as a per-sandbox switch.
+  - The same edge injection for the Claude and ChatGPT logins, which are also handed to the
+    container today.
+
+**Cost.**
+
+- Containers cost the same.
+- Intercepted requests run in ky's Worker. I found no doc saying whether they count as billed
+  requests (unknown).
+- Even if they count, git and gh make tens to hundreds of requests per task. That's far under
+  Workers Paid's 10M included requests a month.
+- Pass-through streams large packs without parsing them, so CPU stays low.
+
+**Limits.**
+
+- Workers Paid is needed (already true for containers).
+- 128 intercept entries per container; this uses 4, or 8 with 8.3.
+- An intercept can't be removed while the container runs. That's fine: props carry only the sandbox
+  id, and the repos are read live.
+- HTTPS interception needs a compatibility date of 2026-04-02 or later (containers
+  `src/lib/container.ts:1582`). ky's is 2026-10-03.
+
+### 8.6 Still unknown, to test on a dev deploy first
+
+1. **Does HTTPS interception work with ky's `default` scheduling policy?**
+   - The API reference gives `interceptOutboundHttps` no "durable_object policy only" badge, though it
+     does give one to `image`, `instance` and `snapshotContainer`.
+   - But both GitHub guides list the `durable_object` policy as a prerequisite.
+   - If it does need it: the policy is public beta, and it can't be changed on an existing app. ky
+     would need a new container app, which is a bigger deployer change and its own node.
+2. **Are intercepted requests billed** as Worker requests?
+3. **Codex's trust store.** Does it read `SSL_CERT_FILE`? If not, it only matters under 8.3, or if
+   Codex talks to GitHub itself.
+4. **WebSocket through an intercept.** Only matters for 8.3, where the runner's socket to ky would go
+   through the handler.
+5. **Which GraphQL queries gh sends** for the PR commands ky's agents use, to set the allowlist for
+   option (a).
