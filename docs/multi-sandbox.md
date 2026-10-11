@@ -32,10 +32,11 @@ A **sandbox** is a cloud machine. Each one has:
 | `idleMinutes` | How long it stays up with nothing open. Null means the deploy default (`KY_CLOUD_IDLE_MINUTES`, else 10). |
 | state, note, login | As every machine has today (on/paused/off, the user's note). Kept in `ky_machines`, unchanged. |
 
-New table in the PiAgent's SQLite: `ky_sandboxes (id PRIMARY KEY, name UNIQUE, repos JSON, idle_minutes, created_at)`.
+New table in the PiAgent's SQLite: `ky_sandboxes (id PRIMARY KEY, name UNIQUE, repos JSON, idle_minutes, created_at, deleted_at)`.
 It is named so backup keeps it (backup skips `ky_machine*`). The sandbox's machine row in `ky_machines`
 stays keyed by `name`, so tasks, the inbox, specialists and automations keep working as they do.
-The deploy-wide default lives in settings, not in this table (see 2).
+The deploy-wide default lives in settings, not in this table (see 2). A row with `deleted_at` set is a
+kept disk, not a sandbox (see 3). Why this table and not a DO of its own: see 3a.
 
 What each sandbox has **of its own**:
 
@@ -124,14 +125,25 @@ All in Settings › Machines. Sandboxes listed first, then computers, as today.
   `ky_machine_inbox`, the task feed's `worker`, specialists' and automations' `machine`, and the
   default setting. The `id` (DO, R2 key) doesn't change, so nothing in Cloudflare moves. The old
   pairing token is revoked; the next start pairs under the new name.
-- **Delete.** Confirm dialog: "Delete web? Its tasks end and its saved disk (12 MB) is deleted. This
-  can't be undone." Then:
+- **Delete.** The owner's call: the saved disk is **kept**. Confirm dialog: "Delete web? Its tasks
+  end. Its disk (12 MB) is kept under Kept disks until you delete it there." Then:
   1. Same as unpairing a computer: tasks end, inbox dropped, token revoked.
-  2. The CloudMachine destroys its container (if running), deletes its R2 save, and clears its storage
-     and alarm.
-  3. The rows go.
+  2. If the container runs, the CloudMachine saves it to R2 first (as a sleep does), then destroys
+     it and clears its own storage and alarm. If that save fails, the last good save stays and
+     Settings says so.
+  3. The `ky_machines` row goes. The `ky_sandboxes` row stays with `deleted_at` set: it is now a kept
+     disk, and keeps its old name, id and repos.
   Deleting the default sandbox is allowed; the default then falls to none (step 4 of routing).
   Deleting the last sandbox is allowed too.
+- **Kept disks.** A section under the sandboxes in Settings › Machines, shown only when there is one.
+  Each line: the old name, the save's size and date (from R2's `head`, so always true), and a Delete
+  button. Delete there removes the R2 object and the row, after a confirm. Kept disks don't count
+  toward the cap of 8; they cost only R2 storage ($0.015 per GB-month).
+- **Start a new sandbox from a kept disk.** Cheap, so in PR 1. The create form gets "Start from:
+  a fresh disk / <kept disk>". Picking one reuses the kept row's `id` for the new sandbox: same
+  Durable Object name, same R2 key, so its first wake restores that save. No copy, no new code path
+  in the CloudMachine. The kept row becomes a live sandbox again, with the new name; it leaves Kept
+  disks. One kept disk starts one sandbox.
 - **Settings per sandbox:** on/paused/off and note (as today), repos, idle minutes, "make default".
 - **State per sandbox:** asleep / waking / running, as today's `CloudState`, plus tasks running and
   the size and date of its last save ("saved 12 MB, 2 h ago").
@@ -139,7 +151,104 @@ All in Settings › Machines. Sandboxes listed first, then computers, as today.
   - `list` shows each sandbox with its repos, state and whether it's the default.
   - `run` takes `repo`.
   - Create, rename and delete stay in Settings only. The agent shouldn't create containers or delete
-    disks on its own. (Open question 4.)
+    disks on its own. (Open question 4, accepted.)
+
+## 3a. Where sandbox state lives
+
+What reads it, and how:
+
+- **Routing and the tool description** (MachineHub, in the PiAgent). The `machine` tool's
+  description is a sync getter, and `pickMachine` is sync. They need the sandbox list and repos
+  without an `await`.
+- **The GitHub proxy** (a Worker entrypoint), on each git request: "may sandbox X reach repo Y?"
+- **The CloudMachine**, at each start and alarm: its name (to pair as) and its idle minutes.
+- **Backup**, which reads the PiAgent's SQLite only (plus a `head` on R2).
+- **Settings**, which talks to the PiAgent.
+
+Everything a rename touches already lives in the PiAgent: `ky_machines`, the inbox, the task feed,
+specialists, automations, the default setting.
+
+### Option 1: a `ky_sandboxes` table in the PiAgent (as designed)
+
+- **Maintain.** One new module, `src/sandboxes.ts` (a class over the PiAgent's SQL, like
+  `src/specialists.ts`). MachineHub, Settings routes and backup use it. The CloudMachine and the
+  proxy each call one PiAgent RPC. Code in one place.
+- **Backup/restore.** Free: backup already dumps the PiAgent's tables. Kept disks come back as rows;
+  their R2 objects are listed under `leftOut`, as today.
+- **Rename/delete.** One SQLite transaction in one object. No cross-object step except "destroy the
+  container", which only happens on delete, after the rows are settled.
+- **Lock.** The CloudMachine sets `props.sandbox = id` on the interceptor, in one place
+  (`containerBox.start`). The proxy asks the PiAgent `sandboxRepos(id)`. A request with no
+  `props.sandbox`, or an id that is deleted, is refused. The container can't set props itself.
+  Skippable only by code that sets up an interceptor without props: there is one such call site.
+- **Failures.** One writer, the PiAgent. It's the object every chat already uses, so it's never
+  "asleep" in a way that matters: an RPC wakes it in milliseconds. One extra RPC per git request
+  (2-3 per fetch or push), small next to GitHub's own time. If the PiAgent is restarting, a git
+  request fails and git says so; the task sees an error, not a wrong answer. Repo edits apply to
+  the next git request; name edits to the next start (rename is only allowed while asleep anyway).
+- **Tests.** The existing stack (`src/tests/stack.ts`, `cloud.test.ts`) already runs a PiAgent with
+  a fake container box. Routing tests are plain unit tests on MachineHub, no DOs.
+
+### Option 2: each CloudMachine DO owns its config
+
+- **Maintain.** Looks self-contained, but it isn't: routing is sync in the PiAgent, so the PiAgent
+  needs a copy of every sandbox's name and repos anyway. That's two copies of the same facts, kept
+  in step by RPCs. Code spread over two objects.
+- **Backup/restore.** Backup must fan out to N DOs and restore must write back to N DOs. Today it
+  reads one object. New code, and N ways for a backup to be half done.
+- **Rename/delete.** Two objects: the DO and the PiAgent's tables. Not atomic. A crash between them
+  leaves a sandbox whose DO says `web` and whose tasks say `api`.
+- **Lock.** Nice locality: the proxy asks the DO that is surely awake (its container is the caller).
+  But the routing check reads the PiAgent's copy, so the two checks can disagree.
+- **Failures.** Two writers of the same facts. Listing sandboxes wakes N DOs (cheap without a
+  container, but still N RPCs on every Settings open).
+- **Tests.** Need N DOs in the stack for every list or rename test.
+
+### Option 3: one SandboxHub DO
+
+- Same split as option 2, in one place instead of N. The PiAgent still needs a sync copy for
+  routing, rename still spans two objects, backup needs a second source. It would earn its keep
+  with many users or many agents sharing sandboxes. ky is one user and one agent.
+
+### Option 4: an extension
+
+What ky's extension points are:
+
+- **pi-durable extensions** (`defineExtension`): tools and prompt sections installed into the
+  PiAgent's registry. `machineExtension` in `src/machines.ts` already is one. Its state is the
+  PiAgent's SQLite. So "an extension" here is option 1, packaged as a module. It can't add a Durable
+  Object binding, a container, an outbound interceptor or a Worker entrypoint: those are part of the
+  Worker's deploy (`wrangler.jsonc`, `cli/deployer.ts`, exports from `src/server.ts`).
+- **An Executor app.** An outside service reached over MCP with the owner's Executor token. It could
+  hold a list, but: the proxy would need an HTTPS call to Executor on every git request; Executor
+  may not be connected at all; its data is not in ky's backup; and it can't start or stop
+  containers. It can't own sandboxes.
+
+So option 4 is not a real alternative; the useful part of it (keep the code in its own module, with
+its own tool section) is what option 1 does.
+
+### Pick: option 1
+
+The PiAgent owns the sandbox list (`ky_sandboxes`, `src/sandboxes.ts`). The CloudMachine owns only
+its runtime: the container, its alarm and idle timer, ky's origin, and its save in R2. Each fact has
+one writer, rename and delete are one transaction, backup needs no change beyond `leftOut`.
+
+## 3b. Q2 in plain words: lock a repo to its sandbox?
+
+- **Routing-only.** Work on repo A goes to A's sandbox. But any sandbox's git could still fetch and
+  push any picked repo.
+- **Locked.** Also, the GitHub proxy refuses git from a sandbox to a repo that isn't its own.
+
+A catch I found, true today too: cloud tasks also get the raw GitHub token as `GH_TOKEN`, for `gh`
+(`cli/runner/tasks.ts`), and the container has open internet. A task can use that token directly
+(`gh api`, or a git URL with the token in it, which skips the proxy's rewrite). So the proxy's
+checks, today's "picked repos only" and "push only to `ky/*`" included, stop mistakes, not a task
+that goes around them. A hard wall needs one fine-grained GitHub token per sandbox, scoped to its
+repos (listed under Later), or no `GH_TOKEN` in the container.
+
+Recommendation: **locked at the proxy** in PR 1. It's a few lines on top of the props work, and it
+catches the real risk: an agent pushing project A's work from project B's sandbox. Say plainly in
+Settings that it's a guardrail. Per-sandbox tokens for a hard wall come later, if wanted.
 
 ## 4. Migration
 
@@ -162,8 +271,9 @@ Nothing moves. Today's machine *is* the first sandbox.
 
 - `ky_sandboxes` is backed up (its name avoids the `ky_machine*` skip), so a restore brings every
   sandbox back with its name, repos and settings.
-- The saved disks are still left out, as today. `leftOut` lists one line per sandbox that has a save:
-  "Sandbox web's saved disk: it is the old deploy's container; it starts with a fresh disk".
+- The saved disks are still left out, as today. `leftOut` lists one line per sandbox or kept disk
+  that has a save: "Sandbox web's saved disk: it is the old deploy's container; it starts with a
+  fresh disk". Restored kept-disk rows whose R2 object is gone are dropped on start.
 - `backupPlan().machines` (computers to re-pair) excludes every sandbox, not just `cloud`.
 - Restoring into a deploy without containers keeps the rows; Settings shows the sandboxes as
   unavailable, and routing skips them.
@@ -208,12 +318,14 @@ number of stopped instances.
   `name === CLOUD`.
 - CloudMachine keyed by id: `wake(id, origin)`, `cloudBusy(id)`, per-sandbox save key, per-sandbox
   idle minutes.
-- Settings › Machines: create, delete (with its R2 save), on/paused/off, note, repos, make default.
+- Settings › Machines: create, delete (keeps its save), on/paused/off, note, repos, make default.
+- Kept disks: listed with name, size and date; delete one; start a new sandbox from one.
 - Routing: named > repo's sandbox > default sandbox > only online computer. `run` takes `repo`.
-- GitHub proxy checks the calling sandbox's repos.
+- GitHub proxy checks the calling sandbox's repos (a guardrail; see 3b).
 - Deployer: `maxInstances: 9`, and updates it on an existing app.
 - Tests: two sandboxes waking and sleeping on their own (src/tests/cloud.test.ts's fake box),
-  routing order, delete removes the R2 save, migration keeps `cloud`'s save key, backup lists each
+  routing order, delete saves then keeps the R2 save, a new sandbox from a kept disk restores it,
+  deleting a kept disk removes the object, migration keeps `cloud`'s save key, backup lists each
   save, the proxy refuses another sandbox's repo.
 
 **Later.**
@@ -223,23 +335,21 @@ number of stopped instances.
 - Per-sandbox GitHub token (a different account or org).
 - Bigger sandboxes (a second class and app per instance type).
 - Saved disks in backups, so a restore keeps them.
+- Per-sandbox GitHub token, scoped to its repos: the hard wall of 3b.
 - Clone a sandbox (copy its save), reset a sandbox's disk.
 - Agent can create or delete sandboxes.
 
-## 7. Open questions (with my recommendation)
+## 7. Open questions: answers
 
-1. **What is a "project"?** Recommend: a GitHub repo. A sandbox lists the repos it's for. No new
-   project concept in ky.
-2. **Should a repo's work be locked to its sandbox?** Recommend: yes. The proxy only lets a sandbox
-   reach its own repos, and routing sends repo work to that sandbox. That's what makes sandboxes
-   actually separate.
-3. **How many sandboxes?** Recommend: cap at 8, `maxInstances: 9`. Easy to raise later.
-4. **Can the agent create or delete sandboxes?** Recommend: no, Settings only. It can list them, pick
-   one and set on/off and note, as it can for computers today.
-5. **Delete: delete the saved disk too, or keep it?** Recommend: delete it, after a confirm that shows
-   its size. A kept orphan save just costs money and nobody can reach it.
-6. **Can `cloud` be deleted or renamed?** Recommend: yes, both, like any other sandbox. It's only
-   special in that it existed first.
-7. **Rename in PR 1?** Recommend: no, PR 2. Create, delete and routing first.
-8. **Per-sandbox subscriptions or instance size now?** Recommend: no, later. All share the owner's
-   logins and run standard-1.
+1. **Project = a GitHub repo.** Accepted.
+2. **Lock a repo to its sandbox?** Still open. Recommend: locked at the proxy, as a guardrail (3b).
+3. **Cap.** 8 sandboxes, `maxInstances: 9`. Accepted.
+4. **Agent.** Settings only creates, renames and deletes. The agent lists, picks, and sets on/off and
+   note. Accepted.
+5. **Delete.** Keep the saved disk, shown under Kept disks with its own Delete; a new sandbox can
+   start from one (3). Owner's call.
+6. **`cloud`.** Deletable and renamable like any other. Accepted.
+7. **Rename.** PR 2. Accepted.
+8. **Logins and size.** Shared logins, standard-1 for now. Accepted.
+9. **Where sandbox state lives.** Still open. Recommend: option 1, the PiAgent's `ky_sandboxes`
+   table (3a).
