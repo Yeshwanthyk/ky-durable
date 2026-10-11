@@ -1005,6 +1005,19 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
+    name: "cloud-refused-start",
+    expect: "pass",
+    about: "a start Cloudflare refuses, with no instance to give, is tried again at once, not after the 3 minutes a start may take",
+    async run(context) {
+      const { host } = await cloudMachine(context);
+      host.refuse(2);
+      const task = await startTask(context, CLOUD, "[sh] node -e 'console.log(6 * 7)'");
+      // Waiting out each refused start would take 3 minutes; the test alarm retries in 2s.
+      await status(context, task, "done", 30_000);
+      check(host.refused() === 2 && host.starts() === 1, `two starts refused, then one container, got ${host.refused()} and ${host.starts()}`);
+    }
+  },
+  {
     name: "cloud-claude",
     expect: "pass",
     about: "a Claude Code task on the cloud machine runs with ky's Claude subscription",

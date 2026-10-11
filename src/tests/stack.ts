@@ -27,6 +27,9 @@ const IDLE_KEY = "test:idle-ms";
 /** The test alarm's tick: a start that failed is tried again soon. */
 const TEST_TICK_MS = 2_000;
 
+/** The fake host's mark on a start it refused (test/fakes/container.ts, which runs in node, not here). */
+const REFUSED_HEADER = "x-fake-refused";
+
 /**
  * A container on the fake host (test/fakes/container.ts) at `host`, which the harness starts; with no
  * host set, none runs and a start fails, as a container that never comes up.
@@ -47,7 +50,14 @@ function hostBox(host: () => Promise<string | undefined>): CloudBox {
 
       if (started.status !== 204) throw new Error(`The fake container didn't start: ${started.status}`);
     },
-    fetch: async (path, init) => fetch(await at(`/port${path}`), init),
+    fetch: async (path, init) => {
+      const answer = await fetch(await at(`/port${path}`), init);
+
+      // A start the fake refused: Cloudflare's fetch throws then.
+      if (answer.headers.has(REFUSED_HEADER)) throw new Error(await answer.text());
+
+      return answer;
+    },
     destroy: async () => {
       await (await fetch(await at("/destroy"), { method: "POST" })).body?.cancel();
     }
