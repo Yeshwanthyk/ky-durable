@@ -37,9 +37,8 @@ const PORT = 8080;
 const TICK_MS = 60_000;
 
 /**
- * How soon the alarm tries again when a start failed while work waits: a container's first start
- * on a new container app waits for Cloudflare to place it and pull its image, minutes, and a whole
- * tick on top of that is a minute nobody's task runs.
+ * How soon the alarm tries again when a start failed while work waits, as when Cloudflare had no
+ * instance to give yet: a whole tick would be a minute nobody's task runs.
  */
 const RETRY_MS = 5_000;
 
@@ -48,6 +47,12 @@ const IDLE_MINUTES = 10;
 
 /** How long a container has to start listening. */
 const START_WITHIN_MS = 3 * 60_000;
+
+/**
+ * Cloudflare's error for a start it refused, as when the last container, just put to sleep, still
+ * holds the deploy's one instance: nothing starts, however long the pings wait for it.
+ */
+const NO_INSTANCE = "There is no container instance that can be provided";
 
 /** How long the platform keeps a container whose port nothing asked: past a few missed ticks. */
 const INACTIVITY_MS = 15 * 60_000;
@@ -216,7 +221,8 @@ export class CloudMachine extends DurableObject<Env> {
 
         if (answer.ok) return (await answer.text()).trim();
       } catch (error) {
-        if (Date.now() > until) throw error;
+        // A refused start: the alarm starts it again in RETRY_MS, where waiting here would take START_WITHIN_MS.
+        if (Date.now() > until || String(error).includes(NO_INSTANCE)) throw error;
       }
 
       if (Date.now() > until) throw new Error("The cloud machine didn't start listening");

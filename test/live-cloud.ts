@@ -17,9 +17,10 @@
  *   asleep   the cloud machine is listed, and asleep (a running one is waited on to sleep first)
  *   wake     a task on it, which the main model starts in a side chat, wakes it within 5 minutes
  *   open     it stays running while the task is open, longer than the idle timeout: the task
- *            runs `sleep` for the idle timeout plus 90 seconds, in short foreground steps (Claude
- *            Code moves a command past its two-minute timeout to the background, and its turn
- *            ends at once); a turn shorter than that fails, with the steps Claude took
+ *            waits for the idle timeout plus 90 seconds, in short foreground steps (Claude Code
+ *            refuses a bare `sleep`, and moves a command past its two-minute timeout to the
+ *            background, and either ends its turn at once); a turn shorter than that fails, with
+ *            the steps Claude took
  *   sleep    once the task ends, it sleeps after the idle timeout, not before, and within two
  *            ticks and a save after it
  *   resume   a follow-up to the task wakes it again, and the task answers from its first turn:
@@ -57,10 +58,10 @@ const WAKE_MS = 5 * MINUTE;
 const HOLD_S = Math.ceil(IDLE_MS / 1000) + 90;
 
 /**
- * The hold's `sleep`s, each well under Claude Code's two-minute command timeout, even two run
- * together: a longer one it moves to the background, and the turn ends while it sleeps.
+ * The hold's waits, in seconds, each well under Claude Code's two-minute command timeout, even two
+ * run together: a longer one it moves to the background, and the turn ends while it waits.
  */
-const SLEEPS = Array.from({ length: Math.ceil(HOLD_S / 45) }, (_, at) => Math.min(45, HOLD_S - at * 45));
+const WAITS = Array.from({ length: Math.ceil(HOLD_S / 45) }, (_, at) => Math.min(45, HOLD_S - at * 45));
 
 const CLOUD = "cloud";
 
@@ -113,14 +114,15 @@ function row(task: string) {
   return main.task(task) ?? fail(`the task list lost ${task}`);
 }
 
-/** How many of the task's turns have ended done. */
-const doneTurns = (task: string) => main.history(task).filter((entry) => entry.startsWith("done:")).length;
+/** Whether the task is still queued or working. */
+const live = (task: string) => ["queued", "working"].includes(row(task).status);
 
 /** The task id a side chat's submit starts on the cloud machine. */
 async function startTask(side: Client): Promise<string> {
   const known = new Set(main.frames.flatMap((frame) => (frame.type === "tasks" ? frame.tasks.map((each) => each.id) : [])));
-  const commands = SLEEPS.map((seconds) => `\`sleep ${seconds}\``).join(", then ");
-  const prompt = `This is ky's live cloud test. Remember the code word ${word}. Run ${commands} in the shell: one command per tool call, each in the foreground and never in the background, waiting for each to finish before the next. Then reply with exactly: slept`;
+  // Node, not `sleep`: Claude Code refuses a bare sleep in the shell.
+  const commands = WAITS.map((seconds) => `\`node -e "setTimeout(() => console.log('waited ${seconds}s'), ${seconds * 1000})"\``).join(", then ");
+  const prompt = `This is ky's live cloud test. Remember the code word ${word}. Run these ${WAITS.length} commands in the shell, one per tool call, each in the foreground and never in the background, waiting for each to finish before the next: ${commands}. Then reply with exactly: waited`;
 
   await side.command({
     type: "submit",
@@ -172,7 +174,7 @@ async function open(task: string, running: number): Promise<number> {
 
       if (now !== "running") dropped ??= now;
 
-      return !["queued", "working"].includes(row(task).status);
+      return !live(task);
     },
     HOLD_S * 1000 + 10 * MINUTE
   );
@@ -184,8 +186,8 @@ async function open(task: string, running: number): Promise<number> {
   if (status !== "done") fail(`the task ended ${status}: ${summary}`);
   const held = (finished_at ?? ended) - (started_at ?? running);
 
-  // A turn shorter than its sleeps didn't wait for them: the machine wasn't held, whatever it showed.
-  if (held < HOLD_S * 1000 - 5_000) fail(`the task's turn lasted ${seconds(held)}, not the ${HOLD_S}s its sleeps take; Claude's steps: ${steps.map((step) => step.text).join(" / ")}`);
+  // A turn shorter than its waits didn't wait for them: the machine wasn't held, whatever it showed.
+  if (held < HOLD_S * 1000 - 5_000) fail(`the task's turn lasted ${seconds(held)}, not the ${HOLD_S}s its waits take; Claude's steps: ${steps.map((step) => step.text).join(" / ")}`);
   const up = ended - running;
 
   if (up < IDLE_MS) fail(`the task ended ${seconds(up)} after the wake, before the idle timeout (${seconds(IDLE_MS)}), so this proves nothing`);
@@ -210,15 +212,20 @@ async function sleep(ended: number): Promise<void> {
 
 async function resume(task: string): Promise<void> {
   const sent = Date.now();
+  // A turn's start, by ky's clock: the follow-up's is a new one. Not a count of "done" rows, which a
+  // first turn has two of once its summary is rewritten.
+  const first = row(task).started_at;
 
   await main.command({ type: "send-task", task, message: "What was the code word I gave you? Reply with only the code word." });
   await wake(task, sent, "resume");
-  await when("the follow-up to finish", () => doneTurns(task) >= 2 || ["failed", "stopped"].includes(row(task).status), 10 * MINUTE);
-  const { status, summary } = row(task);
+  await when("the follow-up to finish", () => row(task).started_at !== first && !live(task), 10 * MINUTE);
+  const { status, summary, started_at, steps } = row(task);
 
   if (status !== "done") fail(`the follow-up ended ${status}: ${summary}`);
+  // Its reply as Claude wrote it: the summary may be rewritten in other words.
+  const answered = steps.filter((step) => step.at >= (started_at ?? 0)).map((step) => step.text);
 
-  if (!summary.includes(word)) fail(`the follow-up answered "${summary}", not ${word}: the new container didn't resume the session`);
+  if (!answered.some((text) => text.includes(word))) fail(`the follow-up answered "${answered.join(" / ")}", not ${word}: the new container didn't resume the session`);
   pass("resume", `the follow-up answered ${word} from the first turn's session, restored from R2`);
 }
 

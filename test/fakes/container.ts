@@ -6,7 +6,9 @@
  *   POST /start     start one: `ky runner cloud` with the JSON env given, in a fresh, empty HOME,
  *                   as a new container starts from the image with nothing of the last one's
  *   POST /destroy   kill it and throw its HOME away
- *   *    /port/...  a request to the runner's port, as `getTcpPort(8080).fetch` is
+ *   *    /port/...  a request to the runner's port, as `getTcpPort(8080).fetch` is; after a start
+ *                   it refused, a 503 that says so with REFUSED_HEADER, which the stack's box
+ *                   throws as Cloudflare's error
  *
  * What it changes from the env it is given: KY_URL is the harness's proxy, so a scenario can break
  * the runner's network; KY_GITHUB_PROXY is the stack's github.internal route, which the real
@@ -19,6 +21,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { portOf } from "./port.ts";
 
+/** Marks the fake's answer for a start it refused: Cloudflare's `fetch` throws its error then. */
+export const REFUSED_HEADER = "x-fake-refused";
+
+/** What Cloudflare says when it has no container to give the Durable Object. */
+const NO_INSTANCE = "There is no container instance that can be provided to this Durable Object, try again later";
+
 export type ContainerHost = {
   url: string;
   /** The containers started so far. */
@@ -27,6 +35,10 @@ export type ContainerHost = {
   running: () => boolean;
   /** Kill the container as a crash does, keeping nothing. */
   crash: () => Promise<void>;
+  /** Refuse the next `count` starts, as Cloudflare does while the last container still holds the instance. */
+  refuse: (count: number) => void;
+  /** The starts refused so far. */
+  refused: () => number;
   close: () => Promise<void>;
 };
 
@@ -57,6 +69,10 @@ async function freePort(): Promise<number> {
 export async function serveContainer(options: HostOptions): Promise<ContainerHost> {
   let box: { child: ChildProcess; home: string; port: number } | undefined;
   let starts = 0;
+  let refusing = 0;
+  let refused = 0;
+  /** Whether the last start was refused, so nothing runs and the port says why. */
+  let unplaced = false;
 
   const kill = async () => {
     const was = box;
@@ -77,6 +93,15 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
 
   const start = async (env: Record<string, string>) => {
     await kill();
+    unplaced = refusing > 0;
+
+    if (unplaced) {
+      refusing--;
+      refused++;
+
+      return;
+    }
+
     starts++;
     const home = mkdtempSync(path.join(tmpdir(), "ky-cloud-home-"));
     const port = await freePort();
@@ -131,7 +156,8 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
 
     if (request.url?.startsWith("/port/")) {
       if (!box) {
-        response.writeHead(502).end("no container");
+        if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
+        else response.writeHead(502).end("no container");
 
         return;
       }
@@ -165,6 +191,10 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     starts: () => starts,
     running: () => box !== undefined && box.child.exitCode === null,
     crash: kill,
+    refuse: (count) => {
+      refusing = count;
+    },
+    refused: () => refused,
     close: async () => {
       await kill();
       await new Promise((resolve) => server.close(resolve));
