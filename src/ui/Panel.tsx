@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, type ReactNode, useContext, useEffect, useId, useState } from "react";
+import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useRef, useState } from "react";
 import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import type { SandboxChange, SandboxDraft } from "../sandboxes";
@@ -42,7 +42,7 @@ import { Executor } from "./Executor";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
-import { reveal } from "./use-panel";
+import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-panel";
 
 export type Theme = "light" | "dark";
 
@@ -331,24 +331,18 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
   );
 }
 
-// The sandboxes first (the server lists them so), then your computers, and whether ky may use each; then adding either, and the disks of deleted sandboxes.
+// The sandboxes first (the server lists them so), then your computers, each opening its own page; then adding either, and the disks of deleted sandboxes.
 function MachineList({
   machines,
   repos,
   now,
-  subscribed,
-  onSet,
 }: {
   machines: readonly MachineInfo[];
   /** The repos picked in Settings › Subscriptions › GitHub, which sandboxes may take. */
   repos: readonly string[];
   now: number;
-  /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
-  subscribed: boolean;
-  onSet: (machine: string, change: MachineChange) => void;
 }) {
   const [sandboxes, reload] = useSandboxes(machines);
-  const owned = machines.flatMap((machine) => machine.sandbox?.repos ?? []);
 
   return (
     <section className="group machines" id="settings-machines">
@@ -358,24 +352,17 @@ function MachineList({
       ) : (
         <ul className="card">
           {machines.map((machine) => (
-            <MachineItem
-              key={machine.name}
-              machine={machine}
-              now={now}
-              subscribed={subscribed}
-              repos={repos}
-              taken={owned.filter((repo) => !machine.sandbox?.repos.includes(repo))}
-              saved={machine.sandbox ? sandboxes?.saves[machine.sandbox.id] : undefined}
-              onSet={onSet}
-              onChanged={reload}
-            />
+            <MachineLink key={machine.name} machine={machine} now={now} />
           ))}
         </ul>
       )}
-      <MachineActions machines={machines} sandboxes={sandboxes} repos={repos} owned={owned} now={now} onChanged={reload} />
+      <MachineActions machines={machines} sandboxes={sandboxes} repos={repos} owned={ownedRepos(machines)} now={now} onChanged={reload} />
     </section>
   );
 }
+
+/** Every repo a sandbox has taken. */
+const ownedRepos = (machines: readonly MachineInfo[]) => machines.flatMap((machine) => machine.sandbox?.repos ?? []);
 
 // Under the machine list: adding a computer or a sandbox, then the disks deleted sandboxes kept.
 function MachineActions({
@@ -841,11 +828,11 @@ function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
   );
 }
 
-/** Whether ky may give the machine work, and what each choice means. */
-const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string, string]> = [
-  ["on", "On", "ky can send it new tasks"],
-  ["paused", "Paused", "Finishes what it's doing, takes nothing new"],
-  ["off", "Off", "Takes no tasks"],
+/** Whether ky may give the machine work. */
+const MACHINE_STATES: ReadonlyArray<readonly [MachineState, string]> = [
+  ["on", "On"],
+  ["paused", "Paused"],
+  ["off", "Off"],
 ];
 
 /** Whose Claude Code and Codex logins its tasks use. */
@@ -853,12 +840,6 @@ const MACHINE_LOGINS: ReadonlyArray<readonly [MachineLogin, string]> = [
   ["own", "This computer's"],
   ["ky", "From Subscriptions"],
 ];
-
-/** What each login choice means, once Subscriptions has a login saved. */
-const LOGIN_HINTS: Record<MachineLogin, string> = {
-  own: "Its own logins; Subscriptions fill in where it isn't signed in",
-  ky: "Always the logins saved in Subscriptions",
-};
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -1004,65 +985,103 @@ function machineSummary(machine: MachineInfo): string | null {
 /** Which repos a sandbox takes: its own, or every picked one when it has none. */
 const reachOf = (sandbox: SandboxInfo) => (sandbox.repos.length === 0 ? "every picked repo" : plural(sandbox.repos.length, "repo"));
 
-// A machine's row: its name, whether it is up and busy, and what it is; open, whether ky may use it, whose logins it uses, what it is for, and a sandbox's own choices.
-function MachineItem({
+/** A machine's state in one word, and the tone that colours it. */
+type MachineWord = { tone: MachineStatus["tone"]; word: string };
+
+/** A machine's state in one word, coloured by its tone; a sleeping sandbox is quiet, not offline. */
+function stateOf(machine: MachineInfo, now: number): MachineWord {
+  const status = machineStatus(machine, now);
+  const word = status.text.split(" · ")[0] ?? status.text;
+
+  return { tone: isCloud(machine) && status.tone === "offline" ? "off" : status.tone, word };
+}
+
+// A machine's row: its name and what it is, and its state in a word; it opens the machine's page.
+function MachineLink({ machine, now }: { machine: MachineInfo; now: number }) {
+  const state = stateOf(machine, now);
+  const summary = machineSummary(machine);
+
+  return (
+    <PageLink
+      to={{ kind: "machine", name: machine.name }}
+      icon={isCloud(machine) ? "cloud" : "monitor"}
+      label={machine.name}
+      sub={summary ? <span className="row-sub-text">{summary}</span> : null}
+    >
+      <span className="state" data-tone={state.tone}>
+        {state.word}
+      </span>
+    </PageLink>
+  );
+}
+
+// A machine's page: how it is doing, whether ky may use it, whose logins it uses, what it is for, then a sandbox's own choices or unpairing.
+function MachinePage({ page, machines, subscriptions, now, onSetMachine }: PageProps) {
+  const machine = page.kind === "machine" ? machines.find((each) => each.name === page.name) : undefined;
+
+  if (machine === undefined) return <MachineGone name={page.kind === "machine" ? page.name : ""} />;
+
+  return <MachineDetail machine={machine} machines={machines} subscriptions={subscriptions} now={now} onSet={onSetMachine} />;
+}
+
+// A machine that was unpaired or deleted while its page was open.
+function MachineGone({ name }: { name: string }) {
+  return (
+    <>
+      <PageHead title={name} />
+      <p className="group-empty">This machine is no longer paired.</p>
+    </>
+  );
+}
+
+function MachineDetail({
   machine,
+  machines,
+  subscriptions,
   now,
-  subscribed,
-  repos,
-  taken,
-  saved,
   onSet,
-  onChanged,
 }: {
   machine: MachineInfo;
+  machines: readonly MachineInfo[];
+  subscriptions: SubscriptionsData;
   now: number;
-  /** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
-  subscribed: boolean;
-  /** The picked GitHub repos a sandbox may take. */
-  repos: readonly string[];
-  /** The repos other sandboxes have. */
-  taken: readonly string[];
-  /** A sandbox's saved disk; undefined until Settings has asked. */
-  saved: SavedDisk | null | undefined;
   onSet: (machine: string, change: MachineChange) => void;
-  /** A sandbox changed in a way the machine list doesn't carry. */
-  onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [sandboxes, reload] = useSandboxes(machines);
   const status = machineStatus(machine, now);
   const summary = machineSummary(machine);
 
   return (
-    <li className="item machine" data-open={open} data-state={machine.state}>
-      <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <span className="row-tile">
-          <Icon name={isCloud(machine) ? "cloud" : "monitor"} size={15} />
+    <>
+      <PageHead title={machine.name}>
+        <span className="state" data-tone={stateOf(machine, now).tone}>
+          {status.text}
         </span>
-        <span className="row-text">
-          <span className="row-label machine-name">{machine.name}</span>
-          <span className="row-sub machine-status" data-tone={status.tone}>
-            <span className="machine-dot" aria-hidden="true" />
-            <span className="row-sub-text">{status.text}</span>
-          </span>
-          {summary ? <span className="row-sub row-sub-text">{summary}</span> : null}
-        </span>
-        <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-      </button>
-      <div className="expand" inert={!open}>
-        <div className="expand-inner">
-          <div className="item-body">
-            <MachineRestart machine={machine} />
-            <MachineSwitch machine={machine} onSet={onSet} />
-            <MachineLoginSwitch machine={machine} subscribed={subscribed} onSet={onSet} />
-            <MachineNote machine={machine} onSet={onSet} />
-            <MachineEnd machine={machine} repos={repos} taken={taken} saved={saved} now={now} onChanged={onChanged} />
-          </div>
-        </div>
+        {summary ? <span className="page-sub-line">{summary}</span> : null}
+      </PageHead>
+      <div className="card item-body machine-fields">
+        <MachineRestart machine={machine} />
+        <MachineSwitch machine={machine} onSet={onSet} />
+        <MachineLoginSwitch machine={machine} subscribed={subscribedOf(subscriptions)} onSet={onSet} />
+        <MachineNote machine={machine} onSet={onSet} />
+        <MachineEnd
+          machine={machine}
+          repos={reposOf(subscriptions)}
+          taken={ownedRepos(machines).filter((repo) => !machine.sandbox?.repos.includes(repo))}
+          saved={machine.sandbox ? sandboxes?.saves[machine.sandbox.id] : undefined}
+          now={now}
+          onChanged={reload}
+        />
       </div>
-    </li>
+    </>
   );
 }
+
+/** Whether Settings › Subscriptions has a Claude or ChatGPT login saved. */
+const subscribedOf = (subscriptions: SubscriptionsData) => subscriptions.views.some((view) => view.connected && view.kind !== "github");
+
+/** The repos picked in Settings › Subscriptions › GitHub, which sandboxes may take. */
+const reposOf = (subscriptions: SubscriptionsData) => subscriptions.views.find((view) => view.kind === "github")?.repos ?? [];
 
 // The end of an open machine: a sandbox's own choices and deleting it, or unpairing a computer.
 function MachineEnd({
@@ -1146,7 +1165,6 @@ function MachineRestart({ machine }: { machine: MachineInfo }) {
           ky runner run
         </code>
       </p>
-      <p className="field-hint">As a service, it restarts once that computer is on.</p>
     </div>
   );
 }
@@ -1164,10 +1182,8 @@ function MachineField({ label, hint, children }: { label: string; hint?: ReactNo
 
 // On, paused or off: whether ky may use the machine.
 function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
-  const hint = MACHINE_STATES.find(([each]) => each === machine.state)?.[2] ?? "";
-
   return (
-    <MachineField label="Takes tasks" hint={hint}>
+    <MachineField label="Takes tasks">
       <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
         {MACHINE_STATES.map(([each, label]) => (
           <button
@@ -1197,7 +1213,7 @@ function MachineLoginSwitch({
   onSet: (machine: string, change: MachineChange) => void;
 }) {
   return (
-    <MachineField label="Claude & Codex login" hint={<LoginHint login={machine.login} subscribed={subscribed} />}>
+    <MachineField label="Claude & Codex login" hint={subscribed ? undefined : <LoginHint login={machine.login} />}>
       <div className="segmented small" role="radiogroup" aria-label={`Whose login ${machine.name} uses`}>
         {MACHINE_LOGINS.map(([each, label]) => (
           <button
@@ -1217,14 +1233,14 @@ function MachineLoginSwitch({
   );
 }
 
-// What the chosen login means, or that Subscriptions has nothing to hand over yet.
-function LoginHint({ login, subscribed }: { login: MachineLogin; subscribed: boolean }) {
-  if (subscribed) return LOGIN_HINTS[login];
+// That Subscriptions has nothing to hand over yet.
+function LoginHint({ login }: { login: MachineLogin }) {
+  const { openSection } = useContext(SettingsNavContext);
 
   const saved = (
     <>
       Nothing is saved in{" "}
-      <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
+      <button type="button" className="refused-link" onClick={() => openSection("settings-subscriptions")}>
         Subscriptions
       </button>{" "}
       yet
@@ -1415,12 +1431,15 @@ function TaskItem({
   );
 }
 
-const PURPOSES: ReadonlyArray<{ purpose: Purpose; label: string; hint: string }> = [
-  { purpose: "main", label: "Main agent", hint: "Talks to you, in every chat" },
-  { purpose: "worker", label: "Worker", hint: "Subagents, specialists and automations" },
-  { purpose: "background", label: "Background", hint: "Titles, memory, dreams and skill reviews. Small and quick is best" },
-  { purpose: "fallback", label: "Fallback", hint: "Answers when a provider is down" },
-];
+/** What each purpose is called, and what it does. */
+const PURPOSE_TEXT = {
+  main: { label: "Main agent", hint: "Talks to you, in every chat" },
+  worker: { label: "Worker", hint: "Subagents, specialists and automations" },
+  background: { label: "Background", hint: "Titles, memory, dreams and skill reviews. Small and quick is best" },
+  fallback: { label: "Fallback", hint: "Answers when a provider is down" },
+} as const satisfies Record<Purpose, { label: string; hint: string }>;
+
+const PURPOSES: readonly Purpose[] = ["main", "worker", "background", "fallback"];
 
 const LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = {
   off: "Off",
@@ -1459,106 +1478,158 @@ function Parts({ parts }: { parts: readonly string[] }) {
   );
 }
 
-// A purpose's row shows what it runs; open, it lists the models to pick from and how hard to think.
-function ModelRow({
+/** The provider and model a choice names, when Settings has them. */
+type ModelPick = { provider: ProviderInfo | undefined; model: ModelOption | undefined };
+
+function modelOf(settings: SettingsView, choice: ModelChoice): ModelPick {
+  const provider = settings.providers.find((each) => each.id === choice.provider);
+
+  return { provider, model: provider?.models.find((each) => each.modelId === choice.modelId) };
+}
+
+// A purpose's row: what it runs; it opens the purpose's page.
+function ModelLink({ purpose, current, settings }: { purpose: Purpose; current: ModelChoice; settings: SettingsView }) {
+  const { provider, model } = modelOf(settings, current);
+
+  return (
+    <PageLink
+      to={{ kind: "model", purpose }}
+      icon={PURPOSE_ICONS[purpose]}
+      label={PURPOSE_TEXT[purpose].label}
+      sub={<Parts parts={summaryOf(current, provider, model)} />}
+    />
+  );
+}
+
+// How hard the chosen model thinks, when it has a choice.
+function ThinkingPicker({
   purpose,
   current,
-  label,
-  hint,
   settings,
-  open,
-  onToggle,
   onSet,
 }: {
   purpose: Purpose;
   current: ModelChoice;
-  label: string;
-  hint: string;
   settings: SettingsView;
-  open: boolean;
-  onToggle: () => void;
+  onSet: (purpose: Purpose, choice: ModelChoice) => void;
+}) {
+  const levels = modelOf(settings, current).model?.levels ?? [];
+
+  if (levels.length < 2) return null;
+
+  return (
+    <section className="group">
+      <h4 className="group-label">Thinking</h4>
+      <div className="card">
+        <div className="row thinking">
+          <div className="segmented small" role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} thinking`}>
+            {levels.map((each) => (
+              <button
+                key={each}
+                type="button"
+                role="radio"
+                aria-checked={current.thinkingLevel === each}
+                className="pressable"
+                onClick={() => onSet(purpose, { ...current, thinkingLevel: each })}
+              >
+                {LEVELS[each] ?? each}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** The choice that picks `model`, keeping the thinking level when the model has it. */
+function choiceOf(provider: ProviderInfo, model: ModelOption, current: ModelChoice): ModelChoice {
+  const thinkingLevel = model.levels.includes(current.thinkingLevel) ? current.thinkingLevel : (model.levels[0] ?? current.thinkingLevel);
+
+  return { provider: provider.id, modelId: model.modelId, thinkingLevel };
+}
+
+// Every model of every connected provider, with its price; the chosen one is checked.
+function ModelChoices({
+  purpose,
+  current,
+  settings,
+  onSet,
+}: {
+  purpose: Purpose;
+  current: ModelChoice;
+  settings: SettingsView;
   onSet: (purpose: Purpose, choice: ModelChoice) => void;
 }) {
   const connected = settings.providers.filter((provider) => provider.connected);
-  const provider = settings.providers.find((each) => each.id === current.provider);
-  const model = provider?.models.find((each) => each.modelId === current.modelId);
-  const levels = model?.levels ?? [];
 
   return (
-    <li className="item model-row" data-open={open}>
-      <button type="button" className="row disclosure" aria-expanded={open} onClick={onToggle}>
-        <span className="row-tile">
-          <Icon name={PURPOSE_ICONS[purpose]} size={15} />
-        </span>
-        <span className="row-text">
-          <span className="row-label">{label}</span>
-          <span className="row-sub row-current">
-            <Parts parts={summaryOf(current, provider, model)} />
-          </span>
-        </span>
-        <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-      </button>
-      <div className="expand" inert={!open}>
-        <div className="expand-inner">
-          <p className="choices-note">{hint}</p>
-          <ul className="choices" role="radiogroup" aria-label={`${label} model`}>
-            {connected.flatMap((provider) =>
-              provider.models.map((each) => {
-                const chosen = provider.id === current.provider && each.modelId === current.modelId;
-
-                return (
-                  <li key={`${provider.id}/${each.modelId}`}>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={chosen}
-                      className="choice"
-                      onClick={() =>
-                        onSet(purpose, {
-                          provider: provider.id,
-                          modelId: each.modelId,
-                          thinkingLevel: each.levels.includes(current.thinkingLevel)
-                            ? current.thinkingLevel
-                            : (each.levels[0] ?? current.thinkingLevel),
-                        })
-                      }
-                    >
-                      <span className="choice-text">
-                        <span>{each.name}</span>
-                        <span className="row-sub">
-                          <Parts parts={each.cost ? [provider.name, `$${each.cost.input} / $${each.cost.output} per M`] : [provider.name]} />
-                        </span>
-                      </span>
-                      <Icon name="check" size={14} className="choice-check" />
-                    </button>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-          {levels.length > 1 ? (
-            <div className="thinking">
-              <span className="field-label">Thinking</span>
-              <div className="segmented small" role="radiogroup" aria-label={`${label} thinking`}>
-                {levels.map((each) => (
-                  <button
-                    key={each}
-                    type="button"
-                    role="radio"
-                    aria-checked={current.thinkingLevel === each}
-                    className="pressable"
-                    onClick={() => onSet(purpose, { ...current, thinkingLevel: each })}
-                  >
-                    {LEVELS[each] ?? each}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </li>
+    <section className="group">
+      <h4 className="group-label">Model</h4>
+      <ul className="card choices" role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} model`}>
+        {connected.flatMap((provider) =>
+          provider.models.map((each) => (
+            <li key={`${provider.id}/${each.modelId}`}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={provider.id === current.provider && each.modelId === current.modelId}
+                className="choice"
+                onClick={() => onSet(purpose, choiceOf(provider, each, current))}
+              >
+                <span className="choice-text">
+                  <span>{each.name}</span>
+                  <span className="row-sub">
+                    <Parts parts={each.cost ? [provider.name, `$${each.cost.input} / $${each.cost.output} per M`] : [provider.name]} />
+                  </span>
+                </span>
+                <Icon name="check" size={14} className="choice-check" />
+              </button>
+            </li>
+          )),
+        )}
+      </ul>
+    </section>
   );
+}
+
+// A purpose's page: what it does, how hard it thinks, and the models to pick from.
+function ModelPage({ page, settings, onSet }: PageProps) {
+  const purpose = page.kind === "model" ? page.purpose : "main";
+
+  return (
+    <>
+      <PageHead title={PURPOSE_TEXT[purpose].label}>{PURPOSE_TEXT[purpose].hint}</PageHead>
+      <ModelPickers purpose={purpose} current={settings?.purposes[purpose]} settings={settings} onSet={onSet} />
+    </>
+  );
+}
+
+// How hard to think and which model, once Settings has them.
+function ModelPickers({
+  purpose,
+  current,
+  settings,
+  onSet,
+}: {
+  purpose: Purpose;
+  current: ModelChoice | undefined;
+  settings: SettingsView | null;
+  onSet: (purpose: Purpose, choice: ModelChoice) => void;
+}) {
+  if (!settings || !current) return <NoModels loading={!settings} />;
+
+  return (
+    <>
+      <ThinkingPicker purpose={purpose} current={current} settings={settings} onSet={onSet} />
+      <ModelChoices purpose={purpose} current={current} settings={settings} onSet={onSet} />
+    </>
+  );
+}
+
+/** Why there is no model to show: Settings is still loading, or no provider is on. */
+function NoModels({ loading }: { loading: boolean }) {
+  return <p className="group-empty">{loading ? "Loading models…" : "No model provider is enabled."}</p>;
 }
 
 // A provider or tool: what it needs while it is off, or why it last failed, and how it stands.
@@ -1630,6 +1701,8 @@ const SUBSCRIPTIONS = "Settings › Subscriptions";
 
 // Why a key was refused; where it names Settings › Subscriptions, that is a link to it.
 function KeyRefusal({ text }: { text: string | undefined }) {
+  const { openSection } = useContext(SettingsNavContext);
+
   if (!text) return null;
   const [before, ...after] = text.split(SUBSCRIPTIONS);
 
@@ -1637,7 +1710,7 @@ function KeyRefusal({ text }: { text: string | undefined }) {
     <p className="automation-refused" role="alert">
       {before}
       {after.length > 0 ? (
-        <button type="button" className="refused-link" onClick={() => reveal("settings-subscriptions")}>
+        <button type="button" className="refused-link" onClick={() => openSection("settings-subscriptions")}>
           {SUBSCRIPTIONS}
         </button>
       ) : null}
@@ -1789,10 +1862,7 @@ function SelfEdits({
           <span className="row-tile">
             <Icon name="repo" size={15} />
           </span>
-          <span className="row-text">
-            <span className="row-label">ky's repo</span>
-            <span className="row-sub">ky changes itself through pull requests here</span>
-          </span>
+          <span className="row-label">ky's repo</span>
           <InlineEdit
             value={repo ?? ""}
             className="repo-edit"
@@ -1813,10 +1883,7 @@ function SelfEdits({
           <span className="row-tile">
             <Icon name="globe" size={15} />
           </span>
-          <span className="row-text">
-            <span className="row-label">ky's address</span>
-            <span className="row-sub">Taken from the page that sets the repo</span>
-          </span>
+          <span className="row-label">ky's address</span>
           <span className="row-value repo-edit">{url ?? <span className="quiet">Set with the repo</span>}</span>
         </div>
       </div>
@@ -1855,20 +1922,7 @@ function ToolsGroup({ catalog }: { catalog: readonly ToolInfo[] }) {
   );
 }
 
-function Settings({
-  settings,
-  setup,
-  catalog,
-  machines,
-  subscriptions,
-  now,
-  theme,
-  onTheme,
-  onSet,
-  onSetMachine,
-  onSetRepo,
-  keyActions,
-}: {
+type SettingsProps = {
   settings: SettingsView | null;
   setup: SetupView | null;
   catalog: readonly ToolInfo[];
@@ -1881,78 +1935,385 @@ function Settings({
   onSetMachine: (machine: string, change: MachineChange) => void;
   onSetRepo: (repo: string) => Promise<string | undefined>;
   keyActions: KeyActions;
+};
+
+/** What every Settings page is drawn from: Settings' data and the page it is on. */
+type PageProps = SettingsProps & { page: SettingsPage };
+
+/** A page's identity, for keys and for finding the row that opens it. */
+const keyOf = (page: SettingsPage) => JSON.stringify(page);
+
+/** Where each page's back button goes; every page not listed here goes back to Settings. */
+const PARENTS: Partial<Record<SettingsPage["kind"], SettingsPage>> = { model: { kind: "models" }, machine: { kind: "machines" } };
+
+const parentOf = (page: SettingsPage) => PARENTS[page.kind] ?? SETTINGS_HOME;
+
+/** What the back button says, by the page it goes to. */
+const BACK_LABELS: Partial<Record<SettingsPage["kind"], string>> = { models: "Models", machines: "Machines" };
+
+// A page's large title, which takes focus when the page opens, and a line under it.
+function PageHead({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <header className="page-head">
+      <h3 className="page-title" tabIndex={-1}>
+        {title}
+      </h3>
+      {children ? <p className="page-sub">{children}</p> : null}
+    </header>
+  );
+}
+
+// A row that opens a page: its icon, its name and a line under it, what it is set to, and a chevron.
+function PageLink({
+  to,
+  icon,
+  label,
+  sub,
+  children,
+}: {
+  to: SettingsPage;
+  icon: IconName;
+  label: string;
+  sub?: ReactNode;
+  children?: ReactNode;
 }) {
-  const [openPurpose, setOpenPurpose] = useState<Purpose | null>(null);
+  const { go } = useContext(SettingsNavContext);
 
   return (
-    <div className="panel-body settings" data-scroll>
-      <section className="group">
-        <h3 className="group-label">Appearance</h3>
-        <div className="card">
-          <div className="row">
-            <span className="row-tile">
-              <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
+    <li>
+      <button type="button" className="row page-link" data-goes={keyOf(to)} onClick={() => go(to)}>
+        <span className="row-tile">
+          <Icon name={icon} size={15} />
+        </span>
+        <span className="row-text">
+          <span className="row-label">{label}</span>
+          {sub ? <span className="row-sub">{sub}</span> : null}
+        </span>
+        {children}
+        <Icon name="chevronRight" size={14} className="row-chevron" />
+      </button>
+    </li>
+  );
+}
+
+/** A line at the top of Settings: what it is about, what it says, and the page it opens. */
+type GlanceLine = { to: SettingsPage; label: string; text: string; tone?: MachineStatus["tone"] | undefined };
+
+/** The one machine worth naming: the only one, or the only one online. */
+function machineToName(pool: readonly MachineInfo[]): MachineInfo | undefined {
+  if (pool.length === 1) return pool[0];
+  const online = pool.filter((machine) => machine.online);
+
+  return online.length === 1 ? online[0] : undefined;
+}
+
+/** How many machines are online, when no one machine is worth naming. */
+function machineCount(pool: readonly MachineInfo[]): GlanceLine {
+  const online = pool.filter((machine) => machine.online).length;
+
+  if (pool.length === 0) return { to: { kind: "machines" }, label: "Machines", text: "None paired", tone: "off" };
+
+  return { to: { kind: "machines" }, label: "Machines", text: `${online} of ${pool.length} online`, tone: online > 0 ? "online" : "offline" };
+}
+
+/** Your computer and whether it is up; sandboxes only when there is no computer. */
+function machineGlance(machines: readonly MachineInfo[], now: number): GlanceLine {
+  const computers = machines.filter((machine) => !isCloud(machine));
+  const pool = computers.length > 0 ? computers : machines;
+  const named = machineToName(pool);
+
+  if (named === undefined) return machineCount(pool);
+  const state = stateOf(named, now);
+
+  return { to: { kind: "machine", name: named.name }, label: named.name, text: state.word, tone: state.tone };
+}
+
+/** The main agent's model. */
+function mainGlance(settings: SettingsView | null): GlanceLine {
+  if (!settings) return { to: { kind: "models" }, label: "Main agent", text: "Loading…" };
+  const main = settings.purposes.main;
+
+  return main
+    ? { to: { kind: "model", purpose: "main" }, label: "Main agent", text: modelName(settings, main) }
+    : { to: { kind: "models" }, label: "Main agent", text: "Not set" };
+}
+
+const modelName = (settings: SettingsView, choice: ModelChoice): string => modelOf(settings, choice).model?.name ?? choice.modelId;
+
+/** What the VibeProxy line can say. */
+type VibeWord = "loading" | "absent" | "online" | "offline";
+
+const VIBE_WORDS = {
+  loading: ["Loading…", "off"],
+  absent: ["Not set up", "off"],
+  online: ["Connected", "online"],
+  offline: ["Not connected", "offline"],
+} as const satisfies Record<VibeWord, readonly [string, MachineStatus["tone"]]>;
+
+/** Whether setup lists a service as missing. */
+const isMissing = (setup: SetupView | null, id: string): boolean => setup?.missing.some((each) => each.id === id) ?? false;
+
+function vibeWord(vibe: ProviderInfo | undefined, missing: boolean): VibeWord {
+  if (vibe === undefined || missing) return "absent";
+
+  return vibe.connected ? "online" : "offline";
+}
+
+/** Whether VibeProxy, on your Mac, is reachable; a deploy without it says so. */
+function vibeGlance(settings: SettingsView | null, setup: SetupView | null): GlanceLine {
+  const word = settings ? vibeWord(settings.providers.find((provider) => provider.id === VIBEPROXY), isMissing(setup, VIBEPROXY)) : "loading";
+  const [text, tone] = VIBE_WORDS[word];
+
+  return { to: { kind: "providers" }, label: "VibeProxy", text, tone };
+}
+
+const VIBEPROXY = "vibeproxy";
+
+// The three things worth checking first: your computer, the main agent's model, and VibeProxy; each opens its page.
+function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machines" | "settings" | "setup" | "now">) {
+  const { go } = useContext(SettingsNavContext);
+  const lines = [machineGlance(machines, now), mainGlance(settings), vibeGlance(settings, setup)];
+
+  return (
+    <ul className="glance" aria-label="Status">
+      {lines.map((line) => (
+        <li key={line.label}>
+          <button type="button" className="glance-line pressable" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
+            <span className="glance-label">{line.label}</span>
+            <span className="glance-value state" data-tone={line.tone}>
+              {line.text}
             </span>
-            <span className="row-label">Theme</span>
-            <div className="segmented small" role="radiogroup" aria-label="Theme">
-              {(["light", "dark"] as const).map((each) => (
-                <button
-                  key={each}
-                  type="button"
-                  role="radio"
-                  aria-checked={theme === each}
-                  className="pressable"
-                  onClick={() => onTheme(each)}
-                >
-                  {each === "light" ? "Light" : "Dark"}
-                </button>
-              ))}
-            </div>
+            <Icon name="chevronRight" size={14} className="row-chevron" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** How many machines are online, in a few words. */
+function machinesValue(machines: readonly MachineInfo[]): string {
+  const online = machines.filter((machine) => machine.online).length;
+
+  if (machines.length === 0) return "None";
+
+  return online === machines.length ? `${online} online` : `${online} of ${machines.length} online`;
+}
+
+/** How many there are, or None. */
+const countOrNone = (count: number, word: string) => (count === 0 ? "None" : `${count} ${word}`);
+
+/** Settings' groups, in order: the page each opens, and what it is set to now. */
+const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; value: (props: SettingsProps) => string }> = [
+  { to: { kind: "models" }, icon: "chat", label: "Models", value: ({ settings }) => plural(Object.keys(settings?.purposes ?? {}).length, "role") },
+  {
+    to: { kind: "providers" },
+    icon: "plug",
+    label: "Providers",
+    value: ({ settings }) => countOrNone(settings?.providers.filter((provider) => provider.connected).length ?? 0, "connected"),
+  },
+  { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
+  {
+    to: { kind: "subscriptions" },
+    icon: "globe",
+    label: "Subscriptions",
+    value: ({ subscriptions }) => countOrNone(subscriptions.views.filter((view) => view.connected).length, "connected"),
+  },
+  { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
+  { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
+  { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
+];
+
+// Settings' first page: what matters at a glance, then every group and what it is set to.
+function SettingsHome(props: PageProps) {
+  return (
+    <>
+      <Glance machines={props.machines} settings={props.settings} setup={props.setup} now={props.now} />
+      <ul className="card settings-groups" aria-label="Settings">
+        {GROUPS.map((group) => (
+          <PageLink key={group.label} to={group.to} icon={group.icon} label={group.label}>
+            <span className="row-value">{group.value(props)}</span>
+          </PageLink>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function ModelsPage({ settings }: PageProps) {
+  return (
+    <>
+      <PageHead title="Models" />
+      <ModelLinks settings={settings} />
+    </>
+  );
+}
+
+// Each purpose and what it runs, once Settings has them.
+function ModelLinks({ settings }: { settings: SettingsView | null }) {
+  if (settings === null) return <NoModels loading />;
+
+  const set = PURPOSES.flatMap((purpose) => {
+    const current = settings.purposes[purpose];
+
+    return current ? [{ purpose, current }] : [];
+  });
+
+  if (set.length === 0) return <NoModels loading={false} />;
+
+  return (
+    <ul className="card">
+      {set.map(({ purpose, current }) => (
+        <ModelLink key={purpose} purpose={purpose} current={current} settings={settings} />
+      ))}
+    </ul>
+  );
+}
+
+function ProvidersPage({ settings, setup, keyActions }: PageProps) {
+  return (
+    <>
+      <PageHead title="Providers" />
+      {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : <p className="group-empty">Loading providers…</p>}
+    </>
+  );
+}
+
+function MachinesPage({ machines, subscriptions, now }: PageProps) {
+  return (
+    <>
+      <PageHead title="Machines" />
+      <MachineList machines={machines} repos={reposOf(subscriptions)} now={now} />
+    </>
+  );
+}
+
+function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
+  return (
+    <>
+      <PageHead title="Subscriptions">Machines use these where they aren't signed in.</PageHead>
+      <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
+    </>
+  );
+}
+
+function ToolsPage({ catalog }: PageProps) {
+  return (
+    <>
+      <PageHead title="Tools" />
+      <ToolsGroup catalog={catalog} />
+      <Executor />
+    </>
+  );
+}
+
+function AppearancePage({ theme, onTheme }: PageProps) {
+  return (
+    <>
+      <PageHead title="Appearance" />
+      <div className="card">
+        <div className="row">
+          <span className="row-tile">
+            <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
+          </span>
+          <span className="row-label">Theme</span>
+          <div className="segmented small" role="radiogroup" aria-label="Theme">
+            {(["light", "dark"] as const).map((each) => (
+              <button key={each} type="button" role="radio" aria-checked={theme === each} className="pressable" onClick={() => onTheme(each)}>
+                {each === "light" ? "Light" : "Dark"}
+              </button>
+            ))}
           </div>
         </div>
-      </section>
-      <section className="group">
-        <h3 className="group-label">Models</h3>
-        {settings === null ? (
-          <p className="group-empty">Loading models…</p>
-        ) : Object.keys(settings.purposes).length === 0 ? (
-          <p className="group-empty">No model provider is enabled.</p>
-        ) : (
-          <ul className="card">
-            {PURPOSES.flatMap(({ purpose, label, hint }) => {
-              const current = settings.purposes[purpose];
+      </div>
+    </>
+  );
+}
 
-              return current
-                ? [
-                    <ModelRow
-                      key={purpose}
-                      purpose={purpose}
-                      current={current}
-                      label={label}
-                      hint={hint}
-                      settings={settings}
-                      open={openPurpose === purpose}
-                      onToggle={() => setOpenPurpose((value) => (value === purpose ? null : purpose))}
-                      onSet={onSet}
-                    />,
-                  ]
-                : [];
-            })}
-          </ul>
-        )}
-      </section>
-      {settings ? <Services settings={settings} setup={setup} keyActions={keyActions} /> : null}
-      <MachineList
-        machines={machines}
-        repos={subscriptions.views.find((view) => view.kind === "github")?.repos ?? []}
-        now={now}
-        subscribed={subscriptions.views.some((view) => view.connected && view.kind !== "github")}
-        onSet={onSetMachine}
-      />
-      <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
-      <Executor />
-      <ToolsGroup catalog={catalog} />
-      {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : null}
+function SelfEditsPage({ setup, onSetRepo }: PageProps) {
+  return (
+    <>
+      <PageHead title="Self-edits">ky changes itself through pull requests to this repo.</PageHead>
+      {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : <p className="group-empty">Loading…</p>}
+    </>
+  );
+}
+
+/** What each page shows. */
+const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> = {
+  home: SettingsHome,
+  models: ModelsPage,
+  model: ModelPage,
+  providers: ProvidersPage,
+  machines: MachinesPage,
+  machine: MachinePage,
+  subscriptions: SubscriptionsPage,
+  tools: ToolsPage,
+  appearance: AppearancePage,
+  "self-edits": SelfEditsPage,
+};
+
+/** The fields that use Escape themselves, to put their text back. */
+const FIELDS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/** Whether a key press asks to go back a page: Escape, which no field has used. */
+const asksBack = (event: KeyboardEvent<HTMLElement>) =>
+  event.key === "Escape" && !event.defaultPrevented && !(event.target instanceof HTMLElement && FIELDS.has(event.target.tagName));
+
+/** Put focus on the row that opens the page just left, else on the page's title, else on the page itself. */
+function focusPage(body: HTMLElement | null, left: string | null) {
+  const opener = left === null ? null : body?.querySelector<HTMLElement>(`[data-goes="${CSS.escape(left)}"]`);
+
+  (opener ?? body?.querySelector<HTMLElement>(".page-title") ?? body)?.focus({ preventScroll: true });
+}
+
+// Moving between pages moves focus: forward to the new page's title, back to the row the user came from.
+function usePageFocus(page: SettingsPage, body: RefObject<HTMLDivElement | null>, left: RefObject<string | null>) {
+  const shown = useRef(keyOf(page));
+
+  useEffect(() => {
+    if (keyOf(page) === shown.current) return;
+    shown.current = keyOf(page);
+    focusPage(body.current, left.current);
+    left.current = null;
+  }, [page, body, left]);
+}
+
+// Settings: what matters at a glance and its groups; each group, model choice and machine on a page of its own, with a way back.
+function Settings(props: SettingsProps) {
+  const { page, go } = useContext(SettingsNavContext);
+  const body = useRef<HTMLDivElement>(null);
+  const left = useRef<string | null>(null);
+  const View = PAGE_VIEWS[page.kind];
+  const parent = parentOf(page);
+
+  const back = () => {
+    left.current = keyOf(page);
+    go(parent);
+  };
+
+  usePageFocus(page, body, left);
+
+  return (
+    <div
+      key={keyOf(page)}
+      ref={body}
+      className="panel-body settings"
+      data-scroll
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (page.kind === "home" || !asksBack(event)) return;
+        event.stopPropagation();
+        back();
+      }}
+    >
+      {page.kind === "home" ? null : (
+        <button type="button" className="page-back pressable" onClick={back}>
+          <Icon name="arrowLeft" size={14} />
+          {BACK_LABELS[parent.kind] ?? "Settings"}
+        </button>
+      )}
+      <View page={page} {...props} />
     </div>
   );
 }

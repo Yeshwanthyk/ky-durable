@@ -1,6 +1,41 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { Purpose } from "../protocol";
 import { wide } from "./layout";
 import type { PanelTab } from "./Panel";
+
+/** Which page of Settings is showing: its list of groups, a group, or one model choice or machine. */
+export type SettingsPage =
+  | { readonly kind: "home" }
+  | { readonly kind: "models" }
+  | { readonly kind: "model"; readonly purpose: Purpose }
+  | { readonly kind: "providers" }
+  | { readonly kind: "machines" }
+  | { readonly kind: "machine"; readonly name: string }
+  | { readonly kind: "subscriptions" }
+  | { readonly kind: "tools" }
+  | { readonly kind: "appearance" }
+  | { readonly kind: "self-edits" };
+
+export const SETTINGS_HOME: SettingsPage = { kind: "home" };
+
+/** The page each Settings section is on, by its element id. */
+const SECTION_PAGES = new Map<string, SettingsPage>([
+  ["settings-providers", { kind: "providers" }],
+  ["settings-subscriptions", { kind: "subscriptions" }],
+  ["settings-machines", { kind: "machines" }],
+  ["settings-executor", { kind: "tools" }]
+]);
+
+/** Settings' page, moving between its pages, and opening the page a section is on. */
+type SettingsNav = {
+  readonly page: SettingsPage;
+  readonly go: (page: SettingsPage) => void;
+  /** Open Settings at one of its sections, by its element id, and put focus in it. */
+  readonly openSection: (id: string) => void;
+};
+
+/** Settings' pages, provided around the panel; links inside it open a section with openSection. */
+export const SettingsNavContext = createContext<SettingsNav>({ page: SETTINGS_HOME, go: () => undefined, openSection: (id) => reveal(id) });
 
 export type PanelState = {
   /** On screen, including while it pours back into the agent pill. */
@@ -13,6 +48,8 @@ export type PanelState = {
   readonly shown: boolean;
   readonly tab: PanelTab;
   readonly setTab: (tab: PanelTab) => void;
+  readonly page: SettingsPage;
+  readonly setPage: (page: SettingsPage) => void;
   readonly setOpen: (open: boolean) => void;
   readonly toggle: () => void;
   readonly openTab: (tab: PanelTab) => void;
@@ -37,7 +74,7 @@ function aim(panel: HTMLDivElement | null, who: HTMLButtonElement | null) {
 const REVEAL_FRAMES = 30;
 
 // Scroll a Settings section into view once it renders, and focus its first field or button.
-export function reveal(id: string, frames = REVEAL_FRAMES) {
+function reveal(id: string, frames = REVEAL_FRAMES) {
   requestAnimationFrame(() => {
     const section = document.getElementById(id);
 
@@ -58,6 +95,7 @@ export function usePanel(): PanelState {
   const [closing, setClosing] = useState(false);
   const [genie, setGenie] = useState(false);
   const [tab, setTab] = useState<PanelTab>("activity");
+  const [page, setPage] = useState<SettingsPage>(SETTINGS_HOME);
   const whoRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const shown = open && !closing;
@@ -102,6 +140,8 @@ export function usePanel(): PanelState {
     shown,
     tab,
     setTab,
+    page,
+    setPage,
     setOpen,
     toggle: () => setOpen(!shown),
     openTab: (next) => {
@@ -110,6 +150,7 @@ export function usePanel(): PanelState {
     },
     openSection: (id) => {
       setTab("settings");
+      setPage(SECTION_PAGES.get(id) ?? SETTINGS_HOME);
       setOpen(true);
       reveal(id);
     },

@@ -1,8 +1,8 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "../protocol";
 import { Icon, type IconName } from "./Icon";
 import { clock } from "./time";
-import { reveal } from "./use-panel";
+import { SettingsNavContext } from "./use-panel";
 
 type SubscriptionActions = {
   /** Resolves with why the token was refused, if it was. */
@@ -68,22 +68,18 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
           <GithubRow view={view("github")} actions={actions} />
         </div>
       </fieldset>
-      {paired ? (
-        <p className="group-note">
-          Machines use these where they aren't signed in, or when set to From Subscriptions. Sandboxes push with GitHub's, to ky/ branches only.
-        </p>
-      ) : (
-        <PairFirst />
-      )}
+      {paired ? null : <PairFirst />}
     </section>
   );
 }
 
 function PairFirst() {
+  const { openSection } = useContext(SettingsNavContext);
+
   return (
     <p className="group-note">
       Pair a machine first; Claude Code and Codex run there.{" "}
-      <button type="button" className="refused-link" onClick={() => reveal("settings-machines")}>
+      <button type="button" className="refused-link" onClick={() => openSection("settings-machines")}>
         Go to Machines
       </button>
     </p>

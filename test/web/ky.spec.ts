@@ -52,9 +52,19 @@ async function send(page: Page, text: string): Promise<void> {
 /** The stack's fake Executor (src/tests/stack.ts): its address, and the token it takes. */
 const EXECUTOR = { url: "https://executor.test/mcp", token: "ky-stack-executor" };
 
-/** Connect Executor in Settings › Executor, unless it is connected already. */
-async function connectExecutor(page: Page): Promise<void> {
+/** Open Settings at its first page, then the rows that lead to a page, in order: `settings(page, "Models", "Worker")`. */
+async function settings(page: Page, ...rows: string[]): Promise<void> {
   await panel(page).getByRole("tab", { name: "Settings" }).click();
+  const back = panel(page).locator(".page-back");
+
+  while (await back.isVisible()) await back.click();
+
+  for (const row of rows) await panel(page).getByRole("button", { name: new RegExp(`^${row}`) }).first().click();
+}
+
+/** Connect Executor in Settings › Tools, unless it is connected already. */
+async function connectExecutor(page: Page): Promise<void> {
+  await settings(page, "Tools");
   const form = panel(page).getByRole("form", { name: "Connect Executor" });
   const connected = panel(page).getByText(EXECUTOR.url, { exact: true });
   await expect(form.or(connected)).toBeVisible();
@@ -83,12 +93,11 @@ async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
 
 /** Pick a purpose's model in Settings, by the purpose's label and the model's radio. */
 async function pick(page: Page, purpose: string, model: RegExp): Promise<void> {
-  const row = panel(page).getByRole("button", { name: new RegExp(`^${purpose}`) });
-  await row.click();
+  await settings(page, "Models", purpose);
   const radio = panel(page).getByRole("radiogroup", { name: `${purpose} model` }).getByRole("radio", { name: model });
   await radio.click();
   await expect(radio).toHaveAttribute("aria-checked", "true");
-  await row.click();
+  await settings(page);
 }
 
 const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), operationId: Type.String() });
@@ -292,26 +301,29 @@ test("marks a side chat that ky answered while the user was in another chat, unt
 
 test("picks a purpose's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Models");
   await expect(panel(page).getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash · Workers AI");
   await panel(page).getByRole("button", { name: /^Background/ }).click();
   await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^GPT OSS 120B/ }).click();
+  await settings(page, "Models");
   await expect(panel(page).getByRole("button", { name: /^Background/ })).toContainText("GPT OSS 120B");
+  await settings(page, "Providers");
   await expect(panel(page).getByRole("listitem").filter({ hasText: "VibeProxy" })).toContainText("Off");
 
   await page.reload();
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Models");
   await expect(panel(page).getByRole("button", { name: /^Background/ })).toContainText("GPT OSS 120B");
 
   // Put it back for the other tests.
   await panel(page).getByRole("button", { name: /^Background/ }).click();
   await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^Glm 5.3 Flash/ }).click();
+  await settings(page, "Models");
   await expect(panel(page).getByRole("button", { name: /^Background/ })).not.toContainText("GPT OSS 120B");
 });
 
 test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Self-edits");
 
   try {
     await panel(page).getByRole("button", { name: "Not set" }).click();
@@ -320,7 +332,7 @@ test("sets ky's repo for self-edits in Settings and keeps it after a reload", as
     await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
 
     await page.reload();
-    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    await settings(page, "Self-edits");
     await expect(panel(page).getByRole("button", { name: "test-owner/test-repo" })).toBeVisible();
   } finally {
     // Clear it for the other tests.
@@ -333,7 +345,7 @@ test("sets ky's repo for self-edits in Settings and keeps it after a reload", as
 
 test("shows why Settings refused ky's repo in its row, and keeps the repo unset", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Self-edits");
 
   await panel(page).getByRole("button", { name: "Not set" }).click();
   await panel(page).getByRole("textbox", { name: "ky's GitHub repo" }).fill("not a repo");
@@ -347,7 +359,7 @@ test("shows why Settings refused ky's repo in its row, and keeps the repo unset"
 
 test("adds an Anthropic key in Settings once its test call passes, runs on Claude, and falls back when it is removed", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Providers");
   const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
   const main = panel(page).getByRole("button", { name: /^Main agent/ });
   // Exact, as the form's own name, "Add an API key", contains it.
@@ -365,17 +377,20 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText("3 models");
     await expect(key).toHaveValue("");
     await expect(providers.getByRole("alert")).toBeHidden();
+    await settings(page, "Models");
     await expect(main).toContainText("· Anthropic");
   } finally {
+    await settings(page, "Providers");
     await providers.getByRole("button", { name: "Remove the Anthropic key" }).click();
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
+    await settings(page, "Models");
     await expect(main).toContainText("Glm 5.3 Flash · Workers AI");
   }
 });
 
 test("refuses a Claude subscription token as an Anthropic key, and links to Subscriptions where it goes", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Providers");
   const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
 
   await providers.getByRole("combobox", { name: "Vendor" }).selectOption({ label: "Anthropic" });
@@ -385,7 +400,7 @@ test("refuses a Claude subscription token as an Anthropic key, and links to Subs
   await expect(providers.getByRole("button", { name: "Remove the Anthropic key" })).toBeHidden();
 
   await providers.getByRole("alert").getByRole("button", { name: "Settings › Subscriptions" }).click();
-  await expect(panel(page).getByRole("heading", { name: "Subscriptions" })).toBeInViewport();
+  await expect(panel(page).getByRole("heading", { name: "Subscriptions" }).first()).toBeInViewport();
 });
 
 test("turns Subscriptions off until a machine is paired, and links to Machines", async ({ page }) => {
@@ -400,7 +415,7 @@ test("turns Subscriptions off until a machine is paired, and links to Machines",
     });
   });
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Subscriptions");
   const subscriptions = panel(page).locator("#settings-subscriptions");
 
   await expect(subscriptions.getByText("Pair a machine first; Claude Code and Codex run there.")).toBeVisible();
@@ -415,7 +430,7 @@ test("turns Subscriptions off until a machine is paired, and links to Machines",
 
 test("keeps Subscriptions on while a machine is paired", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Subscriptions");
   const subscriptions = panel(page).locator("#settings-subscriptions");
 
   await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeEnabled();
@@ -435,7 +450,7 @@ for (const [width, name] of [
     const show = page.getByRole("button", { name: /Show activity$/ });
 
     if (await show.isVisible()) await show.click();
-    await panel(page).getByRole("tab", { name: "Settings" }).click();
+    await settings(page, "Subscriptions");
     const subscriptions = panel(page).locator("#settings-subscriptions");
     await subscriptions.scrollIntoViewIfNeeded();
     await subscriptions.screenshot({ path: SHOTS ? `${SHOTS}/claude-row-${name}.png` : undefined });
@@ -452,15 +467,36 @@ for (const [width, name] of [
 
 test("switches the theme and keeps it after a reload", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Appearance");
   await panel(page).getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Appearance");
   await panel(page).getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Light" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
+});
+
+test("opens Settings' pages from its first page and comes back with the button or Escape", async ({ page }) => {
+  await open(page);
+  await settings(page);
+  const status = panel(page).getByRole("list", { name: "Status" });
+  await expect(status.getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash");
+  await expect(status.getByRole("button", { name: /^VibeProxy/ })).toBeVisible();
+
+  await status.getByRole("button", { name: /^Main agent/ }).click();
+  await expect(panel(page).getByRole("heading", { name: "Main agent" })).toBeFocused();
+  await expect(panel(page).getByRole("radiogroup", { name: "Main agent model" })).toBeVisible();
+
+  // Back from a model goes to Models, and focus lands on the row that opened it.
+  await page.keyboard.press("Escape");
+  await expect(panel(page).getByRole("heading", { name: "Models" }).first()).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Main agent/ })).toBeFocused();
+
+  await panel(page).getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(status).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Models/ })).toBeFocused();
 });
 
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
@@ -618,8 +654,8 @@ test("shows a subagent's work in Activity and opens its chat", async ({ page }) 
 
 test("runs a task on a machine and shows its report", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
-  await expect(panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last()).toContainText(/idle|task/);
+  await settings(page, "Machines", "webmac");
+  await expect(panel(page).locator(".page-head")).toContainText(/idle|task/);
   await send(page, "machine@webmac build the web site");
   await expect(page.getByText("fake claude did: build the web site").first()).toBeVisible();
   await expect(page.getByText("Report from").first()).toBeVisible();
@@ -627,31 +663,32 @@ test("runs a task on a machine and shows its report", async ({ page }) => {
 
 test("lists the cloud machine first in Settings, asleep while it has no task", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Machines");
   const machines = panel(page).locator("#settings-machines").getByRole("listitem");
   await expect(machines.first()).toContainText("cloud");
   await expect(machines.first()).toContainText("Asleep");
-  await expect(machines.first().getByRole("button", { name: "Unpair this computer" })).toHaveCount(0);
-  await expect(machines.filter({ hasText: "webmac" }).last()).toContainText(/idle|task/);
+  await expect(machines.filter({ hasText: "webmac" })).toContainText("Online");
+  await machines.first().getByRole("button").click();
+  await expect(panel(page).locator(".page-head")).toContainText("Asleep · wakes when it's sent a task");
+  await expect(panel(page).getByRole("button", { name: "Unpair this computer" })).toHaveCount(0);
 });
 
 test("pauses a machine and notes what it is for in Settings, and the agent is refused it", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
-  const machine = panel(page).getByRole("listitem").filter({ hasText: "webmac" }).last();
-  // A machine's settings sit under its row, closed until it is opened.
-  const row = machine.getByRole("button", { name: /^webmac/ });
-  const states = machine.getByRole("radiogroup", { name: "Let ky use webmac" });
-  await expect(machine).toContainText(process.platform === "darwin" ? "macOS" : "Linux");
+  await settings(page, "Machines");
+  // A machine's settings are on its own page.
+  const row = panel(page).getByRole("button", { name: /^webmac/ });
+  const states = panel(page).getByRole("radiogroup", { name: "Let ky use webmac" });
+  await expect(row).toContainText(process.platform === "darwin" ? "macOS" : "Linux");
   await row.click();
-  await expect(row).toHaveAttribute("aria-expanded", "true");
+  await expect(panel(page).getByRole("heading", { name: "webmac" })).toBeFocused();
 
   await states.getByRole("radio", { name: "Paused" }).click();
   await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
 
   try {
-    const note = machine.getByRole("textbox", { name: "What it's for (optional)" });
-    await expect(machine).toContainText("Finishes what it's doing, takes nothing new");
+    const note = panel(page).getByRole("textbox", { name: "What it's for (optional)" });
+    await expect(panel(page).locator(".page-head")).toContainText("Paused");
     await note.fill("web builds");
     await note.press("Enter");
 
@@ -659,8 +696,7 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
     await expect(page.getByText(/webmac is paused/).first()).toBeVisible();
 
     await page.reload();
-    await panel(page).getByRole("tab", { name: "Settings" }).click();
-    await row.click();
+    await settings(page, "Machines", "webmac");
     await expect(states.getByRole("radio", { name: "Paused" })).toHaveAttribute("aria-checked", "true");
     await expect(note).toHaveValue("web builds");
   } finally {
@@ -672,7 +708,7 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
 
 test("adds a machine with a pairing code, then removes it", async ({ page }) => {
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
+  await settings(page, "Machines");
   await panel(page).getByRole("button", { name: "Add a machine" }).click();
   const command = panel(page).getByLabel("Pairing command");
   await expect(command).toContainText(`ky runner add ${process.env.KY_STACK_URL}`);
@@ -682,14 +718,16 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   // The command, run on the new machine.
   const added = pairable("webadd", `${REPO}/test-results/web-stack`);
   expect((await added.pair(process.env.KY_STACK_URL!, code)).code).toBe(0);
-  const machine = panel(page).getByRole("listitem").filter({ hasText: "webadd" }).last();
+  const machine = panel(page).getByRole("button", { name: /^webadd/ });
   await expect(machine).toBeVisible();
 
-  await machine.getByRole("button", { name: /^webadd/ }).click();
-  await machine.getByRole("button", { name: "Unpair this computer" }).click();
-  const confirm = machine.getByRole("alertdialog", { name: "Unpair webadd" });
+  await machine.click();
+  await panel(page).getByRole("button", { name: "Unpair this computer" }).click();
+  const confirm = panel(page).getByRole("alertdialog", { name: "Unpair webadd" });
   await expect(confirm).toContainText("pair again");
   await confirm.getByRole("button", { name: "Unpair", exact: true }).click();
+  await expect(panel(page).getByText("This machine is no longer paired.")).toBeVisible();
+  await settings(page, "Machines");
   await expect(panel(page).getByRole("listitem").filter({ hasText: "webadd" })).toHaveCount(0);
 });
 
@@ -887,7 +925,6 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
 
   await mac(page, "1");
   await open(page);
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
   await pick(page, "Main agent", /Opus/);
   await pick(page, "Fallback", /^GPT OSS 120B/);
 
@@ -907,7 +944,6 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
 
   // With a text-only main model the page warns before anything is sent.
   await page.reload();
-  await panel(page).getByRole("tab", { name: "Settings" }).click();
   await pick(page, "Main agent", /^GPT OSS 120B/);
   await attach();
   await expect(page.getByRole("alert")).toHaveText(cantRead);

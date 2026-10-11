@@ -862,41 +862,6 @@
   text-align: center;
 }
 
-/* A machine's row: the status dot and words under its name, then what it is. */
-.machine-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted);
-}
-
-.machine-dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--quiet);
-}
-
-.machine-status[data-tone="online"] .machine-dot {
-  background: var(--success);
-}
-
-.machine-status[data-tone="paused"] .machine-dot,
-.machine-status[data-tone="waking"] .machine-dot {
-  background: var(--warning);
-}
-
-.machine-status[data-tone="online"] {
-  color: var(--ink);
-}
-
-.machine[data-state="off"] .machine-name,
-.machine[data-state="paused"] .machine-name {
-  color: var(--muted);
-}
-
 /* How to bring an offline computer back: one line and the command, on a sunken patch. */
 .machine-restart {
   display: flex;
@@ -1092,10 +1057,6 @@
      wrapping under the label when it doesn't fit, with one line of hint;
    - notes and empty states: one quiet line under a group, or in place of its card. */
 
-.settings {
-  padding-inline: 0;
-}
-
 .group + .group {
   margin-top: 24px;
 }
@@ -1215,6 +1176,7 @@
 
 /* A sub line that must stay one line: it ends in an ellipsis instead. */
 .row-sub-text {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1388,33 +1350,14 @@
   padding: 10px 14px 0;
 }
 
-.row-current {
-  color: var(--muted);
-}
-
-.choices-note {
-  margin: 0;
-  padding: 0 14px 4px 52px;
-  font-size: calc(12px * var(--text-scale));
-  color: var(--quiet);
-  text-wrap: pretty;
-}
-
-/* The choices line up with the row's label: 52px is the tile, its gap and the row's padding. */
-.choices {
-  margin: 0;
-  padding: 0 8px 4px 44px;
-  list-style: none;
-}
-
+/* A purpose's models: a card of rows, each a model and its price, the chosen one checked. */
 .choice {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  min-height: 48px;
+  padding: 8px 12px 8px 14px;
   text-align: left;
   font-size: calc(13.5px * var(--text-scale));
   transition: background-color var(--fast) var(--ease-out);
@@ -1448,16 +1391,14 @@
   background: var(--selected);
 }
 
-/* How hard to think: its label over a full-width switch, so five levels fit the narrow panel. */
+/* How hard to think: one full-width switch in its own card, so seven levels fit the narrow panel. */
 .thinking {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  padding: 6px 14px 14px 52px;
+  padding: 8px 10px;
 }
 
-.thinking .segmented.small {
+.row.thinking > .segmented.small {
+  flex: 1;
+  width: auto;
   margin: 0;
 }
 
@@ -1517,6 +1458,177 @@
   font-size: calc(12px * var(--text-scale));
   color: var(--muted);
   text-wrap: pretty;
+}
+
+/* ---------- Settings' pages ----------
+   The first page: three status lines in large type, then every group and its value.
+   Every other page: the way back, a large title, then the same groups, cards and rows. */
+
+.settings:focus {
+  outline: none;
+}
+
+/* A state in one word, in its tone's colour; a fifth of ink keeps green and amber at 4.5:1 on white. */
+.state {
+  flex: none;
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.state[data-tone] {
+  color: color-mix(in srgb, var(--tone) 80%, var(--ink));
+}
+
+.state[data-tone="online"],
+.state[data-tone="done"] {
+  --tone: var(--success);
+}
+
+.state[data-tone="offline"],
+.state[data-tone="failed"] {
+  --tone: var(--danger);
+}
+
+.state[data-tone="paused"],
+.state[data-tone="waking"] {
+  --tone: var(--warning);
+}
+
+.state[data-tone="off"],
+.state[data-tone="stopped"] {
+  --tone: var(--muted);
+}
+
+/* What matters first: your computer, the main agent, VibeProxy. A quiet label, a large value. */
+.glance {
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.glance-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 4px;
+  text-align: left;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.glance-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(13px * var(--text-scale));
+  color: var(--muted);
+}
+
+.glance-value,
+.glance .state {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(20px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.glance .state[data-tone] {
+  color: color-mix(in srgb, var(--tone) 80%, var(--ink));
+}
+
+.page-link {
+  cursor: pointer;
+}
+
+.page-link,
+.glance-line,
+.choice {
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .page-link:hover,
+  .choice:hover {
+    background: var(--hover);
+  }
+
+  .glance-line:hover .glance-label,
+  .page-back:hover {
+    color: var(--ink);
+  }
+}
+
+.page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  margin: 0 0 4px;
+  padding: 0 10px 0 4px;
+  border-radius: 8px;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.page-head {
+  margin: 0 4px 20px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: calc(26px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.page-title:focus {
+  outline: none;
+}
+
+.page-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0;
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.page-sub .state {
+  font-size: inherit;
+  white-space: normal;
+}
+
+/* A page's first group is what its title already names: the label stays for screen readers only. */
+.page-head + .group > h3.group-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A machine's page holds what its row used to open to, in one card. */
+.machine-fields {
+  padding-top: 14px;
 }
 
 /* The gear turns a quarter as Settings opens, and back as it closes. */
