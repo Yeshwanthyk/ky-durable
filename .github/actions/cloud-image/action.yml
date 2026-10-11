@@ -1,0 +1,90 @@
+name: Cloud machine image
+description: >
+  Builds the cloud machine's image (container/Dockerfile) around the dist/bin/ky-linux-x64 already
+  built, pushes it to GitHub's registry, checks anyone can pull it, and gives its ref. Used by
+  release.yml, with the release's own binary, and image.yml, for a preview.
+
+inputs:
+  token:
+    description: A token that can push the ky-cloud package (the run's GITHUB_TOKEN with packages write)
+    required: true
+  source:
+    description: The commit the binary was built from; the image's tag and its revision label
+    required: true
+
+outputs:
+  ref:
+    description: ghcr.io/<owner>/ky-cloud@sha256:<digest>
+    value: ${{ steps.ref.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the binary is there
+      shell: bash
+      run: test -x dist/bin/ky-linux-x64 || { echo "::error::no dist/bin/ky-linux-x64 to put in the image"; exit 1; }
+    - uses: docker/setup-buildx-action@v3
+    - name: Log in to GitHub's registry
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - name: Read the tools' current versions
+      id: tools
+      shell: bash
+      # Passed as build-args, so the tools' cached layer is rebuilt when one is released, not on every run.
+      run: |
+        {
+          echo "repository=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ky-cloud"
+          echo "claude=$(npm view @anthropic-ai/claude-code version)"
+          echo "codex=$(npm view @openai/codex version)"
+        } >> "$GITHUB_OUTPUT"
+    - name: Build and push
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: container/Dockerfile
+        platforms: linux/amd64
+        push: true
+        # One linux/amd64 manifest, no index or attestation: its digest is what the account's copy goes by.
+        provenance: false
+        sbom: false
+        tags: ${{ steps.tools.outputs.repository }}:${{ inputs.source }}
+        # The revision is what scripts/image/last.sh reads to tell whether a later release needs a new image.
+        labels: |
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.revision=${{ inputs.source }}
+        build-args: |
+          CLAUDE_CODE_VERSION=${{ steps.tools.outputs.claude }}
+          CODEX_VERSION=${{ steps.tools.outputs.codex }}
+        # The layers go from what changes least to most, and the binary is the last, so only it is new.
+        cache-from: type=gha,scope=ky-cloud
+        cache-to: type=gha,scope=ky-cloud,mode=max
+    - name: Log out
+      if: always()
+      shell: bash
+      run: docker logout ghcr.io
+    - name: Check anyone can pull it
+      id: ref
+      shell: bash
+      env:
+        REPOSITORY: ${{ steps.tools.outputs.repository }}
+        DIGEST: ${{ steps.build.outputs.digest }}
+        CLAUDE: ${{ steps.tools.outputs.claude }}
+        CODEX: ${{ steps.tools.outputs.codex }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        case "$DIGEST" in sha256:*) ;; *) echo "::error::no digest from the build"; exit 1 ;; esac
+        ref="$REPOSITORY@$DIGEST"
+        # Every deploy pulls it signed out.
+        scripts/image/registry.sh public "$ref" || { echo "::error::$ref can't be pulled signed out. Make the ky-cloud package public on GitHub."; exit 1; }
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"
+        echo "published $ref"
+        {
+          echo "### Cloud machine image"
+          echo
+          echo "- ref: \`$ref\`"
+          echo "- tag: \`$REPOSITORY:$SOURCE\`, built from \`$SOURCE\`"
+          echo "- Claude Code $CLAUDE, Codex $CODEX"
+        } >> "$GITHUB_STEP_SUMMARY"

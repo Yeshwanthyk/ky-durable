@@ -1,4 +1,6 @@
 import { existsSync } from "node:fs";
+import { type AddressInfo } from "node:net";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -815,6 +817,37 @@ describe("the cloud machine", () => {
 
     expect(registry.pushed.get("acc/ky-cloud")?.size).toBe(3);
     expect(container()?.configuration.image).toBe(`registry.cloudflare.com/acc/ky-cloud@${registry.manifest}`);
+  });
+
+  it("reads a published release's image from the release.json beside it, and only that release's", async () => {
+    account.paid = true;
+    let published = { ...release("r1"), image: registry.source };
+
+    const server = createServer((request, response) =>
+      request.url === "/v1/release.json" ? response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(published)) : response.writeHead(404).end()
+    );
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    // SAFETY: a server listening on a TCP port has an AddressInfo address.
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      current = { ...release("r1"), imageFrom: `${base}/v1/release.json` };
+      const ky = await setUp();
+
+      expect(container()?.configuration.image).toBe(`registry.cloudflare.com/acc/ky-cloud@${registry.manifest}`);
+
+      // Another release's file: refused, and the cloud machine is left as it is.
+      published = { ...release("r0"), image: registry.source };
+      await expect(deployCommand(ky)).rejects.toThrow(`${base}/v1/release.json is another release's (r0, sha256:r0), not ky r1's`);
+
+      current = { ...release("r1"), imageFrom: `${base}/v2/release.json` };
+      await expect(deployCommand(ky)).rejects.toThrow(`Couldn't read the cloud machine's image from ${base}/v2/release.json (404 Not Found)`);
+      expect(binding("KY_CLOUD")).toMatchObject({ type: "plain_text", text: "1" });
+    } finally {
+      server.close();
+    }
   });
 
   it("refuses a release image that isn't pinned on ghcr.io", async () => {

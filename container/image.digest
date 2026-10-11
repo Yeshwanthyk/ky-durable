@@ -1,6 +1,8 @@
-# The cloud machine's image the next release deploys: ghcr.io/<owner>/ky-cloud@sha256:<digest>, as
-# .github/workflows/image.yml's pull request pins it, after "# source: <commit>", the commit it was
-# built from. `pnpm compile` puts it in release.json; with no line here, a release deploys no cloud
-# machine, and .github/workflows/release.yml publishes no release without one.
+# The cloud machine's image a checkout's build deploys: ghcr.io/<owner>/ky-cloud@sha256:<digest>,
+# after "# source: <commit>", the commit it was built from. `pnpm compile` puts it in release.json
+# when it builds no release (no KY_VERSION): a local `ky deploy`, and deploy.yml. A release doesn't
+# need it: .github/workflows/release.yml keeps the image the newest release deploys, or builds one,
+# and only falls back to this when no release names an image. Its summary, and image.yml's, print
+# the lines to put here.
 # source: aca5dce162477b9c99a605598f65d4f6ef36a7b2
 ghcr.io/yeshwanthyk/ky-cloud@sha256:63136bcd3d64e4aea68ea81826765400df0c0f3cd6f12a3b20d3501ae147e80c

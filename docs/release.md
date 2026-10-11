@@ -2,33 +2,45 @@
 
 A release is the `ky` binary for macOS and Linux on arm64 and x64. Each one carries the release it deploys: the
 Worker's modules, the web app, the generic `wrangler.jsonc` and the guide for agents (`cli/release.ts`). Its
-`release.json` pins all of them by digest (`bundle`), along with the cloud machine's image (`image`).
+`release.json` pins all of them by digest (`bundle`). The cloud machine's image holds the linux-x64 binary, so
+the binary can't hold the image's digest: it names the `release.json` published beside it (`imageFrom`), which
+pins the image (`image`). `ky deploy` reads that file and checks it's the same release.
 
 | Piece | File | What it does |
 | --- | --- | --- |
-| Image workflow | `.github/workflows/image.yml` | On a push to `main` that changes what the image holds, builds `container/Dockerfile` for linux/amd64, pushes `ghcr.io/<owner>/ky-cloud` by digest, and opens a pull request that pins it in `container/image.digest` with the commit it was built from (`# source: <sha>`) |
-| Release workflow | `.github/workflows/release.yml` | On a tag `v<version>`: checks the tag is `package.json`'s version, and the pinned image is public and no older than what it holds. Then it runs `pnpm compile` for every platform with `KY_VERSION`, packs and publishes the GitHub release, and writes the brew formula into the tap |
-| Packing | `scripts/release/package.sh` | `dist/out`: `ky-<platform>.tar.gz`, `release.json`, `install.sh` and `checksums.txt` |
+| Release workflow | `.github/workflows/release.yml` | On a tag `v<version>`: checks the tag is `package.json`'s version and runs `pnpm compile` for every platform with `KY_VERSION`. Then it keeps the image the newest release deploys if nothing it runs changed, or builds one around the release's own linux-x64 binary. Then it packs and publishes the GitHub release, and writes the brew formula into the tap |
+| Image inputs | `container/image.inputs`, `scripts/image/` | What the image runs: the runner and what it imports, the Dockerfile, the lockfile. `scripts/image/current.ts` says whether an image built from one commit is current for another, and checks the list against Bun's module graph (`pnpm test:node` does too). `last.sh` finds the newest release's image and the commit it was built from (its label) |
+| Image build | `.github/actions/cloud-image` | Builds `container/Dockerfile` for linux/amd64 around `dist/bin/ky-linux-x64`, pushes `ghcr.io/<owner>/ky-cloud`, checks it's public |
+| Image preview | `.github/workflows/image.yml` | By hand only: an image of a branch's checkout build, and the lines that pin it in `container/image.digest` (what a checkout's `pnpm compile` deploys) |
+| Packing | `scripts/release/package.sh` | `dist/out`: `ky-<platform>.tar.gz`, `release.json` (with `KY_IMAGE` as its image), `install.sh` and `checksums.txt` |
 | Formula | `scripts/release/formula.sh` | `Formula/ky.rb` for `Yeshwanthyk/homebrew-ky`, from `checksums.txt` |
 | Installer | `install.sh` | Downloads the latest (or `KY_VERSION`) release's binary, checks it against `checksums.txt`, and never replaces another program named `ky` unless told to |
 
 ## Every release
 
-1. Merge to `main`. If the merge changed what the image holds (`container/Dockerfile`, `cli/`, the `src/` files the
-   CLI imports, `pnpm-lock.yaml`), the image workflow opens `[image] Pin ky-cloud from <sha>`. Merge it.
-2. Set `version` in `package.json`, commit it to `main`, then tag and push:
+1. Set `version` in `package.json`, commit it to `main`, then tag and push:
 
    ```sh
    git tag v0.1.0 && git push origin v0.1.0
    ```
 
-3. Watch the release workflow. When it's done, check:
+2. Watch the release workflow. Its `image` job says whether it kept the image or built one, and prints the lines
+   that pin it in `container/image.digest`, for a checkout's builds to match. When it's done, check:
 
    ```sh
    brew update && brew install yeshwanthyk/ky/ky && ky --version   # ky 0.1.0 (ky-durable-cli)
    ```
 
-   A rerun of the workflow replaces the release's files, and leaves the tap alone when it already has that version.
+   A rerun of the workflow never changes a published release: Bun doesn't build the same bytes twice, so new
+   binaries wouldn't be the ones in its image. It only finishes the tap, from the release's own `checksums.txt`,
+   and leaves the tap alone when it already has that version. The release stays a draft until all its files are
+   up; a rerun replaces a draft an earlier run left.
+
+A new image is a new digest, and `ky upgrade` rolls the cloud machine out (restarts it) for a new digest. So the
+release builds one only when what it runs changed. When it keeps the old one, the cloud machine runs the older
+`ky` binary: the same runner, but its other commands, and the release it carries, are older. It reports that
+older version in its hello, which the Worker doesn't act on; the runner protocol (`PROTOCOL` in
+`src/runner-protocol.ts`) is one of the image's inputs, so a protocol change always builds a new image.
 
 ## Before the first release
 
@@ -49,18 +61,14 @@ These are done once, on GitHub, by the owner.
    gh secret set KY_TAP_DEPLOY_KEY -R Yeshwanthyk/ky-durable --env release < tap-key
    rm tap-key tap-key.pub
    ```
-5. In `ky-durable` › Settings › Actions › General › Workflow permissions, tick **Allow GitHub Actions to create
-   and approve pull requests**, so the image workflow can open its pin. Without it, it pushes the branch and says
-   to open the pull request by hand.
-6. Run the image workflow once: Actions › image › Run workflow, on `main`. Then on GitHub › Packages ›
-   `ky-cloud` › Package settings, set its visibility to **Public** (deploys pull it signed out), and merge the pin
-   pull request it opened.
-7. Then follow "Every release" from step 2; `package.json` is already at `0.1.0`.
+5. Once the first image is published, on GitHub › Packages › `ky-cloud` › Package settings, set its visibility to
+   **Public** (deploys pull it signed out).
+6. Then follow "Every release"; `package.json` is already at `0.1.0`.
 
 ## The cloud machine's image is public
 
-`ky-cloud` is a public package (step 6): every deploy, yours or a stranger's, pulls it signed out, and
-`release.yml` refuses an image it can't. Make it public as soon as the image workflow first publishes it.
+`ky-cloud` is a public package (step 5): every deploy, yours or a stranger's, pulls it signed out, and
+`release.yml` refuses an image it can't. Make it public as soon as it's first published.
 
 If it's ever private, for a moment or by mistake, `ky deploy` says so and can still pull it with
 `KY_GHCR_TOKEN` set to a GitHub token with **read:packages**, such as `KY_GHCR_TOKEN=$(gh auth token)` after
@@ -71,7 +79,7 @@ use it: strangers' deploys have no token.
 
 ```sh
 KY_VERSION=0.1.0-local pnpm compile darwin-arm64
-scripts/release/package.sh 0.1.0-local darwin-arm64
+KY_IMAGE=$(grep -v '^#' container/image.digest) scripts/release/package.sh 0.1.0-local darwin-arm64
 KY_INSTALL_BASE=$PWD/dist/out KY_INSTALL_DIR=/tmp/ky-try/bin sh install.sh
 /tmp/ky-try/bin/ky --version
 ```

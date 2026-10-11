@@ -1,0 +1,31 @@
+# What the cloud machine's image runs, and so what makes a release build a new one
+# (scripts/image/inputs.ts). One path per line, a folder ending in /; `git diff` reads them.
+#
+# The image holds the release's whole `ky` (cli/binary.ts), but the cloud machine runs only
+# `ky runner cloud`, `ky attach` and `ky diff`, and cli/ky.ts imports each command's module only when
+# it runs. So the code below is all it loads: `pnpm test:node` (test/node/image.test.ts) fails when
+# that code imports a file this list doesn't name, or this list names code it doesn't import.
+#
+# The release the binary carries (dist/release.pack: the Worker and web app) isn't here: the cloud
+# machine reads only its version, which the Worker doesn't act on.
+
+# How the image is built
+container/Dockerfile
+.github/actions/cloud-image/
+.bun-version
+cli/compile.ts
+pnpm-lock.yaml
+tsconfig.json
+
+# The code the cloud machine runs
+cli/binary.ts
+cli/main.ts
+cli/ky.ts
+cli/release.ts
+cli/config.ts
+cli/output.ts
+wrangler-overlay.ts
+cli/runner/
+src/runner-protocol.ts
+src/files.ts
+src/tool-labels.ts

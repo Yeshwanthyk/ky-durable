@@ -14,7 +14,7 @@ name: deploy
 #   KY_OVERLAY            the contents of ~/.config/ky/wrangler.local.jsonc, which `ky init` wrote
 # Without them it deploys nothing and says so. The cloud machine's image is public; the run still
 # sends its own GITHUB_TOKEN as KY_GHCR_TOKEN (packages: read), so a deploy works even while the
-# package is private: image.yml publishes it from this repo, which gives the repo's workflows read.
+# package is private: release.yml publishes it from this repo, which gives the repo's workflows read.
 on:
   push:
     branches: [main]
