@@ -59,7 +59,7 @@ good for ten minutes; on that computer:
 ky runner add <ky url> <code>      # --yes shares what it finds (never Chrome); --no-service starts nothing
 ```
 
-It pairs, keeps the token in the Keychain (macOS) or a 0600 file (Linux), writes `~/.config/ky/runner.json`,
+It pairs, keeps the token in `~/.config/ky/runner-token` (0600), writes `~/.config/ky/runner.json`,
 installs a launchd agent or `systemd --user` unit, and waits until ky shows the machine online. Then:
 `ky runner ls`, `ky runner status [--json]` (exits 1 unless online), `ky runner logs [-f]`, and `ky runner rm`, which
 removes it from this computer only: the user removes the machine in ky's Settings too. `ky runner run` is the runner
@@ -74,7 +74,7 @@ ky restore <file> [--url <ky>] [--force]
 
 `ky backup` downloads ky's chats, memory, skills, SOUL.md, specialists, automations, workspace and shared files to
 `~/ky-backups/<worker>-<time>.tar.gz`, readable by the user only, and prints what it holds. It signs in with
-`cloudflared access token`; when it says there's no token, run the `cloudflared access login <url>` it prints. It holds
+`cloudflared access token`; with no token yet it runs `cloudflared access login <url>`, which opens the browser. It holds
 no secret: API keys, subscription sign-ins, GitHub, Executor and machine pairings are listed as left out. Back up
 while ky is idle. `ky restore` puts a backup into a fresh ky (a new deploy: `ky init --name <other>`) and lists what
 to add again; it refuses a ky that already has chats or memory unless `--force`, which replaces them: use it only

@@ -30,15 +30,30 @@ async function kyUrl(context: Context, flags: Flags): Promise<string> {
   return saved ?? address((await target(context)).target);
 }
 
-/** The headers that sign in to `url` as its owner, from `cloudflared access token`. */
-async function signIn(context: Context, url: string): Promise<Record<string, string>> {
+/** The Access token `cloudflared` has for `url`, or "" when it has none. */
+async function accessToken(context: Context, url: string): Promise<string> {
   const ran = await context.system.exec("cloudflared", ["access", "token", `-app=${url}`]);
 
   if (ran.code === 127) throw new Error("ky signs in to your ky with cloudflared: install it (`brew install cloudflared`), then try again");
 
-  const token = ran.code === 0 ? ran.stdout.trim() : "";
+  return ran.code === 0 ? ran.stdout.trim() : "";
+}
 
-  if (!token) throw new Error(`No Access token for ${url}: run \`cloudflared access login ${url}\`, then try again`);
+/**
+ * The headers that sign in to `url` as its owner, from `cloudflared access token`. With no token
+ * yet, `cloudflared access login` signs in first: it opens the browser and waits for the sign-in.
+ */
+async function signIn(context: Context, url: string): Promise<Record<string, string>> {
+  let token = await accessToken(context, url);
+
+  if (!token) {
+    context.print(`Signing in to ${bold(url)}: cloudflared opens your browser`);
+    const login = await context.system.exec("cloudflared", ["access", "login", url]);
+
+    token = login.code === 0 ? await accessToken(context, url) : "";
+  }
+
+  if (!token) throw new Error(`Couldn't sign in to ${url}: run \`cloudflared access login ${url}\`, then try again`);
 
   return { "cf-access-token": token };
 }

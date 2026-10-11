@@ -147,10 +147,13 @@ ky runner add https://ky.<account>.workers.dev <code>
 
 It finds the machine's `claude` and `codex` logins, Chrome, the folders holding git repositories, and local
 model servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each (`--yes` shares what it found,
-but never Chrome). It keeps the machine token in the Keychain on macOS (service `ky runner`) or in
-`~/.config/ky/runner-token` (0600) on Linux, writes the rest to `~/.config/ky/runner.json`, installs a
-launchd agent (`dev.ky.runner`) or a `systemd --user` unit (`ky-runner`, with linger), and waits until ky shows
-the machine online. `--no-service` skips the service; run `ky runner run` yourself.
+but never Chrome). It keeps the machine token in `~/.config/ky/runner-token` (0600), writes the rest to
+`~/.config/ky/runner.json`, installs a launchd agent (`dev.ky.runner`) or a `systemd --user` unit (`ky-runner`, with linger), and waits until ky shows
+the machine online. `--no-service` skips the service; run `ky runner run` yourself. A runner paired before
+ky kept the token in the file has it in the Keychain (service `ky runner`), which runner.json names: it is read
+from there until the next `ky runner add` moves it, which prints the `security delete-generic-password` that
+removes the old item. Each `ky runner add` writes the service file fresh, with the ky Homebrew keeps across
+upgrades (`/opt/homebrew/bin/ky`, not the Cellar path).
 
 | Command | What it does |
 | --- | --- |
@@ -173,7 +176,7 @@ Each variable below overrides `runner.json` for `ky runner run`; without `runner
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `KY_URL` | `runner.json` | The deployed Worker |
-| `KY_RUNNER_TOKEN_FILE` | the Keychain on macOS, else `~/.config/ky/runner-token` | The machine token from pairing, in a file; refused unless only you can read it |
+| `KY_RUNNER_TOKEN_FILE` | `~/.config/ky/runner-token` | The machine token from pairing, in a file; refused unless only you can read it |
 | `KY_MACHINE` | host name | Name the agent uses for this machine (`[a-z0-9-]`, 32 chars) |
 | `KY_WORKDIR` | `~/ky-work` | Working directory for tasks |
 | `KY_PERMISSION_MODE` | `bypassPermissions` | Claude Code permission mode |

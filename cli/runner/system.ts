@@ -65,10 +65,13 @@ export function compiled(): boolean {
   return import.meta.url.includes("$bunfs") || import.meta.url.includes("~BUN");
 }
 
+/** Homebrew's versioned path for ky, `<prefix>/Cellar/ky/<version>/bin/ky`: its prefix. */
+const CELLAR = /^(.+)\/Cellar\/ky\/[^/]+\/bin\/ky$/;
+
 /**
  * The path that keeps running this binary across upgrades: the first `ky` on `PATH` that resolves to `binary`,
  * such as Homebrew's /opt/homebrew/bin/ky, a link into /opt/homebrew/Cellar/ky/<version>/bin/ky that `brew
- * upgrade` deletes. `binary` itself when none does.
+ * upgrade` deletes. With none on `PATH`, a Cellar path's `<prefix>/bin/ky` when it is there; else `binary` itself.
  */
 export function stableKy(binary: string, PATH: string): string {
   const real = (file: string) => {
@@ -81,10 +84,16 @@ export function stableKy(binary: string, PATH: string): string {
 
   const target = real(binary) ?? binary;
 
-  return PATH.split(path.delimiter)
+  const onPath = PATH.split(path.delimiter)
     .filter((dir) => path.isAbsolute(dir))
     .map((dir) => path.join(dir, "ky"))
-    .find((candidate) => real(candidate) === target) ?? binary;
+    .find((candidate) => real(candidate) === target);
+
+  if (onPath) return onPath;
+  const prefix = (CELLAR.exec(binary) ?? CELLAR.exec(target))?.[1];
+  const linked = prefix && path.join(prefix, "bin", "ky");
+
+  return linked && real(linked) ? linked : binary;
 }
 
 /** The command line that runs this `ky`: the binary itself, or Node on this checkout's cli/main.ts. */

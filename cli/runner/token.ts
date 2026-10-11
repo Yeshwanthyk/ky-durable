@@ -1,23 +1,25 @@
 /**
  * The machine token pairing gives a runner: all it takes to run work as this machine and read
- * what ky sends it. On macOS it is kept in the login Keychain, through `security`; elsewhere, or
- * with KY_RUNNER_TOKEN_FILE, in a file only its user can read.
+ * what ky sends it. It is kept in a file only its user can read: ~/.config/ky/runner-token, or
+ * KY_RUNNER_TOKEN_FILE. A runner paired before ky kept it there has it in the login Keychain, and
+ * runner.json says so: it is read from there, through `security`, until the next `ky runner add`
+ * moves it to the file. ky never deletes that item itself; it says how.
  */
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { TokenStore } from "./settings.ts";
 import type { System } from "./system.ts";
 
-/** The Keychain item's service; its account is the machine and ky's host. */
-const SERVICE = "ky runner";
+/** Where `ky runner add` keeps the token: KY_RUNNER_TOKEN_FILE, else ~/.config/ky/runner-token, on every OS. */
+export function tokenStore(system: System, env: NodeJS.ProcessEnv): TokenStore {
+  return { file: env.KY_RUNNER_TOKEN_FILE || path.join(system.config, "ky", "runner-token") };
+}
 
-/** Where `ky runner add` keeps the token of `name` paired with `url`. */
-export function tokenStore(system: System, name: string, url: string, env: NodeJS.ProcessEnv): TokenStore {
-  if (env.KY_RUNNER_TOKEN_FILE) return { file: env.KY_RUNNER_TOKEN_FILE };
+/** The command that removes an earlier pairing's Keychain item, which ky leaves for the user to remove. */
+export function keychainRemoval(store: TokenStore): string | undefined {
+  if ("file" in store) return undefined;
 
-  if (system.platform === "darwin") return { keychain: { service: SERVICE, account: `${name}@${new URL(url).host}` } };
-
-  return { file: path.join(system.config, "ky", "runner-token") };
+  return `security delete-generic-password -s "${store.keychain.service}" -a "${store.keychain.account}"`;
 }
 
 /** Where the token is, as a person reads it. */

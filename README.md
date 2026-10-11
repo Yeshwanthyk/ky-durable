@@ -60,8 +60,8 @@ ky runner add https://ky.<you>.workers.dev <code>
 ```
 
 It finds the computer's `claude` and `codex` logins, Chrome, the folders holding git repos, and local model
-servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each. It keeps the machine's token in the
-Keychain on macOS or a 0600 file on Linux, runs as a launchd agent or a `systemd --user` unit, and waits until
+servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each. It keeps the machine's token in
+`~/.config/ky/runner-token` (0600), runs as a launchd agent or a `systemd --user` unit, and waits until
 ky shows the machine online. `ky runner status`, `logs` and `rm` look after it; `ky upgrade` restarts it.
 
 **The cloud machine.** On Workers Paid, `ky init` and `ky deploy` also attach a container, `cloud`, that runs

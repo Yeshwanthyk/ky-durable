@@ -161,11 +161,37 @@ describe("ky backup", () => {
     expect(await readdir(path.join(system.home, "ky-backups"))).toEqual([]);
   });
 
-  it("says how to sign in when Access has no token", async () => {
+  it("signs in with cloudflared access login when Access has no token, then backs up", async () => {
     system.accessToken = undefined;
+
+    expect(await ky(["backup", "--url", url], context())).toBe(0);
+    expect(system.ran.filter((command) => command.startsWith("cloudflared"))).toEqual([
+      `cloudflared access token -app=${url}`,
+      `cloudflared access login ${url}`,
+      `cloudflared access token -app=${url}`
+    ]);
+    expect(output.join("\n")).toContain("opens your browser");
+  });
+
+  it("says how to sign in when the sign-in fails, and sends nothing", async () => {
+    system.accessToken = undefined;
+    system.accessLogin = undefined;
 
     expect(await ky(["backup", "--url", url], context())).toBe(1);
     expect(output.join("\n")).toContain(`cloudflared access login ${url}`);
+    expect(system.ran.filter((command) => command.includes("access login"))).toHaveLength(1);
+    expect(requests).toEqual([]);
+  });
+
+  it("says how to install cloudflared when it isn't there", async () => {
+    system.exec = async (command, args) => {
+      system.ran.push([command, ...args].join(" "));
+
+      return { code: 127, stdout: "", stderr: `${command}: not found` };
+    };
+
+    expect(await ky(["backup", "--url", url], context())).toBe(1);
+    expect(output.join("\n")).toContain("brew install cloudflared");
     expect(requests).toEqual([]);
   });
 });
@@ -184,6 +210,16 @@ describe("ky restore", () => {
     ]);
     expect(requests[0]).not.toMatch(/ 0$/);
     expect(output.join("\n")).toContain("add it again in Settings, under Models");
+  });
+
+  it("signs in with cloudflared access login when Access has no token", async () => {
+    const file = path.join(system.home, "backup.tar.gz");
+    await writeFile(file, archive());
+    system.accessToken = undefined;
+
+    expect(await ky(["restore", file, "--url", url, "--force"], context())).toBe(0);
+    expect(system.ran).toContain(`cloudflared access login ${url}`);
+    expect(requests.at(-1)).toMatch(/^POST \/api\/restore\/finish/);
   });
 
   it("refuses a cut-off backup before it sends anything", async () => {

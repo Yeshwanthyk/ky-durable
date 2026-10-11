@@ -7,7 +7,7 @@
  *
  *   KY_URL               the ky it joins
  *   KY_MACHINE           its name in ky (default: this host's name)
- *   KY_RUNNER_TOKEN_FILE keep the machine token in this file (mode 600) rather than the Keychain
+ *   KY_RUNNER_TOKEN_FILE keep the machine token in this file (mode 600), not ~/.config/ky/runner-token
  *   KY_WORKDIR           where tasks run (default: ~/ky-work)
  *   KY_PERMISSION_MODE   Claude Code's permission mode (default: bypassPermissions)
  *   KY_CHROME            1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
@@ -21,7 +21,7 @@ import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import type { System } from "./system.ts";
 
-/** Where the machine token is kept: a Keychain item (macOS), or a file only the user can read. */
+/** Where the machine token is kept: a file only the user can read, or a Keychain item (macOS, paired before ky kept it in the file). */
 const TokenStoreSchema = Type.Union([
   Type.Object({ keychain: Type.Object({ service: Type.String(), account: Type.String() }) }),
   Type.Object({ file: Type.String() })

@@ -90,7 +90,7 @@ describe("ky runner add", () => {
     computer = await fakeSystem("darwin");
   });
 
-  it("pairs, keeps the token in the Keychain, writes runner.json, installs the launchd agent and waits for it online", async () => {
+  it("pairs, keeps the token in a 0600 file, writes runner.json, installs the launchd agent and waits for it online", async () => {
     await mkdir(path.join(computer.home, "code", "app", ".git"), { recursive: true });
     computer.ports.add(8317);
 
@@ -111,17 +111,19 @@ describe("ky runner add", () => {
       }
     ]);
 
-    const account = `studio-mac@${new URL(ours.url).host}`;
+    const file = path.join(computer.config, "ky", "runner-token");
 
-    expect(computer.keychain).toEqual(new Map([[`ky runner/${account}`, TOKEN]]));
-    // Through security's stdin: the token is in no process's arguments, and in no file.
+    expect((await readFile(file, "utf8")).trim()).toBe(TOKEN);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Not the Keychain, and in no process's arguments.
+    expect(computer.keychain.size).toBe(0);
+    expect(computer.ran.filter((line) => line.startsWith("security"))).toEqual([]);
     expect(computer.ran.some((line) => line.includes(TOKEN))).toBe(false);
-    expect(existsSync(path.join(computer.config, "ky", "runner-token"))).toBe(false);
 
     expect(await saved()).toEqual({
       url: ours.url,
       name: "studio-mac",
-      token: { keychain: { service: "ky runner", account } },
+      token: { file },
       workdir: path.join(computer.home, "ky-work"),
       permissionMode: "bypassPermissions",
       agents: { claude: true, codex: false },
@@ -176,6 +178,59 @@ describe("ky runner add", () => {
     expect(printed.join("\n")).toContain("ky runner run");
   });
 
+  it("moves a token kept in the Keychain to the file, leaves the Keychain item, and says how to remove it", async () => {
+    const account = `mac@${new URL(ours.url).host}`;
+
+    const old: Settings = {
+      url: ours.url,
+      name: "mac",
+      token: { keychain: { service: "ky runner", account } },
+      workdir: path.join(computer.home, "ky-work"),
+      repos: [],
+      permissionMode: "bypassPermissions",
+      chrome: false,
+      agents: { claude: true, codex: false },
+      ports: []
+    };
+
+    await mkdir(path.dirname(settingsFile()), { recursive: true });
+    await writeFile(settingsFile(), JSON.stringify(old));
+    computer.keychain.set(`ky runner/${account}`, "old-token");
+
+    expect(await run(["runner", "add", ours.url, "ABCD-1234", "--name", "mac", "--yes"])).toBe(0);
+
+    const file = path.join(computer.config, "ky", "runner-token");
+    expect((await saved()).token).toEqual({ file });
+    expect((await readFile(file, "utf8")).trim()).toBe(TOKEN);
+    expect(computer.keychain.get(`ky runner/${account}`)).toBe("old-token");
+    expect(computer.ran.some((line) => line.startsWith("security"))).toBe(false);
+    expect(printed.join("\n")).toContain(`security delete-generic-password -s "ky runner" -a "${account}"`);
+  });
+
+  it("writes the service file fresh, without an earlier trial's state dir", async () => {
+    const agent = path.join(computer.launchAgents, "test.ky.runner.plist");
+    const trial = { ...computer, state: "/tmp/ky-trial" };
+    await mkdir(computer.launchAgents, { recursive: true });
+    await writeFile(agent, plist(trial));
+    expect(plist(trial)).toContain("KY_STATE_DIR");
+
+    expect(await run(["runner", "add", ours.url, "ABCD-1234", "--yes"])).toBe(0);
+    const written = await readFile(agent, "utf8");
+
+    expect(written).toBe(plist(computer));
+    expect(written).not.toContain("KY_STATE_DIR");
+    expect(written).not.toContain("XDG_CONFIG_HOME");
+    expect(printed.join("\n")).not.toContain("The service keeps");
+  });
+
+  it("says when the service keeps a state dir from this shell", async () => {
+    computer.state = path.join(computer.home, "trial-state");
+
+    expect(await run(["runner", "add", ours.url, "ABCD-1234", "--yes", "--name", "mac"])).toBe(0);
+    expect(await readFile(path.join(computer.launchAgents, "test.ky.runner.plist"), "utf8")).toContain(`<string>${computer.state}</string>`);
+    expect(printed.join("\n")).toContain(`The service keeps KY_STATE_DIR=${computer.state}`);
+  });
+
   it("asks for the URL and code it isn't given only at a terminal", async () => {
     expect(await run(["runner", "add", "--yes"])).toBe(1);
     expect(printed.join("\n")).toContain("usage: ky runner add <ky url> <code>");
@@ -197,7 +252,10 @@ describe("the service's ky", () => {
 
     try {
       expect(stableKy(cellar, [other, "relative", path.join(prefix, "bin"), "/usr/bin"].join(path.delimiter))).toBe(path.join(prefix, "bin/ky"));
-      // Nothing on PATH runs it: the binary's own path.
+      // Nothing on PATH runs it: Homebrew's own link beside the Cellar, which brew upgrade keeps.
+      expect(stableKy(cellar, [other, "/usr/bin"].join(path.delimiter))).toBe(path.join(prefix, "bin/ky"));
+      // No such link: the binary's own path.
+      await rm(path.join(prefix, "bin/ky"));
       expect(stableKy(cellar, [other, "/usr/bin"].join(path.delimiter))).toBe(cellar);
     } finally {
       await rm(prefix, { recursive: true, force: true });
@@ -221,7 +279,7 @@ describe("the runner on this computer", () => {
     const status = printed.join("\n");
 
     expect(status).toContain("Claude Code, in");
-    expect(status).toContain(`the Keychain, as "ky runner" for mac@${new URL(ours.url).host}`);
+    expect(status).toContain(`Token     ${path.join(computer.config, "ky", "runner-token")}`);
     expect(status).toContain("test.ky.runner.plist (loaded)");
   });
 
