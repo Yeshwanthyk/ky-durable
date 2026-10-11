@@ -15,6 +15,11 @@ name: deploy
 # Without them it deploys nothing and says so. The cloud machine's image is public; the run still
 # sends its own GITHUB_TOKEN as KY_GHCR_TOKEN (packages: read), so a deploy works even while the
 # package is private: release.yml publishes it from this repo, which gives the repo's workflows read.
+#
+# The image is the one the newest published release deploys (scripts/image/last.sh), not the
+# commit's container/image.digest: a release may build a newer image than that pin, and a merge
+# must not roll the cloud machine back to it. A rollback keeps that image too; only with no
+# release that names one does the commit's pin deploy.
 on:
   push:
     branches: [main]
@@ -59,6 +64,13 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      # From main's scripts, before the checkout below goes back to a commit that may lack them.
+      - name: Find the image the newest release deploys
+        id: image
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/image/last.sh | tee -a "$GITHUB_OUTPUT"
       - name: Check out the commit
         if: steps.secrets.outputs.ready == 'true'
         run: |
@@ -70,6 +82,18 @@ jobs:
           fi
           git checkout --detach "$commit"
           echo "Deploying $(git rev-parse --short HEAD): $(git log -1 --format=%s)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Pin the release's image
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+          FROM: ${{ steps.image.outputs.from }}
+        run: |
+          # `pnpm compile` builds with container/image.digest's first line that isn't a comment.
+          if [ -n "$REF" ] && [ "$FROM" != container/image.digest ]; then
+            printf '# deploy.yml: %s\n%s\n' "$FROM" "$REF" > container/image.digest
+          fi
+          pinned=$(sed -e '/^#/d' -e '/^[[:space:]]*$/d' container/image.digest 2>/dev/null | head -n 1) || pinned=
+          echo "Cloud machine image: \`${pinned:-none}\` (${FROM:-container/image.digest})" >> "$GITHUB_STEP_SUMMARY"
       - uses: pnpm/action-setup@v4
         if: steps.secrets.outputs.ready == 'true'
         with:

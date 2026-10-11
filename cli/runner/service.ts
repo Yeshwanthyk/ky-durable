@@ -22,11 +22,21 @@ export function logFile(system: System): string {
   return path.join(system.state, "runner.log");
 }
 
+/**
+ * Where the service keeps things when it isn't the default: KY_STATE_DIR and XDG_CONFIG_HOME as
+ * this `ky` resolved them. Each install writes the service file fresh from these, so a trial's
+ * setting is gone once `ky runner add` runs without it.
+ */
+export function serviceDirs(system: System) {
+  return {
+    ...(system.config !== path.join(system.home, ".config") && { XDG_CONFIG_HOME: system.config }),
+    ...(system.state !== path.join(system.home, ".ky") && { KY_STATE_DIR: system.state })
+  };
+}
+
 /** What the service runs with besides its own environment: this shell's PATH, so it finds `claude` and `codex`, and where ky keeps things. */
 function environment(system: System) {
-  const where = Object.fromEntries((["XDG_CONFIG_HOME", "KY_STATE_DIR"] as const).flatMap((name) => (process.env[name] ? [[name, process.env[name]!]] : [])));
-
-  return { PATH: system.path, HOME: system.home, KY_RUNNER_SERVICE: "1", ...where };
+  return { PATH: system.path, HOME: system.home, KY_RUNNER_SERVICE: "1", ...serviceDirs(system) };
 }
 
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");

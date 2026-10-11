@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, appendFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -78,6 +78,64 @@ describe("whether the pinned image is current", () => {
       const commit = await touching("cli/runner/forward.ts");
 
       expect(await imageCurrent("base", commit, clone, await imageInputs())).toMatchObject({ current: false, changed: ["cli/runner/forward.ts"] });
+    });
+  });
+});
+
+describe("scripts/image/last.sh", () => {
+  const NEWER = `ghcr.io/owner/ky-cloud@sha256:${"b".repeat(64)}`;
+  let bin: string;
+
+  /** last.sh's lines, with a `gh` that lists `releases` (newest first, as GitHub does) and a `curl` that fails. */
+  async function last(releases: { tag: string; draft?: boolean; image?: string }[], ...args: string[]): Promise<Record<string, string>> {
+    const listed = releases.map(({ tag, draft }) => JSON.stringify({ tag_name: tag, draft: draft ?? false })).join(",");
+    const images = releases.map(({ tag, image }) => `    ${tag}) ${image ? `echo '{"image":"${image}"}'` : "exit 1"} ;;`).join("\n");
+
+    await writeFile(
+      path.join(bin, "gh"),
+      `#!/bin/sh
+if [ "$1" = api ]; then echo '[${listed}]' | jq -r '.[] | select(.draft | not) | .tag_name'; exit 0; fi
+if [ "$1 $2" = "release download" ]; then
+  case "$3" in
+${images}
+    *) exit 1 ;;
+  esac
+fi
+exit 1
+`,
+      { mode: 0o755 }
+    );
+    await writeFile(path.join(bin, "curl"), "#!/bin/sh\nexit 22\n", { mode: 0o755 });
+    const out = execFileSync(path.join(REPO, "scripts/image/last.sh"), args, { encoding: "utf8", env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+
+    return Object.fromEntries(out.trim().split("\n").map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+  }
+
+  beforeAll(async () => {
+    bin = await mkdtemp(path.join(tmpdir(), "ky-last-"));
+  });
+
+  afterAll(() => rm(bin, { recursive: true, force: true }));
+
+  it("with no tag, as deploy.yml runs it, is the newest published release's image, which may be newer than the pin", async () => {
+    const pin = (await readFile(path.join(REPO, "container/image.digest"), "utf8")).split("\n").find((line) => line.startsWith("ghcr.io/"));
+
+    expect(await last([{ tag: "v9.0.1", draft: true, image: `ghcr.io/owner/ky-cloud@sha256:${"c".repeat(64)}` }, { tag: "v9.0.0" }, { tag: "v8.0.0", image: NEWER }])).toEqual({
+      ref: NEWER,
+      source: "",
+      from: "v8.0.0, the newest release that names one"
+    });
+    expect(NEWER).not.toBe(pin);
+  });
+
+  it("falls back to container/image.digest when no release names an image", async () => {
+    expect(await last([{ tag: "v1.0.0" }])).toMatchObject({ from: "container/image.digest", ref: expect.stringMatching(/^ghcr\.io\/.+@sha256:[0-9a-f]{64}$/) });
+  });
+
+  it("still takes a tag's own release first, as release.yml runs it", async () => {
+    expect(await last([{ tag: "v2.0.0", image: NEWER }, { tag: "v1.0.0", image: `ghcr.io/owner/ky-cloud@sha256:${"a".repeat(64)}` }], "v1.0.0")).toMatchObject({
+      ref: `ghcr.io/owner/ky-cloud@sha256:${"a".repeat(64)}`,
+      from: "v1.0.0 (this tag's release: a rerun)"
     });
   });
 });

@@ -13,11 +13,11 @@ import { bold, cancelled, dim, green, type Output, output, red, terminal } from 
 import { ASK, type AgentFacts, repoFolders, scanRepos } from "./facts.ts";
 import { cloudCommand } from "./cloud.ts";
 import { checkoutVersion, runRunner, type Status, statusFile } from "./run.ts";
-import { logFile, service } from "./service.ts";
+import { logFile, service, serviceDirs } from "./service.ts";
 import { kyUrl, LOCAL_SERVERS, machineName, readSettings, removeSettings, type Settings, settingsFile, withEnv, writeSettings } from "./settings.ts";
 import { attach, diff } from "./share.ts";
 import { compiled, type System } from "./system.ts";
-import { deleteToken, describeStore, readToken, tokenStore, writeToken } from "./token.ts";
+import { deleteToken, describeStore, keychainRemoval, readToken, tokenStore, writeToken } from "./token.ts";
 
 export type RunnerFlags = { name?: string; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
 
@@ -174,13 +174,18 @@ async function pairHere(context: Context, out: Output, positionals: string[], fl
 
   out.done(`Found ${foundWords(found)}`);
   const shared = await choose(found, terminal() && !flags.yes, workdir);
-  const settings: Settings = { url, name, token: tokenStore(system, name, url, env), workdir, permissionMode: env.KY_PERMISSION_MODE ?? "bypassPermissions", ...shared };
+  const before = await saved(context).catch(() => undefined);
+  const settings: Settings = { url, name, token: tokenStore(system, env), workdir, permissionMode: env.KY_PERMISSION_MODE ?? "bypassPermissions", ...shared };
   const paired = await out.waiting(`Pairing with ${url}`, () => pair(url, code, name, factsFor(settings, found)));
 
   settings.name = paired.machine;
   await writeToken(system, settings.token, paired.token);
   await writeSettings(settingsFile(system), settings);
   out.done(`Paired as ${bold(paired.machine)}. Its token is in ${describeStore(settings.token)}`);
+  const removal = before && keychainRemoval(before.token);
+
+  // The earlier pairing's token stays in the Keychain: removing it is the user's call.
+  if (removal) out.done(`The earlier token is still in the Keychain, and no longer used. Remove it: ${bold(removal)}`);
 
   return settings;
 }
@@ -199,7 +204,10 @@ async function addCommand(context: Context, positionals: string[], flags: Runner
   }
 
   const since = Date.now();
+  const dirs = Object.entries(serviceDirs(context.system)).map(([name, value]) => `${name}=${value}`);
 
+  // A trial's setting would stay in the service: say so, as it is kept until the next `ky runner add`.
+  if (dirs.length > 0) out.done(`The service keeps ${dirs.join(" and ")}, as this shell has it. For the default, unset it and run ky runner add again`);
   await out.waiting("Installing the runner as a service", () => manager.install());
   const status = await out.waiting("Waiting for ky to show it online", () => online(context.system.state, since, context.sleep));
 

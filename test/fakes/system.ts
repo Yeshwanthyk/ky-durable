@@ -7,6 +7,7 @@
  *   launchctl  bootstrap, bootout, kickstart and print, over a set of loaded labels
  *   systemctl  --user daemon-reload, enable --now, restart, disable --now and is-active, the same way
  *   loginctl   enable-linger
+ *   cloudflared  access token, and access login, which signs in with `accessLogin`
  *
  * Starting the service "runs" the runner: `online` says what it writes to the status file, as
  * `ky runner run` would once ky took its socket.
@@ -31,6 +32,8 @@ export type FakeSystem = System & {
   hasChrome: boolean;
   /** What `cloudflared access token` prints; undefined when signed out of Access. */
   accessToken: string | undefined;
+  /** The token `cloudflared access login` signs in with; undefined when the sign-in fails. */
+  accessLogin: string | undefined;
 };
 
 const ok = (stdout = ""): Ran => ({ code: 0, stdout, stderr: "" });
@@ -57,9 +60,9 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
 
   const started = () => {
     if (fake.online === "never") return;
-    mkdirSync(state, { recursive: true });
+    mkdirSync(fake.state, { recursive: true });
     const status = { state: fake.online, machine: "fake", url: "", version: "test", pid: 4242, at: Date.now(), ...(fake.online === "stopped" && { reason: "removed from ky" }) };
-    writeFileSync(path.join(state, "runner-status.json"), JSON.stringify(status));
+    writeFileSync(path.join(fake.state, "runner-status.json"), JSON.stringify(status));
   };
 
   const security = (args: string[], input = ""): Ran => {
@@ -141,12 +144,23 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     }
   };
 
+  const cloudflared = (args: string[]): Ran => {
+    if (args[1] === "login") {
+      if (fake.accessLogin === undefined) return failed("failed to sign in");
+      fake.accessToken = fake.accessLogin;
+
+      return ok(`${fake.accessToken}\n`);
+    }
+
+    return fake.accessToken === undefined ? failed("Unable to find token for provided application.") : ok(`${fake.accessToken}\n`);
+  };
+
   const programs = new Map<string, (args: string[], input?: string) => Ran>([
     ["security", security],
     ["launchctl", launchctl],
     ["systemctl", systemctl],
     ["loginctl", () => ok()],
-    ["cloudflared", () => (fake.accessToken === undefined ? failed("Unable to find token for provided application.") : ok(`${fake.accessToken}\n`))]
+    ["cloudflared", cloudflared]
   ]);
 
   const exec: Exec = async (command, args, input) => {
@@ -173,6 +187,7 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     ports: new Set(),
     hasChrome: false,
     accessToken: "access-token",
+    accessLogin: "access-token",
     ran: [],
     keychain: new Map(),
     loaded: new Set(),
