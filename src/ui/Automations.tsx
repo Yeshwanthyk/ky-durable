@@ -148,6 +148,8 @@ export function Automations({ now, session }: { now: number; session: string }) 
   const { automations } = useContext(AutomationsContext);
   const [editing, setEditing] = useState<string | null>(null);
   const close = () => setEditing(null);
+  // Nothing to list: the empty state stands in for the card.
+  const empty = automations.length === 0 && editing === null;
 
   return (
     <section className="feed-group automations">
@@ -162,28 +164,29 @@ export function Automations({ now, session }: { now: number; session: string }) 
           New
         </button>
       </h3>
-      <ul className="feed">
-        {editing === NEW && <AutomationForm onClose={close} />}
-        {byNextRun(automations).map((automation) =>
-          automation.id === editing ? (
-            <AutomationForm
-              key={automation.id}
-              automation={automation}
-              onClose={close}
-            />
-          ) : (
-            <AutomationItem
-              key={automation.id}
-              automation={automation}
-              now={now}
-              session={session}
-              onEdit={() => setEditing(automation.id)}
-            />
-          ),
-        )}
-      </ul>
-      {automations.length === 0 && editing === null && (
+      {empty ? (
         <p className="group-empty">Nothing scheduled. Add one, or ask ky.</p>
+      ) : (
+        <ul className="feed">
+          {editing === NEW && <AutomationForm onClose={close} />}
+          {byNextRun(automations).map((automation) =>
+            automation.id === editing ? (
+              <AutomationForm
+                key={automation.id}
+                automation={automation}
+                onClose={close}
+              />
+            ) : (
+              <AutomationItem
+                key={automation.id}
+                automation={automation}
+                now={now}
+                session={session}
+                onEdit={() => setEditing(automation.id)}
+              />
+            ),
+          )}
+        </ul>
       )}
     </section>
   );

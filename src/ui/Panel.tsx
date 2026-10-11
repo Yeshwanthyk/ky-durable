@@ -46,14 +46,6 @@ import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-pane
 
 export type Theme = "light" | "dark";
 
-const statusIcon: Record<TaskRow["status"], IconName> = {
-  queued: "circle",
-  working: "circle",
-  done: "checkCircle",
-  failed: "alert",
-  stopped: "stop",
-};
-
 export type PanelTab = "activity" | "skills" | "soul" | "settings";
 
 // Who ky is and how it is doing, then everything it is doing and has done, its skills, its soul and memory, and its settings.
@@ -268,11 +260,15 @@ function NowSection({
       </h3>
       <ul className="feed">
         {running.map((tool, index) => (
-          <li key={`${tool}-${index}`} className="feed-item feed-row">
-            <StatusGlyph status="working" />
-            <span className="feed-text">
-              <span className="feed-title">{tool}</span>
-              <span className="feed-meta">This chat</span>
+          <li key={`${tool}-${index}`} className="feed-item ledger-item" data-live>
+            <span className="ledger-button">
+              <span className="ledger-lead">
+                <StatusGlyph status="working" />
+              </span>
+              <span className="row-text">
+                <span className="ledger-title">{tool}</span>
+                <span className="row-sub">This chat</span>
+              </span>
             </span>
           </li>
         ))}
@@ -1294,44 +1290,59 @@ function TaskNow({ task, machines, now }: { task: TaskRow; machines: readonly Ma
   return step ? <span className="feed-step">{step}</span> : null;
 }
 
-/** The status as one bare glyph: a spinner while working, coloured only when it matters. */
+/** A live task's status as one bare glyph: a spinner while it works, a quiet circle while it waits. */
 function StatusGlyph({ status }: { status: TaskRow["status"] }) {
   return (
     <span className="feed-glyph" data-tone={status}>
-      {status === "working" ? <Spinner size={14} /> : <Icon name={statusIcon[status]} size={16} />}
+      {status === "working" ? <Spinner size={14} /> : <Icon name="circle" size={16} />}
     </span>
   );
 }
 
-const WORKER_ICON: Record<TaskRow["kind"], IconName> = { cloud: "nodes", machine: "monitor" };
+/** How a finished task ended, in one word. */
+const STATUS_WORD: Record<TaskRow["status"], string> = {
+  queued: "Queued",
+  working: "Working",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
 
-/** How long a live task has run; when a finished one ended, and what it cost. */
-const figuresOf = (task: TaskRow, now: number) =>
-  isLive(task) ? [elapsed(task, now)] : [clock(task.updated_at), ...spendParts(task, now)];
+/** How long a live task has run; how long a finished one took, and what it cost. */
+const figuresOf = (task: TaskRow, now: number) => (isLive(task) ? [elapsed(task, now)] : spendParts(task, now));
 
-/** Who did it, as a quiet token, then its figures; the line wraps only between whole tokens. */
+/** Who did it, then its figures: "webmac · 34s · 1 turn · $0.01". The line breaks only between parts. */
 function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
-  const figures = figuresOf(task, now).filter((part) => part !== null);
+  const parts = [task.worker, ...figuresOf(task, now).filter((part) => part !== null)];
 
   return (
-    <span className="feed-meta">
-      <span className="token" title={task.worker}>
-        <Icon name={WORKER_ICON[task.kind]} size={12} />
-        <span className="token-text">{task.worker}</span>
-      </span>
-      {figures.map((part, index) => (
+    <span className="row-sub" title={task.worker}>
+      {parts.map((part, index) => (
         <Fragment key={`${index}-${part}`}>
-          {index === 0 ? " " : " · "}
-          <span className="figure tabular">{part}</span>
+          {index === 0 ? null : " · "}
+          <span className="part">{part}</span>
         </Fragment>
       ))}
     </span>
   );
 }
 
-/** The summary's first lines as plain text while the card is closed; opened, it renders below. */
-function SummaryPreview({ summary, open }: { summary: string | null; open: boolean }) {
-  return summary && !open ? <span className="feed-summary">{plain(summary)}</span> : null;
+/** A row's first column: when a finished task ended, or a live one's spinner. */
+function TaskLead({ task }: { task: TaskRow }) {
+  return (
+    <span className="ledger-lead tabular">{isLive(task) ? <StatusGlyph status={task.status} /> : clock(task.updated_at)}</span>
+  );
+}
+
+/** A finished task's last column: Done, Failed or Stopped in its colour. Live ones have Stop there instead. */
+function TaskState({ task }: { task: TaskRow }) {
+  if (isLive(task)) return null;
+
+  return (
+    <span className="state" data-tone={task.status}>
+      {STATUS_WORD[task.status]}
+    </span>
+  );
 }
 
 /** An opened task: its summary rendered, then its last few steps, oldest first. */
@@ -1377,6 +1388,7 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
   );
 }
 
+// One line of the ledger: when, what, who and what it cost, how it went. Live, the spinner, the step and Stop instead.
 function TaskItem({
   task,
   earlier,
@@ -1396,24 +1408,25 @@ function TaskItem({
 
   return (
     <li
-      className="feed-item"
+      className="feed-item ledger-item"
       data-status={task.status}
+      data-live={isLive(task) || undefined}
       data-earlier={earlier}
       aria-current={opens && task.session === session ? "page" : undefined}
     >
       <button
         type="button"
-        className="feed-button pressable"
+        className="ledger-button pressable"
         aria-expanded={opens ? undefined : open}
         onClick={() => (opens ? onOpen(task.session!) : setOpen((value) => !value))}
       >
-        <StatusGlyph status={task.status} />
-        <span className="feed-text">
-          <span className="feed-title">{plain(task.title)}</span>
+        <TaskLead task={task} />
+        <span className="row-text">
+          <span className="ledger-title">{plain(task.title)}</span>
           <TaskNow task={task} machines={machines} now={now} />
-          <SummaryPreview summary={task.summary} open={open} />
           <TaskMeta task={task} now={now} />
         </span>
+        <TaskState task={task} />
       </button>
       <TaskDetail task={task} open={open} />
       {shared ? (
