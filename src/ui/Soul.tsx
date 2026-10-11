@@ -73,10 +73,14 @@ export function Soul({
 
   return (
     <div className="panel-body soul" data-scroll>
-      <button type="button" className="pill soul-edit pressable" disabled={soul === null} onClick={() => setMode("edit")}>
-        Edit
-      </button>
-      <div className="soul-cards">
+      <section className="feed-group">
+        <h3 className="feed-head">
+          Soul and memory
+          <button type="button" className="feed-action pressable" disabled={soul === null} onClick={() => setMode("edit")}>
+            Edit
+          </button>
+        </h3>
+        <div className="soul-cards">
         <button
           type="button"
           className="soul-card pressable"
@@ -92,7 +96,8 @@ export function Soul({
           </span>
         </button>
         <MemoryCard memory={memory} onOpen={() => setRemembering(true)} />
-      </div>
+        </div>
+      </section>
       <SpecialistList
         specialists={specialists}
         actions={specialistActions}
@@ -147,8 +152,9 @@ function SpecialistList({
     <section className="feed-group specialists">
       <h3 className="feed-head">
         Specialists
-        <button type="button" className="pill pressable" onClick={() => setEditing("")}>
-          + Specialist
+        <button type="button" className="feed-action pressable" aria-label="+ Specialist" onClick={() => setEditing("")}>
+          <Icon name="plus" size={12} />
+          Specialist
         </button>
       </h3>
       <SpecialistRows specialists={specialists} onOpen={(id) => setBrief({ id, mode: "read" })} />
@@ -185,7 +191,7 @@ function SpecialistList({
 // Each specialist's id, description and brief version; or, with none, what they are.
 function SpecialistRows({ specialists, onOpen }: { specialists: readonly SpecialistView[]; onOpen: (id: string) => void }) {
   if (specialists.length === 0) {
-    return <p className="panel-empty">Standing bots with their own brief, like @engineer or @researcher. Ask one in chat with @id.</p>;
+    return <p className="group-empty">Standing bots with their own brief, like @engineer or @researcher. Ask one in chat with @id.</p>;
   }
 
   return (
@@ -194,7 +200,7 @@ function SpecialistRows({ specialists, onOpen }: { specialists: readonly Special
         <li key={each.id}>
           <button type="button" className="row specialist-row pressable" onClick={() => onOpen(each.id)}>
             <span className="row-text">
-              <span>@{each.id}</span>
+              <span className="row-label">@{each.id}</span>
               <span className="row-sub">{each.description}</span>
             </span>
             <span className="row-sub">v{each.brief.version}</span>

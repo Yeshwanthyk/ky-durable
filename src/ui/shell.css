@@ -2043,28 +2043,13 @@
    After Muse: an Edit pill, then tall grainy cards; SOUL.md opens in a dark sheet. */
 
 .soul {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 8px 16px calc(24px + env(safe-area-inset-bottom));
-}
-
-.soul-edit {
-  justify-content: center;
-  width: 100%;
-  height: 40px;
-  font-size: calc(14px * var(--text-scale));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 
 .soul-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-/* The "+ Specialist" pill sits at the end of its heading. */
-.specialists .feed-head .pill {
-  margin-left: auto;
 }
 
 .specialist-row .row-text {
