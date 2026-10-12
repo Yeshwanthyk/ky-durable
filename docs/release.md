@@ -46,8 +46,8 @@ older version in its hello, which the Worker doesn't act on; the runner protocol
 
 These are done once, on GitHub, by the owner.
 
-1. Merge `setup-untether` into `main`: the workflows run from `main`, and the tag goes on it.
-   The merge also starts `deploy.yml`, which deploys your own ky with the `CLOUDFLARE_API_TOKEN` and
+1. Work merges into `main`: the workflows run from `main`, and the tag goes on it.
+   Each merge also starts `deploy.yml`, which deploys your own ky with the `CLOUDFLARE_API_TOKEN` and
    `KY_OVERLAY` secrets, or does nothing and says so without them (README › Changing itself).
 2. Make `Yeshwanthyk/ky-durable` public. install.sh, the brew formula and the Deploy to Cloudflare button all
    download from it signed out.

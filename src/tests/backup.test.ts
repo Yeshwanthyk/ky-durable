@@ -229,7 +229,7 @@ describe("backup and restore", () => {
     const chat = await inside(name, (instance) => instance.newChat());
     await ask(name, chat, "What shipped last week?");
 
-    // Turn its tables back into main's (55b79e7): what setup-untether added gone, ky_settings there.
+    // Turn its tables back into main's (55b79e7): what the setup work added gone, ky_settings there.
     await inside(name, (_instance, state) => {
       const sql = state.storage.sql;
 
