@@ -69,7 +69,8 @@ function context(env: NodeJS.ProcessEnv = {}): Context {
     system: computer,
     // The fake claude says it's signed in; there's no codex.
     env: { KY_CLAUDE: path.join(REPO, "test/fakes/claude.ts"), KY_CODEX: path.join(computer.home, "no-codex"), ...env },
-    sleep: async () => {}
+    sleep: async () => {},
+    stdin: async () => undefined
   };
 }
 

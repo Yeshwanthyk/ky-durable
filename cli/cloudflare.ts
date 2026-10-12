@@ -1,7 +1,7 @@
 /**
- * The Cloudflare API, with the user's own login, for this run only. ky keeps
- * no Cloudflare token: `ky` asks for one each run (CLOUDFLARE_API_TOKEN, or
- * `wrangler auth token`), holds it in memory, and never writes it anywhere.
+ * The Cloudflare API, with the user's own login: CLOUDFLARE_API_TOKEN, else the
+ * token `ky login` saved (cli/login.ts), else `wrangler auth token`. The CLI
+ * writes a token only when the user runs `ky login`; it never deploys one.
  *
  * Every call is a @distilled.cloud/cloudflare operation, run here so the rest
  * of the CLI is plain async code. CLOUDFLARE_API_BASE_URL points it at another
@@ -17,17 +17,21 @@ import * as T from "@distilled.cloud/cloudflare/Traits";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import * as API from "@distilled.cloud/core/api";
 import * as Cause from "effect/Cause";
+import * as Accounts from "@distilled.cloud/cloudflare/accounts";
+import * as R2 from "@distilled.cloud/cloudflare/r2";
+import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as S from "effect/Schema";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 /** Where the token came from, so a refusal can say which login to fix. */
-export type Login = "CLOUDFLARE_API_TOKEN" | "wrangler login" | "a pasted token";
+export type Login = "CLOUDFLARE_API_TOKEN" | "ky login" | "wrangler login" | "a pasted token";
 
 /** A failed call: Cloudflare's own error, with its tag (`NoSuchBucket`, `Forbidden`, …). */
 class CloudflareError extends Error {
@@ -58,20 +62,35 @@ type Layered = ReturnType<typeof layer>;
 
 type Services = Layer.Success<Layered>;
 
-function layer(token: string) {
-  return Layer.merge(
+/**
+ * How a permission check retries: Cloudflare answers a token without a permission "Authentication
+ * error", which distilled retries for some 20 seconds as the blip it can be. Twice is enough for a blip.
+ */
+const BRIEFLY: Retry.Options = { schedule: Schedule.spaced("200 millis").pipe(Schedule.upTo({ times: 2 })) };
+
+function layer(token: string, retry?: Retry.Options) {
+  const login = Layer.merge(
     fromApiToken({ apiToken: token, apiBaseUrl: process.env.CLOUDFLARE_API_BASE_URL || undefined }),
     FetchHttpClient.layer
   );
+
+  return retry ? Layer.merge(login, Layer.succeed(Retry.Retry, retry)) : login;
 }
 
 export class Cloudflare {
+  readonly #token: string;
   readonly #layer: Layered;
   readonly login: Login;
 
-  constructor(token: string, login: Login) {
-    this.#layer = layer(token);
+  constructor(token: string, login: Login, retry?: Retry.Options) {
+    this.#token = token;
+    this.#layer = layer(token, retry);
     this.login = login;
+  }
+
+  /** The same login, with a permission check's brief retries. */
+  briefly(): Cloudflare {
+    return new Cloudflare(this.#token, this.login, BRIEFLY);
   }
 
   /** Runs one operation; a failure throws a CloudflareError. */
@@ -86,7 +105,7 @@ export class Cloudflare {
     throw new CloudflareError(
       tag,
       REFUSALS.has(tag)
-        ? `${message} (signed in with ${this.login}). ky needs a token with ${SCOPES}: create one at ${tokenPage()} and set CLOUDFLARE_API_TOKEN to it.`
+        ? `${message} (signed in with ${this.login}). ky needs a token with ${SCOPES}: create one at ${tokenPage()}, then run \`ky login\`.`
         : message
     );
   }
@@ -107,15 +126,21 @@ export class Cloudflare {
   }
 }
 
-/** The user's Cloudflare login for this run: CLOUDFLARE_API_TOKEN, or else wrangler's. A blank one, such as `$(cat missing)`'s, is unset. */
-export async function login(): Promise<Cloudflare> {
+/**
+ * The user's Cloudflare login for this run: CLOUDFLARE_API_TOKEN, else the token `ky login` saved,
+ * else wrangler's. A blank one, such as `$(cat missing)`'s, is unset.
+ */
+export async function login(saved: () => Promise<string | undefined>): Promise<Cloudflare> {
   const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
 
   if (token) return new Cloudflare(token, "CLOUDFLARE_API_TOKEN");
+  const kept = await saved();
+
+  if (kept) return new Cloudflare(kept, "ky login");
   const wrangler = await wranglerToken();
 
   if (wrangler) return new Cloudflare(wrangler, "wrangler login");
-  throw new Error(`Not signed in to Cloudflare: run \`wrangler login\`, or set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}`);
+  throw new Error("Not signed in to Cloudflare: run `ky login`");
 }
 
 /** wrangler's own login, refreshed by wrangler; undefined when wrangler is missing or signed out. */
@@ -141,6 +166,76 @@ const PERMISSIONS = [
 ];
 
 export const SCOPES = PERMISSIONS.map(([scope]) => scope).join(", ");
+
+/** Where the user edits a token they have, to add what it lacks. */
+const TOKENS_PAGE = "https://dash.cloudflare.com/profile/api-tokens";
+
+/** Each permission past Account Settings, with a read only it allows: reading tells, and changes nothing. */
+const PROBES: Array<[string, (cloudflare: Cloudflare, accountId: string) => Promise<void>]> = [
+  [
+    "Workers Scripts: Edit",
+    async (cloudflare, accountId) => {
+      await cloudflare.list(Workers.listScripts.items({ accountId }));
+    }
+  ],
+  [
+    "Workers R2 Storage: Edit",
+    async (cloudflare, accountId) => {
+      await cloudflare.run(R2.listBuckets({ accountId }));
+    }
+  ],
+  [
+    "Access: Apps and Policies: Edit",
+    async (cloudflare, accountId) => {
+      await cloudflare.list(ZeroTrust.listAccessApplicationsForAccount.items({ accountId }));
+    }
+  ],
+  [
+    "Access: Organizations, Identity Providers, and Groups: Read",
+    async (cloudflare, accountId) => {
+      await cloudflare.find(ZeroTrust.listOrganizationsForAccount({ accountId }), "OrganizationNotFound");
+    }
+  ]
+];
+
+/** The permissions a deploy needs that the login lacks on the account, by the dashboard's names; none when it has them all. */
+export async function missingPermissions(login: Cloudflare, accountId: string): Promise<string[]> {
+  const cloudflare = login.briefly();
+  const accounts = await cloudflare.list(Accounts.listAccounts.items({}));
+
+  if (!accounts.some((account) => account.id === accountId)) return [`Account Settings: Read, on account ${accountId}`];
+
+  const refusedBy = await Promise.all(
+    PROBES.map(async ([scope, probe]) => {
+      try {
+        await probe(cloudflare, accountId);
+
+        return [];
+      } catch (error) {
+        if (refused(error)) return [scope];
+        throw error;
+      }
+    })
+  );
+
+  return refusedBy.flat();
+}
+
+/** Why the login can't deploy, and what fixes it: a token with all a deploy needs, saved with `ky login`. */
+export function lacks(login: Login, missing: string[]): string {
+  const fix = `create a token with all a deploy needs at ${tokenPage()}, then run \`ky login\``;
+
+  if (login === "wrangler login") return `wrangler's login can't manage Access (it lacks ${missing.join(", ")}): ${fix}`;
+
+  return `The token from ${login} lacks ${missing.join(", ")}. Add ${missing.length > 1 ? "them" : "it"} to the token at ${TOKENS_PAGE}, or ${fix}`;
+}
+
+/** Throws, naming what's missing, unless the login has every permission a deploy needs on the account. */
+export async function ready(cloudflare: Cloudflare, accountId: string): Promise<void> {
+  const missing = await missingPermissions(cloudflare, accountId);
+
+  if (missing.length > 0) throw new Error(lacks(cloudflare.login, missing));
+}
 
 /**
  * The dashboard page that creates an API token with what a deploy needs, for

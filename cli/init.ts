@@ -9,7 +9,6 @@
  * Each answer can come as a flag instead; without a terminal, as when an agent runs it, a missing
  * one is an error that names its flag.
  */
-import { execFile } from "node:child_process";
 import * as Accounts from "@distilled.cloud/cloudflare/accounts";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { isCancel, password, select, text } from "@clack/prompts";
@@ -18,7 +17,7 @@ import { Cloudflare, refused, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
 import { emails, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
 import { claim, type Deployed, deploy, NameTaken, teamDomain, zeroTrustPage } from "./deployer.ts";
-import { bold, cancelled, dim, green, type Output, output, qr, terminal } from "./output.ts";
+import { bold, cancelled, dim, green, open, type Output, output, qr, terminal } from "./output.ts";
 
 export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string };
 
@@ -42,12 +41,6 @@ const blank = (value: string | undefined) => (value?.trim() ? undefined : "Paste
 
 function validName(name: string): string | undefined {
   return NAME.test(name) ? undefined : "Lowercase letters, digits and dashes, at most 57";
-}
-
-/** Opens the URL in the browser, when there's one to open it in. */
-function open(url: string): void {
-  if (!terminal()) return;
-  execFile(process.platform === "darwin" ? "open" : "xdg-open", [url], () => {});
 }
 
 /** The account the flag names (by id or name), the only one, or the one picked. */

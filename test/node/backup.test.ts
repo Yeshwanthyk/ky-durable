@@ -66,6 +66,7 @@ function context(): Context {
     system,
     env: {},
     sleep: async () => {},
+    stdin: async () => undefined,
     overlay: path.join(system.home, "no-overlay.jsonc"),
     release: async () => {
       throw new Error("no release");

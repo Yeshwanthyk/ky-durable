@@ -33,6 +33,11 @@ afterEach(async () => {
   await rm(bin, { recursive: true, force: true });
 });
 
+/** The token `ky login` kept for the test; none unless it sets one. */
+let keptToken: string | undefined;
+
+const kept = async () => keptToken;
+
 /** The Authorization header a call with the run's login sends. */
 async function authorization(): Promise<string | undefined> {
   let seen: string | undefined;
@@ -47,7 +52,7 @@ async function authorization(): Promise<string | undefined> {
   process.env.CLOUDFLARE_API_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   try {
-    await (await login()).run(Workers.getSubdomain({ accountId: "acc" }));
+    await (await login(kept)).run(Workers.getSubdomain({ accountId: "acc" }));
   } finally {
     server.close();
   }
@@ -63,14 +68,29 @@ describe("the Cloudflare login", () => {
   ])("is wrangler's while CLOUDFLARE_API_TOKEN is %s, and wrangler doesn't see the blank one", async (_what, value) => {
     process.env.CLOUDFLARE_API_TOKEN = value;
 
-    expect((await login()).login).toBe("wrangler login");
+    expect((await login(kept)).login).toBe("wrangler login");
     expect(await authorization()).toBe("Bearer wrangler-token");
+  });
+
+  it("is the token `ky login` kept, ahead of wrangler's, while CLOUDFLARE_API_TOKEN is unset", async () => {
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    keptToken = "token-from-ky-login";
+
+    try {
+      expect((await login(kept)).login).toBe("ky login");
+      expect(await authorization()).toBe("Bearer token-from-ky-login");
+
+      process.env.CLOUDFLARE_API_TOKEN = "token-from-env";
+      expect((await login(kept)).login).toBe("CLOUDFLARE_API_TOKEN");
+    } finally {
+      keptToken = undefined;
+    }
   });
 
   it("is CLOUDFLARE_API_TOKEN's when it is set, without the space around it", async () => {
     process.env.CLOUDFLARE_API_TOKEN = " token-from-env\n";
 
-    expect((await login()).login).toBe("CLOUDFLARE_API_TOKEN");
+    expect((await login(kept)).login).toBe("CLOUDFLARE_API_TOKEN");
     expect(await authorization()).toBe("Bearer token-from-env");
   });
 });

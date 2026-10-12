@@ -19,10 +19,14 @@ brew install yeshwanthyk/ky/ky
 ky init
 ```
 
-`ky init` signs in to Cloudflare (an API token in `CLOUDFLARE_API_TOKEN`, or your `wrangler login`), asks which
+`ky init` signs in to Cloudflare (`CLOUDFLARE_API_TOKEN`, the token `ky login` kept, or your `wrangler login`), asks which
 account, what to call the Worker and your email, and deploys ky behind Cloudflare Access so only you get in. If
 Zero Trust is off, it shows where to turn it on (the free plan is enough) and waits; if the account has no
-workers.dev subdomain, it asks for one. Then it opens ky. It keeps no Cloudflare token: each command signs in for that run.
+workers.dev subdomain, it asks for one. Then it opens ky.
+
+`wrangler login` can't manage Access, so for `ky deploy` and `ky upgrade` run `ky login` once: it opens the page
+that makes a token with everything a deploy needs, checks the token you paste has it, and keeps it (in the Keychain
+on macOS, else `~/.config/ky/cloudflare-token`). `ky logout` forgets it.
 
 Without Homebrew, on macOS or Linux (arm64 or x64):
 
@@ -102,13 +106,15 @@ your connected apps as tools.
 ```sh
 brew upgrade ky        # or run install.sh again
 ky upgrade             # deploys the new release, then restarts this computer's runner
+ky upgrade work        # the same for a second ky, set up with `ky init --as work`
 ```
 
 | Command | What it does |
 | --- | --- |
-| `ky init` | Set up and deploy ky; run again, it fills in what's missing |
-| `ky deploy`, `ky upgrade` | Deploy this `ky`'s release with your settings |
-| `ky doctor [--json]` | Check each piece of the deploy, and print what fixes the first one missing |
+| `ky login`, `ky logout` | Keep a Cloudflare token that can deploy ky, or forget it |
+| `ky init [--as <name>]` | Set up and deploy ky (or a second ky, by name); run again, it fills in what's missing |
+| `ky deploy`, `ky upgrade [name]` | Deploy this `ky`'s release with your settings |
+| `ky doctor [name] [--json]` | Check each piece of the deploy, and print what fixes the first one missing |
 | `ky backup [--out <file>]` | Download a copy of ky, its chats, memory, skills and files, to `~/ky-backups` |
 | `ky restore <file> [--force]` | Put a backup into a fresh ky; it lists the keys and machines to add again |
 | `ky teardown --confirm <worker>` | Delete the Worker with its chats and files, its bucket and Access apps |
@@ -116,7 +122,8 @@ ky upgrade             # deploys the new release, then restarts this computer's 
 | `ky skill` | The guide for an agent that runs `ky` for you |
 | `ky --version` | This `ky`'s release |
 
-Your settings are in `~/.config/ky/wrangler.local.jsonc` (`$XDG_CONFIG_HOME/ky/` when set). Each release pins
+Your settings are in `~/.config/ky/wrangler.local.jsonc` (`$XDG_CONFIG_HOME/ky/` when set), a second ky's in
+`~/.config/ky/<name>/`. Each release pins
 what it deploys in its `release.json`: the Worker bundle's digest and the cloud machine's image; `ky` refuses a
 release whose files don't match it.
 

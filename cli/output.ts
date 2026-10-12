@@ -3,12 +3,19 @@
  * step that ends ✓ or ✗, and color (none under NO_COLOR). Piped, as when an agent runs it: plain
  * lines, with no escape codes, each through the run's `print`.
  */
+import { execFile } from "node:child_process";
 import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import { renderUnicodeCompact } from "uqr";
 
 /** Whether a person is at the terminal: ky asks questions and draws spinners only then. */
 export function terminal(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/** Opens the URL in the browser, when there's one to open it in. */
+export function open(url: string): void {
+  if (!terminal()) return;
+  execFile(process.platform === "darwin" ? "open" : "xdg-open", [url], () => {});
 }
 
 function color(): boolean {

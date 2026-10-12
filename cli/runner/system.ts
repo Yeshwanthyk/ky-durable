@@ -128,7 +128,7 @@ export function system(): System {
 }
 
 /** What `--as` takes: a short lower-case name, as a label, a folder and a unit name all allow. */
-const INSTANCE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export const INSTANCE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /**
  * This computer as a second runner named `as` sees it, so it runs beside the first for another

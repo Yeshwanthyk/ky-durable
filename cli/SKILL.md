@@ -7,8 +7,8 @@ description: Set up, check, upgrade and remove ky, a personal durable agent, on 
 
 `ky` deploys ky to the user's Cloudflare account: a Worker with its Durable Objects, an R2 bucket for files,
 Workers AI for models, and two Cloudflare Access apps, one that lets only the owner in and one that lets runners,
-task uploads, the manifest and icons through. It keeps no Cloudflare token: each run uses `CLOUDFLARE_API_TOKEN`,
-or else `wrangler login`'s.
+task uploads, the manifest and icons through. Each run signs in with `CLOUDFLARE_API_TOKEN`, else the token
+`ky login` kept, else `wrangler login`'s (which can't manage Access, so can't deploy).
 
 ## Install
 
@@ -31,9 +31,12 @@ ky init --account <id or name> --name ky --email <owner email>
 Without a terminal every answer is a flag; a missing one fails with the flag's name. Add `--subdomain <name>` when
 the account has no workers.dev subdomain yet. Before Access can be set up, the account needs Zero Trust on (the
 free plan is enough): `ky init` fails with the dashboard link until it is. `wrangler login` deploys Workers but
-can't manage Access; when `ky` says so, the user creates the token its message links to (Account Settings: Read,
-Workers Scripts: Edit, Workers R2 Storage: Edit, Access: Apps and Policies: Edit, and Access: Organizations,
-Identity Providers, and Groups: Read) and runs with `CLOUDFLARE_API_TOKEN` set.
+can't manage Access. The user creates a token at the link `ky login` opens (Account Settings: Read, Workers Scripts:
+Edit, Workers R2 Storage: Edit, Access: Apps and Policies: Edit, and Access: Organizations, Identity Providers, and
+Groups: Read; Containers: Edit too for the cloud machine) and pastes it into `ky login`, or pipes it in
+(`… | ky login`). `ky login` keeps it only once it has all of those: in the login Keychain on macOS, else in
+`~/.config/ky/cloudflare-token` (0600). `ky logout` forgets it. Every deploy checks the same permissions before it
+changes anything, and says which are missing.
 
 Run again, `ky init` keeps the settings it saved and asks only for what's missing. A Worker or bucket of that name,
 or an Access app already guarding its address, that ky didn't make is never changed: pick another `--name`.
@@ -45,7 +48,10 @@ or an Access app already guarding its address, that ky didn't make is never chan
   1 while anything is missing.
 - `ky upgrade` deploys this `ky`'s release when the Worker runs another one. `ky deploy` deploys it regardless. A
   `ky` older than the Worker can't deploy over it: get a newer one. It also restarts this computer's runner
-  service, if there is one, so the runner runs the new release.
+  service, if there is one, once the new release is live, so the runner runs it.
+- A second ky on the same computer: `ky init --as <name>` keeps its settings in `~/.config/ky/<name>/`, and its
+  Worker is `<name>` unless `--name` says otherwise. `ky deploy`, `ky upgrade`, `ky doctor` and `ky teardown` take
+  its name (`ky upgrade work`); the first ky answers to its Worker's name too. Its runner is `ky runner add --as <name>`.
 - The settings are in `~/.config/ky/wrangler.local.jsonc`, the same overlay format as a checkout's
   wrangler.local.jsonc. It holds only `account_id`, `name`, `vars` (merged over ky's) and `vpc_services` (added);
   the bindings are the release's. Edit it, then `ky deploy`.
