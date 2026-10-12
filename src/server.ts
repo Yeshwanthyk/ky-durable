@@ -26,7 +26,7 @@ import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { peerAnswer, PeerAsks, type PeerDesk, peerExtension, peerQuestion, peerRoute, Peers, sendAnswer } from "./peers";
+import { ASK_TTL_MS, deliver, peerAnswer, PeerAsks, type PeerDesk, peerExtension, peerQuestion, peerRoute, Peers, sweepPeers } from "./peers";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -113,7 +113,12 @@ export class PiAgent extends DurableObject<Env> {
     asks: this.peerAsks,
     vault: () => this.peerVault(),
     fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)),
-    origin: () => this.setup.origin()
+    origin: () => this.setup.origin(),
+    tell: async (session, content, requestId) => {
+      const conversation = await this.harness.conversation(session ?? ROOT_SESSION);
+      await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
+    },
+    sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
@@ -172,7 +177,8 @@ export class PiAgent extends DurableObject<Env> {
         await this.harness.session(session).abort();
       }
     },
-    dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) }
+    dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) },
+    peers: () => this.sweepPeers()
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -652,7 +658,10 @@ export class PiAgent extends DurableObject<Env> {
   peerAsked(name: string, id: string, question: string): string | undefined {
     const taken = this.peerAsks.received(name, id, question);
 
-    if (taken === "new") this.ctx.waitUntil(this.#answerPeer(name, id, question));
+    if (taken === "new") {
+      this.ctx.waitUntil(this.#answerPeer(name, id, question));
+      this.peerDesk.sweepAt(Date.now() + ASK_TTL_MS);
+    }
 
     return taken === "new" || taken === "known" ? undefined : taken;
   }
@@ -671,8 +680,9 @@ export class PiAgent extends DurableObject<Env> {
     });
 
     const answer = said || "This ky couldn't answer that just now.";
-    this.peerAsks.answered("in", name, id, answer);
-    await sendAnswer(this.peerDesk, name, id, answer);
+
+    // A question the conversation escalated waits on the user's reply instead.
+    if (this.peerAsks.answered("in", name, id, answer, ["open"])) await deliver(this.peerDesk, name, id, answer);
   }
 
   /** A peer answers a question this ky asked: tell the conversation that asked. False for no such open question. */
@@ -680,13 +690,14 @@ export class PiAgent extends DurableObject<Env> {
     const ask = this.peerAsks.answered("out", name, id, answer);
 
     if (!ask) return false;
-    const conversation = await this.harness.conversation(ask.session);
-    await conversation.submit(
-      { type: "input", content: peerAnswer(name, ask.question, answer), whenBusy: "steer", requestId: `peer-answer:${name}:${id}` },
-      BACKGROUND
-    );
+    await this.peerDesk.tell(ask.session, peerAnswer(name, ask.question, answer), `peer-answer:${name}:${id}`);
 
     return true;
+  }
+
+  /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */
+  sweepPeers(now = Date.now()): Promise<void> {
+    return sweepPeers(this.peerDesk, now);
   }
 
   /** Forget a machine the user removed; its pairing, whose token the caller revokes, or undefined if ky never knew it. */

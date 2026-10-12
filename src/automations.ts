@@ -99,6 +99,8 @@ export type AutomationDeps = {
   readonly runtime: AutomationRuntime;
   /** ky's own nightly job, Dreaming (src/dreaming.ts): booked here so one Scheduler holds every fire. */
   readonly dream: { readonly cron: string; readonly run: () => void };
+  /** Peers' sweep (src/peers.ts sweepPeers): questions that expire, and answers to send again. */
+  readonly peers: () => Promise<void>;
 };
 
 /** Whether check-ins are on, and the user's time zone as their browser's connection last placed it. */
@@ -176,11 +178,13 @@ export class Automations {
   readonly scheduler = new Scheduler<{
     automation: (fire: Fire, schedule: Schedule<Fire>) => Promise<void>;
     dream: () => Promise<void>;
+    peers: () => Promise<void>;
   }>({
     callbacks: {
       automation: (fire, schedule) => this.#fire(fire, schedule),
       // It only starts the dream, so it never holds up the alarm.
-      dream: async () => this.#deps.dream.run()
+      dream: async () => this.#deps.dream.run(),
+      peers: () => this.#deps.peers()
     }
   });
 
@@ -409,6 +413,11 @@ export class Automations {
     const status = this.get(source.slice(SOURCE.length))?.status;
 
     return status === "active" || status === "done";
+  }
+
+  /** Book peers' sweep at `at`, epoch ms. */
+  async sweepPeersAt(at: number): Promise<void> {
+    await this.scheduler.set(new Date(at), "peers");
   }
 
   /** On start: book the nightly dream, and any active automation whose booking is missing. */
