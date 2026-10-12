@@ -26,7 +26,7 @@ import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { peerExtension, peerRoute, Peers } from "./peers";
+import { type PeerDesk, peerExtension, peerRoute, Peers } from "./peers";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -105,6 +105,13 @@ export class PiAgent extends DurableObject<Env> {
   readonly peers = new Peers(this.ctx.storage.sql);
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
+  /** What the peer tool and Settings › Peers work with. */
+  readonly peerDesk: PeerDesk = {
+    peers: this.peers,
+    vault: () => this.peerVault(),
+    fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)),
+    origin: () => this.setup.origin()
+  };
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
     storage: this.ctx.storage as DurableObjectStorageLike,
@@ -260,12 +267,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(subagentProgressExtension(this.feed));
       this.registry.install(checkInGuardExtension(this.automations));
       this.registry.install(chatActivityExtension(this.chats));
-      this.registry.install(
-        peerExtension(
-          { peers: this.peers, vault: () => this.peerVault(), fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)), origin: () => this.setup.origin() },
-          chat
-        )
-      );
+      this.registry.install(peerExtension(this.peerDesk, chat));
 
       return Harness.open(
         storage,
@@ -303,6 +305,7 @@ export class PiAgent extends DurableObject<Env> {
     this.files,
     this.models,
     this.subscriptions,
+    this.peerDesk,
     this.pipe,
     this.executor,
     this.chats,

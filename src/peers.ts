@@ -2,6 +2,7 @@ import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { Value } from "typebox/value";
 import { bearer } from "./runners";
+import type { PeerInvite, PeerView } from "./protocol";
 import type { Vault } from "./vault";
 
 /**
@@ -166,9 +167,9 @@ export function peerRoute(request: Request, env: Env, url: URL, home: PeerHome =
   return url.pathname.startsWith("/peer/") ? Promise.resolve(new Response("Not found", { status: 404 })) : undefined;
 }
 
-// --- The peer tool ---
+// --- What the user does with peers: the peer tool and Settings › Peers ---
 
-/** What the peer tool works with: the peers, the Vault, how it reaches other kys, and this ky's own address. */
+/** What the peer tool and Settings › Peers work with: the peers, the Vault, how ky reaches other kys, and its own address. */
 export type PeerDesk = {
   readonly peers: Peers;
   readonly vault: () => DurableObjectStub<Vault>;
@@ -176,29 +177,26 @@ export type PeerDesk = {
   readonly origin: () => string | null;
 };
 
-type PeerArgs = { action: "invite" | "pair" | "list" | "remove"; name?: string; address?: string; code?: string };
-
-/** Why a step of pairing stopped, in words for the user. */
+/** Why a peer action stopped, in words for the user. */
 type Refused = { readonly refused: string };
 
 const taken = (name: string) => `There is already a peer named ${name}. Remove it first, or pick another name.`;
 
 const NO_ORIGIN = "This ky doesn't know its own address yet. Open it in a browser once, then try again.";
 
-async function invite(desk: PeerDesk, name: string): Promise<string> {
+const BAD_NAME = "A peer needs a name: lowercase letters, digits and dashes, up to 32.";
+
+/** Make an invite for a peer this ky will call `name`: this ky's address and a code, or why not. */
+export async function peerInvite(desk: PeerDesk, name: string): Promise<PeerInvite | Refused> {
   const origin = desk.origin();
 
-  if (!origin) return NO_ORIGIN;
+  if (!NAME.test(name)) return { refused: BAD_NAME };
 
-  if (desk.peers.get(name)) return taken(name);
-  const code = await desk.vault().mint("peer-invite", name, INVITE_TTL_MS);
+  if (!origin) return { refused: NO_ORIGIN };
 
-  return [
-    `Give the other person this ky's address and the code. It works once, within 10 minutes.`,
-    `Address: ${origin}`,
-    `Code: ${code}`,
-    `On their ky, they say: pair with <a name for this ky>, ${origin} ${code}`
-  ].join("\n");
+  if (desk.peers.get(name)) return { refused: taken(name) };
+
+  return { address: origin, code: await desk.vault().mint("peer-invite", name, INVITE_TTL_MS) };
 }
 
 /** Why another ky refused a pairing, in words for the user. */
@@ -214,6 +212,8 @@ function refusal(status: number, address: string, said: string): string {
 function pairing(desk: PeerDesk, name: string, typed: string): { origin: string; address: string } | Refused {
   const origin = desk.origin();
   const address = peerAddress(typed);
+
+  if (!NAME.test(name)) return { refused: BAD_NAME };
 
   if (!origin) return { refused: NO_ORIGIN };
 
@@ -245,10 +245,11 @@ async function askToPair(desk: PeerDesk, address: string, body: Static<typeof Pa
   return Value.Check(Paired, answer) ? answer : { refused: `${address} answered, but not as a ky pairing does.` };
 }
 
-async function pairWith(desk: PeerDesk, name: string, typed: string, code: string): Promise<string> {
+/** Pair with the ky at `typed` with its invite code, calling it `name`: its address, or why not. */
+export async function peerPair(desk: PeerDesk, name: string, typed: string, code: string): Promise<{ address: string } | Refused> {
   const where = pairing(desk, name, typed);
 
-  if ("refused" in where) return where.refused;
+  if ("refused" in where) return where;
   const vault = desk.vault();
   const asked = await askToPair(desk, where.address, { code: code.trim(), address: where.origin, token: await vault.mint("peer", name) });
 
@@ -256,12 +257,12 @@ async function pairWith(desk: PeerDesk, name: string, typed: string, code: strin
   if ("refused" in asked || !desk.peers.add(name, where.address)) {
     await vault.revoke("peer", name);
 
-    return "refused" in asked ? asked.refused : taken(name);
+    return "refused" in asked ? asked : { refused: taken(name) };
   }
 
   await vault.put("peer", name, asked.token);
 
-  return `Paired with ${name} (${where.address}).`;
+  return { address: where.address };
 }
 
 /** Forget a peer's tokens, both ways: it can no longer reach this ky, nor this ky it. */
@@ -271,8 +272,10 @@ async function forget(desk: PeerDesk, name: string): Promise<void> {
 }
 
 /** Whether a peer still takes this ky's token; a 401 means it unpaired, so this side is revoked too. */
-async function check(desk: PeerDesk, peer: PeerRow): Promise<string> {
-  if (peer.state === "revoked") return "revoked";
+async function check(desk: PeerDesk, peer: PeerRow): Promise<PeerView> {
+  const view = { name: peer.name, address: peer.address };
+
+  if (peer.state === "revoked") return { ...view, state: "revoked" };
   const token = await desk.vault().peerToken(peer.name);
 
   try {
@@ -283,48 +286,74 @@ async function check(desk: PeerDesk, peer: PeerRow): Promise<string> {
 
     await response.body?.cancel();
 
-    if (response.ok) return "on";
+    if (response.ok) return { ...view, state: "on" };
 
-    if (response.status !== 401) return `unreachable (it answered ${response.status})`;
+    if (response.status !== 401) return { ...view, state: "unreachable", detail: `it answered ${response.status}` };
   } catch (error) {
-    return `unreachable (${error instanceof Error ? error.message : String(error)})`;
+    return { ...view, state: "unreachable", detail: error instanceof Error ? error.message : String(error) };
   }
 
   desk.peers.revoked(peer.name);
   await forget(desk, peer.name);
 
-  return "revoked";
+  return { ...view, state: "revoked" };
 }
 
-async function list(desk: PeerDesk): Promise<string> {
-  const peers = desk.peers.list();
+/** Each peer, checked with a call to it. */
+export function peerList(desk: PeerDesk): Promise<PeerView[]> {
+  return Promise.all(desk.peers.list().map((peer) => check(desk, peer)));
+}
 
-  if (peers.length === 0) return "No peers yet. To pair with someone's ky, make a code with invite, or pair with theirs.";
-  const lines = await Promise.all(peers.map(async (peer) => `- ${peer.name}, ${peer.address}: ${await check(desk, peer)}`));
+/** Unpair a peer, both ways: its next call is refused, and its ky shows this one as revoked. */
+export async function peerRemove(desk: PeerDesk, name: string): Promise<Refused | { removed: string }> {
+  if (!desk.peers.get(name)) return { refused: `No peer named ${name}.` };
+  await forget(desk, name);
+  desk.peers.remove(name);
+
+  return { removed: name };
+}
+
+// --- The peer tool ---
+
+type PeerArgs = { action: "invite" | "pair" | "list" | "remove"; name?: string; address?: string; code?: string };
+
+async function invited(desk: PeerDesk, name: string): Promise<string> {
+  const made = await peerInvite(desk, name);
+
+  if ("refused" in made) return made.refused;
+
+  return [
+    `Give the other person this ky's address and the code. It works once, within 10 minutes.`,
+    `Address: ${made.address}`,
+    `Code: ${made.code}`,
+    `On their ky, they say: pair with <a name for this ky>, ${made.address} ${made.code}; or paste both in Settings › Peers.`
+  ].join("\n");
+}
+
+async function listed(desk: PeerDesk): Promise<string> {
+  const views = await peerList(desk);
+
+  if (views.length === 0) return "No peers yet. To pair with someone's ky, make a code with invite, or pair with theirs.";
+  const lines = views.map((view) => `- ${view.name}, ${view.address}: ${view.state}${view.detail ? ` (${view.detail})` : ""}`);
 
   return [...lines, "A revoked peer unpaired, or was removed; remove it here too, and pair again to talk to it."].join("\n");
 }
 
-async function unpair(desk: PeerDesk, name: string): Promise<string> {
-  if (!desk.peers.get(name)) return `No peer named ${name}.`;
-  await forget(desk, name);
-  desk.peers.remove(name);
+async function dispatch(desk: PeerDesk, { action, name = "", address, code }: PeerArgs): Promise<string> {
+  if (action === "list") return listed(desk);
 
-  return `Removed ${name}: it can no longer reach this ky. Its ky shows this one as revoked.`;
-}
+  if (action === "invite") return invited(desk, name);
 
-async function dispatch(desk: PeerDesk, { action, name, address, code }: PeerArgs): Promise<string> {
-  if (action === "list") return list(desk);
+  if (action === "remove") {
+    const removed = await peerRemove(desk, name);
 
-  if (!name || !NAME.test(name)) return `${action} needs a name: lowercase letters, digits and dashes, up to 32.`;
-
-  if (action === "invite") return invite(desk, name);
-
-  if (action === "remove") return unpair(desk, name);
+    return "refused" in removed ? removed.refused : `Removed ${name}: it can no longer reach this ky. Its ky shows this one as revoked.`;
+  }
 
   if (!address || !code) return "pair needs the address and the code the other person gave.";
+  const paired = await peerPair(desk, name, address, code);
 
-  return pairWith(desk, name, address, code);
+  return "refused" in paired ? paired.refused : `Paired with ${name} (${paired.address}).`;
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });

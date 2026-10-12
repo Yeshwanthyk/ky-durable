@@ -24,6 +24,8 @@ import type {
   ChatGptCode,
   ChatGptState,
   ExecutorView,
+  PeerInvite,
+  PeerView,
   SubscriptionKind,
   SubscriptionView,
   SkillChange,
@@ -334,14 +336,7 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  /** Settings › Executor: connect it, tested by the server first, or forget it. */
-  const executorActions = useMemo(
-    () => ({
-      onConnect: (url: string, token: string) => ask((id) => ({ type: "set-executor", id, url, token })).then(refusal),
-      onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
-    }),
-    [ask, send]
-  );
+  const { executorActions, peerActions } = useSettingsActions(ask, send);
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -453,6 +448,7 @@ export function usePiSession(session: string) {
     removeKey,
     subscriptionActions,
     executorActions,
+    peerActions,
     newChat,
     archiveChat,
     changeSkill,
@@ -523,6 +519,32 @@ function useSubscriptionActions(ask: (message: (id: string) => ClientMessage) =>
     }),
     [ask, send]
   );
+}
+
+/** Settings › Executor's actions (connect it, tested by the server first, or forget it) and Settings › Peers', answered over the socket. */
+function useSettingsActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>, send: (message: ClientMessage) => void) {
+  return useMemo(
+    () => ({
+      executorActions: {
+        onConnect: (url: string, token: string) => ask((id) => ({ type: "set-executor", id, url, token })).then(refusal),
+        onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
+      },
+      peerActions: peerActions(ask)
+    }),
+    [ask, send]
+  );
+}
+
+/** Settings › Peers' actions. */
+function peerActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>) {
+  return {
+    // SAFETY: the server answers peer-list with PeerView[].
+    onList: () => ask((id) => ({ type: "peer-list", id })).then((result) => result as PeerView[]),
+    // SAFETY: the server answers peer-invite with a PeerInvite or `{ refused }`.
+    onInvite: (name: string) => ask((id) => ({ type: "peer-invite", id, name })).then((result) => result as PeerInvite | { refused: string }),
+    onPair: (name: string, address: string, code: string) => ask((id) => ({ type: "peer-pair", id, name, address, code })).then(refusal),
+    onRemove: (name: string) => ask((id) => ({ type: "peer-remove", id, name })).then(refusal)
+  };
 }
 
 /** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */

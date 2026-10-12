@@ -1,7 +1,9 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { inside, promptTool } from "./drive";
+import type { PiClientMessage } from "../protocol";
+import { connect, follow, inside, promptTool } from "./drive";
 import { peerVaultName, type Vault as TestVault } from "./stack";
 
 /**
@@ -93,6 +95,48 @@ describe("pairing with another person's ky", () => {
     expect(await peer(ana, { action: "invite", name: "benky" })).toMatch(/^There is already a peer named benky/);
     expect(await peer(ana, { action: "pair", name: "self", address: address(ana), code: "x" })).toBe("That is this ky's own address.");
     expect(await peer(ana, { action: "pair", name: "Not A Name", address: address(ana), code: "x" })).toMatch(/needs a name/);
+  });
+});
+
+/** Settings › Peers on `name`'s ky: a socket, as the page opens it, that sends one message and reads its result. */
+async function settings(name: string): Promise<(message: PiClientMessage) => Promise<JsonValue | undefined>> {
+  const socket = await connect(name);
+  const client = follow(socket);
+  await client.until(() => client.frames.some((frame) => frame.type === "events"));
+  // The socket came in at ky.test; this test ky's address is its own.
+  await inside(name, (instance) => instance.setup.opened(`${address(name)}/`));
+
+  return async (message) => {
+    const id = crypto.randomUUID();
+    socket.send(JSON.stringify({ ...message, id }));
+    await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === id));
+    const frame = client.frames.find((each) => each.type === "result" && each.id === id);
+
+    return frame?.type === "result" ? frame.result : undefined;
+  };
+}
+
+describe("Settings › Peers", () => {
+  it("invites, pairs, lists and removes, as the chat's peer tool does", async () => {
+    const ana = await ky("ana");
+    const ben = await ky("ben");
+    const anaPage = await settings(ana);
+    const benPage = await settings(ben);
+
+    expect(await anaPage({ type: "peer-list" })).toEqual([]);
+    expect(await anaPage({ type: "peer-invite", name: "Ben's" })).toMatchObject({ refused: expect.stringMatching(/needs a name/) });
+    const invite = await anaPage({ type: "peer-invite", name: "benky" });
+    expect(invite).toMatchObject({ address: address(ana), code: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    // SAFETY: matched just above.
+    const { code } = invite as { code: string };
+
+    expect(await benPage({ type: "peer-pair", name: "anaky", address: address(ana), code })).toEqual({ address: address(ana) });
+    expect(await benPage({ type: "peer-pair", name: "again", address: address(ana), code })).toMatchObject({ refused: expect.stringMatching(/wrong, used or expired/) });
+    expect(await anaPage({ type: "peer-list" })).toEqual([{ name: "benky", address: address(ben), state: "on" }]);
+
+    expect(await anaPage({ type: "peer-remove", name: "benky" })).toEqual({ removed: "benky" });
+    expect(await anaPage({ type: "peer-remove", name: "benky" })).toMatchObject({ refused: "No peer named benky." });
+    expect(await benPage({ type: "peer-list" })).toEqual([{ name: "anaky", address: address(ana), state: "revoked" }]);
   });
 });
 
