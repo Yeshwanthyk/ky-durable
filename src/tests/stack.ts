@@ -399,6 +399,11 @@ function answer(prompt: string): Reply {
 
   if (said) return { text: said[1]! };
 
+  // A peer conversation answers the question after the rules it answers by (src/peers.ts peerQuestion).
+  const peer = /^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/.exec(prompt);
+
+  if (peer) return answer(peer[1]!);
+
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
 
