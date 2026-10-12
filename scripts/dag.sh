@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# The setup-untether DAG (docs/setup-plan.md).
+# The setup DAG (docs/setup-plan.md).
 #   scripts/dag.sh status        what's done, ready, or blocked
 #   scripts/dag.sh start <id>    worktree + branch for a ready node, then a Claude Code session on it
-# A node is done when a commit on origin/setup-untether starts with "[<id>]".
+# A node is done when a commit on origin/main starts with "[<id>]".
 set -euo pipefail
 
-BASE=setup-untether
+BASE=main
 ROOT=$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)
 WORKTREES=${KY_WORKTREES:-$(dirname "$ROOT")/ky-dag}
 

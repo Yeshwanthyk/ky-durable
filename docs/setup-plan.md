@@ -1,8 +1,8 @@
 # ky: setup, providers, runners, and a cloud machine
 
-Integration branch: `setup-untether`. Rev 3: the full plan as a DAG of nodes.
+Integration branch: `main` (until 0.2.6 it was `setup-untether`). Rev 3: the full plan as a DAG of nodes.
 
-Each node is built in its own worktree and session, then merged into `setup-untether` by a PR whose title starts
+Each node is built in its own worktree and session, then merged into `main` by a PR whose title starts
 with `[<node id>]`. To start a node, run `scripts/dag.sh start <id>`; `scripts/dag.sh status` shows what's ready.
 
 ## Goal
@@ -44,7 +44,7 @@ Specifically:
 5. **Fakes at the boundary only**, in `test/fakes`, the way the harness does today.
    - A node that adds a boundary also adds its fake: Access, AI binding, OAuth device code, container.
 6. **Stay in your node's files where you can.** `server.ts` is shared by many nodes, so keep edits there small and
-   localized, and rebase on `setup-untether` before opening the PR.
+   localized, and rebase on `main` before opening the PR.
 7. **The contracts below are fixed.** A node that needs a contract changed:
    - changes this doc in its PR, and
    - says so in the PR description.
