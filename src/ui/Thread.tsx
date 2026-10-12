@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Attachments } from "./Attachments";
 import { Changes } from "./Changes";
+import { CopyButton } from "./CopyButton";
 import { useLightbox } from "./Lightbox";
 import type { Item, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
@@ -168,7 +169,6 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   const took = started === undefined || ended === undefined ? undefined : duration(ended - started);
   const errors = log.filter((item) => item.kind === "notice" && item.tone === "error");
   const steps = log.filter((item) => item.kind === "tool").length;
-  const [copied, setCopied] = useState(false);
 
   return (
     <article className="turn">
@@ -231,19 +231,7 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
               ) : null}
               {answer ? (
                 <span className="answer-actions">
-                  <button
-                    type="button"
-                    className="icon-button pressable"
-                    aria-label="Copy answer"
-                    onClick={() =>
-                      void navigator.clipboard.writeText(answer).then(() => {
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1200);
-                      })
-                    }
-                  >
-                    <Icon name={copied ? "check" : "copy"} size={14} />
-                  </button>
+                  <CopyButton text={answer} label="Copy answer" />
                 </span>
               ) : null}
             </div>

@@ -505,20 +505,23 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
   await expect(panel(page).getByText("No peers yet.")).toBeVisible();
 
   const invite = panel(page).getByRole("form", { name: "Invite a peer" });
-  await invite.getByLabel("Their ky").fill("Not A Name");
+  await invite.getByLabel("Call their ky").fill("Not A Name");
   await invite.getByRole("button", { name: "Make a code" }).click();
   await expect(invite.getByRole("alert")).toContainText("needs a name");
 
-  await invite.getByLabel("Their ky").fill("benky");
+  await invite.getByLabel("Call their ky").fill("benky");
   await invite.getByRole("button", { name: "Make a code" }).click();
   const origin = new URL(page.url()).origin;
-  await expect(invite.locator("[data-invite-address]")).toHaveText(origin);
-  await expect(invite.locator("[data-invite-code]")).toHaveText(/^[0-9a-f]{64}$/);
+  const line = invite.getByLabel("Invite", { exact: true });
+  await expect(line).toHaveText(new RegExp(`^${origin} [0-9a-f]{64}$`));
+  const sent = (await line.textContent())!;
 
   const pair = panel(page).getByRole("form", { name: "Pair with a peer" });
-  await pair.getByLabel("Their ky").fill("me");
-  await pair.getByLabel("Address").fill(origin);
-  await pair.getByLabel("Code").fill(await invite.locator("[data-invite-code]").innerText());
+  await expect(pair.getByRole("button", { name: "Pair" })).toBeDisabled();
+  // Pasting the invite names the ky after its address.
+  await pair.getByLabel("Their invite").fill(sent);
+  await expect(pair.getByLabel("Call their ky")).toHaveValue(new URL(origin).hostname.split(".")[0]!);
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/peers-invite.png` : undefined });
   await pair.getByRole("button", { name: "Pair" }).click();
   await expect(pair.getByRole("alert")).toHaveText("That is this ky's own address.");
 });
@@ -734,9 +737,10 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   await open(page);
   await settings(page, "Machines");
   await panel(page).getByRole("button", { name: "Add a machine" }).click();
-  const command = panel(page).getByLabel("Pairing command");
+  const command = panel(page).getByLabel("Pairing command", { exact: true });
   await expect(command).toContainText(`ky runner add ${process.env.KY_STACK_URL}`);
   await expect(panel(page).getByText(/run this before \d/)).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/machines-command.png` : undefined });
   const code = (await command.textContent())!.trim().split(" ").at(-1)!;
 
   // The command, run on the new machine.

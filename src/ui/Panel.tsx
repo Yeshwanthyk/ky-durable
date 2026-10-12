@@ -30,6 +30,7 @@ import type {
 import { Automations, Pick } from "./Automations";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
 import { Changes } from "./Changes";
+import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
@@ -818,9 +819,7 @@ function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
         On the computer, with <code>ky</code> installed, run this before {clock(code.expiresAt)}; it works once. It sets up
         the runner, starts it at login, and waits for it to come online here.
       </p>
-      <code className="machine-command" aria-label="Pairing command">
-        ky runner add {location.origin} {code.code}
-      </code>
+      <CopyLine text={`ky runner add ${location.origin} ${code.code}`} label="Pairing command" />
     </div>
   );
 }
@@ -1161,6 +1160,7 @@ function MachineRestart({ machine }: { machine: MachineInfo }) {
         <code className="machine-command" aria-label="Start command">
           ky runner run
         </code>
+        <CopyButton text="ky runner run" label="Copy start command" />
       </p>
     </div>
   );
