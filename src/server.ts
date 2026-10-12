@@ -12,7 +12,7 @@ import { Access, bypassed } from "./access";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { ChatList, chatActivityExtension } from "./chats";
-import { Automations, automationExtension } from "./automations";
+import { Automations, automationExtension, checkInGuardExtension } from "./automations";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
@@ -176,7 +176,13 @@ export class PiAgent extends DurableObject<Env> {
       await this.#configure(id, "background");
 
       return id;
-    }
+    },
+    checkIns: async () => ({
+      ...this.automations.checkIns(),
+      waiting: (await this.automations.list(false))
+        .filter((each) => each.created_by === "dream" && each.status === "active")
+        .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
+    })
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -213,7 +219,13 @@ export class PiAgent extends DurableObject<Env> {
       // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
       const memory = memoryExtension(this.memory, this.history, (session) => chat(session) || this.reviews.has(session));
       const machines = machineExtension(this.machines, this.feed);
-      const automations = automationExtension(this.automations, () => this.models.resolve("worker").choice);
+
+      const automations = automationExtension(
+        this.automations,
+        () => this.models.resolve("worker").choice,
+        (session) => this.reviews.kind(session) === "dream"
+      );
+
       this.registry.install(memory);
       this.registry.install(machines);
       this.registry.install(automations);
@@ -239,6 +251,7 @@ export class PiAgent extends DurableObject<Env> {
       this.#spawn = subagents.spawn;
       this.registry.install(subagents.extension);
       this.registry.install(subagentProgressExtension(this.feed));
+      this.registry.install(checkInGuardExtension(this.automations));
       this.registry.install(chatActivityExtension(this.chats));
 
       return Harness.open(

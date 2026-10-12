@@ -583,6 +583,15 @@
   font-weight: 500;
 }
 
+/* A second action sits beside the first, both at the end. */
+.feed-action + .feed-action {
+  margin-left: 0;
+}
+
+.feed-action:has(+ .feed-action) {
+  margin-right: 0;
+}
+
 .feed {
   margin: 0;
   padding: 0;

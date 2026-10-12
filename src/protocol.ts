@@ -201,6 +201,8 @@ export type PiClientMessage =
       readonly automation: string;
       readonly action: AutomationAction;
     }
+  /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
+  | { readonly type: "set-check-ins"; readonly id?: string; readonly on: boolean }
   /** Choose the model, and its thinking level, for one purpose. */
   | {
       readonly type: "set-model";
@@ -256,7 +258,7 @@ export type PiServerMessage =
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
   /** The active and paused automations, newest first; sent on connect and on change. */
-  | { readonly type: "automations"; readonly automations: readonly AutomationInfo[] }
+  | { readonly type: "automations"; readonly automations: readonly AutomationInfo[]; readonly checkIns: boolean }
   /** Providers, their models, and each purpose's model; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
   /** ky's repo and address, and what this deploy has no config for; sent on connect and on change. */

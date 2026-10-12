@@ -112,9 +112,9 @@ function nextOf(automation: AutomationInfo, now: number): string {
   return wait === "now" ? "due now" : `in ${wait}`;
 }
 
-/** The row's one muted line: when it runs, when next, and a quiet "by ky" when ky made it. */
+/** The row's one muted line: when it runs, when next, and a quiet "by ky" or "check-in" when ky made it. */
 function metaOf(automation: AutomationInfo, now: number): string {
-  const by = automation.created_by === "ky" ? ["by ky"] : [];
+  const by = automation.created_by === "ky" ? ["by ky"] : automation.created_by === "dream" ? ["check-in"] : [];
 
   return [scheduleOf(automation, now), nextOf(automation, now), ...by].join(" · ");
 }
@@ -131,6 +131,9 @@ export const AutomationsContext = createContext<{
     automation: string | undefined,
     draft: AutomationDraft,
   ) => Promise<string | undefined>;
+  /** Whether the nightly dream books check-ins, and the switch. */
+  checkIns: boolean;
+  onCheckIns: (on: boolean) => void;
 }>({
   automations: [],
   providers: [],
@@ -138,10 +141,29 @@ export const AutomationsContext = createContext<{
   chats: [],
   onAction: () => {},
   onSave: async () => undefined,
+  checkIns: true,
+  onCheckIns: () => {},
 });
 
 /** The editor open in the list: a new automation, one by id, or none. */
 const NEW = "new";
+
+// Check-ins: ky looks again, on the day, at something you asked about with a date ahead.
+function CheckInsSwitch() {
+  const { checkIns, onCheckIns } = useContext(AutomationsContext);
+
+  return (
+    <button
+      type="button"
+      className="feed-action pressable"
+      aria-pressed={checkIns}
+      title="ky looks again on the day at things you asked about with a date ahead, and tells you only what's new"
+      onClick={() => onCheckIns(!checkIns)}
+    >
+      Check-ins {checkIns ? "on" : "off"}
+    </button>
+  );
+}
 
 // Scheduled work, active and paused: add, edit, run now, pause, resume, archive and delete.
 export function Automations({ now, session }: { now: number; session: string }) {
@@ -155,6 +177,7 @@ export function Automations({ now, session }: { now: number; session: string }) 
     <section className="feed-group automations">
       <h3 className="feed-head">
         Automations
+        <CheckInsSwitch />
         <button
           type="button"
           className="feed-action pressable"

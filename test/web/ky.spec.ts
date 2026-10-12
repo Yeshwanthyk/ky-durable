@@ -785,6 +785,24 @@ test("stops every working task at once from Activity", async ({ page }) => {
   await expect(panel(page).getByRole("button", { name: "Stop all", exact: true })).toBeHidden();
 });
 
+test("turns check-ins off and on from Activity, and keeps the choice after a reload", async ({ page }) => {
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const on = panel(page).getByRole("button", { name: "Check-ins on" });
+  await expect(on).toHaveAttribute("aria-pressed", "true");
+  await panel(page).getByRole("heading", { name: /^Automations/ }).screenshot({ path: SHOTS ? `${SHOTS}/check-ins-on.png` : undefined });
+
+  await on.click();
+  const off = panel(page).getByRole("button", { name: "Check-ins off" });
+  await expect(off).toHaveAttribute("aria-pressed", "false");
+
+  await page.reload();
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  // The stack is shared: leave check-ins on.
+  await panel(page).getByRole("button", { name: "Check-ins off" }).click();
+  await expect(panel(page).getByRole("button", { name: "Check-ins on" })).toBeVisible();
+});
+
 test("lists automations above the history, and only recent tasks until Show earlier", async ({ page }) => {
   await open(page);
   const id = crypto.randomUUID().slice(0, 8);

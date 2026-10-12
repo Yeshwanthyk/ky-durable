@@ -57,7 +57,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   and fixes ones a later correction contradicts (`src/dreaming.ts`). It may call only the skill tools and memory's;
   it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
   on the stale summary, is told to note at most five, and pays the compressions its notes make due. It shows in Activity as
-  "Dreaming", and skips the night when nothing happened.
+  "Dreaming", and skips the night when nothing happened. It also books check-ins (below).
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
@@ -72,6 +72,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   disagree, and its recommendation.
 - Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
+- Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
+  ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection). A run
+  is told to search in general terms and to answer `NOTHING_NEW` when it found nothing worth saying; then, or when it
+  fails, it only shows in Activity ("Nothing new"). Otherwise its report reaches the main agent, which tells the user
+  unless memory shows it already has, and notes what it said. A run may call only `executor_skills`,
+  `executor_execute` and `browse` (`checkInGuardExtension`); a dream may only create check-ins and list. At most 2 are
+  booked a day and 6 wait at once; Activity's "Check-ins on/off" stops the dream booking them and pauses the waiting
+  ones (`src/automations.ts`, `src/dreaming.ts`).
 - Titles: a small model names chats and tasks (`src/titles.ts`).
 
 ## Sign-in
