@@ -1,22 +1,24 @@
 import { existsSync } from "node:fs";
 import { type AddressInfo } from "node:net";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
-import { Cloudflare, SCOPES, tokenPage } from "../../cli/cloudflare.ts";
+import { Cloudflare, lacks, SCOPES, tokenPage } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand, doctorCommand, teardownCommand, upgradeCommand } from "../../cli/commands.ts";
 import { deployedPath, readOverlay, writeOverlay } from "../../cli/config.ts";
 import { BYPASS } from "../../src/access.ts";
 import { initCommand } from "../../cli/init.ts";
+import { savedToken } from "../../cli/login.ts";
 import * as Cli from "../../cli/ky.ts";
 import { banner, bold } from "../../cli/output.ts";
+import { settingsFile, writeSettings } from "../../cli/runner/settings.ts";
 import { bundleOf, loadRelease, packOf, type Release, useRelease } from "../../cli/release.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 import { type FakeRegistry, fakeRegistry } from "../fakes/registry.ts";
-import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
+import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, NO_ORGANIZATION_TOKEN, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
 
@@ -56,14 +58,23 @@ let output: string[];
 /** The release `ky` carries; undefined before `pnpm compile`. */
 let current: Release | undefined;
 
-/** The run's Cloudflare login; undefined when signed out. */
+/** The run's CLOUDFLARE_API_TOKEN or wrangler login; undefined when neither. */
 let signedIn: Cloudflare | undefined;
+
+/** What the user pipes into `ky login`: a token from the page tokenPage() opens. */
+let pasted: string | undefined;
 
 const token = () => new Cloudflare("test-token", "CLOUDFLARE_API_TOKEN");
 
 const wrangler = () => new Cloudflare(WRANGLER_TOKEN, "wrangler login");
 
-function context(overlay: string, system: FakeSystem): Context {
+/** Why a wrangler login can't deploy: Access refuses it. */
+const WRANGLER_LACKS = lacks("wrangler login", ["Access: Apps and Policies: Edit", "Access: Organizations, Identity Providers, and Groups: Read"]);
+
+/** A run of `ky` on a fake computer, which the test can look into. */
+type Run = Context & { system: FakeSystem };
+
+function context(overlay: string, system: FakeSystem): Run {
   return {
     system,
     env: {},
@@ -74,17 +85,23 @@ function context(overlay: string, system: FakeSystem): Context {
 
       return current;
     },
+    // As cli/cloudflare.ts's login: CLOUDFLARE_API_TOKEN, else the token `ky login` kept, else wrangler's.
     login: async () => {
-      if (!signedIn) throw new Error("Not signed in to Cloudflare");
+      const kept = await savedToken(system);
+
+      if (signedIn?.login !== "CLOUDFLARE_API_TOKEN" && kept) return new Cloudflare(kept, "ky login");
+
+      if (!signedIn) throw new Error("Not signed in to Cloudflare: run `ky login`");
 
       return signedIn;
     },
     print: (line) => output.push(line),
-    fail: (line) => output.push(line)
+    fail: (line) => output.push(line),
+    stdin: async () => pasted
   };
 }
 
-async function fresh(): Promise<Context> {
+async function fresh(): Promise<Run> {
   return context(path.join(await mkdtemp(path.join(tmpdir(), "ky-cli-")), "wrangler.local.jsonc"), await fakeSystem());
 }
 
@@ -99,7 +116,7 @@ function foreignWorker(bucket?: string): FakeScript {
   return { tags: [], migrations: [], metadata: { main_module: "index.js", bindings }, modules: ["index.js"], secrets: new Map(), workersDev: true };
 }
 
-async function setUp(): Promise<Context> {
+async function setUp(): Promise<Run> {
   const ky = await fresh();
 
   await initCommand(ky, { account: "Test", name: "ky", email: EMAIL });
@@ -172,6 +189,7 @@ beforeEach(async () => {
   output = [];
   current = release("r1");
   signedIn = token();
+  pasted = "token-from-the-tokens-page";
 });
 
 afterEach(async () => {
@@ -417,7 +435,7 @@ describe("ky init and deploy", () => {
     );
     account.team = "test.cloudflareaccess.com";
     signedIn = wrangler();
-    const access = `(signed in with wrangler login). ky needs a token with ${SCOPES}: create one at ${tokenPage()} and set CLOUDFLARE_API_TOKEN to it.`;
+    const access = `(signed in with wrangler login). ky needs a token with ${SCOPES}: create one at ${tokenPage()}, then run \`ky login\`.`;
 
     await expect(initCommand(ky, { account: "acc", name: "ky", email: EMAIL })).rejects.toThrow(access);
     expect(SCOPES).toContain("Access: Apps and Policies: Edit");
@@ -429,7 +447,7 @@ describe("ky init and deploy", () => {
     expect(script()).toBeDefined();
 
     signedIn = wrangler();
-    await expect(deployCommand(ky)).rejects.toThrow(access);
+    await expect(deployCommand(ky)).rejects.toThrow(WRANGLER_LACKS);
   });
 
   it("fills in what the overlay lacks, and keeps what it has", async () => {
@@ -491,8 +509,8 @@ describe("ky doctor", () => {
     const ky = await setUp();
 
     signedIn = wrangler();
-    expect(await doctor(ky)).toEqual({ code: 1, next: `Next: set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}, then run \`ky doctor\`` });
-    expect(checks()).toContain(`✗ Cloudflare permissions: Cloudflare refused wrangler login; ky needs ${SCOPES}`);
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky login" });
+    expect(checks()).toContain(`✗ Cloudflare login: ${WRANGLER_LACKS}`);
 
     signedIn = token();
     script()?.tags.splice(0);
@@ -542,20 +560,14 @@ describe("ky doctor", () => {
       breaks: () => {
         signedIn = undefined;
       },
-      outside: () => {
-        signedIn = token();
-      },
-      nexts: [`wrangler login, or set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}`]
+      nexts: ["ky login"]
     },
     {
       state: "a wrangler login, which Access refuses",
       breaks: () => {
         signedIn = wrangler();
       },
-      outside: () => {
-        signedIn = token();
-      },
-      nexts: [`set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}, then run \`ky doctor\``]
+      nexts: ["ky login"]
     },
     {
       state: "Zero Trust off",
@@ -872,6 +884,122 @@ describe("the cloud machine", () => {
 
     await expect(setUp()).rejects.toThrow("isn't one ky copies");
     expect(script()).toBeUndefined();
+  });
+});
+
+describe("ky login", () => {
+  /** Where `ky login` keeps the token, in the fake Keychain. */
+  const KEPT = "ky cloudflare/someone";
+
+  it("keeps a token that can deploy ky, which a deploy then signs in with", async () => {
+    const ky = await setUp();
+
+    signedIn = undefined;
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky login" });
+
+    output = [];
+    expect(await Cli.ky(["login"], ky)).toBe(0);
+    expect(ky.system.keychain.get(KEPT)).toBe("token-from-the-tokens-page");
+    expect(output.at(-1)).toContain(`in the Keychain, as "ky cloudflare" for someone`);
+    expect((await ky.login()).login).toBe("ky login");
+    expect(await deployCommand(ky)).toBe(0);
+
+    expect(await Cli.ky(["logout"], ky)).toBe(0);
+    expect(ky.system.keychain.has(KEPT)).toBe(false);
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky login" });
+  });
+
+  it("keeps nothing it can't sign in with, or that can't manage Access", async () => {
+    const ky = await setUp();
+
+    output = [];
+    pasted = "not a token";
+    expect(await Cli.ky(["login"], ky)).toBe(1);
+    expect(output.at(-1)).toContain("That isn't a Cloudflare API token");
+
+    output = [];
+    pasted = NO_ORGANIZATION_TOKEN;
+    expect(await Cli.ky(["login"], ky)).toBe(1);
+    expect(output.at(-1)).toContain("lacks Access: Organizations, Identity Providers, and Groups: Read");
+    expect(output.at(-1)).toContain("Nothing was saved");
+    expect(ky.system.keychain.has(KEPT)).toBe(false);
+  });
+
+  it("keeps it in a file only the user reads, off macOS", async () => {
+    const ky = context(path.join(await mkdtemp(path.join(tmpdir(), "ky-cli-")), "wrangler.local.jsonc"), await fakeSystem("linux"));
+
+    await initCommand(ky, { account: "Test", name: "ky", email: EMAIL });
+    expect(await Cli.ky(["login"], ky)).toBe(0);
+    const file = path.join(ky.system.config, "ky", "cloudflare-token");
+
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(await savedToken(ky.system)).toBe("token-from-the-tokens-page");
+  });
+});
+
+describe("a deploy", () => {
+  it("checks the login can do all of it before it changes anything", async () => {
+    const ky = await setUp();
+
+    signedIn = new Cloudflare(NO_ORGANIZATION_TOKEN, "CLOUDFLARE_API_TOKEN");
+    fake.requests.splice(0);
+    await expect(deployCommand(ky)).rejects.toThrow(
+      lacks("CLOUDFLARE_API_TOKEN", ["Access: Organizations, Identity Providers, and Groups: Read"])
+    );
+    expect(fake.requests.filter((request) => !request.startsWith("GET"))).toEqual([]);
+  });
+
+  it("restarts the runner once the upgrade is live, not before", async () => {
+    const ky = await setUp();
+    const { system } = ky;
+
+    await writeSettings(settingsFile(system), {
+      url: "https://ky.test.workers.dev",
+      name: "mac",
+      token: { file: path.join(system.config, "ky", "runner-token") },
+      workdir: system.home,
+      repos: [],
+      permissionMode: "default",
+      chrome: false,
+      agents: { claude: true, codex: false },
+      ports: []
+    });
+    system.loaded.add(system.label);
+
+    output = [];
+    current = release("r2");
+    expect(await upgradeCommand(ky)).toBe(0);
+    const upgraded = output.findIndex((line) => line.includes("Upgrading the Worker from r1 to r2"));
+    const restarted = output.findIndex((line) => line.includes("Restarted the runner for mac"));
+
+    expect(upgraded).toBeGreaterThan(-1);
+    expect(restarted).toBeGreaterThan(upgraded);
+  });
+});
+
+describe("a second ky, by name", () => {
+  it("is set up with `ky init --as`, and deployed, upgraded and checked by its name", async () => {
+    const ky = await setUp();
+
+    expect(await Cli.ky(["init", "--as", "work", "--account", "Test", "--email", EMAIL], ky)).toBe(0);
+    const work = path.join(path.dirname(ky.overlay), "work", "wrangler.local.jsonc");
+
+    expect((await readOverlay(work))?.name).toBe("work");
+    expect(script("work")).toBeDefined();
+
+    current = release("r2");
+    output = [];
+    expect(await Cli.ky(["upgrade", "work"], ky)).toBe(0);
+    expect(output.join("\n")).toContain("Upgrading the Worker from r1 to r2");
+
+    output = [];
+    expect(await Cli.ky(["doctor", "work"], ky)).toBe(0);
+    expect(await Cli.ky(["doctor", "ky"], ky)).toBe(1);
+    expect(output.at(-1)).toBe("Next: ky upgrade");
+
+    output = [];
+    expect(await Cli.ky(["doctor", "nope"], ky)).toBe(1);
+    expect(output.at(-1)).toContain("No ky named nope on this computer: set one up with `ky init --as nope`");
   });
 });
 

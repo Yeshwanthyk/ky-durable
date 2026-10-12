@@ -5,7 +5,8 @@
  * `pnpm run deploy`. It names the account and the Worker, and holds the owner's vars (who Access
  * lets in among them) and VPC services: the two things the overlay merges rather than replaces. The
  * Worker's bindings stay the release's, so a release that changes them reaches every `ky upgrade`.
- * It holds no token.
+ * It holds no token. A second ky on the same computer (`ky init --as <name>`) keeps its overlay in
+ * ~/.config/ky/<name>/, and the commands that deploy take its name: `ky upgrade <name>`.
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -17,10 +18,28 @@ import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
 import { applyOverlay } from "../wrangler-overlay.ts";
 import type { Release } from "./release.ts";
+import { INSTANCE } from "./runner/system.ts";
 
 /** ~/.config/ky/wrangler.local.jsonc, under XDG_CONFIG_HOME when it's set. */
 export function overlayPath(): string {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "ky", "wrangler.local.jsonc");
+}
+
+/** The overlay of a second ky on this computer, named `as`: in ~/.config/ky/<as>/, beside its runner's settings. */
+export function overlayAs(overlay: string, as: string): string {
+  if (!INSTANCE.test(as)) throw new Error(`A ky's name is short and lower-case, such as "work": letters, digits and dashes, not "${as}"`);
+
+  return path.join(path.dirname(overlay), as, path.basename(overlay));
+}
+
+/** The overlay of the ky named `name`: a second ky's (`ky init --as`), else this computer's first, when its Worker has that name. */
+export async function namedOverlay(overlay: string, name: string): Promise<string> {
+  const second = overlayAs(overlay, name);
+
+  if (existsSync(second)) return second;
+
+  if ((await readOverlay(overlay))?.name === name) return overlay;
+  throw new Error(`No ky named ${name} on this computer: set one up with \`ky init --as ${name}\``);
 }
 
 /** What the CLI's overlay may set: anything else would replace the release's own. */

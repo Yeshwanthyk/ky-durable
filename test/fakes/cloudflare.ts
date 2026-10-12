@@ -122,6 +122,9 @@ export type FakeCloudflare = {
 /** The token a wrangler login gives: it deploys Workers, but Access refuses it. */
 export const WRANGLER_TOKEN = "wrangler-oauth-token";
 
+/** A token made without Access: Organizations, Identity Providers, and Groups: Read; Cloudflare refuses it the organization. */
+export const NO_ORGANIZATION_TOKEN = "token-without-access-organizations";
+
 const UPLOAD = "upload-session";
 
 const COMPLETED = "assets-complete";
@@ -501,6 +504,13 @@ function handlerFor(method: string, path: string[]): Handler {
   return handler;
 }
 
+/** Throws what Cloudflare answers a login that lacks the permission `path` needs. */
+function refuseLogin(path: string[], authorization: string | null): void {
+  if (path[0] === "access" && authorization === `Bearer ${WRANGLER_TOKEN}`) throw new Failure(403, 10001, "Method not allowed for this authentication scheme");
+
+  if (path.join("/") === "access/organizations" && authorization === `Bearer ${NO_ORGANIZATION_TOKEN}`) throw new Failure(403, 10000, "Authentication error");
+}
+
 /** The route's result, or a Failure. */
 async function route(fake: FakeCloudflare, request: Request): Promise<object | null> {
   const url = new URL(request.url);
@@ -514,8 +524,7 @@ async function route(fake: FakeCloudflare, request: Request): Promise<object | n
   if (!account) throw new Failure(404, 7003, "Could not route to /accounts/…, perhaps your object identifier is invalid?");
   fake.requests.push(`${request.method} ${path.join("/")}`);
 
-  if (path[0] === "access" && request.headers.get("authorization") === `Bearer ${WRANGLER_TOKEN}`)
-    throw new Failure(403, 10001, "Method not allowed for this authentication scheme");
+  refuseLogin(path, request.headers.get("authorization"));
 
   return handlerFor(request.method, path)({ account, request, url, name: path[2] ?? "", key: decodeURIComponent(path[4] ?? "") });
 }

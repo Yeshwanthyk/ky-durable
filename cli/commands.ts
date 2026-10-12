@@ -1,11 +1,12 @@
 /**
- * `ky deploy`, `ky upgrade`, `ky doctor`, `ky teardown` and `ky skill`. Each takes the run's
+ * `ky deploy`, `ky upgrade`, `ky doctor`, `ky teardown` and `ky skill`; the first four take a second
+ * ky's name (cli/config.ts), which cli/ky.ts turns into its overlay. Each takes the run's
  * context, so the tests run them in-process against test/fakes/cloudflare.ts, and returns the
  * process's exit code.
  */
 import { rm } from "node:fs/promises";
 import type { Unstable_RawConfig } from "wrangler";
-import { type Cloudflare, tokenPage } from "./cloudflare.ts";
+import { type Cloudflare, lacks, missingPermissions, ready } from "./cloudflare.ts";
 import { incomplete, merged, readOverlay } from "./config.ts";
 import { type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import { bold, dim, green, type Output, output, red } from "./output.ts";
@@ -25,6 +26,8 @@ export type Context = {
   system: System;
   env: NodeJS.ProcessEnv;
   sleep: (ms: number) => Promise<void>;
+  /** What was piped in, as `… | ky login` pipes a token; undefined at a terminal. */
+  stdin: () => Promise<string | undefined>;
 };
 
 /** The `ky init` that fills in what the overlay lacks. */
@@ -48,17 +51,23 @@ export async function target(context: Context): Promise<{ target: Target; releas
 
   if (lacks) throw new Error(`${lacks}; run \`${initFor(overlay)}\``);
   const release = await context.release();
+  const cloudflare = await context.login();
 
-  return { target: { cloudflare: await context.login(), config: merged(release, overlay), settings: context.overlay }, release };
+  // Before anything changes: a login that can't do all of it would stop halfway.
+  await ready(cloudflare, String(overlay.account_id));
+
+  return { target: { cloudflare, config: merged(release, overlay), settings: context.overlay }, release };
 }
 
-/** Deploys, and shows the URL. */
-async function deployTo(out: Output, to: Target, release: Release): Promise<number> {
+/** Deploys, then does what follows it, and shows the URL. */
+async function deployTo(out: Output, to: Target, release: Release, then = async () => {}): Promise<number> {
   const deployed = await out.steps("Stopped. Run `ky deploy` to finish the deploy.", (say) => {
     say("Checking what's in the account");
 
     return deploy(to, release, say);
   });
+
+  await then();
 
   const live = `${green(`ky ${release.version} is live`)} at ${bold(deployed.url)}`;
 
@@ -93,9 +102,8 @@ export async function upgradeCommand(context: Context): Promise<number> {
     return 0;
   }
 
-  await restarted(context, out);
-
-  return deployTo(out, to, release);
+  // Once it's live: a runner restarted onto a release the Worker doesn't run yet would wait for it.
+  return deployTo(out, to, release, () => restarted(context, out));
 }
 
 /** Restarts this computer's runner, so it runs this `ky` too. */
@@ -141,11 +149,12 @@ async function doctor(context: Context): Promise<Check[]> {
   try {
     cloudflare = await context.login();
   } catch (error) {
-    return [
-      config,
-      { name: "Cloudflare login", ok: false, detail: error instanceof Error ? error.message : String(error), next: `wrangler login, or set CLOUDFLARE_API_TOKEN to a token from ${tokenPage()}` }
-    ];
+    return [config, { name: "Cloudflare login", ok: false, detail: error instanceof Error ? error.message : String(error), next: "ky login" }];
   }
+
+  const missing = await missingPermissions(cloudflare, String(overlay.account_id));
+
+  if (missing.length > 0) return [config, { name: "Cloudflare login", ok: false, detail: lacks(cloudflare.login, missing), next: "ky login" }];
 
   return [
     config,

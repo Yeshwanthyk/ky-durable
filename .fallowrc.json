@@ -13,5 +13,5 @@
   ],
   "ignorePatterns": ["explainers/**", "test-results/**"],
   "ignoreUnresolvedImports": ["../dist/release.pack"],
-  "dynamicallyLoaded": ["cli/commands.ts", "cli/backup.ts", "cli/runner/commands.ts"]
+  "dynamicallyLoaded": ["cli/commands.ts", "cli/backup.ts", "cli/login.ts", "cli/runner/commands.ts"]
 }
