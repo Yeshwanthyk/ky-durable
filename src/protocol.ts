@@ -69,6 +69,18 @@ export type CloudState = "asleep" | "waking" | "running";
 
 export type SubscriptionKind = "claude" | "chatgpt" | "github";
 
+/** A peer, another person's ky this one is paired with, as Settings › Peers shows it: never its token. */
+export type PeerView = {
+  readonly name: string;
+  readonly address: string;
+  /** on: it takes this ky's token; revoked: it unpaired, or was removed; unreachable: it didn't answer, as `detail` says. */
+  readonly state: "on" | "revoked" | "unreachable";
+  readonly detail?: string;
+};
+
+/** An invite for another person's ky: this ky's address and a code that works once, within 10 minutes. */
+export type PeerInvite = { readonly address: string; readonly code: string };
+
 /** Executor as Settings shows it: the URL ky reaches it at, or null when it isn't connected. Never its token. */
 export type ExecutorView = { readonly url: string | null };
 
@@ -162,6 +174,14 @@ export type PiClientMessage =
   | { readonly type: "chatgpt-login"; readonly id?: string }
   /** How a ChatGPT sign-in is going: the result is "pending", "done" or `{ error }`. */
   | { readonly type: "chatgpt-poll"; readonly id?: string; readonly login: string }
+  /** The peers, each checked with a call to it; the result is PeerView[]. */
+  | { readonly type: "peer-list"; readonly id?: string }
+  /** Make an invite for a peer this ky will call `name`; the result is a PeerInvite or `{ refused }`. */
+  | { readonly type: "peer-invite"; readonly id?: string; readonly name: string }
+  /** Pair with the ky at `address` with its invite code, calling it `name`; the result is `{ refused }` when it can't. */
+  | { readonly type: "peer-pair"; readonly id?: string; readonly name: string; readonly address: string; readonly code: string }
+  /** Unpair a peer, both ways; the result is `{ refused }` when there is none by that name. */
+  | { readonly type: "peer-remove"; readonly id?: string; readonly name: string }
   /** Start a side chat; the result is `{ session }`. */
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */

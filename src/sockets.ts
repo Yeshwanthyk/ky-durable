@@ -27,6 +27,7 @@ import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
+import { type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
 import type { TaskFeed } from "./tasks";
@@ -133,6 +134,7 @@ export class PiSessionSockets {
   readonly #files: FileStore;
   readonly #models: Models;
   readonly #subscriptions: Subscriptions;
+  readonly #peers: PeerDesk;
   readonly #pipe: RunnerPipe;
   readonly #executor: ExecutorLink;
   readonly #chats: ChatList;
@@ -157,6 +159,7 @@ export class PiSessionSockets {
     files: FileStore,
     models: Models,
     subscriptions: Subscriptions,
+    peers: PeerDesk,
     pipe: RunnerPipe,
     executor: ExecutorLink,
     chats: ChatList,
@@ -180,6 +183,7 @@ export class PiSessionSockets {
     this.#files = files;
     this.#models = models;
     this.#subscriptions = subscriptions;
+    this.#peers = peers;
     this.#pipe = pipe;
     this.#executor = executor;
     this.#chats = chats;
@@ -751,6 +755,14 @@ export class PiSessionSockets {
       case "set-repo":
         // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
         return this.#setup.setRepo(message.repo, connection.uri);
+      case "peer-list":
+        return await peerList(this.#peers);
+      case "peer-invite":
+        return await peerInvite(this.#peers, message.name);
+      case "peer-pair":
+        return await peerPair(this.#peers, message.name, message.address, message.code);
+      case "peer-remove":
+        return await peerRemove(this.#peers, message.name);
       case "new-chat":
         return { session: await this.#newChat() };
       case "archive-chat":

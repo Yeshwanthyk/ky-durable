@@ -12,6 +12,7 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { paletteCommands } from "./ui/commands";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
+import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
@@ -191,46 +192,48 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
         }}
       >
         <ExecutorContext.Provider value={{ view: ky.executor, actions: ky.executorActions }}>
-          <SettingsNavContext.Provider value={{ page: panel.page, go: panel.setPage, openSection: panel.openSection }}>
-            <Panel
-              name={NAME}
-              variantId={KY_BLOB[view.theme]}
-              active={ky.running || view.working > 0}
-              status={view.status}
-              model={view.mainModel}
-              tasks={ky.tasks}
-              machines={ky.machines}
-              running={toolLabels(ky.tools, ky.messages)}
-              catalog={ky.catalog}
-              session={view.session}
-              now={now}
-              settings={ky.settings}
-              setup={ky.setup}
-              skills={ky.skills}
-              soul={ky.soul}
-              memory={ky.memory}
-              memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
-              specialists={ky.specialists}
-              specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
-              subscriptions={{ views: ky.subscriptions, actions: ky.subscriptionActions }}
-              theme={view.theme}
-              onTheme={setTheme}
-              onSetModel={ky.setModel}
-              onSkillChange={ky.changeSkill}
-              onSkillHistory={ky.skillHistory}
-              onSoulChange={ky.changeSoul}
-              onSoulHistory={ky.soulHistory}
-              onOpen={shell.openSession}
-              onStop={ky.stopTask}
-              onStopAll={ky.stopAll}
-              onSetMachine={ky.setMachine}
-              onSetRepo={ky.setRepo}
-              keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
-              onClose={() => panel.setOpen(false)}
-              tab={panel.tab}
-              onTab={panel.setTab}
-            />
-          </SettingsNavContext.Provider>
+          <PeerContext.Provider value={ky.peerActions}>
+            <SettingsNavContext.Provider value={{ page: panel.page, go: panel.setPage, openSection: panel.openSection }}>
+              <Panel
+                name={NAME}
+                variantId={KY_BLOB[view.theme]}
+                active={ky.running || view.working > 0}
+                status={view.status}
+                model={view.mainModel}
+                tasks={ky.tasks}
+                machines={ky.machines}
+                running={toolLabels(ky.tools, ky.messages)}
+                catalog={ky.catalog}
+                session={view.session}
+                now={now}
+                settings={ky.settings}
+                setup={ky.setup}
+                skills={ky.skills}
+                soul={ky.soul}
+                memory={ky.memory}
+                memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
+                specialists={ky.specialists}
+                specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
+                subscriptions={{ views: ky.subscriptions, actions: ky.subscriptionActions }}
+                theme={view.theme}
+                onTheme={setTheme}
+                onSetModel={ky.setModel}
+                onSkillChange={ky.changeSkill}
+                onSkillHistory={ky.skillHistory}
+                onSoulChange={ky.changeSoul}
+                onSoulHistory={ky.soulHistory}
+                onOpen={shell.openSession}
+                onStop={ky.stopTask}
+                onStopAll={ky.stopAll}
+                onSetMachine={ky.setMachine}
+                onSetRepo={ky.setRepo}
+                keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
+                onClose={() => panel.setOpen(false)}
+                tab={panel.tab}
+                onTab={panel.setTab}
+              />
+            </SettingsNavContext.Provider>
+          </PeerContext.Provider>
         </ExecutorContext.Provider>
       </AutomationsContext.Provider>
     </PanelSlot>

@@ -499,6 +499,30 @@ test("opens Settings' pages from its first page and comes back with the button o
   await expect(panel(page).getByRole("button", { name: /^Models/ })).toBeFocused();
 });
 
+test("makes a peer invite in Settings › Peers, and refuses pairing with ky's own address", async ({ page }) => {
+  await open(page);
+  await settings(page, "Peers");
+  await expect(panel(page).getByText("No peers yet.")).toBeVisible();
+
+  const invite = panel(page).getByRole("form", { name: "Invite a peer" });
+  await invite.getByLabel("Their ky").fill("Not A Name");
+  await invite.getByRole("button", { name: "Make a code" }).click();
+  await expect(invite.getByRole("alert")).toContainText("needs a name");
+
+  await invite.getByLabel("Their ky").fill("benky");
+  await invite.getByRole("button", { name: "Make a code" }).click();
+  const origin = new URL(page.url()).origin;
+  await expect(invite.locator("[data-invite-address]")).toHaveText(origin);
+  await expect(invite.locator("[data-invite-code]")).toHaveText(/^[0-9a-f]{64}$/);
+
+  const pair = panel(page).getByRole("form", { name: "Pair with a peer" });
+  await pair.getByLabel("Their ky").fill("me");
+  await pair.getByLabel("Address").fill(origin);
+  await pair.getByLabel("Code").fill(await invite.locator("[data-invite-code]").innerText());
+  await pair.getByRole("button", { name: "Pair" }).click();
+  await expect(pair.getByRole("alert")).toHaveText("That is this ky's own address.");
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");

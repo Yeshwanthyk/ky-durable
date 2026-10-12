@@ -3,6 +3,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { TaskTokens } from "../machines";
 import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
+import { peerRoute } from "../peers";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
 import { edge, FakeAccess } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
@@ -254,6 +255,8 @@ export class Vault extends ProductionVault {
  *   over it as a provider's would (`overPipe()`);
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
  * - Browser Rendering is left out: a launch is refused;
+ * - other people's kys are other test agents: `https://<name>.peer.test` is the agent `<name>`'s peer
+ *   routes, with a Vault of its own (`peerVaultName`), so two test kys pair as two deploys do;
  * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
  *   Executor, so Settings shows them as not set up.
  *
@@ -315,6 +318,12 @@ export const GLM = "workers-ai/@cf/zai-org/glm-5.3-flash";
 export const KIMI = "workers-ai/@cf/moonshotai/kimi-k2.6";
 
 export const GPT_OSS = "workers-ai/@cf/openai/gpt-oss-120b";
+
+/** The peer test host of each test ky: `https://<agent name>.peer.test`. */
+const PEER_HOST = /^([a-z0-9-]+)\.peer\.test$/;
+
+/** A test ky's own Vault, for its peer tokens; production's agent "me" has the Vault "owner". */
+export const peerVaultName = (agent: string) => `peer-vault-${agent}`;
 
 /** The test boundary, with its fakes in reach. */
 export type TestBoundary = Boundary & {
@@ -497,11 +506,23 @@ export class PiAgent extends ProductionAgent {
       probeTtlMs: this.ctx.id.name?.includes(STEADY) === true ? undefined : 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
       executorFetch: executorFake.fetch,
+      // Each test ky calls from an address of its own, so only a test that means to meets the pair route's limit.
+      peerFetch: async (input, init) => {
+        const request = new Request(input, init);
+        request.headers.set("CF-Connecting-IP", this.ctx.id.name ?? "unknown");
+
+        return kys.fetch(request, this.env);
+      },
       seeds: this.ctx.id.name?.startsWith(FRESH) === true,
       extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       executorFake,
       calls
     };
+  }
+
+  protected override peerVault(): DurableObjectStub<Vault> {
+    // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
+    return (this.env.Vault as DurableObjectNamespace<Vault>).getByName(peerVaultName(this.ctx.id.name ?? "me"));
   }
 
   /** How many times a gate tool has started. */
@@ -671,7 +692,7 @@ const ky = worker(access);
 /** GitHub's REST API, for the GitHub tools on the stack's github.internal. */
 const githubRest = fakeGithubRest();
 
-export default {
+const stack = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const signed = edge(request);
     const url = new URL(signed.url);
@@ -703,3 +724,20 @@ export default {
     return route ? route(agents(env).getByName("me"), url, env) : new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;
+
+/** Another test ky's address, as a peer reaches it: only its peer routes, which Access lets through; undefined for ky's own. */
+function peerHost(request: Request, env: Env): Promise<Response> | undefined {
+  const url = new URL(request.url);
+  const peer = PEER_HOST.exec(url.hostname)?.[1];
+
+  if (!peer) return undefined;
+
+  return peerRoute(request, env, url, { agent: peer, vault: peerVaultName(peer) }) ?? Promise.resolve(new Response("Not found", { status: 404 }));
+}
+
+/** The stack, and each test ky's peer routes at its own address. */
+const kys = {
+  fetch: (request: Request, env: Env): Promise<Response> => peerHost(request, env) ?? stack.fetch(request, env)
+} satisfies ExportedHandler<Env>;
+
+export default kys;

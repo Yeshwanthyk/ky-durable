@@ -24,8 +24,8 @@ const vault = (env: Env) => env.Vault.getByName("owner");
 
 const agent = (env: Env) => env.PiAgent.getByName("me");
 
-/** The bearer token a request carries; runners and tasks send no cookie. */
-function bearer(request: Request): string | undefined {
+/** The bearer token a request carries; runners, tasks and other kys send no cookie. */
+export function bearer(request: Request): string | undefined {
   const header = request.headers.get("Authorization");
 
   return header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;

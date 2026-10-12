@@ -39,6 +39,7 @@ import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { ago, clock, day } from "./time";
@@ -2132,6 +2133,7 @@ const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; v
     label: "Subscriptions",
     value: ({ subscriptions }) => countOrNone(subscriptions.views.filter((view) => view.connected).length, "connected"),
   },
+  { to: { kind: "peers" }, icon: "nodes", label: "Peers", value: () => "Other people's kys" },
   { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
   { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
   { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
@@ -2210,6 +2212,15 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
   );
 }
 
+function PeersPage() {
+  return (
+    <>
+      <PageHead title="Peers">Other people's kys this one is paired with.</PageHead>
+      <Peers />
+    </>
+  );
+}
+
 function ToolsPage({ catalog }: PageProps) {
   return (
     <>
@@ -2261,6 +2272,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   machines: MachinesPage,
   machine: MachinePage,
   subscriptions: SubscriptionsPage,
+  peers: PeersPage,
   tools: ToolsPage,
   appearance: AppearancePage,
   "self-edits": SelfEditsPage,
