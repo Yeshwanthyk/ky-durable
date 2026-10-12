@@ -102,7 +102,7 @@ const ServerFrame = Type.Union([
       items: Type.Array(MemoryItem)
     })
   }),
-  Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation) }),
+  Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation), checkIns: Type.Boolean() }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("setup"), setup: Setup }),
   Type.Object({ type: Type.Literal("subscriptions"), subscriptions: Type.Array(Subscription) }),

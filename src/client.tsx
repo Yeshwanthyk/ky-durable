@@ -186,6 +186,8 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
           chats: ky.chats,
           onAction: ky.changeAutomation,
           onSave: ky.saveAutomation,
+          checkIns: ky.checkIns,
+          onCheckIns: ky.setCheckIns,
         }}
       >
         <ExecutorContext.Provider value={{ view: ky.executor, actions: ky.executorActions }}>

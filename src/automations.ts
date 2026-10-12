@@ -5,7 +5,9 @@ import {
   defineTool,
   type Extension,
   type ConversationId,
+  hook,
   ROOT_CONVERSATION_ID,
+  ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
@@ -30,11 +32,17 @@ import { isLive, type TaskFeed, type TaskRow } from "./tasks";
  * (the fire's due time): task `a-<id>-<slot>`. A slot runs once, a fire is
  * skipped while the previous run is still going, and nothing starts or
  * reports once the automation is paused or archived.
+ *
+ * Check-ins are the dream's own one-offs (author `dream`): something the user
+ * asked about with a date ahead, looked at again on the day. Each run may only
+ * search and read the web, answers NOTHING_NEW when it found nothing worth
+ * saying, and only then stays out of the chat. Two may be booked a day, six
+ * may wait at once, and the user can turn them off.
  */
 
 export type AutomationStatus = "active" | "paused" | "done" | "archived";
 
-export type AutomationAuthor = "user" | "ky";
+export type AutomationAuthor = "user" | "ky" | "dream";
 
 export type AutomationRow = {
   readonly id: string;
@@ -92,6 +100,25 @@ export type AutomationDeps = {
   /** ky's own nightly job, Dreaming (src/dreaming.ts): booked here so one Scheduler holds every fire. */
   readonly dream: { readonly cron: string; readonly run: () => void };
 };
+
+/** Whether check-ins are on, and the user's time zone as their browser's connection last placed it. */
+export type CheckIns = { readonly on: boolean; readonly zone: string | null };
+
+/** Check-ins booked in one day, and waiting at once. */
+const CHECK_INS_A_DAY = 2;
+
+const CHECK_INS_WAITING = 6;
+
+/** The tools a check-in run may call: web search through Executor, and the cloud browser. */
+const CHECK_IN_TOOLS: ReadonlySet<string> = new Set(["executor_skills", "executor_execute", "browse"]);
+
+/** What a check-in run is told before its prompt. */
+const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
+
+If you find nothing new, or nothing they could act on now, answer exactly NOTHING_NEW and nothing else. Otherwise answer with only the new facts, each with its source link, in a few lines.
+
+What to look at:
+`;
 
 /** Why an automation could not be created or changed. */
 export type Refused = { readonly refused: string };
@@ -160,6 +187,7 @@ export class Automations {
   constructor(sql: SqlStorage, deps: AutomationDeps) {
     this.#sql = sql;
     this.#deps = deps;
+    sql.exec("CREATE TABLE IF NOT EXISTS ky_check_ins (id INTEGER PRIMARY KEY CHECK (id = 1), off INTEGER NOT NULL, zone TEXT)");
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_automations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -202,8 +230,49 @@ export class Automations {
     return Promise.all(rows.map((row) => this.#view(row)));
   }
 
+  /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
+  checkIns(): CheckIns {
+    const row = this.#sql.exec<{ off: number; zone: string | null }>("SELECT off, zone FROM ky_check_ins WHERE id = 1").toArray()[0];
+
+    return { on: row?.off !== 1, zone: row?.zone ?? null };
+  }
+
+  /** Turn check-ins on or off; off pauses the ones waiting. */
+  async setCheckIns(on: boolean): Promise<void> {
+    this.#sql.exec(
+      "INSERT INTO ky_check_ins (id, off, zone) VALUES (1, ?, NULL) ON CONFLICT (id) DO UPDATE SET off = excluded.off",
+      on ? 0 : 1
+    );
+
+    if (!on) {
+      for (const row of this.#rows("SELECT * FROM ky_automations WHERE created_by = 'dream' AND status = 'active'")) {
+        await this.#halt(row, "paused");
+      }
+    }
+
+    this.#emit();
+  }
+
+  /** The user's time zone, from where their browser connects; check-ins are booked for their morning. */
+  setZone(zone: string): void {
+    if (zone === this.checkIns().zone) return;
+    this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
+  }
+
+  /** Whether the pi session is a check-in's run at work. */
+  checkInRun(session: string): boolean {
+    const task = this.#deps.feed.working(session);
+
+    if (!task?.source.startsWith(SOURCE)) return false;
+
+    return this.get(task.source.slice(SOURCE.length))?.created_by === "dream";
+  }
+
   /** A new active automation, booked; or why it was refused. */
   async create(draft: AutomationDraft, author: AutomationAuthor): Promise<AutomationRow | Refused> {
+    const refused = author === "dream" ? this.#checkInProblem(draft) : undefined;
+
+    if (refused !== undefined) return { refused };
     const checked = this.#check(draft);
 
     if ("refused" in checked) return checked;
@@ -436,12 +505,14 @@ export class Automations {
 
         if (runs[row.id]?.task === task) return;
         runs[row.id] = { slot, task };
+        const checkIn = row.created_by === "dream";
         await runtime.spawn(tx, conversationOf(chat), {
           name: workerOf(row.id),
-          message: row.prompt,
+          message: checkIn ? `${CHECK_IN}${row.prompt}` : row.prompt,
           model: this.#modelOf(row),
           feedId: task,
-          label: `automation "${row.title}"`
+          label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
+          checkIn
         });
       });
     } catch (error) {
@@ -531,6 +602,31 @@ export class Automations {
     return model
       ? { ...draft, model }
       : { refused: `${draft.model.provider}/${draft.model.modelId} is not available. ${this.#choices()}` };
+  }
+
+  /** A check-in is a one-off in the cloud that reports to the main chat, within the day's and the waiting caps. */
+  #checkInProblem(draft: AutomationDraft): string | undefined {
+    if (!this.checkIns().on) return "The user turned check-ins off.";
+
+    if (draft.cron !== null || draft.at === null) return "A check-in runs once: give at, not cron.";
+
+    // A time already gone would run it now, in the night.
+    if (draft.at <= Date.now()) return "A check-in's time must be ahead.";
+
+    if (draft.machine !== null || draft.chat !== ROOT_SESSION) return "A check-in runs in the cloud and reports to the main chat.";
+
+    const count = (query: string, ...bindings: number[]) =>
+      this.#sql.exec<{ n: number }>(query, ...bindings).one().n;
+
+    if (count("SELECT COUNT(*) AS n FROM ky_automations WHERE created_by = 'dream' AND created_at > ?", Date.now() - 86_400_000) >= CHECK_INS_A_DAY) {
+      return `${CHECK_INS_A_DAY} check-ins were booked in the last day; that is the limit.`;
+    }
+
+    if (count("SELECT COUNT(*) AS n FROM ky_automations WHERE created_by = 'dream' AND status = 'active'") >= CHECK_INS_WAITING) {
+      return `${CHECK_INS_WAITING} check-ins are already waiting; that is the limit.`;
+    }
+
+    return undefined;
   }
 
   #machineProblem(machine: string | null): string | undefined {
@@ -725,14 +821,15 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
 }
 
-/** Create, reporting to the calling chat unless another is named. */
-async function create(automations: Automations, args: Args, fallback: ModelChoice, caller: string): Promise<string> {
+/** Create, reporting to the calling chat unless another is named. A dream creates check-ins only. */
+async function create(automations: Automations, args: Args, fallback: ModelChoice, caller: string, dream: boolean): Promise<string> {
   if (!args.title || !args.prompt) return "create needs a title and a prompt.";
 
   // What the arguments leave out: no model or machine, and reports to this chat.
   const unset = { cron: null, at: null, model: null, machine: null, chat: caller };
-  const draft = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
-  const created = await automations.create(draft, args.createdBy ?? "user");
+  const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
+  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION } : asked;
+  const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
   return "refused" in created ? created.refused : `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).`;
 }
@@ -774,12 +871,21 @@ function act(automations: Automations, action: string, id: string): Promise<stri
   return automations.run(id);
 }
 
-type Call = { readonly action: string; readonly args: Args; readonly fallback: ModelChoice; readonly caller: string };
+type Call = {
+  readonly action: string;
+  readonly args: Args;
+  readonly fallback: ModelChoice;
+  readonly caller: string;
+  /** The caller is a dream: it may create check-ins and list, nothing more. */
+  readonly dream: boolean;
+};
 
-async function dispatch(automations: Automations, { action, args, fallback, caller }: Call): Promise<string> {
-  if (action === "create") return create(automations, args, fallback, caller);
+async function dispatch(automations: Automations, { action, args, fallback, caller, dream }: Call): Promise<string> {
+  if (action === "create") return create(automations, args, fallback, caller, dream);
 
   if (action === "list") return list(automations, args.all ?? false);
+
+  if (dream) return "A dream may only create check-ins and list automations.";
 
   if (!args.id) return `${action} needs an id.`;
 
@@ -792,8 +898,13 @@ async function dispatch(automations: Automations, { action, args, fallback, call
   return act(automations, action, args.id);
 }
 
-/** The automation tool, for the main agent only. */
-export function automationExtension(automations: Automations, worker: () => ModelChoice): Extension {
+/** The automation tool, for the main agent, and for a dream to book check-ins. */
+export function automationExtension(
+  automations: Automations,
+  worker: () => ModelChoice,
+  /** Whether a pi session is a dream's. */
+  dreaming: (session: string) => boolean
+): Extension {
   return defineExtension({
     name: "automations",
     tools: [
@@ -816,9 +927,26 @@ export function automationExtension(automations: Automations, worker: () => Mode
               action: args.action,
               args,
               fallback: worker(),
-              caller: String(api.conversationId)
+              caller: String(api.conversationId),
+              dream: dreaming(String(api.conversationId))
             })
           )
+      })
+    ]
+  });
+}
+
+/** A check-in's run may only search and read the web; every conversation gets this, as subagents drop the rest. */
+export function checkInGuardExtension(automations: Automations): Extension {
+  return defineExtension({
+    name: "check-in-guard",
+    hooks: [
+      hook(ToolTask, {
+        beforeTool: (call, api) => {
+          if (CHECK_IN_TOOLS.has(call.name) || !automations.checkInRun(String(api.conversationId))) return undefined;
+
+          return { block: `A check-in may only call ${[...CHECK_IN_TOOLS].join(", ")}.` };
+        }
       })
     ]
   });

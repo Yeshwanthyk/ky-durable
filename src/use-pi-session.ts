@@ -63,6 +63,8 @@ type State = SessionView & {
   readonly memory: MemoryView | null;
   /** Active and paused automations, newest first. */
   readonly automations: readonly AutomationInfo[];
+  /** Whether the nightly dream books check-ins. */
+  readonly checkIns: boolean;
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** ky's repo and the tools this deploy lacks; null until the server sends them. */
@@ -90,7 +92,7 @@ const REPLACES = {
   soul: ({ soul }) => ({ soul }),
   specialists: ({ specialists }) => ({ specialists }),
   memory: ({ memory }) => ({ memory }),
-  automations: ({ automations }) => ({ automations })
+  automations: ({ automations, checkIns }) => ({ automations, checkIns })
 } satisfies { readonly [Type in ServerMessage["type"]]?: (frame: Frame<Type>) => Partial<State> };
 
 const INITIAL_STATE: State = {
@@ -107,6 +109,7 @@ const INITIAL_STATE: State = {
   specialists: [],
   memory: null,
   automations: [],
+  checkIns: true,
   settings: null,
   setup: null,
   subscriptions: [],
@@ -228,6 +231,7 @@ export function usePiSession(session: string) {
       specialists: current.specialists,
       memory: current.memory,
       automations: current.automations,
+      checkIns: current.checkIns,
       settings: current.settings,
       setup: current.setup,
       subscriptions: current.subscriptions,
@@ -432,12 +436,7 @@ export function usePiSession(session: string) {
     [ask]
   );
 
-  /** Pause, resume, archive, run or delete an automation as the user. */
-  const changeAutomation = useCallback(
-    (automation: string, action: AutomationAction) =>
-      send({ type: "automation", id: crypto.randomUUID(), automation, action }),
-    [send]
-  );
+  const { changeAutomation, setCheckIns } = useAutomationActions(send);
 
   return {
     ...state,
@@ -467,7 +466,8 @@ export function usePiSession(session: string) {
     zoomMemory,
     forgetMemory,
     changeAutomation,
-    saveAutomation
+    saveAutomation,
+    setCheckIns
   };
 }
 
@@ -490,6 +490,21 @@ async function reloadIfSignedOut(): Promise<void> {
 function refusal(result: JsonValue): string | undefined {
   // SAFETY: the server answers each save it may refuse with `{ refused? }`.
   return (result as { refused?: string }).refused;
+}
+
+/** Activity's automation actions, sent over the socket. */
+function useAutomationActions(send: (message: ClientMessage) => void) {
+  /** Pause, resume, archive, run or delete an automation as the user. */
+  const changeAutomation = useCallback(
+    (automation: string, action: AutomationAction) =>
+      send({ type: "automation", id: crypto.randomUUID(), automation, action }),
+    [send]
+  );
+
+  /** Let the nightly dream book check-ins, or not. */
+  const setCheckIns = useCallback((on: boolean) => send({ type: "set-check-ins", id: crypto.randomUUID(), on }), [send]);
+
+  return { changeAutomation, setCheckIns };
 }
 
 /** Settings › Subscriptions' actions, answered over the socket. */

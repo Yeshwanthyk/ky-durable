@@ -510,3 +510,120 @@ describe("automations", () => {
     expect(await runs(name, id)).toHaveLength(2);
   });
 });
+
+/**
+ * Check-ins: one-offs the nightly dream books for something the user asked
+ * about with a date ahead. A dream's conversation calls the automation tool
+ * as the dream would; a run's answer comes from its prompt (`reply: TEXT`).
+ */
+describe("check-ins", () => {
+  /** A conversation the dream's rules apply to, as a dream's is. */
+  const dream = (name: string) =>
+    inside(name, async (instance) => {
+      const { id } = await instance.harness.sessions.create();
+      instance.reviews.add(id, "", "dream");
+
+      return id;
+    });
+
+  /** Book a check-in from a dream an hour from now; what the tool said. */
+  async function book(name: string, session: string, args: Record<string, JsonValue> = {}): Promise<string> {
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+
+    // A null at leaves it out.
+    const given = Object.fromEntries(Object.entries({ action: "create", title: "Advance polls", prompt: "reply: NOTHING_NEW", at, ...args }).filter(([, value]) => value !== null));
+
+    return say(name, automation(given), session);
+  }
+
+  const booked = (said: string) => {
+    const id = /Created automation (\w+),/.exec(said)?.[1];
+
+    if (!id) throw new Error(`Not booked: ${said}`);
+
+    return id;
+  };
+
+  const checkIns = (name: string, session?: string) => told(name, "[check-in", session);
+
+  it("a dream books a one-off check-in that reports to the main chat, and may do nothing else", async () => {
+    const name = crypto.randomUUID();
+    const session = await dream(name);
+    // The dream names its own conversation, a machine and a model; a check-in ignores them.
+    const id = booked(await book(name, session, { chat: session, model: `workers-ai/${GPT_OSS}` }));
+
+    expect(await inside(name, (instance) => instance.automations.get(id))).toMatchObject({
+      created_by: "dream",
+      chat: ROOT_SESSION,
+      model: null,
+      machine: null,
+      status: "active"
+    });
+
+    expect(await book(name, session, { at: null, cron: "0 9 * * *" })).toBe("tool said: A check-in runs once: give at, not cron.");
+    expect(await book(name, session, { at: new Date(Date.now() - 60_000).toISOString() })).toBe("tool said: A check-in's time must be ahead.");
+    expect(await say(name, automation({ action: "pause", id }), session)).toBe("tool said: A dream may only create check-ins and list automations.");
+  });
+
+  it("books at most two a day, and none once the user turns them off, which pauses the waiting ones", async () => {
+    const name = crypto.randomUUID();
+    const session = await dream(name);
+    const first = booked(await book(name, session));
+    booked(await book(name, session));
+    expect(await book(name, session)).toBe("tool said: 2 check-ins were booked in the last day; that is the limit.");
+
+    await inside(name, (instance) => instance.automations.setCheckIns(false));
+    expect(await inside(name, (instance) => instance.automations.get(first)?.status)).toBe("paused");
+    expect(await booking(name, first)).toBeUndefined();
+    expect(await book(name, session)).toBe("tool said: The user turned check-ins off.");
+
+    // The user's own automations do not count against it.
+    await create(name);
+  });
+
+  it("stays out of the chat when it finds nothing new", async () => {
+    const name = crypto.randomUUID();
+    const id = booked(await book(name, await dream(name)));
+
+    await runNow(name, id);
+    const run = await runEnds(name, id);
+    expect(run.summary).toBe("Nothing new");
+    await settle();
+    expect(await checkIns(name)).toEqual([]);
+  });
+
+  it("brings what it found to the main agent to tell the user", async () => {
+    const name = crypto.randomUUID();
+    const id = booked(await book(name, await dream(name), { prompt: "reply: Kids Vote Weekend at the advance polls today" }));
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await checkIns(name)).length > 0, "the check-in's report");
+    const [report] = await checkIns(name);
+    expect(report).toMatch(/^\[check-in "Advance polls" found something new: .*memory_note what you told them\] Kids Vote Weekend at the advance polls today$/s);
+  });
+
+  it("may only search and read the web", async () => {
+    const name = crypto.randomUUID();
+    const prompt = `tool skill_manage ${JSON.stringify({ action: "create", name: "x", content: "y" })}`;
+    const id = booked(await book(name, await dream(name), { prompt }));
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await checkIns(name)).length > 0, "the check-in's report");
+    expect((await checkIns(name))[0]).toContain("Tool call blocked: A check-in may only call executor_skills, executor_execute, browse.");
+  });
+
+  it("the dream is told how to book them, with the time zone and the ones waiting, only while they are on", async () => {
+    const name = crypto.randomUUID();
+    const on = { on: true, zone: "America/Toronto", waiting: ['- 2026-10-12T12:00:00.000Z "Advance polls"'] };
+    await say(name, `tool memory_note ${JSON.stringify({ text: "The user asked where to vote in Ward 17 on October 12." })}`);
+
+    const digest = await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }, on));
+    expect(digest).toContain("the user's time zone: America/Toronto.");
+    expect(digest).toContain('Check-ins waiting:\n- 2026-10-12T12:00:00.000Z "Advance polls"');
+
+    const off = await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }, { ...on, on: false }));
+    expect(off).not.toContain("Check-ins waiting");
+  });
+});

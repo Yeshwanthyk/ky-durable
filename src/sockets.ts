@@ -12,6 +12,7 @@ import {
   type PiSessionId,
   type PiWhenBusy
 } from "agents/harness/pi";
+import { Guard } from "typebox/guard";
 import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
 import type { RunnerPipe } from "./pipe";
 import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./runner-protocol";
@@ -302,7 +303,8 @@ export class PiSessionSockets {
 
     return {
       type: "automations",
-      automations: views.map((view) => ({ ...view, chat_label: this.#chatTitle(view.chat) }))
+      automations: views.map((view) => ({ ...view, chat_label: this.#chatTitle(view.chat) })),
+      checkIns: this.#automations.checkIns().on
     };
   }
 
@@ -448,6 +450,10 @@ export class PiSessionSockets {
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
     this.#setup.opened(ctx.request.url);
+    // Cloudflare places the browser's connection in a time zone; check-ins are booked for the user's morning.
+    const zone = ctx.request.cf?.timezone;
+
+    if (Guard.IsString(zone) && zone) this.#automations.setZone(zone);
     send(connection, {
       type: "hello",
       session,
@@ -771,6 +777,10 @@ export class PiSessionSockets {
         return await this.#automation(message);
       case "automation-save":
         return await this.#saveAutomation(message);
+      case "set-check-ins":
+        await this.#automations.setCheckIns(message.on);
+
+        return null;
       case "stop-all":
         await this.#stopTasks(this.#feed.list().map((task) => task.id));
 

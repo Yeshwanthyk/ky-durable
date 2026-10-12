@@ -266,6 +266,8 @@ export class Vault extends ProductionVault {
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `executor CODE` runs CODE on Executor.
  * - `tool NAME JSON` calls any tool with those arguments.
+ * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
+ *   its "What to look at:" line, as if it were the prompt.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
  * - Titles are answered `Title: "Named: <first line>"` and a second line,
@@ -380,6 +382,14 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
 
 /** The answer to a user's prompt: the tool call it asks for, or an echo. */
 function answer(prompt: string): Reply {
+  const checkIn = /^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/.exec(prompt);
+
+  if (checkIn) return answer(checkIn[1]!);
+
+  const said = /^reply: (.+)$/s.exec(prompt);
+
+  if (said) return { text: said[1]! };
+
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
 

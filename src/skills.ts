@@ -42,7 +42,8 @@ const REVIEW_TOOLS = ["skill_view", "skill_manage", "memory_recall", "memory_zoo
 /** The tools each kind may call; both are offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
   review: new Set(REVIEW_TOOLS),
-  dream: new Set([...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search"])
+  // automation books check-ins (src/automations.ts), and only them.
+  dream: new Set([...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "automation"])
 };
 
 export type SkillStatus = "active" | "archived";

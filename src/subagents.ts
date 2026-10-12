@@ -93,6 +93,8 @@ type ReporterInput = {
   label?: string;
   /** The specialist answering, by id. */
   specialist?: string;
+  /** A check-in's run: it reports only what it found new, and a failure stays in Activity. */
+  checkIn?: boolean;
 };
 
 /** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
@@ -102,6 +104,7 @@ export type SpawnRequest = {
   model: ModelChoice;
   feedId?: string;
   label?: string;
+  checkIn?: boolean;
 };
 
 /** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
@@ -124,9 +127,30 @@ const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
 
+/** A check-in's answer when it found nothing worth saying. */
+const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
+
+/** What the main agent reads of a failed run; a check-in's failure stays in Activity. */
+function failureOf(input: ReporterInput, reason: string): string | undefined {
+  if (input.checkIn) return undefined;
+
+  return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
+}
+
+/** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */
+function answeredOf(input: ReporterInput, text: string) {
+  if (input.checkIn && NOTHING_NEW.test(text)) return { summary: "Nothing new", report: "", message: undefined };
+
+  return { summary: summarize(text), report: text, message: reportOf(input, text) };
+}
+
 /** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
 function reportOf(input: ReporterInput, text: string): string {
   if (input.specialist !== undefined) return `[specialist @${input.specialist} answered: pass on what matters] ${text}`;
+
+  if (input.checkIn) {
+    return `[${input.label} found something new: if memory shows you already told the user, say nothing more than "Nothing new." Otherwise tell them in one or two lines, tied to what they asked and who it concerns, with the source; then memory_note what you told them] ${text}`;
+  }
 
   return input.label === undefined
     ? `[subagent ${input.name} answered, no reply needed] ${text}`
@@ -199,7 +223,7 @@ export function subagentExtension(
 
             outcome = { status: "failed", summary: `Failed: ${settled.reason}` };
 
-            return next(`[${reporter.input.label ?? `subagent ${name}`} failed: ${settled.reason}]`);
+            return next(failureOf(reporter.input, settled.reason));
           }
 
           if (settled.type !== "input") return next();
@@ -215,14 +239,15 @@ export function subagentExtension(
             | undefined;
 
           const text = textOf(answer);
-          outcome = { status: "done", summary: summarize(text) };
-          report = text;
+          const read = answeredOf(reporter.input, text);
+          outcome = { status: "done", summary: read.summary };
+          report = read.report;
 
-          return next(reportOf(reporter.input, text));
+          return next(read.message);
         }, context);
         feed.update(feedId, outcome);
 
-        if (outcome.status === "done") feed.describe(feedId, report);
+        if (report) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
         const report = reporter.state.checkpoint.report;
@@ -510,9 +535,9 @@ export function subagentExtension(
     return tx.createTask(Reporter, input, background(owner));
   }
 
-  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label }) => {
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn }) => {
     const conversationId = await register(tx, owner, name);
-    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label }, model);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn }, model);
 
     return conversationId;
   };
