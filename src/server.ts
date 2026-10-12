@@ -26,12 +26,12 @@ import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./runner-protocol";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { type PeerDesk, peerExtension, peerRoute, Peers } from "./peers";
+import { peerAnswer, PeerAsks, type PeerDesk, peerExtension, peerQuestion, peerRoute, Peers, sendAnswer } from "./peers";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { Dreaming, DREAM_CRON } from "./dreaming";
-import { type ReviewHost, Reviews, Skills, skillsExtension } from "./skills";
+import { type ReviewHost, Reviews, runInFeed, Skills, skillsExtension } from "./skills";
 import { seed } from "./seeds";
 import { Soul, soulExtension } from "./soul";
 import { Specialists, specialistExtension } from "./specialists";
@@ -103,11 +103,14 @@ export class PiAgent extends DurableObject<Env> {
   readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
+  /** The questions this ky and its peers ask each other. */
+  readonly peerAsks = new PeerAsks(this.ctx.storage.sql);
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   /** What the peer tool and Settings › Peers work with. */
   readonly peerDesk: PeerDesk = {
     peers: this.peers,
+    asks: this.peerAsks,
     vault: () => this.peerVault(),
     fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)),
     origin: () => this.setup.origin()
@@ -643,6 +646,47 @@ export class PiAgent extends DurableObject<Env> {
   /** Forget a peer whose pairing failed after it joined. */
   peerLeft(name: string): void {
     this.peers.remove(name);
+  }
+
+  /** A peer asks a question: it is answered in the background, in a peer conversation. Why not, if refused. */
+  peerAsked(name: string, id: string, question: string): string | undefined {
+    const taken = this.peerAsks.received(name, id, question);
+
+    if (taken === "new") this.ctx.waitUntil(this.#answerPeer(name, id, question));
+
+    return taken === "new" || taken === "known" ? undefined : taken;
+  }
+
+  /** Answer a peer's question in a conversation of its own on the background model, shown in Activity, and send the answer back. */
+  async #answerPeer(name: string, id: string, question: string): Promise<void> {
+    const { id: session } = await this.harness.sessions.create();
+    this.peerAsks.answering(name, id, session);
+    await this.#configure(session, "background");
+
+    const said = await runInFeed(this.#background, await this.harness.conversation(session), {
+      id: crypto.randomUUID(),
+      worker: name,
+      title: `${name} asks`,
+      content: peerQuestion(name, question)
+    });
+
+    const answer = said || "This ky couldn't answer that just now.";
+    this.peerAsks.answered("in", name, id, answer);
+    await sendAnswer(this.peerDesk, name, id, answer);
+  }
+
+  /** A peer answers a question this ky asked: tell the conversation that asked. False for no such open question. */
+  async peerAnswered(name: string, id: string, answer: string): Promise<boolean> {
+    const ask = this.peerAsks.answered("out", name, id, answer);
+
+    if (!ask) return false;
+    const conversation = await this.harness.conversation(ask.session);
+    await conversation.submit(
+      { type: "input", content: peerAnswer(name, ask.question, answer), whenBusy: "steer", requestId: `peer-answer:${name}:${id}` },
+      BACKGROUND
+    );
+
+    return true;
   }
 
   /** Forget a machine the user removed; its pairing, whose token the caller revokes, or undefined if ky never knew it. */
