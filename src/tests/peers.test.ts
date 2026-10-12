@@ -3,7 +3,9 @@ import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage } from "../protocol";
-import { connect, follow, inside, promptTool, said, tasks } from "./drive";
+import { connect, follow, inside, promptTool, said, shows, snapshotView, tasks } from "./drive";
+import { ROOT_SESSION } from "agents/harness/pi";
+import { ASK_TTL_MS } from "../peers";
 import { peerVaultName, type Vault as TestVault } from "./stack";
 
 /**
@@ -140,6 +142,20 @@ describe("Settings › Peers", () => {
   });
 });
 
+/** The id of the question from a peer that waits on `name`'s person. */
+async function waiting(name: string): Promise<string> {
+  for (let i = 0; i < 500; i++) {
+    const id = await inside(name, (_instance, state) =>
+      state.storage.sql.exec<{ id: string }>("SELECT id FROM ky_peer_asks WHERE direction = 'in' AND state = 'asking'").toArray()[0]?.id
+    );
+
+    if (id) return id;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`No question waits on ${name}'s person`);
+}
+
 describe("asking a peer", () => {
   it("asks benky a question; benky answers it in a peer conversation, and the answer comes to Ana's chat", async () => {
     const { ana, ben } = await paired();
@@ -185,6 +201,52 @@ describe("asking a peer", () => {
       expect(asks.received("anaky", "k", "?", now)).toMatch(/10 questions this hour/);
       expect(asks.received("anaky", "k", "?", now + 3_600_000)).toBe("new");
     });
+  });
+
+  it("asks the person when benky shouldn't answer alone, and sends Ben's reply to Ana's chat", async () => {
+    const { ana, ben } = await paired();
+    // The fake model escalates when the question is the escalate call itself.
+    const question = `tool peer ${JSON.stringify({ action: "escalate", note: "Ben decides who hosts." })}`;
+
+    await peer(ana, { action: "ask", name: "benky", question });
+    await said(ben, "anaky asks the user");
+    await said(ben, "Your note: Ben decides who hosts.");
+    const id = await waiting(ben);
+
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id, answer: "yes, 7 pm" })).toBe("Sent the user's reply to anaky.");
+    await said(ana, "yes, 7 pm");
+    // The peer conversation's own last words never went to Ana's ky.
+    expect(shows(await snapshotView(ana), "Asked the user in their chat")).toBe(false);
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id, answer: "again" })).toBe(`No question ${id} from anaky waits on the user.`);
+  });
+
+  it("expires a question unanswered for a day, on both sides, booked on the Scheduler", async () => {
+    const { ana, ben } = await paired();
+
+    await peer(ana, { action: "ask", name: "benky", question: `tool peer ${JSON.stringify({ action: "escalate", note: "?" })}` });
+    const id = await waiting(ben);
+    expect(await inside(ana, async (instance) => (await instance.automations.scheduler.list()).map((job) => job.callback))).toContain("peers");
+
+    const later = Date.now() + ASK_TTL_MS + 1000;
+    await inside(ana, (instance) => instance.sweepPeers(later));
+    await said(ana, "didn't answer your question within 24 hours");
+
+    await inside(ben, (instance) => instance.sweepPeers(later));
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id, answer: "too late" })).toBe(`No question ${id} from anaky waits on the user.`);
+  });
+
+  it("sends again, at its sweep, an answer that didn't reach the peer", async () => {
+    const { ana, ben } = await paired();
+
+    await inside(ana, (instance) => instance.peerAsks.sent("benky", "q1", "is it late?", ROOT_SESSION));
+    await inside(ben, (instance) => {
+      instance.peerAsks.received("anaky", "q1", "is it late?");
+      instance.peerAsks.answered("in", "anaky", "q1", "a late answer");
+    });
+
+    await inside(ben, (instance) => instance.sweepPeers());
+    await said(ana, "a late answer");
+    expect(await inside(ben, (instance) => instance.peerAsks.undelivered())).toEqual([]);
   });
 
   it("refuses to ask a peer it doesn't have, or one that unpaired", async () => {

@@ -1,5 +1,6 @@
 import { createContext, type FormEvent, useCallback, useContext, useEffect, useState } from "react";
 import type { PeerInvite, PeerView } from "../protocol";
+import { CopyLine } from "./CopyButton";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
 
@@ -91,6 +92,21 @@ function PeerList({ peers, onRemove }: { peers: PeerView[] | null; onRemove: (na
   );
 }
 
+/** What to call the ky at `address`, by its first label: "ky-mp-a" for https://ky-mp-a.example.workers.dev; "" if none fits. */
+function nameFor(address: string): string {
+  try {
+    const label = new URL(address.trim()).hostname.split(".")[0] ?? "";
+
+    return label
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+/, "")
+      .slice(0, 32);
+  } catch {
+    return "";
+  }
+}
+
 /** A field in a peer form. */
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
   return (
@@ -125,7 +141,7 @@ function InviteForm({ onInvite }: { onInvite: PeerActions["onInvite"] }) {
   return (
     <form className="automation-form key-form" aria-label="Invite a peer" onSubmit={make}>
       <div className="card">
-        <Field label="Their ky" value={name} onChange={setName} placeholder="What you'll call it, like benky" />
+        <Field label="Call their ky" value={name} onChange={setName} placeholder="A name for it here, like benky" />
         <Problem text={refused} />
         {made ? <Invite invite={made} /> : null}
         <div className="card-foot">
@@ -138,52 +154,66 @@ function InviteForm({ onInvite }: { onInvite: PeerActions["onInvite"] }) {
   );
 }
 
-// The invite to send the other person: both lines in one copy.
+// The invite to send the other person: this ky's address and the code, as one line to copy.
 function Invite({ invite }: { invite: PeerInvite }) {
-  const both = `${invite.address}\n${invite.code}`;
-
   return (
-    <div className="row peer-invite" aria-label="Invite">
-      <span className="row-text">
-        <span className="row-label">Send them both; the code works once, within 10 minutes</span>
-        <span className="row-sub" data-invite-address>
-          {invite.address}
-        </span>
-        <span className="row-sub" data-invite-code>
-          {invite.code}
-        </span>
-      </span>
-      <button type="button" className="pill pressable" onClick={() => navigator.clipboard.writeText(both)}>
-        Copy
-      </button>
+    <div className="machine-code">
+      <p className="group-note">Send them this. They paste it in Settings › Peers; it works once, within 10 minutes.</p>
+      <CopyLine text={`${invite.address} ${invite.code}`} label="Invite" />
     </div>
   );
 }
 
+/** The address and code in a pasted invite, which is the two separated by spaces or a line break. */
+function parse(invite: string) {
+  const [address = "", code = ""] = invite.trim().split(/\s+/);
+
+  return { address, code };
+}
+
 function PairForm({ onPair }: { onPair: PeerActions["onPair"] }) {
+  const [invite, setInvite] = useState("");
   const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [code, setCode] = useState("");
+  // Until the user names it, the name follows the invite's address.
+  const [named, setNamed] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [refused, setRefused] = useState<string>();
+  const { address, code } = parse(invite);
+
+  const enter = (typed: string) => {
+    setInvite(typed);
+
+    if (!named) setName(nameFor(parse(typed).address));
+  };
 
   const pair = async (event: FormEvent) => {
     event.preventDefault();
     setPairing(true);
-    const reason = await onPair(name.trim(), address.trim(), code.trim());
+    const reason = await onPair(name.trim(), address, code);
 
     setRefused(reason);
     setPairing(false);
 
-    if (!reason) for (const clear of [setName, setAddress, setCode]) clear("");
+    if (!reason) {
+      setInvite("");
+      setName("");
+      setNamed(false);
+    }
   };
 
   return (
     <form className="automation-form key-form" aria-label="Pair with a peer" onSubmit={pair}>
       <div className="card">
-        <Field label="Their ky" value={name} onChange={setName} placeholder="What you'll call it, like anaky" />
-        <Field label="Address" value={address} onChange={setAddress} placeholder="https://… they sent you" />
-        <Field label="Code" value={code} onChange={setCode} placeholder="The code they sent you" />
+        <Field label="Their invite" value={invite} onChange={enter} placeholder="Paste what they sent you" />
+        <Field
+          label="Call their ky"
+          value={name}
+          onChange={(typed) => {
+            setName(typed);
+            setNamed(true);
+          }}
+          placeholder="A name for it here, like anaky"
+        />
         <Problem text={refused} />
         <div className="card-foot">
           <button type="submit" className="pill primary pressable" disabled={pairing || [name, address, code].some((each) => each.trim() === "")}>
