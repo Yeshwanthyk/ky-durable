@@ -27,7 +27,7 @@ export const VIBEPROXY_PORT = 8317;
 const NAME = "Claude via VibeProxy";
 
 /** Claude models to offer: the main agent's first, then a small and quick one. */
-const MODEL_IDS = ["claude-opus-5-5", "claude-haiku-4-5"];
+const MODEL_IDS = ["claude-opus-5-5", "claude-haiku-5-5"];
 
 /** What reaches VibeProxy from outside the Worker: production's in server.ts, the fakes' in src/tests/stack.ts. */
 export type VibeProxyBoundary = {
@@ -89,7 +89,7 @@ export function vibeProxy({ machine, key, ...config }: VibeProxyConfig): Endpoin
     needs: machine === null ? "the computer online with VibeProxy" : `${machine} online, with VibeProxy on port ${new URL(config.origin).port}`,
     api: "anthropic-messages",
     models,
-    light: "claude-haiku-4-5",
+    light: "claude-haiku-5-5",
     thinkingLevel: "medium",
     // A VibeProxy that checks no key takes any, and pi sends one.
     key: key ?? "none"

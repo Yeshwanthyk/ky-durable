@@ -232,24 +232,27 @@ describe("a turn", () => {
   });
 
   it("runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't", async () => {
-    const name = await fresh("mac-up");
-    await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "medium" });
+    const name = await fresh("keyed");
+    await set(name, "fallback", { provider: "opencode-go", modelId: "deepseek-v4.1-flash", thinkingLevel: "max" });
 
     const sent = async (thinkingLevel: "off" | "high") => {
-      await agent(name).mac(true);
-      // Haiku, unlike Opus, can stop thinking.
-      await set(name, "main", { provider: "vibeproxy", modelId: "claude-haiku-4-5", thinkingLevel });
+      await agent(name).provider("workers-ai", true);
+      // Kimi, unlike Claude, can stop thinking.
+      await set(name, "main", { provider: "workers-ai", modelId: KIMI, thinkingLevel });
       await inside(name, (instance) => instance.applyMain());
-      await agent(name).macLeaves();
+      await agent(name).provider("workers-ai", false);
       const before = (await calls(name)).length;
       await prompt(name, "hello");
 
-      return (await calls(name)).slice(before).map(({ model, reasoning }) => ({ model, reasoning }));
+      // Workers AI refuses Kimi's call; the last is the stand-in's.
+      const { model, reasoning } = (await calls(name)).slice(before).at(-1)!;
+
+      return { model, reasoning };
     };
 
-    // GPT OSS can't stop thinking, so a call asking for none runs at its lowest level.
-    expect(await sent("off")).toEqual([{ model: GPT_OSS, reasoning: "low" }]);
-    expect(await sent("high")).toEqual([{ model: GPT_OSS, reasoning: "medium" }]);
+    // DeepSeek can't stop thinking, so a call asking for none runs at its lowest level.
+    expect(await sent("off")).toEqual({ model: "deepseek-v4.1-flash", reasoning: "low" });
+    expect(await sent("high")).toEqual({ model: "deepseek-v4.1-flash", reasoning: "max" });
   });
 
   it("stands in for a provider whose breaker opened, on another provider, and Settings shows why it opened", async () => {
@@ -421,7 +424,7 @@ describe("naming chats and tasks on the background purpose", () => {
       expect(await title(name, "first")).toBeNull();
     }
 
-    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-4-5 (thinking disabled)");
+    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-5-5 (thinking adaptive)");
     // OpenCode Go is cheaper than the Mac.
     expect(await title(both, "Plan a trip")).toBe("Named: Plan a trip");
     expect((await calls(both)).at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
