@@ -9,6 +9,8 @@ export type Tool = {
   status: "running" | "done" | "failed";
   input: string;
   output: string;
+  /** Images the tool returned, such as a browser screenshot, as data URLs. */
+  images: string[];
   durationMs: number | null;
 };
 

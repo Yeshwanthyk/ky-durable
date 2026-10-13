@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { useLightbox } from "./Lightbox";
 
 const categoryIcon: Record<Tool["category"], IconName> = {
   inspect: "eye",
@@ -86,7 +87,25 @@ export function ToolRow({ tool }: { tool: Tool }) {
           {expandable ? <Icon name="chevronRight" size={12} className="chevron" /> : null}
         </span>
       </button>
+      {tool.images.length > 0 ? <ToolImages tool={tool} /> : null}
       {open ? <ToolBody tool={tool} /> : null}
+    </div>
+  );
+}
+
+// What a tool saw, such as a browser screenshot, shows under its row without opening it.
+function ToolImages({ tool }: { tool: Tool }) {
+  const open = useLightbox();
+  const { verb, target } = phrase(tool);
+  const media = tool.images.map((src, index) => ({ src, label: `Image ${index + 1} from ${verb} ${target}`.trim() }));
+
+  return (
+    <div className="tool-images">
+      {media.map((item, index) => (
+        <button key={index} type="button" className="attachment-open" aria-label={`Open ${item.label}`} onClick={() => open(media, index)}>
+          <img src={item.src} alt={item.label} loading="lazy" />
+        </button>
+      ))}
     </div>
   );
 }
