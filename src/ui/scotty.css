@@ -431,6 +431,27 @@ kbd {
   overflow: hidden;
 }
 
+/* Images a tool returned sit under its row, indented like its body. */
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px 22px;
+}
+
+.tool-images .attachment-open {
+  width: auto;
+}
+
+.tool-images img {
+  display: block;
+  max-width: min(360px, 100%);
+  max-height: 240px;
+  border-radius: var(--radius-md);
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+}
+
 .tool-body pre {
   margin: 0;
   padding: 10px 12px;

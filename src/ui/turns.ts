@@ -115,7 +115,7 @@ function describe(name: string, args: JsonObject): Pick<Tool, "category" | "summ
 }
 
 function resultText(part: Extract<PiMessagePart, { type: "tool-result" }>): string {
-  return part.content.map((content) => (content.type === "text" ? content.text : "[image]")).join("\n");
+  return part.content.flatMap((content) => (content.type === "text" ? [content.text] : [])).join("\n");
 }
 
 function userText(message: PiMessage): string {
@@ -195,6 +195,7 @@ export function buildTurns(
             ...describe(part.name, args),
             status: "running",
             output: "",
+            images: [],
             durationMs: null
           };
 
@@ -234,6 +235,7 @@ export function buildTurns(
           if (!tool) continue;
           tool.status = part.error ? "failed" : "done";
           tool.output = resultText(part);
+          tool.images = part.content.flatMap((content) => (content.type === "image" ? [imageSrc(content)] : []));
           const at = started.get(part.id);
           tool.durationMs = at && message.timestamp ? message.timestamp - at : null;
         }
