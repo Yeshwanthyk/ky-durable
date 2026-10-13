@@ -91,7 +91,8 @@ const REPLACES = {
   subscriptions: ({ subscriptions }) => ({ subscriptions }),
   executor: ({ executor }) => ({ executor }),
   tools: ({ tools }) => ({ catalog: tools }),
-  chats: ({ chats, main, groups }) => ({ chats, mainUpdatedAt: main, groups }),
+  // A Worker from before group chats sends no groups while a deploy settles.
+  chats: ({ chats, main, groups }) => ({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
   skills: ({ skills }) => ({ skills }),
   soul: ({ soul }) => ({ soul }),
   specialists: ({ specialists }) => ({ specialists }),
