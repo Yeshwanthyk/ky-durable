@@ -84,7 +84,7 @@ const ServerFrame = Type.Union([
     machines: Type.Array(Machine),
     files: Type.Array(File)
   }),
-  Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat), main: Type.Number() }),
+  Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat), main: Type.Number(), groups: Type.Record(Type.String(), Type.Array(Type.String())) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
   Type.Object({
     type: Type.Literal("soul"),

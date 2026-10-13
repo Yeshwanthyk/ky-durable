@@ -1,5 +1,5 @@
 import type { PiSessionView } from "../view";
-import { Composer } from "./Composer";
+import { Composer, type Mentionable } from "./Composer";
 import { NAME } from "./open-chat";
 import type { Draft } from "./use-draft";
 
@@ -18,8 +18,10 @@ function ErrorNote({ error }: { error: string | null }) {
   ) : null;
 }
 
-function placeholder(running: boolean, talksToMain: boolean) {
+function placeholder(running: boolean, talksToMain: boolean, group: boolean) {
   if (running) return "Steer the running turn";
+
+  if (group) return "Message the group, or @ a specialist";
 
   return talksToMain ? `Message ${NAME}` : "Message this subagent directly";
 }
@@ -31,6 +33,8 @@ export function ComposerDock({
   cantSee,
   connected,
   talksToMain,
+  mentions = [],
+  group = false,
   onSubmit,
   onStop,
 }: {
@@ -40,6 +44,10 @@ export function ComposerDock({
   cantSee: string | null;
   connected: boolean;
   talksToMain: boolean;
+  /** The specialists typing @ offers. */
+  mentions?: readonly Mentionable[];
+  /** Specialists are members of this chat. */
+  group?: boolean;
   onSubmit: () => void;
   onStop: () => void;
 }) {
@@ -60,7 +68,8 @@ export function ComposerDock({
         onAddImages={draft.addImages}
         onRemoveImage={draft.removeImage}
         label="Message"
-        placeholder={placeholder(session.running, talksToMain)}
+        mentions={mentions}
+        placeholder={placeholder(session.running, talksToMain, group)}
       />
     </div>
   );

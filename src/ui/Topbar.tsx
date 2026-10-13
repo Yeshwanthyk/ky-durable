@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
+import { type Group, GroupMembers } from "./GroupMembers";
 import { Icon } from "./Icon";
 import type { OpenChat } from "./open-chat";
 import type { PanelState } from "./use-panel";
@@ -103,9 +104,11 @@ export type TopbarProps = {
   panel: PillPanel;
   /** A newer deploy is serving; offer to reload. */
   updated: boolean;
+  /** The chat's specialists, when there are specialists to have. */
+  group?: Group;
 };
 
-export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated }: TopbarProps) {
+export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="topbar-side">
@@ -118,6 +121,7 @@ export function Topbar({ open, variantId, running, status, sub, activity, drawer
             Reload
           </button>
         ) : null}
+        {group && group.specialists.length > 0 ? <GroupMembers {...group} /> : null}
       </div>
     </header>
   );

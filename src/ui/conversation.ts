@@ -18,7 +18,9 @@ export type Item =
   | { kind: "text"; id: string; text: string; final: boolean }
   | { kind: "thinking"; id: string; text: string }
   | Tool
-  | { kind: "notice"; id: string; text: string; tone: "info" | "error" };
+  | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
+  /** A specialist's own reply to the user's message, posted in the chat. */
+  | { kind: "specialist"; id: string; from: string; text: string; failed: boolean };
 
 export type Turn = {
   id: string;
@@ -30,6 +32,8 @@ export type Turn = {
   from: string | null;
   /** The machine task a report is from; its files show under the report. */
   task: string | null;
+  /** The specialists the user's message went to, @'d or routed in a group chat; empty when it went to ky. */
+  to: readonly string[];
   items: Item[];
   startedAt: string | null;
   endedAt: string | null;

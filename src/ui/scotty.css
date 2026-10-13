@@ -1393,3 +1393,199 @@ kbd {
 .changes-send .pill .icon {
   color: var(--bg);
 }
+
+/* Specialists in chat: each reply is its own message under the turn, with the specialist's blob and @id. */
+.specialist-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--sunken);
+}
+
+.specialist-reply[data-waiting="true"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding-block: 9px;
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.specialist-reply:hover .answer-actions,
+.specialist-reply .answer-actions:focus-within {
+  opacity: 1;
+}
+
+.specialist-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.specialist-head .answer-actions {
+  margin: 0 -6px 0 auto;
+}
+
+.specialist-name {
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.specialist-failed {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+/* The @ menu: specialists to mention, over the composer. */
+.composer {
+  position: relative;
+}
+
+.mention-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.mention-option[aria-selected="true"] {
+  background: var(--selected);
+}
+
+.mention-id {
+  flex: none;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mention-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The chat's specialists, at the topbar's end. */
+.group-members {
+  position: relative;
+}
+
+.group-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.group-button:hover {
+  background: var(--hover);
+}
+
+.group-faces {
+  display: inline-flex;
+  align-items: center;
+}
+
+.group-faces svg + svg {
+  margin-left: -7px;
+}
+
+.group-more {
+  margin-left: 4px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--muted);
+}
+
+.group-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+}
+
+.group-menu-head {
+  padding: 6px 8px 4px;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 500;
+}
+
+.group-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.group-option:hover {
+  background: var(--hover);
+}
+
+.group-option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.group-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+
+.group-check[data-on="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.group-menu-note {
+  margin: 4px 8px 6px;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.45;
+}

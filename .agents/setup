@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# ky's dev environment: pnpm, dependencies, and the local stack (the real Worker with fake models).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# 1. Toolchain: Node 22 is in the image; pnpm 10 (as CI pins it) through corepack.
+if [[ "$(pnpm -v 2>/dev/null)" != 10.* ]]; then
+  sudo corepack enable --install-directory /usr/local/bin pnpm && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@10
+fi
+
+# 2. Dependencies.
+CI=1 pnpm install --frozen-lockfile
+
+# 3. The local stack (pnpm stack): fresh state each start, sign in with the token ky-stack-token.
+PORT="${KY_STACK_PORT:-8790}"
+mkdir -p /workspace/.scotty/logs
+if ! curl -fs "localhost:$PORT/manifest.webmanifest" > /dev/null; then
+  KY_STACK_PORT="$PORT" setsid nohup pnpm stack --host 0.0.0.0 > /workspace/.scotty/logs/stack.log 2>&1 < /dev/null &
+fi
+
+# 4. Wait for it, then print its public URL.
+until curl -fs "localhost:$PORT/manifest.webmanifest" > /dev/null; do sleep 1; done
+echo "Ready: ${SCOTTY_HATCH/\{port\}/$PORT}"

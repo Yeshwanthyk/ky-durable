@@ -186,6 +186,8 @@ export type PiClientMessage =
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
   | { readonly type: "archive-chat"; readonly id?: string; readonly session: string; readonly archived: boolean }
+  /** Make specialists a chat's members, the main chat's or a side chat's: a group chat. None makes it a plain chat. */
+  | { readonly type: "chat-members"; readonly id?: string; readonly session: string; readonly members: readonly string[] }
   /** Change a skill as the user: edit, archive, restore, or revert it. */
   | { readonly type: "skill-change"; readonly id?: string; readonly change: SkillChange }
   /** A skill's versions, newest first, as the result. */
@@ -267,9 +269,14 @@ export type PiServerMessage =
     }
   /**
    * Side chats, archived ones included, newest first, and when ky last answered
-   * in the main chat (0 if never); sent on connect and on change.
+   * in the main chat (0 if never), and each group chat's specialists by session; sent on connect and on change.
    */
-  | { readonly type: "chats"; readonly chats: readonly ChatRow[]; readonly main: number }
+  | {
+      readonly type: "chats";
+      readonly chats: readonly ChatRow[];
+      readonly main: number;
+      readonly groups: Readonly<Record<string, readonly string[]>>;
+    }
   /** Every skill, active ones first; sent on connect and on change. */
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** SOUL.md, ky's persona; sent on connect and on change. */
