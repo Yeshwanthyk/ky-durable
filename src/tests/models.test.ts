@@ -232,15 +232,16 @@ describe("a turn", () => {
   });
 
   it("runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't", async () => {
-    const name = await fresh("mac-up");
+    const name = await fresh("bare");
+    expect(await addKey(name, "anthropic", ANTHROPIC_KEY)).toEqual({});
     await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "medium" });
 
     const sent = async (thinkingLevel: "off" | "high") => {
-      await agent(name).mac(true);
-      // Haiku, unlike Opus, can stop thinking.
-      await set(name, "main", { provider: "vibeproxy", modelId: "claude-haiku-4-5", thinkingLevel });
+      await agent(name).provider("anthropic", true);
+      // Haiku 4.5, unlike Claude 5.5, can stop thinking.
+      await set(name, "main", { provider: "anthropic", modelId: "claude-haiku-4-5", thinkingLevel });
       await inside(name, (instance) => instance.applyMain());
-      await agent(name).macLeaves();
+      await agent(name).provider("anthropic", false);
       const before = (await calls(name)).length;
       await prompt(name, "hello");
 
@@ -248,7 +249,11 @@ describe("a turn", () => {
     };
 
     // GPT OSS can't stop thinking, so a call asking for none runs at its lowest level.
-    expect(await sent("off")).toEqual([{ model: GPT_OSS, reasoning: "low" }]);
+    // Anthropic's 529 opens its breaker; pi retries on the stand-in.
+    expect(await sent("off")).toEqual([
+      { model: "claude-haiku-4-5", reasoning: "disabled" },
+      { model: GPT_OSS, reasoning: "low" }
+    ]);
     expect(await sent("high")).toEqual([{ model: GPT_OSS, reasoning: "medium" }]);
   });
 
@@ -421,7 +426,7 @@ describe("naming chats and tasks on the background purpose", () => {
       expect(await title(name, "first")).toBeNull();
     }
 
-    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-4-5 (thinking disabled)");
+    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-5-5 (thinking adaptive)");
     // OpenCode Go is cheaper than the Mac.
     expect(await title(both, "Plan a trip")).toBe("Named: Plan a trip");
     expect((await calls(both)).at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });

@@ -244,8 +244,8 @@ export class Vault extends ProductionVault {
  *   same script, each taking only its own key; a key is added through
  *   Settings as the user adds one, and kept in the real Vault;
  * - each refuses every request while `provider(id, false)` holds: Workers AI
- *   with 429, as out of its free allocation, and OpenCode Go with 402, as
- *   out of credit;
+ *   with 429, as out of its free allocation, OpenCode Go with 402, as
+ *   out of credit, and Anthropic with 529, as overloaded;
  * - VibeProxy on the Mac, through the overlay's tunnel, is away (refuses
  *   connections) until `mac(true)`, then test/fakes/vibeproxy.ts answers as
  *   Claude; after `tunnelDrops()` the tunnel refuses each message while the
@@ -289,7 +289,7 @@ const MAC_UP_KEY = "test:mac-up";
 const TUNNEL_DROPS_KEY = "test:tunnel-drops";
 
 /** The status each fake provider refuses every request with while it is down. */
-const REFUSALS = { "workers-ai": 429, "opencode-go": 402 } as const;
+const REFUSALS = { "workers-ai": 429, "opencode-go": 402, anthropic: 529 } as const;
 
 type FakeProvider = keyof typeof REFUSALS;
 
@@ -489,7 +489,7 @@ export class PiAgent extends ProductionAgent {
 
     return {
       ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
-      fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go"))),
+      fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go")), refusing("anthropic")),
       vibeProxy: {
         port: VIBEPROXY_TEST_PORT,
         key: VIBEPROXY_KEY,

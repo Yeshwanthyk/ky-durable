@@ -5,7 +5,8 @@ import { type AiCall, type Reply, type Script, type WireMessage, wireText } from
  * that don't speak chat completions, answering text from the same script as
  * test/fakes/ai.ts. Each wants its own key and answers any other with 401, as
  * the vendors do. They answer a reply that calls a tool with 501: only
- * Workers AI and OpenCode Go run the tests' tools.
+ * Workers AI and OpenCode Go run the tests' tools. `refuseAnthropic`, asked
+ * before each Anthropic request, is a status to answer instead.
  */
 
 export const ANTHROPIC_KEY = "sk-ant-api03-test";
@@ -17,13 +18,18 @@ type Part = { readonly type: string; readonly text?: string };
 type Turn = { readonly role: string; readonly content: string | Part[] };
 
 /** `fetch`, with Anthropic's and OpenAI's hosts answered here and every other request passed to `otherwise`. */
-export function vendors(script: Script, calls: AiCall[], otherwise: typeof fetch): typeof fetch {
+export function vendors(
+  script: Script,
+  calls: AiCall[],
+  otherwise: typeof fetch,
+  refuseAnthropic: () => Promise<number | undefined> = async () => undefined
+): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
 
     switch (new URL(request.url).host) {
       case "api.anthropic.com":
-        return messages(request, script, calls);
+        return messages(request, script, calls, refuseAnthropic);
       case "api.openai.com":
         return responses(request, script, calls);
       default:
@@ -32,7 +38,7 @@ export function vendors(script: Script, calls: AiCall[], otherwise: typeof fetch
   };
 }
 
-async function messages(request: Request, script: Script, calls: AiCall[]): Promise<Response> {
+async function messages(request: Request, script: Script, calls: AiCall[], refuse: () => Promise<number | undefined>): Promise<Response> {
   if (new URL(request.url).pathname !== "/v1/messages") return new Response("not found", { status: 404 });
 
   // SAFETY: pi's anthropic-messages API posts a Messages API body.
@@ -52,6 +58,12 @@ async function messages(request: Request, script: Script, calls: AiCall[]): Prom
 
   if (request.headers.get("x-api-key") !== ANTHROPIC_KEY) {
     return Response.json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, { status: 401 });
+  }
+
+  const refused = await refuse();
+
+  if (refused !== undefined) {
+    return Response.json({ type: "error", error: { type: "overloaded_error", message: "The fake provider refuses this request." } }, { status: refused });
   }
 
   const text = answered(script(wire));
