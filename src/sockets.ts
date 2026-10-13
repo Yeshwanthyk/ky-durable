@@ -23,6 +23,7 @@ import type { Skills } from "./skills";
 import type { Memory } from "./memory";
 import type { Soul } from "./soul";
 import { mentions, type Specialists } from "./specialists";
+import type { GroupChats, GroupDesk } from "./group";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -141,6 +142,8 @@ export class PiSessionSockets {
   readonly #skills: Skills;
   readonly #soul: Soul;
   readonly #specialists: Specialists;
+  readonly #group: GroupDesk;
+  readonly #groups: GroupChats;
   readonly #memory: Memory;
   readonly #automations: Automations;
   readonly #setup: Setup;
@@ -166,6 +169,8 @@ export class PiSessionSockets {
     skills: Skills,
     soul: Soul,
     specialists: Specialists,
+    group: GroupDesk,
+    groups: GroupChats,
     memory: Memory,
     automations: Automations,
     setup: Setup,
@@ -190,6 +195,8 @@ export class PiSessionSockets {
     this.#skills = skills;
     this.#soul = soul;
     this.#specialists = specialists;
+    this.#group = group;
+    this.#groups = groups;
     this.#memory = memory;
     this.#automations = automations;
     this.#setup = setup;
@@ -202,6 +209,11 @@ export class PiSessionSockets {
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
       // An automation names the chat it reports to by its title.
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
+    });
+    groups.onChange(() => {
+      const message = this.#chatsMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
     skills.onChange(() => {
       const message = this.#skillsMessage();
@@ -374,7 +386,7 @@ export class PiSessionSockets {
   }
 
   #chatsMessage(): PiServerMessage {
-    return { type: "chats", chats: this.#chats.list(), main: this.#chats.mainUpdatedAt() };
+    return { type: "chats", chats: this.#chats.list(), main: this.#chats.mainUpdatedAt(), groups: this.#groups.all() };
   }
 
   #settingsMessage(): PiServerMessage {
@@ -662,15 +674,21 @@ export class PiSessionSockets {
 
     if (problem !== null) throw new Error(problem);
 
-    // A leading @id is for a specialist, which ky passes it to; refuse one that does not exist.
+    if (chat) this.#chats.touch(session, textOf(message.input));
+
+    // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
+    // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
       const all = this.#specialists.list();
-      const unknown = all.length === 0 ? undefined : mentions(textOf(message.input)).find((id) => !this.#specialists.has(id));
+      const text = textOf(message.input);
+      const unknown = all.length === 0 ? undefined : mentions(text).find((id) => !this.#specialists.has(id));
 
       if (unknown !== undefined) throw new Error(`No specialist @${unknown}. Specialists: ${all.map((each) => `@${each.id}`).join(", ")}`);
-    }
 
-    if (chat) this.#chats.touch(session, textOf(message.input));
+      const theirs = all.length === 0 ? undefined : await this.#group.submit(session, message.input, text, message.operationId ?? crypto.randomUUID());
+
+      if (theirs !== undefined) return theirs;
+    }
 
     // Pass only the options the client set.
     const options: SubmitOptions = {};
@@ -765,6 +783,12 @@ export class PiSessionSockets {
         return await peerRemove(this.#peers, message.name);
       case "new-chat":
         return { session: await this.#newChat() };
+      case "chat-members":
+        if (message.session !== ROOT_SESSION && !this.#chats.has(message.session)) throw new Error(`No chat ${message.session}`);
+
+        this.#groups.setMembers(message.session, message.members);
+
+        return null;
       case "archive-chat":
         if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
 

@@ -143,6 +143,11 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
         onBack={() => shell.openSession(MAIN_SESSION)}
         panel={panel}
         updated={ky.updated}
+        group={
+          open.talksToMain
+            ? { members: ky.groups[view.session] ?? [], specialists: ky.specialists, onChange: (members) => ky.setMembers(view.session, members) }
+            : undefined
+        }
       />
 
       <div className="chat chat-surface">
@@ -167,6 +172,8 @@ function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
           cantSee={view.cantSee}
           connected={view.connected}
           talksToMain={open.talksToMain}
+          mentions={open.talksToMain ? ky.specialists : []}
+          group={open.talksToMain && (ky.groups[view.session]?.length ?? 0) > 0}
           onSubmit={submit}
           onStop={ky.abort}
         />

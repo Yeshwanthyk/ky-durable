@@ -35,6 +35,7 @@ import { type ReviewHost, Reviews, runInFeed, Skills, skillsExtension } from "./
 import { seed } from "./seeds";
 import { Soul, soulExtension } from "./soul";
 import { Specialists, specialistExtension } from "./specialists";
+import { GroupChats, GroupDesk } from "./group";
 import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
 import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
@@ -143,6 +144,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly soul = new Soul(this.ctx.storage.sql);
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage.sql);
+  /** Which specialists are in which chats, and their seats there. */
+  readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -155,6 +158,16 @@ export class PiAgent extends DurableObject<Env> {
   /** Its SQLite, dumped for a backup and swapped whole by a restore. */
   readonly backups = new Backups(this.ctx.storage);
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
+  /** @-mentions and group chats: who answers a user's message, and the specialists' own replies. Routing is on the background model. */
+  readonly group = new GroupDesk({
+    store: this.groups,
+    specialists: this.specialists,
+    feed: this.feed,
+    conversation: (session) => this.harness.conversation(session),
+    complete: (system, text) => this.models.complete("background", system, text),
+    answered: (session) => this.chats.answered(session),
+    context: BACKGROUND
+  });
   /** The user's Executor, connected in Settings and kept in the Vault; its tools are installed while it is. */
   readonly executor = new ExecutorLink(() => this.env.Vault.getByName("owner"), this.ctx.id.name ?? "me", this.boundary.executorFetch);
   /** Bumped by every connect and disconnect, so an install read before one never lands after it. */
@@ -273,6 +286,10 @@ export class PiAgent extends DurableObject<Env> {
 
       this.#spawn = subagents.spawn;
       this.registry.install(subagents.extension);
+      // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
+      this.registry.install(
+        this.group.extension({ remove: [soul, automations, specialists.manage, subagents.extension], model: (own) => this.models.worker(own) }).extension
+      );
       this.registry.install(subagentProgressExtension(this.feed));
       this.registry.install(checkInGuardExtension(this.automations));
       this.registry.install(chatActivityExtension(this.chats));
@@ -321,6 +338,8 @@ export class PiAgent extends DurableObject<Env> {
     this.skills,
     this.soul,
     this.specialists,
+    this.group,
+    this.groups,
     this.memory,
     this.automations,
     this.setup,

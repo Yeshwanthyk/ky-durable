@@ -55,6 +55,8 @@ type State = SessionView & {
   readonly chats: readonly ChatRow[];
   /** When ky last answered in the main chat; 0 until it has. */
   readonly mainUpdatedAt: number;
+  /** Each group chat's specialists, by session. */
+  readonly groups: Readonly<Record<string, readonly string[]>>;
   /** ky's skills, active ones first. */
   readonly skills: readonly SkillRow[];
   /** SOUL.md, ky's persona; null until the server sends it. */
@@ -89,7 +91,7 @@ const REPLACES = {
   subscriptions: ({ subscriptions }) => ({ subscriptions }),
   executor: ({ executor }) => ({ executor }),
   tools: ({ tools }) => ({ catalog: tools }),
-  chats: ({ chats, main }) => ({ chats, mainUpdatedAt: main }),
+  chats: ({ chats, main, groups }) => ({ chats, mainUpdatedAt: main, groups }),
   skills: ({ skills }) => ({ skills }),
   soul: ({ soul }) => ({ soul }),
   specialists: ({ specialists }) => ({ specialists }),
@@ -106,6 +108,7 @@ const INITIAL_STATE: State = {
   files: [],
   chats: [],
   mainUpdatedAt: 0,
+  groups: {},
   skills: [],
   soul: null,
   specialists: [],
@@ -228,6 +231,7 @@ export function usePiSession(session: string) {
       files: current.files,
       chats: current.chats,
       mainUpdatedAt: current.mainUpdatedAt,
+      groups: current.groups,
       skills: current.skills,
       soul: current.soul,
       specialists: current.specialists,
@@ -387,6 +391,12 @@ export function usePiSession(session: string) {
     [ask]
   );
 
+  /** Make specialists a chat's members, or none to make it a plain chat again. */
+  const setMembers = useCallback(
+    (chat: string, members: readonly string[]) => send({ type: "chat-members", id: crypto.randomUUID(), session: chat, members }),
+    [send]
+  );
+
   /** Change a specialist's brief as the user. */
   const changeBrief = useCallback(
     (specialist: string, change: SoulChange) =>
@@ -456,6 +466,7 @@ export function usePiSession(session: string) {
     changeSoul,
     soulHistory,
     saveSpecialist,
+    setMembers,
     changeBrief,
     briefHistory,
     searchMemory,

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Attachments } from "./Attachments";
+import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";
 import { useLightbox } from "./Lightbox";
@@ -161,7 +162,10 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
   const state = turn.state === "streaming" && cutOff ? "aborted" : turn.state;
   const live = state === "streaming";
   const now = useNow(live && mode === "live");
-  const { log, answer } = split(turn);
+  // Specialists' replies are their own messages, under ky's part of the turn.
+  const replies = turn.items.filter((item): item is Reply => item.kind === "specialist");
+  const waiting = turn.to.filter((id) => !replies.some((reply) => reply.from === id));
+  const { log, answer } = split({ ...turn, items: turn.items.filter((item) => item.kind !== "specialist") });
   const [open, setOpen] = useState(false);
   const started = turn.startedAt === null ? undefined : Date.parse(turn.startedAt);
   // A cut-off turn has no end time, so it has no duration either.
@@ -238,7 +242,56 @@ function TurnView({ turn, mode }: { turn: Turn; mode: ThreadMode }) {
           </>
         )}
       </div>
+      {replies.map((reply) => (
+        <SpecialistReply key={reply.id} reply={reply} />
+      ))}
+      {waiting.map((id) => (
+        <SpecialistWaiting key={id} id={id} />
+      ))}
     </article>
+  );
+}
+
+type Reply = Extract<Item, { kind: "specialist" }>;
+
+// Who wrote a specialist's message: its blob and @id, as a chat shows a member.
+function Speaker({ id, active = false, children }: { id: string; active?: boolean; children?: ReactNode }) {
+  return (
+    <div className="specialist-head">
+      <BotAvatar name={`@${id}`} identity={id} still={!active} active={active} size={22} />
+      <span className="specialist-name">@{id}</span>
+      {children}
+    </div>
+  );
+}
+
+function SpecialistReply({ reply }: { reply: Reply }) {
+  return (
+    <section className="specialist-reply" aria-label={`@${reply.from} replied`} data-failed={reply.failed}>
+      <Speaker id={reply.from}>
+        {reply.failed ? null : (
+          <span className="answer-actions">
+            <CopyButton text={reply.text} label={`Copy @${reply.from}'s reply`} />
+          </span>
+        )}
+      </Speaker>
+      {reply.failed ? (
+        <p className="specialist-failed">{reply.text}</p>
+      ) : (
+        <div className="answer">
+          <Markdown source={reply.text} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SpecialistWaiting({ id }: { id: string }) {
+  return (
+    <section className="specialist-reply" aria-label={`@${id} is replying`} data-waiting="true">
+      <Speaker id={id} active />
+      <span className="shimmer">Replying</span>
+    </section>
   );
 }
 
@@ -292,6 +345,8 @@ function LogItem({ item }: { item: Item }) {
       return item.text ? <Thought text={item.text} /> : null;
     case "notice":
       return <Notice text={item.text} tone={item.tone} />;
+    case "specialist":
+      return null;
   }
 }
 

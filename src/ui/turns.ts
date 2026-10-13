@@ -151,6 +151,7 @@ export function buildTurns(
       images: message ? message.parts.flatMap((part) => (part.type === "image" ? [imageSrc(part)] : [])) : [],
       from: report ? `${report[1]} ${report[2]}` : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
+      to: message?.to ?? [],
       items: [],
       startedAt: message ? iso(message.timestamp) : null,
       endedAt: null
@@ -241,6 +242,15 @@ export function buildTurns(
         }
 
         if (current) current.endedAt = iso(message.timestamp);
+        break;
+      case "specialist":
+        (current ?? (current = open(null))).items.push({
+          kind: "specialist",
+          id: message.id,
+          from: message.from ?? "specialist",
+          text: userText(message),
+          failed: message.error !== undefined
+        });
         break;
       case "notice": {
         const note = userText(message);

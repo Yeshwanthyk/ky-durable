@@ -30,10 +30,15 @@ import { summarize, type TaskFeed } from "./tasks";
  * same brief and tools, so it is never steered off its own work, and what
  * it may do there follows from the conversation alone (see `rules`).
  *
+ * When the user talks to it in a chat, with a leading @id or in a group chat
+ * (src/group.ts), it answers in its seat for that chat: a conversation of
+ * its own per chat, whose answers are posted to the chat as its own
+ * messages. A seat cannot ask other specialists, so no reply leads to another.
+ *
  * Specialists never write memory; they may search it.
  */
 
-export type SessionKind = "home" | "consult" | "discuss";
+export type SessionKind = "home" | "consult" | "discuss" | "group";
 
 export type SpecialistRow = {
   readonly id: string;
@@ -260,7 +265,7 @@ const roster = (specialists: readonly SpecialistRow[], except?: string) =>
   specialists.flatMap((each) => (each.id === except ? [] : [`- @${each.id}: ${each.description}`])).join("\n");
 
 const ROSTER_RULES = `Specialists are standing bots the user set up, each with its own brief and model; they share your skills and tools and can search your memory but never write it. Delegate to one with subagent ask when the work is in its line. A specialist keeps one conversation across asks, so it remembers earlier work you gave it, but it does not see this chat: give it the context it needs.
-A user message that starts with @id is for that specialist: call subagent ask with the user's message and the context it needs from this chat, say in one line that you asked, and do not answer it yourself. A message that starts with two or more @ids, or a question that wants several views, is subagent discuss with those specialists. When a discussion comes back, give the user where they agree, where they disagree, and your recommendation.`;
+The user talks to specialists in this chat directly: a message that starts with @id, or one a group chat's specialists took up, goes to them, and each posts its own reply here, shown as [@id replied to the user]. Those were answered already: do not answer them again or repeat what a specialist said, but use them as context. A question for you that wants several views is subagent discuss with those specialists. When a discussion comes back, give the user where they agree, where they disagree, and your recommendation.`;
 
 /** In every chat, even with no specialists yet, so ky knows it can make them. */
 const MANAGE_RULES = `You create and manage specialists yourself with the specialist tool: their id, description, machine and brief. Create one when the user asks, and offer one when the user keeps giving you the same kind of work. Improve a brief when a specialist's answers show a standing instruction is missing or wrong. Every brief change is versioned and can be reverted; tell the user what you changed.`;
@@ -276,7 +281,9 @@ function own(specialists: Specialists, id: string, kind: SessionKind): string {
     consult:
       "Another specialist is consulting you. Answer them directly and completely; you cannot ask other specialists.",
     discuss:
-      "You are in a discussion with other specialists. You have no tools here: reason from your brief and what you know, and be concise."
+      "You are in a discussion with other specialists. You have no tools here: reason from your brief and what you know, and be concise.",
+    group:
+      "The user is talking to you in one of their chats, with ky and maybe other specialists there. Your reply is posted to the chat as your own message, to the user directly. Other specialists may answer the same message; you do not see their replies and cannot ask them. Answer only what is in your line, concisely."
   };
 
   return [
@@ -286,7 +293,7 @@ function own(specialists: Specialists, id: string, kind: SessionKind): string {
     how[kind],
     "You can search the user's memory with memory_recall and memory_zoom, but you never write it: put anything worth keeping in your answer.",
     row.machine ? `For work on a machine, use ${row.machine} unless told otherwise.` : "",
-    peers && kind !== "discuss" ? `Other specialists:\n${peers}` : ""
+    peers && (kind === "home" || kind === "consult") ? `Other specialists:\n${peers}` : ""
   ]
     .filter((part) => part !== "")
     .join("\n\n");
@@ -488,6 +495,8 @@ export function specialistExtension(
           if (MEMORY_WRITES.has(call.name)) return { block: "Specialists search memory but never write it: put it in your answer." };
 
           if (call.name !== "subagent") return undefined;
+
+          if (found.kind === "group") return { block: "In a chat you answer the user yourself; you cannot ask or start other agents here." };
 
           if (found.kind === "consult") return { block: "You are being consulted: answer directly, without asking others." };
 

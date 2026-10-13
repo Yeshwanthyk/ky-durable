@@ -62,8 +62,16 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
   persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/specialists.ts`).
-  `@id message` in the main chat or a side chat goes to that specialist; ky also asks one itself with `subagent ask`.
-  Each specialist keeps one home conversation across asks, so it remembers earlier work. Its brief is versioned like
+  In the main chat or a side chat, typing `@` offers the specialists; a message that starts with `@id` (up to 3 ids)
+  goes to them, and each posts its own reply in the chat under its name and blob: ky doesn't paraphrase it
+  (`src/group.ts`). A chat with specialists as members (the topbar's member button) is a group chat: a message with
+  no `@` goes through one routing call on the background model, which picks 0 to 3 members by their descriptions;
+  when it picks none, ky answers. Only the user's message from the socket is routed. The user's message and each reply
+  are passive entries that start no run, and each specialist answers in its own seat for that chat, which has no
+  `subagent` tool and a 4-minute budget, so replies never set off more replies. A message's operation id decides it
+  once, and every write carries a request id, so a resend posts once. docs/group-chat-routing.md has the rules and the
+  research behind them. ky also asks a specialist itself with `subagent ask`, and reports its answer.
+  Each specialist keeps one home conversation across ky's asks, so it remembers earlier work. Its brief is versioned like
   SOUL.md (same table, numbered per file): edits apply at once, and history and revert are in the Soul tab, where you
   also add specialists and set their model and machine. Specialists share ky's skills and tools, search memory but
   never write it, and can't edit SOUL.md or specialists. A specialist may consult a peer (up to 3 asks per task;

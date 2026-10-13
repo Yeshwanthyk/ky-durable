@@ -275,6 +275,11 @@ export class Vault extends ProductionVault {
  *   echoed as `echo: <prompt>`.
  * - Titles are answered `Title: "Named: <first line>"` and a second line,
  *   so their cleaning is exercised; text containing `no-title` gets a 400.
+ * - The group chat router picks the ids after `route:` in the message, else
+ *   members whose description shares a long word with it, or none. A
+ *   specialist in its seat for a chat answers the message as above; a line
+ *   `ID> TEXT` in it is @ID's own answer (TEXT, or the tool call it asks
+ *   for), and a `Reply: TEXT` line in its brief answers anything else.
  */
 
 /** Gate runs up to this one are released. */
@@ -352,8 +357,24 @@ function compress(text: string): Reply {
   return { text: `${items[0]?.split(" to ")[0]} to ${items.at(-1)?.split(" to ").at(-1)}` };
 }
 
+/** The group chat router: the ids after `route:` in the message, else the members whose description shares a word of 5 letters or more with it. */
+function router(text: string): Reply {
+  const message = text.split("\nMessage:\n").at(-1) ?? "";
+  const named = /\broute: ([^\n]+)/.exec(message)?.[1];
+
+  if (named !== undefined) return { text: named };
+  const words = new Set(message.toLowerCase().match(/[a-z]{5,}/g) ?? []);
+
+  const fits = [...text.matchAll(/^- ([a-z0-9-]+): (.*)$/gm)].filter(([, , description]) =>
+    (description!.toLowerCase().match(/[a-z]{5,}/g) ?? []).some((word) => words.has(word))
+  );
+
+  return { text: fits.map(([, id]) => id).join(", ") || "none" };
+}
+
 /** The background's requests, by how their system prompt starts, and how each is answered from its user text. */
 const BACKGROUND: Array<[string, (asked: string) => Reply]> = [
+  ["You pick which specialists", router],
   ["You name things", title],
   ["You summarize", title],
   ["You write the memory of ky", compress]
@@ -366,7 +387,25 @@ function script(messages: readonly WireMessage[]): Reply {
   if (background) return background[1](wireText(messages.find((message) => message.role === "user")?.content));
 
   // pi places system-prompt changes positionally, so a system message can follow the user's input.
-  return reply(messages.filter((message) => message.role !== "system").at(-1));
+  const last = messages.filter((message) => message.role !== "system").at(-1);
+  const seat = last?.role === "user" ? /^\[a message in the user's chat\][\s\S]*?\nThe user's message:\n([\s\S]*)$/.exec(wireText(last.content)) : null;
+
+  if (seat) {
+    const prompts = messages.flatMap((message) => (message.role === "system" ? [wireText(message.content)] : [])).join("\n");
+    const id = /You are @([a-z0-9-]+)/.exec(prompts)?.[1];
+    const own = id && new RegExp(`^${id}> (.+)$`, "m").exec(seat[1]!);
+
+    // A brief's `Reply:` line is what it says to anything.
+    const brief = /^Reply: (.+)$/m.exec(prompts);
+
+    if (!own) return brief ? { text: brief[1]! } : answer(seat[1]!);
+    // Its own line calls a tool as a prompt would, or is said as it is.
+    const call = CALLS.find(([pattern]) => pattern.test(own[1]!));
+
+    return call ? call[1](call[0].exec(own[1]!)!) : { text: own[1]! };
+  }
+
+  return reply(last);
 }
 
 /** The answer to a turn's last message: the user's input, or a tool's result. */

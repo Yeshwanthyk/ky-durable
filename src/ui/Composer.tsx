@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
 import { imageSrc, type PendingImage } from "./pick-images";
 
@@ -30,6 +31,27 @@ function fitsOneLine(element: HTMLTextAreaElement, text: string, width: number):
 const imageFiles = (files: FileList | null | undefined) =>
   [...(files ?? [])].filter((file) => file.type.startsWith("image/"));
 
+/** Someone the composer offers when the user types @. */
+export type Mentionable = { readonly id: string; readonly description: string };
+
+/** Options the menu shows at most. */
+const MENU_ROWS = 6;
+
+/** The @word the caret is in, at the start of the text or after a space: where it starts and what is typed. */
+export function mentionAt(text: string, caret: number): { start: number; query: string } | null {
+  const match = /(^|\s)@([a-z0-9-]*)$/i.exec(text.slice(0, caret));
+
+  return match ? { start: caret - match[2]!.length - 1, query: match[2]!.toLowerCase() } : null;
+}
+
+/** The ids that match what is typed after @: those it starts first, then those it is in. */
+export function matching(all: readonly Mentionable[], query: string): Mentionable[] {
+  const starts = all.filter((each) => each.id.startsWith(query));
+  const within = all.filter((each) => !each.id.startsWith(query) && each.id.includes(query));
+
+  return [...starts, ...within].slice(0, MENU_ROWS);
+}
+
 export function Composer({
   value,
   onChange,
@@ -45,6 +67,7 @@ export function Composer({
   onRemoveImage,
   children,
   label,
+  mentions = [],
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -61,8 +84,38 @@ export function Composer({
   onRemoveImage?: (id: string) => void;
   children?: ReactNode;
   label: string;
+  /** Who typing @ offers; picking one puts its @id in. */
+  mentions?: readonly Mentionable[];
 }) {
   const area = useRef<HTMLTextAreaElement>(null);
+  const menuId = useId();
+  const [caret, setCaret] = useState(0);
+  const [highlight, setHighlight] = useState(0);
+  // The @ whose menu Escape closed; typing another opens it again.
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const placeCaret = useRef<number | null>(null);
+  const at = mentions.length > 0 ? mentionAt(value, caret) : null;
+  const options = at && at.start !== dismissed ? matching(mentions, at.query) : [];
+  const menu = options.length > 0;
+  const active = Math.min(highlight, options.length - 1);
+
+  const pick = (id: string) => {
+    if (at === null) return;
+    const before = `${value.slice(0, at.start)}@${id} `;
+    placeCaret.current = before.length;
+    onChange(before + value.slice(caret).replace(/^\S*\s?/, ""));
+    setHighlight(0);
+  };
+
+  useLayoutEffect(() => {
+    const element = area.current;
+
+    if (placeCaret.current === null || element === null) return;
+    element.focus();
+    element.setSelectionRange(placeCaret.current, placeCaret.current);
+    setCaret(placeCaret.current);
+    placeCaret.current = null;
+  }, [value]);
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   // A pill while it is one line; once the text wraps it opens into a card with the buttons
@@ -160,6 +213,29 @@ export function Composer({
           />
         </>
       ) : null}
+      {menu ? (
+        <ul className="mention-menu" id={menuId} role="listbox" aria-label="Specialists">
+          {options.map((option, index) => (
+            <li
+              key={option.id}
+              id={`${menuId}-${option.id}`}
+              role="option"
+              aria-selected={index === active}
+              className="mention-option"
+              onPointerDown={(event) => {
+                // Keep the focus in the text while picking.
+                event.preventDefault();
+                pick(option.id);
+              }}
+              onPointerEnter={() => setHighlight(index)}
+            >
+              <BotAvatar name={`@${option.id}`} identity={option.id} still size={24} />
+              <span className="mention-id">@{option.id}</span>
+              <span className="mention-description">{option.description}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <textarea
         ref={area}
         rows={1}
@@ -168,7 +244,14 @@ export function Composer({
         disabled={disabled}
         aria-label={label}
         placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
+        aria-autocomplete={mentions.length > 0 ? "list" : undefined}
+        aria-controls={menu ? menuId : undefined}
+        aria-activedescendant={menu ? `${menuId}-${options[active]?.id}` : undefined}
+        onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+        onChange={(event) => {
+          setCaret(event.target.selectionStart);
+          onChange(event.target.value);
+        }}
         onPaste={(event) => {
           const files = imageFiles(event.clipboardData.files);
 
@@ -177,6 +260,31 @@ export function Composer({
           onAddImages(files);
         }}
         onKeyDown={(event) => {
+          if (menu && !event.nativeEvent.isComposing) {
+            const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+
+            if (step !== 0) {
+              event.preventDefault();
+              setHighlight((active + step + options.length) % options.length);
+
+              return;
+            }
+
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              pick(options[active]!.id);
+
+              return;
+            }
+
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDismissed(at?.start ?? null);
+
+              return;
+            }
+          }
+
           if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
           const send = event.metaKey || event.ctrlKey || (!event.shiftKey && !coarse());
 

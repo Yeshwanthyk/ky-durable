@@ -33,11 +33,28 @@ export type PiMessagePart =
       readonly error: boolean;
     };
 
+/** The user's message in a chat, addressed to specialists rather than ky: a passive entry that starts no run. */
+export const TO_SPECIALISTS = "ky.to-specialists";
+
+/** A specialist's own reply in a chat, posted as a passive entry: ky does not pass it on, and it starts nothing. */
+export const SPECIALIST_REPLY = "ky.specialist-reply";
+
+export type ToSpecialistsData = { to: string[] };
+
+/** ky reads the user's message to specialists after this mark, so it knows the message is not for it. */
+export const FOR_MARK = /^\[for (@[a-z0-9-]+(?:, @[a-z0-9-]+)*)\] ?/;
+
+export type SpecialistReplyData = { readonly specialist: string; readonly text: string; readonly failed: boolean };
+
 /** One display-ready message projected from a pi transcript entry. */
 export type PiMessage = {
   /** The pi entry id, or `live` for the message being streamed. */
   readonly id: string;
-  readonly role: "user" | "assistant" | "tool" | "notice";
+  readonly role: "user" | "assistant" | "tool" | "notice" | "specialist";
+  /** A specialist's reply: who wrote it. */
+  readonly from?: string;
+  /** The user's message to specialists: who it is for. */
+  readonly to?: readonly string[];
   readonly parts: readonly PiMessagePart[];
   readonly timestamp: number;
   readonly stopReason?: string;
@@ -134,7 +151,32 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
     };
   }
 
+  if (entry.kind === SPECIALIST_REPLY) {
+    // SAFETY: only the group-reply task writes this kind, with SpecialistReplyData.
+    const data = entry.data as SpecialistReplyData;
+
+    const reply: PiMessage = {
+      id: String(entry.id),
+      role: "specialist",
+      from: data.specialist,
+      parts: [{ type: "text", text: data.text }],
+      timestamp: message?.timestamp ?? 0
+    };
+
+    return data.failed ? { ...reply, error: data.text } : reply;
+  }
+
   if (entry.kind === "pi.system" || message === undefined) return undefined;
+
+  if (entry.kind === TO_SPECIALISTS) {
+    // SAFETY: only the group desk writes this kind, with ToSpecialistsData.
+    const projected = projectMessage(message, String(entry.id));
+    const parts = projected.parts
+      .map((part) => (part.type === "text" ? { ...part, text: part.text.replace(FOR_MARK, "") } : part))
+      .filter((part) => part.type !== "text" || part.text !== "");
+
+    return { ...projected, parts, to: (entry.data as ToSpecialistsData).to };
+  }
 
   return projectMessage(message, String(entry.id));
 }
