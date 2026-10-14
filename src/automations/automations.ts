@@ -1,4 +1,3 @@
-import { type ModelThinkingLevel, Type } from "@earendil-works/pi-ai";
 import {
   defineDoc,
   defineExtension,
@@ -13,11 +12,36 @@ import {
 import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
 import type { ChatList } from "../chats";
+import { decodeOr } from "../core/decode";
+import { must } from "../core/must";
+import { isRefusal, type Refusal, refused, type Result } from "../core/refusal";
 import type { MachineHub } from "../machines/machines";
 import type { Models } from "../models";
 import type { ModelChoice } from "../settings";
 import type { Spawn } from "../skills/subagents";
-import { isLive, type TaskFeed, type TaskRow } from "./tasks";
+import {
+  AUTOMATION_SOURCE as SOURCE,
+  AUTOMATION_TOOL,
+  automationRows,
+  type AutomationAuthor,
+  type AutomationDraft,
+  type AutomationRow,
+  type AutomationStatus,
+  AutomationToolInput,
+  type AutomationToolArgs,
+  type AutomationView,
+  type ByIdAction,
+  CHECK_IN_TOOLS,
+  type CheckIns,
+  CountRow,
+  EXTENSIONS,
+  type LastRun,
+  StoredCheckIns,
+  type TaskFeed,
+  type TaskRow,
+  type ToolAction
+} from "./contract";
+import { isLive } from "./tasks";
 
 /**
  * Automations: jobs that run on a schedule, set up from chat for the user or
@@ -39,46 +63,6 @@ import { isLive, type TaskFeed, type TaskRow } from "./tasks";
  * saying, and only then stays out of the chat. Two may be booked a day, six
  * may wait at once, and the user can turn them off.
  */
-
-export type AutomationStatus = "active" | "paused" | "done" | "archived";
-
-export type AutomationAuthor = "user" | "ky" | "dream";
-
-export type AutomationRow = {
-  readonly id: string;
-  readonly title: string;
-  /** What each run is told; it knows nothing else. */
-  readonly prompt: string;
-  /** A 5-field cron in UTC, or null for a one-off. */
-  readonly cron: string | null;
-  /** A one-off's time in epoch ms, or null for a cron. */
-  readonly at: number | null;
-  /** The model runs use; null for the worker's. */
-  readonly model: ModelChoice | null;
-  /** The machine runs go to; null for the cloud. */
-  readonly machine: string | null;
-  /** The chat its results are reported to: the main one, or a side chat's session. */
-  readonly chat: string;
-  readonly created_by: AutomationAuthor;
-  /** `done`: a one-off that has run. */
-  readonly status: AutomationStatus;
-  /** Its booking on the Scheduler while it is active. */
-  readonly schedule_id: string | null;
-  readonly created_at: number;
-  readonly updated_at: number;
-};
-
-/** What a schedule is and does: everything create and update set. */
-export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat">;
-
-export type LastRun = Pick<TaskRow, "id" | "status" | "summary" | "finished_at">;
-
-/** An automation as the Activity view and the tool show it. */
-export type AutomationView = Omit<AutomationRow, "schedule_id"> & {
-  /** When it fires next, in epoch ms; null when nothing is booked. */
-  readonly next_run: number | null;
-  readonly last_run: LastRun | null;
-};
 
 /** What runs need from pi, set up in server.ts. */
 export type AutomationRuntime = {
@@ -103,16 +87,12 @@ export type AutomationDeps = {
   readonly peers: () => Promise<void>;
 };
 
-/** Whether check-ins are on, and the user's time zone as their browser's connection last placed it. */
-export type CheckIns = { readonly on: boolean; readonly zone: string | null };
-
 /** Check-ins booked in one day, and waiting at once. */
 const CHECK_INS_A_DAY = 2;
 
 const CHECK_INS_WAITING = 6;
 
-/** The tools a check-in run may call: web search through Executor, and the cloud browser. */
-const CHECK_IN_TOOLS: ReadonlySet<string> = new Set(["executor_skills", "executor_execute", "browse"]);
+const CHECK_IN_ALLOWED: ReadonlySet<string> = new Set(CHECK_IN_TOOLS);
 
 /** What a check-in run is told before its prompt. */
 const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
@@ -122,16 +102,11 @@ If you find nothing new, or nothing they could act on now, answer exactly NOTHIN
 What to look at:
 `;
 
-/** Why an automation could not be created or changed. */
-export type Refused = { readonly refused: string };
-
 /** A fire: the automation, and the slot run-now picks; a scheduled fire's slot is its due time. */
 type Fire = { id: string; slot?: number };
 
 /** One run: its slot, its task id, and the chat it reports to. */
 type Run = { slot: number; task: string; chat: string };
-
-type StoredRow = Omit<AutomationRow, "model"> & { model: string | null };
 
 /** The latest run each automation started in the cloud, so a fire delivered twice starts it once. */
 const Runs = defineDoc<{ runs: Record<string, { slot: number; task: string }> }>({
@@ -142,8 +117,6 @@ const Runs = defineDoc<{ runs: Record<string, { slot: number; task: string }> }>
   fork: "initial",
   initial: () => ({ runs: {} })
 });
-
-const SOURCE = "automation:";
 
 /** A session's pi conversation: sessions are conversation ids written out, as agents/harness/pi makes them. */
 // SAFETY: every chat is ROOT_SESSION or a session from harness.sessions.create(), both String(conversation id).
@@ -159,11 +132,6 @@ function slotOf(fire: Fire, schedule: Schedule<Fire>, row: AutomationRow): numbe
   if (fire.slot !== undefined) return fire.slot;
 
   return row.at === null ? schedule.time : Math.floor(row.at / 1000);
-}
-
-function rowOf(stored: StoredRow): AutomationRow {
-  // SAFETY: only create and #set write model, always a validated ModelChoice or null.
-  return { ...stored, model: stored.model === null ? null : (JSON.parse(stored.model) as ModelChoice) };
 }
 
 function lastOf(task: TaskRow | undefined): LastRun | null {
@@ -236,7 +204,7 @@ export class Automations {
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
   checkIns(): CheckIns {
-    const row = this.#sql.exec<{ off: number; zone: string | null }>("SELECT off, zone FROM ky_check_ins WHERE id = 1").toArray()[0];
+    const row = decodeOr(StoredCheckIns, this.#sql.exec("SELECT off, zone FROM ky_check_ins WHERE id = 1").toArray()[0], undefined);
 
     return { on: row?.off !== 1, zone: row?.zone ?? null };
   }
@@ -273,17 +241,17 @@ export class Automations {
   }
 
   /** A new active automation, booked; or why it was refused. */
-  async create(draft: AutomationDraft, author: AutomationAuthor): Promise<AutomationRow | Refused> {
-    const refused = author === "dream" ? this.#checkInProblem(draft) : undefined;
+  async create(draft: AutomationDraft, author: AutomationAuthor): Promise<Result<AutomationRow>> {
+    const problem = author === "dream" ? this.#checkInProblem(draft) : undefined;
 
-    if (refused !== undefined) return { refused };
+    if (problem !== undefined) return refused(problem);
     const checked = this.#check(draft);
 
-    if ("refused" in checked) return checked;
+    if (isRefusal(checked)) return checked;
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
     const booked = await this.#tryBook(id, checked);
 
-    if (booked.error !== undefined) return { refused: booked.error };
+    if (booked.error !== undefined) return refused(booked.error);
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
@@ -304,38 +272,51 @@ export class Automations {
     );
     this.#emit();
 
-    return this.get(id)!;
+    return must(this.get(id), `Automation ${id} wasn't saved.`);
   }
 
-  /** Change what it is or does; a new time re-books an active one. The changed automation, or why not. */
-  async update(id: string, patch: Partial<AutomationDraft>): Promise<AutomationRow | Refused> {
+  /**
+   * Change what it is or does; a new time re-books an active one. The changed automation, or why not.
+   * Only what it is and does is written: a pause or archive that lands while it re-books wins.
+   */
+  async update(id: string, patch: Partial<AutomationDraft>): Promise<Result<AutomationRow>> {
     const row = this.get(id);
 
-    if (!row) return { refused: `No automation ${id}.` };
+    if (!row) return refused(`No automation ${id}.`);
     const retimed = patch.cron !== undefined || patch.at !== undefined;
-    const checked = this.#check({ ...row, ...patch, ...timingOf(patch) });
+    const checked = this.#check(draftOf({ ...row, ...patch, ...timingOf(patch) }));
 
-    if ("refused" in checked) return checked;
-    let scheduleId = row.schedule_id;
+    if (isRefusal(checked)) return checked;
+    const why = row.status === "active" && retimed ? await this.#rebook(row, checked) : this.#save(id, checked);
 
-    if (row.status === "active" && retimed) {
-      await this.#unbook(row);
+    if (why) return why;
 
-      const booked = await this.#tryBook(id, checked);
+    return this.get(id) ?? refused(`No automation ${id}.`);
+  }
 
-      // The new time could not be booked: keep the old one.
-      if (booked.error !== undefined) {
-        this.#set(id, { schedule_id: (await this.#tryBook(id, row)).id ?? null });
+  /** Book an active automation's new time and save the draft; or, when the time can't be booked, keep the old one. */
+  async #rebook(row: AutomationRow, draft: AutomationDraft): Promise<Refusal | undefined> {
+    await this.#unbook(row);
 
-        return { refused: booked.error };
-      }
+    const booked = await this.#tryBook(row.id, draft);
 
-      scheduleId = booked.id ?? null;
+    if (booked.id === undefined) {
+      await this.#keepBooking(row.id, (await this.#tryBook(row.id, row)).id ?? null);
+
+      return refused(booked.error ?? `Cannot schedule "${draft.cron}".`);
     }
 
-    this.#set(id, { ...checked, schedule_id: scheduleId });
+    this.#set(row.id, draft);
+    await this.#keepBooking(row.id, booked.id);
 
-    return this.get(id)!;
+    return undefined;
+  }
+
+  /** Save what it is and does, leaving its status and booking as they are. */
+  #save(id: string, draft: AutomationDraft): undefined {
+    this.#set(id, draft);
+
+    return undefined;
   }
 
   async pause(id: string): Promise<string> {
@@ -367,7 +348,14 @@ export class Automations {
       return `"${row.title}" ran at ${new Date(row.at).toISOString()}. Update \`at\` to run it again.`;
     }
 
-    this.#set(id, { status: "active", schedule_id: await this.#book(row.id, row) });
+    const booked = await this.#book(row.id, row);
+
+    // Archived or deleted while it was booked: that wins, and the booking goes.
+    if (!this.#set(id, { status: "active", schedule_id: booked }, ["paused", "done"])) {
+      await this.scheduler.cancel(booked);
+
+      return refusal(id, this.get(id), "paused or done");
+    }
 
     return `Resumed "${row.title}".`;
   }
@@ -432,7 +420,7 @@ export class Automations {
 
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
-      this.#set(row.id, { schedule_id: await this.#book(row.id, row) });
+      await this.#keepBooking(row.id, await this.#book(row.id, row));
     }
   }
 
@@ -574,13 +562,19 @@ export class Automations {
     if (row?.status !== "active") return;
 
     if (row.schedule_id !== null && row.schedule_id !== firing) await this.scheduler.cancel(row.schedule_id);
-    this.#set(id, { status: "done", schedule_id: null });
+    this.#set(id, { status: "done", schedule_id: null }, ["active"]);
   }
 
-  /** Pause or archive: no more fires, and the run in progress stops. */
+  /**
+   * Pause or archive: no more fires, and the run in progress stops. The status is written before
+   * anything awaits, with the booking it had then, so a re-book still in flight finds it halted.
+   */
   async #halt(row: AutomationRow, status: "paused" | "archived"): Promise<void> {
-    await this.#unbook(row);
+    const booked = this.get(row.id)?.schedule_id ?? null;
+
     this.#set(row.id, { status, schedule_id: null });
+
+    if (booked !== null) await this.scheduler.cancel(booked);
     const run = this.#deps.feed.latestFrom(sourceOf(row.id));
 
     if (!run || !isLive(run.status)) return;
@@ -599,18 +593,16 @@ export class Automations {
   }
 
   /** The draft as it can be saved, or why not. */
-  #check(draft: AutomationDraft): AutomationDraft | Refused {
+  #check(draft: AutomationDraft): Result<AutomationDraft> {
     const problem =
       wordsProblem(draft) ?? timingProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
 
-    if (problem !== undefined) return { refused: problem };
+    if (problem !== undefined) return refused(problem);
 
     if (draft.model === null) return draft;
     const model = this.#deps.models.valid(draft.model);
 
-    return model
-      ? { ...draft, model }
-      : { refused: `${draft.model.provider}/${draft.model.modelId} is not available. ${this.#choices()}` };
+    return model ? { ...draft, model } : refused(`${draft.model.provider}/${draft.model.modelId} is not available. ${this.#choices()}`);
   }
 
   /** A check-in is a one-off in the cloud that reports to the main chat, within the day's and the waiting caps. */
@@ -624,8 +616,7 @@ export class Automations {
 
     if (draft.machine !== null || draft.chat !== ROOT_SESSION) return "A check-in runs in the cloud and reports to the main chat.";
 
-    const count = (query: string, ...bindings: number[]) =>
-      this.#sql.exec<{ n: number }>(query, ...bindings).one().n;
+    const count = (query: string, ...bindings: number[]) => decodeOr(CountRow, this.#sql.exec(query, ...bindings).one(), { n: 0 }).n;
 
     if (count("SELECT COUNT(*) AS n FROM ky_automations WHERE created_by = 'dream' AND created_at > ?", Date.now() - 86_400_000) >= CHECK_INS_A_DAY) {
       return `${CHECK_INS_A_DAY} check-ins were booked in the last day; that is the limit.`;
@@ -694,6 +685,12 @@ export class Automations {
     if (row.schedule_id !== null) await this.scheduler.cancel(row.schedule_id);
   }
 
+  /** Keep a booking made while awaiting only if the automation is still active; else it goes, as a pause or archive cancelled the rest. */
+  async #keepBooking(id: string, scheduleId: string | null): Promise<void> {
+    if (this.#set(id, { schedule_id: scheduleId }, ["active"]) || scheduleId === null) return;
+    await this.scheduler.cancel(scheduleId);
+  }
+
   async #view(row: AutomationRow): Promise<AutomationView> {
     const { schedule_id: scheduleId, ...rest } = row;
     const next = scheduleId === null ? undefined : await this.scheduler.get(scheduleId);
@@ -706,11 +703,22 @@ export class Automations {
   }
 
   #rows(query: string, ...bindings: string[]): AutomationRow[] {
-    return this.#sql.exec<StoredRow>(query, ...bindings).toArray().map(rowOf);
+    return automationRows(this.#sql.exec(query, ...bindings).toArray());
   }
 
-  #set(id: string, patch: Partial<Omit<AutomationRow, "id" | "created_by" | "created_at" | "updated_at">>): void {
-    const next = { ...this.get(id)!, ...patch };
+  /**
+   * Write `patch`, only while its status is one of `when` if that is given; whether it was written.
+   * Read and write happen with no await between, so nothing changes the row in the middle.
+   */
+  #set(
+    id: string,
+    patch: Partial<Omit<AutomationRow, "id" | "created_by" | "created_at" | "updated_at">>,
+    when?: readonly AutomationStatus[]
+  ): boolean {
+    const current = this.get(id);
+
+    if (!current || (when !== undefined && !when.includes(current.status))) return false;
+    const next = { ...current, ...patch };
     this.#sql.exec(
       `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, status = ?,
          schedule_id = ?, updated_at = ? WHERE id = ?`,
@@ -727,6 +735,8 @@ export class Automations {
       id
     );
     this.#emit();
+
+    return true;
   }
 
   #emit(): void {
@@ -760,59 +770,26 @@ function refusal(id: string, row: AutomationRow | undefined, wanted: string): st
   return row ? `"${row.title}" is ${row.status}, not ${wanted}.` : `No automation ${id}.`;
 }
 
-const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
-
-const parameters = Type.Object({
-  action: Type.Union([
-    Type.Literal("create"),
-    Type.Literal("update"),
-    Type.Literal("list"),
-    Type.Literal("pause"),
-    Type.Literal("resume"),
-    Type.Literal("archive"),
-    Type.Literal("unarchive"),
-    Type.Literal("run"),
-    Type.Literal("delete")
-  ]),
-  id: Type.Optional(Type.String({ description: "An automation id from create or list." })),
-  title: Type.Optional(Type.String({ description: "3-6 words for the automations list." })),
-  prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),
-  cron: Type.Optional(Type.String({ description: "A 5-field cron in UTC, like 0 9 * * 1-5." })),
-  at: Type.Optional(Type.String({ description: "A one-off's time, ISO with a zone, like 2026-10-06T09:00:00Z." })),
-  model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or worker to clear it, for the worker model." })),
-  thinking: Type.Optional(Type.Union(LEVELS.map((level) => Type.Literal(level)))),
-  machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud; cloud to clear it." })),
-  chat: Type.Optional(
-    Type.String({ description: "Where results are reported: main, or a side chat's session; this chat when left out." })
-  ),
-  createdBy: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("ky")])),
-  all: Type.Optional(Type.Boolean({ description: "list: include done and archived ones." }))
-});
-
-type Args = {
-  readonly id?: string;
-  readonly title?: string;
-  readonly prompt?: string;
-  readonly cron?: string;
-  readonly at?: string;
-  readonly model?: string;
-  readonly thinking?: ModelThinkingLevel;
-  readonly machine?: string;
-  readonly chat?: string;
-  readonly createdBy?: AutomationAuthor;
-  readonly all?: boolean;
-};
+type Args = AutomationToolArgs;
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
-/** The model the tool asked for, at the level asked for or the worker's. */
-function modelArg(args: Args, fallback: ModelChoice): ModelChoice | null | undefined {
+/**
+ * The model the tool asked for. `base` is what a level alone changes and a model alone keeps the
+ * level of: the automation's own model on update, else the worker's.
+ */
+function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined {
   if (args.model === "worker") return null;
 
-  if (args.model === undefined) return args.thinking === undefined ? undefined : { ...fallback, thinkingLevel: args.thinking };
+  if (args.model === undefined) return args.thinking === undefined ? undefined : { ...base, thinkingLevel: args.thinking };
   const [provider = "", ...rest] = args.model.split("/");
 
-  return { provider, modelId: rest.join("/"), thinkingLevel: args.thinking ?? fallback.thinkingLevel };
+  return { provider, modelId: rest.join("/"), thinkingLevel: args.thinking ?? base.thinkingLevel };
+}
+
+/** What an automation is and does, without its status, booking or anything else a row carries. */
+function draftOf({ title, prompt, cron, at, model, machine, chat }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, chat };
 }
 
 /** What the tool's arguments change, leaving out what they do not mention. */
@@ -840,7 +817,7 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
   const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
-  return "refused" in created ? created.refused : `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).`;
+  return isRefusal(created) ? created.refused : `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).`;
 }
 
 function scheduleOf(row: Pick<AutomationRow, "cron" | "at">): string {
@@ -865,23 +842,23 @@ async function list(automations: Automations, all: boolean): Promise<string> {
   return views.length === 0 ? "No automations." : views.map((view) => lineOf(automations, view)).join("\n");
 }
 
-/** The actions on one automation, by id. */
-function act(automations: Automations, action: string, id: string): Promise<string> | string {
-  if (action === "pause") return automations.pause(id);
+/** The actions on one automation, by id: one handler each, so a new action can't go unhandled. */
+const BY_ID = {
+  pause: (automations, id) => automations.pause(id),
+  resume: (automations, id) => automations.resume(id),
+  archive: (automations, id) => automations.archive(id),
+  unarchive: (automations, id) => automations.unarchive(id),
+  run: (automations, id) => automations.run(id),
+  delete: (automations, id) => automations.delete(id)
+} satisfies { readonly [Action in ByIdAction]: (automations: Automations, id: string) => Promise<string> | string };
 
-  if (action === "resume") return automations.resume(id);
-
-  if (action === "archive") return automations.archive(id);
-
-  if (action === "unarchive") return automations.unarchive(id);
-
-  if (action === "delete") return automations.delete(id);
-
-  return automations.run(id);
+/** The user's actions from Activity, as the tool takes them. */
+function act(automations: Automations, action: ByIdAction, id: string): Promise<string> | string {
+  return BY_ID[action](automations, id);
 }
 
 type Call = {
-  readonly action: string;
+  readonly action: ToolAction;
   readonly args: Args;
   readonly fallback: ModelChoice;
   readonly caller: string;
@@ -898,13 +875,14 @@ async function dispatch(automations: Automations, { action, args, fallback, call
 
   if (!args.id) return `${action} needs an id.`;
 
-  if (action === "update") {
-    const updated = await automations.update(args.id, patchOf(args, fallback));
+  return action === "update" ? update(automations, args.id, args, fallback) : act(automations, action, args.id);
+}
 
-    return "refused" in updated ? updated.refused : `Updated "${updated.title}".`;
-  }
+/** Update from the tool: a level alone is the automation's own model at that level, not the worker's. */
+async function update(automations: Automations, id: string, args: Args, fallback: ModelChoice): Promise<string> {
+  const updated = await automations.update(id, patchOf(args, automations.get(id)?.model ?? fallback));
 
-  return act(automations, action, args.id);
+  return isRefusal(updated) ? updated.refused : `Updated "${updated.title}".`;
 }
 
 /** The automation tool, for the main agent, and for a dream to book check-ins. */
@@ -915,10 +893,10 @@ export function automationExtension(
   dreaming: (session: string) => boolean
 ): Extension {
   return defineExtension({
-    name: "automations",
+    name: EXTENSIONS.automations,
     tools: [
       defineTool({
-        name: "automation",
+        name: AUTOMATION_TOOL,
         description:
           "Schedule work to run later or on repeat, for the user or for yourself (to check back on something). " +
           "Each run is a fresh subagent, or a task on a machine, that knows only the prompt; its result is reported to this conversation, for you to pass on. " +
@@ -928,7 +906,7 @@ export function automationExtension(
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed.",
-        parameters,
+        parameters: AutomationToolInput,
         replay: "unsafe",
         execute: async (args, api) =>
           reply(
@@ -948,13 +926,13 @@ export function automationExtension(
 /** A check-in's run may only search and read the web; every conversation gets this, as subagents drop the rest. */
 export function checkInGuardExtension(automations: Automations): Extension {
   return defineExtension({
-    name: "check-in-guard",
+    name: EXTENSIONS.checkInGuard,
     hooks: [
       hook(ToolTask, {
         beforeTool: (call, api) => {
-          if (CHECK_IN_TOOLS.has(call.name) || !automations.checkInRun(String(api.conversationId))) return undefined;
+          if (CHECK_IN_ALLOWED.has(call.name) || !automations.checkInRun(String(api.conversationId))) return undefined;
 
-          return { block: `A check-in may only call ${[...CHECK_IN_TOOLS].join(", ")}.` };
+          return { block: `A check-in may only call ${CHECK_IN_TOOLS.join(", ")}.` };
         }
       })
     ]

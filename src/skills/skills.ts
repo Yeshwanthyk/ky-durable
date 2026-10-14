@@ -11,7 +11,7 @@ import {
   hook,
   ToolTask
 } from "@earendil-works/pi-durable";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 
 /**
  * Skills: the agent's procedural memory, after Hermes Agent's skills and

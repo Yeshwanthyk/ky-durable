@@ -16,7 +16,7 @@ import {
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { type SoulAction, type SoulView, Versioned, versionLine } from "../dreaming/soul";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 
 /**
  * Specialists: standing bots the user sets up, like @engineer or @researcher.

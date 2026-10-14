@@ -2,6 +2,11 @@ import type { Models } from "../models";
 import type { Reviews } from "../skills/skills";
 import { automationExtension, type Automations, checkInGuardExtension } from "./automations";
 
+/** The domain's classes, for server.ts to make: the contract carries only their types. */
+export { Automations } from "./automations";
+
+export { TaskFeed } from "./tasks";
+
 /** What the automations domain's tools are made from, on the agent (src/server.ts). */
 export type AutomationsWiring = {
   readonly automations: Automations;

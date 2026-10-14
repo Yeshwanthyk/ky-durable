@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Memory } from "./memory";
 import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/skills";
-import type { TaskFeed, TaskRow } from "../automations/tasks";
+import type { TaskFeed, TaskRow } from "../automations/contract";
 
 /**
  * Dreaming, after Agent Memory Repo's dreaming (cognition.com/agent-memory-repo):

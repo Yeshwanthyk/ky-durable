@@ -17,7 +17,7 @@ import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./mach
 import type { RunnerPipe } from "./pipe";
 import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./machines/runner-protocol";
 import { checkInput, imagesOf } from "./images";
-import type { Automations } from "./automations/automations";
+import type { Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Skills } from "./skills/skills";
 import type { Memory } from "./dreaming/memory";
@@ -32,7 +32,7 @@ import type { Subscriptions } from "./subscriptions";
 import { type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/peers";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
-import type { TaskFeed } from "./automations/tasks";
+import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
 
@@ -314,9 +314,9 @@ export class PiSessionSockets {
     return { type: "memory", memory: this.#memory.view() };
   }
 
-  /** The active and paused automations, each with the chat it reports to by name. */
+  /** The active, paused and archived automations, each with the chat it reports to by name. */
   async #automationsMessage(): Promise<PiServerMessage> {
-    const views = await this.#automations.list(false);
+    const views = (await this.#automations.list()).filter((view) => view.status !== "done");
 
     return {
       type: "automations",
@@ -368,7 +368,7 @@ export class PiSessionSockets {
     return message.type === "specialist-brief" ? this.#specialists.brief(id).apply(message.change, "user") : this.#specialists.brief(id).history();
   }
 
-  /** Pause, resume, archive, run or delete an automation as the user; the result says what happened. */
+  /** Pause, resume, archive, unarchive, run or delete an automation as the user; the result says what happened. */
   async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
     switch (message.action) {
       case "pause":
@@ -377,6 +377,8 @@ export class PiSessionSockets {
         return await this.#automations.resume(message.automation);
       case "archive":
         return await this.#automations.archive(message.automation);
+      case "unarchive":
+        return this.#automations.unarchive(message.automation);
       case "run":
         return await this.#automations.run(message.automation);
       case "delete":

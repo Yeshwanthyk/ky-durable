@@ -30,7 +30,7 @@ import {
   type Specialists,
   textOf
 } from "./specialists";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 import { describeTool } from "../tool-labels";
 
 /**

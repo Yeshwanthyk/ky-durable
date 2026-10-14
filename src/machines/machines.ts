@@ -10,7 +10,7 @@ import type { FileRow, FileStore } from "../files";
 import { type CloudState, type MachineInfo, osName } from "../protocol";
 import type { Sandboxes } from "../sandboxes";
 import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
-import { summarize, type TaskFeed, type TaskRow } from "../automations/tasks";
+import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's

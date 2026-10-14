@@ -1,4 +1,4 @@
-import type { TaskFeed } from "../automations/tasks";
+import type { TaskFeed } from "../automations/contract";
 import { machineExtension, type MachineHub } from "./machines";
 
 /** What the machines domain's tools are made from, on the agent (src/server.ts). */
