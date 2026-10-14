@@ -307,6 +307,12 @@ describe("side chats and titles", () => {
     await command(later.socket, later.client, { type: "archive-chat", session: chat, archived: false });
     await later.client.until(() => row(later.client)?.archived_at === null);
 
+    // Renamed, the chat keeps the user's name; a blank one changes nothing.
+    await command(later.socket, later.client, { type: "rename-chat", session: chat, title: "  Trip to Lisbon  " });
+    await later.client.until(() => row(later.client)?.title === "Trip to Lisbon");
+    await command(later.socket, later.client, { type: "rename-chat", session: chat, title: "   " });
+    expect(row(later.client)?.title).toBe("Trip to Lisbon");
+
     expect(
       await command(later.socket, later.client, { type: "archive-chat", session: "not-a-chat", archived: true })
     ).toMatchObject({ type: "error" });

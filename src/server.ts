@@ -11,6 +11,7 @@ import { WebSockets } from "agents/websockets";
 import { Access, bypassed } from "./access";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
+import { BACKGROUND } from "./background";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationExtension, checkInGuardExtension } from "./automations";
 import { browseExtension } from "./browse";
@@ -51,13 +52,6 @@ export { Vault } from "./vault";
 export { CloudMachine } from "./cloud";
 
 export { GithubProxy } from "./github";
-
-/** A pi context with no values that is never cancelled. */
-const BACKGROUND = Object.freeze({
-  abortSignal: undefined,
-  value: () => undefined,
-  toString: () => "[Context ky background]"
-});
 
 /**
  * Everything ky reaches outside the Worker. The worker e2e tests and the local

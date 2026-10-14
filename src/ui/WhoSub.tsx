@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import type { Activity } from "./activity";
 import { Icon } from "./Icon";
 
-/** How long an outgoing subtitle takes to fade; matches shell.css. */
-const FADE_MS = 220;
+/** How long an outgoing subtitle takes to leave; matches shell.css. */
+const FADE_MS = 150;
 
 type Line = { readonly key: number; readonly text: string; readonly activity: Activity | null };
 
@@ -12,17 +12,16 @@ type Line = { readonly key: number; readonly text: string; readonly activity: Ac
  * A change cross-fades; the pill resizes to fit (see useFitWidth).
  */
 export function WhoSub({ activity, idle }: { activity: Activity | null; idle: string }) {
-  const counter = useRef(0);
   const text = activity?.label ?? idle;
   const [current, setCurrent] = useState<Line>({ key: 0, text, activity });
   const [previous, setPrevious] = useState<Line | null>(null);
 
-  useEffect(() => {
-    if (current.text === text) return;
+  // New words become the new line during render, so the old line never paints for a frame.
+  // Only new words are a new line; a new object with the same words is not.
+  if (current.text !== text) {
     setPrevious(current);
-    setCurrent({ key: ++counter.current, text, activity });
-    // Only new words are a new line; a new object with the same words is not.
-  }, [text]);
+    setCurrent({ key: current.key + 1, text, activity });
+  }
 
   useEffect(() => {
     if (previous === null) return;

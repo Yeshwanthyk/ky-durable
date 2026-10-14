@@ -13,6 +13,12 @@ const IDLE_VIEWBOX_RADIUS = 126;
 
 const FRAME_INTERVAL = 1000 / 60;
 
+/** rAF times jitter (WebKit rounds them to whole milliseconds); without slack a 60Hz screen skips about a third of frames. */
+const FRAME_SLACK = 1;
+
+/** How often a running avatar checks whether something now sits over it, and a covered one whether it is clear. */
+const COVER_CHECK_INTERVAL = 500;
+
 // Ziggy's animated blob avatar (../ziggy/clients/web/src/components/bot-avatar.tsx), with `still`
 // for lists: one frame, no animation loop per row. It looks around and blinks at rest, winks
 // under the pointer, and turns into pulsing dots while it works.
@@ -26,6 +32,26 @@ export interface BotAvatarProps {
   size?: number;
   className?: string;
 }
+
+// Whether something opaque sits over the avatar's middle. On a phone the full-screen panel covers
+// the topbar and welcome avatars without moving them, so the IntersectionObserver still sees them.
+function covered(svg: SVGSVGElement): boolean {
+  const box = svg.getBoundingClientRect();
+  let node = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+
+  if (!node || svg.contains(node)) return false;
+
+  // Climb from what is on top to the first box that holds the avatar too: a see-through scrim
+  // on the way still shows it, so it keeps moving.
+  for (; node && !node.contains(svg); node = node.parentElement) {
+    if (opaque(getComputedStyle(node).backgroundColor)) return true;
+  }
+
+  return false;
+}
+
+// Computed colours with any transparency come back as rgba(...) or with a "/ alpha".
+const opaque = (color: string) => !color.startsWith("rgba(") && !color.includes("/");
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(() =>
@@ -70,6 +96,7 @@ export function BotAvatar({
     [identity, variant.id, variant.outline.radii],
   );
 
+  const svgRef = useRef<SVGSVGElement>(null);
   const engineTime = useRef(phase);
   const [frame, setFrame] = useState<BotFrame>(() => engine.sample(phase));
   /** A wink while the pointer is on it, so it answers being noticed. */
@@ -93,16 +120,20 @@ export function BotAvatar({
       return;
     }
 
-    if (!animated) return;
+    const svg = svgRef.current;
+
+    if (!animated || !svg) return;
 
     let animationFrame = 0;
     let segmentStartedAt: number | undefined;
     let lastRenderedAt = -Infinity;
+    let onScreen = true;
+    let overlaid = false;
 
     const tick = (now: number) => {
       segmentStartedAt ??= now;
 
-      if (now - lastRenderedAt >= FRAME_INTERVAL) {
+      if (now - lastRenderedAt >= FRAME_INTERVAL - FRAME_SLACK) {
         engineTime.current += (now - segmentStartedAt) / 1000;
         segmentStartedAt = now;
         lastRenderedAt = now;
@@ -113,11 +144,12 @@ export function BotAvatar({
     };
 
     const start = () => {
-      if (document.visibilityState === "hidden" || animationFrame !== 0) return;
+      if (animationFrame !== 0) return;
       segmentStartedAt = undefined;
       animationFrame = requestAnimationFrame(tick);
     };
 
+    // Paused, engine time stands still, so it picks up where it left off rather than jumping.
     const stop = () => {
       if (animationFrame === 0) return;
       cancelAnimationFrame(animationFrame);
@@ -125,16 +157,33 @@ export function BotAvatar({
       segmentStartedAt = undefined;
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") stop();
-      else start();
+    // Only animate what can be seen: not in a hidden tab, scrolled away, or under the panel.
+    const sync = () => {
+      if (document.visibilityState !== "hidden" && onScreen && !overlaid) start();
+      else stop();
     };
 
+    const handleVisibilityChange = () => sync();
+
+    const observer = new IntersectionObserver(([entry]) => {
+      onScreen = entry?.isIntersecting ?? onScreen;
+      sync();
+    });
+
+    const coverCheck = window.setInterval(() => {
+      if (!onScreen || document.visibilityState === "hidden") return;
+      overlaid = covered(svg);
+      sync();
+    }, COVER_CHECK_INTERVAL);
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    start();
+    observer.observe(svg);
+    sync();
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      observer.disconnect();
+      window.clearInterval(coverCheck);
       stop();
     };
   }, [active, animated, engine, poked, reducedMotion, still]);
@@ -149,7 +198,10 @@ export function BotAvatar({
       height={size}
       onPointerEnter={animated ? () => setPoked(true) : undefined}
       onPointerLeave={animated ? () => setPoked(false) : undefined}
+      ref={svgRef}
       role="img"
+      // Its own layer, so each frame repaints only the avatar, not the panel scaling around it.
+      style={animated ? { willChange: "transform" } : undefined}
       viewBox={`${-viewBoxRadius} ${-viewBoxRadius} ${viewBoxRadius * 2} ${viewBoxRadius * 2}`}
       width={size}
     >

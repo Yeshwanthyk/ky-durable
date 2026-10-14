@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, type IconName } from "./Icon";
@@ -56,12 +57,23 @@ export const SOUL_INTERVIEW =
   "Interview me so you know who I am. Ask three or four short questions, one at a time: what I do, what I care about, " +
   "how I like answers, and anything you should never do. Then write SOUL.md with soul_edit and show me what changed.";
 
-const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: string; sub: string; done: (setUp: SetUp) => boolean }> = [
+type Card = {
+  target: FirstRunTarget;
+  icon: IconName;
+  label: string;
+  sub: string;
+  /** The sub line once done: what is set up, not an invitation to do it again. */
+  doneSub: string;
+  done: (setUp: SetUp) => boolean;
+};
+
+const CARDS: readonly Card[] = [
   {
     target: "soul",
     icon: "fingerprint",
     label: "Tell ky who you are",
     sub: "A short interview that writes SOUL.md",
+    doneSub: "SOUL.md is written",
     done: (setUp) => setUp.soul
   },
   {
@@ -69,6 +81,7 @@ const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: stri
     icon: "plus",
     label: "Add a key",
     sub: "OpenCode Go, OpenRouter and more",
+    doneSub: "A key is added",
     done: (setUp) => setUp.onlyProvider === null
   },
   {
@@ -76,6 +89,7 @@ const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: stri
     icon: "cloud",
     label: "Connect ChatGPT for machines",
     sub: "Codex runs with it on your machines",
+    doneSub: "ChatGPT is connected",
     done: (setUp) => setUp.chatgpt
   },
   {
@@ -83,6 +97,7 @@ const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: stri
     icon: "terminal",
     label: "Add Claude for machines",
     sub: "Claude Code runs with it on your machines",
+    doneSub: "Claude is connected",
     done: (setUp) => setUp.claude
   },
   {
@@ -90,6 +105,7 @@ const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: stri
     icon: "monitor",
     label: "Add a machine",
     sub: "Run tasks on your own computer",
+    doneSub: "A machine is added",
     done: (setUp) => setUp.machines
   },
   {
@@ -97,6 +113,7 @@ const CARDS: ReadonlyArray<{ target: FirstRunTarget; icon: IconName; label: stri
     icon: "plug",
     label: "Connect Executor",
     sub: "Your apps' tools, like email and calendar",
+    doneSub: "Executor is connected",
     done: (setUp) => setUp.executor
   }
 ];
@@ -153,35 +170,56 @@ function Suggestions({ setUp, disabled, onPick }: { setUp: SetUp; disabled: bool
 }
 
 // The main chat before ky is set up: each step opens its Settings flow, or starts the SOUL interview.
+// What is left to do comes first; what is done settles below it, quiet but still a way back in.
 function FirstRun({ setUp, disabled, onGo }: { setUp: SetUp; disabled: boolean; onGo: (target: FirstRunTarget) => void }) {
+  const cards = CARDS.map((card) => ({ card, done: card.done(setUp) }));
+  const ordered = [...cards.filter((each) => !each.done), ...cards.filter((each) => each.done)];
+
   return (
     <ul className="card first-run" aria-label="Set up ky">
-      {CARDS.map((card) => {
-        const done = card.done(setUp);
-
-        return (
-          <li key={card.label}>
-            <button
-              type="button"
-              className="row pressable"
-              data-done={done}
-              disabled={card.target === "soul" && disabled}
-              onClick={() => onGo(card.target)}
-            >
-              <span className="row-tile">
-                <Icon name={done ? "checkCircle" : card.icon} size={15} />
-              </span>
-              <span className="row-text">
-                <span className="row-label">{card.label}</span>
-                <span className="row-sub">{card.sub}</span>
-              </span>
-              <Icon name="chevronRight" size={14} className="row-chevron" />
-            </button>
-          </li>
-        );
-      })}
+      {ordered.map(({ card, done }) => (
+        <li key={card.label}>
+          <button
+            type="button"
+            className="row pressable"
+            data-done={done}
+            disabled={card.target === "soul" && disabled}
+            onClick={() => onGo(card.target)}
+          >
+            <span className="row-tile">
+              <Icon name={done ? "checkCircle" : card.icon} size={15} />
+            </span>
+            <span className="row-text">
+              <span className="row-label">{card.label}</span>
+              <span className="row-sub">{done ? card.doneSub : card.sub}</span>
+            </span>
+            {done ? null : <Icon name="chevronRight" size={14} className="row-chevron" />}
+          </button>
+        </li>
+      ))}
     </ul>
   );
+}
+
+/** Whether the welcome has had its entrance this page load; later empty chats appear without it. */
+let entered = false;
+
+// The entrance plays once, and only counts once it has had time to finish, so a welcome that
+// flashes while a chat's history loads doesn't use it up.
+function useEntrance(): boolean {
+  const [enter] = useState(() => !entered);
+
+  useEffect(() => {
+    if (!enter) return;
+
+    const timer = setTimeout(() => {
+      entered = true;
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [enter]);
+
+  return enter;
 }
 
 // An empty chat: who is here, what this chat is for, and, where ky answers, things to try.
@@ -206,10 +244,13 @@ export function Welcome({
 }) {
   const first = firstRun(kind, setUp);
   const copy = welcomeCopy(kind, first, setUp.onlyProvider);
+  const enter = useEntrance();
 
   return (
-    <div className="welcome">
-      <BotAvatar name={speaker} variantId={variantId} active={running} size={88} />
+    <div className="welcome" data-enter={enter}>
+      <div className="welcome-avatar">
+        <BotAvatar name={speaker} variantId={variantId} active={running} size={88} />
+      </div>
       <h1 className="welcome-title">{copy.title}</h1>
       <p className="welcome-text">{copy.text}</p>
       {first ? <FirstRun setUp={setUp} disabled={!connected} onGo={onGo} /> : null}

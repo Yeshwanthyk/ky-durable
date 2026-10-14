@@ -6,26 +6,45 @@ import { imageSrc, type PendingImage } from "./pick-images";
 // Enter sends on a keyboard; on touch Enter is a newline and the button sends.
 const coarse = () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
-// Taller than one line and its padding means the text wrapped; the line grows with Settings → Text size.
-function oneLine(element: HTMLElement): number {
+// Where the browser sizes a field to its text, the textarea grows by itself and nothing is measured to size it.
+const fieldSizing = typeof CSS !== "undefined" && CSS.supports("field-sizing", "content");
+
+/** What deciding pill or card needs from the textarea's style, read once per state rather than per keystroke. */
+type Metrics = {
+  /** Taller than this means the text wrapped: one line and its padding; the line grows with Settings → Text size. */
+  readonly oneLine: number;
+  readonly font: string;
+  readonly paddingX: number;
+};
+
+function measure(element: HTMLElement): Metrics {
   const style = getComputedStyle(element);
   const line = parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
 
-  return Math.max(parseFloat(style.minHeight), line) + 2;
+  return {
+    oneLine: Math.max(parseFloat(style.minHeight), line) + 2,
+    font: `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`,
+    paddingX: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+  };
 }
 
 let ruler: CanvasRenderingContext2D | null = null;
 
+let rulerFont = "";
+
 // Whether the text fits on one line of a textarea this wide, padding and a little slack included.
-function fitsOneLine(element: HTMLTextAreaElement, text: string, width: number): boolean {
+function fitsOneLine(metrics: Metrics, text: string, width: number): boolean {
   ruler ??= document.createElement("canvas").getContext("2d");
 
   if (ruler === null) return text === "";
-  const style = getComputedStyle(element);
-  ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  const room = width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 8;
 
-  return ruler.measureText(text).width < room;
+  // Setting a canvas font parses it, so only when it changes.
+  if (rulerFont !== metrics.font) {
+    ruler.font = metrics.font;
+    rulerFont = metrics.font;
+  }
+
+  return ruler.measureText(text).width < width - metrics.paddingX - 8;
 }
 
 const imageFiles = (files: FileList | null | undefined) =>
@@ -123,18 +142,60 @@ export function Composer({
   // against the width the pill had, so it never flips back and forth at the edge.
   const [open, setOpen] = useState(false);
   const pillWidth = useRef(0);
+  const metrics = useRef<Metrics | null>(null);
+  const openNow = useRef(open);
+
+  // The pill's width, kept as layout settles rather than read (forcing a layout) on every keystroke.
+  useLayoutEffect(() => {
+    const element = area.current;
+
+    if (element === null || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      // A resize may be a new text size, so the style is read again too.
+      metrics.current = null;
+
+      if (!openNow.current) pillWidth.current = element.clientWidth;
+    });
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
   useLayoutEffect(() => {
     const element = area.current;
 
     if (element === null) return;
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight}px`;
 
-    if (!open) {
-      pillWidth.current = element.clientWidth;
+    if (openNow.current !== open) {
+      openNow.current = open;
+      metrics.current = null;
+    }
 
-      if (value.includes("\n") || element.scrollHeight > oneLine(element)) setOpen(true);
-    } else if (!value.includes("\n") && fitsOneLine(element, value, pillWidth.current)) setOpen(false);
+    if (!fieldSizing) {
+      element.style.height = "auto";
+      element.style.height = `${element.scrollHeight}px`;
+    }
+
+    if (value.includes("\n")) {
+      if (!open) setOpen(true);
+
+      return;
+    }
+
+    metrics.current ??= measure(element);
+
+    if (open) {
+      if (fitsOneLine(metrics.current, value, pillWidth.current)) setOpen(false);
+
+      return;
+    }
+
+    if (pillWidth.current === 0) pillWidth.current = element.clientWidth;
+
+    // Text that plainly fits the pill cannot have wrapped; only near the edge is the layout asked.
+    if (!fitsOneLine(metrics.current, value, pillWidth.current) && element.scrollHeight > metrics.current.oneLine) setOpen(true);
   }, [value, open]);
   const empty = value.trim() === "" && images.length === 0;
   const stop = working && empty && onStop !== undefined;

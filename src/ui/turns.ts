@@ -3,7 +3,7 @@ import { Guard } from "typebox/guard";
 import type { PiMessage, PiMessagePart } from "../transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
-import type { Tool, Turn } from "./conversation";
+import type { Item, Tool, Turn } from "./conversation";
 
 /** Reports from subagents, machines, specialists, discussions and check-ins arrive as user messages that start like this. */
 const REPORT = /^\[(subagent|machine|specialist|discussion|check-in) ("[^"]*"|[^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
@@ -114,8 +114,66 @@ function describe(name: string, args: JsonObject): Pick<Tool, "category" | "summ
   }
 }
 
-function resultText(part: Extract<PiMessagePart, { type: "tool-result" }>): string {
-  return part.content.flatMap((content) => (content.type === "text" ? [content.text] : [])).join("\n");
+/**
+ * A string per part, kept, so building the turns again yields the very same
+ * strings: comparing those is instant, where a fresh copy of a long output or
+ * an image's base64 would be compared character by character.
+ */
+function keptPer<Part extends object>(make: (part: Part) => string): (part: Part) => string {
+  const kept = new WeakMap<Part, string>();
+
+  return (part) => {
+    const known = kept.get(part);
+
+    if (known !== undefined) return known;
+    const made = make(part);
+    kept.set(part, made);
+
+    return made;
+  };
+}
+
+const resultText = keptPer((part: Extract<PiMessagePart, { type: "tool-result" }>) =>
+  part.content.flatMap((content) => (content.type === "text" ? [content.text] : [])).join("\n")
+);
+
+const keptImageSrc = keptPer(imageSrc);
+
+/** A value a turn or one of its items holds. */
+type Field = string | number | boolean | null | readonly string[];
+
+const sameField = (a: Field, b: Field) =>
+  a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((each, index) => each === b[index]));
+
+/** Whether two records of fields hold the same values under the same keys. */
+function sameFields<Value extends { readonly [Key in keyof Value]: Field }>(a: Value, b: Value): boolean {
+  // SAFETY: Object.keys lists the record's own keys, each a key of Value.
+  const keys = Object.keys(a) as (keyof Value)[];
+
+  return keys.length === Object.keys(b).length && keys.every((key) => sameField(a[key], b[key]));
+}
+
+function sameTurn({ items, ...turn }: Turn, { items: otherItems, ...other }: Turn): boolean {
+  return sameFields(turn, other) && items.length === otherItems.length && items.every((item, index) => sameFields<Item>(item, otherItems[index]!));
+}
+
+/** The turns the last build returned, by id. */
+let previous = new Map<string, Turn>();
+
+/**
+ * Each turn as the last build returned it when nothing in it changed, so a
+ * memoised turn view skips it: while a reply streams, only the last turn is new.
+ */
+function keepUnchanged(turns: Turn[]): Turn[] {
+  const kept = turns.map((turn) => {
+    const before = previous.get(turn.id);
+
+    return before !== undefined && sameTurn(before, turn) ? before : turn;
+  });
+
+  previous = new Map(kept.map((turn) => [turn.id, turn]));
+
+  return kept;
 }
 
 function userText(message: PiMessage): string {
@@ -148,7 +206,7 @@ export function buildTurns(
       id: message?.id ?? `t${turns.length}`,
       state: "completed",
       user: report ? raw.slice(report[0].length) : raw,
-      images: message ? message.parts.flatMap((part) => (part.type === "image" ? [imageSrc(part)] : [])) : [],
+      images: message ? message.parts.flatMap((part) => (part.type === "image" ? [keptImageSrc(part)] : [])) : [],
       from: report ? `${report[1]} ${report[2]}` : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
       to: message?.to ?? [],
@@ -236,7 +294,7 @@ export function buildTurns(
           if (!tool) continue;
           tool.status = part.error ? "failed" : "done";
           tool.output = resultText(part);
-          tool.images = part.content.flatMap((content) => (content.type === "image" ? [imageSrc(content)] : []));
+          tool.images = part.content.flatMap((content) => (content.type === "image" ? [keptImageSrc(content)] : []));
           const at = started.get(part.id);
           tool.durationMs = at && message.timestamp ? message.timestamp - at : null;
         }
@@ -281,5 +339,5 @@ export function buildTurns(
     last.endedAt = null;
   }
 
-  return turns;
+  return keepUnchanged(turns);
 }

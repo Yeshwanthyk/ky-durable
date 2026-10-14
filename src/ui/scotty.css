@@ -94,7 +94,64 @@
 }
 
 .pressable:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(var(--press-scale, 0.96));
+}
+
+/* Does not inherit, so a small button inside a row keeps the full press. */
+@property --press-scale {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0.96;
+}
+
+/* A full-width row shrinking 4% looks squashed; it gives a little instead. Set --press-scale to tune one. */
+.pressable-row {
+  --press-scale: 0.985;
+}
+
+/* ---------- Touch: taps and long presses ---------- */
+
+/* iOS flashes a grey box over whatever is tapped. Controls give their own press feedback
+   (.pressable, :active) instead. The property inherits, so the root covers every control. */
+:root {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A long press on a control should not select its label or pop the copy menu. */
+:where(
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="radio"],
+  [role="switch"],
+  .pressable
+) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Text you may want to copy keeps both: a reasoning summary is a toggle but reads as prose,
+   and the fields are for typing. A screenshot keeps its save-image menu. */
+:where(.log-thought, input, textarea, [contenteditable]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+:where(.attachment-open) {
+  -webkit-touch-callout: default;
+}
+
+/* Without the flash, a control with no press feedback of its own would give no sign of a tap, so
+   on touch it dims while held. Zero specificity: any opacity a control sets for itself wins. */
+@media (hover: none) {
+  :where(button, [role="button"], [role="tab"], [role="option"]):where(:not(.pressable):active:not(:disabled)) {
+    opacity: 0.6;
+  }
 }
 
 /* ---------- Icons, spinner, status ---------- */
@@ -182,14 +239,16 @@ kbd {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* ChatThread holds the view still itself, in every Safari; native anchoring would move it twice. */
   overflow-anchor: none;
 }
 
+/* Room under the last turn, so it never sits flush against the composer. */
 .thread-inner {
   width: 100%;
   max-width: var(--thread-width);
   margin: 0 auto;
-  padding: 20px 20px 32px;
+  padding: 20px 20px 60px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -219,6 +278,18 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* A new chat's first turn rises in where the welcome screen was. */
+.turn[data-arrived="true"] {
+  animation: turn-in 240ms var(--ease-out) backwards;
+}
+
+@keyframes turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .user-images {
@@ -331,6 +402,18 @@ kbd {
   margin-bottom: 0;
 }
 
+/* A live reply that a tool call follows turns out to be commentary: it moves from the answer into
+   the log, and fades into the log's smaller grey type instead of snapping to it. */
+.worklog[data-live="true"] > .log-text {
+  animation: log-settle 180ms var(--ease-out) backwards;
+}
+
+@keyframes log-settle {
+  from {
+    opacity: 0.35;
+  }
+}
+
 .log-thought {
   color: var(--quiet);
   font-style: italic;
@@ -408,10 +491,14 @@ kbd {
 
 .tool-row .chevron {
   opacity: 0;
+  transition:
+    opacity var(--fast) var(--ease-out),
+    transform var(--standard) var(--ease-out);
 }
 
 .tool-row[aria-expanded="true"] .chevron {
   opacity: 1;
+  transform: rotate(90deg);
 }
 
 .tool[data-status="failed"] .tool-row .verb,
@@ -477,6 +564,65 @@ kbd {
 
 .group-children {
   padding-left: 22px;
+}
+
+/* Details open in place: the grid row grows from 0fr to 1fr, so what is below glides down instead
+   of jumping. Closing is quicker than opening. */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 140ms var(--ease-out);
+}
+
+.reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+  transition-duration: 220ms;
+}
+
+/* It clips while it grows; the side padding keeps rows' hover fills, which hang 6px out, unclipped.
+   Once closed it is hidden, so nothing clipped to no height still counts as shown. */
+.reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+  margin-inline: -6px;
+  padding-inline: 6px;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 100ms var(--ease-out),
+    visibility 0s 140ms;
+}
+
+.reveal[data-open="true"] > .reveal-inner {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 220ms var(--ease-out),
+    visibility 0s;
+}
+
+/* The turn's gap would leave a closed log as 8px of air; the log carries that gap itself instead. */
+.assistant > .reveal {
+  margin-top: -8px;
+}
+
+.assistant > .reveal > .reveal-inner > .worklog {
+  padding-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-inner,
+  .reveal[data-open="true"] > .reveal-inner,
+  .tool-row .chevron,
+  .worked .chevron {
+    transition: none;
+  }
+
+  .turn[data-arrived="true"],
+  .worklog[data-live="true"] > .log-text {
+    animation: none;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -600,7 +746,9 @@ kbd {
 .composer-wrap {
   flex: none;
   padding: 0 20px 16px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  /* --kb is how much of the dock the iOS keyboard covers, set while the keyboard is up
+     (use-keyboard-inset.ts); the dock rises to sit just above it. */
+  padding-bottom: max(16px, calc(var(--kb, 0px) + 8px), env(safe-area-inset-bottom));
 }
 
 .composer {
@@ -613,11 +761,26 @@ kbd {
   transition: border-color var(--fast) var(--ease-out);
 }
 
-/* Focus grows it a little, taller and a touch wider, with a deeper shadow: it comes to you. */
-.composer:focus-within {
-  padding-block: 3px;
-  scale: 1.012;
+/* Focus lifts it with a deeper shadow and a darker edge, and nothing moves. Scaling the box blurred the
+   text mid-way and moved the layout. The deeper shadow sits on its own layer and fades in, so no
+   frame repaints a shadow. */
+.composer::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
   box-shadow: var(--shadow-lift);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--ease-out);
+}
+
+.composer:focus-within {
+  border-color: var(--line-hover);
+}
+
+.composer:focus-within::after {
+  opacity: 1;
 }
 
 /* A pill while it is one line: attach, the text, send. Once the text wraps it opens into a
@@ -627,7 +790,7 @@ kbd {
   flex-wrap: wrap;
   align-items: center;
   border-radius: 26px;
-  transition-property: border-color, border-radius, padding, scale, box-shadow;
+  transition-property: border-color, border-radius;
   transition-duration: 200ms;
   transition-timing-function: var(--ease-out);
 }
@@ -734,6 +897,8 @@ kbd {
   min-width: 0;
   min-height: 44px;
   max-height: 40dvh;
+  /* Grows with its text without script measuring it; Composer.tsx sizes it where this is unsupported. */
+  field-sizing: content;
   resize: none;
   border: 0;
   outline: 0;
@@ -772,6 +937,99 @@ kbd {
 
 .composer-note[data-tone="error"] {
   color: var(--danger);
+}
+
+/* A message on its way stays as it was sent; only one the server is slow to take dims, a beat later,
+   so a quick reply never flickers. */
+.turn[data-sending] .user-message {
+  opacity: 0.6;
+  transition: opacity 200ms var(--ease-out) 600ms;
+}
+
+@starting-style {
+  .turn[data-sending] .user-message {
+    opacity: 1;
+  }
+}
+
+/* What waits behind the run, above the composer: each message in a row with its edit and delete. */
+.queue {
+  max-width: var(--thread-width);
+  margin: 0 auto 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg);
+}
+
+.queue-head,
+.queue-more {
+  margin: 0;
+  padding: 2px 8px 4px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+}
+
+.queue-more {
+  padding: 4px 8px 2px;
+}
+
+.queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px 0 8px;
+  border-radius: 10px;
+  transition:
+    opacity 150ms var(--ease-out),
+    translate 200ms var(--ease-out);
+}
+
+@starting-style {
+  .queue-item {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+.queue-item[data-taking="true"] {
+  opacity: 0.5;
+}
+
+.queue-glyph {
+  flex: none;
+  color: var(--quiet);
+}
+
+.queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.queue-action {
+  flex: none;
+  color: var(--muted);
+}
+
+.queue-action:disabled {
+  opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-item {
+    transition: opacity 150ms var(--ease-out);
+  }
 }
 .chat-surface {
   display: flex;
@@ -901,18 +1159,14 @@ kbd {
 
 @media (max-width: 767px) {
   .thread-inner {
-    padding: 16px 16px 24px;
+    padding: 16px 16px 52px;
   }
 
-  /* A small gap plus the home-indicator inset. While typing, the keyboard
-     covers the indicator, so the inset would only be empty space. */
+  /* A small gap plus the home-indicator inset. While the keyboard is up it covers the indicator,
+     so --kb (what the keyboard covers, often 0) takes the inset's place. Focus alone moves nothing. */
   .composer-wrap {
-    padding: 0 max(10px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom))
+    padding: 0 max(10px, env(safe-area-inset-left)) calc(8px + var(--kb, env(safe-area-inset-bottom)))
       max(10px, env(safe-area-inset-right));
-  }
-
-  .composer-wrap:focus-within {
-    padding-bottom: 8px;
   }
 
   /* 44px to tap, the same height as one line of text. 16px text keeps iOS from zooming. */
@@ -1031,19 +1285,22 @@ kbd {
   transition-duration: 200ms;
 }
 
+/* The backdrop is blurred and dimmed from its first frame and only its opacity moves. Growing the
+   blur radius re-blurs the whole screen every frame, which stutters on a phone. */
 .lightbox::backdrop {
-  background: rgb(0 0 0 / 0);
-  backdrop-filter: blur(0);
+  background: rgb(0 0 0 / 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
   transition:
-    background-color 140ms var(--ease-out),
-    backdrop-filter 140ms var(--ease-out),
+    opacity 140ms var(--ease-out),
     overlay 140ms allow-discrete,
     display 140ms allow-discrete;
 }
 
 .lightbox[open]::backdrop {
-  background: rgb(0 0 0 / 0.78);
-  backdrop-filter: blur(8px);
+  opacity: 1;
+  transition-duration: 200ms;
 }
 
 @starting-style {
@@ -1052,8 +1309,7 @@ kbd {
   }
 
   .lightbox[open]::backdrop {
-    background: rgb(0 0 0 / 0);
-    backdrop-filter: blur(0);
+    opacity: 0;
   }
 
   .lightbox[open] .lightbox-figure {
@@ -1081,7 +1337,10 @@ kbd {
   max-width: min(92vw, 1400px);
   max-height: calc(100dvh - 120px);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+  /* A hairline, not a big soft shadow: the image scales in, and a 64px blur around a screen-sized
+     layer was costly to paint and barely showed on the dark backdrop. */
+  outline: 1px solid rgb(255 255 255 / 0.08);
+  outline-offset: -1px;
   background: rgb(255 255 255 / 0.04);
 }
 
@@ -1178,7 +1437,8 @@ kbd {
   scrollbar-color: var(--line-strong) transparent;
 }
 
-*:hover {
+/* Only the boxes that scroll: a bare *:hover restyled every element the pointer crossed. */
+:is([data-scroll], .tool-body pre, .composer-images, .github-repos, .palette-list, .skill-body):hover {
   scrollbar-color: var(--line-hover) transparent;
 }
 

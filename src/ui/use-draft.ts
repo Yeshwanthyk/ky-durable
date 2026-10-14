@@ -1,6 +1,7 @@
 import type { UserInput } from "@earendil-works/pi-durable";
 import { useEffect, useState } from "react";
-import { MAX_IMAGES } from "../images";
+import { imagesOf, MAX_IMAGES } from "../images";
+import { outgoingText } from "../outbox";
 import { prepareImage, type PendingImage } from "./pick-images";
 
 export type Draft = {
@@ -14,6 +15,8 @@ export type Draft = {
   readonly removeImage: (id: string) => void;
   /** Empties the composer and hands back what it held, or null if it held nothing. */
   readonly take: () => UserInput | null;
+  /** Puts a message taken back from the queue into the composer, ahead of anything typed since. */
+  readonly restore: (input: UserInput) => void;
 };
 
 /** Plain text, or the images followed by the text. */
@@ -64,7 +67,14 @@ export function useDraft(): Draft {
     return input(text, images);
   };
 
-  return { prompt, setPrompt, images, reading, imageError, addImages, removeImage, take };
+  const restore = (back: UserInput) => {
+    const text = outgoingText(back);
+    const returned = imagesOf(back).map((image, index) => ({ ...image, id: crypto.randomUUID(), name: `Image ${index + 1}` }));
+    setPrompt((current) => (current.trim() ? `${text}\n\n${current}` : text));
+    setImages((current) => [...returned, ...current].slice(0, MAX_IMAGES));
+  };
+
+  return { prompt, setPrompt, images, reading, imageError, addImages, removeImage, take, restore };
 }
 
 // A new deploy is live: reload, unless that would throw away a draft.

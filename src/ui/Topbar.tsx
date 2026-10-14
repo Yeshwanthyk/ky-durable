@@ -6,6 +6,7 @@ import { type Group, GroupMembers } from "./GroupMembers";
 import { Icon } from "./Icon";
 import type { OpenChat } from "./open-chat";
 import type { PanelState } from "./use-panel";
+import { useChanges } from "./use-changes";
 import { useFitWidth, WhoSub } from "./WhoSub";
 
 /** The chats drawer, below the wide layout. */
@@ -63,6 +64,8 @@ function Who({
 }) {
   const innerRef = useRef<HTMLSpanElement>(null);
   useFitWidth(panel.whoRef, innerRef);
+  // The dot pops when the connection changes on screen, not when it is first drawn.
+  const reconnected = useChanges(status.connected) > 0;
 
   return (
     <button
@@ -79,7 +82,7 @@ function Who({
         <span className="who-text">
           <span className="who-name">
             {speaker}
-            <span className="status-dot" data-connected={status.connected} />
+            <span className="status-dot" data-connected={status.connected} data-pop={reconnected} />
           </span>
           <WhoSub activity={activity} idle={sub} />
         </span>

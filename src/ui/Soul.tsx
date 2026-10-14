@@ -245,8 +245,16 @@ function SoulSheet({
 
   useEffect(() => {
     if (mode !== "history") return;
+    // A late answer for a mode or version already left is dropped.
+    let current = true;
     setVersions(null);
-    void onHistory().then(setVersions);
+    void onHistory().then((versions) => {
+      if (current) setVersions(versions);
+    });
+
+    return () => {
+      current = false;
+    };
   }, [mode, onHistory, soul.version]);
 
   return (

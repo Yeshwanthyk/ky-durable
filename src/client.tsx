@@ -1,15 +1,18 @@
-import { useMemo } from "react";
+import type { UserInput } from "@earendil-works/pi-durable";
+import { memo, useCallback, useImperativeHandle, useMemo, useRef, type ComponentProps, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
-import { currentActivity, toolLabels } from "./ui/activity";
+import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/change-review";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
+import { isQueued, type Outgoing, sendingMessage } from "./outbox";
 import { paletteCommands } from "./ui/commands";
+import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { PeerContext } from "./ui/Peers";
@@ -21,14 +24,16 @@ import { backgroundLine, isLive } from "./ui/task-progress";
 import type { PendingImage } from "./ui/pick-images";
 import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
-import { useDraft, useReloadOnDeploy, type Draft } from "./ui/use-draft";
+import { useDraft, useReloadOnDeploy } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
 import { useSeen } from "./ui/use-seen";
 import { SettingsNavContext, usePanel, type PanelState } from "./ui/use-panel";
 import { useSessionRoute } from "./ui/use-session-route";
+import { wide } from "./ui/layout";
 import { useShell, type Shell } from "./ui/use-shell";
+import { shallow, useSame, useStableCallback } from "./ui/use-stable";
 import { useTheme } from "./ui/use-theme";
-import { type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
+import { type FirstRunTarget, type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
 import "./ui/scotty.css";
@@ -39,6 +44,24 @@ const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "
 
 const speakerBlob = (subagent: TaskRow | undefined, theme: Theme) => (subagent ? undefined : KY_BLOB[theme]);
 
+/** One empty list, so a prop that falls back to none keeps its identity. */
+const NONE: readonly never[] = [];
+
+// The heavy parts, memoised here so a render of the page that leaves their props alone skips them:
+// each streamed token, each tick, and anything else the page re-renders for.
+const TopbarMemo = memo(Topbar);
+
+const ChatThreadMemo = memo(ChatThread);
+
+const PanelMemo = memo(Panel);
+
+// The chats list, with its own clock: its "5m ago" labels need no more than the 30-second one.
+const ChatsSidebar = memo(function ChatsSidebar(props: Omit<ComponentProps<typeof Sidebar>, "now">) {
+  const now = useNow();
+
+  return <Sidebar {...props} now={now} />;
+});
+
 /** Why the attached images can't go to this session's model, if they can't. */
 function whyCantSee(images: readonly PendingImage[], settings: SettingsView | null, talksToMain: boolean) {
   if (images.length === 0 || !settings) return null;
@@ -48,6 +71,12 @@ function whyCantSee(images: readonly PendingImage[], settings: SettingsView | nu
 
 const canSend = (connected: boolean, reading: number, cantSee: string | null) =>
   connected && reading === 0 && !cantSee;
+
+/** A live task whose clock is running; a queued one that has not started shows no time to tick. */
+const clockRunning = (task: TaskRow) => isLive(task) && task.started_at !== null;
+
+const sameActivity = (a: Activity | null, b: Activity | null) =>
+  a === b || (a !== null && b !== null && a.icon === b.icon && a.label === b.label);
 
 type Ky = ReturnType<typeof usePiSession>;
 
@@ -74,19 +103,14 @@ function onlyProvider({ providers }: SettingsView): string | null {
 }
 
 /** What the open chat looks like, worked out once per render for every part of the page. */
-function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
+function describe(ky: Ky, session: string, theme: Theme) {
   const open = openChat(session, ky.chats, ky.tasks);
-  const connected = ky.status === "open";
-  const cantSee = whyCantSee(draft.images, ky.settings, open.talksToMain);
 
   return {
     session,
     theme,
     open,
-    connected,
-    status: { label: statusLabel(ky.status), connected },
-    cantSee,
-    sendable: canSend(connected, draft.reading, cantSee),
+    connected: ky.status === "open",
     mainModel: mainModelName(ky.settings),
     working: workingCount(ky.tasks),
     background: backgroundLine(ky.tasks),
@@ -97,119 +121,276 @@ function describe(ky: Ky, session: string, theme: Theme, draft: Draft) {
 
 type View = ReturnType<typeof describe>;
 
+/** How the connection is doing, in words. */
+type Status = { readonly label: string; readonly connected: boolean };
+
 /** What every part of the page is drawn from. */
 type Parts = {
   ky: Ky;
   view: View;
+  status: Status;
   panel: PanelState;
   shell: Shell;
-  now: number;
   setTheme: (theme: Theme) => void;
 };
 
-// The chat: the topbar, the thread, and the composer.
-function Stage({ ky, view, panel, shell, draft }: Parts & { draft: Draft }) {
-  const { open, variantId } = view;
+/** What the page can do to the draft from outside the composer. */
+type DraftHandle = { readonly setPrompt: (prompt: string) => void };
 
-  const activity = useMemo(
-    () =>
-      currentActivity({
-        running: ky.running,
-        live: ky.live,
-        tools: ky.tools,
-        messages: ky.messages,
-        retrying: ky.retry !== null
-      }),
-    [ky.running, ky.live, ky.tools, ky.messages, ky.retry]
-  );
+type DraftDockProps = {
+  handle: RefObject<DraftHandle | null>;
+  run: ComponentProps<typeof ComposerDock>["session"];
+  settings: SettingsView | null;
+  connected: boolean;
+  talksToMain: boolean;
+  mentions: readonly Mentionable[];
+  group: boolean;
+  /** A newer deploy is serving; reload unless that would throw the draft away. */
+  updated: boolean;
+  queue: readonly Outgoing[];
+  onSend: (input: UserInput) => void;
+  onStop: () => void;
+  /** Take a queued message back; false once pi has placed it. */
+  onWithdraw: (operationId: string) => Promise<boolean>;
+};
 
-  /** While a run is going, Enter steers it; otherwise it starts one. */
+// The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, updated, queue, onSend, onStop, onWithdraw }: DraftDockProps) {
+  const draft = useDraft();
+  const cantSee = whyCantSee(draft.images, settings, talksToMain);
+
+  useImperativeHandle(handle, () => ({ setPrompt: draft.setPrompt }), [draft.setPrompt]);
+  useReloadOnDeploy(updated, draft);
+
   const submit = () => {
-    const input = view.sendable ? draft.take() : null;
+    const input = canSend(connected, draft.reading, cantSee) ? draft.take() : null;
 
-    if (input !== null) ky.submit(input, ky.running ? "steer" : "followUp");
+    if (input !== null) onSend(input);
+  };
+
+  // Editing takes the message out of the queue first, so it never goes in twice.
+  const onEdit = async (item: Outgoing) => {
+    if (await onWithdraw(item.operationId)) draft.restore(item.input);
+  };
+
+  const onDelete = async (item: Outgoing) => {
+    await onWithdraw(item.operationId);
   };
 
   return (
-    <section className="stage" aria-label="Chat">
-      <Topbar
-        open={open}
+    <ComposerDock
+      session={run}
+      queue={queue}
+      draft={draft}
+      cantSee={cantSee}
+      connected={connected}
+      talksToMain={talksToMain}
+      mentions={mentions}
+      group={group}
+      onSubmit={submit}
+      onStop={onStop}
+      onEdit={onEdit}
+      onDelete={onDelete}
+    />
+  );
+});
+
+// The topbar, with props that keep their identity while nothing in them changes.
+function StageTop({ ky, view, status, panel, shell }: Parts) {
+  const { open } = view;
+  const members = ky.groups[view.session] ?? NONE;
+
+  const activity = useSame(
+    useMemo(
+      () =>
+        currentActivity({
+          running: ky.running,
+          live: ky.live,
+          tools: ky.tools,
+          messages: ky.messages,
+          retrying: ky.retry !== null
+        }),
+      [ky.running, ky.live, ky.tools, ky.messages, ky.retry]
+    ),
+    sameActivity
+  );
+
+  const who = useMemo(() => ({ talksToMain: open.talksToMain, speaker: open.speaker }), [open.talksToMain, open.speaker]);
+  const { openSession } = shell;
+  const onOpenDrawer = useStableCallback(shell.showChats);
+  const drawer = useMemo(() => ({ open: shell.drawerOpen, onOpen: onOpenDrawer }), [shell.drawerOpen, onOpenDrawer]);
+  const onBack = useCallback(() => openSession(MAIN_SESSION), [openSession]);
+
+  const pill = useMemo(
+    () => ({ whoRef: panel.whoRef, open: panel.open, shown: panel.shown, toggle: panel.toggle }),
+    [panel.whoRef, panel.open, panel.shown, panel.toggle]
+  );
+
+  const setMembers = useStableCallback((next: string[]) => ky.setMembers(view.session, next));
+
+  const group = useMemo(
+    () => (open.talksToMain ? { members, specialists: ky.specialists, onChange: setMembers } : undefined),
+    [open.talksToMain, members, ky.specialists, setMembers]
+  );
+
+  return (
+    <TopbarMemo
+      open={who}
+      variantId={view.variantId}
+      running={ky.running}
+      status={status}
+      sub={whoSub(open.where, view.background, view.working, view.mainModel)}
+      activity={activity}
+      drawer={drawer}
+      onBack={onBack}
+      panel={pill}
+      updated={ky.updated}
+      group={group}
+    />
+  );
+}
+
+// The chat: the topbar, the thread, and the composer.
+function Stage(parts: Parts) {
+  const { ky, view, panel } = parts;
+  const { open, variantId } = view;
+  const composer = useRef<DraftHandle>(null);
+
+  // A message on its way shows in the thread at once; one waiting behind the run shows in the queue.
+  const queue = useSame(
+    useMemo(() => ky.outbox.filter(isQueued), [ky.outbox]),
+    shallow
+  );
+
+  const sending = useSame(
+    useMemo(() => ky.outbox.filter((item) => !isQueued(item)), [ky.outbox]),
+    shallow
+  );
+
+  const messages = useMemo(
+    () => (sending.length === 0 ? ky.messages : [...ky.messages, ...sending.map(sendingMessage)]),
+    [ky.messages, sending]
+  );
+
+  const thread = useMemo(
+    () => ({ messages, live: ky.live, running: ky.running, tools: ky.tools }),
+    [messages, ky.live, ky.running, ky.tools]
+  );
+
+  const kept = useSame(view.setUp, shallow);
+  const onPick = useCallback((prompt: string) => composer.current?.setPrompt(prompt), []);
+
+  const onGo = useStableCallback((target: FirstRunTarget) =>
+    target === "soul" ? ky.submit(SOUL_INTERVIEW) : panel.openSection(target)
+  );
+
+  const welcome = useMemo(
+    () => (
+      <Welcome
+        kind={open.kind}
+        speaker={open.speaker}
         variantId={variantId}
         running={ky.running}
-        status={view.status}
-        sub={whoSub(open.where, view.background, view.working, view.mainModel)}
-        activity={activity}
-        drawer={{ open: shell.drawerOpen, onOpen: () => shell.setDrawerOpen(true) }}
-        onBack={() => shell.openSession(MAIN_SESSION)}
-        panel={panel}
-        updated={ky.updated}
-        group={
-          open.talksToMain
-            ? { members: ky.groups[view.session] ?? [], specialists: ky.specialists, onChange: (members) => ky.setMembers(view.session, members) }
-            : undefined
-        }
+        connected={view.connected}
+        setUp={kept}
+        onPick={onPick}
+        onGo={onGo}
       />
+    ),
+    [open.kind, open.speaker, variantId, ky.running, view.connected, kept, onPick, onGo]
+  );
+
+  const run = useMemo(
+    () => ({ retry: ky.retry, queued: ky.queued, error: ky.error, running: ky.running }),
+    [ky.retry, ky.queued, ky.error, ky.running]
+  );
+
+  /** While a run is going, Enter steers it; otherwise it starts one. */
+  const onSend = useStableCallback((input: UserInput) => ky.submit(input, ky.running ? "steer" : "followUp"));
+
+  return (
+    <section className="stage" aria-label="Chat">
+      <StageTop {...parts} />
 
       <div className="chat chat-surface">
-        <ChatThread
-          session={ky}
-          welcome={
-            <Welcome
-              kind={open.kind}
-              speaker={open.speaker}
-              variantId={variantId}
-              running={ky.running}
-              connected={view.connected}
-              setUp={view.setUp}
-              onPick={draft.setPrompt}
-              onGo={(target) => (target === "soul" ? ky.submit(SOUL_INTERVIEW) : panel.openSection(target))}
-            />
-          }
-        />
-        <ComposerDock
-          session={ky}
-          draft={draft}
-          cantSee={view.cantSee}
+        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} />
+        <DraftDock
+          handle={composer}
+          run={run}
+          settings={ky.settings}
           connected={view.connected}
           talksToMain={open.talksToMain}
-          mentions={open.talksToMain ? ky.specialists : []}
+          mentions={open.talksToMain ? ky.specialists : NONE}
           group={open.talksToMain && (ky.groups[view.session]?.length ?? 0) > 0}
-          onSubmit={submit}
+          updated={ky.updated}
+          queue={queue}
+          onSend={onSend}
           onStop={ky.abort}
+          onWithdraw={ky.withdraw}
         />
       </div>
     </section>
   );
 }
 
-// ky's panel, activity, skills, soul and memory, and settings, in its slot.
-function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
+// ky's panel, activity, skills, soul and memory, and settings, in its slot. It keeps its own
+// clock, so a running task's timer ticks the panel each second and not the whole page.
+function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
+  const now = useNow(panel.open && ky.tasks.some(clockRunning));
+  const providers = ky.settings?.providers ?? NONE;
+  const { setOpen, openSection, setPage } = panel;
+  const onClose = useCallback(() => setOpen(false), [setOpen]);
+  const running = useMemo(() => toolLabels(ky.tools, ky.messages), [ky.tools, ky.messages]);
+
+  const automations = useMemo(
+    () => ({
+      automations: ky.automations,
+      providers,
+      machines: ky.machines,
+      chats: ky.chats,
+      onAction: ky.changeAutomation,
+      onSave: ky.saveAutomation,
+      checkIns: ky.checkIns,
+      onCheckIns: ky.setCheckIns
+    }),
+    [ky.automations, providers, ky.machines, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
+  );
+
+  const executor = useMemo(() => ({ view: ky.executor, actions: ky.executorActions }), [ky.executor, ky.executorActions]);
+  const nav = useMemo(() => ({ page: panel.page, go: setPage, openSection }), [panel.page, setPage, openSection]);
+
+  const memoryActions = useMemo(
+    () => ({ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }),
+    [ky.searchMemory, ky.zoomMemory, ky.forgetMemory]
+  );
+
+  const specialistActions = useMemo(
+    () => ({ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }),
+    [ky.saveSpecialist, ky.changeBrief, ky.briefHistory]
+  );
+
+  const subscriptions = useMemo(
+    () => ({ views: ky.subscriptions, actions: ky.subscriptionActions }),
+    [ky.subscriptions, ky.subscriptionActions]
+  );
+
+  const keyActions = useMemo(() => ({ onAdd: ky.addKey, onRemove: ky.removeKey }), [ky.addKey, ky.removeKey]);
+
   return (
     <PanelSlot panel={panel}>
-      <AutomationsContext.Provider
-        value={{
-          automations: ky.automations,
-          providers: ky.settings?.providers ?? [],
-          machines: ky.machines,
-          chats: ky.chats,
-          onAction: ky.changeAutomation,
-          onSave: ky.saveAutomation,
-          checkIns: ky.checkIns,
-          onCheckIns: ky.setCheckIns,
-        }}
-      >
-        <ExecutorContext.Provider value={{ view: ky.executor, actions: ky.executorActions }}>
+      <AutomationsContext.Provider value={automations}>
+        <ExecutorContext.Provider value={executor}>
           <PeerContext.Provider value={ky.peerActions}>
-            <SettingsNavContext.Provider value={{ page: panel.page, go: panel.setPage, openSection: panel.openSection }}>
-              <Panel
+            <SettingsNavContext.Provider value={nav}>
+              <PanelMemo
                 name={NAME}
                 variantId={KY_BLOB[view.theme]}
                 active={ky.running || view.working > 0}
-                status={view.status}
+                status={status}
                 model={view.mainModel}
                 tasks={ky.tasks}
                 machines={ky.machines}
-                running={toolLabels(ky.tools, ky.messages)}
+                running={running}
                 catalog={ky.catalog}
                 session={view.session}
                 now={now}
@@ -218,10 +399,10 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
                 skills={ky.skills}
                 soul={ky.soul}
                 memory={ky.memory}
-                memoryActions={{ onSearch: ky.searchMemory, onZoom: ky.zoomMemory, onForget: ky.forgetMemory }}
+                memoryActions={memoryActions}
                 specialists={ky.specialists}
-                specialistActions={{ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }}
-                subscriptions={{ views: ky.subscriptions, actions: ky.subscriptionActions }}
+                specialistActions={specialistActions}
+                subscriptions={subscriptions}
                 theme={view.theme}
                 onTheme={setTheme}
                 onSetModel={ky.setModel}
@@ -234,8 +415,8 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
                 onStopAll={ky.stopAll}
                 onSetMachine={ky.setMachine}
                 onSetRepo={ky.setRepo}
-                keyActions={{ onAdd: ky.addKey, onRemove: ky.removeKey }}
-                onClose={() => panel.setOpen(false)}
+                keyActions={keyActions}
+                onClose={onClose}
                 tab={panel.tab}
                 onTab={panel.setTab}
               />
@@ -247,9 +428,9 @@ function KyPanel({ ky, view, panel, shell, now, setTheme }: Parts) {
   );
 }
 
-// ⌘K, while it is open.
-function Palette({ ky, view, panel, shell, now, setTheme }: Parts) {
-  if (!shell.paletteOpen) return null;
+// ⌘K, mounted only while it is open, with its own clock for its "5m ago" hints.
+function Palette({ ky, view, panel, shell, setTheme }: Parts) {
+  const now = useNow();
 
   return (
     <CommandPalette
@@ -266,21 +447,45 @@ function Palette({ ky, view, panel, shell, now, setTheme }: Parts) {
         startChat: shell.startChat,
         openPanel: panel.openTab,
         setTheme,
-        stopAll: ky.stopAll
+        stopAll: ky.stopAll,
+        sidebarShown: wide() ? !shell.sidebarHidden : shell.drawerOpen,
+        toggleSidebar: shell.toggleSidebar
       })}
     />
   );
 }
 
+/** usePanel's handlers, each one function for the page's life, so memoised parts handed them skip renders. */
+function useStablePanel(panel: PanelState): PanelState {
+  const setOpen = useStableCallback(panel.setOpen);
+  const toggle = useStableCallback(panel.toggle);
+  const openTab = useStableCallback(panel.openTab);
+  const openSection = useStableCallback(panel.openSection);
+
+  return { ...panel, setOpen, toggle, openTab, openSection };
+}
+
+/** useShell's handlers, likewise. */
+function useStableShell(shell: Shell): Shell {
+  const openSession = useStableCallback(shell.openSession);
+  const startChat = useStableCallback(shell.startChat);
+
+  return { ...shell, openSession, startChat };
+}
+
 function App() {
   const [session, go] = useSessionRoute();
-  const draft = useDraft();
   const [theme, setTheme] = useTheme();
-  const panel = usePanel();
+  const rawPanel = usePanel();
   const ky = usePiSession(session);
-  const now = useNow(ky.tasks.some(isLive));
-  const shell = useShell(go, panel, ky.newChat);
-  const parts: Parts = { ky, view: describe(ky, session, theme, draft), panel, shell, now, setTheme };
+  const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
+  const panel = useStablePanel(rawPanel);
+  const view = describe(ky, session, theme);
+  const label = statusLabel(ky.status);
+  const status = useMemo(() => ({ label, connected: view.connected }), [label, view.connected]);
+  const parts: Parts = { ky, view, status, panel, shell, setTheme };
+  const { setPaletteOpen } = shell;
+  const onSearch = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
 
   const times = useMemo(
     () => Object.fromEntries([[MAIN_SESSION, ky.mainUpdatedAt], ...ky.chats.map((chat) => [chat.session, chat.updated_at])]),
@@ -289,33 +494,38 @@ function App() {
 
   const unread = useSeen(session, times);
 
-  useReloadOnDeploy(ky.updated, draft);
-
   return (
     <FilesContext.Provider value={ky.files}>
       <SendTaskContext.Provider value={ky.sendTask}>
         <LightboxProvider>
-          <div className="shell" data-panel={panel.open} data-panel-closing={panel.closing} data-drawer={shell.drawerOpen}>
+          <div
+            className="shell"
+            data-panel={panel.open}
+            data-panel-closing={panel.closing}
+            data-drawer={shell.drawerOpen}
+            data-sidebar={shell.sidebarHidden ? "hidden" : undefined}
+          >
             <div className="sidebar-slot">
-              <Sidebar
+              <ChatsSidebar
                 chats={ky.chats}
                 session={session}
                 main={MAIN_SESSION}
                 mainUpdatedAt={ky.mainUpdatedAt}
                 unread={unread}
-                now={now}
                 onOpen={shell.openSession}
                 onNew={shell.startChat}
-                onSearch={() => shell.setPaletteOpen(true)}
+                onSearch={onSearch}
                 onArchive={ky.archiveChat}
+                onRename={ky.renameChat}
                 creating={shell.creating}
               />
             </div>
-            {shell.drawerOpen ? <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} /> : null}
+            {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
+            <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} />
 
-            <Stage {...parts} draft={draft} />
+            <Stage {...parts} />
             <KyPanel {...parts} />
-            <Palette {...parts} />
+            {shell.paletteOpen ? <Palette {...parts} /> : null}
           </div>
         </LightboxProvider>
       </SendTaskContext.Provider>

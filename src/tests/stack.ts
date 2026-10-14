@@ -741,6 +741,14 @@ const stack = {
     const signed = edge(request);
     const url = new URL(signed.url);
 
+    // Access's login page, for a person opening the stack in their own browser: it signs the owner in
+    // with the fake's key and goes home. Playwright and the harness set the cookie themselves.
+    if (url.pathname === "/cdn-cgi/access/login") {
+      const cookie = `CF_Authorization=${await new FakeAccess().sign()}; Path=/; HttpOnly; SameSite=Lax`;
+
+      return new Response(null, { status: 302, headers: { Location: "/", "Set-Cookie": cookie } });
+    }
+
     // The container's github.internal, which production intercepts in the container's network: the
     // fake container host's git and `ky github` reach it here, with no sign-in, as the container has none.
     if (url.pathname.startsWith("/github.internal/")) {
@@ -756,7 +764,19 @@ const stack = {
       return proxyGit(new Request(url, request), login, upstream);
     }
 
-    if (!url.pathname.startsWith("/test/")) return ky.fetch(signed, env);
+    if (!url.pathname.startsWith("/test/")) {
+      const response = await ky.fetch(signed, env);
+
+      // A browser opening a page without its cookie still gets ky's refusal, with a link to the fake's login page.
+      if (response.status === 401 && request.method === "GET" && request.headers.get("Sec-Fetch-Mode") === "navigate") {
+        const refusal = await response.text();
+        const page = `<!doctype html><meta name="viewport" content="width=device-width"><p>${refusal}</p><p><a href="/cdn-cgi/access/login">Sign in as the owner</a></p>`;
+
+        return new Response(page, { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
+
+      return response;
+    }
 
     // The CLI harness and Playwright drive the fakes over HTTP, behind the same Access as everything else.
     const refused = await access.refuse(signed, env);

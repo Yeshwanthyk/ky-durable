@@ -41,13 +41,22 @@ type Cache = {
   readonly sessions: ReadonlyArray<{ readonly session: string; readonly view: CachedView }>;
 };
 
+/** The text last read or written, and what it parsed to, so a save need not parse what it just wrote. */
+let parsed: { readonly raw: string; readonly cache: Cache | null } | null = null;
+
 function read(): Cache | null {
   try {
     const raw = localStorage.getItem(KEY);
+
+    // Another tab may have written since; then the text differs and is parsed again.
+    if (raw !== null && raw === parsed?.raw) return parsed.cache;
     // SAFETY: only `saveView` writes this key, and a cache from another build is ignored below.
     const cache = raw ? (JSON.parse(raw) as Cache) : null;
+    const current = cache?.build === BUILD ? cache : null;
 
-    return cache?.build === BUILD ? cache : null;
+    if (raw !== null) parsed = { raw, cache: current };
+
+    return current;
   } catch {
     return null;
   }
@@ -93,7 +102,9 @@ export function saveView(session: string, state: PiSessionView & SharedLists): v
   const cache: Cache = { build: BUILD, shared: sharedOf(state), sessions: [{ session, view: kept }, ...others].slice(0, MAX_SESSIONS) };
 
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache));
+    const raw = JSON.stringify(cache);
+    localStorage.setItem(KEY, raw);
+    parsed = { raw, cache };
   } catch {
     // Over the quota: a cold start waits for the snapshot, as it did before.
     localStorage.removeItem(KEY);
