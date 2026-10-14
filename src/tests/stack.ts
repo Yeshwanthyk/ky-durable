@@ -1,6 +1,6 @@
 import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import type { TaskTokens } from "../machines/machines";
+import type { TaskTokens } from "../machines/contract";
 import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";

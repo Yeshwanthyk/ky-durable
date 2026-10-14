@@ -1,5 +1,5 @@
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "./protocol";
-import type { Agent, RunCreds } from "./machines/runner-protocol";
+import type { Agent, RunCreds } from "./machines/contract";
 import { SUBSCRIPTION, type Vault } from "./vault";
 
 /**

@@ -25,58 +25,9 @@
     "typescript(no-non-null-assertion)": 1,
     "typescript(no-unsafe-assignment)": 3
   },
-  "cli/runner/agent.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-explicit-any)": 1
-  },
-  "cli/runner/claude.ts": {
-    "typescript(no-explicit-any)": 3,
-    "typescript(no-unsafe-argument)": 1,
-    "typescript(no-unsafe-assignment)": 2,
-    "typescript(no-unsafe-member-access)": 16,
-    "typescript(no-unsafe-return)": 1
-  },
-  "cli/runner/codex.ts": {
-    "typescript(no-explicit-any)": 5,
-    "typescript(no-unsafe-argument)": 6,
-    "typescript(no-unsafe-assignment)": 2,
-    "typescript(no-unsafe-call)": 1,
-    "typescript(no-unsafe-member-access)": 22,
-    "typescript(no-unsafe-return)": 1
-  },
-  "cli/runner/commands.ts": {
-    "ky(no-unchecked-parse)": 2,
-    "typescript(no-unsafe-return)": 1
-  },
-  "cli/runner/facts.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-unsafe-assignment)": 1
-  },
-  "cli/runner/forward.ts": {
-    "typescript(no-non-null-assertion)": 1
-  },
-  "cli/runner/github.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-base-to-string)": 2
-  },
-  "cli/runner/handled.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-unsafe-assignment)": 1,
-    "typescript(no-unsafe-call)": 1,
-    "typescript(no-unsafe-member-access)": 3,
-    "typescript(no-unsafe-return)": 1
-  },
   "cli/runner/run.ts": {
     "typescript(no-explicit-any)": 1,
     "typescript(no-unsafe-argument)": 1
-  },
-  "cli/runner/runner.ts": {
-    "typescript(no-non-null-assertion)": 2
-  },
-  "cli/runner/settings.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-non-null-assertion)": 1,
-    "typescript(no-unsafe-assignment)": 1
   },
   "scripts/image/inputs.ts": {
     "ky(no-unchecked-parse)": 1,
@@ -143,16 +94,6 @@
   "src/history.ts": {
     "ky(no-unchecked-parse)": 6,
     "typescript(no-non-null-assertion)": 1
-  },
-  "src/machines/machines.ts": {
-    "ky(no-unchecked-parse)": 16,
-    "typescript(no-non-null-assertion)": 10,
-    "typescript(no-unsafe-return)": 1
-  },
-  "src/machines/runner-protocol.ts": {
-    "ky(no-unchecked-parse)": 2,
-    "typescript(no-unsafe-assignment)": 3,
-    "typescript(no-unsafe-member-access)": 4
   },
   "src/models.ts": {
     "typescript(await-thenable)": 1,

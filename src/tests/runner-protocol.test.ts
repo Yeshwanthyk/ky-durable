@@ -3,7 +3,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../cli/runner/handled.ts";
 import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../cli/runner/runner.ts";
-import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../machines/runner-protocol";
+import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../machines/contract";
 import type { TaskRow } from "../automations/tasks";
 import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
@@ -806,6 +806,25 @@ describe("runner protocol: reports reach the conversation that sent the work", (
     second.answer("did this");
     await until("the second report", async () => (await reports(object, id!, chat)).length === 2);
     expect(await reports(object, id!)).toEqual([]);
+  });
+
+  it("reads a machine's damaged columns as their defaults, and drops a damaged queued command without losing the rest", async () => {
+    const { object, mac } = await online();
+    mac.disconnect();
+    const id = await start(object);
+
+    await inside(object, (_agent, state) => {
+      state.storage.sql.exec("UPDATE ky_machines SET facts = '{broken', state = 'sideways', login = 'nobody' WHERE name = 'mac'");
+      state.storage.sql.exec("INSERT INTO ky_machine_inbox (machine, payload) VALUES ('mac', '{oops')");
+    });
+
+    const read = await inside(object, (agent) => agent.machines.machine("mac"));
+    expect(read).toMatchObject({ facts: null, state: "on", login: "own" });
+
+    await mac.connect();
+    (await mac.claude(0)).answer("built");
+    await until("the task to be done", async () => (await status(object, id)) === "done");
+    await until("the inbox to empty", async () => (await inbox(object, "mac")).length === 0);
   });
 
   it("runs a run queued before runs named their agent, as Claude Code's", async () => {

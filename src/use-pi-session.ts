@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MachineChange } from "./machines/machines";
+import type { MachineChange } from "./machines/contract";
 import { type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import { cachedShared, cachedView, saveView } from "./view-cache";

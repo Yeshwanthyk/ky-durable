@@ -22,7 +22,7 @@ import {
   type RunCreds,
   type RunnerCommand,
   type RunnerReport
-} from "../../src/machines/runner-protocol.ts";
+} from "../../src/machines/contract.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send; `buffered` is what waits to go out, in bytes. */
 export type Link = { send(text: string): boolean; buffered(): number };
@@ -230,34 +230,50 @@ export class Runner {
    * run; the object resends it later.
    */
   #onCommand(command: RunnerCommand): void {
-    const fresh = !this.#handled.has(command.seq);
+    const fresh = this.#record(command.seq);
 
-    if (fresh) {
-      try {
-        this.#handled.add(command.seq);
-      } catch (error) {
-        this.#log(`could not record command ${command.seq}, leaving it unacked: ${String(error)}`);
-
-        return;
-      }
-    }
+    if (fresh === undefined) return;
 
     this.#report({ type: "ack", seq: command.seq });
 
-    if (!fresh) return;
+    if (fresh) this.#act(command);
+  }
 
-    if (command.type === "run") {
-      this.#onRun(command);
+  /** Whether `seq` is new, recorded now; undefined when it is new but could not be recorded. */
+  #record(seq: number): boolean | undefined {
+    if (this.#handled.has(seq)) return false;
 
-      return;
+    try {
+      this.#handled.add(seq);
+    } catch (error) {
+      this.#log(`could not record command ${seq}, leaving it unacked: ${String(error)}`);
+
+      return undefined;
     }
 
-    const run = this.#runs.get(command.task);
+    return true;
+  }
 
-    if (!run) return;
+  /** Run a command, each type by its case; a stop or creds acts only on a live process. */
+  #act(command: RunnerCommand): void {
+    const run = command.type === "run" ? undefined : this.#runs.get(command.task);
 
-    if (command.type === "stop") this.#stop(command.task, run);
-    else this.#renew(run, command.codex);
+    switch (command.type) {
+      case "run":
+        this.#onRun(command);
+
+        return;
+      case "stop":
+        if (run) this.#stop(command.task, run);
+
+        return;
+      case "creds":
+        if (run) this.#renew(run, command.codex);
+
+        return;
+      default:
+        command satisfies never;
+    }
   }
 
   /** A refreshed ChatGPT login: the live process gets it, and so do the turns queued behind it. */
@@ -418,9 +434,11 @@ export class Runner {
 
         this.#runs.delete(task);
 
-        if (run.next.length === 0) return;
         const [first, ...rest] = run.next;
-        const next = this.#start(task, agent, { ...first!, session: run.session ?? first!.session });
+
+        if (!first) return;
+
+        const next = this.#start(task, agent, { ...first, session: run.session ?? first.session });
 
         if (adapter.steers) for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
         else next.next = rest;

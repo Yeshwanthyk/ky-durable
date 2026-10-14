@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket as Socket, WebSocketServer } from "ws";
-import { decodeReport, type ObjectFrame, OUTDATED, type RunnerReport } from "../../src/machines/runner-protocol.ts";
+import { decodeReport, type ObjectFrame, OUTDATED, type RunnerReport } from "../../src/machines/contract.ts";
 import { freePort } from "./stack.ts";
 
 /**

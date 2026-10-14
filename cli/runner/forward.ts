@@ -12,7 +12,7 @@
 
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { fromBase64, type HttpRequest, type RunnerReport, toBase64 } from "../../src/machines/runner-protocol.ts";
+import { fromBase64, type HttpRequest, type RunnerReport, toBase64 } from "../../src/machines/contract.ts";
 import type { Link } from "./runner.ts";
 
 /** Send a request to a port on this machine: ky-runner's goes to 127.0.0.1; the tests' to a fake server. */
@@ -110,7 +110,7 @@ export class Forwarder {
 
     const reader = response.body?.getReader();
 
-    for (let read = await reader?.read(); read && !read.done; read = await reader!.read()) {
+    for (let read = await reader?.read(); reader && read && !read.done; read = await reader.read()) {
       for (let at = 0; at < read.value.length; at += CHUNK_BYTES) {
         // Backpressure: a slow socket stops the read, and so the local server, rather than filling memory.
         while (link.buffered() > HIGH_WATER_BYTES) {

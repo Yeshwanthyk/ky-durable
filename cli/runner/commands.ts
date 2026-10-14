@@ -8,12 +8,14 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { confirm, isCancel, multiselect, text } from "@clack/prompts";
-import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/machines/runner-protocol.ts";
+import Type from "typebox";
+import { bodyAs, parseOr } from "../../src/core/decode.ts";
+import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/machines/contract.ts";
 import type { Context } from "../commands.ts";
 import { bold, cancelled, dim, green, type Output, output, red, terminal } from "../output.ts";
 import { ASK, type AgentFacts, repoFolders, scanRepos } from "./facts.ts";
 import { cloudCommand } from "./cloud.ts";
-import { checkoutVersion, runRunner, type Status, statusFile } from "./run.ts";
+import { checkoutVersion, runRunner, type Status, StatusSchema, statusFile } from "./run.ts";
 import { logFile, service, serviceDirs } from "./service.ts";
 import { kyUrl, LOCAL_SERVERS, machineName, readSettings, removeSettings, type Settings, settingsFile, withEnv, writeSettings } from "./settings.ts";
 import { github } from "./github.ts";
@@ -98,6 +100,9 @@ function factsFor(settings: Settings, found: Found): MachineFacts {
   return { os: process.platform, chrome: settings.chrome, repos: scanRepos(settings.repos), agents: { claude: agent("claude"), codex: agent("codex") }, ports: settings.ports, kind: "computer" };
 }
 
+/** What ky's /api/runners/pair answers with a 200. */
+const Paired = Type.Object({ machine: Type.String(), token: Type.String() });
+
 /** Trades a pairing code for the machine's token (C2). */
 async function pair(url: string, code: string, name: string, facts: MachineFacts): Promise<{ machine: string; token: string }> {
   const response = await fetch(`${url}/api/runners/pair`, {
@@ -110,13 +115,12 @@ async function pair(url: string, code: string, name: string, facts: MachineFacts
 
   if (!response.ok) throw new Error(`ky refused to pair (HTTP ${response.status}): ${(await response.text()).trim()}`);
 
-  // SAFETY: ky's /api/runners/pair answers { machine, token } with a 200.
-  return (await response.json()) as { machine: string; token: string };
+  return bodyAs(response, Paired, "ky's answer to pairing");
 }
 
 async function readStatus(state: string): Promise<Status | undefined> {
   try {
-    return JSON.parse(await readFile(statusFile(state), "utf8"));
+    return parseOr(StatusSchema, await readFile(statusFile(state), "utf8"), undefined);
   } catch {
     return undefined;
   }

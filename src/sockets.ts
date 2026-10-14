@@ -13,9 +13,22 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { Guard } from "typebox/guard";
-import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines/machines";
+import {
+  decodeReport,
+  isPipeReport,
+  type MachineChange,
+  type MachineHub,
+  type ObjectFrame,
+  OUTDATED,
+  PAIRING_HEADER,
+  PROTOCOL,
+  REPLACED,
+  REVOKED,
+  runnerOf,
+  runnerPathMachine,
+  runnerTag
+} from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
-import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./machines/runner-protocol";
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations/automations";
 import type { ChatList } from "./chats";

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ASSERTION } from "../access";
-import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/runner-protocol";
+import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import type { Vault as TestVault } from "./stack";
 import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, until } from "./drive";
@@ -296,6 +296,17 @@ describe("task tokens", () => {
     // A page opening the agent starts it.
     (await connect(name)).close();
     await until(async () => (await vault().check("task", lost)) === null, "the start revoked the lost token");
+  });
+
+  it("end a failed turn as failed, though its text says stopped, when nobody stopped it", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await prompt(name, "machine run the dev server");
+    const run = await mac.run();
+    mac.send({ type: "result", task: run.task, turn: run.turn, ok: false, text: "The dev server stopped responding.", session: null, agent: "claude" });
+    await until(() => inside(name, (instance) => instance.feed.get(run.task)?.status === "failed"), "the failed turn ended the task as failed");
+    expect(await inside(name, (instance) => instance.feed.get(run.task)?.status)).toBe("failed");
+    mac.socket.close();
   });
 
   it("survive the start's sweep while a follow-up runs after a stop, though the task shows as ended", async () => {

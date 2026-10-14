@@ -19,7 +19,8 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../../src/machines/runner-protocol.ts";
+import Type, { type Static } from "typebox";
+import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../../src/machines/contract.ts";
 import { ASK, FACTS_EVERY_MS, lastKnown, scanRepos } from "./facts.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type Link } from "./runner.ts";
@@ -27,7 +28,17 @@ import type { Settings } from "./settings.ts";
 import { tasks } from "./tasks.ts";
 
 /** What `ky runner status` and `ky runner add` read of the running runner. */
-export type Status = { state: "online" | "offline" | "stopped"; machine: string; url: string; version: string; pid: number; at: number; reason?: string };
+export const StatusSchema = Type.Object({
+  state: Type.Union([Type.Literal("online"), Type.Literal("offline"), Type.Literal("stopped")]),
+  machine: Type.String(),
+  url: Type.String(),
+  version: Type.String(),
+  pid: Type.Number(),
+  at: Type.Number(),
+  reason: Type.Optional(Type.String())
+});
+
+export type Status = Static<typeof StatusSchema>;
 
 export function statusFile(state: string): string {
   return join(state, "runner-status.json");

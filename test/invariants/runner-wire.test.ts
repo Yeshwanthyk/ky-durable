@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
-import { PROTOCOL, WIRE } from "../../src/machines/runner-protocol";
+import { PROTOCOL, WIRE } from "../../src/machines/contract";
 
 /**
  * The runner ships through brew, apart from the worker, so an old runner meets a new worker. Each

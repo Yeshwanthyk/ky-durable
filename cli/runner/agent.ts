@@ -3,6 +3,8 @@
  * hand it a prompt on stdin, and what its stdout lines mean. `claude.ts`
  * and `codex.ts` each read their own CLI's JSON into these events.
  */
+import type { JsonObject } from "@earendil-works/pi-ai";
+import Type from "typebox";
 
 /** What an agent's output says, in the terms the runner reports. */
 export type AgentEvent =
@@ -24,11 +26,8 @@ export type Adapter = {
   reader(): (line: string) => AgentEvent[];
 };
 
-/** A line as JSON, or undefined. */
-export function parse(line: string): any {
-  try {
-    return JSON.parse(line);
-  } catch {
-    return undefined;
-  }
-}
+/** A JSON object an agent's output carries, such as a tool's input: what was parsed from JSON is JSON. */
+export const JsonObjectSchema = Type.Unsafe<JsonObject>(Type.Record(Type.String(), Type.Unknown()));
+
+/** A field an agent writes as text, which may come as a number or boolean. */
+export const TextSchema = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);

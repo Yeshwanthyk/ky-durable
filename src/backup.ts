@@ -27,7 +27,7 @@ import {
   tarPadding
 } from "./archive";
 import { saveKey } from "./sandboxes";
-import { fromBase64, toBase64 } from "./machines/runner-protocol";
+import { fromBase64, toBase64 } from "./machines/contract";
 import type { SecretStatus } from "./vault";
 
 /**

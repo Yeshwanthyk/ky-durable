@@ -26,6 +26,8 @@ cli/config.ts
 cli/output.ts
 wrangler-overlay.ts
 cli/runner/
+src/machines/contract.ts
 src/machines/runner-protocol.ts
+src/core/decode.ts
 src/files.ts
 src/tool-labels.ts

@@ -5,7 +5,7 @@ import type { ExecutorConnection } from "./executor";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import type { ProviderKey } from "./providers/api-key";
-import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/runner-protocol";
+import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,

@@ -1,6 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OUTDATED, PROTOCOL, REVOKED } from "../machines/runner-protocol";
+import { OUTDATED, PROTOCOL, REVOKED } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import { agent, call, connect, connectExecutor, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, until, wait } from "./drive";
 import { GPT_OSS } from "./stack";

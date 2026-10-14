@@ -13,7 +13,7 @@ import {
 import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
 import type { ChatList } from "../chats";
-import type { MachineHub } from "../machines/machines";
+import type { MachineHub } from "../machines/contract";
 import type { Models } from "../models";
 import type { ModelChoice } from "../settings";
 import type { Spawn } from "../skills/subagents";

@@ -1,6 +1,5 @@
 import { type FormEvent, Fragment, type HTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { MachineChange, MachineLogin, MachineState } from "../machines/machines";
-import type { MachineFacts } from "../machines/runner-protocol";
+import type { MachineChange, MachineFacts, MachineLogin, MachineState } from "../machines/contract";
 import type { SandboxChange, SandboxDraft } from "../sandboxes";
 import { osName } from "../protocol";
 import type {

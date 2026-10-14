@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { type MachineFacts, PROTOCOL } from "../machines/runner-protocol";
+import { type MachineFacts, PROTOCOL } from "../machines/contract";
 import { SUBSCRIPTION } from "../vault";
 import { connect, FACTS, follow, inside, prompt, runner, until } from "./drive";
 import type { Vault as TestVault } from "./stack";

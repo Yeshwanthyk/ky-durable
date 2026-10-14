@@ -1,5 +1,5 @@
 import { CLOUD } from "./cloud-facts";
-import { isMachineName } from "./machines/runner-protocol";
+import { isMachineName } from "./machines/contract";
 
 /**
  * Sandboxes: ky's own Linux machines in Cloudflare, one container each, such as one per project.

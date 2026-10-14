@@ -9,8 +9,8 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { basename, join } from "node:path";
 import Type from "typebox";
-import { Value } from "typebox/value";
-import type { Agent, MachineFacts } from "../../src/machines/runner-protocol.ts";
+import { parseOr } from "../../src/core/decode.ts";
+import type { Agent, MachineFacts } from "../../src/machines/contract.ts";
 
 export type AgentFacts = MachineFacts["agents"][Agent];
 
@@ -25,13 +25,7 @@ const SIGNED_IN_BY_EXIT = new Map([
 
 /** `loggedIn` from `claude auth status`'s JSON; undefined for an older CLI's text. */
 function loggedIn(out: string): boolean | undefined {
-  try {
-    const status = JSON.parse(out);
-
-    return Value.Check(AuthStatus, status) ? status.loggedIn : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseOr(AuthStatus, out, undefined)?.loggedIn;
 }
 
 /**

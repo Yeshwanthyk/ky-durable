@@ -15,6 +15,8 @@
  * On a computer there is no github.internal: there, `gh` signed in as the user does this.
  */
 import { spawnSync } from "node:child_process";
+import Type from "typebox";
+import { decodeOr, parseOr } from "../../src/core/decode.ts";
 
 /** The tools' names, as src/github-tools.ts serves them. */
 type GithubTool = "pr-create" | "pr-merge" | "pr-view" | "parent" | "runs" | "run" | "rollback";
@@ -39,6 +41,8 @@ type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 /** A tool's JSON answer, as printed; `watch` reads a run's `status` and `conclusion`. */
 type Answer = { [key: string]: Json };
 
+const AnswerSchema = Type.Unsafe<Answer>(Type.Record(Type.String(), Type.Unknown()));
+
 type Call = (tool: GithubTool, input: Record<string, string | number>) => Promise<Answer>;
 
 /** The Worker's tools, at `base`. */
@@ -53,16 +57,12 @@ function tools(base: string): Call {
     }
 
     const text = await answer.text();
-    let body: Answer;
+    // The tools answer a JSON object, an `{ error }` among them; anything else is reported as text.
+    const body = parseOr(AnswerSchema, text, undefined);
 
-    try {
-      // SAFETY: the tools answer a JSON object, an `{ error }` among them; anything else is reported as text.
-      body = JSON.parse(text) as Answer;
-    } catch {
-      throw new Error(`HTTP ${answer.status}: ${text.trim()}`);
-    }
+    if (!body) throw new Error(`HTTP ${answer.status}: ${text.trim()}`);
 
-    if (!answer.ok) throw new Error(`HTTP ${answer.status}: ${String(body.error ?? text.trim())}`);
+    if (!answer.ok) throw new Error(`HTTP ${answer.status}: ${decodeOr(Type.String(), body.error, text.trim())}`);
 
     return body;
   };
@@ -118,7 +118,7 @@ async function watch(call: Call, repo: string, id: number, show: (body: Answer) 
       return run.conclusion === "success" ? 0 : 1;
     }
 
-    if (Date.now() > until) throw new Error(`run ${id} is still ${String(run.status)} after ${WATCH_WITHIN_MS / 60_000} minutes`);
+    if (Date.now() > until) throw new Error(`run ${id} is still ${decodeOr(Type.String(), run.status, "unknown")} after ${WATCH_WITHIN_MS / 60_000} minutes`);
     await sleep(WATCH_EVERY_MS);
   }
 }
