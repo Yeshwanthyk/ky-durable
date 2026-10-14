@@ -432,15 +432,17 @@ const formOf = (specialist: SpecialistView | undefined) =>
     ? BLANK
     : { ...BLANK, id: specialist.id, description: specialist.description, machine: specialist.machine ?? "", ...modelFields(specialist.model) };
 
-/** What to save: the brief only on create; after, it changes in its own sheet. */
-function draftOf(form: SpecialistForm, providers: readonly ProviderInfo[], create: boolean): SpecialistDraft {
-  const settings = {
-    description: form.description.trim(),
-    model: choiceOf(form, modelChoices(providers)),
-    machine: form.machine || null,
-  };
+/**
+ * What to save: the brief only on create; after, it changes in its own sheet. A model the user left
+ * as it was is left out, so the stored one stays even when its provider isn't connected to be picked.
+ */
+export function specialistDraft(form: SpecialistForm, providers: readonly ProviderInfo[], stored: SpecialistView | undefined): SpecialistDraft {
+  const settings = { description: form.description.trim(), machine: form.machine || null };
 
-  return create ? { ...settings, brief: form.brief } : settings;
+  if (stored === undefined) return { ...settings, model: choiceOf(form, modelChoices(providers)), brief: form.brief };
+  const was = modelFields(stored.model);
+
+  return form.model === was.model && form.thinking === was.thinking ? settings : { ...settings, model: choiceOf(form, modelChoices(providers)) };
 }
 
 const ready = (form: SpecialistForm, create: boolean) =>
@@ -469,7 +471,7 @@ function SpecialistSheet({
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    const why = await onSave(specialist?.id ?? form.id.trim().replace(/^@/, ""), draftOf(form, providers, create), create);
+    const why = await onSave(specialist?.id ?? form.id.trim().replace(/^@/, ""), specialistDraft(form, providers, specialist), create);
     setRefused(why);
 
     if (why === undefined) dialog.current?.close();

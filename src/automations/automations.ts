@@ -16,7 +16,7 @@ import type { ChatList } from "../chats";
 import type { MachineHub } from "../machines/machines";
 import type { Models } from "../models";
 import type { ModelChoice } from "../settings";
-import type { Spawn } from "../skills/subagents";
+import type { Spawn } from "../skills/contract";
 import { isLive, type TaskFeed, type TaskRow } from "./tasks";
 
 /**

@@ -1,6 +1,6 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Memory } from "./memory";
-import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/skills";
+import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/contract";
 import type { TaskFeed, TaskRow } from "../automations/tasks";
 
 /**

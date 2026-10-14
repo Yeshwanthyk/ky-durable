@@ -1,5 +1,5 @@
 import type { Models } from "../models";
-import type { Reviews } from "../skills/skills";
+import type { Reviews } from "../skills/contract";
 import { automationExtension, type Automations, checkInGuardExtension } from "./automations";
 
 /** What the automations domain's tools are made from, on the agent (src/server.ts). */

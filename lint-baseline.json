@@ -191,16 +191,6 @@
   "src/setup.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/skills/skills.ts": {
-    "ky(no-unchecked-parse)": 8
-  },
-  "src/skills/specialists.ts": {
-    "ky(no-unchecked-parse)": 4,
-    "typescript(no-non-null-assertion)": 4
-  },
-  "src/skills/subagents.ts": {
-    "typescript(no-non-null-assertion)": 6
-  },
   "src/sockets.ts": {
     "ky(no-unchecked-parse)": 1
   },

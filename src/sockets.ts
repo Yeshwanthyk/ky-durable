@@ -19,10 +19,10 @@ import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER,
 import { checkInput, imagesOf } from "./images";
 import type { Automations } from "./automations/automations";
 import type { ChatList } from "./chats";
-import type { Skills } from "./skills/skills";
+import type { Skills } from "./skills/contract";
 import type { Memory } from "./dreaming/memory";
 import type { Soul } from "./dreaming/soul";
-import { mentions, type Specialists } from "./skills/specialists";
+import { mentions, type Specialists } from "./skills/contract";
 import type { GroupChats, GroupDesk } from "./peers/group";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";

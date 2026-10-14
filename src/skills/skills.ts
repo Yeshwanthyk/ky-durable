@@ -1,17 +1,25 @@
-import type { Context } from "@earendil-works/chord";
-import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
+import { defineExtension, defineTool, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
+import { Value } from "typebox/value";
+import { decode } from "../core/decode";
+import { must } from "../core/must";
 import {
-  type AgentChange,
-  AssistantEntry,
-  type Conversation,
-  defineExtension,
-  defineTool,
-  type Extension,
-  GenerationTask,
-  hook,
-  ToolTask
-} from "@earendil-works/pi-durable";
-import { summarize, type TaskFeed } from "../automations/tasks";
+  type ReviewHost,
+  type ReviewKind,
+  REVIEW_ALLOWED,
+  ReviewRow,
+  runInFeed,
+  type SkillAction,
+  SkillAction as SkillActionSchema,
+  SkillChange,
+  SkillRow,
+  type SkillStatus,
+  SkillVersion,
+  SkillViewInput,
+  TABLES,
+  TOOLS
+} from "./contract";
+import { rows } from "./rows";
 
 /**
  * Skills: the agent's procedural memory, after Hermes Agent's skills and
@@ -34,75 +42,26 @@ const BODY_CHARS = 20_000;
 /** A turn with at least this many tool calls is reviewed for skills. */
 const REVIEW_AFTER = 5;
 
-/** What runs in the background over the library: a review of one turn, or a nightly dream (src/dreaming/dreaming.ts). */
-export type ReviewKind = "review" | "dream";
-
-const REVIEW_TOOLS = ["skill_view", "skill_manage", "memory_recall", "memory_zoom"];
-
 /** The tools each kind may call; both are offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
-  review: new Set(REVIEW_TOOLS),
-  // automation books check-ins (src/automations/automations.ts), and only them.
-  dream: new Set([...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "automation"])
-};
-
-export type SkillStatus = "active" | "archived";
-
-export type SkillRow = {
-  readonly name: string;
-  readonly description: string;
-  readonly body: string;
-  readonly status: SkillStatus;
-  readonly uses: number;
-  /** When skill_view last opened it; null if never. */
-  readonly last_used_at: number | null;
-  readonly created_at: number;
-  readonly updated_at: number;
-};
-
-export type SkillVersion = {
-  readonly id: number;
-  readonly name: string;
-  readonly action: string;
-  /** "agent", "review", "dream", or "user". */
-  readonly actor: string;
-  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
-  readonly conversation: string | null;
-  readonly description: string;
-  readonly body: string;
-  readonly status: SkillStatus;
-  readonly created_at: number;
-};
-
-export type SkillAction = "create" | "edit" | "patch" | "archive" | "restore" | "revert";
-
-/** One change to the library; which fields it needs depends on the action. */
-export type SkillChange = {
-  readonly action: SkillAction;
-  readonly name: string;
-  readonly description?: string;
-  readonly body?: string;
-  readonly old?: string;
-  readonly new?: string;
-  readonly version?: number;
+  review: new Set(REVIEW_ALLOWED.review),
+  dream: new Set(REVIEW_ALLOWED.dream)
 };
 
 /** What a version holds. */
 type Content = { readonly description: string; readonly body: string; readonly status: SkillStatus };
 
+const ColumnRow = Type.Object({ name: Type.String() });
+
+const Inserted = Type.Object({ id: Type.Number() });
+
 /** Add the columns a table was first made without. */
 function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): void {
-  const have = sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray();
+  const have = rows(sql.exec(`PRAGMA table_info(${table})`), ColumnRow, `a column of ${table}`);
 
   for (const [name, type] of columns) {
     if (!have.some((column) => column.name === name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
-}
-
-function need<T>(value: T | undefined, message: string): T {
-  if (value === undefined) throw new Error(message);
-
-  return value;
 }
 
 /** The body with one exact passage replaced; the passage must appear exactly once. */
@@ -132,6 +91,46 @@ function checkText(description: string, body: string): void {
   if (body.length > BODY_CHARS) throw new Error(`The body is ${body.length} characters; keep it under ${BODY_CHARS}.`);
 }
 
+/** What a change makes of the skill it names, `was`, or why it can't. */
+type Change = (change: SkillChange, was: SkillRow | undefined, skills: Skills) => Content;
+
+const existing = (change: SkillChange, was: SkillRow | undefined): SkillRow => must(was, `No skill named ${change.name}.`);
+
+/** One handler per action: the record's type makes it exhaustive, so no action falls through to another. */
+export const CHANGES: Readonly<Record<SkillAction, Change>> = {
+  create: (change, was) => {
+    if (was) throw new Error(`${change.name} exists; edit or patch it.`);
+
+    return {
+      description: must(change.description, "create needs a description and a body."),
+      body: must(change.body, "create needs a description and a body."),
+      status: "active"
+    };
+  },
+  edit: (change, was) => {
+    const skill = existing(change, was);
+
+    return { description: change.description ?? skill.description, body: change.body ?? skill.body, status: skill.status };
+  },
+  patch: (change, was) => {
+    const skill = existing(change, was);
+    const old = must(change.old, "patch needs old and new.");
+
+    return { ...skill, body: patched(skill, old, must(change.new, "patch needs old and new.")) };
+  },
+  archive: (change, was) => ({ ...existing(change, was), status: "archived" }),
+  restore: (change, was) => ({ ...existing(change, was), status: "active" }),
+  revert: (change, was, skills) => {
+    existing(change, was);
+    const id = must(change.version, "revert needs a version.");
+
+    return must(
+      skills.history(change.name).find((each) => each.id === id),
+      `${change.name} has no version ${id}.`
+    );
+  }
+};
+
 /** The skill library in the Durable Object's SQLite, with every version kept. */
 export class Skills {
   readonly #sql: SqlStorage;
@@ -141,7 +140,7 @@ export class Skills {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_skills (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skills} (
       name TEXT PRIMARY KEY,
       description TEXT NOT NULL,
       body TEXT NOT NULL,
@@ -150,7 +149,7 @@ export class Skills {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_skill_versions (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skillVersions} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       action TEXT NOT NULL,
@@ -160,8 +159,8 @@ export class Skills {
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, "ky_skills", [["last_used_at", "INTEGER"]]);
-    addColumns(sql, "ky_skill_versions", [["conversation", "TEXT"]]);
+    addColumns(sql, TABLES.skills, [["last_used_at", "INTEGER"]]);
+    addColumns(sql, TABLES.skillVersions, [["conversation", "TEXT"]]);
   }
 
   onChange(listener: () => void): () => void {
@@ -171,22 +170,20 @@ export class Skills {
   }
 
   get(name: string): SkillRow | undefined {
-    return this.#sql.exec<SkillRow>("SELECT * FROM ky_skills WHERE name = ?", name).toArray()[0];
+    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} WHERE name = ?`, name), SkillRow, "a stored skill")[0];
   }
 
   list(status: SkillStatus = "active"): SkillRow[] {
-    return this.#sql.exec<SkillRow>("SELECT * FROM ky_skills WHERE status = ? ORDER BY name", status).toArray();
+    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} WHERE status = ? ORDER BY name`, status), SkillRow, "a stored skill");
   }
 
   /** Every skill, active ones first, for the panel. */
   all(): SkillRow[] {
-    return this.#sql.exec<SkillRow>("SELECT * FROM ky_skills ORDER BY status = 'archived', name").toArray();
+    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} ORDER BY status = 'archived', name`), SkillRow, "a stored skill");
   }
 
   history(name: string): SkillVersion[] {
-    return this.#sql
-      .exec<SkillVersion>("SELECT * FROM ky_skill_versions WHERE name = ? ORDER BY id DESC", name)
-      .toArray();
+    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name), SkillVersion, "a skill version");
   }
 
   /** The prompt's index: one line per active skill. */
@@ -201,65 +198,27 @@ export class Skills {
     const skill = this.get(name);
 
     if (!skill) throw new Error(`No skill named ${name}.`);
-    this.#sql.exec("UPDATE ky_skills SET uses = uses + 1, last_used_at = ? WHERE name = ?", Date.now(), name);
+    this.#sql.exec(`UPDATE ${TABLES.skills} SET uses = uses + 1, last_used_at = ? WHERE name = ?`, Date.now(), name);
 
     return skill;
   }
 
   /** Versions made after a time, oldest first, newest `limit` of them. */
   versionsSince(at: number, limit: number, exceptActor = ""): SkillVersion[] {
-    return this.#sql
-      .exec<SkillVersion>(
-        "SELECT * FROM ky_skill_versions WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?",
-        at,
-        exceptActor,
-        limit
-      )
-      .toArray()
-      .reverse();
+    return rows(
+      this.#sql.exec(`SELECT * FROM ${TABLES.skillVersions} WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?`, at, exceptActor, limit),
+      SkillVersion,
+      "a skill version"
+    ).reverse();
   }
 
-  /** Apply one change and record the result as a new version; returns what happened. */
+  /** Apply one change and record the result as a new version; returns what happened. An action ky doesn't know is refused. */
   apply(change: SkillChange, actor: string, conversation: string | null = null): string {
+    // The tool's input is checked against its schema, but the panel's change comes off a socket.
+    if (!Value.Check(SkillActionSchema, change.action)) throw new Error(`There is no skill action "${String(change.action)}".`);
     checkName(change.name);
-    const was = this.get(change.name);
 
-    if (change.action === "create") {
-      if (was) throw new Error(`${change.name} exists; edit or patch it.`);
-
-      return this.#save(change.name, "create", actor, conversation, {
-        description: need(change.description, "create needs a description and a body."),
-        body: need(change.body, "create needs a description and a body."),
-        status: "active"
-      });
-    }
-
-    if (!was) throw new Error(`No skill named ${change.name}.`);
-
-    return this.#save(change.name, change.action, actor, conversation, this.#next(change, was));
-  }
-
-  /** What a change to an existing skill makes of it. */
-  #next(change: SkillChange, was: SkillRow): Content {
-    switch (change.action) {
-      case "edit":
-        return { description: change.description ?? was.description, body: change.body ?? was.body, status: was.status };
-      case "patch": {
-        const old = need(change.old, "patch needs old and new.");
-
-        return { ...was, body: patched(was, old, need(change.new, "patch needs old and new.")) };
-      }
-
-      case "revert": {
-        const id = need(change.version, "revert needs a version.");
-        const version = this.history(change.name).find((each) => each.id === id);
-
-        return need(version, `${change.name} has no version ${id}.`);
-      }
-
-      default:
-        return { ...was, status: change.action === "archive" ? "archived" : "active" };
-    }
+    return this.#save(change.name, change.action, actor, conversation, CHANGES[change.action](change, this.get(change.name), this));
   }
 
   #save(
@@ -272,7 +231,7 @@ export class Skills {
     checkText(description, body);
     const now = Date.now();
     this.#sql.exec(
-      `INSERT INTO ky_skills (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${TABLES.skills} (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
          status = excluded.status, updated_at = excluded.updated_at`,
       name,
@@ -283,20 +242,24 @@ export class Skills {
       now
     );
 
-    const { id } = this.#sql
-      .exec<{ id: number }>(
-        `INSERT INTO ky_skill_versions (name, action, actor, conversation, description, body, status, created_at)
+    const { id } = decode(
+      Inserted,
+      this.#sql
+        .exec(
+          `INSERT INTO ${TABLES.skillVersions} (name, action, actor, conversation, description, body, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-        name,
-        action,
-        actor,
-        conversation,
-        description,
-        body,
-        status,
-        now
-      )
-      .one();
+          name,
+          action,
+          actor,
+          conversation,
+          description,
+          body,
+          status,
+          now
+        )
+        .one(),
+      "a new skill version's id"
+    );
 
     for (const listener of this.#listeners) listener();
 
@@ -314,18 +277,16 @@ export class Reviews {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_skill_reviews (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skillReviews} (
       conversation TEXT PRIMARY KEY,
       parent TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, "ky_skill_reviews", [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
+    addColumns(sql, TABLES.skillReviews, [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
   }
 
   kind(conversation: string): ReviewKind | undefined {
-    return this.#sql
-      .exec<{ kind: ReviewKind }>("SELECT kind FROM ky_skill_reviews WHERE conversation = ?", conversation)
-      .toArray()[0]?.kind;
+    return rows(this.#sql.exec(`SELECT kind FROM ${TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRow, "a skill review")[0]?.kind;
   }
 
   has(conversation: string): boolean {
@@ -335,7 +296,7 @@ export class Reviews {
   /** `parent` is the chat a review forked; a dream has none, and records "". */
   add(conversation: string, parent: string, kind: ReviewKind = "review"): void {
     this.#sql.exec(
-      "INSERT INTO ky_skill_reviews (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)",
+      `INSERT INTO ${TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)`,
       conversation,
       parent,
       Date.now(),
@@ -367,69 +328,6 @@ Prefer, in order: patch a skill used in this conversation; extend an existing sk
 If nothing is worth keeping, answer "Nothing to save." Otherwise answer with one line per change.`;
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
-
-function textOf(message: AssistantMessage | undefined): string {
-  return (message?.content ?? [])
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
-}
-
-/** Where a review or a dream runs and reports. */
-export type ReviewHost = {
-  readonly conversation: (session: string) => Promise<Conversation>;
-  readonly feed: TaskFeed;
-  /** Run work in the background of the current request, like `ctx.waitUntil`. */
-  readonly later: (work: Promise<void>) => void;
-  readonly context: Context;
-  /** The background purpose's model, which a review's fork runs on. */
-  readonly model: () => AgentChange;
-};
-
-/** A background task as it shows in Activity. */
-export type BackgroundTask = { readonly id: string; readonly worker: string; readonly title: string; readonly content: string };
-
-/**
- * Show a task in Activity, send its one message to the conversation, and
- * report the answer. Returns the answer, or undefined when the task failed.
- */
-export async function runInFeed(
-  host: ReviewHost,
-  conversation: Conversation,
-  { id, worker, title, content }: BackgroundTask
-): Promise<string | undefined> {
-  const { context, feed } = host;
-  feed.create({ id, kind: "cloud", worker, title, status: "working", session: String(conversation.id) });
-
-  try {
-    const submission = await conversation.submit({ type: "input", content, requestId: `${worker}:${id}` }, context);
-    const settled = await submission.wait(context);
-
-    if (settled.status === "unanswered") {
-      feed.update(id, { status: "failed", summary: `Failed: ${settled.reason}` });
-
-      return undefined;
-    }
-
-    const answer =
-      settled.type === "input"
-        ? await conversation.commit(
-            // SAFETY: pi-durable types AssistantEntry as Entry<never>, but documents its `model` as [AssistantMessage].
-            async (tx) => (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined,
-            context
-          )
-        : undefined;
-
-    const said = textOf(answer);
-    feed.update(id, { status: "done", summary: summarize(said) || "Done" });
-
-    return said;
-  } catch (error) {
-    console.warn(`${title} failed`, error);
-    feed.update(id, { status: "failed", summary: summarize(String(error)) });
-
-    return undefined;
-  }
-}
 
 /** The skills extension, for every conversation; only `reviewable` ones are reviewed after a turn. */
 export function skillsExtension(
@@ -505,12 +403,9 @@ export function skillsExtension(
     ],
     tools: [
       defineTool({
-        name: "skill_view",
+        name: TOOLS.skillView,
         description: "Open a skill to follow it. history: true lists its versions instead, newest first.",
-        parameters: Type.Object({
-          name: Type.String(),
-          history: Type.Optional(Type.Boolean())
-        }),
+        parameters: SkillViewInput,
         replay: "safe",
         execute: async ({ name, history }) => {
           if (history) {
@@ -533,29 +428,14 @@ export function skillsExtension(
         }
       }),
       defineTool({
-        name: "skill_manage",
+        name: TOOLS.skillManage,
         description:
           "Change the skill library; every change is kept as a version. Actions: " +
           "create (name, description, body); edit (name; description and/or body replace them); " +
           "patch (name, old, new: replace one exact passage of the body); archive (name); restore (name); " +
           "revert (name, version: back to that version's content, from skill_view history). " +
           `Names are lowercase-with-hyphens, by class of task. The description is one line under ${DESCRIPTION_CHARS} characters saying when to use it.`,
-        parameters: Type.Object({
-          action: Type.Union([
-            Type.Literal("create"),
-            Type.Literal("edit"),
-            Type.Literal("patch"),
-            Type.Literal("archive"),
-            Type.Literal("restore"),
-            Type.Literal("revert")
-          ]),
-          name: Type.String(),
-          description: Type.Optional(Type.String()),
-          body: Type.Optional(Type.String()),
-          old: Type.Optional(Type.String()),
-          new: Type.Optional(Type.String()),
-          version: Type.Optional(Type.Number())
-        }),
+        parameters: SkillChange,
         replay: "unsafe",
         execute: async (args, api) => {
           const conversation = String(api.conversationId);
