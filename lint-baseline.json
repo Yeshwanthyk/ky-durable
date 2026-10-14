@@ -39,14 +39,6 @@
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/automations/automations.ts": {
-    "ky(no-unchecked-parse)": 4,
-    "typescript(no-non-null-assertion)": 3
-  },
-  "src/automations/tasks.ts": {
-    "ky(no-unchecked-parse)": 3,
-    "typescript(no-non-null-assertion)": 1
-  },
   "src/backup.ts": {
     "ky(no-unchecked-parse)": 13,
     "typescript(no-non-null-assertion)": 4,

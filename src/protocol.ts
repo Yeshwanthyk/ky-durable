@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
-import type { AutomationDraft, AutomationView } from "./automations/automations";
+import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
@@ -9,7 +9,7 @@ import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
 import type { SkillChange, SkillRow, SpecialistDraft, SpecialistView } from "./skills/contract";
 import type { MemoryView, SoulChange, SoulView } from "./dreaming/contract";
-import type { TaskRow } from "./automations/tasks";
+import type { TaskRow } from "./automations/contract";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
 export function osName(os: string): string {
@@ -104,7 +104,8 @@ export type { AutomationDraft };
 
 export type AutomationInfo = AutomationView & { readonly chat_label: string };
 
-export type AutomationAction = "pause" | "resume" | "archive" | "run" | "delete";
+/** Pause, resume, archive, unarchive, run or delete. */
+export type { AutomationAction };
 
 /**
  * This app's WebSocket protocol, served by `sockets.ts`. The harness knows
@@ -217,7 +218,7 @@ export type PiClientMessage =
   | { readonly type: "memory-forget"; readonly id?: string; readonly block: string }
   /** Create an automation as the user, or change one by its id; the result is `{ refused }` when it cannot be saved. */
   | { readonly type: "automation-save"; readonly id?: string; readonly automation?: string; readonly draft: AutomationDraft }
-  /** Pause, resume, archive, run or delete an automation, by its id; the result is what happened, as text. */
+  /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
   | {
       readonly type: "automation";
       readonly id?: string;
@@ -285,7 +286,7 @@ export type PiServerMessage =
   /** The specialists and their briefs; sent on connect and on change. */
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
-  /** The active and paused automations, newest first; sent on connect and on change. */
+  /** The active, paused and archived automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[]; readonly checkIns: boolean }
   /** Providers, their models, and each purpose's model; sent on connect and on change. */
   | { readonly type: "settings"; readonly settings: SettingsView }
@@ -306,7 +307,7 @@ export type {
   PiToolInfo as ToolInfo
 };
 
-export type { TaskRow } from "./automations/tasks";
+export type { TaskRow } from "./automations/contract";
 
 export type { ChatRow } from "./chats";
 

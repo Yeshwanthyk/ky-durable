@@ -37,7 +37,7 @@ import {
   type Turns,
   TurnsRowSchema
 } from "./contract";
-import { summarize, type TaskFeed, type TaskRow } from "../automations/tasks";
+import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's

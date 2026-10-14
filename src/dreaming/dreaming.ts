@@ -3,7 +3,7 @@ import { must } from "../core/must";
 import type { Memory } from "./memory";
 import { type CheckInsNow, DREAM_MEMORY_TOOLS, type Mark, markOf } from "./schema";
 import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/contract";
-import type { TaskFeed, TaskRow } from "../automations/tasks";
+import type { TaskFeed, TaskRow } from "../automations/contract";
 
 /**
  * Dreaming, after Agent Memory Repo's dreaming (cognition.com/agent-memory-repo):

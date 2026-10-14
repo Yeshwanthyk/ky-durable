@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HandledSeqs } from "../../cli/runner/handled.ts";
 import { Runner, type AgentProcess, type Launch, type Link, type ProcessEvents } from "../../cli/runner/runner.ts";
 import { type CodexCreds, decodeObjectFrame, OUTDATED, PROTOCOL, REPLACED, type MachineFacts, type RunCreds } from "../machines/contract";
-import type { TaskRow } from "../automations/tasks";
+import type { TaskRow } from "../automations/contract";
 import { fakeVibeProxy, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { agent, connectRunner, FACTS, inside, prompt, snapshotView } from "./drive";
 import { BARE, STEADY } from "./stack";

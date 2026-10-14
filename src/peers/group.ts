@@ -19,7 +19,7 @@ import { refused } from "../core/refusal";
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "../skills/contract";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 import {
   FOR_MARK,
   type PiMessage,

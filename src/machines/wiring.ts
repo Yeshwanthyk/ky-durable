@@ -1,4 +1,4 @@
-import type { TaskFeed } from "../automations/tasks";
+import type { TaskFeed } from "../automations/contract";
 import { machineExtension, MachineHub } from "./machines";
 
 /** The hub, for src/server.ts to make: the one runtime export of machines.ts outside the domain. */

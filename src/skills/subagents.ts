@@ -21,7 +21,7 @@ import {
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import { describeTool } from "../tool-labels";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";

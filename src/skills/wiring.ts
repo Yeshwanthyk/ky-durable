@@ -1,6 +1,5 @@
 import type { Extension } from "@earendil-works/pi-durable";
-import type { Automations } from "../automations/automations";
-import type { TaskFeed } from "../automations/tasks";
+import type { Automations, TaskFeed } from "../automations/contract";
 import type { Models } from "../models";
 import type { ReviewHost } from "./contract";
 import { type Reviews, type Skills, skillsExtension } from "./skills";

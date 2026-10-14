@@ -1,5 +1,5 @@
 import { ROOT_SESSION } from "agents/harness/pi";
-import type { Automations } from "./automations/automations";
+import type { Automations } from "./automations/contract";
 import type { Setup } from "./setup";
 import type { Skills, Specialists } from "./skills/contract";
 

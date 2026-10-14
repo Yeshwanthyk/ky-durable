@@ -13,7 +13,7 @@ import {
   type Tx
 } from "@earendil-works/pi-durable";
 import { MEMORY_WRITE_TOOLS, Versioned, versionLine } from "../dreaming/contract";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import {
   type SessionKind,

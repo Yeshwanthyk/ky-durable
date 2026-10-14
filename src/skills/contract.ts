@@ -8,7 +8,7 @@ import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type Extension, type Tx } from "@earendil-works/pi-durable";
 import Type, { type Static } from "typebox";
-import { summarize, type TaskFeed } from "../automations/tasks";
+import { summarize, type TaskFeed } from "../automations/contract";
 import { parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { agentModel } from "../models";

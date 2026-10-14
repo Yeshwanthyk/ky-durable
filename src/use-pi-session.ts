@@ -68,7 +68,7 @@ type State = SessionView & {
   readonly specialists: readonly SpecialistView[];
   /** ky's memory as wake shows it; null until the server sends it. */
   readonly memory: MemoryView | null;
-  /** Active and paused automations, newest first. */
+  /** Active, paused and archived automations, newest first. */
   readonly automations: readonly AutomationInfo[];
   /** Whether the nightly dream books check-ins. */
   readonly checkIns: boolean;
@@ -592,7 +592,7 @@ function refusal(result: JsonValue): string | undefined {
 
 /** Activity's automation actions, sent over the socket. */
 function useAutomationActions(send: (message: ClientMessage) => void) {
-  /** Pause, resume, archive, run or delete an automation as the user. */
+  /** Pause, resume, archive, unarchive, run or delete an automation as the user. */
   const changeAutomation = useCallback(
     (automation: string, action: AutomationAction) =>
       send({ type: "automation", id: crypto.randomUUID(), automation, action }),
