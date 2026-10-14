@@ -1,4 +1,6 @@
 import { type FormEvent, Fragment, type HTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import Type, { type Static } from "typebox";
+import { parseOr } from "../core/decode";
 import type { MachineChange, MachineFacts, MachineLogin, MachineState } from "../machines/contract";
 import type { SandboxChange, SandboxDraft } from "../sandboxes";
 import { osName } from "../protocol";
@@ -637,7 +639,9 @@ function useSandboxes(machines: readonly MachineInfo[]): readonly [SandboxesView
     let current = true;
 
     void fetch("/api/sandboxes").then(async (response) => {
-      if (current && response.ok) setView(await response.json());
+      const sandboxes = response.ok ? parseOr(SandboxesSchema, await response.text(), null) : null;
+
+      if (current && sandboxes) setView(sandboxes);
     });
 
     return () => {
@@ -647,6 +651,19 @@ function useSandboxes(machines: readonly MachineInfo[]): readonly [SandboxesView
 
   return [view, () => setAsked((count) => count + 1)];
 }
+
+const SavedDiskSchema = Type.Union([Type.Object({ size: Type.Number(), savedAt: Type.Number() }), Type.Null()]);
+
+/** GET /api/sandboxes' answer. */
+const SandboxesSchema = Type.Object({
+  enabled: Type.Boolean(),
+  cap: Type.Number(),
+  saves: Type.Record(Type.String(), SavedDiskSchema),
+  kept: Type.Array(Type.Object({ id: Type.String(), name: Type.String(), repos: Type.Array(Type.String()), deletedAt: Type.Number(), save: SavedDiskSchema }))
+});
+
+/** The sandbox routes' answer: `{ problem }` or a sandbox when they did it, `{ refused }` when they didn't. */
+const SandboxAnswerSchema = Type.Object({ problem: Type.Optional(Type.Union([Type.String(), Type.Null()])), refused: Type.Optional(Type.String()) });
 
 /** What Settings sends the sandbox routes: a new sandbox, or a change to one. */
 type SandboxBody = SandboxDraft | SandboxChange;
@@ -659,8 +676,7 @@ async function sandboxCall(path: string, method: string, body?: SandboxBody): Pr
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // SAFETY: the sandbox routes answer JSON: { problem } or a sandbox when they did it, { refused } when they didn't.
-  const answer = (await response.json().catch(() => null)) as { problem?: string | null; refused?: string } | null;
+  const answer = parseOr(SandboxAnswerSchema, await response.text().catch(() => ""), null);
 
   if (response.ok) return answer?.problem ?? null;
 
@@ -1005,7 +1021,10 @@ function KeptDisks({ view, now, onChanged }: { view: SandboxesView; now: number;
   );
 }
 
-type PairingCode = { code: string; expiresAt: number };
+/** POST /api/runners/codes' answer. */
+const PairingCodeSchema = Type.Object({ code: Type.String(), expiresAt: Type.Number() });
+
+type PairingCode = Static<typeof PairingCodeSchema>;
 
 // A single-use code for one more machine, and the command that pairs it with the code.
 function AddMachine({ now }: { now: number }) {
@@ -1016,13 +1035,15 @@ function AddMachine({ now }: { now: number }) {
     setError(null);
     const response = await fetch("/api/runners/codes", { method: "POST" });
 
-    if (!response.ok) {
+    const made = response.ok ? parseOr(PairingCodeSchema, await response.text(), null) : null;
+
+    if (!made) {
       setError(`ky could not make a code (HTTP ${response.status}).`);
 
       return;
     }
 
-    setCode(await response.json());
+    setCode(made);
   };
 
   return (

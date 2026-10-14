@@ -1,4 +1,6 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import Type, { type Static } from "typebox";
+import { decodeOr, parseOr } from "./core/decode";
 import type { ProviderKind } from "./providers/records";
 
 /**
@@ -14,13 +16,25 @@ import type { ProviderKind } from "./providers/records";
  * no choice, so the purpose's default runs.
  */
 
-export type Purpose = "main" | "worker" | "background" | "fallback";
+export const PurposeSchema = Type.Union([Type.Literal("main"), Type.Literal("worker"), Type.Literal("background"), Type.Literal("fallback")]);
 
-export type ModelChoice = {
-  readonly provider: string;
-  readonly modelId: string;
-  readonly thinkingLevel: ModelThinkingLevel;
-};
+export type Purpose = Static<typeof PurposeSchema>;
+
+/** Every thinking level, lowest first. */
+export const ThinkingLevelSchema = Type.Union([
+  Type.Literal("off"),
+  Type.Literal("minimal"),
+  Type.Literal("low"),
+  Type.Literal("medium"),
+  Type.Literal("high"),
+  Type.Literal("xhigh"),
+  Type.Literal("max")
+]);
+
+/** A provider, one of its models, and a thinking level: what runs a purpose, as the user picks it and SQLite keeps it. */
+export const ModelChoiceSchema = Type.Object({ provider: Type.String(), modelId: Type.String(), thinkingLevel: ThinkingLevelSchema });
+
+export type ModelChoice = Readonly<Static<typeof ModelChoiceSchema>>;
 
 export type ModelOption = {
   readonly modelId: string;
@@ -58,6 +72,9 @@ export type SettingsView = {
   readonly vendors: readonly VendorOption[];
 };
 
+/** A ky_purposes row as read: its choice, JSON. */
+const PurposeRow = Type.Object({ value: Type.String() });
+
 export class Settings {
   readonly #sql: SqlStorage;
   readonly #valid: (choice: ModelChoice) => ModelChoice | undefined;
@@ -67,8 +84,7 @@ export class Settings {
   constructor(sql: SqlStorage, valid: (choice: ModelChoice) => ModelChoice | undefined) {
     this.#sql = sql;
     this.#valid = valid;
-    // ky_settings held the slots the purposes replaced; their choices are not carried over.
-    sql.exec(`DROP TABLE IF EXISTS ky_settings`);
+    // ky_settings held the slots the purposes replaced; nothing reads it, and a backup leaves it out.
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_purposes (
       purpose TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   }
@@ -81,12 +97,11 @@ export class Settings {
 
   /** The user's choice for a purpose while it can run, else undefined. */
   get(purpose: Purpose): ModelChoice | undefined {
-    const row = this.#sql
-      .exec<{ value: string }>("SELECT value FROM ky_purposes WHERE purpose = ?", purpose)
-      .toArray()[0];
+    const row = decodeOr(PurposeRow, this.#sql.exec("SELECT value FROM ky_purposes WHERE purpose = ?", purpose).toArray()[0], undefined);
+    // A value a restore or an old version damaged reads as no choice, so the purpose's default runs.
+    const choice = row ? parseOr(ModelChoiceSchema, row.value, undefined) : undefined;
 
-    // SAFETY: only set() writes this table, each row a validated ModelChoice.
-    return row ? this.#valid(JSON.parse(row.value) as ModelChoice) : undefined;
+    return choice ? this.#valid(choice) : undefined;
   }
 
   /** Store a choice; an unknown model throws, a level it lacks is moved to the nearest it has. */
@@ -106,14 +121,14 @@ export class Settings {
   }
 }
 
-const ORDER: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const ORDER: readonly ModelThinkingLevel[] = ThinkingLevelSchema.anyOf.map((level) => level.const);
 
 /** `wanted`, or the level of `levels` nearest it. */
 export function nearestLevel(levels: readonly ModelThinkingLevel[], wanted: ModelThinkingLevel): ModelThinkingLevel {
   if (levels.length === 0 || levels.includes(wanted)) return levels.length === 0 ? "off" : wanted;
   const rank = ORDER.indexOf(wanted);
 
-  return [...levels].sort(
-    (a, b) => Math.abs(ORDER.indexOf(a) - rank) - Math.abs(ORDER.indexOf(b) - rank)
-  )[0]!;
+  const [nearest = wanted] = [...levels].sort((a, b) => Math.abs(ORDER.indexOf(a) - rank) - Math.abs(ORDER.indexOf(b) - rank));
+
+  return nearest;
 }
