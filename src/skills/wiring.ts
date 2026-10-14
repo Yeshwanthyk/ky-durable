@@ -2,9 +2,14 @@ import type { Extension } from "@earendil-works/pi-durable";
 import type { Automations } from "../automations/automations";
 import type { TaskFeed } from "../automations/tasks";
 import type { Models } from "../models";
-import { type ReviewHost, type Reviews, type Skills, skillsExtension } from "./skills";
+import type { ReviewHost } from "./contract";
+import { type Reviews, type Skills, skillsExtension } from "./skills";
 import { type Specialists, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
+
+export { Reviews, Skills } from "./skills";
+
+export { Specialists } from "./specialists";
 
 /** What the skills domain's tools are made from, on the agent (src/server.ts). */
 export type SkillsWiring = {

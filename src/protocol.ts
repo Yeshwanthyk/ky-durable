@@ -7,9 +7,8 @@ import type { FileRow } from "./files";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
 import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
-import type { SkillChange, SkillRow } from "./skills/skills";
+import type { SkillChange, SkillRow, SpecialistDraft, SpecialistView } from "./skills/contract";
 import type { MemoryView, SoulChange, SoulView } from "./dreaming/contract";
-import type { SpecialistDraft, SpecialistView } from "./skills/specialists";
 import type { TaskRow } from "./automations/tasks";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
@@ -311,13 +310,13 @@ export type { TaskRow } from "./automations/tasks";
 
 export type { ChatRow } from "./chats";
 
-export type { SkillChange, SkillRow, SkillVersion } from "./skills/skills";
+export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
-export type { SpecialistDraft, SpecialistView } from "./skills/specialists";
+export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
 export type { FileRow } from "./files";
 

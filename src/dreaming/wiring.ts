@@ -1,5 +1,5 @@
 import type { History } from "../history";
-import type { Reviews } from "../skills/skills";
+import type { Reviews } from "../skills/contract";
 import { memoryExtension, type Memory } from "./memory";
 import { soulExtension, type Soul } from "./soul";
 

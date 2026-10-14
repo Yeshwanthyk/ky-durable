@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/chord";
-import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
   type ConversationId,
@@ -20,18 +20,11 @@ import {
 } from "@earendil-works/pi-durable";
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
-import {
-  DISCUSS_MAX,
-  DISCUSS_MIN,
-  discussionTitle,
-  reply,
-  setUp,
-  type Specialist,
-  type Specialists,
-  textOf
-} from "./specialists";
+import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
 import { summarize, type TaskFeed } from "../automations/tasks";
+import { must } from "../core/must";
 import { describeTool } from "../tool-labels";
+import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
 /**
  * Persistent cloud subagents, after pi-durable's example 23. One `subagent`
@@ -189,7 +182,7 @@ export function subagentExtension(
         }
 
         feed.update(feedId, { status: "working", session: String(conversationId) });
-        const subagent = (await runtime.conversation(conversationId, context))!;
+        const subagent = must(await runtime.conversation(conversationId, context), `${name}'s conversation is gone.`);
 
         const submission = await subagent.submit(
           {
@@ -253,7 +246,7 @@ export function subagentExtension(
         const report = reporter.state.checkpoint.report;
 
         if (report !== undefined && wanted(reporter.input.feedId ?? String(reporter.id))) {
-          const main = (await runtime.conversation(runtime.conversationId, context))!;
+          const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
           await main.submit(
             {
               type: "input",
@@ -283,7 +276,7 @@ export function subagentExtension(
   });
 
   const tool = defineTool({
-    name: "subagent",
+    name: TOOLS.subagent,
     description:
       "Delegate work to persistent cloud subagents that run in the background with your tools (minus memory and subagents). " +
       "They are your default for any work beyond a quick call: research, web lookups, browsing, multi-step work. Spawn several when the work splits; they run while you keep talking to the user. Actions: " +
@@ -296,217 +289,11 @@ export function subagentExtension(
       "Specialists (see the roster, if any): " +
       "ask (specialist, title, message): give one specialist a task or a question; its answer is reported back like a subagent's. " +
       `discuss (specialists: ${DISCUSS_MIN} to ${DISCUSS_MAX} ids, message: the topic, rounds: 1 or 2, default 2): they each answer, then reply to each other; the transcript is reported back for you to sum up.`,
-    parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal("spawn"),
-        Type.Literal("send"),
-        Type.Literal("stop"),
-        Type.Literal("status"),
-        Type.Literal("ask"),
-        Type.Literal("discuss")
-      ]),
-      name: Type.Optional(Type.String({ description: "Short, like researcher or pharmacy-finder." })),
-      title: Type.Optional(Type.String({ description: "3-6 words for the task list, like 'Find compounding pharmacies'." })),
-      message: Type.Optional(Type.String()),
-      followUp: Type.Optional(Type.Boolean()),
-      specialist: Type.Optional(Type.String({ description: "ask: the specialist's id, like engineer." })),
-      specialists: Type.Optional(Type.Array(Type.String(), { description: "discuss: the specialists' ids." })),
-      rounds: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)]))
-    }),
+    parameters: SubagentInput,
     // A rerun after a crash could stop newer work; the model can check status.
     replay: "unsafe",
-    execute: async (args, api, context) => {
-      const { action, name, title, message, followUp } = args;
-
-      if (action === "ask" || action === "discuss") {
-        if (specialists === undefined) return reply("There are no specialists.");
-
-        return reply(
-          action === "ask"
-            ? await ask(specialists, api, context, handle(args.specialist), message, title)
-            : await discuss(specialists, api, context, (args.specialists ?? []).map(handle), message, args.rounds ?? 2, title)
-        );
-      }
-
-      if (action === "spawn" && name?.startsWith("@")) return reply("Names starting with @ are specialists'; use ask.");
-
-      const registry = (await api.snapshot(Subagents, api.conversationId, context)) ?? {
-        agents: {},
-        reporters: {}
-      };
-
-      if (action === "status") {
-        const names = name === undefined ? Object.keys(registry.agents) : [name];
-        const lines: string[] = [];
-
-        for (const each of names) {
-          const found = registry.agents[each];
-
-          if (!found) continue;
-
-          const busy =
-            (await api.snapshot(LiveDoc, found.conversationId, context))?.run !== undefined;
-
-          const last = feed.latest("cloud", each);
-          lines.push(
-            `${each}: ${busy ? "working" : "idle"}${last ? ` (last: ${last.title}, ${last.status}${last.summary ? `: ${last.summary}` : ""})` : ""}`
-          );
-        }
-
-        return reply(lines.length === 0 ? "No subagents." : lines.join("\n"));
-      }
-
-      if (name === undefined) return reply(`${action} needs a name.`);
-      const agent = registry.agents[name];
-
-      if (action !== "spawn" && agent === undefined) return reply(`No subagent named ${name}.`);
-
-      if (action === "stop") {
-        await (await api.conversation(agent!.conversationId, context))!.abort(context);
-
-        return reply(`Stopped ${name}.`);
-      }
-
-      if (message === undefined) return reply(`${action} needs a message.`);
-
-      let reporterId: string | undefined;
-
-      const result = await api.commit(async (tx) => {
-        const state = await tx.doc(Subagents, api.conversationId);
-
-        if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
-
-        const conversationId =
-          action === "spawn" ? await register(tx, api.conversationId, name) : state.agents[name]!.conversationId;
-
-        const input = {
-          name,
-          conversationId,
-          message,
-          followUp: action === "send" && followUp === true
-        };
-
-        const reporter = await deliver(tx, api.conversationId, input, model());
-        state.reporters[api.taskId] = reporter;
-        reporterId = String(reporter);
-
-        return action === "send" ? `Sent to ${name}.` : `Started ${name}.`;
-      }, context);
-
-      const conversationId = registry.agents[name]?.conversationId ??
-        (await api.snapshot(Subagents, api.conversationId, context))?.agents[name]?.conversationId;
-
-      if (reporterId !== undefined) {
-        feed.create({
-          id: reporterId,
-          kind: "cloud",
-          worker: name,
-          title: title ?? summarize(message).slice(0, 60),
-          status: "working",
-          session: conversationId === undefined ? null : String(conversationId)
-        });
-
-        if (title === undefined) feed.name(reporterId, message);
-      }
-
-      return reply(result);
-    }
+    execute: async (args, api, context) => reply(await ACTIONS[args.action](desk, args, api, context))
   });
-
-  /** A fresh conversation for `id`, set up as its own and recorded as `kind`. */
-  async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss"): Promise<ConversationId> {
-    const child = await tx.createConversation({ ownership: { kind: "ownerless" } });
-    await setUp(tx, child.id, deps.remove, deps.model(deps.store.get(id)!.model));
-    deps.store.attach(String(child.id), id, kind);
-
-    return child.id;
-  }
-
-  /**
-   * One task for a specialist. From a chat it goes to the specialist's home
-   * conversation, queued behind any work it has; from another specialist,
-   * to a fresh conversation, so a consult never steers its own work.
-   */
-  async function ask(deps: SpecialistDeps, api: ToolExecutionApi, context: Context, id: string, message: string | undefined, title: string | undefined): Promise<string> {
-    const row = deps.store.get(id);
-    const known = deps.store.list().map((each) => `@${each.id}`).join(", ") || "none yet";
-
-    if (!row) return `No specialist @${id}. Specialists: ${known}.`;
-
-    if (message === undefined) return "ask needs a message.";
-    const caller = deps.store.bySession(String(api.conversationId))?.specialist.id;
-
-    if (caller === id) return "You cannot ask yourself.";
-    const name = `@${id}`;
-    const feedId = crypto.randomUUID();
-    let conversationId: ConversationId | undefined;
-
-    await api.commit(async (tx) => {
-      if (caller === undefined) {
-        // SAFETY: a specialist's session is the id, as text, of a conversation fresh() made.
-        conversationId = row.session === null ? await fresh(deps, tx, id, "home") : (Number(row.session) as ConversationId);
-        const state = await tx.doc(Subagents, api.conversationId);
-
-        if (state.agents[name]?.conversationId !== conversationId) state.agents[name] = { conversationId, reported: [] };
-      } else {
-        conversationId = await fresh(deps, tx, id, "consult");
-      }
-
-      await deliver(
-        tx,
-        api.conversationId,
-        { name, conversationId, message, followUp: true, feedId, specialist: id },
-        deps.model(row.model)
-      );
-    }, context);
-
-    feed.create({
-      id: feedId,
-      kind: "cloud",
-      worker: caller === undefined ? name : `@${caller} → ${name}`,
-      title: title ?? summarize(message).slice(0, 60),
-      status: "working",
-      session: conversationId === undefined ? null : String(conversationId)
-    });
-
-    if (title === undefined) feed.name(feedId, message);
-
-    return `Asked ${name}.`;
-  }
-
-  /** A discussion among specialists, each in a fresh conversation, reported back to this one. */
-  async function discuss(
-    deps: SpecialistDeps,
-    api: ToolExecutionApi,
-    context: Context,
-    ids: string[],
-    topic: string | undefined,
-    rounds: 1 | 2,
-    title: string | undefined
-  ): Promise<string> {
-    if (deps.store.bySession(String(api.conversationId))) return "Specialists cannot start a discussion.";
-
-    if (ids.length < DISCUSS_MIN || ids.length > DISCUSS_MAX || new Set(ids).size !== ids.length) {
-      return `discuss needs ${DISCUSS_MIN} to ${DISCUSS_MAX} different specialists.`;
-    }
-
-    const missing = ids.find((id) => !deps.store.has(id));
-
-    if (missing !== undefined) return `No specialist @${missing}.`;
-
-    if (topic === undefined || topic.trim() === "") return "discuss needs a message: the topic.";
-    const feedId = crypto.randomUUID();
-
-    await api.commit(
-      (tx) => deps.tools.discuss(tx, api.conversationId, { topic, ids, rounds, feedId }, (inner, id) => fresh(deps, inner, id, "discuss")),
-      context
-    );
-
-    const who = ids.map((id) => `@${id}`).join(", ");
-    feed.create({ id: feedId, kind: "cloud", worker: who, title: title ?? discussionTitle(topic), status: "working", session: null });
-
-    return `Started a discussion with ${who}.`;
-  }
 
   const extension: Extension = defineExtension({
     name: "subagents",
@@ -535,6 +322,8 @@ export function subagentExtension(
     return tx.createTask(Reporter, input, background(owner));
   }
 
+  const desk: Desk = { feed, specialists, model, register, deliver };
+
   const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn }) => {
     const conversationId = await register(tx, owner, name);
     await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn }, model);
@@ -544,6 +333,222 @@ export function subagentExtension(
 
   return { extension, spawn };
 }
+
+/** What the subagent tool's actions work with. */
+type Desk = {
+  readonly feed: TaskFeed;
+  readonly specialists: SpecialistDeps | undefined;
+  /** The worker's model, applied to each subagent whenever it is messaged. */
+  readonly model: () => ModelChoice;
+  /** A fresh child conversation, configured as a subagent and registered under `name`. */
+  readonly register: (tx: Tx, owner: ConversationId, name: string) => Promise<ConversationId>;
+  /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
+  readonly deliver: (tx: Tx, owner: ConversationId, input: ReporterInput, choice: ModelChoice) => Promise<TaskId>;
+};
+
+/** One subagent tool action; returns what the agent reads. */
+type Act = (desk: Desk, args: SubagentInput, api: ToolExecutionApi, context: Context) => Promise<string>;
+
+/** This conversation's subagents. */
+async function registryOf(api: ToolExecutionApi, context: Context) {
+  return (await api.snapshot(Subagents, api.conversationId, context)) ?? { agents: {}, reporters: {} };
+}
+
+/** Each subagent, or the one named, with whether it is working and its last task. */
+async function status(feed: TaskFeed, name: string | undefined, api: ToolExecutionApi, context: Context): Promise<string> {
+  const registry = await registryOf(api, context);
+  const names = name === undefined ? Object.keys(registry.agents) : [name];
+  const lines: string[] = [];
+
+  for (const each of names) {
+    const found = registry.agents[each];
+
+    if (!found) continue;
+
+    const busy = (await api.snapshot(LiveDoc, found.conversationId, context))?.run !== undefined;
+
+    const last = feed.latest("cloud", each);
+    lines.push(`${each}: ${busy ? "working" : "idle"}${last ? ` (last: ${last.title}, ${last.status}${last.summary ? `: ${last.summary}` : ""})` : ""}`);
+  }
+
+  return lines.length === 0 ? "No subagents." : lines.join("\n");
+}
+
+const stop: Act = async (_desk, { name }, api, context) => {
+  const registry = await registryOf(api, context);
+
+  if (name === undefined) return "stop needs a name.";
+  const agent = registry.agents[name];
+
+  if (agent === undefined) return `No subagent named ${name}.`;
+  await must(await api.conversation(agent.conversationId, context), `${name}'s conversation is gone.`).abort(context);
+
+  return `Stopped ${name}.`;
+};
+
+/** A task's row in Activity, named by `title` or, without one, from its message. */
+function show(feed: TaskFeed, id: string, worker: string, title: string | undefined, text: string, session: ConversationId | undefined): void {
+  feed.create({
+    id,
+    kind: "cloud",
+    worker,
+    title: title ?? summarize(text).slice(0, 60),
+    status: "working",
+    session: session === undefined ? null : String(session)
+  });
+
+  if (title === undefined) feed.name(id, text);
+}
+
+type Registry = Awaited<ReturnType<typeof registryOf>>;
+
+/** Why a spawn or a send can't go, if it can't. */
+function messageRefusal(action: "spawn" | "send", name: string | undefined, text: string | undefined, registry: Registry): string | undefined {
+  if (name === undefined) return `${action} needs a name.`;
+
+  if (action !== "spawn" && registry.agents[name] === undefined) return `No subagent named ${name}.`;
+
+  return text === undefined ? `${action} needs a message.` : undefined;
+}
+
+/** Spawn a subagent, or send one a message. */
+function message(action: "spawn" | "send"): Act {
+  return async ({ feed, model, register, deliver }, { name, title, message: text, followUp }, api, context) => {
+    if (action === "spawn" && name?.startsWith("@")) return "Names starting with @ are specialists'; use ask.";
+    const registry = await registryOf(api, context);
+    const refusal = messageRefusal(action, name, text, registry);
+
+    if (refusal !== undefined || name === undefined || text === undefined) return refusal ?? "";
+
+    let reporterId: string | undefined;
+
+    const result = await api.commit(async (tx) => {
+      const state = await tx.doc(Subagents, api.conversationId);
+
+      if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
+
+      const conversationId =
+        action === "spawn"
+          ? await register(tx, api.conversationId, name)
+          : must(state.agents[name], `No subagent named ${name}.`).conversationId;
+
+      const input = { name, conversationId, message: text, followUp: action === "send" && followUp === true };
+
+      const reporter = await deliver(tx, api.conversationId, input, model());
+      state.reporters[api.taskId] = reporter;
+      reporterId = String(reporter);
+
+      return action === "send" ? `Sent to ${name}.` : `Started ${name}.`;
+    }, context);
+
+    const conversationId =
+      registry.agents[name]?.conversationId ?? (await api.snapshot(Subagents, api.conversationId, context))?.agents[name]?.conversationId;
+
+    if (reporterId !== undefined) show(feed, reporterId, name, title, text, conversationId);
+
+    return result;
+  };
+}
+
+/** A fresh conversation for `id`, set up as its own and recorded as `kind`. */
+async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss"): Promise<ConversationId> {
+  const child = await tx.createConversation({ ownership: { kind: "ownerless" } });
+  await setUp(tx, child.id, deps.remove, deps.model(must(deps.store.get(id), `No specialist @${id}.`).model));
+  deps.store.attach(String(child.id), id, kind);
+
+  return child.id;
+}
+
+/** Where an ask for `row` goes: its home conversation from a chat, registered here; a fresh one from another specialist. */
+async function askedIn(deps: SpecialistDeps, tx: Tx, owner: ConversationId, row: SpecialistRow, caller: string | undefined): Promise<ConversationId> {
+  if (caller !== undefined) return fresh(deps, tx, row.id, "consult");
+  // SAFETY: a specialist's session is the id, as text, of a conversation fresh() made.
+  const conversationId = row.session === null ? await fresh(deps, tx, row.id, "home") : (Number(row.session) as ConversationId);
+  const state = await tx.doc(Subagents, owner);
+  const name = `@${row.id}`;
+
+  if (state.agents[name]?.conversationId !== conversationId) state.agents[name] = { conversationId, reported: [] };
+
+  return conversationId;
+}
+
+/**
+ * One task for a specialist. From a chat it goes to the specialist's home
+ * conversation, queued behind any work it has; from another specialist,
+ * to a fresh conversation, so a consult never steers its own work.
+ */
+const ask: Act = async ({ feed, specialists: deps, deliver }, args, api, context) => {
+  if (deps === undefined) return "There are no specialists.";
+  const { message: text, title } = args;
+  const id = handle(args.specialist);
+  const row = deps.store.get(id);
+
+  if (!row) return `No specialist @${id}. Specialists: ${deps.store.list().map((each) => `@${each.id}`).join(", ") || "none yet"}.`;
+
+  if (text === undefined) return "ask needs a message.";
+  const caller = deps.store.bySession(String(api.conversationId))?.specialist.id;
+
+  if (caller === id) return "You cannot ask yourself.";
+  const name = `@${id}`;
+  const feedId = crypto.randomUUID();
+  let conversationId: ConversationId | undefined;
+
+  await api.commit(async (tx) => {
+    conversationId = await askedIn(deps, tx, api.conversationId, row, caller);
+    await deliver(tx, api.conversationId, { name, conversationId, message: text, followUp: true, feedId, specialist: id }, deps.model(row.model));
+  }, context);
+
+  show(feed, feedId, caller === undefined ? name : `@${caller} → ${name}`, title, text, conversationId);
+
+  return `Asked ${name}.`;
+};
+
+/** Why a discussion among `ids` on `topic` can't start, if it can't. */
+function discussRefusal(deps: SpecialistDeps, owner: ConversationId, ids: readonly string[], topic: string | undefined): string | undefined {
+  if (deps.store.bySession(String(owner))) return "Specialists cannot start a discussion.";
+
+  if (ids.length < DISCUSS_MIN || ids.length > DISCUSS_MAX || new Set(ids).size !== ids.length) {
+    return `discuss needs ${DISCUSS_MIN} to ${DISCUSS_MAX} different specialists.`;
+  }
+
+  const missing = ids.find((id) => !deps.store.has(id));
+
+  if (missing !== undefined) return `No specialist @${missing}.`;
+
+  return topic === undefined || topic.trim() === "" ? "discuss needs a message: the topic." : undefined;
+}
+
+/** A discussion among specialists, each in a fresh conversation, reported back to this one. */
+const discuss: Act = async ({ feed, specialists: deps }, args, api, context) => {
+  if (deps === undefined) return "There are no specialists.";
+  const ids = (args.specialists ?? []).map(handle);
+  const topic = args.message;
+  const refusal = discussRefusal(deps, api.conversationId, ids, topic);
+
+  if (refusal !== undefined || topic === undefined) return refusal ?? "";
+  const feedId = crypto.randomUUID();
+  const rounds = args.rounds ?? 2;
+
+  await api.commit(
+    (tx) => deps.tools.discuss(tx, api.conversationId, { topic, ids, rounds, feedId }, (inner, id) => fresh(deps, inner, id, "discuss")),
+    context
+  );
+
+  const who = ids.map((id) => `@${id}`).join(", ");
+  feed.create({ id: feedId, kind: "cloud", worker: who, title: args.title ?? discussionTitle(topic), status: "working", session: null });
+
+  return `Started a discussion with ${who}.`;
+};
+
+/** One handler per action: the record's type makes it exhaustive, so no action falls through to another. */
+export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
+  spawn: message("spawn"),
+  send: message("send"),
+  stop,
+  status: (desk, { name }, api, context) => status(desk.feed, name, api, context),
+  ask,
+  discuss
+};
 
 /**
  * Each tool a subagent uses becomes a step on its task, and each model

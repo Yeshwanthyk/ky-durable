@@ -1,7 +1,8 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { inside, prompt, promptTool, until } from "./drive";
+import { REVIEW_ALLOWED } from "../skills/contract";
+import { connect, follow, inside, prompt, promptTool, until } from "./drive";
 
 /** Skills through ky's real PiAgent on the fake AI binding: the tools, the index, and the review after a turn. */
 
@@ -60,6 +61,34 @@ describe("skills", () => {
     );
 
     expect(missing.text).toContain("The text to replace is not in weekly-groceries.");
+  });
+
+  it("refuses a change whose action it doesn't know, instead of restoring the skill", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, create());
+    await prompt(name, tool("skill_manage", { action: "archive", name: "weekly-groceries" }));
+
+    const socket = await connect(name);
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "events"));
+    const id = crypto.randomUUID();
+    socket.send(JSON.stringify({ type: "skill-change", id, change: { action: "delete", name: "weekly-groceries" } }));
+    await client.until(() => client.frames.some((frame) => (frame.type === "error" || frame.type === "result") && frame.id === id));
+
+    const refusal = client.frames.find((frame) => frame.type === "error" && frame.id === id);
+    expect(refusal?.type === "error" ? refusal.message : "").toContain('There is no skill action "delete".');
+    expect(await inside(name, (instance) => instance.skills.history("weekly-groceries").map((each) => each.action))).toEqual(["archive", "create"]);
+    expect(await inside(name, (instance) => instance.skills.get("weekly-groceries")?.status)).toBe("archived");
+    socket.close();
+  });
+
+  it("lets a review and a dream call only tools ky registers", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, "hello");
+    // A review and a dream are offered every tool the main chat is.
+    const registered = await inside(name, (instance) => Object.keys(instance.boundary.calls.at(-1)?.tools ?? {}));
+
+    for (const kind of ["review", "dream"] as const) expect(registered).toEqual(expect.arrayContaining([...REVIEW_ALLOWED[kind]]));
   });
 
   it("lists active skills in the system prompt, and drops archived ones", async () => {

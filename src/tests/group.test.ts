@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RESPONDER_CAP } from "../peers/contract";
 import { forThem, parseRoute, plan, recentOf, ROUTER_PROMPT, routerInput } from "../peers/group";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import type { SpecialistRow } from "../skills/specialists";
+import type { SpecialistRow } from "../skills/contract";
 import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../transcript";
 import { connect, follow, type Follower, inside, snapshotView, until } from "./drive";
 import { decodeNewChat } from "./frames";
