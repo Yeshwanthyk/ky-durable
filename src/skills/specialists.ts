@@ -15,7 +15,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
-import { type SoulAction, type SoulView, Versioned, versionLine } from "../dreaming/soul";
+import { MEMORY_WRITE_TOOLS, type SoulAction, type SoulView, Versioned, versionLine } from "../dreaming/contract";
 import { summarize, type TaskFeed } from "../automations/tasks";
 
 /**
@@ -80,7 +80,7 @@ export const DISCUSS_MAX = 4;
 const ANSWER_CHARS = 3_000;
 
 /** Tools that write memory: specialists read it only. */
-const MEMORY_WRITES = new Set(["memory_note", "memory_forget"]);
+const MEMORY_WRITES = new Set<string>(MEMORY_WRITE_TOOLS);
 
 /** The leading `@id`s of a message, in order; empty when it starts otherwise. */
 export function mentions(text: string): string[] {

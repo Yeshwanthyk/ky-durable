@@ -1,5 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
+import { must } from "../core/must";
+import { columnName, SOUL_EDIT, type SoulChange, soulVersion, type SoulVersion, type SoulView, versionOf } from "./schema";
 
 /**
  * SOUL.md: ky's persona, after Muse's. It shapes how ky talks; the
@@ -26,37 +28,6 @@ If you change this file, tell the user. It's your soul, and they should know.
 `;
 
 const SOUL_CHARS = 20_000;
-
-export type SoulVersion = {
-  readonly id: number;
-  readonly action: string;
-  /** "template", "agent", or "user". */
-  readonly actor: string;
-  /** The conversation that made it; null for the template and the user's edits. */
-  readonly conversation: string | null;
-  readonly body: string;
-  readonly created_at: number;
-};
-
-export type SoulAction = "edit" | "patch" | "revert";
-
-/** One change to SOUL.md; which fields it needs depends on the action. */
-export type SoulChange = {
-  readonly action: SoulAction;
-  readonly body?: string;
-  readonly old?: string;
-  readonly new?: string;
-  readonly version?: number;
-};
-
-/** What the panel shows: the file and its newest version. */
-export type SoulView = { readonly body: string; readonly version: number; readonly updated_at: number };
-
-function need<T>(value: T | undefined, message: string): T {
-  if (value === undefined) throw new Error(message);
-
-  return value;
-}
 
 /**
  * A markdown file with every version kept: SOUL.md, and each specialist's
@@ -85,14 +56,14 @@ export class Versioned {
       created_at INTEGER NOT NULL
     )`);
 
-    const columns = sql.exec<{ name: string }>("PRAGMA table_info(ky_soul_versions)").toArray();
+    const columns = sql.exec("PRAGMA table_info(ky_soul_versions)").toArray().map(columnName);
 
-    if (!columns.some((column) => column.name === "key")) {
+    if (!columns.includes("key")) {
       sql.exec("ALTER TABLE ky_soul_versions ADD COLUMN key TEXT NOT NULL DEFAULT 'soul'");
     }
 
     // Numbered per file; rows from before were all SOUL.md's, numbered by id.
-    if (!columns.some((column) => column.name === "version")) {
+    if (!columns.includes("version")) {
       sql.exec("ALTER TABLE ky_soul_versions ADD COLUMN version INTEGER");
       sql.exec("UPDATE ky_soul_versions SET version = id");
     }
@@ -106,9 +77,8 @@ export class Versioned {
 
   /** The newest version, seeded from the template the first time; undefined for a file with none yet. */
   #latest(): SoulVersion | undefined {
-    const latest = this.#sql
-      .exec<SoulVersion>("SELECT version AS id, action, actor, conversation, body, created_at FROM ky_soul_versions WHERE key = ? ORDER BY version DESC LIMIT 1", this.#key)
-      .toArray()[0];
+    // A damaged newest version (after a restore) hides behind the last good one rather than failing every read.
+    const latest = this.#versions(1)[0] ?? this.#versions()[0];
 
     if (latest || this.#template === undefined) return latest;
     this.#insert("create", "template", null, this.#template);
@@ -134,9 +104,19 @@ export class Versioned {
   history(): SoulVersion[] {
     this.#latest();
 
+    return this.#versions();
+  }
+
+  /** This file's newest `limit` versions, newest first, leaving out any a restore damaged. Read whole, so no cursor stays open. */
+  #versions(limit = -1): SoulVersion[] {
     return this.#sql
-      .exec<SoulVersion>("SELECT version AS id, action, actor, conversation, body, created_at FROM ky_soul_versions WHERE key = ? ORDER BY version DESC", this.#key)
-      .toArray();
+      .exec(
+        "SELECT version AS id, action, actor, conversation, body, created_at FROM ky_soul_versions WHERE key = ? ORDER BY version DESC LIMIT ?",
+        this.#key,
+        limit
+      )
+      .toArray()
+      .flatMap((row) => soulVersion(row) ?? []);
   }
 
   /**
@@ -169,10 +149,10 @@ export class Versioned {
   #next(change: SoulChange, was: string): string {
     switch (change.action) {
       case "edit":
-        return need(change.body, "edit needs a body.");
+        return must(change.body, "edit needs a body.");
       case "patch": {
-        const old = need(change.old, "patch needs old and new.");
-        const replacement = need(change.new, "patch needs old and new.");
+        const old = must(change.old, "patch needs old and new.");
+        const replacement = must(change.new, "patch needs old and new.");
         const count = was.split(old).length - 1;
 
         if (old === "" || count === 0) throw new Error(`The text to replace is not in ${this.#label}.`);
@@ -183,27 +163,27 @@ export class Versioned {
       }
 
       case "revert": {
-        const id = need(change.version, "revert needs a version.");
+        const id = must(change.version, "revert needs a version.");
 
-        return need(this.history().find((each) => each.id === id), `${this.#label} has no version ${id}.`).body;
+        return must(this.history().find((each) => each.id === id), `${this.#label} has no version ${id}.`).body;
       }
     }
   }
 
   #insert(action: string, actor: string, conversation: string | null, body: string): number {
-    return this.#sql
-      .exec<{ version: number }>(
-        `INSERT INTO ky_soul_versions (key, version, action, actor, conversation, body, created_at)
-         VALUES (?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ky_soul_versions WHERE key = ?), ?, ?, ?, ?, ?) RETURNING version`,
-        this.#key,
-        this.#key,
-        action,
-        actor,
-        conversation,
-        body,
-        Date.now()
-      )
-      .one().version;
+    const inserted = this.#sql.exec(
+      `INSERT INTO ky_soul_versions (key, version, action, actor, conversation, body, created_at)
+       VALUES (?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ky_soul_versions WHERE key = ?), ?, ?, ?, ?, ?) RETURNING version`,
+      this.#key,
+      this.#key,
+      action,
+      actor,
+      conversation,
+      body,
+      Date.now()
+    );
+
+    return versionOf(inserted.one());
   }
 }
 
@@ -231,7 +211,7 @@ export function soulExtension(soul: Soul): Extension {
     ],
     tools: [
       defineTool({
-        name: "soul_edit",
+        name: SOUL_EDIT,
         description:
           "View or change SOUL.md, your persona (the <soul> section). Change it only when the user asks or clearly agrees, " +
           "and always tell the user what changed. Every change is kept as a version. Actions: view; history (versions, newest first); " +

@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxText, type Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { type Compressor, Memory, type MemoryItem } from "../dreaming/memory";
+import { type Compressor, Memory, type MemoryItem } from "../dreaming/contract";
 import { inside } from "./drive";
 
 /** The memory panel's view of OptMem, on ky's real PiAgent: wake's blocks, zoom's halves, recall's search, forget. */

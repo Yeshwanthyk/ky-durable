@@ -24,8 +24,8 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, MachineHub, type TaskTokens } from "./machines/machines";
 import { machineTools } from "./machines/wiring";
-import { Memory } from "./dreaming/memory";
-import { dreamingTools } from "./dreaming/wiring";
+import { Memory } from "./dreaming/contract";
+import { dreamingTools } from "./dreaming/contract";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import type { MachineFacts } from "./machines/runner-protocol";
@@ -34,11 +34,11 @@ import { ASK_TTL_MS, deliver, peerAnswer, PeerAsks, type PeerDesk, peerQuestion,
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { Dreaming, DREAM_CRON } from "./dreaming/dreaming";
+import { Dreaming, DREAM_CRON } from "./dreaming/contract";
 import { type ReviewHost, Reviews, runInFeed, Skills } from "./skills/skills";
 import { delegationTools, skillTools, type SkillsWiring } from "./skills/wiring";
 import { seed } from "./seeds";
-import { Soul } from "./dreaming/soul";
+import { Soul } from "./dreaming/contract";
 import { Specialists } from "./skills/specialists";
 import { GroupChats, GroupDesk } from "./peers/group";
 import { peerTools } from "./peers/wiring";

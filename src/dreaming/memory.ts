@@ -4,7 +4,23 @@ import {
   defineTool,
   type Extension
 } from "@earendil-works/pi-durable";
+import { must } from "../core/must";
 import type { History } from "../history";
+import {
+  CHAT_SEARCH,
+  countOf,
+  datesOf,
+  MEMORY_FORGET,
+  MEMORY_NOTE,
+  MEMORY_RECALL,
+  MEMORY_ZOOM,
+  type MemoryItem,
+  memoryRow,
+  type MemoryRow,
+  type MemorySearch,
+  type MemoryView,
+  summaryOf
+} from "./schema";
 
 /**
  * OptMem (github.com/VictorTaelin/OptMem) on the Durable Object's SQLite.
@@ -46,33 +62,6 @@ const RECALL_BYTES = 20_000;
 
 type Block = readonly [lo: number, hi: number];
 
-export type MemoryRow = { readonly id: number; readonly date: string; readonly text: string };
-
-/** One line of the memory as the panel shows it: a raw memory, or a block and its summary. */
-export type MemoryItem =
-  | ({ readonly kind: "memory" } & MemoryRow)
-  | {
-      readonly kind: "block";
-      /** Its id, like "16-31". */
-      readonly block: string;
-      /** Its summary; null until the agent writes it. */
-      readonly text: string | null;
-      /** The dates of its oldest and newest memory. */
-      readonly from: string;
-      readonly to: string;
-    };
-
-/** What the panel shows first: wake's view of the memory, newest first. */
-export type MemoryView = {
-  readonly count: number;
-  /** The newest memory's date, YYYY-MM-DD; null when there are none. */
-  readonly newest: string | null;
-  readonly items: readonly MemoryItem[];
-};
-
-/** A search's newest matches, and how many there were. */
-export type MemorySearch = { readonly matches: readonly MemoryRow[]; readonly total: number; readonly regex: boolean };
-
 /** Lines the panel's first view holds; the rest opens block by block. */
 const VIEW_LINES = 64;
 
@@ -90,8 +79,8 @@ function coverAt(total: number, alpha: number): Block[] {
   const out: Block[] = [];
   const stack: Block[] = [[0, root]];
 
-  while (stack.length > 0) {
-    const [lo, hi] = stack.pop()!;
+  for (let block = stack.pop(); block; block = stack.pop()) {
+    const [lo, hi] = block;
 
     if (lo >= total) continue;
     const size = hi - lo;
@@ -129,17 +118,10 @@ function cover(total: number, budget: number): Block[] {
 
   // Sizes jump in powers of two, so spend what is left on the present.
   while (out.length < budget) {
-    let index = -1;
-
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (out[i]![1] - out[i]![0] > 1) {
-        index = i;
-        break;
-      }
-    }
+    const index = out.findLastIndex((block) => block[1] - block[0] > 1);
 
     if (index < 0) break;
-    const [a, b] = out[index]!;
+    const [a, b] = must(out[index], "the block to split is in the cover");
     const mid = (a + b) / 2;
     out.splice(index, 1, [a, mid], [mid, b]);
   }
@@ -203,6 +185,15 @@ function cutBytes(text: string, limit: number): string {
 const textOf = (answer: AssistantMessage) =>
   answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 
+/** The memories a query reads, as it reads them, leaving out any a restore damaged. */
+function* rows(cursor: Iterable<Record<string, SqlStorageValue>>): Generator<MemoryRow> {
+  for (const row of cursor) {
+    const memory = memoryRow(row);
+
+    if (memory) yield memory;
+  }
+}
+
 export class Memory {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<() => void>();
@@ -232,31 +223,20 @@ export class Memory {
   }
 
   count(): number {
-    return this.#sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM memo_log").one().n;
+    return countOf(this.#sql.exec("SELECT COUNT(*) AS n FROM memo_log").one());
   }
 
   /** Memories from #`from` on, oldest first, newest `limit` of them. */
   since(from: number, limit: number): MemoryRow[] {
-    return this.#sql
-      .exec<MemoryRow>("SELECT id, date, text FROM memo_log WHERE id >= ? ORDER BY id DESC LIMIT ?", from, limit)
-      .toArray()
-      .reverse();
+    return [...rows(this.#sql.exec("SELECT id, date, text FROM memo_log WHERE id >= ? ORDER BY id DESC LIMIT ?", from, limit))].reverse();
   }
 
   #slice(lo: number, hi: number): MemoryRow[] {
-    return this.#sql
-      .exec<MemoryRow>(
-        "SELECT id, date, text FROM memo_log WHERE id >= ? AND id < ? ORDER BY id",
-        lo,
-        hi
-      )
-      .toArray();
+    return [...rows(this.#sql.exec("SELECT id, date, text FROM memo_log WHERE id >= ? AND id < ? ORDER BY id", lo, hi))];
   }
 
   #summary(lo: number, hi: number): string | undefined {
-    return this.#sql
-      .exec<{ text: string }>("SELECT text FROM memo_tree WHERE lo = ? AND hi = ?", lo, hi)
-      .toArray()[0]?.text;
+    return summaryOf(this.#sql.exec("SELECT text FROM memo_tree WHERE lo = ? AND hi = ?", lo, hi).toArray()[0]);
   }
 
   /** Blocks that can be built and have not been, smallest first. */
@@ -431,7 +411,7 @@ export class Memory {
     let size = 0;
     let matched = 0;
 
-    for (const m of this.#sql.exec<MemoryRow>("SELECT id, date, text FROM memo_log ORDER BY id")) {
+    for (const m of rows(this.#sql.exec("SELECT id, date, text FROM memo_log ORDER BY id"))) {
       const line = lineOf(m);
 
       if (!regex.test(line)) continue;
@@ -439,7 +419,7 @@ export class Memory {
       hits.push(line);
       size += bytes(line) + 1;
 
-      while (size > RECALL_BYTES) size -= bytes(hits.shift()!) + 1;
+      while (size > RECALL_BYTES) size -= bytes(must(hits.shift(), "the hits hold what size counts")) + 1;
     }
 
     if (matched === 0) return "No match.";
@@ -487,13 +467,7 @@ export class Memory {
 
     if (hi - lo === 1) return this.#slice(lo, hi).map((m) => ({ kind: "memory", ...m }));
 
-    const dates = this.#sql
-      .exec<{ from: string; to: string }>(
-        `SELECT MIN(date) AS "from", MAX(date) AS "to" FROM memo_log WHERE id >= ? AND id < ?`,
-        lo,
-        hi
-      )
-      .one();
+    const dates = datesOf(this.#sql.exec(`SELECT MIN(date) AS "from", MAX(date) AS "to" FROM memo_log WHERE id >= ? AND id < ?`, lo, hi).one());
 
     return [{ kind: "block", block: blockId(block), text: this.#summary(lo, hi) ?? null, ...dates }];
   }
@@ -518,7 +492,7 @@ export class Memory {
     const matches: MemoryRow[] = [];
     let total = 0;
 
-    for (const m of this.#sql.exec<MemoryRow>("SELECT id, date, text FROM memo_log ORDER BY id DESC")) {
+    for (const m of rows(this.#sql.exec("SELECT id, date, text FROM memo_log ORDER BY id DESC"))) {
       if (!test(lineOf(m))) continue;
       total++;
 
@@ -602,14 +576,14 @@ export function memoryExtension(
     ],
     tools: [
       defineTool({
-        name: "memory_note",
+        name: MEMORY_NOTE,
         description: `Record one memory: one line, at most ${ENTRY_BYTES} bytes.`,
         parameters: Type.Object({ text: Type.String() }),
         replay: "unsafe",
         execute: async ({ text: line }) => text(memory.note(line))
       }),
       defineTool({
-        name: "chat_search",
+        name: CHAT_SEARCH,
         description:
           "Search every message of the main chat and the side chats, best matches first. Use distinctive words: names, file names, error text.",
         parameters: Type.Object({
@@ -622,21 +596,21 @@ export function memoryExtension(
         execute: async ({ query, around }, api) => text(history.search(query, around, String(api.conversationId)))
       }),
       defineTool({
-        name: "memory_recall",
+        name: MEMORY_RECALL,
         description: "Search every memory ever recorded with a case-insensitive regex.",
         parameters: Type.Object({ regex: Type.String() }),
         replay: "safe",
         execute: async ({ regex }) => text(memory.recall(regex))
       }),
       defineTool({
-        name: "memory_zoom",
+        name: MEMORY_ZOOM,
         description: 'Open a block of the memory tree, like "0-15", into its two halves.',
         parameters: Type.Object({ block: Type.String() }),
         replay: "safe",
         execute: async ({ block }) => text(memory.zoom(block))
       }),
       defineTool({
-        name: "memory_forget",
+        name: MEMORY_FORGET,
         description: "Drop a wrong summary. The log is untouched; the summary is rewritten in the background.",
         parameters: Type.Object({ block: Type.String() }),
         replay: "safe",

@@ -114,17 +114,6 @@
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 1
   },
-  "src/dreaming/dreaming.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-non-null-assertion)": 1
-  },
-  "src/dreaming/memory.ts": {
-    "ky(no-unchecked-parse)": 7,
-    "typescript(no-non-null-assertion)": 5
-  },
-  "src/dreaming/soul.ts": {
-    "ky(no-unchecked-parse)": 4
-  },
   "src/executor.ts": {
     "typescript(await-thenable)": 1,
     "typescript(no-unsafe-assignment)": 1,

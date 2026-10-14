@@ -9,13 +9,13 @@ import { parseAs } from "../../src/core/decode";
  * elsewhere while they are paid down, never here, so no `any`, unchecked cast, `!` or raw parse
  * enters a contract.
  */
-const ZERO = ["src/core/"];
+const ZERO = ["src/core/", "src/dreaming/"];
 
 /**
  * Domain folders whose files moved in with their old findings, and are paying them down: not held
  * to ZERO yet. Wave 2 moves each domain from here into ZERO as it clears it.
  */
-const PAYING_DOWN = ["src/dreaming/", "src/peers/", "src/skills/", "src/automations/", "src/machines/"];
+const PAYING_DOWN = ["src/peers/", "src/skills/", "src/automations/", "src/machines/"];
 
 const Baseline = Type.Record(Type.String(), Type.Record(Type.String(), Type.Integer()));
 

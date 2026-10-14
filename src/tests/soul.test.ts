@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { TEMPLATE } from "../dreaming/soul";
+import { TEMPLATE } from "../dreaming/contract";
 import { inside, prompt } from "./drive";
 
 /** SOUL.md through ky's real PiAgent on the fake AI binding: the seed, the prompt section, and soul_edit's versions. */
