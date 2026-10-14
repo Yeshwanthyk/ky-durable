@@ -98,7 +98,7 @@ Anthropic with it.
 a computer of yours: run it on port 8317, and share that port when `ky runner add` asks. It shows in Settings as
 "Claude via VibeProxy on <machine>" while that computer is online.
 
-**Executor.** Connect Executor in Settings › Executor with its URL and a token, and ky gets
+**Executor.** Connect Executor in Settings › Tools › Executor with its URL and a token, and ky gets
 your connected apps as tools.
 
 ## Keep it up to date

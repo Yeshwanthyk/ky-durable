@@ -111,9 +111,16 @@ export class FakeExecutor {
         return { content: [{ type: "text", text: `ran ${runs}` }] };
       }
     );
-    server.registerTool("skills", { inputSchema: { app: z.string().optional(), name: z.string().optional() } }, async () => ({
-      content: [{ type: "text", text: "fake executor apps: calendar (2 skills), github (3 skills)" }]
-    }));
+    // An output schema, as the real Executor's tools have: listing it needs a validator that works in Workers.
+    server.registerTool(
+      "skills",
+      { inputSchema: { app: z.string().optional(), name: z.string().optional() }, outputSchema: { apps: z.string() } },
+      async () => {
+        const apps = "fake executor apps: calendar (2 skills), github (3 skills)";
+
+        return { content: [{ type: "text", text: apps }], structuredContent: { apps } };
+      }
+    );
     server.registerTool("resume", { inputSchema: { requestId: z.string() } }, async ({ requestId }) => ({
       content: [{ type: "text", text: `fake executor resumed ${requestId}` }]
     }));

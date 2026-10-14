@@ -11,6 +11,7 @@ import {
   StreamableHTTPError
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import type { ExecutorView } from "./protocol";
 import type { Vault } from "./vault";
 
@@ -70,7 +71,8 @@ function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
 
 /** An MCP session with Executor, signed in with the token. */
 async function open(config: ExecutorConfig): Promise<Client> {
-  const client = new Client({ name: "ky", version: "0.1.0" });
+  // Workers refuse code built from strings, which the default validator (Ajv) needs for tools' output schemas.
+  const client = new Client({ name: "ky", version: "0.1.0" }, { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() });
 
   const options: StreamableHTTPClientTransportOptions = {
     requestInit: { headers: { Authorization: `Bearer ${config.token}` } }
