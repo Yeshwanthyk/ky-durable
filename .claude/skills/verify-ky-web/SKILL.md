@@ -51,6 +51,9 @@ Everything here runs on this Mac against the local stack. It never touches the d
   - `spawn …`: starts a subagent.
   - `gate`: calls a tool that waits until `POST /test/release`, which keeps a turn running.
   - Anything else is echoed back.
+- Programs the fake Executor understands (`src/tests/fake-executor.ts`), once `connectExecutor(page)` has connected it:
+  - `answer TEXT`: returns TEXT. As an automation's `gate`, `answer null` skips a fire and `answer ["x"]` runs it.
+  - `fail TEXT`: fails with TEXT.
 - Assert what the user sees: text, roles, enabled or disabled, and counts. To check what reached the server, use `network(page)`. It records each socket's submits, results and errors.
 
 ## Evidence
