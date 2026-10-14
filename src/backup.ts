@@ -1,5 +1,5 @@
 import { ROOT_SESSION } from "agents/harness/pi";
-import Type from "typebox";
+import Type, { type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
 import {
   type ArchivedFile,
@@ -10,6 +10,8 @@ import {
   FORMAT_VERSION,
   isUploadKey,
   type LeftOut,
+  ArchivedFileSchema,
+  LeftOutSchema,
   MANIFEST,
   type Manifest,
   parsed,
@@ -21,12 +23,16 @@ import {
   type Schemas,
   type Summary,
   type TableDump,
+  TableDumpSchema,
   tarEnd,
   tarEntry,
   tarHeader,
   tarPadding
 } from "./archive";
+import { decode, decodeOr, parseAs } from "./core/decode";
+import { must } from "./core/must";
 import { saveKey } from "./sandboxes";
+import { restores } from "./tables";
 import { fromBase64, toBase64 } from "./machines/contract";
 import type { SecretStatus } from "./vault";
 
@@ -41,7 +47,8 @@ import type { SecretStatus } from "./vault";
  *
  * Every table is copied, those added later included, but for SKIPPED and
  * SQLite's own: what is tied to this deploy, like machine pairings, and what
- * is rebuilt, like chat search. No secret is ever in the agent's SQLite; they
+ * is rebuilt, like chat search. A restore puts back only the tables ky names
+ * (src/tables.ts) and leaves out any other an archive has. No secret is ever in the agent's SQLite; they
  * are all the Vault's, which is never copied, so the manifest lists the ones
  * there were, for the owner to add again.
  */
@@ -53,7 +60,8 @@ const SKIPPED: ReadonlyArray<readonly [string, string]> = [
   ["ky_history*", "chat search: rebuilt from the chats on restore"],
   ["cf_agents_jobs", "scheduled runs: automations and dreams are booked again on start"],
   ["computer_execution_runtime", "the workspace's sandboxes: started fresh"],
-  ["ky_restore*", "a restore in progress"]
+  ["ky_restore*", "a restore in progress"],
+  ["ky_settings", "the model slots the purposes replaced: nothing reads it"]
 ];
 
 /** SQLite's and the runtime's own tables, which nothing copies. */
@@ -91,6 +99,33 @@ type Finished = { readonly rows: number; readonly leftOut: LeftOut[] };
 const Numeric = Type.Number();
 
 const Text = Type.String();
+
+/** ky_restore's one row, as begin wrote it. */
+const StartedRow = Type.Object({ tables: Text, rows: Text, left_out: Text });
+
+const Tables = Type.Array(TableDumpSchema);
+
+const Rows = Type.Record(Text, Numeric);
+
+/** A one-column row whose value is a number; anything else reads as null. */
+const Scalar = Type.Tuple([Numeric]);
+
+const LeftOuts = Type.Array(LeftOutSchema);
+
+/** What the dump and the restore read from SQLite's catalog and ky's own tables. */
+const Master = Type.Array(Type.Object({ name: Text, sql: Text }));
+
+const Names = Type.Array(Type.Object({ name: Text }));
+
+const Columns = Type.Array(Type.Object({ name: Text, type: Text, pk: Numeric }));
+
+const IndexSql = Type.Array(Type.Object({ sql: Text }));
+
+const Sessions = Type.Array(Type.Object({ session: Text }));
+
+const SandboxRows = Type.Array(Type.Object({ id: Text, name: Text, kept: Numeric }));
+
+const Files = Type.Array(ArchivedFileSchema);
 
 /** One part of a table's rows, and where the next starts; null once the table is done. */
 export type Page = { readonly text: string; readonly rows: number; readonly after: SqlStorageValue[] | null };
@@ -165,7 +200,7 @@ function selectCells(dumping: Dumping): string {
 function rowCells(values: readonly SqlStorageValue[]): Cell[] {
   const line: Cell[] = [];
 
-  for (let at = 0; at < values.length; at += 2) line.push(cell(values[at]!, values[at + 1]!));
+  for (let at = 0; at < values.length; at += 2) line.push(cell(values[at] ?? null, values[at + 1] ?? null));
 
   return line;
 }
@@ -184,13 +219,18 @@ export class Backups {
 
   #scalar(query: string, ...bindings: SqlStorageValue[]): number | null {
     try {
-      const value = this.#sql.exec(query, ...bindings).raw().next().value?.[0];
+      const row: unknown = this.#sql.exec(query, ...bindings).raw().next().value;
 
-      return Value.Check(Numeric, value) ? value : null;
+      return decodeOr(Scalar, row, [null])[0];
     } catch {
       // The table isn't there.
       return null;
     }
+  }
+
+  /** Every row `query` reads, checked against `schema`. */
+  #rows<Schema extends TSchema>(schema: Schema, query: string, ...bindings: SqlStorageValue[]): Static<Schema> {
+    return decode(schema, this.#sql.exec(query, ...bindings).toArray(), "A backup query's rows");
   }
 
   #schemas(): Schemas {
@@ -202,10 +242,7 @@ export class Backups {
 
   /** Every table, with the virtual ones and their own tables told apart. */
   #tables(): Array<{ name: string; sql: string; virtual: boolean }> {
-    const all = this.#sql
-      .exec<{ name: string; sql: string }>("SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name")
-      .toArray()
-      .filter((table) => !isSystem(table.name));
+    const all = this.#rows(Master, "SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name").filter((table) => !isSystem(table.name));
 
     const virtual = all.filter((table) => /^CREATE VIRTUAL TABLE/i.test(table.sql)).map((table) => table.name);
 
@@ -213,17 +250,14 @@ export class Backups {
   }
 
   #dumping(name: string, sql: string): Dumping {
-    const info = this.#sql.exec<{ name: string; type: string; pk: number }>(`PRAGMA table_info(${quote(name)})`).toArray();
+    const info = this.#rows(Columns, `PRAGMA table_info(${quote(name)})`);
     const columns = info.map((column) => column.name);
     const primary = info.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk);
     const withoutRowid = /\)\s*WITHOUT\s+ROWID\s*$/i.test(sql);
     // An INTEGER PRIMARY KEY column is the rowid itself.
-    const aliased = primary.length === 1 && primary[0]!.type.toUpperCase() === "INTEGER";
+    const aliased = primary.length === 1 && primary[0]?.type.toUpperCase() === "INTEGER";
 
-    const indexes = this.#sql
-      .exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name", name)
-      .toArray()
-      .map((index) => index.sql);
+    const indexes = this.#rows(IndexSql, "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name", name).map((index) => index.sql);
 
     return {
       name,
@@ -248,7 +282,7 @@ export class Backups {
     }
 
     const count = (query: string) => this.#scalar(query) ?? 0;
-    const chats = this.#sql.exec<{ session: string }>("SELECT session FROM ky_chats").toArray().map((chat) => chat.session);
+    const chats = this.#rows(Sessions, "SELECT session FROM ky_chats").map((chat) => chat.session);
 
     return {
       tables: tables.map(({ key: _key, ...table }) => table),
@@ -268,14 +302,8 @@ export class Backups {
         automations: count("SELECT count(*) FROM ky_automations"),
         workspaceFiles: count("SELECT count(*) FROM vfs_nodes WHERE type = 'file'")
       },
-      machines: this.#sql
-        .exec<{ name: string }>("SELECT name FROM ky_machines WHERE name NOT IN (SELECT name FROM ky_sandboxes WHERE deleted_at IS NULL) ORDER BY name")
-        .toArray()
-        .map((machine) => machine.name),
-      sandboxes: this.#sql
-        .exec<{ id: string; name: string; kept: number }>("SELECT id, name, deleted_at IS NOT NULL AS kept FROM ky_sandboxes ORDER BY kept, name")
-        .toArray()
-        .map((sandbox) => ({ id: sandbox.id, name: sandbox.name, kept: sandbox.kept === 1 }))
+      machines: this.#rows(Names, "SELECT name FROM ky_machines WHERE name NOT IN (SELECT name FROM ky_sandboxes WHERE deleted_at IS NULL) ORDER BY name").map((machine) => machine.name),
+      sandboxes: this.#rows(SandboxRows, "SELECT id, name, deleted_at IS NOT NULL AS kept FROM ky_sandboxes ORDER BY kept, name").map((sandbox) => ({ id: sandbox.id, name: sandbox.name, kept: sandbox.kept === 1 }))
     };
   }
 
@@ -302,7 +330,7 @@ export class Backups {
       rows += page.length;
 
       if (page.length < PAGE_ROWS) return { text, rows, after: null };
-      last = page.at(-1)!.slice(0, dumping.key.length);
+      last = must(page.at(-1), "A full page has a last row.").slice(0, dumping.key.length);
     }
 
     return { text, rows, after: last };
@@ -330,14 +358,16 @@ export class Backups {
     this.#refuseLived(force);
     this.#checkSchemas(manifest.schemas);
     const existing = new Map(this.#tables().map((table) => [table.name, table]));
+    // A table ky doesn't name is left out: stage counts its rows and drops them.
+    const tables = manifest.tables.filter((table) => restores(table.name));
 
-    for (const table of manifest.tables) this.#checkTable(table, existing.get(table.name));
+    for (const table of tables) this.#checkTable(table, existing.get(table.name));
 
     this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_restore (id INTEGER PRIMARY KEY CHECK (id = 1), tables TEXT NOT NULL, rows TEXT NOT NULL, left_out TEXT NOT NULL)");
     this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_restore_files (key TEXT PRIMARY KEY, size INTEGER NOT NULL, type TEXT)");
     this.#drop();
 
-    for (const table of manifest.tables) {
+    for (const table of tables) {
       const columns = [...(table.rowid ? ["rowid"] : []), ...table.columns].map((_, at) => `c${at}`);
       this.#sql.exec(`CREATE TABLE ${quote(staging(table.name))} (${columns.join(", ")})`);
     }
@@ -349,7 +379,7 @@ export class Backups {
 
     this.#sql.exec(
       "INSERT INTO ky_restore (id, tables, rows, left_out) VALUES (1, ?, ?, ?)",
-      JSON.stringify(manifest.tables),
+      JSON.stringify(tables),
       JSON.stringify(end.rows),
       JSON.stringify(manifest.leftOut)
     );
@@ -386,7 +416,7 @@ export class Backups {
 
   /** Forget a restore: its staging tables, and what it expects. */
   #drop(): void {
-    for (const { name } of this.#sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ky\\_restore\\_\\_%' ESCAPE '\\'").toArray()) {
+    for (const { name } of this.#rows(Names, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ky\\_restore\\_\\_%' ESCAPE '\\'")) {
       this.#sql.exec(`DROP TABLE ${quote(name)}`);
     }
 
@@ -395,11 +425,16 @@ export class Backups {
   }
 
   #started(): Started {
-    const row = this.#sql.exec<{ tables: string; rows: string; left_out: string }>("SELECT tables, rows, left_out FROM ky_restore").toArray()[0];
+    const row = this.#sql.exec("SELECT tables, rows, left_out FROM ky_restore").toArray()[0];
 
     if (!row) throw new Error("No restore is in progress: start it again.");
+    const started = decode(StartedRow, row, "The restore in progress");
 
-    return { tables: JSON.parse(row.tables), rows: JSON.parse(row.rows), leftOut: JSON.parse(row.left_out) };
+    return {
+      tables: parseAs(Tables, started.tables, "The restore's tables"),
+      rows: parseAs(Rows, started.rows, "The restore's row counts"),
+      leftOut: parseAs(LeftOuts, started.left_out, "What the restore leaves out")
+    };
   }
 
   /** Put every staged table in place of the live one; `existing` are the tables this ky has. */
@@ -436,16 +471,19 @@ export class Backups {
   file(key: string): ArchivedFile | undefined {
     this.#started();
 
-    return this.#sql.exec<ArchivedFile>("SELECT key, size, type FROM ky_restore_files WHERE key = ?", key).toArray()[0];
+    return this.#rows(Files, "SELECT key, size, type FROM ky_restore_files WHERE key = ?", key)[0];
   }
 
   files(): ArchivedFile[] {
-    return this.#sql.exec<ArchivedFile>("SELECT key, size, type FROM ky_restore_files ORDER BY key").toArray();
+    return this.#rows(Files, "SELECT key, size, type FROM ky_restore_files ORDER BY key");
   }
 
   /** Keep one part of `table`'s rows aside; returns how many. */
   stage(table: string, text: string): number {
     const dump = this.#started().tables.find((each) => each.name === table);
+
+    // A table begin left out: its rows are counted, as the CLI sends them, and dropped.
+    if (!dump && !restores(table)) return text.split("\n").filter((line) => line !== "").length;
 
     if (!dump) throw new Error(`The backup has no table ${table}.`);
     const width = dump.columns.length + (dump.rowid ? 1 : 0);

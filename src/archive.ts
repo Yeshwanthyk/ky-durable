@@ -25,7 +25,7 @@ export const MANIFEST = "manifest.json";
 
 export const END = "end.json";
 
-const TableDumpSchema = Type.Object({
+export const TableDumpSchema = Type.Object({
   name: Type.String(),
   /** Its CREATE TABLE statement, for a ky that lacks the table. */
   sql: Type.String(),
@@ -41,7 +41,7 @@ const TableDumpSchema = Type.Object({
 export type TableDump = Static<typeof TableDumpSchema>;
 
 /** Something the archive leaves out, and what to do about it after a restore. */
-const LeftOutSchema = Type.Object({ what: Type.String(), why: Type.String(), next: Type.Optional(Type.String()) });
+export const LeftOutSchema = Type.Object({ what: Type.String(), why: Type.String(), next: Type.Optional(Type.String()) });
 
 export type LeftOut = Static<typeof LeftOutSchema>;
 
@@ -67,7 +67,7 @@ const SchemasSchema = Type.Object({ pi: Type.Union([Type.Number(), Type.Null()])
 
 export type Schemas = Static<typeof SchemasSchema>;
 
-const ArchivedFileSchema = Type.Object({ key: Type.String(), size: Type.Number(), type: Type.Union([Type.String(), Type.Null()]) });
+export const ArchivedFileSchema = Type.Object({ key: Type.String(), size: Type.Number(), type: Type.Union([Type.String(), Type.Null()]) });
 
 export type ArchivedFile = Static<typeof ArchivedFileSchema>;
 

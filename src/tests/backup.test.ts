@@ -190,6 +190,38 @@ describe("backup and restore", () => {
     await env.FILES.delete(saveKey(own.api));
   });
 
+  it("restores only the tables ky names, and a corrupt cell it restores reads as its default", async () => {
+    const name = "stray-source";
+    await prompt(name, 'tool memory_note {"text":"Kept through the restore."}');
+    await inside(name, (_instance, state) => {
+      const sql = state.storage.sql;
+
+      // A table no contract names, as an old version or a hand edit might leave, and a choice that isn't JSON.
+      sql.exec("CREATE TABLE ky_stray (id INTEGER PRIMARY KEY, note TEXT NOT NULL)");
+      sql.exec("INSERT INTO ky_stray (note) VALUES ('left behind')");
+      sql.exec("INSERT INTO ky_purposes (purpose, value) VALUES ('main', '{broken') ON CONFLICT(purpose) DO UPDATE SET value = excluded.value");
+    });
+
+    const response = await routeTo(name)("/api/backup", { method: "GET" });
+    const archive = readArchive(readTar(new Uint8Array(await new Response(response.body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())));
+    expect(archive.manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["ky_stray", "ky_purposes"]));
+
+    const target = "stray-target";
+    await restoreArchive(archive, restoreInto(target), false);
+
+    const tables = await inside(target, (_instance, state) =>
+      state.storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => row.name)
+    );
+
+    expect(tables).not.toContain("ky_stray");
+    expect(tables.filter((table) => table.startsWith("ky_restore__"))).toEqual([]);
+    // The damaged cell came across as it was, and reads as no choice: the purpose's default runs.
+    expect(await rows(target, "ky_purposes")).toBe(await rows(name, "ky_purposes"));
+    expect(await rows(target, "ky_purposes")).toContain("{broken");
+    expect(await inside(target, (instance) => instance.models.settings.get("main") ?? null)).toBeNull();
+    expect(await rows(target, "memo_log")).toContain("Kept through the restore.");
+  });
+
   it("refuses to restore over a ky with chats or memory, unless forced", async () => {
     const { archive } = await backUp();
     const target = "used-target";
