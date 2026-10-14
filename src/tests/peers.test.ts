@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import type { PiClientMessage } from "../protocol";
 import { connect, follow, inside, promptTool, said, shows, snapshotView, tasks } from "./drive";
 import { ROOT_SESSION } from "agents/harness/pi";
-import { ASK_TTL_MS } from "../peers/peers";
+import Type from "typebox";
+import { decodeOr } from "../core/decode";
+import { ASK_TTL_MS, PEERS_TABLES } from "../peers/contract";
+import { peerAnswer, peerPair } from "../peers/peers";
 import { peerVaultName, type Vault as TestVault } from "./stack";
 
 /**
@@ -310,5 +313,80 @@ describe("the peer routes", () => {
 
     expect(statuses).toContain(401);
     expect(statuses.at(-1)).toBe(429);
+  });
+});
+
+describe("what goes wrong between peers", () => {
+  it("lists a peer whose token this ky lost as unreachable, and keeps the pairing the peer still has", async () => {
+    const { ana, ben } = await paired();
+    await vaultOf(ana).remove("peer", "benky");
+
+    expect(await peer(ana, { action: "list" })).toContain(`- benky, ${address(ben)}: unreachable (This ky lost its token for benky. Remove it, and pair again.)`);
+    // Ana's ky didn't take its 401 for an unpairing: Ben's ky still reaches it, and Ana's still lists benky.
+    expect(await peer(ben, { action: "list" })).toContain(`- anaky, ${address(ana)}: on`);
+    expect(await peer(ana, { action: "list" })).not.toContain(": revoked");
+  });
+
+  it("won't send an empty reply to a peer's question: the question still waits on the person", async () => {
+    const { ana, ben } = await paired();
+    await peer(ana, { action: "ask", name: "benky", question: `tool peer ${JSON.stringify({ action: "escalate", note: "?" })}` });
+    const id = await waiting(ben);
+
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id, answer: "  " })).toMatch(/^reply needs the user's answer/);
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id })).toMatch(/^reply needs the user's answer/);
+    expect(await peer(ben, { action: "reply", name: "anaky", ask: id, answer: "after 6" })).toBe("Sent the user's reply to anaky.");
+    await said(ana, "after 6");
+  });
+
+  it("says so when a peer's answer is empty, rather than passing on nothing", () => {
+    expect(peerAnswer("benky", "free?", "")).toMatch(/\(benky sent an empty answer\)$/);
+    expect(peerAnswer("benky", "free?", "yes")).toMatch(/\n\nyes$/);
+  });
+
+  it("refuses a pairing answer that isn't a ky's, and keeps no peer or token for it", async () => {
+    const ana = await ky("ana");
+
+    const answer = await inside(ana, (instance) =>
+      peerPair({ ...instance.peerDesk, fetch: async () => Response.json({ token: "not a token" }) }, "odd", "https://odd.test", "code")
+    );
+
+    expect(answer).toEqual({ refused: "https://odd.test answered, but not as a ky pairing does." });
+    expect(await peer(ana, { action: "list" })).toMatch(/^No peers yet/);
+    expect(await vaultOf(ana).peerToken("odd")).toBeNull();
+  });
+});
+
+const TableRow = Type.Object({ name: Type.String() });
+
+describe("the peers domain's storage", () => {
+  it("makes each table its contract names on start", async () => {
+    const ana = await ky("ana");
+
+    const tables = await inside(ana, (_instance, state) =>
+      state.storage.sql
+        .exec("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .toArray()
+        .map((row) => decodeOr(TableRow, row, { name: "" }).name)
+    );
+
+    expect(tables).toEqual(expect.arrayContaining(Object.values(PEERS_TABLES)));
+  });
+
+  it("reads a corrupt responders column as no responders, and leaves out a damaged peer or question", async () => {
+    const ana = await ky("ana");
+
+    await inside(ana, (instance, state) => {
+      const { sql } = state.storage;
+      sql.exec("INSERT INTO ky_group_messages (chat, request, responders, created_at) VALUES ('c', 'r', '{not json', 0)");
+      expect(instance.groups.decided("c", "r")).toEqual([]);
+
+      instance.peers.add("good", "https://good.test");
+      sql.exec("INSERT INTO ky_peers (name, address, state, created_at) VALUES ('bad', 'https://bad.test', 'weird', 0)");
+      expect(instance.peers.list().map((row) => row.name)).toEqual(["good"]);
+
+      instance.peerAsks.sent("good", "q1", "?", "s", 0);
+      sql.exec("INSERT INTO ky_peer_asks (id, peer, direction, question, state, session, sent, created_at) VALUES ('q2', 'good', 'out', '?', 'open', 's', 'x', 0)");
+      expect(instance.peerAsks.expire(ASK_TTL_MS + 1).map((ask) => ask.id)).toEqual(["q1"]);
+    });
   });
 });
