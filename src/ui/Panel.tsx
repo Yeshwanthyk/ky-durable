@@ -2465,7 +2465,7 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
 function PeersPage() {
   return (
     <>
-      <PageHead title="Peers">Other people's kys this one is paired with.</PageHead>
+      <PageHead title="Peers">Pair with a friend's ky, and yours can ask theirs questions. Theirs only looks things up to answer; it never acts for you.</PageHead>
       <Peers />
     </>
   );

@@ -552,23 +552,30 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
   await settings(page, "Peers");
   await expect(panel(page).getByText("No peers yet.")).toBeVisible();
 
+  // One way of adding a peer at a time.
+  await expect(panel(page).getByRole("form", { name: "Invite a peer" })).toBeHidden();
+  await panel(page).getByRole("button", { name: "Invite someone" }).click();
   const invite = panel(page).getByRole("form", { name: "Invite a peer" });
-  await invite.getByLabel("Call their ky").fill("Not A Name");
-  await invite.getByRole("button", { name: "Make a code" }).click();
+  await invite.getByLabel("Name for their ky").fill("Not A Name");
+  await invite.getByRole("button", { name: "Make invite" }).click();
   await expect(invite.getByRole("alert")).toContainText("needs a name");
 
-  await invite.getByLabel("Call their ky").fill("benky");
-  await invite.getByRole("button", { name: "Make a code" }).click();
+  await invite.getByLabel("Name for their ky").fill("benky");
+  await invite.getByRole("button", { name: "Make invite" }).click();
   const origin = new URL(page.url()).origin;
   const line = invite.getByLabel("Invite", { exact: true });
   await expect(line).toHaveText(new RegExp(`^${origin} [0-9a-f]{64}$`));
+  await expect(invite.getByText(/It works once, until /)).toBeVisible();
+  await expect(invite.getByRole("button", { name: "New invite" })).toBeVisible();
   const sent = (await line.textContent())!;
 
+  await panel(page).getByRole("button", { name: "I have an invite" }).click();
+  await expect(invite).toBeHidden();
   const pair = panel(page).getByRole("form", { name: "Pair with a peer" });
   await expect(pair.getByRole("button", { name: "Pair" })).toBeDisabled();
   // Pasting the invite names the ky after its address.
   await pair.getByLabel("Their invite").fill(sent);
-  await expect(pair.getByLabel("Call their ky")).toHaveValue(new URL(origin).hostname.split(".")[0]!);
+  await expect(pair.getByLabel("Name for their ky")).toHaveValue(new URL(origin).hostname.split(".")[0]!);
   await page.screenshot({ path: SHOTS ? `${SHOTS}/peers-invite.png` : undefined });
   await pair.getByRole("button", { name: "Pair" }).click();
   await expect(pair.getByRole("alert")).toHaveText("That is this ky's own address.");
