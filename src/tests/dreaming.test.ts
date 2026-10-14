@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  DREAM_MEMORY_TOOLS,
-  DREAMING_TABLES,
-  dreamingTools,
-  Memory,
-  MEMORY_WRITE_TOOLS,
-  Soul,
-  SOUL_EDIT
-} from "../dreaming/contract";
+import { DREAM_MEMORY_TOOLS, DREAMING_TABLES, MEMORY_WRITE_TOOLS, SOUL_EDIT } from "../dreaming/contract";
+import { dreamingTools, Memory, Soul } from "../dreaming/wiring";
 import { inside, prompt } from "./drive";
 
 /**

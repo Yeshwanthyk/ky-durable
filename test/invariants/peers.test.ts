@@ -49,24 +49,38 @@ describe("the JSON columns the peers domain keeps", () => {
   });
 });
 
-/** Every tool name ky defines, read from its sources: each `defineTool({ name: "..." })`. */
+/**
+ * Every tool name ky defines, read from its sources: each `defineTool({ name: ... })`, as a string or
+ * as a constant a contract names (`export const MEMORY_NOTE = "memory_note"`), or as a key of a contract's
+ * names object (`TOOLS.skillView`, from `skillView: "skill_view"`).
+ */
 function registeredTools(): Set<string> {
-  const names = new Set<string>();
+  const texts: string[] = [];
 
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const at = path.join(dir, entry.name);
 
       if (entry.isDirectory() && entry.name !== "tests") walk(at);
-      else if (entry.name.endsWith(".ts")) {
-        for (const [, name] of readFileSync(at, "utf8").matchAll(/defineTool\(\{\s*name:\s*"([a-z_]+)"/g)) if (name) names.add(name);
-      }
+      else if (entry.name.endsWith(".ts")) texts.push(readFileSync(at, "utf8"));
     }
   };
 
   walk(SRC);
 
-  return names;
+  const named = (pattern: RegExp) => new Map(texts.flatMap((text) => [...text.matchAll(pattern)].map(([, key = "", value = ""]) => [key, value] as const)));
+
+  const constants = named(/export const ([A-Z_]+) = "([a-z_]+)"/g);
+
+  const keys = named(/\b([a-z][A-Za-z]+): "([a-z]+_[a-z_]+)"/g);
+
+  return new Set(
+    texts.flatMap((text) =>
+      [...text.matchAll(/defineTool\(\{\s*name:\s*(?:"([a-z_]+)"|[A-Z_]+\.(\w+)|([A-Z_]+))/g)].map(
+        ([, literal, key, constant]) => literal ?? keys.get(key ?? "") ?? constants.get(constant ?? "") ?? ""
+      )
+    )
+  );
 }
 
 describe("the tools a peer conversation may call", () => {

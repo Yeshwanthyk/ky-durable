@@ -8,7 +8,7 @@ import {
   AutomationToolInput,
   BY_ID_ACTIONS,
   CHECK_IN_TOOLS,
-  TABLES,
+  AUTOMATION_TABLES,
   taskRows,
   TOOL_ACTIONS
 } from "../../src/automations/contract";
@@ -108,7 +108,7 @@ describe("tools", () => {
 });
 
 describe("tables", () => {
-  const names: readonly string[] = Object.values(TABLES);
+  const names: readonly string[] = Object.values(AUTOMATION_TABLES);
 
   const created = [...domain.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((match) => match[1]);
 

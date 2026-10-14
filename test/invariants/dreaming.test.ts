@@ -14,7 +14,7 @@ import {
   soulVersion,
   summaryOf,
   versionOf
-} from "../../src/dreaming/schema";
+} from "../../src/dreaming/contract";
 
 /**
  * Dreaming's storage and tools: memory (OptMem), SOUL.md and the nightly dream's mark.

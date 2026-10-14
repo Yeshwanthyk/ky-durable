@@ -3,6 +3,13 @@ import type { Reviews } from "../skills/contract";
 import { memoryExtension, type Memory } from "./memory";
 import { soulExtension, type Soul } from "./soul";
 
+/** What the agent (src/server.ts) and other domains run: the dreaming domain's classes. */
+export { DREAM_CRON, Dreaming } from "./dreaming";
+
+export { Memory } from "./memory";
+
+export { Soul, TEMPLATE } from "./soul";
+
 /** What the dreaming domain's tools are made from, on the agent (src/server.ts). */
 export type DreamingWiring = {
   readonly soul: Soul;

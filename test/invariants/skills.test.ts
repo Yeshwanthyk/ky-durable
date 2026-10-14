@@ -11,7 +11,7 @@ import {
   specialistOf,
   SubagentAction,
   SubagentInput,
-  TABLES,
+  SKILL_TABLES,
   TOOLS
 } from "../../src/skills/contract";
 import { CHANGES } from "../../src/skills/skills";
@@ -72,22 +72,22 @@ describe("storage", () => {
   );
 
   it("keeps the names of the tables it owns: a restore matches them by name", () => {
-    expect(TABLES).toEqual({
+    expect(SKILL_TABLES).toEqual({
       skills: "ky_skills",
       skillVersions: "ky_skill_versions",
       skillReviews: "ky_skill_reviews",
       specialists: "ky_specialists",
       specialistSessions: "ky_specialist_sessions"
     });
-    expect(Object.isFrozen(TABLES)).toBe(true);
+    expect(Object.isFrozen(SKILL_TABLES)).toBe(true);
   });
 
   it("creates each table it names, only if missing, and never drops one", () => {
     const text = sources.map((source) => source.text).join("\n");
-    const created = [...text.matchAll(/CREATE TABLE (IF NOT EXISTS )?\$\{TABLES\.(\w+)\}/g)];
+    const created = [...text.matchAll(/CREATE TABLE (IF NOT EXISTS )?\$\{SKILL_TABLES\.(\w+)\}/g)];
 
     expect(created.every((match) => match[1] !== undefined)).toBe(true);
-    expect(created.map((match) => match[2]).sort()).toEqual(Object.keys(TABLES).sort());
+    expect(created.map((match) => match[2]).sort()).toEqual(Object.keys(SKILL_TABLES).sort());
     expect(text).not.toMatch(/\bDROP\s+TABLE\b/i);
   });
 

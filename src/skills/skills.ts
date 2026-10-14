@@ -16,7 +16,7 @@ import {
   type SkillStatus,
   SkillVersion,
   SkillViewInput,
-  TABLES,
+  SKILL_TABLES,
   TOOLS
 } from "./contract";
 import { rows } from "./rows";
@@ -140,7 +140,7 @@ export class Skills {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skills} (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skills} (
       name TEXT PRIMARY KEY,
       description TEXT NOT NULL,
       body TEXT NOT NULL,
@@ -149,7 +149,7 @@ export class Skills {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skillVersions} (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillVersions} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       action TEXT NOT NULL,
@@ -159,8 +159,8 @@ export class Skills {
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, TABLES.skills, [["last_used_at", "INTEGER"]]);
-    addColumns(sql, TABLES.skillVersions, [["conversation", "TEXT"]]);
+    addColumns(sql, SKILL_TABLES.skills, [["last_used_at", "INTEGER"]]);
+    addColumns(sql, SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]);
   }
 
   onChange(listener: () => void): () => void {
@@ -170,20 +170,20 @@ export class Skills {
   }
 
   get(name: string): SkillRow | undefined {
-    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} WHERE name = ?`, name), SkillRow, "a stored skill")[0];
+    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} WHERE name = ?`, name), SkillRow, "a stored skill")[0];
   }
 
   list(status: SkillStatus = "active"): SkillRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} WHERE status = ? ORDER BY name`, status), SkillRow, "a stored skill");
+    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} WHERE status = ? ORDER BY name`, status), SkillRow, "a stored skill");
   }
 
   /** Every skill, active ones first, for the panel. */
   all(): SkillRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skills} ORDER BY status = 'archived', name`), SkillRow, "a stored skill");
+    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} ORDER BY status = 'archived', name`), SkillRow, "a stored skill");
   }
 
   history(name: string): SkillVersion[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name), SkillVersion, "a skill version");
+    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name), SkillVersion, "a skill version");
   }
 
   /** The prompt's index: one line per active skill. */
@@ -198,7 +198,7 @@ export class Skills {
     const skill = this.get(name);
 
     if (!skill) throw new Error(`No skill named ${name}.`);
-    this.#sql.exec(`UPDATE ${TABLES.skills} SET uses = uses + 1, last_used_at = ? WHERE name = ?`, Date.now(), name);
+    this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET uses = uses + 1, last_used_at = ? WHERE name = ?`, Date.now(), name);
 
     return skill;
   }
@@ -206,7 +206,7 @@ export class Skills {
   /** Versions made after a time, oldest first, newest `limit` of them. */
   versionsSince(at: number, limit: number, exceptActor = ""): SkillVersion[] {
     return rows(
-      this.#sql.exec(`SELECT * FROM ${TABLES.skillVersions} WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?`, at, exceptActor, limit),
+      this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?`, at, exceptActor, limit),
       SkillVersion,
       "a skill version"
     ).reverse();
@@ -231,7 +231,7 @@ export class Skills {
     checkText(description, body);
     const now = Date.now();
     this.#sql.exec(
-      `INSERT INTO ${TABLES.skills} (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
          status = excluded.status, updated_at = excluded.updated_at`,
       name,
@@ -246,7 +246,7 @@ export class Skills {
       Inserted,
       this.#sql
         .exec(
-          `INSERT INTO ${TABLES.skillVersions} (name, action, actor, conversation, description, body, status, created_at)
+          `INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, conversation, description, body, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
           name,
           action,
@@ -277,16 +277,16 @@ export class Reviews {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLES.skillReviews} (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillReviews} (
       conversation TEXT PRIMARY KEY,
       parent TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, TABLES.skillReviews, [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
+    addColumns(sql, SKILL_TABLES.skillReviews, [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
   }
 
   kind(conversation: string): ReviewKind | undefined {
-    return rows(this.#sql.exec(`SELECT kind FROM ${TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRow, "a skill review")[0]?.kind;
+    return rows(this.#sql.exec(`SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRow, "a skill review")[0]?.kind;
   }
 
   has(conversation: string): boolean {
@@ -296,7 +296,7 @@ export class Reviews {
   /** `parent` is the chat a review forked; a dream has none, and records "". */
   add(conversation: string, parent: string, kind: ReviewKind = "review"): void {
     this.#sql.exec(
-      `INSERT INTO ${TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)`,
       conversation,
       parent,
       Date.now(),

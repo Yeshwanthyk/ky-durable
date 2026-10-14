@@ -16,7 +16,7 @@ export type { Automations } from "./automations";
 export type { TaskFeed } from "./tasks";
 
 /** The domain's SQL tables, by name. A restore stages each as `ky_restore__<table>`: never rename one. */
-export const TABLES = Object.freeze({
+export const AUTOMATION_TABLES = Object.freeze({
   automations: "ky_automations",
   checkIns: "ky_check_ins",
   tasks: "ky_tasks"

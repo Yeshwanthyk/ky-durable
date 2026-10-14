@@ -20,7 +20,7 @@ import {
   type MemorySearch,
   type MemoryView,
   summaryOf
-} from "./schema";
+} from "./contract";
 
 /**
  * OptMem (github.com/VictorTaelin/OptMem) on the Durable Object's SQLite.

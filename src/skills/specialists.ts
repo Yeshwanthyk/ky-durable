@@ -25,7 +25,7 @@ import {
   type SpecialistRow,
   type SpecialistView,
   specialistOf,
-  TABLES,
+  SKILL_TABLES,
   textOf,
   TOOLS
 } from "./contract";
@@ -72,14 +72,14 @@ const MEMORY_WRITES = new Set<string>(MEMORY_WRITE_TOOLS);
 
 /** Each specialist, and every conversation one answers in: its home, or a consult. */
 const CREATE = [
-  `CREATE TABLE IF NOT EXISTS ${TABLES.specialists} (
+  `CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.specialists} (
     id TEXT PRIMARY KEY,
     description TEXT NOT NULL,
     model TEXT,
     machine TEXT,
     session TEXT,
     created_at INTEGER NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS ${TABLES.specialistSessions} (
+  `CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.specialistSessions} (
     session TEXT PRIMARY KEY,
     specialist TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -104,11 +104,11 @@ export class Specialists {
   }
 
   list(): SpecialistRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${TABLES.specialists} ORDER BY id`), SpecialistStored, "a stored specialist").map(specialistOf);
+    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.specialists} ORDER BY id`), SpecialistStored, "a stored specialist").map(specialistOf);
   }
 
   get(id: string): SpecialistRow | undefined {
-    const row = rows(this.#sql.exec(`SELECT * FROM ${TABLES.specialists} WHERE id = ?`, id), SpecialistStored, "a stored specialist")[0];
+    const row = rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.specialists} WHERE id = ?`, id), SpecialistStored, "a stored specialist")[0];
 
     return row && specialistOf(row);
   }
@@ -145,7 +145,7 @@ export class Specialists {
     const description = this.#description(draft.description);
     this.brief(id).apply({ action: "edit", body: draft.brief }, actor, conversation);
     this.#sql.exec(
-      `INSERT INTO ${TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
       id,
       description,
       draft.model ? JSON.stringify(draft.model) : null,
@@ -161,7 +161,7 @@ export class Specialists {
   set(id: string, draft: SpecialistDraft): string {
     const row = this.#need(id);
     this.#sql.exec(
-      `UPDATE ${TABLES.specialists} SET description = ?, model = ?, machine = ? WHERE id = ?`,
+      `UPDATE ${SKILL_TABLES.specialists} SET description = ?, model = ?, machine = ? WHERE id = ?`,
       draft.description === undefined ? row.description : this.#description(draft.description),
       draft.model === undefined ? (row.model && JSON.stringify(row.model)) : draft.model && JSON.stringify(draft.model),
       draft.machine === undefined ? row.machine : draft.machine || null,
@@ -175,7 +175,7 @@ export class Specialists {
   /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
   attach(session: string, id: string, kind: SessionKind): void {
     this.#sql.exec(
-      `INSERT OR REPLACE INTO ${TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO ${SKILL_TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`,
       session,
       id,
       kind,
@@ -183,7 +183,7 @@ export class Specialists {
     );
 
     if (kind === "home") {
-      this.#sql.exec(`UPDATE ${TABLES.specialists} SET session = ? WHERE id = ?`, session, id);
+      this.#sql.exec(`UPDATE ${SKILL_TABLES.specialists} SET session = ? WHERE id = ?`, session, id);
       this.#emit();
     }
   }
@@ -191,7 +191,7 @@ export class Specialists {
   /** The specialist a conversation belongs to, and how it is used. */
   bySession(session: string): { specialist: SpecialistRow; kind: SessionKind } | undefined {
     const found = rows(
-      this.#sql.exec(`SELECT specialist, kind FROM ${TABLES.specialistSessions} WHERE session = ?`, session),
+      this.#sql.exec(`SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, session),
       SpecialistSession,
       "a specialist's conversation"
     )[0];

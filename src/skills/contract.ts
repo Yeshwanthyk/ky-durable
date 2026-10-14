@@ -24,7 +24,7 @@ export type { Spawn } from "./subagents";
  * The tables this domain owns. A backup restore stages each as `ky_restore__<table>` and matches
  * it by name, so these never change.
  */
-export const TABLES = Object.freeze({
+export const SKILL_TABLES = Object.freeze({
   skills: "ky_skills",
   skillVersions: "ky_skill_versions",
   skillReviews: "ky_skill_reviews",
