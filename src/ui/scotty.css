@@ -1849,3 +1849,45 @@ kbd {
   font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
 }
+
+/* Scrolled up from the end, a small round button floats over the thread's foot and glides back down.
+   The holder has no height, so it never adds to what scrolls. */
+.thread-end {
+  position: sticky;
+  bottom: 0;
+  height: 0;
+}
+
+.to-latest {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--line-strong),
+    0 4px 14px rgb(0 0 0 / 0.08);
+  translate: -50% 0;
+  transition:
+    opacity var(--fast) var(--ease-out),
+    translate var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out),
+    visibility 0s;
+}
+
+.to-latest:hover {
+  color: var(--ink);
+}
+
+/* Hidden only once it has faded, so it fades out rather than vanishing. */
+.to-latest[data-shown="false"] {
+  opacity: 0;
+  translate: -50% 6px;
+  visibility: hidden;
+  transition-delay: 0s, 0s, 0s, var(--fast);
+}

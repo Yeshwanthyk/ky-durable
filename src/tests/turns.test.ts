@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PiMessage } from "../transcript";
-import { buildTurns } from "../ui/turns";
+import { buildTurns, sentTexts } from "../ui/turns";
 
 describe("buildTurns", () => {
   it("keeps a tool's images apart from its text output", () => {
@@ -52,5 +52,19 @@ describe("buildTurns", () => {
     expect(after[0]).toBe(before[0]);
     expect(after[1]).not.toBe(before[1]);
     expect(after[1]?.items).toEqual([{ kind: "text", id: "live:0", text: "Working", final: false }]);
+  });
+});
+
+describe("sentTexts", () => {
+  it("keeps the user's own words, oldest first, and skips reports, replies and image-only messages", () => {
+    const messages: PiMessage[] = [
+      { id: "1", role: "user", parts: [{ type: "text", text: "first" }], timestamp: 1 },
+      { id: "2", role: "assistant", parts: [{ type: "text", text: "echo: first" }], timestamp: 2 },
+      { id: "3", role: "user", parts: [{ type: "image", mimeType: "image/png", data: "AAAA" }], timestamp: 3 },
+      { id: "4", role: "user", parts: [{ type: "text", text: '[subagent "scout" finished] found it' }], timestamp: 4 },
+      { id: "5", role: "user", parts: [{ type: "text", text: "second\nline" }], timestamp: 5 }
+    ];
+
+    expect(sentTexts(messages)).toEqual(["first", "second\nline"]);
   });
 });
