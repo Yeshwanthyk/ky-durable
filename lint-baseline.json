@@ -39,12 +39,6 @@
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/backup.ts": {
-    "ky(no-unchecked-parse)": 13,
-    "typescript(no-non-null-assertion)": 4,
-    "typescript(no-unsafe-assignment)": 4,
-    "typescript(no-unsafe-member-access)": 1
-  },
   "src/chatgpt.ts": {
     "ky(no-unchecked-parse)": 3,
     "typescript(no-non-null-assertion)": 1
@@ -65,9 +59,6 @@
   "src/files.ts": {
     "ky(no-unchecked-parse)": 2,
     "typescript(no-non-null-assertion)": 2
-  },
-  "src/github-tools.ts": {
-    "ky(no-unchecked-parse)": 3
   },
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
@@ -99,14 +90,7 @@
   "src/server.ts": {
     "typescript(no-non-null-assertion)": 1
   },
-  "src/settings.ts": {
-    "ky(no-unchecked-parse)": 2,
-    "typescript(no-non-null-assertion)": 1
-  },
   "src/setup.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
-  "src/sockets.ts": {
     "ky(no-unchecked-parse)": 1
   },
   "src/tests/backup.test.ts": {
@@ -178,7 +162,6 @@
     "typescript(no-non-null-assertion)": 2
   },
   "src/ui/Panel.tsx": {
-    "ky(no-unchecked-parse)": 3,
     "typescript(no-non-null-assertion)": 4
   },
   "src/ui/bloub/decor.ts": {
@@ -220,11 +203,7 @@
   "src/ui/turns.ts": {
     "typescript(no-non-null-assertion)": 1
   },
-  "src/ui/use-seen.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
   "src/use-pi-session.ts": {
-    "ky(no-unchecked-parse)": 1,
     "typescript(unbound-method)": 1
   },
   "src/vault.ts": {
@@ -233,9 +212,6 @@
     "typescript(no-unsafe-argument)": 2,
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 2
-  },
-  "src/view-cache.ts": {
-    "ky(no-unchecked-parse)": 1
   },
   "src/workspace.ts": {
     "typescript(no-misused-spread)": 1
