@@ -5,11 +5,10 @@
  * and the tools. Other folders import automations and the task feed from here, never from the
  * files behind it.
  */
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import Type, { type Static, type TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
 import type { Agent } from "../machines/contract";
-import type { ModelChoice } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
 
 export type { Automations } from "./automations";
 
@@ -35,12 +34,10 @@ export const AUTOMATION_SOURCE = "automation:";
 
 // Automations.
 
-const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
-
-const Level = Type.Union(LEVELS.map((level) => Type.Literal(level)));
+const Level = ThinkingLevelSchema;
 
 /** A model choice as the `model` column holds it, JSON. */
-const ModelColumn = Type.Object({ provider: Type.String(), modelId: Type.String(), thinkingLevel: Level });
+const ModelColumn = ModelChoiceSchema;
 
 const AutomationStatusSchema = Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("done"), Type.Literal("archived")]);
 
@@ -78,6 +75,16 @@ const StoredAutomation = Type.Object({
 export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model"> & { model: ModelChoice | null }>;
 
 /** What a schedule is and does: everything create and update set. */
+export const AutomationDraftSchema = Type.Object({
+  title: Type.String(),
+  prompt: Type.String(),
+  cron: Nullable(Type.String()),
+  at: Nullable(Type.Number()),
+  model: Nullable(ModelChoiceSchema),
+  machine: Nullable(Type.String()),
+  chat: Type.String()
+});
+
 export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat">;
 
 /** The `ky_check_ins` row: whether the user turned check-ins off, and their time zone. */
@@ -182,6 +189,8 @@ export type ByIdAction = (typeof BY_ID_ACTIONS)[number];
 
 /** What the user can do to an automation from Activity: every by-id action. */
 export type AutomationAction = ByIdAction;
+
+export const AutomationActionSchema = Type.Unsafe<AutomationAction>(Type.Union(BY_ID_ACTIONS.map((action) => Type.Literal(action))));
 
 /** Every action the tool takes: the ones that make, change or list automations, and the by-id ones. */
 export const TOOL_ACTIONS = ["create", "update", "list", ...BY_ID_ACTIONS] as const;

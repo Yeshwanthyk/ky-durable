@@ -12,7 +12,7 @@ import { summarize, type TaskFeed } from "../automations/contract";
 import { parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { agentModel } from "../models";
-import type { ModelChoice } from "../settings";
+import { type ModelChoice, ModelChoiceSchema } from "../settings";
 
 export type { Reviews, Skills } from "./skills";
 
@@ -181,6 +181,13 @@ type BriefView = { readonly body: string; readonly version: number; readonly upd
 export type SpecialistView = SpecialistRow & { readonly brief: BriefView };
 
 /** A specialist's settings as the user or ky saves them; the brief only on create. A field left out keeps what is stored. */
+export const SpecialistDraftSchema = Type.Object({
+  description: Type.Optional(Type.String()),
+  model: Type.Optional(Type.Union([ModelChoiceSchema, Type.Null()])),
+  machine: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  brief: Type.Optional(Type.String())
+});
+
 export type SpecialistDraft = {
   readonly description?: string;
   readonly model?: ModelChoice | null;

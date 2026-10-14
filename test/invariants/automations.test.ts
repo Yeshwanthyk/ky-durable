@@ -139,6 +139,6 @@ describe("actions", () => {
 
     expect(automations).toMatch(new RegExp(`^\\s+${action}: \\(automations, id\\) => automations\\.${action}\\(id\\)`, "m"));
     expect(automations).toMatch(new RegExp(`^  (async )?${action}\\(id: string\\)`, "m"));
-    expect(read(path.join(SRC, "sockets.ts"))).toMatch(new RegExp(`case "${action}":\\s+return (await )?this\\.#automations\\.${action}\\(`));
+    expect(read(path.join(SRC, "sockets.ts"))).toMatch(new RegExp(`^\\s+${action}: \\(id\\) => this\\.#automations\\.${action}\\(id\\)`, "m"));
   });
 });

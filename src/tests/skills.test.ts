@@ -76,7 +76,8 @@ describe("skills", () => {
     await client.until(() => client.frames.some((frame) => (frame.type === "error" || frame.type === "result") && frame.id === id));
 
     const refusal = client.frames.find((frame) => frame.type === "error" && frame.id === id);
-    expect(refusal?.type === "error" ? refusal.message : "").toContain('There is no skill action "delete".');
+    // The socket's schema refuses it before the skills domain sees it.
+    expect(refusal?.type === "error" ? refusal.message : "").toContain('ky doesn\'t take a "skill-change" message like that one');
     expect(await inside(name, (instance) => instance.skills.history("weekly-groceries").map((each) => each.action))).toEqual(["archive", "create"]);
     expect(await inside(name, (instance) => instance.skills.get("weekly-groceries")?.status)).toBe("archived");
     socket.close();

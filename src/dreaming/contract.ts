@@ -104,6 +104,7 @@ export const datesOf = (row: Row): Static<typeof DatesRow> => decodeOr(DatesRow,
 export {
   columnName,
   type SoulChange,
+  SoulChangeSchema,
   soulVersion,
   type SoulVersion,
   type SoulView,

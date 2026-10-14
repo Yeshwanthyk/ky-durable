@@ -13,6 +13,8 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { Guard } from "typebox/guard";
+import { ClientMessageSchema, refusedFrame } from "./client-messages";
+import { parseOr } from "./core/decode";
 import {
   decodeReport,
   isPipeReport,
@@ -30,7 +32,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
-import type { Automations } from "./automations/contract";
+import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Memory, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
@@ -95,9 +97,18 @@ function sessionOf(tags: readonly string[]): string | undefined {
   return tag?.slice(SESSION_TAG_PREFIX.length);
 }
 
-type SpecialistCommand = Extract<PiClientMessage, { type: "specialist-save" | "specialist-brief" | "specialist-history" }>;
+/** Each client message, by its type. */
+type ClientMessages = { [Message in PiClientMessage as Message["type"]]: Message };
 
-const isSpecialistCommand = (message: PiClientMessage): message is SpecialistCommand => message.type.startsWith("specialist-");
+/** What answers one type of message: its result, sent back by the message's id. */
+type Handler<Type extends keyof ClientMessages> = (message: ClientMessages[Type], connection: Connection, session: PiSessionId) => JsonValue | Promise<JsonValue>;
+
+/** Exactly one handler for each type of client message: one missing, or one extra, doesn't compile. */
+type Handlers = { readonly [Type in keyof ClientMessages]: Handler<Type> };
+
+/** One handler per action on an automation, so a new action can't go unhandled. */
+type AutomationActions = { readonly [Action in AutomationAction]: (id: string) => Promise<string> | string };
+
 
 function textOf(input: UserInput): string {
   if (!Array.isArray(input)) return String(input);
@@ -349,7 +360,7 @@ export class PiSessionSockets {
   }
 
   /** Create or change an automation as the user; `{ refused }` says why it was not saved. */
-  async #saveAutomation(message: Extract<PiClientMessage, { type: "automation-save" }>): Promise<{ refused?: string }> {
+  async #saveAutomation(message: ClientMessages["automation-save"]): Promise<{ refused?: string }> {
     const saved =
       message.automation === undefined
         ? await this.#automations.create(message.draft, "user")
@@ -358,44 +369,23 @@ export class PiSessionSockets {
     return "refused" in saved ? { refused: saved.refused } : {};
   }
 
-  /** The panel's specialist commands; a save that is refused says why, as an automation's does. */
-  #specialist(message: SpecialistCommand): JsonValue {
-    const id = message.specialist;
+  /** Create or change a specialist as the user; a save that is refused says why, as an automation's does. */
+  #saveSpecialist(message: ClientMessages["specialist-save"]): JsonValue {
+    try {
+      if (message.create) this.#specialists.create(message.specialist, message.draft, "user");
+      else this.#specialists.set(message.specialist, message.draft);
 
-    if (message.type === "specialist-save") {
-      try {
-        if (message.create) this.#specialists.create(id, message.draft, "user");
-        else this.#specialists.set(id, message.draft);
-
-        return {};
-      } catch (error) {
-        return { refused: error instanceof Error ? error.message : String(error) };
-      }
+      return {};
+    } catch (error) {
+      return { refused: error instanceof Error ? error.message : String(error) };
     }
-
-    if (!this.#specialists.has(id)) throw new Error(`No specialist @${id}`);
-
-    return message.type === "specialist-brief" ? this.#specialists.brief(id).apply(message.change, "user") : this.#specialists.brief(id).history();
   }
 
-  /** Pause, resume, archive, unarchive, run or delete an automation as the user; the result says what happened. */
-  async #automation(message: Extract<PiClientMessage, { type: "automation" }>): Promise<string> {
-    switch (message.action) {
-      case "pause":
-        return await this.#automations.pause(message.automation);
-      case "resume":
-        return await this.#automations.resume(message.automation);
-      case "archive":
-        return await this.#automations.archive(message.automation);
-      case "unarchive":
-        return this.#automations.unarchive(message.automation);
-      case "run":
-        return await this.#automations.run(message.automation);
-      case "delete":
-        return await this.#automations.delete(message.automation);
-      default:
-        throw new Error(`Unknown automation action ${JSON.stringify(message.action)}`);
-    }
+  /** A specialist's brief, to change or read the history of; one that doesn't exist is an error. */
+  #brief(specialist: string) {
+    if (!this.#specialists.has(specialist)) throw new Error(`No specialist @${specialist}`);
+
+    return this.#specialists.brief(specialist);
   }
 
   #chatsMessage(): PiServerMessage {
@@ -625,13 +615,10 @@ export class PiSessionSockets {
       return;
     }
 
-    let message: PiClientMessage;
+    const message = parseOr(ClientMessageSchema, raw, undefined);
 
-    try {
-      // SAFETY: only an authenticated client gets a socket; #dispatch throws on a type it does not know.
-      message = JSON.parse(raw) as PiClientMessage;
-    } catch {
-      send(connection, { type: "error", message: "Malformed JSON" });
+    if (message === undefined) {
+      send(connection, refusedFrame(raw));
 
       return;
     }
@@ -639,7 +626,7 @@ export class PiSessionSockets {
     const session = sessionOf(connection.tags) ?? ROOT_SESSION;
 
     try {
-      const result = await this.#dispatch(connection, session, message);
+      const result = await this.#handle(message.type, message, connection, session);
 
       if (message.id !== undefined) {
         send(connection, { type: "result", id: message.id, result });
@@ -656,6 +643,11 @@ export class PiSessionSockets {
     }
   }
 
+  /** Answer a message with its type's handler. */
+  #handle<Type extends keyof ClientMessages>(type: Type, message: ClientMessages[Type], connection: Connection, session: PiSessionId): JsonValue | Promise<JsonValue> {
+    return this.#handlers[type](message, connection, session);
+  }
+
   /** The user's message to a machine task, such as their comments on its changes. */
   #sendTask(id: string, text: string): void {
     const task = this.#feed.get(id);
@@ -668,7 +660,7 @@ export class PiSessionSockets {
   }
 
   /** A message for the session's agent, checked first: the purpose that runs it must read its images. */
-  async #submit(session: PiSessionId, message: Extract<PiClientMessage, { type: "submit" }>): Promise<JsonValue> {
+  async #submit(session: PiSessionId, message: ClientMessages["submit"]): Promise<JsonValue> {
     // The main session and side chats run on the main purpose; every other session is the worker's.
     const chat = this.#chats.has(session);
 
@@ -720,145 +712,129 @@ export class PiSessionSockets {
     return (await (await this.#harness.pi()).abortSubmission(record.id, BACKGROUND, conversation.id)) === "aborted";
   }
 
-  async #dispatch(
-    connection: Connection,
-    session: PiSessionId,
-    message: PiClientMessage
-  ): Promise<JsonValue> {
-    if (isSpecialistCommand(message)) return this.#specialist(message);
-    const handle = this.#harness.session(session);
+  /** What each action from Activity does to one automation, by id. */
+  readonly #automationActions: AutomationActions = {
+    pause: (id) => this.#automations.pause(id),
+    resume: (id) => this.#automations.resume(id),
+    archive: (id) => this.#automations.archive(id),
+    unarchive: (id) => this.#automations.unarchive(id),
+    run: (id) => this.#automations.run(id),
+    delete: (id) => this.#automations.delete(id)
+  };
 
-    switch (message.type) {
-      case "submit":
-        return await this.#submit(session, message);
-      case "abort":
-        return await handle.abort();
-      case "withdraw":
-        return await this.#withdraw(session, message.operationId);
-      case "reset":
-        await handle.reset(message.handoff);
+  /** What each client message does, by its type. */
+  readonly #handlers: Handlers = {
+    submit: (message, _connection, session) => this.#submit(session, message),
+    abort: (_message, _connection, session) => this.#harness.session(session).abort(),
+    withdraw: (message, _connection, session) => this.#withdraw(session, message.operationId),
+    reset: async (message, _connection, session) => {
+      await this.#harness.session(session).reset(message.handoff);
 
-        return null;
-      case "resync":
-        await this.#watch(connection, session);
+      return null;
+    },
+    resync: async (_message, connection, session) => {
+      await this.#watch(connection, session);
 
-        return null;
-      case "stop-task":
-        await this.#stopTasks([message.task]);
+      return null;
+    },
+    "stop-task": async (message) => {
+      await this.#stopTasks([message.task]);
 
-        return null;
-      case "set-model": {
-        const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.purpose, message.choice);
+      return null;
+    },
+    "stop-all": async () => {
+      await this.#stopTasks(this.#feed.list().map((task) => task.id));
 
-        return { provider, modelId, thinkingLevel };
-      }
+      return null;
+    },
+    "send-task": (message) => {
+      this.#sendTask(message.task, message.message);
 
-      case "add-key":
-        return await this.#models.addKey(message.vendor, message.key);
-      case "remove-key":
-        await this.#models.removeKey(message.provider);
+      return null;
+    },
+    "set-machine": (message) => {
+      const change: MachineChange = {};
 
-        return null;
-      case "set-machine": {
-        const change: MachineChange = {};
+      if (message.state !== undefined) change.state = message.state;
 
-        if (message.state !== undefined) change.state = message.state;
+      if (message.note !== undefined) change.note = message.note;
 
-        if (message.note !== undefined) change.note = message.note;
+      if (message.login !== undefined) change.login = message.login;
+      this.#hub.configure(message.machine, change);
 
-        if (message.login !== undefined) change.login = message.login;
-        this.#hub.configure(message.machine, change);
+      return null;
+    },
+    "set-model": (message) => {
+      const { provider, modelId, thinkingLevel } = this.#models.settings.set(message.purpose, message.choice);
 
-        return null;
-      }
+      return { provider, modelId, thinkingLevel };
+    },
+    "add-key": (message) => this.#models.addKey(message.vendor, message.key),
+    "remove-key": async (message) => {
+      await this.#models.removeKey(message.provider);
 
-      case "set-claude":
-        return await this.#subscriptions.setClaude(message.token);
-      case "github-repos":
-        return await this.#subscriptions.githubRepos(message.token);
-      case "set-github":
-        return await this.#subscriptions.setGithub(message.token, message.repos);
-      case "remove-subscription":
-        await this.#subscriptions.remove(message.kind);
+      return null;
+    },
+    // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
+    "set-repo": (message, connection) => this.#setup.setRepo(message.repo, connection.uri),
+    "set-claude": (message) => this.#subscriptions.setClaude(message.token),
+    "github-repos": (message) => this.#subscriptions.githubRepos(message.token),
+    "set-github": (message) => this.#subscriptions.setGithub(message.token, message.repos),
+    "remove-subscription": async (message) => {
+      await this.#subscriptions.remove(message.kind);
 
-        return null;
-      case "set-executor":
-        return await this.#executor.connect(message.url, message.token);
-      case "remove-executor":
-        await this.#executor.disconnect();
+      return null;
+    },
+    "set-executor": (message) => this.#executor.connect(message.url, message.token),
+    "remove-executor": async () => {
+      await this.#executor.disconnect();
 
-        return null;
-      case "chatgpt-login":
-        return await this.#subscriptions.chatgptLogin();
-      case "chatgpt-poll":
-        return await this.#subscriptions.chatgptPoll(message.login);
-      case "set-repo":
-        // The page that sets the repo is ky as the user reaches it. Its socket's URL survives hibernation.
-        return this.#setup.setRepo(message.repo, connection.uri);
-      case "peer-list":
-        return await peerList(this.#peers);
-      case "peer-invite":
-        return await peerInvite(this.#peers, message.name);
-      case "peer-pair":
-        return await peerPair(this.#peers, message.name, message.address, message.code);
-      case "peer-remove":
-        return await peerRemove(this.#peers, message.name);
-      case "new-chat":
-        return { session: await this.#newChat() };
-      case "chat-members":
-        if (message.session !== ROOT_SESSION && !this.#chats.has(message.session)) throw new Error(`No chat ${message.session}`);
+      return null;
+    },
+    "chatgpt-login": () => this.#subscriptions.chatgptLogin(),
+    "chatgpt-poll": (message) => this.#subscriptions.chatgptPoll(message.login),
+    "peer-list": () => peerList(this.#peers),
+    "peer-invite": (message) => peerInvite(this.#peers, message.name),
+    "peer-pair": (message) => peerPair(this.#peers, message.name, message.address, message.code),
+    "peer-remove": (message) => peerRemove(this.#peers, message.name),
+    "new-chat": async () => ({ session: await this.#newChat() }),
+    "archive-chat": (message) => {
+      if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
 
-        this.#groups.setMembers(message.session, message.members);
+      this.#chats.archive(message.session, message.archived);
 
-        return null;
-      case "archive-chat":
-        if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
+      return null;
+    },
+    "rename-chat": (message) => {
+      if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
 
-        this.#chats.archive(message.session, message.archived === true);
+      this.#chats.rename(message.session, message.title);
 
-        return null;
-      case "rename-chat":
-        if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
+      return null;
+    },
+    "chat-members": (message) => {
+      if (message.session !== ROOT_SESSION && !this.#chats.has(message.session)) throw new Error(`No chat ${message.session}`);
 
-        this.#chats.rename(message.session, message.title);
+      this.#groups.setMembers(message.session, message.members);
 
-        return null;
-      case "skill-change":
-        return this.#skills.apply(message.change, "user");
-      case "skill-history":
-        return this.#skills.history(message.name);
-      case "soul-change":
-        return this.#soul.apply(message.change, "user");
-      case "soul-history":
-        return this.#soul.history();
-      case "memory-search":
-        return this.#memory.search(message.query);
-      case "memory-zoom":
-        return this.#memory.children(message.block);
-      case "memory-forget":
-        return this.#memory.forget(message.block);
-      case "automation":
-        return await this.#automation(message);
-      case "automation-save":
-        return await this.#saveAutomation(message);
-      case "set-check-ins":
-        await this.#automations.setCheckIns(message.on);
+      return null;
+    },
+    "skill-change": (message) => this.#skills.apply(message.change, "user"),
+    "skill-history": (message) => this.#skills.history(message.name),
+    "soul-change": (message) => this.#soul.apply(message.change, "user"),
+    "soul-history": () => this.#soul.history(),
+    "specialist-save": (message) => this.#saveSpecialist(message),
+    "specialist-brief": (message) => this.#brief(message.specialist).apply(message.change, "user"),
+    "specialist-history": (message) => this.#brief(message.specialist).history(),
+    "memory-search": (message) => this.#memory.search(message.query),
+    "memory-zoom": (message) => this.#memory.children(message.block),
+    "memory-forget": (message) => this.#memory.forget(message.block),
+    "automation-save": (message) => this.#saveAutomation(message),
+    automation: (message) => this.#automationActions[message.action](message.automation),
+    "set-check-ins": async (message) => {
+      await this.#automations.setCheckIns(message.on);
 
-        return null;
-      case "stop-all":
-        await this.#stopTasks(this.#feed.list().map((task) => task.id));
-
-        return null;
-      case "send-task":
-        this.#sendTask(message.task, message.message);
-
-        return null;
-
-      default:
-        // SAFETY: the switch covers every known type, so `message` is `never` here; at runtime it is a parsed object.
-        throw new Error(
-          `Unknown pi message type ${JSON.stringify((message as { type: string }).type)}`
-        );
+      return null;
     }
-  }
+  };
 }

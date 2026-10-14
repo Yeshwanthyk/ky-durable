@@ -38,6 +38,29 @@ describe("the session WebSocket protocol", () => {
     socket.close();
   });
 
+  it("answers a frame it can't take with an error frame, and keeps the socket open", async () => {
+    const socket = await connect(crypto.randomUUID());
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "hello"));
+    const errors = () => client.frames.flatMap((frame) => (frame.type === "error" ? [frame] : []));
+
+    // JSON null once crashed the handler; an old page's message and a broken one name their ids.
+    socket.send("null");
+    socket.send("not json");
+    socket.send(JSON.stringify({ type: "from-the-future", id: "old-1" }));
+    socket.send(JSON.stringify({ type: "rename-chat", id: "bad-1", session: 7, title: "x" }));
+    await client.until(() => errors().length >= 4);
+
+    expect(errors().filter((frame) => frame.id === undefined)).toHaveLength(2);
+    expect(errors().find((frame) => frame.id === "old-1")?.message).toContain("from-the-future");
+    expect(errors().find((frame) => frame.id === "bad-1")?.message).toContain("rename-chat");
+
+    // Still open: the next good message is answered.
+    socket.send(JSON.stringify({ type: "soul-history", id: "ok-1" }));
+    await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "ok-1"));
+    socket.close();
+  });
+
   // A server-side dedupe guard: the frames are written by hand. test/web/ky.spec.ts drives the page's own resend.
   it("dedupes a submit resent with the same operation id after a dropped socket", async () => {
     const name = crypto.randomUUID();

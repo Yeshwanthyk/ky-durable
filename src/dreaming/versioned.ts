@@ -26,7 +26,7 @@ export type SoulVersion = Static<typeof SoulVersionSchema>;
 const SoulActionSchema = Type.Union([Type.Literal("edit"), Type.Literal("patch"), Type.Literal("revert")]);
 
 /** One change to SOUL.md; which fields it needs depends on the action. */
-const SoulChangeSchema = Type.Object({
+export const SoulChangeSchema = Type.Object({
   action: SoulActionSchema,
   body: Type.Optional(Type.String()),
   old: Type.Optional(Type.String()),

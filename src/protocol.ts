@@ -1,14 +1,16 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
-import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
+import type { AgentEvent } from "@earendil-works/pi-durable";
+import type { PiSessionId } from "agents/harness/pi";
+import type { Static } from "typebox";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
+import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
-import type { ModelChoice, Purpose, SettingsView } from "./settings";
+import type { SettingsView } from "./settings";
 import type { SetupView } from "./setup";
-import type { SkillChange, SkillRow, SpecialistDraft, SpecialistView } from "./skills/contract";
-import type { MemoryView, SoulChange, SoulView } from "./dreaming/contract";
+import type { SkillRow, SpecialistView } from "./skills/contract";
+import type { MemoryView, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
@@ -64,7 +66,7 @@ export type SandboxesView = {
 /** The cloud machine: asleep with nothing to do, waking for work that waits for it, or running with its runner connected. */
 export type CloudState = "asleep" | "waking" | "running";
 
-export type SubscriptionKind = "claude" | "chatgpt" | "github";
+export type SubscriptionKind = Static<typeof SubscriptionKindSchema>;
 
 /** A peer, another person's ky this one is paired with, as Settings › Peers shows it: never its token. */
 export type PeerView = {
@@ -118,129 +120,8 @@ export type PiToolInfo = {
   readonly description: string;
 };
 
-/** Client → server. Commands with an `id` get a `result` or `error` back. */
-export type PiClientMessage =
-  | {
-      readonly type: "submit";
-      readonly id?: string;
-      readonly input: UserInput;
-      readonly whenBusy?: PiWhenBusy;
-      readonly operationId?: string;
-    }
-  | { readonly type: "abort"; readonly id?: string }
-  /** Take back a message still queued behind the run; answers false once pi has placed it. */
-  | { readonly type: "withdraw"; readonly id?: string; readonly operationId: string }
-  | { readonly type: "reset"; readonly id?: string; readonly handoff?: string }
-  /** Ask for a fresh snapshot. */
-  | { readonly type: "resync"; readonly id?: string }
-  /** Stop a subagent's current work or a machine task; queued machine runs are withdrawn. */
-  | { readonly type: "stop-task"; readonly id?: string; readonly task: string }
-  | { readonly type: "stop-all"; readonly id?: string }
-  /** Send a machine task a message: it steers a working task, or resumes a finished one. */
-  | { readonly type: "send-task"; readonly id?: string; readonly task: string; readonly message: string }
-  /** Set whether ky may give a machine work, or what it is for. */
-  | {
-      readonly type: "set-machine";
-      readonly id?: string;
-      readonly machine: string;
-      readonly state?: MachineState;
-      readonly note?: string;
-      readonly login?: MachineLogin;
-    }
-  /**
-   * Set ky's GitHub repo, owner/name, for self-edits, and this page's origin as ky's address; an empty repo
-   * clears it. The result is `{ refused }` when it cannot be saved.
-   */
-  | { readonly type: "set-repo"; readonly id?: string; readonly repo: string }
-  /**
-   * Keep the Claude subscription: what `claude setup-token` prints. The result is `{ refused }` when it isn't one.
-   * The token is never sent back.
-   */
-  | { readonly type: "set-claude"; readonly id?: string; readonly token: string }
-  /** The repos a GitHub token reaches: the result is `{ repos }` or `{ refused }`. The token is never sent back. */
-  | { readonly type: "github-repos"; readonly id?: string; readonly token: string }
-  /** Keep a GitHub token for the cloud machine and the repos it may touch; the result is `{ refused }` when it can't. */
-  | { readonly type: "set-github"; readonly id?: string; readonly token: string; readonly repos: readonly string[] }
-  /** Forget a subscription; tasks sign in with their machine's own login. */
-  | { readonly type: "remove-subscription"; readonly id?: string; readonly kind: SubscriptionKind }
-  /**
-   * Connect Executor: ky lists its tools with the token before keeping it. The result is `{ refused }` when it
-   * can't. The token is never sent back.
-   */
-  | { readonly type: "set-executor"; readonly id?: string; readonly url: string; readonly token: string }
-  /** Forget Executor; its tools go away. */
-  | { readonly type: "remove-executor"; readonly id?: string }
-  /** Start ChatGPT's device code sign-in; the result is `{ userCode, verificationUrl, loginId }`. */
-  | { readonly type: "chatgpt-login"; readonly id?: string }
-  /** How a ChatGPT sign-in is going: the result is "pending", "done" or `{ error }`. */
-  | { readonly type: "chatgpt-poll"; readonly id?: string; readonly login: string }
-  /** The peers, each checked with a call to it; the result is PeerView[]. */
-  | { readonly type: "peer-list"; readonly id?: string }
-  /** Make an invite for a peer this ky will call `name`; the result is a PeerInvite or `{ refused }`. */
-  | { readonly type: "peer-invite"; readonly id?: string; readonly name: string }
-  /** Pair with the ky at `address` with its invite code, calling it `name`; the result is `{ refused }` when it can't. */
-  | { readonly type: "peer-pair"; readonly id?: string; readonly name: string; readonly address: string; readonly code: string }
-  /** Unpair a peer, both ways; the result is `{ refused }` when there is none by that name. */
-  | { readonly type: "peer-remove"; readonly id?: string; readonly name: string }
-  /** Start a side chat; the result is `{ session }`. */
-  | { readonly type: "new-chat"; readonly id?: string }
-  /** Archive a side chat, or unarchive it with `archived: false`. */
-  | { readonly type: "archive-chat"; readonly id?: string; readonly session: string; readonly archived: boolean }
-  /** Name a side chat; a blank title leaves it as it was. */
-  | { readonly type: "rename-chat"; readonly id?: string; readonly session: string; readonly title: string }
-  /** Make specialists a chat's members, the main chat's or a side chat's: a group chat. None makes it a plain chat. */
-  | { readonly type: "chat-members"; readonly id?: string; readonly session: string; readonly members: readonly string[] }
-  /** Change a skill as the user: edit, archive, restore, or revert it. */
-  | { readonly type: "skill-change"; readonly id?: string; readonly change: SkillChange }
-  /** A skill's versions, newest first, as the result. */
-  | { readonly type: "skill-history"; readonly id?: string; readonly name: string }
-  /** Change SOUL.md as the user: edit, patch, or revert it. */
-  | { readonly type: "soul-change"; readonly id?: string; readonly change: SoulChange }
-  /** SOUL.md's versions, newest first, as the result. */
-  | { readonly type: "soul-history"; readonly id?: string }
-  /** Create a specialist (`create: true`, with a brief) or change its description, model or machine. */
-  | {
-      readonly type: "specialist-save";
-      readonly id?: string;
-      readonly specialist: string;
-      readonly create?: boolean;
-      readonly draft: SpecialistDraft;
-    }
-  /** Change a specialist's brief as the user: edit, patch, or revert it. */
-  | { readonly type: "specialist-brief"; readonly id?: string; readonly specialist: string; readonly change: SoulChange }
-  /** A specialist's brief versions, newest first, as the result. */
-  | { readonly type: "specialist-history"; readonly id?: string; readonly specialist: string }
-  /** Answers with a MemorySearch. */
-  | { readonly type: "memory-search"; readonly id?: string; readonly query: string }
-  /** Answers with a block's two halves, as MemoryItems. */
-  | { readonly type: "memory-zoom"; readonly id?: string; readonly block: string }
-  /** Drops a block's summary and those above it, for the agent to rebuild. */
-  | { readonly type: "memory-forget"; readonly id?: string; readonly block: string }
-  /** Create an automation as the user, or change one by its id; the result is `{ refused }` when it cannot be saved. */
-  | { readonly type: "automation-save"; readonly id?: string; readonly automation?: string; readonly draft: AutomationDraft }
-  /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
-  | {
-      readonly type: "automation";
-      readonly id?: string;
-      readonly automation: string;
-      readonly action: AutomationAction;
-    }
-  /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
-  | { readonly type: "set-check-ins"; readonly id?: string; readonly on: boolean }
-  /** Choose the model, and its thinking level, for one purpose. */
-  | {
-      readonly type: "set-model";
-      readonly id?: string;
-      readonly purpose: Purpose;
-      readonly choice: ModelChoice;
-    }
-  /**
-   * Save an API key for a vendor once a test call takes it; the result is `{ refused }` when it doesn't. The key is
-   * never sent back.
-   */
-  | { readonly type: "add-key"; readonly id?: string; readonly vendor: string; readonly key: string }
-  /** Remove an api-key provider's key; what ran on it moves to the next healthy provider. */
-  | { readonly type: "remove-key"; readonly id?: string; readonly provider: string };
+/** Client → server, checked by sockets.ts against its schema in client-messages.ts. */
+export type PiClientMessage = Static<typeof ClientMessageSchema>;
 
 /** Server → client. */
 export type PiServerMessage =
