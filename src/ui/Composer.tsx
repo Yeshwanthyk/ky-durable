@@ -87,6 +87,7 @@ export function Composer({
   children,
   label,
   mentions = [],
+  history = [],
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -105,6 +106,8 @@ export function Composer({
   label: string;
   /** Who typing @ offers; picking one puts its @id in. */
   mentions?: readonly Mentionable[];
+  /** What the user sent before, oldest first: ↑ in an empty composer brings it back. */
+  history?: readonly string[];
 }) {
   const area = useRef<HTMLTextAreaElement>(null);
   const menuId = useId();
@@ -117,6 +120,19 @@ export function Composer({
   const options = at && at.start !== dismissed ? matching(mentions, at.query) : [];
   const menu = options.length > 0;
   const active = Math.min(highlight, options.length - 1);
+
+  // Which earlier message ↑ brought back, counted from the newest. It holds only while the text is
+  // still that message; typing over it makes it an ordinary draft.
+  const [recall, setRecall] = useState<{ index: number; text: string } | null>(null);
+  const recalling = recall !== null && recall.text === value ? recall.index : null;
+
+  const bringBack = (index: number | null) => {
+    const text = index === null ? "" : (history[history.length - 1 - index] ?? "");
+
+    setRecall(index === null ? null : { index, text });
+    placeCaret.current = text.length;
+    onChange(text);
+  };
 
   const pick = (id: string) => {
     if (at === null) return;
@@ -344,6 +360,30 @@ export function Composer({
 
               return;
             }
+          }
+
+          const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing;
+          const { selectionStart, selectionEnd } = event.currentTarget;
+          const collapsed = selectionStart === selectionEnd;
+
+          // ↑ on the first line steps back through what was sent: from an empty composer, or
+          // from a message ↑ already brought back. ↓ on the last line steps forward, then to empty.
+          if (plain && collapsed && event.key === "ArrowUp" && !value.slice(0, selectionStart).includes("\n")) {
+            const next = recalling === null ? (value === "" && images.length === 0 ? 0 : null) : recalling + 1;
+
+            if (next !== null && next < history.length) {
+              event.preventDefault();
+              bringBack(next);
+            }
+
+            return;
+          }
+
+          if (plain && collapsed && event.key === "ArrowDown" && recalling !== null && !value.slice(selectionEnd).includes("\n")) {
+            event.preventDefault();
+            bringBack(recalling === 0 ? null : recalling - 1);
+
+            return;
           }
 
           if (event.key !== "Enter" || event.nativeEvent.isComposing) return;

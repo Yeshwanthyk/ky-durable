@@ -26,15 +26,20 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
-/* Streamdown's shadcn-style tokens, on scotty's palette so code and tables match the rest. */
-.sd-theme {
+/* Streamdown's shadcn-style tokens, on scotty's palette so code, tables and quotes match the rest.
+   In @theme so Tailwind generates the utilities Streamdown uses (border-border, bg-sidebar…);
+   left out, those borders fell back to the text colour. */
+@theme inline {
   --color-primary: var(--accent);
   --color-primary-foreground: var(--bg);
   --color-foreground: var(--ink);
   --color-background: var(--surface);
+  --color-sidebar: var(--sidebar);
   --color-muted: var(--sunken);
   --color-muted-foreground: var(--muted);
   --color-border: var(--line-strong);
+}
+.sd-theme {
   overflow-wrap: break-word;
   word-break: break-word;
 }
@@ -62,10 +67,28 @@ body {
   border: none;
   margin: 0;
 }
+/* The pre is the block's one frame; Streamdown's body around it would draw a second. */
+.sd-theme [data-streamdown="code-block-body"] {
+  border: 0;
+  border-radius: 12px;
+  padding: 0;
+  background: none;
+}
 .sd-theme pre code {
   all: unset;
   font: inherit;
   /* `all: unset` also wipes Streamdown's line-number counter — restore it,
      otherwise every line renders as "1" */
   counter-reset: line;
+}
+/* A one-line snippet needs no line number. */
+.sd-theme pre code > :only-child::before {
+  display: none;
+}
+/* A quote reads as an aside: a thin rule and muted text, upright. */
+.sd-theme [data-streamdown="blockquote"] {
+  border-left-width: 2px;
+  border-color: var(--line-hover);
+  padding-left: 14px;
+  font-style: normal;
 }

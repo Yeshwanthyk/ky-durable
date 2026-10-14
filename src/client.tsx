@@ -24,6 +24,7 @@ import { backgroundLine, isLive } from "./ui/task-progress";
 import type { PendingImage } from "./ui/pick-images";
 import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
+import { sentTexts } from "./ui/turns";
 import { useDraft, useReloadOnDeploy } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
 import { useSeen } from "./ui/use-seen";
@@ -145,6 +146,8 @@ type DraftDockProps = {
   talksToMain: boolean;
   mentions: readonly Mentionable[];
   group: boolean;
+  /** What the user sent in this chat, oldest first. */
+  history: readonly string[];
   /** A newer deploy is serving; reload unless that would throw the draft away. */
   updated: boolean;
   queue: readonly Outgoing[];
@@ -155,7 +158,7 @@ type DraftDockProps = {
 };
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, updated, queue, onSend, onStop, onWithdraw }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, onSend, onStop, onWithdraw }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
@@ -187,6 +190,7 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
       talksToMain={talksToMain}
       mentions={mentions}
       group={group}
+      history={history}
       onSubmit={submit}
       onStop={onStop}
       onEdit={onEdit}
@@ -305,6 +309,12 @@ function Stage(parts: Parts) {
     [ky.retry, ky.queued, ky.error, ky.running]
   );
 
+  // Kept while the chat's sent messages are the same, so a streamed token does not render the composer.
+  const history = useSame(
+    useMemo(() => sentTexts(ky.messages), [ky.messages]),
+    shallow
+  );
+
   /** While a run is going, Enter steers it; otherwise it starts one. */
   const onSend = useStableCallback((input: UserInput) => ky.submit(input, ky.running ? "steer" : "followUp"));
 
@@ -322,6 +332,7 @@ function Stage(parts: Parts) {
           talksToMain={open.talksToMain}
           mentions={open.talksToMain ? ky.specialists : NONE}
           group={open.talksToMain && (ky.groups[view.session]?.length ?? 0) > 0}
+          history={history}
           updated={ky.updated}
           queue={queue}
           onSend={onSend}

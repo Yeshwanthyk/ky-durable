@@ -180,6 +180,15 @@ function userText(message: PiMessage): string {
   return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
+/** What the user wrote in this chat, oldest first: their own words, without reports or image-only messages. */
+export function sentTexts(messages: readonly PiMessage[]): string[] {
+  return messages.flatMap((message) => {
+    const text = message.role === "user" ? userText(message) : "";
+
+    return text.trim() === "" || REPORT.test(text) ? [] : [text];
+  });
+}
+
 const iso = (time: number) => (time > 0 ? new Date(time).toISOString() : null);
 
 /**

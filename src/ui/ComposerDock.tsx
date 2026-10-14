@@ -37,6 +37,7 @@ export function ComposerDock({
   talksToMain,
   mentions = [],
   group = false,
+  history,
   onSubmit,
   onStop,
   onEdit,
@@ -54,6 +55,8 @@ export function ComposerDock({
   mentions?: readonly Mentionable[];
   /** Specialists are members of this chat. */
   group?: boolean;
+  /** What the user sent in this chat, oldest first, for ↑ to bring back. */
+  history?: readonly string[];
   onSubmit: () => void;
   onStop: () => void;
   onEdit: (item: Outgoing) => Promise<void>;
@@ -86,6 +89,7 @@ export function ComposerDock({
         onRemoveImage={draft.removeImage}
         label="Message"
         mentions={mentions}
+        history={history}
         placeholder={placeholder(session.running, talksToMain, group)}
       />
     </div>

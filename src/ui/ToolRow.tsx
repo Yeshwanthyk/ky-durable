@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
-import { Icon, Spinner, type IconName } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { useLightbox } from "./Lightbox";
 
 const categoryIcon: Record<Tool["category"], IconName> = {
@@ -54,10 +54,9 @@ export function phrase(tool: Tool): Phrase {
   return { verb: tense[running ? 0 : 1], target: rest.join(" "), mono: !prose };
 }
 
+// A running tool says so in its verb; the turn's Working line is the one spinner.
 function Trail({ tool }: { tool: Tool }) {
-  if (tool.status === "running") return <Spinner size={12} />;
-
-  return tool.durationMs !== null && tool.durationMs >= 1000 ? (
+  return tool.status !== "running" && tool.durationMs !== null && tool.durationMs >= 1000 ? (
     <span className="tabular">{duration(tool.durationMs)}</span>
   ) : null;
 }
@@ -95,7 +94,7 @@ export function ToolRow({ tool }: { tool: Tool }) {
         title={tool.input || tool.summary}
       >
         <Icon name={tool.status === "failed" ? "alert" : categoryIcon[tool.category]} size={14} />
-        <span className="verb">{verb}</span>
+        <span className={tool.status === "running" ? "verb shimmer" : "verb"}>{verb}</span>
         {target ? <span className={mono ? "target mono" : "target"}>{target}</span> : null}
         <span className="trail">
           <Trail tool={tool} />
@@ -163,10 +162,9 @@ export function ExploreGroup({ tools }: { tools: Tool[] }) {
         onClick={() => setOpen((value) => !value)}
       >
         <Icon name="search" size={14} />
-        <span className="verb">{running ? "Exploring" : "Explored"}</span>
+        <span className={running ? "verb shimmer" : "verb"}>{running ? "Exploring" : "Explored"}</span>
         <span className="target">{parts.join(", ")}</span>
         <span className="trail">
-          {running ? <Spinner size={12} /> : null}
           <Icon name="chevronRight" size={12} className="chevron" />
         </span>
       </button>
