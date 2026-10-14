@@ -2,7 +2,7 @@ import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
 
 /**
- * The machine protocol: what MachineHub (src/machines.ts) and the runner
+ * The machine protocol: what MachineHub (src/machines/machines.ts) and the runner
  * (`ky runner run`, cli/runner/) say to each other over the runner's WebSocket. Both ends import
  * this file and decode every frame they receive with it, so a frame either
  * matches these schemas or is not acted on.

@@ -1,7 +1,7 @@
 # Automations
 
-Source: `src/automations.ts` (the `ky_automations` table, the Scheduler callback, the `automation` tool);
-runs are cloud subagents (`src/subagents.ts`) or machine tasks (`src/machines.ts`) with task id `a-<id>-<slot>`
+Source: `src/automations/automations.ts` (the `ky_automations` table, the Scheduler callback, the `automation` tool);
+runs are cloud subagents (`src/skills/subagents.ts`) or machine tasks (`src/machines/machines.ts`) with task id `a-<id>-<slot>`
 and source `automation:<id>`. Crons are UTC. Both scenarios ask through the faux model with
 `tool automation {...}` on the main chat, and the stack's real alarm fires the run.
 

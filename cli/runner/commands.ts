@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { confirm, isCancel, multiselect, text } from "@clack/prompts";
-import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/runner-protocol.ts";
+import { AGENT_NAMES, type Agent, type MachineFacts } from "../../src/machines/runner-protocol.ts";
 import type { Context } from "../commands.ts";
 import { bold, cancelled, dim, green, type Output, output, red, terminal } from "../output.ts";
 import { ASK, type AgentFacts, repoFolders, scanRepos } from "./facts.ts";

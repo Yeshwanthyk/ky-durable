@@ -121,7 +121,7 @@ for anything slow, behind the same job row, deadline alarm and node-side dedupe.
 1. Harden the runner protocol: the six Quint fixes above, plus one socket per node name.
 2. Manifest plus split auth (`KY_RUNNER_TOKEN`). Add `manifest` and `last_error` to `ky_machines`.
 3. Node tools: `call / return / stop-call` frames, `src/nodes.ts` (`nodeTool`), `runner/tools/apple-reminders.ts`, main-only.
-4. Automations: `src/automations.ts`, `ky_automations`, an `automation` tool (create/list/pause/delete), and `Scheduler` via `.use`.
+4. Automations: `src/automations/automations.ts`, `ky_automations`, an `automation` tool (create/list/pause/delete), and `Scheduler` via `.use`.
 5. Extract `models.ts` with the per-tunnel provider factory. A second node's model is then one `vpc_services` entry plus one line.
 
 Steps 1-2 also fix today's bugs, so do them even if nothing else lands.

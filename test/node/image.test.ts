@@ -14,7 +14,7 @@ describe("container/image.inputs", () => {
 
     expect(mismatches(graph, await imageInputs())).toEqual({ unlisted: [], unused: [] });
     // The runner and what it imports; none of the commands the cloud machine never runs.
-    expect(graph).toEqual(expect.arrayContaining(["cli/binary.ts", "cli/runner/cloud.ts", "cli/runner/forward.ts", "cli/runner/share.ts", "src/runner-protocol.ts"]));
+    expect(graph).toEqual(expect.arrayContaining(["cli/binary.ts", "cli/runner/cloud.ts", "cli/runner/forward.ts", "cli/runner/share.ts", "src/machines/runner-protocol.ts"]));
 
     for (const never of ["cli/init.ts", "cli/backup.ts", "cli/deployer.ts", "cli/commands.ts", "cli/cloudflare.ts", "cli/image.ts", "src/access.ts"]) expect(graph).not.toContain(never);
   }, 30_000);
@@ -35,7 +35,8 @@ describe("whether the pinned image is current", () => {
 
   it("says stale when the runner, the protocol or the Dockerfile changed", async () => {
     expect(await imageCurrent("aca5dce^", "aca5dce")).toMatchObject({ current: false, changed: expect.arrayContaining(["cli/runner/forward.ts", "cli/runner/runner.ts"]) });
-    expect(await imageCurrent("b9fc9b7^", "b9fc9b7")).toMatchObject({ current: false, changed: ["src/runner-protocol.ts"] });
+    // The protocol was src/runner-protocol.ts then, before it moved into src/machines/.
+    expect(await imageCurrent("b9fc9b7^", "b9fc9b7", REPO, [...(await imageInputs()), "src/runner-protocol.ts"])).toMatchObject({ current: false, changed: ["src/runner-protocol.ts"] });
     expect(await imageCurrent("1093fe4^", "1093fe4")).toMatchObject({ current: false, changed: ["container/Dockerfile"] });
   });
 

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ASSERTION } from "../access";
-import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../runner-protocol";
+import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/runner-protocol";
 import { FakeAccess } from "./fake-access";
 import type { Vault as TestVault } from "./stack";
 import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, until } from "./drive";

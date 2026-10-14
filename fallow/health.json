@@ -34,7 +34,7 @@
         "count": 1
       }
     },
-    "src/machines.ts": {
+    "src/machines/machines.ts": {
       "crap_high": {
         "count": 1
       },
@@ -69,12 +69,12 @@
         "count": 1
       }
     },
-    "src/specialists.ts": {
+    "src/skills/specialists.ts": {
       "crap_moderate": {
         "count": 1
       }
     },
-    "src/subagents.ts": {
+    "src/skills/subagents.ts": {
       "complexity_critical": {
         "count": 1
       },
@@ -468,7 +468,7 @@
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
     "src/use-pi-session.ts:complexity",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
-    "src/subagents.ts:complexity",
+    "src/skills/subagents.ts:complexity",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk"
   ]
 }

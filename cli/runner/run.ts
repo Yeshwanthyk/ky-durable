@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../../src/runner-protocol.ts";
+import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../../src/machines/runner-protocol.ts";
 import { ASK, FACTS_EVERY_MS, lastKnown, scanRepos } from "./facts.ts";
 import { HandledSeqs } from "./handled.ts";
 import { Runner, type Link } from "./runner.ts";

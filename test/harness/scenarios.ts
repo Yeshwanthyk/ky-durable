@@ -5,7 +5,7 @@ import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { WebSocket as Socket } from "ws";
 import type { FileRow, TaskRow } from "../../src/protocol.ts";
-import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/runner-protocol.ts";
+import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/machines/runner-protocol.ts";
 import { signedIn } from "../../src/tests/fake-access.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
 import { type Client, connect, until } from "./client.ts";

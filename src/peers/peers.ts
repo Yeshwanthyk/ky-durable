@@ -1,9 +1,9 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
 import { Value } from "typebox/value";
-import { bearer } from "./runners";
-import type { PeerInvite, PeerView } from "./protocol";
-import type { Vault } from "./vault";
+import { bearer } from "../runners";
+import type { PeerInvite, PeerView } from "../protocol";
+import type { Vault } from "../vault";
 
 /**
  * Peers: other people's kys this one is paired with (docs/multiplayer-shaping.md, X1). The user

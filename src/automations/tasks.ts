@@ -5,7 +5,7 @@
  * and what the main agent's `status` reads.
  */
 
-import type { Agent } from "./runner-protocol";
+import type { Agent } from "../machines/runner-protocol";
 
 export type TaskKind = "cloud" | "machine";
 

@@ -1,14 +1,14 @@
 import { env } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { type MachineFacts, PROTOCOL } from "../runner-protocol";
+import { type MachineFacts, PROTOCOL } from "../machines/runner-protocol";
 import { SUBSCRIPTION } from "../vault";
 import { connect, FACTS, follow, inside, prompt, runner, until } from "./drive";
 import type { Vault as TestVault } from "./stack";
 
 /**
  * Settings › Subscriptions and their handoff (src/subscriptions.ts,
- * src/machines.ts): the user's Claude token and ChatGPT login, kept in the
+ * src/machines/machines.ts): the user's Claude token and ChatGPT login, kept in the
  * one Vault, handed to a machine's task only when the machine isn't signed
  * in or uses ky's login, and renewed for a Codex task before it expires.
  * The Vault is shared by every agent, so each test removes what it set up.

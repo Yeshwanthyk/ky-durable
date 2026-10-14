@@ -19,7 +19,7 @@ import {
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AgentChange } from "@earendil-works/pi-durable";
 import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
-import type { MachineHub } from "./machines";
+import type { MachineHub } from "./machines/machines";
 import type { RunnerPipe } from "./pipe";
 import type { Breaker } from "./providers/breaker";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";

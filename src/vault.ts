@@ -5,7 +5,7 @@ import type { ExecutorConnection } from "./executor";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import type { ProviderKey } from "./providers/api-key";
-import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
+import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/runner-protocol";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -35,7 +35,7 @@ import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./runner-protocol";
 /** What a secret is for, like "provider", "claude" or "github". */
 type SecretKind = string;
 
-/** `peer-invite` and `peer` are src/peers.ts's: a code another ky pairs with, and the token it calls this ky with. */
+/** `peer-invite` and `peer` are src/peers/peers.ts's: a code another ky pairs with, and the token it calls this ky with. */
 export type TokenKind = "pair" | "machine" | "task" | "peer-invite" | "peer";
 
 /** The kinds `issue` can give out again: a task's runs all carry its one token. */
@@ -326,9 +326,9 @@ export class Vault extends DurableObject<Env> {
     return (this.#current("github", SUBSCRIPTION) as GithubLogin | null) ?? null;
   }
 
-  /** The token ky calls the peer `name` with, which its ky minted when they paired (src/peers.ts); null once unpaired. */
+  /** The token ky calls the peer `name` with, which its ky minted when they paired (src/peers/peers.ts); null once unpaired. */
   peerToken(name: string): string | null {
-    // SAFETY: only src/peers.ts writes this kind, each value a token string.
+    // SAFETY: only src/peers/peers.ts writes this kind, each value a token string.
     return this.#current("peer", name) as string | null;
   }
 

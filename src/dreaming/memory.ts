@@ -4,7 +4,7 @@ import {
   defineTool,
   type Extension
 } from "@earendil-works/pi-durable";
-import type { History } from "./history";
+import type { History } from "../history";
 
 /**
  * OptMem (github.com/VictorTaelin/OptMem) on the Durable Object's SQLite.

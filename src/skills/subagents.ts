@@ -18,8 +18,8 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { agentModel } from "./models";
-import type { ModelChoice } from "./settings";
+import { agentModel } from "../models";
+import type { ModelChoice } from "../settings";
 import {
   DISCUSS_MAX,
   DISCUSS_MIN,
@@ -30,8 +30,8 @@ import {
   type Specialists,
   textOf
 } from "./specialists";
-import { summarize, type TaskFeed } from "./tasks";
-import { describeTool } from "./tool-labels";
+import { summarize, type TaskFeed } from "../automations/tasks";
+import { describeTool } from "../tool-labels";
 
 /**
  * Persistent cloud subagents, after pi-durable's example 23. One `subagent`

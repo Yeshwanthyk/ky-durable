@@ -1,8 +1,8 @@
 import type { EntryId, EntryRecord } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { forThem, parseRoute, plan, RESPONDER_CAP, recentOf, ROUTER_PROMPT, routerInput } from "../group";
+import { forThem, parseRoute, plan, RESPONDER_CAP, recentOf, ROUTER_PROMPT, routerInput } from "../peers/group";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import type { SpecialistRow } from "../specialists";
+import type { SpecialistRow } from "../skills/specialists";
 import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../transcript";
 import { connect, follow, type Follower, inside, snapshotView, until } from "./drive";
 import { decodeNewChat } from "./frames";

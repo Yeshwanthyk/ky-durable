@@ -21,7 +21,7 @@ import { Value } from "typebox/value";
 
 /**
  * C2: the paths Access lets through without a login, written as an Access
- * app's paths; `/peer/*` is other kys' (src/peers.ts). The deployer's bypass
+ * app's paths; `/peer/*` is other kys' (src/peers/peers.ts). The deployer's bypass
  * app covers exactly these, and the Worker sends them only to routes that
  * check their own tokens, or are public.
  */

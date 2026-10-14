@@ -60,7 +60,7 @@ function need<T>(value: T | undefined, message: string): T {
 
 /**
  * A markdown file with every version kept: SOUL.md, and each specialist's
- * brief (src/specialists.ts). All share one table, told apart by `key`.
+ * brief (src/skills/specialists.ts). All share one table, told apart by `key`.
  */
 export class Versioned {
   readonly #sql: SqlStorage;

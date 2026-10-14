@@ -40,7 +40,7 @@ A new image is a new digest, and `ky upgrade` rolls the cloud machine out (resta
 release builds one only when what it runs changed. When it keeps the old one, the cloud machine runs the older
 `ky` binary: the same runner, but its other commands, and the release it carries, are older. It reports that
 older version in its hello, which the Worker doesn't act on; the runner protocol (`PROTOCOL` in
-`src/runner-protocol.ts`) is one of the image's inputs, so a protocol change always builds a new image.
+`src/machines/runner-protocol.ts`) is one of the image's inputs, so a protocol change always builds a new image.
 
 ## Before the first release
 

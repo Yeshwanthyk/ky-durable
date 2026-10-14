@@ -1,18 +1,18 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import type { PiSessionId, PiWhenBusy } from "agents/harness/pi";
-import type { AutomationDraft, AutomationView } from "./automations";
+import type { AutomationDraft, AutomationView } from "./automations/automations";
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
-import type { MachineLogin, MachineState } from "./machines";
-import type { MachineFacts } from "./runner-protocol";
+import type { MachineLogin, MachineState } from "./machines/machines";
+import type { MachineFacts } from "./machines/runner-protocol";
 import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
-import type { SkillChange, SkillRow } from "./skills";
-import type { MemoryView } from "./memory";
-import type { SoulChange, SoulView } from "./soul";
-import type { SpecialistDraft, SpecialistView } from "./specialists";
-import type { TaskRow } from "./tasks";
+import type { SkillChange, SkillRow } from "./skills/skills";
+import type { MemoryView } from "./dreaming/memory";
+import type { SoulChange, SoulView } from "./dreaming/soul";
+import type { SpecialistDraft, SpecialistView } from "./skills/specialists";
+import type { TaskRow } from "./automations/tasks";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
 export function osName(os: string): string {
@@ -309,17 +309,17 @@ export type {
   PiToolInfo as ToolInfo
 };
 
-export type { TaskRow } from "./tasks";
+export type { TaskRow } from "./automations/tasks";
 
 export type { ChatRow } from "./chats";
 
-export type { SkillChange, SkillRow, SkillVersion } from "./skills";
+export type { SkillChange, SkillRow, SkillVersion } from "./skills/skills";
 
-export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./memory";
+export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/memory";
 
-export type { SoulChange, SoulVersion, SoulView } from "./soul";
+export type { SoulChange, SoulVersion, SoulView } from "./dreaming/soul";
 
-export type { SpecialistDraft, SpecialistView } from "./specialists";
+export type { SpecialistDraft, SpecialistView } from "./skills/specialists";
 
 export type { FileRow } from "./files";
 

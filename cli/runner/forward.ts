@@ -12,7 +12,7 @@
 
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { fromBase64, type HttpRequest, type RunnerReport, toBase64 } from "../../src/runner-protocol.ts";
+import { fromBase64, type HttpRequest, type RunnerReport, toBase64 } from "../../src/machines/runner-protocol.ts";
 import type { Link } from "./runner.ts";
 
 /** Send a request to a port on this machine: ky-runner's goes to 127.0.0.1; the tests' to a fake server. */

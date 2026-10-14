@@ -22,7 +22,7 @@ import {
   type RunCreds,
   type RunnerCommand,
   type RunnerReport
-} from "../../src/runner-protocol.ts";
+} from "../../src/machines/runner-protocol.ts";
 
 /** One open socket to the object. `send` is false once it can no longer send; `buffered` is what waits to go out, in bytes. */
 export type Link = { send(text: string): boolean; buffered(): number };

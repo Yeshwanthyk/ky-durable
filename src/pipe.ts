@@ -1,6 +1,6 @@
 import type { FetchFunction } from "@earendil-works/pi-ai";
-import { runnerTag } from "./machines";
-import { fromBase64, type HttpRequest, type ObjectFrame, type PipeReport, toBase64 } from "./runner-protocol";
+import { runnerTag } from "./machines/machines";
+import { fromBase64, type HttpRequest, type ObjectFrame, type PipeReport, toBase64 } from "./machines/runner-protocol";
 
 /**
  * The object's end of the pipe (C1): a fetch to a port on a paired machine,

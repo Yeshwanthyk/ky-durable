@@ -13,26 +13,26 @@ import {
   type PiWhenBusy
 } from "agents/harness/pi";
 import { Guard } from "typebox/guard";
-import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines";
+import { runnerOf, runnerTag, type MachineChange, type MachineHub } from "./machines/machines";
 import type { RunnerPipe } from "./pipe";
-import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./runner-protocol";
+import { decodeReport, isPipeReport, type ObjectFrame, OUTDATED, PAIRING_HEADER, PROTOCOL, REPLACED, REVOKED, runnerPathMachine } from "./machines/runner-protocol";
 import { checkInput, imagesOf } from "./images";
-import type { Automations } from "./automations";
+import type { Automations } from "./automations/automations";
 import type { ChatList } from "./chats";
-import type { Skills } from "./skills";
-import type { Memory } from "./memory";
-import type { Soul } from "./soul";
-import { mentions, type Specialists } from "./specialists";
-import type { GroupChats, GroupDesk } from "./group";
+import type { Skills } from "./skills/skills";
+import type { Memory } from "./dreaming/memory";
+import type { Soul } from "./dreaming/soul";
+import { mentions, type Specialists } from "./skills/specialists";
+import type { GroupChats, GroupDesk } from "./peers/group";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
-import { type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers";
+import { type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/peers";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
-import type { TaskFeed } from "./tasks";
+import type { TaskFeed } from "./automations/tasks";
 
 const SESSION_TAG_PREFIX = "pi-session:";
 

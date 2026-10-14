@@ -88,9 +88,13 @@
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/automations.ts": {
+  "src/automations/automations.ts": {
     "ky(no-unchecked-parse)": 4,
     "typescript(no-non-null-assertion)": 3
+  },
+  "src/automations/tasks.ts": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(no-non-null-assertion)": 1
   },
   "src/backup.ts": {
     "ky(no-unchecked-parse)": 13,
@@ -110,9 +114,16 @@
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 1
   },
-  "src/dreaming.ts": {
+  "src/dreaming/dreaming.ts": {
     "ky(no-unchecked-parse)": 1,
     "typescript(no-non-null-assertion)": 1
+  },
+  "src/dreaming/memory.ts": {
+    "ky(no-unchecked-parse)": 7,
+    "typescript(no-non-null-assertion)": 5
+  },
+  "src/dreaming/soul.ts": {
+    "ky(no-unchecked-parse)": 4
   },
   "src/executor.ts": {
     "typescript(await-thenable)": 1,
@@ -129,28 +140,29 @@
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/group.ts": {
-    "ky(no-unchecked-parse)": 5,
-    "typescript(no-non-null-assertion)": 4
-  },
   "src/history.ts": {
     "ky(no-unchecked-parse)": 6,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/machines.ts": {
+  "src/machines/machines.ts": {
     "ky(no-unchecked-parse)": 16,
     "typescript(no-non-null-assertion)": 10,
     "typescript(no-unsafe-return)": 1
   },
-  "src/memory.ts": {
-    "ky(no-unchecked-parse)": 7,
-    "typescript(no-non-null-assertion)": 5
+  "src/machines/runner-protocol.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-member-access)": 4
   },
   "src/models.ts": {
     "typescript(await-thenable)": 1,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/peers.ts": {
+  "src/peers/group.ts": {
+    "ky(no-unchecked-parse)": 5,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/peers/peers.ts": {
     "ky(no-unchecked-parse)": 10
   },
   "src/providers/api-key.ts": {
@@ -158,11 +170,6 @@
   },
   "src/providers/records.ts": {
     "ky(no-unchecked-parse)": 1
-  },
-  "src/runner-protocol.ts": {
-    "ky(no-unchecked-parse)": 2,
-    "typescript(no-unsafe-assignment)": 3,
-    "typescript(no-unsafe-member-access)": 4
   },
   "src/runners.ts": {
     "ky(no-unchecked-parse)": 1
@@ -184,25 +191,18 @@
   "src/setup.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/skills.ts": {
+  "src/skills/skills.ts": {
     "ky(no-unchecked-parse)": 8
   },
-  "src/sockets.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
-  "src/soul.ts": {
-    "ky(no-unchecked-parse)": 4
-  },
-  "src/specialists.ts": {
+  "src/skills/specialists.ts": {
     "ky(no-unchecked-parse)": 4,
     "typescript(no-non-null-assertion)": 4
   },
-  "src/subagents.ts": {
+  "src/skills/subagents.ts": {
     "typescript(no-non-null-assertion)": 6
   },
-  "src/tasks.ts": {
-    "ky(no-unchecked-parse)": 3,
-    "typescript(no-non-null-assertion)": 1
+  "src/sockets.ts": {
+    "ky(no-unchecked-parse)": 1
   },
   "src/tests/backup.test.ts": {
     "typescript(no-unsafe-assignment)": 2

@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import type { TaskRow } from "../tasks";
+import type { TaskRow } from "../automations/tasks";
 import { GLM, GPT_OSS, type PiAgent } from "./stack";
 import { agent, connect, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 

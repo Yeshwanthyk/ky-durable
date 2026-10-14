@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Memory } from "./memory";
-import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "./skills";
-import type { TaskFeed, TaskRow } from "./tasks";
+import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/skills";
+import type { TaskFeed, TaskRow } from "../automations/tasks";
 
 /**
  * Dreaming, after Agent Memory Repo's dreaming (cognition.com/agent-memory-repo):
@@ -12,9 +12,9 @@ import type { TaskFeed, TaskRow } from "./tasks";
  * like the main chat; Reviews lets it call only skill and memory tools. It
  * keeps to OptMem's rules: it never edits the log, it corrects a memory by
  * noting the correction and forgetting a stale summary. Summaries are written
- * in the background (src/memory.ts), so a dream leaves none owed.
+ * in the background (src/dreaming/memory.ts), so a dream leaves none owed.
  *
- * It also books check-ins (src/automations.ts): for something the user asked
+ * It also books check-ins (src/automations/automations.ts): for something the user asked
  * about with a date still ahead, a one-off that looks again on the day.
  */
 

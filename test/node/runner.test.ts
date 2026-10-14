@@ -13,7 +13,7 @@ import { github } from "../../cli/runner/github.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
 import { stableKy } from "../../cli/runner/system.ts";
-import type { MachineFacts } from "../../src/runner-protocol.ts";
+import type { MachineFacts } from "../../src/machines/runner-protocol.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");

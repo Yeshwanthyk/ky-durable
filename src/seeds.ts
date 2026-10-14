@@ -1,8 +1,8 @@
 import { ROOT_SESSION } from "agents/harness/pi";
-import type { Automations } from "./automations";
+import type { Automations } from "./automations/automations";
 import type { Setup } from "./setup";
-import type { Skills } from "./skills";
-import type { Specialists } from "./specialists";
+import type { Skills } from "./skills/skills";
+import type { Specialists } from "./skills/specialists";
 
 /**
  * What a new ky starts with, once, on its first start: starter skills, one

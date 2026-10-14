@@ -21,7 +21,7 @@ import {
   wait
 } from "./drive";
 import { CONTEXT_WINDOW } from "../models";
-import { PROTOCOL } from "../runner-protocol";
+import { PROTOCOL } from "../machines/runner-protocol";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";

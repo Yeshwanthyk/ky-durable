@@ -10,7 +10,7 @@ import { connect } from "node:net";
 import { basename, join } from "node:path";
 import Type from "typebox";
 import { Value } from "typebox/value";
-import type { Agent, MachineFacts } from "../../src/runner-protocol.ts";
+import type { Agent, MachineFacts } from "../../src/machines/runner-protocol.ts";
 
 export type AgentFacts = MachineFacts["agents"][Agent];
 

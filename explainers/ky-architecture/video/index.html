@@ -909,7 +909,7 @@ mx.scene({
   s.orb("brain", 'PiAgent "me"', { at: [5, 3], r: 90, status: "one Durable Object", enter: "Durable-0.2",
     inspect: { body: "The only brain: main chat, side chats and subagents are pi conversations in this one DO.", more: "Tools are durable tasks: safe tools replay, unsafe ones return interrupted after a crash.", cite: "src/server.ts:72-197" } });
   s.box("sqlite", "DO SQLite", { at: [5, 0.5], status: "every table", enter: "SQLite",
-    inspect: { body: "pi_* · ky_tasks · ky_machine_inbox · ky_machines · ky_chats · ky_settings · memo_* · ky_files · workspace fs", cite: "src/tasks.ts:51-60 · src/machines.ts:84-89" } });
+    inspect: { body: "pi_* · ky_tasks · ky_machine_inbox · ky_machines · ky_chats · ky_settings · memo_* · ky_files · workspace fs", cite: "src/automations/tasks.ts:51-60 · src/machines/machines.ts:84-89" } });
   s.wire("brain", "sqlite", { id: "bs", enter: "holds-0.2" });
   s.el("brain").set("table", { tone: "amber" });
   s.box("ui", "browser", { at: [0.7, 3], status: "holds nothing", enter: "browser-0.2",
@@ -928,7 +928,7 @@ mx.scene({
   s.el("sandbox").set("bindings", { status: "binding LOADER", tone: "green" });
   s.el("kite").set("bindings", { status: "binding BROWSER", tone: "green" });
   s.box("memory", "memory", { at: [2.6, 5.2], status: "memo_log · memo_tree", enter: "Memory-0.2",
-    inspect: { body: "OptMem over DO SQLite; rendered as a section in main conversations only.", cite: "src/memory.ts:145-149, 373-431" } });
+    inspect: { body: "OptMem over DO SQLite; rendered as a section in main conversations only.", cite: "src/dreaming/memory.ts:145-149, 373-431" } });
   s.wire("memory", "brain", { id: "mb", enter: "module" });
   s.el("memory").set("inside", { status: "a module, not a service", tone: "amber" });
 
@@ -983,7 +983,7 @@ mx.scene({
   s.el("ws").send("deadline+0.3", "return #7", { back: true, tone: "green" });
   s.el("brain").set("second-0.3", { status: "tool result", spin: false, tone: "green" });
   s.box("box", "ky-runner", { at: [8.4, 1.4], status: "node \"box\"", tone: "blue", enter: "second",
-    inspect: { body: "Same runner, own name and token. Today a missing machine name is refused once two are online; same names double-send.", cite: "src/machines.ts:138-150, 324-325" } });
+    inspect: { body: "Same runner, own name and token. Today a missing machine name is refused once two are online; same names double-send.", cite: "src/machines/machines.ts:138-150, 324-325" } });
   s.box("lm", "local model", { at: [11, 1.4], status: "ollama / ChatGPT proxy", tone: "blue", enter: "serves",
     inspect: { body: "Its own vpc_services entry plus vibeProxy({binding, origin, api}). Model traffic never rides the runner socket.", cite: "seam: src/vibeproxy.ts:54-60 · wrangler.jsonc:27-34" } });
   s.wire("box", "lm", { id: "bl", enter: "serves+0.2" });

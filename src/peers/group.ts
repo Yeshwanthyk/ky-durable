@@ -12,10 +12,10 @@ import {
   type Tx,
   type UserInput
 } from "@earendil-works/pi-durable";
-import { agentModel } from "./models";
-import type { ModelChoice } from "./settings";
-import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "./specialists";
-import { summarize, type TaskFeed } from "./tasks";
+import { agentModel } from "../models";
+import type { ModelChoice } from "../settings";
+import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "../skills/specialists";
+import { summarize, type TaskFeed } from "../automations/tasks";
 import {
   FOR_MARK,
   type PiMessage,
@@ -24,7 +24,7 @@ import {
   type SpecialistReplyData,
   TO_SPECIALISTS,
   type ToSpecialistsData
-} from "./transcript";
+} from "../transcript";
 
 /**
  * Specialists in chat: the user @-mentions one, or a group chat's members

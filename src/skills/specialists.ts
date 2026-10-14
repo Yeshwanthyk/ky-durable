@@ -13,10 +13,10 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { agentModel } from "./models";
-import type { ModelChoice } from "./settings";
-import { type SoulAction, type SoulView, Versioned, versionLine } from "./soul";
-import { summarize, type TaskFeed } from "./tasks";
+import { agentModel } from "../models";
+import type { ModelChoice } from "../settings";
+import { type SoulAction, type SoulView, Versioned, versionLine } from "../dreaming/soul";
+import { summarize, type TaskFeed } from "../automations/tasks";
 
 /**
  * Specialists: standing bots the user sets up, like @engineer or @researcher.
@@ -31,7 +31,7 @@ import { summarize, type TaskFeed } from "./tasks";
  * it may do there follows from the conversation alone (see `rules`).
  *
  * When the user talks to it in a chat, with a leading @id or in a group chat
- * (src/group.ts), it answers in its seat for that chat: a conversation of
+ * (src/peers/group.ts), it answers in its seat for that chat: a conversation of
  * its own per chat, whose answers are posted to the chat as its own
  * messages. A seat cannot ask other specialists, so no reply leads to another.
  *

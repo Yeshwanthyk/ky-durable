@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { PiClientMessage } from "../protocol";
 import { connect, follow, inside, promptTool, said, shows, snapshotView, tasks } from "./drive";
 import { ROOT_SESSION } from "agents/harness/pi";
-import { ASK_TTL_MS } from "../peers";
+import { ASK_TTL_MS } from "../peers/peers";
 import { peerVaultName, type Vault as TestVault } from "./stack";
 
 /**
- * Peers (src/peers.ts): two test kys pair as two deploys do. Each is its own agent, with its own
+ * Peers (src/peers/peers.ts): two test kys pair as two deploys do. Each is its own agent, with its own
  * Vault, at `https://<name>.peer.test`, where the stack sends only its peer routes; the peer tool
  * reaches the other through them, so both sides run ky's real routes, tool and Vault.
  */

@@ -5,12 +5,12 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
-import { CLOUD_FACTS } from "./cloud-facts";
-import type { FileRow, FileStore } from "./files";
-import { type CloudState, type MachineInfo, osName } from "./protocol";
-import type { Sandboxes } from "./sandboxes";
+import { CLOUD_FACTS } from "../cloud-facts";
+import type { FileRow, FileStore } from "../files";
+import { type CloudState, type MachineInfo, osName } from "../protocol";
+import type { Sandboxes } from "../sandboxes";
 import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
-import { summarize, type TaskFeed, type TaskRow } from "./tasks";
+import { summarize, type TaskFeed, type TaskRow } from "../automations/tasks";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's

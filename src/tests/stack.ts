@@ -1,9 +1,9 @@
 import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import type { TaskTokens } from "../machines";
+import type { TaskTokens } from "../machines/machines";
 import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
-import { peerRoute } from "../peers";
+import { peerRoute } from "../peers/peers";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
 import { edge, FakeAccess } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
@@ -438,7 +438,7 @@ function answer(prompt: string): Reply {
 
   if (said) return { text: said[1]! };
 
-  // A peer conversation answers the question after the rules it answers by (src/peers.ts peerQuestion).
+  // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
   const peer = /^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/.exec(prompt);
 
   if (peer) return answer(peer[1]!);

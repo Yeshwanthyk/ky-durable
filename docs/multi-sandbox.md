@@ -179,7 +179,7 @@ specialists, automations, the default setting.
 ### Option 1: a `ky_sandboxes` table in the PiAgent (as designed)
 
 - **Maintain.** One new module, `src/sandboxes.ts` (a class over the PiAgent's SQL, like
-  `src/specialists.ts`). MachineHub, Settings routes and backup use it. The CloudMachine and the
+  `src/skills/specialists.ts`). MachineHub, Settings routes and backup use it. The CloudMachine and the
   proxy each call one PiAgent RPC. Code in one place.
 - **Backup/restore.** Free: backup already dumps the PiAgent's tables. Kept disks come back as rows;
   their R2 objects are listed under `leftOut`, as today.
@@ -223,7 +223,7 @@ specialists, automations, the default setting.
 What ky's extension points are:
 
 - **pi-durable extensions** (`defineExtension`): tools and prompt sections installed into the
-  PiAgent's registry. `machineExtension` in `src/machines.ts` already is one. Its state is the
+  PiAgent's registry. `machineExtension` in `src/machines/machines.ts` already is one. Its state is the
   PiAgent's SQLite. So "an extension" here is option 1, packaged as a module. It can't add a Durable
   Object binding, a container, an outbound interceptor or a Worker entrypoint: those are part of the
   Worker's deploy (`wrangler.jsonc`, `cli/deployer.ts`, exports from `src/server.ts`).
@@ -433,11 +433,11 @@ draft: the token goes to the runner, not just to tasks.
 
 1. **ky stops sending the token to the container at all.**
    - Today the PiAgent reads `cloud.github()` and puts the token in every run command
-     (`src/machines.ts:474-477`, `:497`). The runner keeps it in memory, and the task gets it as
+     (`src/machines/machines.ts:474-477`, `:497`). The runner keeps it in memory, and the task gets it as
      `GH_TOKEN` (`cli/runner/tasks.ts:210`).
    - Delete all of that:
-     - the `github` field of `RunCreds` (`src/runner-protocol.ts:67`)
-     - the `github()` method (`src/machines.ts:103`)
+     - the `github` field of `RunCreds` (`src/machines/runner-protocol.ts:67`)
+     - the `github()` method (`src/machines/machines.ts:103`)
      - the two reads in `machines.ts`
    - With the field gone, the type system makes sure nothing in the container holds the token.
 2. **Tasks get a constant placeholder.** `tasks.ts` sets `GH_TOKEN=ky-egress` on the cloud machine,
@@ -511,7 +511,7 @@ Administration and Secrets.
 
 **One PR, its own node, before PR 1.** Size M.
 
-- `src/runner-protocol.ts`, `src/machines.ts`: delete the token's path to the container.
+- `src/machines/runner-protocol.ts`, `src/machines/machines.ts`: delete the token's path to the container.
 - `src/cloud.ts`: two `interceptOutboundHttps` calls instead of one `interceptOutboundHttp`.
 - `src/github.ts`: GithubProxy becomes GithubEgress. It splits by host, adds the `api.github.com`
   allowlist and `redirect: "manual"`, and fails closed.
@@ -614,7 +614,7 @@ allowed(sandbox) = picked ∩ (sandbox.repos, or all picked if empty)
 
 **Invariants and where each is enforced:**
 
-1. **The token never goes into a container.** Enforced in `src/machines.ts`, the only sender, and by
+1. **The token never goes into a container.** Enforced in `src/machines/machines.ts`, the only sender, and by
    the type: `RunCreds` has no `github` field.
 2. **Every request carrying the token names a repo in `allowed(sandbox)`.** Enforced in
    GithubEgress, the only code that adds the token for containers.

@@ -7,7 +7,7 @@ import type { AutomationInfo, ChatRow, FileRow, MachineInfo, PiServerMessage, Se
 /**
  * Decoders for what ky sends over the browser's socket, shared by the worker
  * e2e tests, the CLI harness and the Playwright suite. The runner's socket
- * decodes with src/runner-protocol.ts, as both its ends do. Each frame is checked
+ * decodes with src/machines/runner-protocol.ts, as both its ends do. Each frame is checked
  * against a typebox schema before it is used. Nested records the tests only
  * pass along (pi's events, task rows, settings) are checked by the fields
  * that tell them apart and typed by the server's own types.

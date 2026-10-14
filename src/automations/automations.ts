@@ -12,11 +12,11 @@ import {
 } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
-import type { ChatList } from "./chats";
-import type { MachineHub } from "./machines";
-import type { Models } from "./models";
-import type { ModelChoice } from "./settings";
-import type { Spawn } from "./subagents";
+import type { ChatList } from "../chats";
+import type { MachineHub } from "../machines/machines";
+import type { Models } from "../models";
+import type { ModelChoice } from "../settings";
+import type { Spawn } from "../skills/subagents";
 import { isLive, type TaskFeed, type TaskRow } from "./tasks";
 
 /**
@@ -97,9 +97,9 @@ export type AutomationDeps = {
   readonly chats: ChatList;
   readonly models: Pick<Models, "worker" | "valid" | "catalog">;
   readonly runtime: AutomationRuntime;
-  /** ky's own nightly job, Dreaming (src/dreaming.ts): booked here so one Scheduler holds every fire. */
+  /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire. */
   readonly dream: { readonly cron: string; readonly run: () => void };
-  /** Peers' sweep (src/peers.ts sweepPeers): questions that expire, and answers to send again. */
+  /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
 };
 

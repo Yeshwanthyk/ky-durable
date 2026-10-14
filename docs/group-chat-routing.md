@@ -3,7 +3,7 @@
 The user can talk to specialists directly in the main chat or a side chat. A message that starts with `@id` goes to
 that specialist. In a group chat (a chat with specialists as members), a message with no `@` goes to the members it
 is relevant to. Each specialist posts its own reply, under its name and blob. ky doesn't paraphrase it.
-The code is in `src/group.ts`. This note covers why it is shaped the way it is.
+The code is in `src/peers/group.ts`. This note covers why it is shaped the way it is.
 
 ## What others do
 

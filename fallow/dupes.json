@@ -16,7 +16,7 @@
     "test/harness/scenarios.ts:482-486|test/harness/scenarios.ts:591-596",
     "src/files.ts:42-60|src/setup.ts:35-47",
     "test/harness/scenarios.ts:1120-1128|test/harness/scenarios.ts:932-942",
-    "src/group.ts:189-197|src/specialists.ts:129-137"
+    "src/peers/group.ts:189-197|src/skills/specialists.ts:129-137"
   ],
   "clone_fingerprints": [
     "dup:ea98f773:2",

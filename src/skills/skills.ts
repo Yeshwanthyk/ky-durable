@@ -11,7 +11,7 @@ import {
   hook,
   ToolTask
 } from "@earendil-works/pi-durable";
-import { summarize, type TaskFeed } from "./tasks";
+import { summarize, type TaskFeed } from "../automations/tasks";
 
 /**
  * Skills: the agent's procedural memory, after Hermes Agent's skills and
@@ -34,7 +34,7 @@ const BODY_CHARS = 20_000;
 /** A turn with at least this many tool calls is reviewed for skills. */
 const REVIEW_AFTER = 5;
 
-/** What runs in the background over the library: a review of one turn, or a nightly dream (src/dreaming.ts). */
+/** What runs in the background over the library: a review of one turn, or a nightly dream (src/dreaming/dreaming.ts). */
 export type ReviewKind = "review" | "dream";
 
 const REVIEW_TOOLS = ["skill_view", "skill_manage", "memory_recall", "memory_zoom"];
@@ -42,7 +42,7 @@ const REVIEW_TOOLS = ["skill_view", "skill_manage", "memory_recall", "memory_zoo
 /** The tools each kind may call; both are offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
   review: new Set(REVIEW_TOOLS),
-  // automation books check-ins (src/automations.ts), and only them.
+  // automation books check-ins (src/automations/automations.ts), and only them.
   dream: new Set([...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "automation"])
 };
 

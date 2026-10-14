@@ -35,15 +35,15 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | Cloud machine | A container on the user's account (Workers Paid) running `ky runner cloud`, so tasks run with every computer off; git and `ky github` reach GitHub through the Worker's `github.internal`, which holds the token. | `src/cloud.ts`, `src/github.ts`, `src/github-tools.ts`, `cli/runner/cloud.ts`, `cli/runner/github.ts`, `container/Dockerfile` |
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
-`ky_tasks` (task feed, `src/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines.ts`),
-`ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations.ts`), `ky_providers` (`src/providers/records.ts`),
+`ky_tasks` (task feed, `src/automations/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines/machines.ts`),
+`ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
-`memo_log` and `memo_tree` (memory, `src/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills.ts`),
-`ky_dream` (`src/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
+`memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
-- Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills.ts`).
+- Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills/skills.ts`).
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
   skill tools. Writes apply at once and every one is kept as a version, so `revert` undoes it. Memory holds facts;
@@ -54,17 +54,17 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 - Dreaming: once a night (04:00 UTC, booked on the automations Scheduler), ky reads what happened since the last
   dream (new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with memory, and
   tends the skills: creates one for a task that keeps coming up, merges overlaps, archives ones unused for 60 days,
-  and fixes ones a later correction contradicts (`src/dreaming.ts`). It may call only the skill tools and memory's;
+  and fixes ones a later correction contradicts (`src/dreaming/dreaming.ts`). It may call only the skill tools and memory's;
   it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
   on the stale summary, is told to note at most five, and pays the compressions its notes make due. It shows in Activity as
   "Dreaming", and skips the night when nothing happened. It also books check-ins (below).
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
-- Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/subagents.ts`). Each shows in Activity, and you can open its transcript.
+- Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
-  persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/specialists.ts`).
+  persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/skills/specialists.ts`).
   In the main chat or a side chat, typing `@` offers the specialists; a message that starts with `@id` (up to 3 ids)
   goes to them, and each posts its own reply in the chat under its name and blob: ky doesn't paraphrase it
-  (`src/group.ts`). A chat with specialists as members (the topbar's member button) is a group chat: a message with
+  (`src/peers/group.ts`). A chat with specialists as members (the topbar's member button) is a group chat: a message with
   no `@` goes through one routing call on the background model, which picks 0 to 3 members by their descriptions;
   when it picks none, ky answers. Only the user's message from the socket is routed. The user's message and each reply
   are passive entries that start no run, and each specialist answers in its own seat for that chat, which has no
@@ -78,8 +78,8 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   the consult runs in a fresh conversation that can't ask on, shown as "@a → @b" in Activity). `subagent discuss`
   puts 2 to 4 specialists through 1 or 2 rounds without tools, and ky gives you where they agree, where they
   disagree, and its recommendation.
-- Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines.ts`).
-- Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
+- Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines/machines.ts`).
+- Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
   ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection). A run
   is told to search in general terms and to answer `NOTHING_NEW` when it found nothing worth saying; then, or when it
@@ -87,7 +87,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   unless memory shows it already has, and notes what it said. A run may call only `executor_skills`,
   `executor_execute` and `browse` (`checkInGuardExtension`); a dream may only create check-ins and list. At most 2 are
   booked a day and 6 wait at once; Activity's "Check-ins on/off" stops the dream booking them and pauses the waiting
-  ones (`src/automations.ts`, `src/dreaming.ts`).
+  ones (`src/automations/automations.ts`, `src/dreaming/dreaming.ts`).
 - Titles: a small model names chats and tasks (`src/titles.ts`).
 
 ## Sign-in
@@ -232,7 +232,7 @@ and `move` sends it to another machine that runs its agent, as long as it has no
 session lives on that machine, so it stays there.
 
 The runner protocol (the `run`/`stop`/`creds` commands, `hello`/`ack`/`session`/`step`/`result` reports, and the
-`http_*` frames for a machine's ports) is shared in `src/runner-protocol.ts` and decoded with typebox at both ends.
+`http_*` frames for a machine's ports) is shared in `src/machines/runner-protocol.ts` and decoded with typebox at both ends.
 `hello` carries `PROTOCOL`, the runner's version and its machine facts (OS, Chrome, repos, which agents are
 installed and signed in, shared ports, computer or cloud). The runner says hello before anything it made offline,
 and the object reads `protocol` first: a runner on `/runner/<machine>` that speaks another protocol is told `goodbye`

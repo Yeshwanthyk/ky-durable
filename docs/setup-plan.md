@@ -119,7 +119,7 @@ Specifically:
 
 These are fixed so nodes can be built in parallel.
 
-### C1. Runner protocol v3 (`src/runner-protocol.ts`, `PROTOCOL = 3`)
+### C1. Runner protocol v3 (`src/machines/runner-protocol.ts`, `PROTOCOL = 3`)
 
 **Socket:** `GET /runner/<machine>` (WebSocket upgrade) with `Authorization: Bearer <machine token>`. The path is
 outside Access. The Worker checks the token against the Vault and routes the socket to
@@ -211,7 +211,7 @@ issue("task", subject): string                              // added by T: the s
 revokeAll("task", subjects: string[]): void                  // added by T: revoke each subject's token
 ```
 
-- **`issue` (added by T):** a task's token has to reach the runner again in every resend and follow-up while the task lives, without the agent keeping it. So the Vault stores a random nonce with the token's hash, and derives the token as HMAC-SHA256 of the nonce under a key it keeps (`ky_vault_keys`). The key and the nonce are in the same SQLite, so the Vault can derive an issued token again whenever it likes: unlike a minted token, an issued one is as safe as the Vault's storage, not only as its hash. `issue` derives it again while the row is live; once it is revoked or expired it makes a new one. Every await comes before its read and write of the row, so racing calls share one token, and a revoke that lands while it derives wins. Each issue sets the token to expire `ISSUED_TTL_MS` (24 hours, `src/runner-protocol.ts`) from now: a resend refreshes it, so it outlives any turn, and a revoke that was lost leaves a token that works for a day at most. `check` and `revoke` work on it as on a minted token.
+- **`issue` (added by T):** a task's token has to reach the runner again in every resend and follow-up while the task lives, without the agent keeping it. So the Vault stores a random nonce with the token's hash, and derives the token as HMAC-SHA256 of the nonce under a key it keeps (`ky_vault_keys`). The key and the nonce are in the same SQLite, so the Vault can derive an issued token again whenever it likes: unlike a minted token, an issued one is as safe as the Vault's storage, not only as its hash. `issue` derives it again while the row is live; once it is revoked or expired it makes a new one. Every await comes before its read and write of the row, so racing calls share one token, and a revoke that lands while it derives wins. Each issue sets the token to expire `ISSUED_TTL_MS` (24 hours, `src/machines/runner-protocol.ts`) from now: a resend refreshes it, so it outlives any turn, and a revoke that was lost leaves a token that works for a day at most. `check` and `revoke` work on it as on a minted token.
 
 - **Pair codes:** each one is minted with a fresh random subject (for example `crypto.randomUUID()`), so codes outstanding at once never replace each other, and is redeemed with `consume`.
 - **`refresh(kind, id, fn)` is internal**, used inside the Vault only (by `sessionCreds`): its callback can't cross the typed RPC stub. It is a CAS on the secret's generation, which every `put` and every successful refresh bump. Callers of one generation share one `fn`. A `put` or `remove` that lands first wins, and the refresh answers with what is stored now, or null, whether `fn` succeeded or failed.
@@ -716,7 +716,7 @@ These are the machine flows for ChatGPT and Claude.
 - **FEATURES rows:** `machine-facts` and `task-screenshot` become "machines with Chrome".
 - **Done when:** ky edits itself, opens a PR from `cloud`, and the merge deploys, with the Mac off.
 - **Built (RT):**
-  - `machine` tool: its description is a getter (`toolDescription` in `src/machines.ts`), read on every model
+  - `machine` tool: its description is a getter (`toolDescription` in `src/machines/machines.ts`), read on every model
     request. It lists each machine's stable facts: state, OS, Chrome, agents, ports, repos and note, `cloud` first.
     Whether a machine is up and how busy it is stay in `list`, so the tool's text changes only when a machine does.
     The routing text sends scripts, builds, tests and GitHub repo work to `cloud` while it is on. Pages behind
