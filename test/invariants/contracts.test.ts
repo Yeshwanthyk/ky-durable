@@ -15,8 +15,7 @@ const PROMISED = [
   "restores only tables a contract names, round-tripping a corrupt cell",
   "migrates idempotently and never drops a table on start",
   // Domains.
-  "allows only registered tools in each allowlist",
-  "crosses domains only through contract.ts"
+  "allows only registered tools in each allowlist"
 ];
 
 for (const promise of PROMISED) it.todo(promise);

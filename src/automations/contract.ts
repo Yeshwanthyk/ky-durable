@@ -8,7 +8,7 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import Type, { type Static, type TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
-import type { Agent } from "../machines/runner-protocol";
+import type { Agent } from "../machines/contract";
 import type { ModelChoice } from "../settings";
 
 export type { Automations } from "./automations";

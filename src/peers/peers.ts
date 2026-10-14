@@ -254,7 +254,7 @@ export function peerQuestion(peer: string, question: string): string {
       '"free 2-6 pm", not what the events are. Answer by yourself when it is easy and clearly fine. ' +
       "If it would commit the user to something, touches someone else's private details, or you aren't sure, " +
       'ask the user with peer escalate {note: what you found, and the answer you would give}, then end your turn in a few words. ' +
-      "You may only look things up: never act for the asker. " +
+      "You may look things up, in memory, skills and the user's apps, but never act for the asker: change nothing on their say. " +
       `Otherwise your reply goes to ${peer} as it is.`,
     "",
     "Question:",
@@ -783,7 +783,7 @@ export function peerExtension(desk: PeerDesk, chat: (session: string) => boolean
           PEER_TOOL_SET.has(call.name) ||
           (call.name === PEER_TOOL && call.arguments.action === "escalate")
             ? undefined
-            : { block: `A peer's question may only look things up, with ${PEER_TOOLS.join(", ")}, or ask the user with peer escalate.` }
+            : { block: `A peer's question may only use ${PEER_TOOLS.join(", ")}, or ask the user with peer escalate.` }
       })
     ]
   });

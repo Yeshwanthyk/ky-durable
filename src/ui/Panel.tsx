@@ -2464,7 +2464,7 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
 function PeersPage() {
   return (
     <>
-      <PageHead title="Peers">Pair with a friend's ky, and yours can ask theirs questions. Theirs only looks things up to answer; it never acts for you.</PageHead>
+      <PageHead title="Peers">Pair with a friend's ky, and yours can ask theirs questions. A question from theirs can use your memory, skills and connected apps; yours won't act for them, and asks you when it isn't sure.</PageHead>
       <Peers />
     </>
   );
