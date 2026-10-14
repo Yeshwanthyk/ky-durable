@@ -1,4 +1,3 @@
-import type { JsonValue } from "@earendil-works/pi-ai";
 import type { EntryId, EntryRecord } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
 import { forThem, parseRoute, plan, RESPONDER_CAP, recentOf, ROUTER_PROMPT, routerInput } from "../group";
@@ -82,6 +81,7 @@ describe("the chat a specialist sees", () => {
     const input = forThem("hello all", ["a", "b"]);
     expect(input).toBe("[for @a, @b] hello all");
 
+    // SAFETY: a test record; the branded ids are only compared, never resolved against a store.
     const entry: EntryRecord = {
       id: 7 as EntryId,
       conversationId: 1 as EntryRecord["conversationId"],
@@ -237,7 +237,10 @@ describe("specialists in chat", () => {
 
     const first = await submit(socket, client, "route: a, b\nhello", operationId);
     const again = await submit(socket, client, "route: a, b\nhello", operationId);
-    expect(again).toMatchObject({ result: (first as Frame<"result">).result as JsonValue });
+
+    if (first.type !== "result") throw new Error(`the first submit failed: ${first.message}`);
+
+    expect(again).toMatchObject({ result: first.result });
     await until(async () => (await replies(name)).length === 2, "both replies");
     await new Promise((resolve) => setTimeout(resolve, 300));
 

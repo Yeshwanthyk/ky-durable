@@ -448,12 +448,6 @@ export class PiSessionSockets {
     }
   }
 
-  async close(): Promise<void> {
-    const watches = [...this.#watches.values()];
-    this.#watches.clear();
-    await Promise.all(watches.map((watch) => watch.stop()));
-  }
-
   async #onConnect(connection: Connection, ctx: ConnectionContext) {
     if (connection.tags.includes(REFUSED_TAG)) {
       goodbye(connection, { type: "goodbye", reason: "This machine is not paired with ky; pair it again." }, REVOKED, "Removed from ky; pair again.");

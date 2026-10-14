@@ -1,0 +1,435 @@
+{
+  "cli/compile.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 1
+  },
+  "cli/config.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "cli/deployer.ts": {
+    "typescript(no-misused-spread)": 1
+  },
+  "cli/image.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-misused-spread)": 1
+  },
+  "cli/output.ts": {
+    "typescript(no-misused-spread)": 1
+  },
+  "cli/release.ts": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(await-thenable)": 1,
+    "typescript(no-non-null-assertion)": 1,
+    "typescript(no-unsafe-assignment)": 3
+  },
+  "cli/runner/agent.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-explicit-any)": 1
+  },
+  "cli/runner/claude.ts": {
+    "typescript(no-explicit-any)": 3,
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 2,
+    "typescript(no-unsafe-member-access)": 16,
+    "typescript(no-unsafe-return)": 1
+  },
+  "cli/runner/codex.ts": {
+    "typescript(no-explicit-any)": 5,
+    "typescript(no-unsafe-argument)": 6,
+    "typescript(no-unsafe-assignment)": 2,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 22,
+    "typescript(no-unsafe-return)": 1
+  },
+  "cli/runner/commands.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-unsafe-return)": 1
+  },
+  "cli/runner/facts.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "cli/runner/forward.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "cli/runner/github.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-base-to-string)": 2
+  },
+  "cli/runner/handled.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 3,
+    "typescript(no-unsafe-return)": 1
+  },
+  "cli/runner/run.ts": {
+    "typescript(no-explicit-any)": 1,
+    "typescript(no-unsafe-argument)": 1
+  },
+  "cli/runner/runner.ts": {
+    "typescript(no-non-null-assertion)": 2
+  },
+  "cli/runner/settings.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-non-null-assertion)": 1,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "scripts/image/inputs.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "src/access.ts": {
+    "ky(no-unchecked-parse)": 2
+  },
+  "src/archive.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/automations.ts": {
+    "ky(no-unchecked-parse)": 4,
+    "typescript(no-non-null-assertion)": 3
+  },
+  "src/backup.ts": {
+    "ky(no-unchecked-parse)": 13,
+    "typescript(no-non-null-assertion)": 4,
+    "typescript(no-unsafe-assignment)": 4,
+    "typescript(no-unsafe-member-access)": 1
+  },
+  "src/chatgpt.ts": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/chats.ts": {
+    "ky(no-unchecked-parse)": 3
+  },
+  "src/client.tsx": {
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-return)": 1
+  },
+  "src/dreaming.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/executor.ts": {
+    "typescript(await-thenable)": 1,
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-member-access)": 2
+  },
+  "src/files.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-non-null-assertion)": 2
+  },
+  "src/github-tools.ts": {
+    "ky(no-unchecked-parse)": 3
+  },
+  "src/github.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/group.ts": {
+    "ky(no-unchecked-parse)": 5,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/history.ts": {
+    "ky(no-unchecked-parse)": 6,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/machines.ts": {
+    "ky(no-unchecked-parse)": 16,
+    "typescript(no-non-null-assertion)": 10,
+    "typescript(no-unsafe-return)": 1
+  },
+  "src/memory.ts": {
+    "ky(no-unchecked-parse)": 7,
+    "typescript(no-non-null-assertion)": 5
+  },
+  "src/models.ts": {
+    "typescript(await-thenable)": 1,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/peers.ts": {
+    "ky(no-unchecked-parse)": 10
+  },
+  "src/providers/api-key.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/providers/records.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/runner-protocol.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-member-access)": 4
+  },
+  "src/runners.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/sandbox-routes.ts": {
+    "ky(no-unchecked-parse)": 2
+  },
+  "src/sandboxes.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/server.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/settings.ts": {
+    "ky(no-unchecked-parse)": 2,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/setup.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/skills.ts": {
+    "ky(no-unchecked-parse)": 8
+  },
+  "src/sockets.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/soul.ts": {
+    "ky(no-unchecked-parse)": 4
+  },
+  "src/specialists.ts": {
+    "ky(no-unchecked-parse)": 4,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/subagents.ts": {
+    "typescript(no-non-null-assertion)": 6
+  },
+  "src/tasks.ts": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/tests/backup.test.ts": {
+    "typescript(no-unsafe-assignment)": 2
+  },
+  "src/tests/cloud.test.ts": {
+    "typescript(no-base-to-string)": 3,
+    "typescript(no-unsafe-assignment)": 4
+  },
+  "src/tests/drive.ts": {
+    "typescript(no-unsafe-argument)": 1
+  },
+  "src/tests/executor.test.ts": {
+    "typescript(no-unsafe-assignment)": 3
+  },
+  "src/tests/features.test.ts": {
+    "typescript(no-unsafe-assignment)": 2
+  },
+  "src/tests/first-run.test.ts": {
+    "typescript(no-unsafe-assignment)": 2
+  },
+  "src/tests/frames.ts": {
+    "typescript(no-unsafe-return)": 1
+  },
+  "src/tests/group.test.ts": {
+    "typescript(require-array-sort-compare)": 1
+  },
+  "src/tests/models.test.ts": {
+    "typescript(no-unsafe-assignment)": 2
+  },
+  "src/tests/peers.test.ts": {
+    "typescript(no-unsafe-assignment)": 3
+  },
+  "src/tests/runner-protocol.test.ts": {
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-return)": 3
+  },
+  "src/tests/runners.test.ts": {
+    "typescript(require-array-sort-compare)": 2
+  },
+  "src/tests/sandboxes.test.ts": {
+    "typescript(no-base-to-string)": 1
+  },
+  "src/tests/skills.test.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "src/tests/sockets.test.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "src/tests/specialists.test.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "src/tests/subscriptions.test.ts": {
+    "typescript(no-unsafe-assignment)": 3
+  },
+  "src/tests/vault.test.ts": {
+    "typescript(no-unsafe-assignment)": 9,
+    "typescript(no-unsafe-call)": 2,
+    "typescript(no-unsafe-member-access)": 3,
+    "typescript(no-unsafe-return)": 1
+  },
+  "src/ui/CommandPalette.tsx": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/ui/Composer.tsx": {
+    "typescript(no-non-null-assertion)": 3
+  },
+  "src/ui/Lightbox.tsx": {
+    "typescript(no-non-null-assertion)": 2
+  },
+  "src/ui/Panel.tsx": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/ui/bloub/decor.ts": {
+    "eslint(no-unused-vars)": 1
+  },
+  "src/ui/bloub/engine.ts": {
+    "typescript(no-non-null-assertion)": 6
+  },
+  "src/ui/bloub/expressions.ts": {
+    "eslint(no-unused-vars)": 2
+  },
+  "src/ui/bloub/eyefit.ts": {
+    "eslint(no-unused-vars)": 1,
+    "typescript(no-non-null-assertion)": 4
+  },
+  "src/ui/bloub/face.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/ui/bloub/shape.ts": {
+    "typescript(no-non-null-assertion)": 11
+  },
+  "src/ui/bloub/skins.ts": {
+    "eslint(no-unused-vars)": 5,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/ui/bloub/states.ts": {
+    "eslint(no-unused-vars)": 2,
+    "typescript(no-non-null-assertion)": 3
+  },
+  "src/ui/commands.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/ui/pick-images.ts": {
+    "typescript(no-base-to-string)": 1
+  },
+  "src/ui/task-progress.ts": {
+    "typescript(no-non-null-assertion)": 2
+  },
+  "src/ui/turns.ts": {
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/ui/use-seen.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/use-pi-session.ts": {
+    "ky(no-unchecked-parse)": 1,
+    "typescript(unbound-method)": 1
+  },
+  "src/vault.ts": {
+    "ky(no-unchecked-parse)": 15,
+    "typescript(no-non-null-assertion)": 1,
+    "typescript(no-unsafe-argument)": 2,
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-return)": 2
+  },
+  "src/view-cache.ts": {
+    "ky(no-unchecked-parse)": 1
+  },
+  "src/workspace.ts": {
+    "typescript(no-misused-spread)": 1
+  },
+  "test/fakes/claude.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "test/fakes/cloudflare.ts": {
+    "typescript(no-base-to-string)": 1,
+    "typescript(no-misused-spread)": 1,
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "test/fakes/codex.ts": {
+    "typescript(no-unsafe-member-access)": 1
+  },
+  "test/fakes/container.ts": {
+    "typescript(no-unsafe-argument)": 1
+  },
+  "test/fakes/github.ts": {
+    "typescript(no-base-to-string)": 1
+  },
+  "test/fakes/openai.ts": {
+    "typescript(no-base-to-string)": 1,
+    "typescript(no-unsafe-argument)": 2,
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "test/fakes/registry.ts": {
+    "typescript(no-unsafe-argument)": 1
+  },
+  "test/gate-live.ts": {
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 4,
+    "typescript(no-unsafe-call)": 6,
+    "typescript(no-unsafe-member-access)": 18,
+    "typescript(no-unsafe-return)": 2
+  },
+  "test/gate.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "test/harness/client.ts": {
+    "typescript(no-base-to-string)": 2,
+    "typescript(no-unsafe-assignment)": 1,
+    "typescript(no-unsafe-call)": 2,
+    "typescript(no-unsafe-member-access)": 4,
+    "typescript(no-unsafe-return)": 2
+  },
+  "test/harness/proxy.ts": {
+    "typescript(no-base-to-string)": 3,
+    "typescript(no-unsafe-argument)": 1
+  },
+  "test/harness/runner.ts": {
+    "typescript(no-unsafe-assignment)": 1
+  },
+  "test/harness/scenarios.ts": {
+    "typescript(no-base-to-string)": 1,
+    "typescript(no-meaningless-void-operator)": 1,
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 21,
+    "typescript(no-unsafe-call)": 26,
+    "typescript(no-unsafe-member-access)": 69,
+    "typescript(no-unsafe-return)": 11
+  },
+  "test/harness/vibeproxy.ts": {
+    "typescript(no-unsafe-argument)": 1
+  },
+  "test/lint-ratchet.ts": {
+    "anti-slop(require-readable-spacing)": 1
+  },
+  "test/live-cloud.ts": {
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-call)": 4,
+    "typescript(no-unsafe-member-access)": 10,
+    "typescript(no-unsafe-return)": 1
+  },
+  "test/node/cli.test.ts": {
+    "typescript(no-unsafe-assignment)": 6,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 1
+  },
+  "test/node/image.test.ts": {
+    "typescript(no-unsafe-assignment)": 3
+  },
+  "test/node/overlay.test.ts": {
+    "typescript(no-unsafe-argument)": 2,
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 2,
+    "typescript(no-unsafe-return)": 1
+  },
+  "test/node/runner.test.ts": {
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-assignment)": 2,
+    "typescript(no-unsafe-member-access)": 3
+  },
+  "vite.config.ts": {
+    "typescript(no-unsafe-argument)": 1,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 1
+  }
+}

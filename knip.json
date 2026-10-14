@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "public/sw.js",
+    "cli/binary.ts",
+    "test/**/*.ts",
+    "src/tests/**/*.{ts,tsx}",
+    "tools/oxlint/anti-slop/**/*.ts",
+    "scripts/**/*.{ts,mjs,js}",
+    "wrangler-overlay.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "cli/**/*.ts",
+    "test/**/*.ts",
+    "tools/**/*.ts",
+    "scripts/**/*.{ts,mjs,js}"
+  ],
+  "ignore": [
+    "explainers/**",
+    "test-results/**",
+    "dist/**"
+  ],
+  "ignoreDependencies": [
+    "cloudflare",
+    "tailwindcss"
+  ],
+  "ignoreBinaries": [
+    "tail",
+    "cloudflared"
+  ]
+}

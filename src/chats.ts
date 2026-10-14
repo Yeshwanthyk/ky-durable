@@ -21,7 +21,7 @@ export type ChatRow = {
 const TITLE_CHARS = 60;
 
 /** A chat's title from its first message: the first line, trimmed to fit the list. */
-export function titleOf(text: string): string {
+function titleOf(text: string): string {
   const line = text.trim().split("\n").find((part) => part.trim() !== "")?.trim() ?? "";
 
   return line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;

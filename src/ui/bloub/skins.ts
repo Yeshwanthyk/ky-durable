@@ -95,9 +95,9 @@ export const OUTLINES: BotOutline[] = [
 
 // Map indexee par `string` et non par `OutlineId` : les appelants interrogent avec
 // une valeur relue du localStorage ou d'une prop, donc non validee.
-export const OUTLINE_BY_ID = new Map<string, BotOutline>(OUTLINES.map((s) => [s.id, s]))
+const OUTLINE_BY_ID = new Map<string, BotOutline>(OUTLINES.map((s) => [s.id, s]))
 
-export const DEFAULT_OUTLINE = 'cercle'
+const DEFAULT_OUTLINE = 'cercle'
 
 export type ColorId =
   | 'encre'
@@ -134,12 +134,12 @@ export const COLORS: BotColor[] = [
   { id: 'creme', hex: '#f1efe9' }
 ]
 
-export const COLOR_BY_ID = new Map<string, BotColor>(COLORS.map((c) => [c.id, c]))
+const COLOR_BY_ID = new Map<string, BotColor>(COLORS.map((c) => [c.id, c]))
 
-export const DEFAULT_COLOR = 'encre'
+const DEFAULT_COLOR = 'encre'
 
 /** Melange deux couleurs hex. Sert a la brume de profondeur des particules. */
-export function mixHex(from: string, to: string, t: number): string {
+function mixHex(from: string, to: string, t: number): string {
   const parse = (h: string) => {
     const v = parseInt(h.slice(1), 16)
 

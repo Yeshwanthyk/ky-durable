@@ -16,6 +16,14 @@
         "count": 1
       }
     },
+    "src/client.tsx": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
     "src/cloud.ts": {
       "crap_high": {
         "count": 1
@@ -48,11 +56,22 @@
       "complexity_critical": {
         "count": 1
       },
+      "complexity_high": {
+        "count": 1
+      },
       "crap_critical": {
         "count": 1
       },
+      "crap_high": {
+        "count": 1
+      },
       "crap_moderate": {
-        "count": 2
+        "count": 1
+      }
+    },
+    "src/specialists.ts": {
+      "crap_moderate": {
+        "count": 1
       }
     },
     "src/subagents.ts": {
@@ -61,6 +80,11 @@
       },
       "crap_critical": {
         "count": 1
+      }
+    },
+    "src/tests/stack.ts": {
+      "crap_moderate": {
+        "count": 2
       }
     },
     "src/ui/Attachments.tsx": {
@@ -83,8 +107,22 @@
       "crap_critical": {
         "count": 1
       },
+      "crap_high": {
+        "count": 1
+      },
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "src/ui/ChatThread.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
       }
     },
     "src/ui/CommandPalette.tsx": {
@@ -94,19 +132,26 @@
     },
     "src/ui/Composer.tsx": {
       "complexity_critical": {
-        "count": 1
+        "count": 2
       },
       "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 2
+        "count": 3
       },
       "crap_moderate": {
         "count": 1
       }
     },
+    "src/ui/GroupMembers.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "src/ui/Lightbox.tsx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/Markdown.tsx": {
       "crap_high": {
         "count": 1
       }
@@ -128,6 +173,24 @@
       },
       "crap_high": {
         "count": 6
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/ui/Peers.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/QueueTray.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/Sidebar.tsx": {
+      "crap_high": {
+        "count": 1
       },
       "crap_moderate": {
         "count": 1
@@ -154,14 +217,24 @@
         "count": 2
       },
       "crap_moderate": {
-        "count": 2
+        "count": 3
       }
     },
     "src/ui/ToolRow.tsx": {
       "crap_critical": {
-        "count": 2
+        "count": 1
       },
       "crap_high": {
+        "count": 2
+      }
+    },
+    "src/ui/Welcome.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/WhoSub.tsx": {
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -208,27 +281,40 @@
         "count": 2
       }
     },
-    "src/ui/pick-images.ts": {
-      "crap_high": {
-        "count": 1
-      }
-    },
     "src/ui/turns.ts": {
       "complexity_critical": {
         "count": 2
       },
       "crap_critical": {
-        "count": 3
-      },
-      "crap_high": {
-        "count": 1
+        "count": 2
       },
       "crap_moderate": {
         "count": 1
       }
     },
+    "src/ui/use-changes.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/use-keyboard-inset.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/use-panel.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
     "src/use-pi-session.ts": {
-      "complexity_high": {
+      "complexity_critical": {
         "count": 1
       },
       "crap_critical": {
@@ -239,7 +325,7 @@
       }
     },
     "src/view-cache.ts": {
-      "crap_moderate": {
+      "crap_high": {
         "count": 1
       }
     },
@@ -368,26 +454,21 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "src/ui/open-chat.ts:high impact",
-    "cli/runner/commands.ts:high impact",
     "src/ui/turns.ts:complexity",
-    "src/ui/blob-catalog.ts:dead code",
+    "src/ui/open-chat.ts:high impact",
     "src/ui/Thread.tsx:complexity",
+    "src/outbox.ts:high impact",
     "src/tool-labels.ts:high impact",
-    "src/ui/ToolRow.tsx:untested risk",
     "test/harness/client.ts:high impact",
-    "src/ui/bloub/skins.ts:dead code",
     "src/ui/activity.ts:high impact",
-    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
     "src/images.ts:high impact",
     "src/ui/Panel.tsx:complexity",
-    "src/ui/bloub/expressions.ts:dead code",
+    "src/ui/Composer.tsx:complexity",
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
     "src/use-pi-session.ts:complexity",
-    "cli/runner/facts.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
-    "src/ui/bloub/states.ts:dead code",
-    "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk",
-    "src/subagents.ts:complexity"
+    "src/subagents.ts:complexity",
+    "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk"
   ]
 }

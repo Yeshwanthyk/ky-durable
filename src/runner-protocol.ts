@@ -268,6 +268,17 @@ const PairRequestSchema = Type.Object({ code: Type.String({ minLength: 1 }), nam
 
 export type PairRequest = Static<typeof PairRequestSchema>;
 
+/**
+ * Every schema that crosses the runner's socket or its pairing request. test/invariants hashes
+ * these against PROTOCOL, so changing one without a bump fails the check.
+ */
+export const WIRE = {
+  command: RunnerCommandSchema,
+  frame: ObjectFrameSchema,
+  report: RunnerReportSchema,
+  pair: PairRequestSchema
+};
+
 /** Whether `body`, a parsed JSON request, asks to pair; its facts are checked apart, with isMachineFacts. */
 export function isPairRequest(body: unknown): body is PairRequest {
   return Value.Check(PairRequestSchema, body);

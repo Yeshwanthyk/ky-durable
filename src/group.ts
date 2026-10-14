@@ -46,7 +46,10 @@ import {
 export const RESPONDER_CAP = 3;
 
 /** How long a specialist has for one reply before its seat is stopped. */
-export const REPLY_TIMEOUT_MS = 4 * 60_000;
+/** Each group chat's member ids, by session. */
+export type GroupMembers = Record<string, string[]>;
+
+const REPLY_TIMEOUT_MS = 4 * 60_000;
 
 /** The chat a specialist and the router see: this many recent messages, each and all cut. */
 const RECENT_MESSAGES = 8;
@@ -60,7 +63,7 @@ const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0,
 const flat = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** Who answers a user's message, as decided once. */
-export type Plan = { readonly to: readonly string[] } | { readonly refused: string };
+export type RoutePlan = { readonly to: readonly string[] } | { readonly refused: string };
 
 /**
  * Who answers a user's message: the specialists it starts by @-ing, else
@@ -70,7 +73,7 @@ export async function plan(
   text: string,
   members: readonly SpecialistRow[],
   pick: (members: readonly SpecialistRow[]) => Promise<readonly string[]>
-): Promise<Plan> {
+): Promise<RoutePlan> {
   const mentioned = [...new Set(mentions(text))];
 
   if (mentioned.length > RESPONDER_CAP) return { refused: `At most ${RESPONDER_CAP} specialists can answer one message.` };
@@ -104,7 +107,7 @@ export function parseRoute(answer: string, members: readonly SpecialistRow[]): s
 }
 
 /** The router's pick; none when it fails, so ky answers. */
-export async function route(
+async function route(
   complete: (system: string, text: string) => Promise<string>,
   members: readonly SpecialistRow[],
   recent: string,
@@ -144,7 +147,7 @@ export function recentOf(messages: readonly PiMessage[]): string {
 }
 
 /** What a specialist reads in its seat: the recent chat and the user's message. */
-export function seatPrompt(recent: string, text: string): string {
+function seatPrompt(recent: string, text: string): string {
   return `[a message in the user's chat]${recent ? ` Recent messages there, for context:\n<chat>\n${recent}\n</chat>\n` : "\n"}\nThe user's message:\n${text}`;
 }
 
@@ -155,11 +158,6 @@ export function forThem(input: UserInput, to: readonly string[]): UserInput {
   if (!Array.isArray(input)) return `${mark}${String(input)}`;
 
   return [{ type: "text", text: mark }, ...input];
-}
-
-/** The replies a user message to specialists is still waiting for. */
-export function waitingFor(to: readonly string[], replied: readonly string[]): string[] {
-  return to.filter((id) => !replied.includes(id));
 }
 
 /** Chats' members, specialists' seats in chats, and the decision on each message, by its operation id. */
@@ -208,16 +206,20 @@ export class GroupChats {
   }
 
   /** Every group chat's member ids; a chat with none is not in it. */
-  all(): Record<string, string[]> {
-    const groups: Record<string, string[]> = {};
+  all(): GroupMembers {
+    const groups = new Map<string, string[]>();
 
     for (const { chat, specialist } of this.#sql
       .exec<{ chat: string; specialist: string }>("SELECT chat, specialist FROM ky_chat_members ORDER BY specialist")
       .toArray()) {
-      if (this.#specialists.has(specialist)) (groups[chat] ??= []).push(specialist);
+      if (!this.#specialists.has(specialist)) continue;
+
+      const members = groups.get(chat) ?? [];
+      members.push(specialist);
+      groups.set(chat, members);
     }
 
-    return groups;
+    return Object.fromEntries(groups);
   }
 
   /** Make `ids` the chat's members; none makes it a plain chat again. */

@@ -33,7 +33,7 @@ export const green = paint("32");
 export const red = paint("31");
 
 /** The wordmark in half-block letters, shaded amber to violet like a sky at dusk, under a few dim stars. */
-const LETTERS = ["█  ▄  ▄  ▄", "█▄▀   ▀▄▄█", "█ ▀▄  ▄▄▄▀"];
+const LETTERS = ["█  ▄  ▄  ▄", "█▄▀   ▀▄▄█", "█ ▀▄  ▄▄▄▀"] as const;
 
 const STARS = ["   ˚     ·          ·    ˚", ["    ·", "  ˚", "       ·"], "       ·      ˚        ·"] as const;
 
@@ -53,7 +53,7 @@ const star = paint("38;5;240");
 export function banner(): string {
   const [above, beside, below] = STARS;
 
-  return ["", star(above), ...LETTERS.map((line, row) => `      ${shade(line, row)}${star(beside[row])}`), star(below), ""].join("\n");
+  return ["", star(above), ...LETTERS.map((line, row) => `      ${shade(line, row)}${star(beside[row] ?? "")}`), star(below), ""].join("\n");
 }
 
 /** The URL as a QR code, to open it on a phone. */

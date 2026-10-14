@@ -28,7 +28,7 @@ const tenses = new Map<string, readonly [string, string]>([
 // How a row reads: a verb, then its target in mono for paths and commands or as prose.
 type Phrase = { verb: string; target: string; mono: boolean };
 
-export function phrase(tool: Tool): Phrase {
+function phrase(tool: Tool): Phrase {
   const running = tool.status === "running";
 
   if (tool.category === "run")

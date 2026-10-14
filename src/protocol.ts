@@ -327,9 +327,4 @@ export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, Ven
 
 export type { SetupView } from "./setup";
 
-export type {
-  PiMessage as TranscriptMessage,
-  PiMessagePart as TranscriptPart
-} from "./transcript";
-
 export type { PiSessionView as SessionView } from "./view";

@@ -108,7 +108,7 @@ function coverAt(total: number, alpha: number): Block[] {
 }
 
 /** The blocks wake prints: at most `budget`, finest near the present. */
-export function cover(total: number, budget: number): Block[] {
+function cover(total: number, budget: number): Block[] {
   if (total <= 0) return [];
 
   if (total <= budget) {

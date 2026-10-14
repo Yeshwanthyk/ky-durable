@@ -558,18 +558,20 @@ async function* archive(env: Env, target: BackupAgent, manifest: Manifest): Asyn
   for (const table of manifest.tables) {
     let after: SqlStorageValue[] | null = null;
     let part = 0;
-    rows[table.name] = 0;
+    let count = 0;
 
     do {
       const page: Page = await target.backupRows(table.name, after);
 
       if (page.rows > 0) {
         yield* tarEntry(partPath(table.name, part++), encoder.encode(page.text));
-        rows[table.name] += page.rows;
+        count += page.rows;
       }
 
       after = page.after;
     } while (after !== null);
+
+    rows[table.name] = count;
   }
 
   for (const file of manifest.files) {
