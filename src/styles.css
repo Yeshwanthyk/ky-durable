@@ -2,6 +2,8 @@
 /* Tailwind ignores node_modules by default, so source Streamdown for class extraction. */
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
+/* `dark:` follows ky's own appearance setting, not the system's, so code colours match the page. */
+@custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
 
 /* Tailwind and Streamdown size in rem, so the root follows Settings → Text size too. */
 html {

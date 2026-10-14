@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
 import { Icon, Spinner, type IconName } from "./Icon";
@@ -62,6 +62,21 @@ function Trail({ tool }: { tool: Tool }) {
   ) : null;
 }
 
+// A body opens in place: its grid row grows from 0fr to 1fr, so what is below glides down rather
+// than jumping. It mounts on the first open and stays, so closing animates too; while closed it is
+// inert, so it takes no clicks or focus and screen readers skip it.
+export function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
+  const [opened, setOpened] = useState(open);
+
+  if (open && !opened) setOpened(true);
+
+  return (
+    <div className="reveal" data-open={open} inert={!open}>
+      <div className="reveal-inner">{opened ? children : null}</div>
+    </div>
+  );
+}
+
 const hasBody = (tool: Tool) => tool.output !== "" || tool.input !== "";
 
 export function ToolRow({ tool }: { tool: Tool }) {
@@ -88,7 +103,11 @@ export function ToolRow({ tool }: { tool: Tool }) {
         </span>
       </button>
       {tool.images.length > 0 ? <ToolImages tool={tool} /> : null}
-      {open ? <ToolBody tool={tool} /> : null}
+      {expandable ? (
+        <Reveal open={open}>
+          <ToolBody tool={tool} />
+        </Reveal>
+      ) : null}
     </div>
   );
 }
@@ -151,13 +170,13 @@ export function ExploreGroup({ tools }: { tools: Tool[] }) {
           <Icon name="chevronRight" size={12} className="chevron" />
         </span>
       </button>
-      {open ? (
+      <Reveal open={open}>
         <div className="group-children">
           {tools.map((tool) => (
             <ToolRow key={tool.id} tool={tool} />
           ))}
         </div>
-      ) : null}
+      </Reveal>
     </div>
   );
 }

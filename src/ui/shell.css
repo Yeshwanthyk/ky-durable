@@ -93,6 +93,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 10px;
+  position: relative;
   border-radius: 10px;
   text-align: left;
   color: var(--muted);
@@ -136,32 +137,127 @@
   background: var(--accent);
 }
 
+/* News that lands on screen pops its dot in; a dot there on load just shows. */
+.chat-unread[data-pop="true"] {
+  animation: unread-pop 250ms var(--ease-out);
+}
+
+@keyframes unread-pop {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+@keyframes chat-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ...and the row glows once, a faint tint that fades. */
+.chat-item[data-news="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: chat-glow 1.2s var(--ease-out);
+}
+
+@keyframes chat-glow {
+  from {
+    opacity: 1;
+  }
+}
+
 .sidebar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-top: 18px;
   padding: 0 4px 4px 10px;
+  /* A quiet label, not a heading: medium weight reads clean in grey where semibold smudges. */
   font-size: calc(12px * var(--text-scale));
-  font-weight: 550;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--quiet);
 }
 
-/* A side chat and its archive button, which stays visible: no hover on a phone. */
+/* A side chat, its rename and archive buttons inside its own row, so the open chat's fill
+   spans the whole sidebar. On a phone they stay, beside the time; with a pointer they wait for hover. */
 .chat-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
 }
 
 .chat-row > .chat-item {
   flex: 1;
   min-width: 0;
+  padding-right: 66px;
 }
 
-.sidebar .chat-archive {
-  flex: none;
+.chat-actions {
+  position: absolute;
+  inset-block: 0;
+  right: 4px;
+  display: flex;
+  align-items: center;
+}
+
+/* A side chat started moments ago opens its own space in the list, rather than shoving the rest down.
+   Rows are one line, 36px; a fixed height animates in every browser, where auto does not. */
+.chat-row[data-fresh="true"] {
+  overflow: clip;
+  animation: chat-row-in 220ms var(--ease-out);
+}
+
+@keyframes chat-row-in {
+  from {
+    height: 0;
+    opacity: 0;
+    translate: 0 -6px;
+  }
+
+  to {
+    height: 36px;
+  }
+}
+
+.sidebar .chat-actions > .icon-button {
   color: var(--quiet);
+}
+
+/* Without hover, only the open chat offers rename, so the list is not a column of pencils. */
+@media (hover: none) {
+  .chat-row:not(:has([aria-current="page"])) .chat-rename {
+    display: none;
+  }
+
+  .chat-row:not(:has([aria-current="page"])) > .chat-item {
+    padding-right: 38px;
+  }
+}
+
+/* Renaming: the row becomes a field of the same size, so nothing around it moves. */
+.chat-rename-field {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--line-hover);
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(13.5px * var(--text-scale));
+}
+
+/* The caret and the field's own edge show where typing goes; the app's ring would box it twice. */
+.shell .chat-rename-field:focus-visible {
+  outline: 0;
 }
 
 .sidebar-toggle {
@@ -251,11 +347,13 @@
     0 1px 2px rgb(0 0 0 / 0.04),
     0 4px 14px rgb(0 0 0 / 0.05);
   text-align: left;
-  /* useFitWidth sets a pixel width so the pill can grow and shrink with its subtitle. */
+  /* useFitWidth sets a pixel width so the pill can grow and shrink with its subtitle.
+     transform is listed again so the press from .pressable still eases. */
   transition:
-    width 320ms cubic-bezier(0.2, 0.9, 0.3, 1.1),
-    box-shadow 260ms ease,
-    background-color 260ms ease;
+    width 240ms var(--ease-out),
+    transform var(--fast) var(--ease-out),
+    box-shadow 240ms var(--ease-out),
+    background-color 240ms var(--ease-out);
 }
 
 /* While it works the pill lifts a little and takes on the working colour, Dynamic Island style. */
@@ -304,6 +402,7 @@
   color: var(--muted);
 }
 
+/* Transitions, not keyframes: a line that is replaced mid-entrance leaves from where it got to. */
 .who-sub-line {
   grid-area: 1 / 1;
   display: inline-flex;
@@ -311,17 +410,29 @@
   gap: 4px;
   min-width: 0;
   white-space: nowrap;
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out),
+    filter 220ms var(--ease-out);
 }
 
+/* The new line rises in from below as the old one lifts away: a vertical swap. */
 .who-sub-line[data-animate="true"] {
-  animation: who-sub-in 220ms ease-out both;
+  @starting-style {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+  }
 }
 
-/* The outgoing line takes no room, so the pill sizes to the new one straight away. */
+/* The outgoing line takes no room, so the pill sizes to the new one straight away. Exits are quicker. */
 .who-sub-line[data-out="true"] {
   position: absolute;
   inset: 0 auto auto 0;
-  animation: who-sub-out 220ms ease-in both;
+  opacity: 0;
+  transform: translateY(-6px);
+  filter: blur(2px);
+  transition-duration: 150ms;
 }
 
 .who-sub-line[data-busy="true"] {
@@ -340,30 +451,29 @@
   text-overflow: ellipsis;
 }
 
-@keyframes who-sub-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-    filter: blur(2px);
-  }
-}
-
-@keyframes who-sub-out {
-  to {
-    opacity: 0;
-    transform: translateY(-5px);
-    filter: blur(2px);
-  }
-}
-
+/* Reduced motion: the pill snaps to size and the lines cross-fade without moving. */
 @media (prefers-reduced-motion: reduce) {
   .who {
-    transition: none;
+    transition:
+      box-shadow 240ms var(--ease-out),
+      background-color 240ms var(--ease-out);
   }
 
-  .who-sub-line[data-animate="true"],
+  .who-sub-line {
+    transition: opacity 220ms var(--ease-out);
+  }
+
+  .who-sub-line[data-animate="true"] {
+    @starting-style {
+      transform: none;
+      filter: none;
+    }
+  }
+
   .who-sub-line[data-out="true"] {
-    animation-duration: 1ms;
+    transform: none;
+    filter: none;
+    transition-duration: 150ms;
   }
 }
 
@@ -403,6 +513,23 @@
   animation: none;
 }
 
+/* Connecting settles with a small pop instead of swapping colour in place. */
+.status-dot[data-connected="true"][data-pop="true"] {
+  animation: dot-settle 300ms var(--ease-out);
+}
+
+@keyframes dot-settle {
+  from {
+    opacity: 0.5;
+    scale: 0.6;
+  }
+
+  60% {
+    opacity: 1;
+    scale: 1.2;
+  }
+}
+
 @keyframes dot-wait {
   to {
     opacity: 0.35;
@@ -437,7 +564,53 @@
   margin: 8px 0 0;
   font-size: calc(14px * var(--text-scale));
   color: var(--muted);
-  text-wrap: pretty;
+  /* Centred, so even lines read better than a long one and a short one. */
+  text-wrap: balance;
+}
+
+.welcome-avatar {
+  display: flex;
+}
+
+/* The first empty chat rises in block by block. Nothing waits on it: every block is
+   clickable while it fades, and rows that change state later don't replay it. */
+.welcome[data-enter="true"] > * {
+  animation: welcome-in 340ms var(--ease-out) backwards;
+}
+
+.welcome[data-enter="true"] > :nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.welcome[data-enter="true"] > :nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.welcome[data-enter="true"] > :nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.welcome[data-enter="true"] > :nth-child(5) {
+  animation-delay: 160ms;
+}
+
+@keyframes welcome-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes welcome-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome[data-enter="true"] > * {
+    animation-name: welcome-fade;
+  }
 }
 
 .suggestions {
@@ -536,6 +709,53 @@
   background: #303030;
 }
 
+/* Where the control has its pill, the pill is the chosen option's fill and the options sit on it. */
+.segmented {
+  position: relative;
+}
+
+.segmented > button {
+  position: relative;
+  transition: color var(--standard) var(--ease-out);
+}
+
+.segmented:has(> .segmented-pill) > button {
+  background: none;
+  box-shadow: none;
+}
+
+/* The pill slides; the label under it only changes colour. */
+.panel .segmented > .pressable:active:not(:disabled) {
+  transform: none;
+}
+
+.segmented-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 1px 1px rgb(0 0 0 / 0.04);
+  pointer-events: none;
+}
+
+.segmented-pill[data-shown="false"] {
+  opacity: 0;
+}
+
+.segmented-pill[data-glide="true"] {
+  transition:
+    transform 240ms var(--ease-out),
+    width 240ms var(--ease-out),
+    opacity var(--fast) var(--ease-out);
+}
+
+:root[data-mode="dark"] .segmented-pill {
+  background: #303030;
+}
+
 .segmented.small {
   margin: 0;
 }
@@ -545,7 +765,7 @@
   min-height: 0;
   overflow-y: auto;
   /* 16px in, the tabs' own edge: every tab's labels and cards hang from it. */
-  padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+  padding: 8px 16px calc(24px + env(safe-area-inset-bottom));
 }
 
 /* The feed is Settings' system too: a quiet label, then a card of rows split by hairlines.
@@ -555,15 +775,16 @@
   margin-top: 24px;
 }
 
-/* Every section's heading is the same quiet label as Settings': the rows carry the weight. */
+/* Every section's heading is the same quiet label as Settings': the rows carry the weight. Its words
+   start on the rows' own edge, 14px into the card; its actions are small pills at the card's right edge. */
 .feed-head {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 28px;
-  margin: 0 0 4px;
-  padding: 0 0 0 4px;
+  min-height: 32px;
+  margin: 0 0 6px;
+  padding: 0 0 0 14px;
   font-size: calc(12px * var(--text-scale));
   font-weight: 550;
   color: var(--quiet);
@@ -572,24 +793,49 @@
 .feed-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: auto;
+  gap: 5px;
   height: 28px;
-  margin-right: -4px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--hover);
   color: var(--muted);
   font-size: calc(12px * var(--text-scale));
   font-weight: 500;
+  white-space: nowrap;
 }
 
-/* A second action sits beside the first, both at the end. */
-.feed-action + .feed-action {
-  margin-left: 0;
+/* The first action takes the free room, so they sit together at the end, a pill's gap apart. */
+.feed-head > .feed-action:first-of-type {
+  margin-left: auto;
 }
 
-.feed-action:has(+ .feed-action) {
-  margin-right: 0;
+.feed-action .icon {
+  margin-left: -2px;
+}
+
+/* A switch says which way it is with a dot: lit when on, an empty ring when off. */
+.feed-action[aria-pressed]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px var(--quiet);
+  transition:
+    background-color var(--standard) var(--ease-out),
+    box-shadow var(--standard) var(--ease-out);
+}
+
+.feed-action[aria-pressed="true"]::before {
+  background: var(--success);
+  box-shadow: none;
+}
+
+/* Thumbs need the full 32px. */
+@media (pointer: coarse) {
+  .feed-action {
+    height: 32px;
+    padding: 0 13px;
+  }
 }
 
 .feed {
@@ -637,7 +883,7 @@
 }
 
 .feed-item:has(.feed-stop) .feed-button {
-  padding-right: 40px;
+  padding-right: 52px;
 }
 
 /* A bare status glyph, as tall as the title's first line so the two centre together. */
@@ -652,6 +898,32 @@
 
 .feed-glyph[data-tone="working"] {
   color: var(--working);
+}
+
+/* A glyph that changes on screen pops in. `scale`, not transform, so the spinner keeps its turn. */
+.feed-glyph[data-pop] > * {
+  animation: glyph-pop 250ms var(--ease-out);
+}
+
+@keyframes glyph-pop {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+/* A row that has just finished glows once in its tone; the glow is played from script, so at rest it is unseen. */
+.ledger-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+  pointer-events: none;
+}
+
+.ledger-item[data-status="failed"]::after {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .feed-text {
@@ -699,7 +971,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 11px 14px;
+  padding: 12px 14px;
   text-align: left;
 }
 
@@ -708,7 +980,7 @@
 }
 
 .ledger-item:has(.feed-stop) .ledger-button {
-  padding-right: 40px;
+  padding-right: 52px;
 }
 
 .ledger-lead {
@@ -717,6 +989,11 @@
   font-size: calc(12.5px * var(--text-scale));
   color: var(--quiet);
   white-space: nowrap;
+}
+
+/* Live, the column holds only the glyph, so the title starts on edge B, 40px in, not past an empty time. */
+.ledger-item[data-live] .ledger-lead {
+  width: 16px;
 }
 
 .ledger-title {
@@ -741,6 +1018,10 @@
 /* What an opened task holds hangs from the title's edge, past the time. */
 .ledger-item > :is(.feed-detail, .feed-files, .feed-changes) {
   padding-left: calc(24px + 54px * var(--text-scale));
+}
+
+.ledger-item[data-live] > :is(.feed-detail, .feed-files, .feed-changes) {
+  padding-left: 40px;
 }
 
 /* What an opened task holds sits on edge B, under its text. */
@@ -791,7 +1072,6 @@
 }
 
 /* Row actions: 28px targets whose glyphs end on the same right edge as Stop all. */
-.panel .feed-stop,
 .panel .automation-actions .icon-button {
   width: 28px;
   height: 28px;
@@ -799,10 +1079,33 @@
   color: var(--quiet);
 }
 
-.feed-stop {
+/* Stop: a 32px target drawn as a small square in a soft disc, centred on the title's line, the disc
+   ending on the state words' right edge. */
+.panel .feed-stop {
   position: absolute;
-  top: calc(11px + (13.5px * 1.35 * var(--text-scale) - 28px) / 2);
-  right: 8px;
+  top: calc(12px + (13.5px * 1.35 * var(--text-scale) - 32px) / 2);
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: var(--muted);
+  transition:
+    transform var(--standard) var(--ease-out),
+    color var(--fast) var(--ease-out);
+}
+
+.panel .feed-stop::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+.panel .feed-stop .icon {
+  position: relative;
 }
 
 /* Run and pause sit centred on the row's right edge, however many lines it has. */
@@ -821,9 +1124,9 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 32px;
+  min-height: 36px;
   margin-top: 8px;
-  padding: 0 8px 0 4px;
+  padding: 0 14px;
   border-radius: 10px;
   color: var(--muted);
   font-size: calc(12.5px * var(--text-scale));
@@ -862,8 +1165,18 @@
 }
 
 .panel-empty {
-  margin: 16px 8px;
+  margin: 24px 14px;
   text-align: center;
+}
+
+/* No automations: one quiet line on the rows' edge where the card would be, not a box that reads as a field. */
+.automations .group-empty {
+  margin: 0;
+  padding: 2px 14px 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.45;
 }
 
 /* How to bring an offline computer back: one line and the command, on a sunken patch. */
@@ -1085,6 +1398,7 @@
   margin-top: 24px;
 }
 
+/* Section labels start on the rows' text edge, 14px into the card below, as Activity's do. */
 .group-head {
   display: flex;
   align-items: center;
@@ -1092,13 +1406,13 @@
   gap: 8px;
   min-height: 28px;
   margin: 0 0 4px;
-  padding: 0 4px;
+  padding: 0 4px 0 14px;
 }
 
 .group-label,
 .group-sublabel {
   margin: 0 0 6px;
-  padding: 0 4px;
+  padding: 0 14px;
   font-size: calc(12px * var(--text-scale));
   font-weight: 550;
   color: var(--quiet);
@@ -1697,10 +2011,36 @@
     rotate: 90deg;
   }
 
+  /* With a pointer, a row's buttons take the time's place while it is hovered or focused. */
+  .chat-row > .chat-item {
+    padding-right: 10px;
+  }
+
+  .chat-row:not(:hover, :focus-within) > .chat-actions {
+    opacity: 0;
+  }
+
+  .chat-row:is(:hover, :focus-within) > .chat-item {
+    padding-right: 66px;
+  }
+
+  .chat-row:is(:hover, :focus-within) .chat-time {
+    display: none;
+  }
+
+  .sidebar .chat-actions > .icon-button:hover {
+    color: var(--ink);
+  }
+
   .chat-item:hover:not([aria-current="page"]),
-  .feed-action:hover,
   .feed-more:hover {
     background: var(--hover);
+    color: var(--ink);
+  }
+
+  /* Header actions already rest on a faint fill; hover deepens it. */
+  .feed-action:hover {
+    background: var(--selected);
     color: var(--ink);
   }
 
@@ -1716,8 +2056,13 @@
     color: var(--ink);
   }
 
-  .feed-stop:hover {
+  .panel .feed-stop:hover {
     color: var(--danger);
+  }
+
+  .panel .feed-stop:hover::before {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
   }
 }
 
@@ -1730,6 +2075,24 @@
 @media (min-width: 1024px) {
   .panel-close {
     display: none;
+  }
+
+  /* Hidden from ⌘K: the chat takes the sidebar's room at once, as a keyboard action should, and the
+     chats button comes back to bring it out again. */
+  .shell[data-sidebar="hidden"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell[data-sidebar="hidden"][data-panel="true"] {
+    grid-template-columns: minmax(0, 1fr) var(--panel-width);
+  }
+
+  .shell[data-sidebar="hidden"] .sidebar-slot {
+    display: none;
+  }
+
+  .shell[data-sidebar="hidden"] .drawer-toggle {
+    visibility: visible;
   }
 }
 
@@ -1749,35 +2112,58 @@
     z-index: 20;
     width: min(300px, 86vw);
     translate: -100% 0;
-    transition: translate var(--standard) var(--ease-out);
+    /* Closing is quicker than opening; the shadow stays until the drawer is gone. */
+    transition:
+      translate var(--standard) var(--ease-out),
+      box-shadow 0s var(--standard);
   }
 
   .shell[data-drawer="true"] .sidebar-slot {
     translate: 0 0;
     box-shadow: var(--shadow);
+    transition: translate 260ms var(--ease-out);
   }
 
-  .shell[data-drawer="true"] .scrim {
+  /* Always laid out so the dimming fades with the drawer, in its timings: in at 260ms, out at 180ms.
+     Closed it is see-through to clicks, so it never blocks the chat. */
+  .scrim {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 19;
     background: var(--overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--standard) var(--ease-out);
   }
 
+  .shell[data-drawer="true"] .scrim {
+    opacity: 1;
+    pointer-events: auto;
+    transition-duration: 260ms;
+  }
+
+  /* A card over the chat with its leading corners rounded. Its layer and clip stay for as long as it
+     is open, so the genie never builds a layer on its first frame or drops one as it lands. */
   .panel-slot {
     position: fixed;
     inset: 0 0 0 auto;
     z-index: 20;
     width: min(380px, 100vw);
     box-shadow: var(--shadow);
+    border-radius: 20px 0 0 20px;
+    overflow: hidden;
+    transform-origin: 0 0;
+    will-change: transform, opacity;
   }
 }
 
 @media (max-width: 767px) {
+  /* Edge to edge, the phone's own screen corners round it. */
   .panel-slot {
     width: 100vw;
     box-shadow: none;
+    border-radius: 0;
   }
 
   .topbar {
@@ -1805,6 +2191,11 @@
     font-size: calc(14px * var(--text-scale));
   }
 
+  /* Full width, a pill shrinks too far at the usual press scale. */
+  .suggestions .pill:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
   .topbar .icon-button {
     width: 44px;
     height: 44px;
@@ -1812,102 +2203,14 @@
 }
 
 /* ---------- Genie ----------
-   The panel pours out of the agent pill, like a card from a slot: narrow and tilted at the
-   pill, widening and settling flat. Closing runs it backwards, back into the pill.
-   --genie-x/y aim the narrow end at the pill; client.tsx sets them as it opens. */
+   The panel opens out of the agent pill and closes back into it, like an iOS app from its icon: one
+   uniform scale, aimed at the pill. use-panel.ts plays it with element.animate, so a click mid-way
+   carries on from wherever it has got to. Docked on desktop, it only eases in and out. */
 
-/* Docked on desktop, the panel is part of the page, so it only eases in and out. */
-.panel-slot[data-genie="in"] {
-  animation: dock-in 200ms var(--ease-out) both;
-}
-
-.panel-slot[data-genie="out"] {
-  animation: dock-out 140ms var(--ease-out) reverse both;
-}
-
-@keyframes dock-in {
-  from {
-    opacity: 0;
-    translate: 8px 0;
-  }
-}
-
-/* The same frames under another name, played in reverse: a new name restarts the animation, so closing mid-open (or reopening mid-close) never sticks. */
-@keyframes dock-out {
-  from {
-    opacity: 0;
-    translate: 8px 0;
-  }
-}
-
-/* Over the chat, it is a card of its own, so it pours out of the pill. */
+/* Rounded all round while it is a card in flight. The radius is not animated, so nothing repaints mid-way. */
 @media (max-width: 1023px) {
   .panel-slot[data-genie] {
-    transform-origin: 50% 0;
-    overflow: hidden;
-    will-change: translate, scale, opacity;
-  }
-
-  .panel-slot[data-genie="in"] {
-    animation: genie-in 440ms cubic-bezier(0.32, 0.72, 0, 1) both;
-  }
-
-  .panel-slot[data-genie="out"] {
-    animation: genie-out 300ms cubic-bezier(0.32, 0.72, 0, 1) reverse both;
-  }
-}
-
-/* Height leads and width follows, so it reads as pouring down out of the pill, not zooming. */
-@keyframes genie-in {
-  from {
-    opacity: 0;
-    border-radius: 28px;
-    translate: var(--genie-x, 0) var(--genie-y, 0);
-    scale: 0.18 0.06;
-  }
-
-  30% {
-    opacity: 1;
-  }
-
-  55% {
-    border-radius: 24px;
-    translate: calc(var(--genie-x, 0) * 0.25) calc(var(--genie-y, 0) * 0.25);
-    scale: 0.78 0.9;
-  }
-
-  to {
-    opacity: 1;
-    border-radius: 0;
-    translate: 0 0;
-    scale: 1 1;
-  }
-}
-
-/* Played in reverse to close; its own name so a click mid-way restarts it. */
-@keyframes genie-out {
-  from {
-    opacity: 0;
-    border-radius: 28px;
-    translate: var(--genie-x, 0) var(--genie-y, 0);
-    scale: 0.18 0.06;
-  }
-
-  30% {
-    opacity: 1;
-  }
-
-  55% {
-    border-radius: 24px;
-    translate: calc(var(--genie-x, 0) * 0.25) calc(var(--genie-y, 0) * 0.25);
-    scale: 0.78 0.9;
-  }
-
-  to {
-    opacity: 1;
-    border-radius: 0;
-    translate: 0 0;
-    scale: 1 1;
+    border-radius: 20px;
   }
 }
 
@@ -1922,8 +2225,6 @@
   align-items: flex-start;
   padding: 14vh 16px 16px;
   background: var(--overlay);
-  backdrop-filter: blur(6px);
-  animation: fade-in 160ms var(--ease-out);
 }
 
 .palette {
@@ -1935,7 +2236,6 @@
   border-radius: 18px;
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--line), var(--shadow-lift);
-  animation: palette-in 180ms var(--ease-out);
 }
 
 .palette-search {
@@ -1959,6 +2259,11 @@
   font-size: calc(15px * var(--text-scale));
 }
 
+/* The caret shows where typing goes; the app's focus ring would only box the field in. */
+.shell .palette-search input:focus-visible {
+  outline: 0;
+}
+
 .palette-search input::placeholder {
   color: var(--quiet);
 }
@@ -1975,6 +2280,7 @@
 }
 
 .palette-list {
+  position: relative;
   margin: 0;
   padding: 6px;
   list-style: none;
@@ -2001,8 +2307,28 @@
 }
 
 .palette-item[aria-selected="true"] {
-  background: var(--raised);
   color: var(--ink);
+}
+
+/* One fill slides under the active row; a new list places it without the slide. */
+.palette-highlight {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  border-radius: 10px;
+  background: var(--selected);
+  pointer-events: none;
+}
+
+.palette-highlight[data-glide="true"] {
+  transition:
+    transform 120ms var(--ease-out),
+    height 120ms var(--ease-out);
+}
+
+.palette-item {
+  position: relative;
 }
 
 .palette-label {
@@ -2028,20 +2354,6 @@
   text-align: center;
 }
 
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes palette-in {
-  from {
-    opacity: 0;
-    scale: 0.96;
-    translate: 0 -6px;
-  }
-}
-
 /* The way into the palette, at the top of the chat list. */
 .sidebar-search {
   display: flex;
@@ -2062,7 +2374,7 @@
   flex: 1;
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .sidebar-search:hover {
     color: var(--muted);
   }
@@ -2076,15 +2388,18 @@
 
 @media (max-width: 1023px) {
   /* While the panel sits over the chat, the chat steps back. */
+  /* In time with the genie: slow out as it opens, quicker back as it closes. */
   .stage {
     transition-property: filter, opacity;
-    transition-duration: 360ms;
+    transition-duration: 240ms;
     transition-timing-function: var(--ease-out);
   }
 
   .shell[data-panel="true"]:not([data-panel-closing="true"]) .stage {
     filter: blur(6px);
     opacity: 0.6;
+    transition-duration: 420ms;
+    transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
 
@@ -2100,8 +2415,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-dot {
+  .status-dot,
+  .status-dot[data-connected="true"][data-pop="true"] {
     animation: none;
+  }
+
+  /* News still fades in, without the pop or the rise. */
+  .chat-unread[data-pop="true"],
+  .chat-row[data-fresh="true"] {
+    animation-name: chat-fade;
   }
 
   .feed-item,
@@ -2122,22 +2444,22 @@
     transition: opacity 200ms var(--ease-out);
   }
 
-  .sidebar-slot {
+  .sidebar-slot,
+  .shell[data-drawer="true"] .sidebar-slot {
     transition: none;
   }
 
-  /* Still ends, so the panel unmounts after closing. */
-  .panel-slot[data-genie="in"] {
-    animation: dock-in 1ms both;
+  .palette-highlight {
+    transition: none;
   }
 
-  .panel-slot[data-genie="out"] {
-    animation: dock-out 1ms reverse both;
+  /* The pill fades between options instead of sliding; glyphs fade instead of popping. */
+  .segmented-pill[data-glide="true"] {
+    transition: opacity var(--fast) var(--ease-out);
   }
 
-  .palette,
-  .palette-backdrop {
-    animation: none;
+  .feed-glyph[data-pop] > * {
+    animation-name: chat-fade;
   }
 }
 
@@ -3144,10 +3466,24 @@
   box-shadow: inset 0 1px 0 var(--line);
 }
 
+/* Done steps step back: a green check, quieter ink and no chevron. */
 .first-run .row[data-done="true"] .row-tile {
-  color: var(--accent);
+  background: transparent;
+  color: var(--success);
 }
 
 .first-run .row[data-done="true"] .row-label {
   color: var(--muted);
+}
+
+/* A wide row barely moves when pressed; the fill says it took the tap. */
+.first-run .row:active:not(:disabled) {
+  background: var(--hover);
+  transform: scale(0.99);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .first-run .row:hover:not(:disabled) {
+    background: var(--hover);
+  }
 }

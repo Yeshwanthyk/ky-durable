@@ -130,6 +130,8 @@ export type PiClientMessage =
       readonly operationId?: string;
     }
   | { readonly type: "abort"; readonly id?: string }
+  /** Take back a message still queued behind the run; answers false once pi has placed it. */
+  | { readonly type: "withdraw"; readonly id?: string; readonly operationId: string }
   | { readonly type: "reset"; readonly id?: string; readonly handoff?: string }
   /** Ask for a fresh snapshot. */
   | { readonly type: "resync"; readonly id?: string }
@@ -186,6 +188,8 @@ export type PiClientMessage =
   | { readonly type: "new-chat"; readonly id?: string }
   /** Archive a side chat, or unarchive it with `archived: false`. */
   | { readonly type: "archive-chat"; readonly id?: string; readonly session: string; readonly archived: boolean }
+  /** Name a side chat; a blank title leaves it as it was. */
+  | { readonly type: "rename-chat"; readonly id?: string; readonly session: string; readonly title: string }
   /** Make specialists a chat's members, the main chat's or a side chat's: a group chat. None makes it a plain chat. */
   | { readonly type: "chat-members"; readonly id?: string; readonly session: string; readonly members: readonly string[] }
   /** Change a skill as the user: edit, archive, restore, or revert it. */

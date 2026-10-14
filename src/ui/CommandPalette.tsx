@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "./Icon";
 
 export type Command = {
@@ -38,6 +38,19 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
     list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
+  // One highlight glides between rows as the pointer moves. It lands without moving when the
+  // palette opens, the results change or the arrow keys step, so typing never waits on it.
+  const [highlight, setHighlight] = useState<{ top: number; height: number; glide: boolean }>();
+  const placed = useRef<string>(undefined);
+  const pointing = useRef(false);
+  const results = shown.map((command) => command.id).join("\n");
+
+  useLayoutEffect(() => {
+    const item = list.current?.querySelector<HTMLElement>(`[data-index="${active}"]`);
+    setHighlight(item ? { top: item.offsetTop, height: item.offsetHeight, glide: pointing.current && placed.current === results } : undefined);
+    placed.current = results;
+  }, [active, results]);
+
   const run = (command: Command | undefined) => {
     if (command === undefined) return;
     onClose();
@@ -63,6 +76,8 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
               setIndex(0);
             }}
             onKeyDown={(event) => {
+              pointing.current = false;
+
               if (event.key === "ArrowDown" || (event.ctrlKey && event.key === "n")) {
                 event.preventDefault();
                 setIndex((active + 1) % Math.max(1, shown.length));
@@ -85,6 +100,15 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
           <p className="palette-empty">Nothing matches “{query}”.</p>
         ) : (
           <ul ref={list} id={`${id}-list`} className="palette-list" role="listbox" aria-label="Results">
+            {highlight ? (
+              <li
+                className="palette-highlight"
+                role="presentation"
+                aria-hidden="true"
+                data-glide={highlight.glide}
+                style={{ height: highlight.height, transform: `translateY(${highlight.top}px)` }}
+              />
+            ) : null}
             {shown.map((command, at) => (
               <li key={command.id} role="presentation">
                 {at === 0 || shown[at - 1]!.group !== command.group ? (
@@ -98,7 +122,11 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
                   aria-selected={at === active}
                   data-index={at}
                   className="palette-item"
-                  onPointerMove={() => at !== active && setIndex(at)}
+                  onPointerMove={() => {
+                    pointing.current = true;
+
+                    if (at !== active) setIndex(at);
+                  }}
                   onClick={() => run(command)}
                 >
                   <Icon name={command.icon} size={16} />

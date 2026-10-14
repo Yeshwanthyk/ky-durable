@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, Fragment, type HTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { MachineChange, MachineLogin, MachineState } from "../machines";
 import type { MachineFacts } from "../runner-protocol";
 import type { SandboxChange, SandboxDraft } from "../sandboxes";
@@ -141,7 +141,7 @@ export function Panel({
           <span className="quiet"> · {model}</span>
         </p>
       </header>
-      <div className="segmented" role="tablist">
+      <Segmented role="tablist" chosen={tab}>
         {(
           [
             ["activity", "Activity"],
@@ -163,7 +163,7 @@ export function Panel({
             {label}
           </button>
         ))}
-      </div>
+      </Segmented>
       {tab === "activity" ? (
         <Activity
           tasks={tasks}
@@ -210,6 +210,210 @@ export function Panel({
   );
 }
 
+// A segmented control whose one pill slides under the chosen option, so you see where you went.
+function Segmented({ chosen, small, children, ...rest }: HTMLAttributes<HTMLDivElement> & { chosen: unknown; small?: boolean }) {
+  const track = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => placePill(track.current, true), [chosen]);
+  // A new width (the panel resized, the font arrived) moves the pill without the slide.
+  useEffect(() => {
+    const element = track.current;
+
+    if (element === null) return;
+    const observer = new ResizeObserver(() => placePill(element, false));
+
+    observer.observe(element);
+    void document.fonts.ready.then(() => placePill(element, false));
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={track} className={small ? "segmented small" : "segmented"} {...rest}>
+      <span className="segmented-pill" aria-hidden="true" />
+      {children}
+    </div>
+  );
+}
+
+/** Puts the pill under the chosen option; it slides only once it has been placed. */
+function placePill(track: HTMLElement | null, glide: boolean) {
+  const pill = track?.querySelector<HTMLElement>(":scope > .segmented-pill");
+  const chosen = track?.querySelector<HTMLElement>(':scope > [aria-selected="true"], :scope > [aria-checked="true"]');
+
+  if (!pill) return;
+  pill.dataset.shown = String(chosen !== null && chosen !== undefined);
+
+  if (!chosen) return;
+  pill.dataset.glide = String(glide && pill.dataset.placed === "true");
+  pill.dataset.placed = "true";
+  pill.style.width = `${chosen.offsetWidth}px`;
+  pill.style.height = `${chosen.offsetHeight}px`;
+  pill.style.borderRadius = getComputedStyle(chosen).borderRadius;
+  pill.style.transform = `translate(${chosen.offsetLeft}px, ${chosen.offsetTop}px)`;
+}
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** scotty.css's --ease-out, for the motion that runs in script. */
+const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+/** How long a row or section takes to open its space, and the faster close. */
+const ARRIVE_MS = 220;
+
+const LEAVE_MS = 180;
+
+/**
+ * The space an element takes besides its height. A first child's room includes the margin the next
+ * one has because of it, so that one is taken back with a negative margin instead.
+ */
+function spaceOf(element: HTMLElement): Keyframe {
+  return element.previousElementSibling ? { marginTop: getComputedStyle(element).marginTop } : { marginBottom: "0px" };
+}
+
+/** The same with the element taking no room at all. */
+function noSpaceOf(element: HTMLElement): Keyframe {
+  if (element.previousElementSibling) return { marginTop: "0px" };
+  const next = element.nextElementSibling;
+  const below = next ? getComputedStyle(next).marginTop : "0px";
+
+  return { marginBottom: `-${below}` };
+}
+
+/** Opens an element's space from nothing as it slides and fades in; with reduced motion, only the fade. */
+function arrive(element: HTMLElement) {
+  if (reducedMotion()) {
+    element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ARRIVE_MS, easing: EASE_OUT });
+
+    return;
+  }
+
+  const height = `${element.offsetHeight}px`;
+
+  const animation = element.animate(
+    [
+      { height: "0px", opacity: 0, transform: "translateY(-6px)", ...noSpaceOf(element) },
+      { height, opacity: 1, transform: "none", ...spaceOf(element) },
+    ],
+    { duration: ARRIVE_MS, easing: EASE_OUT },
+  );
+
+  element.style.overflowY = "clip";
+  animation.onfinish = animation.oncancel = () => element.style.removeProperty("overflow-y");
+}
+
+/** Closes an element's space as it fades, and holds it closed until React removes it. */
+function leave(element: HTMLElement) {
+  const keyframes: Keyframe[] = reducedMotion()
+    ? [{ opacity: 1 }, { opacity: 0 }]
+    : [
+        { height: `${element.offsetHeight}px`, opacity: 1, ...spaceOf(element) },
+        { height: "0px", opacity: 0, ...noSpaceOf(element) },
+      ];
+
+  element.style.overflowY = "clip";
+  element.animate(keyframes, { duration: LEAVE_MS, easing: EASE_OUT, fill: "forwards" });
+}
+
+/** Undoes `leave`, leaving any other animation alone. */
+function unleave(element: HTMLElement | null) {
+  for (const animation of element?.getAnimations() ?? []) {
+    if (animation.effect?.getTiming().fill === "forwards") animation.cancel();
+  }
+
+  element?.style.removeProperty("overflow-y");
+}
+
+/** A row that has just finished glows once in its tone, and its state's dot pops in. */
+function settle(row: HTMLElement) {
+  const status = row.dataset.status;
+
+  if (status !== "done" && status !== "failed") return;
+  // Held a beat first, or the ease-out would spend the glow before the eye finds the row.
+  row.animate([{ opacity: 1 }, { opacity: 1, offset: 0.15, easing: EASE_OUT }, { opacity: 0 }], {
+    duration: 1200,
+    pseudoElement: "::after",
+  });
+  row.querySelector(".state")?.animate(
+    reducedMotion()
+      ? [{ opacity: 0 }, { opacity: 1 }]
+      : [
+          { opacity: 0, transform: "scale(0.6)" },
+          { opacity: 1, transform: "none" },
+        ],
+    { duration: 250, easing: EASE_OUT, pseudoElement: "::before" },
+  );
+}
+
+/**
+ * What arrives in Activity while it is open opens its own space instead of pushing the rest down at
+ * once; a task that finishes glows in its new place. Everything marked `data-arrive` is compared
+ * with the last commit, so what was there when Activity opened just shows.
+ */
+function useArrivals(body: RefObject<HTMLElement | null>) {
+  const seen = useRef<ReadonlySet<string>>(null);
+
+  useLayoutEffect(() => {
+    const elements = [...(body.current?.querySelectorAll<HTMLElement>("[data-arrive]") ?? [])];
+    const before = seen.current;
+
+    seen.current = new Set(elements.map((element) => element.dataset.arrive ?? ""));
+
+    if (before === null) return;
+    // Show earlier's rows have their own entry.
+    const fresh = elements.filter((element) => !before.has(element.dataset.arrive ?? "") && !element.closest('[data-earlier="true"]'));
+
+    for (const element of fresh) {
+      // A row inside a section that arrives too comes with it.
+      if (!fresh.some((other) => other !== element && other.contains(element))) arrive(element);
+
+      if (before.has(`now:${element.dataset.task}`)) settle(element);
+    }
+  });
+}
+
+/** How many times a value has changed since mount, counted during render so the change shows in the same frame. */
+function useChanges<T>(value: T): number {
+  const [last, setLast] = useState(value);
+  const [count, setCount] = useState(0);
+
+  if (last !== value) {
+    setLast(value);
+    setCount((changes) => changes + 1);
+  }
+
+  return count;
+}
+
+/**
+ * Live tasks that just left the list, each with where it stood, kept a moment so their rows can
+ * close their space while the finished row opens in its day.
+ */
+function useLeaving(live: readonly TaskRow[]): readonly { task: TaskRow; at: number }[] {
+  const version = live.map((task) => `${task.id}:${task.status}:${task.updated_at}`).join(" ");
+  const [last, setLast] = useState({ version, live });
+  const [leaving, setLeaving] = useState<readonly { task: TaskRow; at: number }[]>([]);
+
+  if (last.version !== version) {
+    const stays = (task: TaskRow) => live.some((each) => each.id === task.id);
+    const gone = last.live.flatMap((task, at) => (stays(task) ? [] : [{ task, at }]));
+
+    setLast({ version, live });
+
+    if (gone.length > 0 || leaving.some(({ task }) => stays(task)))
+      setLeaving((rows) => [...rows.filter(({ task }) => !stays(task)), ...gone]);
+  }
+
+  useEffect(() => {
+    if (leaving.length === 0) return;
+    const timer = setTimeout(() => setLeaving([]), LEAVE_MS);
+
+    return () => clearTimeout(timer);
+  }, [leaving]);
+
+  return leaving;
+}
+
 type FeedProps = {
   session: string;
   now: number;
@@ -229,8 +433,12 @@ function Activity({
   running: readonly string[];
   onStopAll: () => void;
 }) {
+  const body = useRef<HTMLDivElement>(null);
+
+  useArrivals(body);
+
   return (
-    <div className="panel-body" data-scroll>
+    <div ref={body} className="panel-body" data-scroll>
       <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
       <Automations now={feed.now} session={feed.session} />
       <History past={tasks.filter((task) => !isLive(task))} {...feed} />
@@ -241,17 +449,38 @@ function Activity({
   );
 }
 
-// The open chat's running tools, and every queued or working task.
+// The open chat's running tools, and every queued or working task. A task that ends closes its row;
+// the last one closes the whole section.
 function NowSection({
   live,
   running,
   onStopAll,
   ...feed
 }: FeedProps & { live: readonly TaskRow[]; running: readonly string[]; onStopAll: () => void }) {
-  if (live.length === 0 && running.length === 0) return null;
+  const leaving = useLeaving(live);
+  const section = useRef<HTMLElement>(null);
+  const empty = live.length === 0 && running.length === 0;
+  const closing = empty && leaving.length > 0;
+
+  useLayoutEffect(() => {
+    if (closing) leave(section.current!);
+    // A task that starts as the section closes opens it again.
+    else unleave(section.current);
+  }, [closing]);
+
+  if (empty && !closing) return null;
+  const rows = live.map((task) => ({ task, gone: false }));
+
+  for (const { task, at } of leaving) rows.splice(Math.min(at, rows.length), 0, { task, gone: true });
 
   return (
-    <section className="feed-group">
+    <section
+      ref={section}
+      className="feed-group"
+      data-arrive={closing ? undefined : "now"}
+      aria-hidden={closing || undefined}
+      inert={closing}
+    >
       <h3 className="feed-head">
         Now
         {live.length > 1 ? (
@@ -274,8 +503,8 @@ function NowSection({
             </span>
           </li>
         ))}
-        {live.map((task) => (
-          <TaskItem key={task.id} task={task} {...feed} />
+        {rows.map(({ task, gone }) => (
+          <TaskItem key={task.id} task={task} arriveKey={gone ? undefined : `now:${task.id}`} gone={gone && !closing} {...feed} />
         ))}
       </ul>
     </section>
@@ -310,11 +539,11 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
   return (
     <>
       {[...byDay(past.slice(0, shown), feed.now)].map(([label, rows]) => (
-        <section key={label} className="feed-group" data-earlier={earlier.has(rows[0]!.id)}>
+        <section key={label} className="feed-group" data-earlier={earlier.has(rows[0]!.id)} data-arrive={`day:${label}`}>
           <h3 className="feed-head">{label}</h3>
           <ul className="feed">
             {rows.map((task) => (
-              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} {...feed} />
+              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} arriveKey={`past:${task.id}`} {...feed} />
             ))}
           </ul>
         </section>
@@ -1181,7 +1410,7 @@ function MachineField({ label, hint, children }: { label: string; hint?: ReactNo
 function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
   return (
     <MachineField label="Takes tasks">
-      <div className="segmented small" role="radiogroup" aria-label={`Let ky use ${machine.name}`}>
+      <Segmented small role="radiogroup" aria-label={`Let ky use ${machine.name}`} chosen={machine.state}>
         {MACHINE_STATES.map(([each, label]) => (
           <button
             key={each}
@@ -1194,7 +1423,7 @@ function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machi
             {label}
           </button>
         ))}
-      </div>
+      </Segmented>
     </MachineField>
   );
 }
@@ -1211,7 +1440,7 @@ function MachineLoginSwitch({
 }) {
   return (
     <MachineField label="Claude & Codex login" hint={subscribed ? undefined : <LoginHint login={machine.login} />}>
-      <div className="segmented small" role="radiogroup" aria-label={`Whose login ${machine.name} uses`}>
+      <Segmented small role="radiogroup" aria-label={`Whose login ${machine.name} uses`} chosen={machine.login}>
         {MACHINE_LOGINS.map(([each, label]) => (
           <button
             key={each}
@@ -1225,7 +1454,7 @@ function MachineLoginSwitch({
             {label}
           </button>
         ))}
-      </div>
+      </Segmented>
     </MachineField>
   );
 }
@@ -1293,9 +1522,12 @@ function TaskNow({ task, machines, now }: { task: TaskRow; machines: readonly Ma
 
 /** A live task's status as one bare glyph: a spinner while it works, a quiet circle while it waits. */
 function StatusGlyph({ status }: { status: TaskRow["status"] }) {
+  // A glyph that changes on screen pops in; one that is simply shown does not.
+  const changed = useChanges(status) > 0;
+
   return (
-    <span className="feed-glyph" data-tone={status}>
-      {status === "working" ? <Spinner size={14} /> : <Icon name="circle" size={16} />}
+    <span className="feed-glyph" data-tone={status} data-pop={changed || undefined}>
+      {status === "working" ? <Spinner key="spin" size={14} /> : <Icon key="wait" name="circle" size={16} />}
     </span>
   );
 }
@@ -1384,7 +1616,7 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
       title={task.status === "queued" ? "Cancel" : "Stop"}
       onClick={() => onStop(task.id)}
     >
-      <Icon name="stop" size={12} />
+      <Icon name="stop" size={14} />
     </button>
   );
 }
@@ -1393,6 +1625,8 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
 function TaskItem({
   task,
   earlier,
+  arriveKey,
+  gone = false,
   session,
   now,
   machines,
@@ -1402,18 +1636,34 @@ function TaskItem({
   task: TaskRow;
   /** Revealed by Show earlier: it fades in. */
   earlier?: boolean;
+  /** Who it is to Activity's arrivals: a row new since the last render opens its space. */
+  arriveKey?: string;
+  /** Finished a moment ago: closing its space here while it opens in its day. */
+  gone?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const row = useRef<HTMLLIElement>(null);
   const opens = task.kind === "cloud" && task.session !== null;
   const shared = useContext(FilesContext).some((file) => file.task === task.id && isMedia(file));
 
+  useLayoutEffect(() => {
+    if (gone) leave(row.current!);
+    // Live again before it closed: back to full height.
+    else unleave(row.current);
+  }, [gone]);
+
   return (
     <li
+      ref={row}
       className="feed-item ledger-item"
       data-status={task.status}
       data-live={isLive(task) || undefined}
       data-earlier={earlier}
+      data-arrive={arriveKey}
+      data-task={task.id}
       aria-current={opens && task.session === session ? "page" : undefined}
+      aria-hidden={gone || undefined}
+      inert={gone}
     >
       <button
         type="button"
@@ -1536,7 +1786,7 @@ function ThinkingPicker({
       <h4 className="group-label">Thinking</h4>
       <div className="card">
         <div className="row thinking">
-          <div className="segmented small" role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} thinking`}>
+          <Segmented small role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} thinking`} chosen={current.thinkingLevel}>
             {levels.map((each) => (
               <button
                 key={each}
@@ -1549,7 +1799,7 @@ function ThinkingPicker({
                 {LEVELS[each] ?? each}
               </button>
             ))}
-          </div>
+          </Segmented>
         </div>
       </div>
     </section>
@@ -2241,13 +2491,13 @@ function AppearancePage({ theme, onTheme }: PageProps) {
             <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
           </span>
           <span className="row-label">Theme</span>
-          <div className="segmented small" role="radiogroup" aria-label="Theme">
+          <Segmented small role="radiogroup" aria-label="Theme" chosen={theme}>
             {(["light", "dark"] as const).map((each) => (
               <button key={each} type="button" role="radio" aria-checked={theme === each} className="pressable" onClick={() => onTheme(each)}>
                 {each === "light" ? "Light" : "Dark"}
               </button>
             ))}
-          </div>
+          </Segmented>
         </div>
       </div>
     </>

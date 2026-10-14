@@ -134,6 +134,18 @@ export class ChatList {
     if (cursor.rowsWritten > 0) this.#emit();
   }
 
+  /** The user named the chat. A blank name leaves it as it was. */
+  rename(session: string, title: string): void {
+    const name = titleOf(title);
+
+    if (name === "") return;
+
+    const cursor = this.#sql.exec("UPDATE ky_chats SET title = ? WHERE session = ?", name, session);
+    cursor.toArray();
+
+    if (cursor.rowsWritten > 0) this.#emit();
+  }
+
   /** Hide the chat from the list, or put it back. Its transcript stays either way. */
   archive(session: string, archived: boolean): void {
     const cursor = this.#sql.exec(

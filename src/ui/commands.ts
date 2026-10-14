@@ -19,6 +19,9 @@ export type CommandSources = {
   readonly openPanel: (tab: PanelTab) => void;
   readonly setTheme: (theme: Theme) => void;
   readonly stopAll: () => void;
+  /** The sidebar of chats is showing: beside the chat, or as the drawer. */
+  readonly sidebarShown: boolean;
+  readonly toggleSidebar: () => void;
 };
 
 function chatCommands(sources: CommandSources): Command[] {
@@ -66,6 +69,17 @@ function themeCommand(theme: Theme, setTheme: (theme: Theme) => void): Command {
   };
 }
 
+function sidebarCommand(shown: boolean, toggle: () => void): Command {
+  return {
+    id: "sidebar",
+    group: "ky",
+    label: shown ? "Hide sidebar" : "Show sidebar",
+    icon: "menu",
+    keywords: "close open toggle collapse chats drawer",
+    run: toggle
+  };
+}
+
 function stopAllCommands(working: number, stopAll: () => void): Command[] {
   if (working === 0) return [];
 
@@ -82,7 +96,7 @@ function stopAllCommands(working: number, stopAll: () => void): Command[] {
 }
 
 function kyCommands(sources: CommandSources): Command[] {
-  const { openPanel, theme, setTheme, working, stopAll } = sources;
+  const { openPanel, theme, setTheme, working, stopAll, sidebarShown, toggleSidebar } = sources;
 
   return [
     {
@@ -117,6 +131,7 @@ function kyCommands(sources: CommandSources): Command[] {
       keywords: "models providers preferences",
       run: () => openPanel("settings")
     },
+    sidebarCommand(sidebarShown, toggleSidebar),
     themeCommand(theme, setTheme),
     ...stopAllCommands(working, stopAll)
   ];

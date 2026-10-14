@@ -1,8 +1,9 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { UserInput } from "@earendil-works/pi-durable";
+import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MachineChange } from "./machines";
+import { type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import type {
@@ -44,6 +45,8 @@ import type {
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
 type State = SessionView & {
+  /** Messages sent that pi has not placed yet, oldest first. */
+  readonly outbox: readonly Outgoing[];
   readonly status: ConnectionStatus;
   /** Every registered tool, from the server's hello. */
   readonly catalog: readonly ToolInfo[];
@@ -102,6 +105,7 @@ const REPLACES = {
 
 const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
+  outbox: [],
   status: "connecting",
   catalog: [],
   tasks: [],
@@ -146,6 +150,7 @@ export function usePiSession(session: string) {
   const unanswered = useRef(new Map<string, { session: string; message: ClientMessage }>());
   /** This render's session and socket, for the open handler. */
   const live = useRef<{ session: string; send(data: string): void } | null>(null);
+  const events = useEventBatch(setState);
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -153,6 +158,7 @@ export function usePiSession(session: string) {
     query: { session },
     queryDeps: [session],
     onOpen: () => {
+      events.flush();
       setState((state) => ({ ...state, status: "open" }));
 
       for (const pending of unanswered.current.values()) {
@@ -160,6 +166,7 @@ export function usePiSession(session: string) {
       }
     },
     onClose: () => {
+      events.flush();
       setState((current) => ({ ...current, status: "closed" }));
       void reloadIfSignedOut();
     },
@@ -172,6 +179,9 @@ export function usePiSession(session: string) {
       } catch {
         return;
       }
+
+      // Every other frame lands after the events before it, as it did when each was its own update.
+      if (message.type !== "events") events.flush();
 
       switch (message.type) {
         case "hello": {
@@ -188,14 +198,12 @@ export function usePiSession(session: string) {
         }
 
         case "events":
-          setState((current) => ({
-            ...current,
-            ...reduceEvents(current, message.events)
-          }));
+          events.add(message.events);
 
           return;
         case "result":
           unanswered.current.delete(message.id);
+          setState((current) => ({ ...current, outbox: settleOutgoing(current.outbox, message.id, false) }));
           waiting.current.get(message.id)?.(message.result);
           waiting.current.delete(message.id);
 
@@ -203,7 +211,11 @@ export function usePiSession(session: string) {
         case "error":
           // A refused submit is answered too; sending it again would be refused again.
           if (message.id !== undefined) unanswered.current.delete(message.id);
-          setState((current) => ({ ...current, error: message.message }));
+          setState((current) => ({
+            ...current,
+            error: message.message,
+            outbox: message.id === undefined ? current.outbox : settleOutgoing(current.outbox, message.id, true)
+          }));
 
           return;
         default: {
@@ -223,7 +235,13 @@ export function usePiSession(session: string) {
   useResumeReconnect(agent);
   useSaveView(session, state);
 
-  useEffect(() => {
+  // Another chat starts from its cache during render, so the old chat never paints under the new one's name.
+  const [shown, setShown] = useState(session);
+
+  if (shown !== session) {
+    setShown(session);
+    // Events still waiting were the old chat's; the reset below would throw them away anyway.
+    events.drop();
     setState((current) => ({
       ...INITIAL_STATE,
       ...cachedView(session),
@@ -245,7 +263,7 @@ export function usePiSession(session: string) {
       executor: current.executor,
       updated: current.updated
     }));
-  }, [session]);
+  }
 
   const send = useCallback(
     (message: ClientMessage) => {
@@ -276,9 +294,20 @@ export function usePiSession(session: string) {
       const operationId = crypto.randomUUID();
       const message: ClientMessage = { type: "submit", id: operationId, operationId, input, whenBusy };
       unanswered.current.set(operationId, { session, message });
+      // It shows before the server answers: in the thread, or queued behind the run going now.
+      setState((current) => ({
+        ...current,
+        outbox: [...current.outbox, { operationId, input, at: Date.now(), behind: current.running, submission: null }]
+      }));
       send(message);
     },
     [send, session]
+  );
+
+  /** Take back a queued message; resolves false once pi has placed it, too late to take back. */
+  const withdraw = useCallback(
+    (operationId: string) => ask((id) => ({ type: "withdraw", id, operationId })).then((withdrawn) => withdrawn === true),
+    [ask]
   );
 
   const abort = useCallback(
@@ -354,6 +383,12 @@ export function usePiSession(session: string) {
   /** Archive a side chat, or put it back in the list. */
   const archiveChat = useCallback(
     (chat: string, archived: boolean) => send({ type: "archive-chat", id: crypto.randomUUID(), session: chat, archived }),
+    [send]
+  );
+
+  /** Name a side chat. */
+  const renameChat = useCallback(
+    (chat: string, title: string) => send({ type: "rename-chat", id: crypto.randomUUID(), session: chat, title }),
     [send]
   );
 
@@ -447,6 +482,7 @@ export function usePiSession(session: string) {
   return {
     ...state,
     submit,
+    withdraw,
     abort,
     reset,
     stopTask,
@@ -462,6 +498,7 @@ export function usePiSession(session: string) {
     peerActions,
     newChat,
     archiveChat,
+    renameChat,
     changeSkill,
     skillHistory,
     changeSoul,
@@ -477,6 +514,59 @@ export function usePiSession(session: string) {
     saveAutomation,
     setCheckIns
   };
+}
+
+/** How long a batch may wait when no frame is painted, as in a background tab, where requestAnimationFrame stops. */
+const BATCH_FALLBACK_MS = 100;
+
+/**
+ * Streaming sends an events frame every few characters. Each was its own
+ * render; this folds the frames that land within one animation frame into a
+ * single update, in the order they came. Anything else that sets state calls
+ * `flush` first, so it still applies after the events that preceded it.
+ */
+function useEventBatch(setState: (update: (current: State) => State) => void) {
+  const batch = useMemo(() => {
+    let pending: AgentEvent[] = [];
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const cancel = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      frame = 0;
+      timer = undefined;
+    };
+
+    const flush = () => {
+      cancel();
+
+      if (pending.length === 0) return;
+      const events = pending;
+      pending = [];
+      setState((current) => ({ ...current, ...reduceEvents(current, events), outbox: reduceOutbox(current.outbox, events) }));
+    };
+
+    return {
+      add(events: readonly AgentEvent[]) {
+        // One at a time: a snapshot's events could overflow a spread's argument list.
+        for (const event of events) pending.push(event);
+
+        if (timer !== undefined) return;
+        frame = requestAnimationFrame(flush);
+        timer = setTimeout(flush, BATCH_FALLBACK_MS);
+      },
+      flush,
+      drop() {
+        cancel();
+        pending = [];
+      }
+    };
+  }, [setState]);
+
+  useEffect(() => batch.drop, [batch]);
+
+  return batch;
 }
 
 /**
@@ -562,27 +652,51 @@ function peerActions(ask: (message: (id: string) => ClientMessage) => Promise<Js
 /** Quiet this long after a change, the view is saved; streaming tokens would otherwise write on every delta. */
 const SAVE_AFTER_MS = 500;
 
+/** The save waits for an idle moment, but no longer than this. */
+const IDLE_WITHIN_MS = 2_000;
+
+/** Run `work` when the main thread is idle, or soon on browsers without requestIdleCallback (Safari); returns a cancel. */
+function whenIdle(work: () => void): () => void {
+  if ("requestIdleCallback" in window) {
+    const handle = requestIdleCallback(work, { timeout: IDLE_WITHIN_MS });
+
+    return () => cancelIdleCallback(handle);
+  }
+
+  const timer = setTimeout(work, 0);
+
+  return () => clearTimeout(timer);
+}
+
 /** Keep what the chat shows for the next cold start: once it settles, and as the page is hidden. */
 function useSaveView(session: string, state: State) {
   const latest = useRef(state);
   latest.current = state;
 
-  useEffect(() => {
-    // Until the socket opens, the state is what the cache painted.
-    const save = () => latest.current.status === "open" && saveView(session, latest.current);
-    const timer = setTimeout(save, SAVE_AFTER_MS);
+  // Until the socket opens, the state is what the cache painted.
+  const save = useCallback(() => latest.current.status === "open" && saveView(session, latest.current), [session]);
 
+  useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") save();
     };
 
     document.addEventListener("visibilitychange", onHide);
 
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [save]);
+
+  useEffect(() => {
+    // Writing the cache parses and stringifies it whole, so it waits for a quiet, idle moment.
+    let cancelIdle = () => {};
+
+    const timer = setTimeout(() => (cancelIdle = whenIdle(save)), SAVE_AFTER_MS);
+
     return () => {
       clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onHide);
+      cancelIdle();
     };
-  }, [session, state]);
+  }, [save, state]);
 }
 
 /** Longer away than this and the socket may be a dead one iOS froze without closing. */

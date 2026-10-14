@@ -24,6 +24,7 @@ import type { Memory } from "./memory";
 import type { Soul } from "./soul";
 import { mentions, type Specialists } from "./specialists";
 import type { GroupChats, GroupDesk } from "./group";
+import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -700,6 +701,19 @@ export class PiSessionSockets {
     return await this.#harness.session(session).submit(message.input, options);
   }
 
+  /**
+   * Withdraw a queued message. Unlike the harness's own withdraw, one pi has already placed is left
+   * alone: the run it joined goes on, and the answer is false.
+   */
+  async #withdraw(session: PiSessionId, operationId: string): Promise<boolean> {
+    const conversation = await this.#harness.conversation(session);
+    const record = await (await this.#harness.storage()).submissionByRequest(conversation.id, operationId, BACKGROUND);
+
+    if (record?.status !== "queued") return false;
+
+    return (await (await this.#harness.pi()).abortSubmission(record.id, BACKGROUND, conversation.id)) === "aborted";
+  }
+
   async #dispatch(
     connection: Connection,
     session: PiSessionId,
@@ -713,6 +727,8 @@ export class PiSessionSockets {
         return await this.#submit(session, message);
       case "abort":
         return await handle.abort();
+      case "withdraw":
+        return await this.#withdraw(session, message.operationId);
       case "reset":
         await handle.reset(message.handoff);
 
@@ -793,6 +809,12 @@ export class PiSessionSockets {
         if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
 
         this.#chats.archive(message.session, message.archived === true);
+
+        return null;
+      case "rename-chat":
+        if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);
+
+        this.#chats.rename(message.session, message.title);
 
         return null;
       case "skill-change":

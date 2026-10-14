@@ -21,7 +21,7 @@ Everything here runs on this Mac against the local stack. It never touches the d
      until curl -fsS -o /dev/null http://127.0.0.1:8790/manifest.webmanifest; do sleep 1; done
      ```
    - Then run `KY_STACK_URL=http://127.0.0.1:8790 pnpm test:web -g "<title words>"`. Global setup reuses that stack, but still starts the `webmac` runner.
-4. Open `http://127.0.0.1:8790` yourself and sign in with the token `ky-stack-token`.
+4. To use it yourself, open `http://127.0.0.1:8790/cdn-cgi/access/login`. It signs you in as the owner with the fake Access key, then goes to the app.
 5. Teardown: Ctrl-C or SIGTERM `pnpm stack`.
 
 ## Doctor (read-only)

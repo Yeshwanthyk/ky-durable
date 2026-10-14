@@ -37,4 +37,20 @@ describe("buildTurns", () => {
 
     expect(tool).toMatchObject({ output: "Took a screenshot", images: ["data:image/png;base64,AAAA"] });
   });
+
+  it("keeps a finished turn's identity while the next one streams, so its view can skip the render", () => {
+    const messages: PiMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "First" }], timestamp: 1 },
+      { id: "a1", role: "assistant", parts: [{ type: "text", text: "Done" }], timestamp: 2, stopReason: "stop" },
+      { id: "u2", role: "user", parts: [{ type: "text", text: "Second" }], timestamp: 3 }
+    ];
+
+    const live = (text: string): PiMessage => ({ id: "live", role: "assistant", parts: [{ type: "text", text }], timestamp: 4 });
+    const before = buildTurns(messages, live("Wor"), true, []);
+    const after = buildTurns(messages, live("Working"), true, []);
+
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    expect(after[1]?.items).toEqual([{ kind: "text", id: "live:0", text: "Working", final: false }]);
+  });
 });
