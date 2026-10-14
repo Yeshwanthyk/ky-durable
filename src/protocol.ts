@@ -8,8 +8,7 @@ import type { MachineFacts, MachineLogin, MachineState } from "./machines/contra
 import type { ModelChoice, Purpose, SettingsView } from "./settings";
 import type { SetupView } from "./setup";
 import type { SkillChange, SkillRow } from "./skills/skills";
-import type { MemoryView } from "./dreaming/memory";
-import type { SoulChange, SoulView } from "./dreaming/soul";
+import type { MemoryView, SoulChange, SoulView } from "./dreaming/contract";
 import type { SpecialistDraft, SpecialistView } from "./skills/specialists";
 import type { TaskRow } from "./automations/tasks";
 
@@ -314,9 +313,9 @@ export type { ChatRow } from "./chats";
 
 export type { SkillChange, SkillRow, SkillVersion } from "./skills/skills";
 
-export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/memory";
+export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
 
-export type { SoulChange, SoulVersion, SoulView } from "./dreaming/soul";
+export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
 export type { SpecialistDraft, SpecialistView } from "./skills/specialists";
 
