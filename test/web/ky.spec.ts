@@ -754,6 +754,45 @@ test.describe("automations in Activity", () => {
     await edit.getByRole("button", { name: "Delete for good" }).click();
     await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
   });
+
+  test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
+    await open(page);
+    await connectExecutor(page);
+    const title = `School mail ${crypto.randomUUID().slice(0, 8)}`;
+    const create = { action: "create", title, prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer null" };
+    await send(page, `tool automation ${JSON.stringify(create)}`);
+    await expect(page.getByText("Gate test: nothing, so a fire now would be skipped.")).toBeVisible();
+
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    const automation = panel(page).getByRole("listitem", { name: title });
+    await expect(automation).toContainText("gated");
+
+    // An edit that leaves the gate alone keeps it.
+    await automation.getByRole("button", { name: "Edit" }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
+    await edit.getByLabel("Prompt").fill("tell me what school sent, in one line");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
+
+    await edit.getByLabel("Gate").fill('answer ["Trip form due Friday"]');
+    await edit.getByRole("button", { name: "Save" }).click();
+    await automation.getByRole("button", { name: "Run now" }).click();
+    await expect(automation.getByText("gate: found")).toHaveAttribute("title", 'found: ["Trip form due Friday"]');
+    await expect(automation).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
+
+    // Clearing the field clears the gate.
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByLabel("Gate").fill("");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(automation).not.toContainText("gate");
+
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByRole("button", { name: "Delete" }).click();
+    await edit.getByRole("button", { name: "Delete for good" }).click();
+    await expect(automation).toBeHidden();
+  });
 });
 
 test("lists the tools ky can use", async ({ page }) => {

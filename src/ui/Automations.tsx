@@ -291,6 +291,13 @@ function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
   );
 }
 
+/** A gated automation's chip: its last check's outcome, and the whole note on hover. */
+function gateDetail(note: string | null): { key: string; text: string; title?: string } {
+  if (note === null) return { key: "gate", text: "gated" };
+
+  return { key: "gate", text: `gate: ${note.split(":")[0]}`, title: note };
+}
+
 /** The last run, then only what differs from the usual: another chat, its own model, a machine. */
 function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
   const last = lastOf(automation, now);
@@ -300,6 +307,7 @@ function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
     automation.chat === session ? null : { key: "chat", text: `to ${chat}` },
     automation.model ? { key: "model", text: automation.model.modelId } : null,
     automation.machine ? { key: "machine", text: `on ${automation.machine}` } : null,
+    automation.gate ? gateDetail(automation.gate_note) : null,
   ].flatMap((extra) => extra ?? []);
 
   if (!last && extras.length === 0) return null;
@@ -312,7 +320,7 @@ function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
         </span>
       )}
       {extras.map((extra) => (
-        <span key={extra.key} className="automation-detail" data-detail={extra.key}>
+        <span key={extra.key} className="automation-detail" data-detail={extra.key} title={extra.title}>
           {extra.text}
         </span>
       ))}
@@ -384,6 +392,8 @@ type Form = {
   /** A machine's name, or empty for the cloud. */
   machine: string;
   chat: string;
+  /** An Executor program each fire runs first, or empty for none. */
+  gate: string;
 };
 
 const BLANK: Form = {
@@ -396,6 +406,7 @@ const BLANK: Form = {
   thinking: "",
   machine: "",
   chat: MAIN_SESSION,
+  gate: "",
 };
 
 /** Epoch ms as a datetime-local input's value, in local time. */
@@ -438,6 +449,7 @@ function formOf(automation: AutomationInfo | undefined): Form {
     prompt,
     chat,
     machine: automation.machine ?? "",
+    gate: automation.gate ?? "",
     ...timingFields(automation),
     ...modelFields(automation.model),
   };
@@ -498,6 +510,7 @@ function draftOf(form: Form, choices: readonly Pickable[]): AutomationDraft {
     model: choiceOf(form, choices),
     machine: form.machine || null,
     chat: form.chat,
+    gate: form.gate.trim() || null,
   };
 }
 
@@ -561,6 +574,17 @@ function AutomationForm({
             value={form.prompt}
             onChange={(event) => set({ prompt: event.target.value })}
           />
+          <label className="automation-gate">
+            <span className="automation-gate-label">Gate</span>
+            <textarea
+              aria-label="Gate"
+              placeholder="Optional. An Executor program that returns what to act on, or null to skip the run."
+              rows={1}
+              spellCheck={false}
+              value={form.gate}
+              onChange={(event) => set({ gate: event.target.value })}
+            />
+          </label>
         </div>
         <div className="card">
           <WhenField form={form} set={set} />
