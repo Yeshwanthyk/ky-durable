@@ -99,13 +99,6 @@
     "typescript(await-thenable)": 1,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/peers/group.ts": {
-    "ky(no-unchecked-parse)": 5,
-    "typescript(no-non-null-assertion)": 4
-  },
-  "src/peers/peers.ts": {
-    "ky(no-unchecked-parse)": 10
-  },
   "src/providers/api-key.ts": {
     "typescript(no-non-null-assertion)": 1
   },
