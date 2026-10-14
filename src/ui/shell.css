@@ -3297,6 +3297,83 @@
   margin-top: 8px;
 }
 
+/* ---------- Peers ---------- */
+
+/* The way of adding a peer that is open: a white pill on the grey row, as a segment is. */
+.pill[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+
+.peer-how {
+  margin-top: 0;
+}
+
+/* A peer's dot says how it answers: green when paired, amber when it doesn't answer, red when it unpaired. */
+.peer-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.peer-state {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+}
+
+.peer-state[data-state="unreachable"] {
+  background: var(--warning);
+}
+
+.peer-state[data-state="revoked"] {
+  background: var(--danger);
+}
+
+.peer-detail {
+  margin: -4px 14px 10px 52px;
+}
+
+.peer-confirm {
+  margin: 0 10px 10px;
+}
+
+.peer > .automation-refused {
+  padding: 0 14px 10px;
+}
+
+/* A name is a word, not a code: the app's font, not the key field's monospace. */
+.peer-name {
+  width: 10em;
+  font-family: inherit;
+}
+
+/* The pasted invite is long; it takes the row's width under its label, wrapping, in monospace. */
+.peer-paste {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.peer-paste > .key-input {
+  width: 100%;
+  padding: 8px 10px;
+  resize: none;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.peer-invite {
+  padding: 10px 6px 4px;
+}
+
+.peer-invite > .group-note {
+  margin: 0 8px;
+}
+
 .automation-pick {
   position: relative;
   display: flex;
