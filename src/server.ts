@@ -13,7 +13,7 @@ import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { ChatList, chatActivityExtension } from "./chats";
-import { Automations, automationExtension, checkInGuardExtension } from "./automations";
+import { Automations, automationTools, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
@@ -21,24 +21,20 @@ import { History } from "./history";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
-import { type CloudHook, MachineHub, machineExtension, type TaskTokens } from "./machines";
-import { Memory, memoryExtension } from "./memory";
+import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
+import { MachineHub, machineTools } from "./machines/wiring";
+import { DREAM_CRON, Dreaming, dreamingTools, Memory, Soul } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
-import type { MachineFacts } from "./runner-protocol";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { ASK_TTL_MS, deliver, peerAnswer, PeerAsks, type PeerDesk, peerExtension, peerQuestion, peerRoute, Peers, sweepPeers } from "./peers";
+import { ASK_TTL_MS } from "./peers/contract";
+import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { Dreaming, DREAM_CRON } from "./dreaming";
-import { type ReviewHost, Reviews, runInFeed, Skills, skillsExtension } from "./skills";
+import { type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
-import { Soul, soulExtension } from "./soul";
-import { Specialists, specialistExtension } from "./specialists";
-import { GroupChats, GroupDesk } from "./group";
-import { type Spawn, subagentExtension, subagentProgressExtension } from "./subagents";
-import { TaskFeed } from "./tasks";
 import { Titler } from "./titles";
 import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
@@ -64,7 +60,7 @@ export type Boundary = ModelsBoundary & {
   readonly executorFetch?: typeof fetch;
   /** Seed the starter skills, specialist and automations on the first start (src/seeds.ts). */
   readonly seeds: boolean;
-  /** How requests reach other people's kys (src/peers.ts); global fetch unless set. */
+  /** How requests reach other people's kys (src/peers/peers.ts); global fetch unless set. */
   readonly peerFetch?: typeof fetch;
   /** More tools for every agent, after ky's own. */
   readonly extensions: readonly Extension[];
@@ -96,7 +92,7 @@ export class PiAgent extends DurableObject<Env> {
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
   readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
-  /** Other people's kys this one is paired with (src/peers.ts). */
+  /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql);
@@ -227,8 +223,23 @@ export class PiAgent extends DurableObject<Env> {
   readonly browse = browseExtension(this.boundary.browser);
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
+      const chat = (session: string) => this.isChat(session);
+
+      // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
+      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, history: this.history, reviews: this.reviews, chat });
+
+      const skilling: SkillsWiring = {
+        skills: this.skills,
+        reviews: this.reviews,
+        specialists: this.specialists,
+        feed: this.feed,
+        models: this.models,
+        automations: this.automations,
+        background: this.#background,
+        chat
+      };
+
       // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
-      const soul = soulExtension(this.soul);
       this.registry.install(soul);
       this.registry.install({
         name: "playground",
@@ -252,51 +263,29 @@ export class PiAgent extends DurableObject<Env> {
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
-      const chat = (session: string) => this.isChat(session);
-      this.registry.install(skillsExtension(this.skills, this.reviews, this.#background, chat));
+      this.registry.install(skillTools(skilling));
 
-      // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
-      const memory = memoryExtension(this.memory, this.history, (session) => chat(session) || this.reviews.has(session));
-      const machines = machineExtension(this.machines, this.feed);
-
-      const automations = automationExtension(
-        this.automations,
-        () => this.models.resolve("worker").choice,
-        (session) => this.reviews.kind(session) === "dream"
-      );
+      const { machines } = machineTools({ machines: this.machines, feed: this.feed });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
       this.registry.install(machines);
       this.registry.install(automations);
 
-      const specialists = specialistExtension(this.specialists, this.feed, chat, (feedId) => this.automations.wanted(feedId));
+      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations });
       this.registry.install(specialists.extension);
       this.registry.install(specialists.manage);
 
-      const subagents = subagentExtension(
-        this.feed,
-        [soul, memory, machines, automations, specialists.manage],
-        () => this.models.resolve("worker").choice,
-        (feedId) => this.automations.wanted(feedId),
-        {
-          store: this.specialists,
-          tools: specialists,
-          // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
-          remove: [soul, automations, specialists.manage],
-          model: (own) => this.models.worker(own)
-        }
-      );
+      this.#spawn = spawn;
+      this.registry.install(subagents);
 
-      this.#spawn = subagents.spawn;
-      this.registry.install(subagents.extension);
       // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
-      this.registry.install(
-        this.group.extension({ remove: [soul, automations, specialists.manage, subagents.extension], model: (own) => this.models.worker(own) }).extension
-      );
-      this.registry.install(subagentProgressExtension(this.feed));
-      this.registry.install(checkInGuardExtension(this.automations));
+      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents]);
+      this.registry.install(seat);
+      this.registry.install(progress);
+      this.registry.install(checkInGuard);
       this.registry.install(chatActivityExtension(this.chats));
-      this.registry.install(peerExtension(this.peerDesk, chat));
+      this.registry.install(peer);
 
       return Harness.open(
         storage,
@@ -661,7 +650,7 @@ export class PiAgent extends DurableObject<Env> {
     return previous;
   }
 
-  /** The Vault the peer tool keeps tokens in: the one the peer routes check (src/peers.ts). Tests give each test ky its own. */
+  /** The Vault the peer tool keeps tokens in: the one the peer routes check (src/peers/peers.ts). Tests give each test ky its own. */
   protected peerVault(): DurableObjectStub<Vault> {
     return this.env.Vault.getByName("owner");
   }
@@ -808,7 +797,7 @@ export function worker(access: Access) {
       const url = new URL(request.url);
 
       // What Access lets through signed out: runners and their tasks, and other kys, which sign in with their
-      // own tokens (src/runners.ts, src/peers.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
+      // own tokens (src/runners.ts, src/peers/peers.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
       if (bypassed(url.pathname)) return signedOut(request, env, url);
 
       const refused = await access.refuse(request, env);

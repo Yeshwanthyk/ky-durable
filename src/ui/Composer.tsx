@@ -57,14 +57,14 @@ export type Mentionable = { readonly id: string; readonly description: string };
 const MENU_ROWS = 6;
 
 /** The @word the caret is in, at the start of the text or after a space: where it starts and what is typed. */
-export function mentionAt(text: string, caret: number): { start: number; query: string } | null {
+function mentionAt(text: string, caret: number): { start: number; query: string } | null {
   const match = /(^|\s)@([a-z0-9-]*)$/i.exec(text.slice(0, caret));
 
   return match ? { start: caret - match[2]!.length - 1, query: match[2]!.toLowerCase() } : null;
 }
 
 /** The ids that match what is typed after @: those it starts first, then those it is in. */
-export function matching(all: readonly Mentionable[], query: string): Mentionable[] {
+function matching(all: readonly Mentionable[], query: string): Mentionable[] {
   const starts = all.filter((each) => each.id.startsWith(query));
   const within = all.filter((each) => !each.id.startsWith(query) && each.id.includes(query));
 

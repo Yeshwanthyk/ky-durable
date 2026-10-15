@@ -23,6 +23,7 @@ export default defineConfig({
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+    { name: "ky", specifier: "./tools/oxlint/ky/index.ts" },
   ],
   rules: {
     "oxc/no-accumulating-spread": "error",
@@ -43,6 +44,35 @@ export default defineConfig({
     "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/require-readable-spacing": "error",
-    "anti-slop/require-safety-comment-for-type-assertion": "error"
-  }
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    // Nothing unchecked enters typed: untrusted JSON goes through src/core/decode.ts, and `any`
+    // (from a parse, a vendor's types or a missing annotation) can't flow into typed code.
+    "ky/no-unchecked-parse": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    // A lookup that can miss says what it expected, with must() from src/core/must.ts.
+    "typescript/no-non-null-assertion": "error"
+  },
+  overrides: [
+    {
+      // Tests, fakes and harnesses drive ky from outside: they may assert what they just set up.
+      files: ["src/tests/**", "test/**", "tools/**/*.test.ts"],
+      rules: { "ky/no-unchecked-parse": "off", "typescript/no-non-null-assertion": "off" }
+    },
+    {
+      // Plain JavaScript has no types to check.
+      files: ["**/*.js"],
+      rules: {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    }
+  ]
 });

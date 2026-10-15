@@ -4,7 +4,9 @@
  * runs joins that turn, and Claude Code echoes each prompt it takes in.
  */
 
-import { parse, type Adapter, type AgentEvent } from "./agent.ts";
+import Type from "typebox";
+import { type Adapter, type AgentEvent, JsonObjectSchema, TextSchema } from "./agent.ts";
+import { decodeOr, parseOr } from "../../src/core/decode.ts";
 import { describeTool } from "../../src/tool-labels.ts";
 
 type Options = { permissionMode: string; systemPrompt: string; chrome: boolean; session: string | null };
@@ -25,13 +27,34 @@ export function claudeArgs({ permissionMode, systemPrompt, chrome, session }: Op
   ];
 }
 
+/** One part of an assistant message: text, or a tool it uses. */
+const PartSchema = Type.Object({ type: Type.Optional(Type.Unknown()), name: Type.Optional(Type.Unknown()), input: Type.Optional(Type.Unknown()), text: Type.Optional(Type.Unknown()) });
+
+/** An assistant message's content, as far as the runner reads it; a message that isn't one says nothing. */
+const MessageSchema = Type.Object({ content: Type.Array(PartSchema) });
+
+
+/** A line of `claude`'s stream-json, as far as the runner reads it: every field may be missing. */
+const LineSchema = Type.Object({
+  type: Type.Optional(Type.Unknown()),
+  session_id: Type.Optional(Type.Unknown()),
+  isReplay: Type.Optional(Type.Unknown()),
+  message: Type.Optional(Type.Unknown()),
+  is_error: Type.Optional(Type.Unknown()),
+  result: Type.Optional(Type.Unknown()),
+  num_turns: Type.Optional(Type.Unknown()),
+  total_cost_usd: Type.Optional(Type.Unknown())
+});
+
+type Line = Type.Static<typeof LineSchema>;
+
 /** An assistant message: each tool it uses, labelled, and what it says as one line. */
-function messageOf(event: any): AgentEvent {
-  const parts: any[] = event.message?.content ?? [];
+function messageOf(event: Line): AgentEvent {
+  const parts = decodeOr(MessageSchema, event.message, { content: [] }).content;
 
   return {
     type: "message",
-    tools: parts.flatMap((part) => (part.type === "tool_use" ? [describeTool(String(part.name), part.input ?? {}).label] : [])),
+    tools: parts.flatMap((part) => (part.type === "tool_use" ? [describeTool(String(part.name), decodeOr(JsonObjectSchema, part.input, {})).label] : [])),
     text: parts
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join(" ")
@@ -43,7 +66,7 @@ function messageOf(event: any): AgentEvent {
 const counted = (value: number) => (Number.isFinite(value) ? value : undefined);
 
 /** What the process has spent: its counters run for the whole process, so the latest result holds the total. */
-function spentBy(result: any): { turns?: number; costUsd?: number } | undefined {
+function spentBy(result: Line): { turns?: number; costUsd?: number } | undefined {
   const turns = counted(Number(result.num_turns));
   const costUsd = counted(Number(result.total_cost_usd));
 
@@ -51,12 +74,12 @@ function spentBy(result: any): { turns?: number; costUsd?: number } | undefined 
 }
 
 function read(line: string): AgentEvent[] {
-  const event = parse(line);
+  const event = parseOr(LineSchema, line, undefined);
 
   if (!event) return [];
 
   return [
-    ...(event.session_id ? [{ type: "session", session: String(event.session_id) } as const] : []),
+    ...(event.session_id ? [{ type: "session", session: String(decodeOr(TextSchema, event.session_id, "")) } as const] : []),
     // With --replay-user-messages, Claude Code echoes each message it takes in, whether it starts a turn or joins one.
     ...(event.type === "user" && event.isReplay === true ? [{ type: "taken" } as const] : []),
     ...(event.type === "assistant" ? [messageOf(event)] : []),
@@ -65,7 +88,7 @@ function read(line: string): AgentEvent[] {
           {
             type: "result",
             ok: !event.is_error,
-            text: String(event.result ?? ""),
+            text: String(decodeOr(TextSchema, event.result, "")),
             spent: spentBy(event)
           } as const
         ]

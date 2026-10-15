@@ -33,7 +33,7 @@ const OUT = path.join(REPO, "test-results/gate");
 
 const BASELINE = path.join(REPO, "gate-baseline.json");
 
-const FALLOW = ["npx", "-y", "fallow@3.31"];
+const FALLOW = ["pnpm", "exec", "fallow"];
 
 const Item = Type.Object({ check: Type.String(), name: Type.String(), outcome: Type.String() });
 

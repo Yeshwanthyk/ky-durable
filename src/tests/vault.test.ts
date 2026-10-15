@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { ISSUED_TTL_MS } from "../runner-protocol";
+import { ISSUED_TTL_MS } from "../machines/contract";
 import { SUBSCRIPTION, type Vault } from "../vault";
 import { ACCOUNT_ID, type FakeOpenAi, fakeOpenAi } from "../../test/fakes/openai";
 

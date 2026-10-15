@@ -1,7 +1,7 @@
 # Skills
 
-Source: `src/skills.ts` (the `skill_view` and `skill_manage` tools, the library and its versions, the background
-review); `src/dreaming.ts` (the nightly dream); `src/sockets.ts` sends `skills` frames and takes `skill-change` and
+Source: `src/skills/skills.ts` (the `skill_view` and `skill_manage` tools, the library and its versions, the background
+review); `src/dreaming/dreaming.ts` (the nightly dream); `src/sockets.ts` sends `skills` frames and takes `skill-change` and
 `skill-history` commands.
 
 | Feature | Scenario | What it checks |

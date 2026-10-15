@@ -1,11 +1,13 @@
-import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MachineChange } from "./machines";
+import { Asks } from "./asks";
+import { parseOr } from "./core/decode";
+import type { MachineChange } from "./machines/contract";
 import { type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import { cachedShared, cachedView, saveView } from "./view-cache";
+import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
 import type {
   AutomationAction,
   AutomationDraft,
@@ -14,26 +16,18 @@ import type {
   ClientMessage,
   FileRow,
   MachineInfo,
-  MemoryItem,
-  MemorySearch,
   MemoryView,
   ModelChoice,
   Purpose,
   ServerMessage,
   SettingsView,
   SetupView,
-  ChatGptCode,
-  ChatGptState,
   ExecutorView,
-  PeerInvite,
-  PeerView,
   SubscriptionKind,
   SubscriptionView,
   SkillChange,
   SkillRow,
-  SkillVersion,
   SoulChange,
-  SoulVersion,
   SoulView,
   SpecialistDraft,
   SpecialistView,
@@ -68,7 +62,7 @@ type State = SessionView & {
   readonly specialists: readonly SpecialistView[];
   /** ky's memory as wake shows it; null until the server sends it. */
   readonly memory: MemoryView | null;
-  /** Active and paused automations, newest first. */
+  /** Active, paused and archived automations, newest first. */
   readonly automations: readonly AutomationInfo[];
   /** Whether the nightly dream books check-ins. */
   readonly checkIns: boolean;
@@ -84,24 +78,86 @@ type State = SessionView & {
   readonly updated: boolean;
 };
 
-type Frame<Type extends ServerMessage["type"]> = Extract<ServerMessage, { type: Type }>;
+/** Each server frame, by its type. */
+type Frames = { [Frame in ServerMessage as Frame["type"]]: Frame };
 
-/** The frames that replace a part of the state outright, and what they replace it with. */
-const REPLACES = {
-  tasks: ({ tasks, machines, files }) => ({ tasks, machines, files }),
-  settings: ({ settings }) => ({ settings }),
-  setup: ({ setup }) => ({ setup }),
-  subscriptions: ({ subscriptions }) => ({ subscriptions }),
-  executor: ({ executor }) => ({ executor }),
-  tools: ({ tools }) => ({ catalog: tools }),
-  // A Worker from before group chats sends no groups while a deploy settles.
-  chats: ({ chats, main, groups }) => ({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
-  skills: ({ skills }) => ({ skills }),
-  soul: ({ soul }) => ({ soul }),
-  specialists: ({ specialists }) => ({ specialists }),
-  memory: ({ memory }) => ({ memory }),
-  automations: ({ automations, checkIns }) => ({ automations, checkIns })
-} satisfies { readonly [Type in ServerMessage["type"]]?: (frame: Frame<Type>) => Partial<State> };
+/** What the page does with each frame: one handler per type, so a new type doesn't compile until the page handles it. */
+type FrameHandlers = { readonly [Type in keyof Frames]: (frame: Frames[Type]) => void };
+
+/** Hand a frame to its type's handler. */
+function handleFrame<Type extends keyof Frames>(handlers: FrameHandlers, type: Type, frame: Frames[Type]): void {
+  handlers[type](frame);
+}
+
+/** What the frame handlers change: the state, and the refs that track what the server hasn't answered. */
+type Receiver = {
+  readonly setState: (update: (current: State) => State) => void;
+  readonly events: { add(events: readonly AgentEvent[]): void };
+  readonly version: { current: string | null };
+  readonly unanswered: { readonly current: Map<string, unknown> };
+  readonly asks: Asks;
+};
+
+function frameHandlers({ setState, events, version, unanswered, asks }: Receiver): FrameHandlers {
+  /** The frames that replace a part of the state outright. */
+  const replace = (part: Partial<State>) => setState((current) => ({ ...current, ...part }));
+
+  return {
+    hello: ({ tools, version: serving }) => {
+      // A deploy restarts the object, so the socket reconnects and says hello again.
+      const updated = version.current !== null && version.current !== serving;
+      version.current ??= serving;
+      setState((current) => ({ ...current, catalog: tools, updated: current.updated || updated }));
+    },
+    events: (frame) => events.add(frame.events),
+    result: ({ id, result }) => {
+      unanswered.current.delete(id);
+      setState((current) => ({ ...current, outbox: settleOutgoing(current.outbox, id, false) }));
+      asks.answer(id, result);
+    },
+    error: ({ id, message }) => {
+      // A refused submit is answered too; sending it again would be refused again.
+      if (id !== undefined) {
+        unanswered.current.delete(id);
+        asks.fail(id, message);
+      }
+
+      setState((current) => ({
+        ...current,
+        error: message,
+        outbox: id === undefined ? current.outbox : settleOutgoing(current.outbox, id, true)
+      }));
+    },
+    tasks: ({ tasks, machines, files }) => replace({ tasks, machines, files }),
+    settings: ({ settings }) => replace({ settings }),
+    setup: ({ setup }) => replace({ setup }),
+    subscriptions: ({ subscriptions }) => replace({ subscriptions }),
+    executor: ({ executor }) => replace({ executor }),
+    tools: ({ tools }) => replace({ catalog: tools }),
+    // A Worker from before group chats sends no groups while a deploy settles.
+    chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
+    skills: ({ skills }) => replace({ skills }),
+    soul: ({ soul }) => replace({ soul }),
+    specialists: ({ specialists }) => replace({ specialists }),
+    memory: ({ memory }) => replace({ memory }),
+    automations: ({ automations, checkIns }) => replace({ automations, checkIns })
+  };
+}
+
+/** The fields of an ask of `Type`, all but its type and the id the page gives it. */
+type AskFields<Type extends Ask> = Omit<Extract<ClientMessage, { type: Type }>, "type" | "id">;
+
+/** Send an ask; resolves with its answer, or rejects with why there is none. */
+type AskFn = <Type extends Ask>(type: Type, fields: AskFields<Type>) => Promise<Answer<Type>>;
+
+/** Why a save was refused, from its answer. */
+const refusal = (answer: { readonly refused?: string }) => answer.refused;
+
+/** Why an ask failed, as a save's refusal says it. */
+const why = (error: Error) => error.message;
+
+/** An ask that failed, as `{ refused }`, the way the server says no. */
+const refused = (error: Error) => ({ refused: error.message });
 
 const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
@@ -139,8 +195,8 @@ const OBJECT = "me";
 export function usePiSession(session: string) {
   const [state, setState] = useState<State>(() => ({ ...INITIAL_STATE, ...cachedShared(), ...cachedView(session) }));
   const version = useRef<string | null>(null);
-  /** Commands waiting for their `result`, by id. */
-  const waiting = useRef(new Map<string, (result: JsonValue) => void>());
+  /** Asks waiting for their answer, by id. */
+  const [asks] = useState(() => new Asks());
   /**
    * Submits the server has not answered yet, by operation id, with the session
    * they went to. A socket that drops may or may not have delivered one, so
@@ -151,6 +207,7 @@ export function usePiSession(session: string) {
   /** This render's session and socket, for the open handler. */
   const live = useRef<{ session: string; send(data: string): void } | null>(null);
   const events = useEventBatch(setState);
+  const handlers = useMemo(() => frameHandlers({ setState, events, version, unanswered, asks }), [events, asks]);
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -168,63 +225,18 @@ export function usePiSession(session: string) {
     onClose: () => {
       events.flush();
       setState((current) => ({ ...current, status: "closed" }));
+      asks.close();
       void reloadIfSignedOut();
     },
     onMessage: (event) => {
-      let message: ServerMessage;
+      // The agents SDK's own frames, and anything else ky didn't send, aren't one.
+      const frame: ServerMessage | undefined = parseOr(ServerFrameSchema, String(event.data), undefined);
 
-      try {
-        // SAFETY: the only sender is ky's own object, which sends ServerMessages.
-        message = JSON.parse(String(event.data)) as ServerMessage;
-      } catch {
-        return;
-      }
+      if (frame === undefined) return;
 
       // Every other frame lands after the events before it, as it did when each was its own update.
-      if (message.type !== "events") events.flush();
-
-      switch (message.type) {
-        case "hello": {
-          // A deploy restarts the object, so the socket reconnects and says hello again.
-          const updated = version.current !== null && version.current !== message.version;
-          version.current ??= message.version;
-          setState((current) => ({
-            ...current,
-            catalog: message.tools,
-            updated: current.updated || updated
-          }));
-
-          return;
-        }
-
-        case "events":
-          events.add(message.events);
-
-          return;
-        case "result":
-          unanswered.current.delete(message.id);
-          setState((current) => ({ ...current, outbox: settleOutgoing(current.outbox, message.id, false) }));
-          waiting.current.get(message.id)?.(message.result);
-          waiting.current.delete(message.id);
-
-          return;
-        case "error":
-          // A refused submit is answered too; sending it again would be refused again.
-          if (message.id !== undefined) unanswered.current.delete(message.id);
-          setState((current) => ({
-            ...current,
-            error: message.message,
-            outbox: message.id === undefined ? current.outbox : settleOutgoing(current.outbox, message.id, true)
-          }));
-
-          return;
-        default: {
-          // SAFETY: REPLACES is keyed by frame type, so the entry for message.type takes that very frame.
-          const replace = (REPLACES as Partial<Record<ServerMessage["type"], (frame: ServerMessage) => Partial<State>>>)[message.type];
-
-          if (replace) setState((current) => ({ ...current, ...replace(message) }));
-        }
-      }
+      if (frame.type !== "events") events.flush();
+      handleFrame(handlers, frame.type, frame);
     }
   });
 
@@ -274,15 +286,18 @@ export function usePiSession(session: string) {
     [agent]
   );
 
-  /** Send a message the server answers by its id; resolves with the answer. */
-  const ask = useCallback(
-    (message: (id: string) => ClientMessage) =>
-      new Promise<JsonValue>((resolve) => {
-        const id = crypto.randomUUID();
-        waiting.current.set(id, resolve);
-        send(message(id));
-      }),
-    [send]
+  /** Send a message the server answers by its id; it settles on the answer, an error, the socket closing, or a timeout. */
+  const ask: AskFn = useCallback(
+    <Type extends Ask>(type: Type, fields: AskFields<Type>) => {
+      const id = crypto.randomUUID();
+      const answer = asks.wait(type, id);
+
+      if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify({ ...fields, type, id }));
+      else asks.fail(id, "ky isn't connected.");
+
+      return answer;
+    },
+    [agent, asks]
   );
 
   /**
@@ -306,7 +321,7 @@ export function usePiSession(session: string) {
 
   /** Take back a queued message; resolves false once pi has placed it, too late to take back. */
   const withdraw = useCallback(
-    (operationId: string) => ask((id) => ({ type: "withdraw", id, operationId })).then((withdrawn) => withdrawn === true),
+    (operationId: string) => ask("withdraw", { operationId }).catch(() => false),
     [ask]
   );
 
@@ -351,14 +366,14 @@ export function usePiSession(session: string) {
   /** Set ky's repo for self-edits; resolves with why it was refused, if it was. */
   const setRepo = useCallback(
     (repo: string) =>
-      ask((id) => ({ type: "set-repo", id, repo })).then(refusal),
+      ask("set-repo", { repo }).then(refusal, why),
     [ask]
   );
 
   /** Test and save a vendor's API key; resolves with why it was refused, if it was. */
   const addKey = useCallback(
     (vendor: string, key: string) =>
-      ask((id) => ({ type: "add-key", id, vendor, key })).then(refusal),
+      ask("add-key", { vendor, key }).then(refusal, why),
     [ask]
   );
 
@@ -374,9 +389,7 @@ export function usePiSession(session: string) {
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
-    () =>
-      // SAFETY: the server answers new-chat with `{ session }`.
-      ask((id) => ({ type: "new-chat", id })).then((result) => (result as { session: string }).session),
+    () => ask("new-chat", {}).then(({ session }) => session),
     [ask]
   );
 
@@ -400,9 +413,7 @@ export function usePiSession(session: string) {
 
   /** A skill's versions, newest first. */
   const skillHistory = useCallback(
-    (name: string) =>
-      // SAFETY: the server answers skill-history with the skill's versions.
-      ask((id) => ({ type: "skill-history", id, name })).then((result) => result as readonly SkillVersion[]),
+    (name: string) => ask("skill-history", { name }).catch(() => []),
     [ask]
   );
 
@@ -414,16 +425,14 @@ export function usePiSession(session: string) {
 
   /** SOUL.md's versions, newest first. */
   const soulHistory = useCallback(
-    () =>
-      // SAFETY: the server answers soul-history with SOUL.md's versions.
-      ask((id) => ({ type: "soul-history", id })).then((result) => result as readonly SoulVersion[]),
+    () => ask("soul-history", {}).catch(() => []),
     [ask]
   );
 
   /** Create a specialist or change its settings; resolves with why it was refused, if it was. */
   const saveSpecialist = useCallback(
     (specialist: string, draft: SpecialistDraft, create: boolean) =>
-      ask((id) => ({ type: "specialist-save", id, specialist, create, draft })).then(refusal),
+      ask("specialist-save", { specialist, create, draft }).then(refusal, why),
     [ask]
   );
 
@@ -442,25 +451,19 @@ export function usePiSession(session: string) {
 
   /** A specialist's brief versions, newest first. */
   const briefHistory = useCallback(
-    (specialist: string) =>
-      // SAFETY: the server answers specialist-history with the brief's versions.
-      ask((id) => ({ type: "specialist-history", id, specialist })).then((result) => result as readonly SoulVersion[]),
+    (specialist: string) => ask("specialist-history", { specialist }).catch(() => []),
     [ask]
   );
 
   /** Memories matching a regex, or the plain text when it is not one, newest first. */
   const searchMemory = useCallback(
-    (query: string) =>
-      // SAFETY: the server answers memory-search with a MemorySearch.
-      ask((id) => ({ type: "memory-search", id, query })).then((result) => result as MemorySearch),
+    (query: string) => ask("memory-search", { query }).catch(() => ({ matches: [], total: 0, regex: false })),
     [ask]
   );
 
   /** A memory block's two halves, newest first. */
   const zoomMemory = useCallback(
-    (block: string) =>
-      // SAFETY: the server answers memory-zoom with the block's halves.
-      ask((id) => ({ type: "memory-zoom", id, block })).then((result) => result as readonly MemoryItem[]),
+    (block: string) => ask("memory-zoom", { block }).catch(() => []),
     [ask]
   );
 
@@ -473,7 +476,7 @@ export function usePiSession(session: string) {
   /** Create an automation as the user, or change one; resolves with why it was refused, if it was. */
   const saveAutomation = useCallback(
     (automation: string | undefined, draft: AutomationDraft) =>
-      ask((id) => ({ type: "automation-save", id, automation, draft })).then(refusal),
+      ask("automation-save", { automation, draft }).then(refusal, why),
     [ask]
   );
 
@@ -584,15 +587,9 @@ async function reloadIfSignedOut(): Promise<void> {
   }
 }
 
-/** Why the server refused a save, from its answer. */
-function refusal(result: JsonValue): string | undefined {
-  // SAFETY: the server answers each save it may refuse with `{ refused? }`.
-  return (result as { refused?: string }).refused;
-}
-
 /** Activity's automation actions, sent over the socket. */
 function useAutomationActions(send: (message: ClientMessage) => void) {
-  /** Pause, resume, archive, run or delete an automation as the user. */
+  /** Pause, resume, archive, unarchive, run or delete an automation as the user. */
   const changeAutomation = useCallback(
     (automation: string, action: AutomationAction) =>
       send({ type: "automation", id: crypto.randomUUID(), automation, action }),
@@ -606,29 +603,26 @@ function useAutomationActions(send: (message: ClientMessage) => void) {
 }
 
 /** Settings › Subscriptions' actions, answered over the socket. */
-function useSubscriptionActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>, send: (message: ClientMessage) => void) {
+function useSubscriptionActions(ask: AskFn, send: (message: ClientMessage) => void) {
   return useMemo(
     () => ({
-      onSetClaude: (token: string) => ask((id) => ({ type: "set-claude", id, token })).then(refusal),
-      // SAFETY: the server answers github-repos with `{ repos }` or `{ refused }`.
-      onGithubRepos: (token: string) => ask((id) => ({ type: "github-repos", id, token })).then((result) => result as { repos: string[] } | { refused: string }),
-      onSetGithub: (token: string, repos: readonly string[]) => ask((id) => ({ type: "set-github", id, token, repos })).then(refusal),
+      onSetClaude: (token: string) => ask("set-claude", { token }).then(refusal, why),
+      onGithubRepos: (token: string) => ask("github-repos", { token }).catch(refused),
+      onSetGithub: (token: string, repos: readonly string[]) => ask("set-github", { token, repos }).then(refusal, why),
       onRemove: (kind: SubscriptionKind) => send({ type: "remove-subscription", id: crypto.randomUUID(), kind }),
-      // SAFETY: the server answers chatgpt-login with a ChatGptCode or `{ refused }`.
-      onChatGptLogin: () => ask((id) => ({ type: "chatgpt-login", id })).then((result) => result as ChatGptCode | { refused: string }),
-      // SAFETY: the server answers chatgpt-poll with "pending", "done" or `{ error }`.
-      onChatGptPoll: (login: string) => ask((id) => ({ type: "chatgpt-poll", id, login })).then((result) => result as ChatGptState)
+      onChatGptLogin: () => ask("chatgpt-login", {}).catch(refused),
+      onChatGptPoll: (login: string) => ask("chatgpt-poll", { login }).catch((error: Error) => ({ error: error.message }))
     }),
     [ask, send]
   );
 }
 
 /** Settings › Executor's actions (connect it, tested by the server first, or forget it) and Settings › Peers', answered over the socket. */
-function useSettingsActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>, send: (message: ClientMessage) => void) {
+function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) {
   return useMemo(
     () => ({
       executorActions: {
-        onConnect: (url: string, token: string) => ask((id) => ({ type: "set-executor", id, url, token })).then(refusal),
+        onConnect: (url: string, token: string) => ask("set-executor", { url, token }).then(refusal, why),
         onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
       },
       peerActions: peerActions(ask)
@@ -638,14 +632,12 @@ function useSettingsActions(ask: (message: (id: string) => ClientMessage) => Pro
 }
 
 /** Settings › Peers' actions. */
-function peerActions(ask: (message: (id: string) => ClientMessage) => Promise<JsonValue>) {
+function peerActions(ask: AskFn) {
   return {
-    // SAFETY: the server answers peer-list with PeerView[].
-    onList: () => ask((id) => ({ type: "peer-list", id })).then((result) => result as PeerView[]),
-    // SAFETY: the server answers peer-invite with a PeerInvite or `{ refused }`.
-    onInvite: (name: string) => ask((id) => ({ type: "peer-invite", id, name })).then((result) => result as PeerInvite | { refused: string }),
-    onPair: (name: string, address: string, code: string) => ask((id) => ({ type: "peer-pair", id, name, address, code })).then(refusal),
-    onRemove: (name: string) => ask((id) => ({ type: "peer-remove", id, name })).then(refusal)
+    onList: () => ask("peer-list", {}).catch(() => []),
+    onInvite: (name: string) => ask("peer-invite", { name }).catch(refused),
+    onPair: (name: string, address: string, code: string) => ask("peer-pair", { name, address, code }).then(refusal, why),
+    onRemove: (name: string) => ask("peer-remove", { name }).then(refusal, why)
   };
 }
 

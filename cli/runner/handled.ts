@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import Type from "typebox";
+import { parseOr } from "../../src/core/decode.ts";
 
 /** How many recent seqs are kept; the object only redelivers commands it has not seen acked. */
 const KEEP = 1_000;
@@ -66,13 +68,12 @@ function load(file: string, owner: string): number[] {
     return [];
   }
 
-  try {
-    const saved = JSON.parse(text);
+  const saved = parseOr(SavedSchema, text, undefined);
 
-    if (saved?.owner !== owner || !Array.isArray(saved.seqs)) return [];
+  if (saved?.owner !== owner) return [];
 
-    return saved.seqs.filter((seq: number) => Number.isInteger(seq));
-  } catch {
-    return [];
-  }
+  return saved.seqs.filter((seq): seq is number => Number.isInteger(seq));
 }
+
+/** The file as `add` writes it; one that isn't, or another object's, is none. */
+const SavedSchema = Type.Object({ owner: Type.Unknown(), seqs: Type.Array(Type.Unknown()) });

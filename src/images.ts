@@ -1,5 +1,7 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
+import Type from "typebox";
+import { Value } from "typebox/value";
 import type { Purpose, SettingsView } from "./settings";
 
 /**
@@ -23,12 +25,16 @@ export function imagesOf(input: UserInput): ImageContent[] {
   return Array.isArray(input) ? input.filter((part) => part.type === "image") : [];
 }
 
+/** Plain text: a user message with no images. */
+const TEXT = Type.String();
+
 /**
  * Why this input's shape is refused, or null when it is fine. Whether the
  * purpose's model reads images is Models.imageSupport's answer (models.ts).
  */
 export function checkInput(input: UserInput): string | null {
-  if (!Array.isArray(input)) return null;
+  // Plain text is fine; anything else that isn't parts got past the socket's schema, and is refused all the same.
+  if (!Array.isArray(input)) return Value.Check(TEXT, input) ? null : "Send text, or text and images.";
   const images = imagesOf(input);
 
   if (input.length === 0 || input.length - images.length > 1) return "Send one text part at most, and something.";

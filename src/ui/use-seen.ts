@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import Type, { type Static } from "typebox";
+import { parseOr } from "../core/decode";
 
 /**
  * Which chats have news the user has not opened: an automation's report or a
@@ -9,20 +11,20 @@ import { useCallback, useEffect, useState } from "react";
 
 const KEY = "ky:seen";
 
-type Seen = { readonly since: number; readonly at: Readonly<Record<string, number>> };
+const SeenSchema = Type.Object({ since: Type.Number(), at: Type.Record(Type.String(), Type.Number()) });
+
+type Seen = Readonly<Static<typeof SeenSchema>>;
 
 function read(): Seen {
+  const fresh = { since: Date.now(), at: {} };
+
   try {
-    const raw = localStorage.getItem(KEY);
-    // SAFETY: only this module writes the key, and always a whole Seen.
-    const seen = raw ? (JSON.parse(raw) as Seen) : null;
-
-    if (seen) return seen;
+    // Unreadable, or written by another version: start over.
+    return parseOr(SeenSchema, localStorage.getItem(KEY) ?? "", fresh);
   } catch {
-    // Unreadable: start over.
+    // Storage blocked: start over.
+    return fresh;
   }
-
-  return { since: Date.now(), at: {} };
 }
 
 /** Whether a chat last active at `time` has news since it was last seen. */

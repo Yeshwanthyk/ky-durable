@@ -283,7 +283,7 @@ export const COMET_DOT = 0.129
 /* --------------------------------------------------- pastille notification */
 
 /** Bleu releve au pixel. */
-export const NOTIF_BLUE = '#2496e8'
+const NOTIF_BLUE = '#2496e8'
 
 /** La pastille est posee exactement sur la circonference, a -42deg. */
 export const NOTIF_ANGLE = -42

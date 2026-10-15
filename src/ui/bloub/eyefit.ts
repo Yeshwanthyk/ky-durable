@@ -494,4 +494,4 @@ export function decalageDesYeux(
 
 /** Pour les tests : de quoi verifier la table sans refaire la geometrie. */
 /** Pour les tests : de quoi chronometrer la construction de la table. */
-export const POUR_TESTS = { batir }
+const POUR_TESTS = { batir }

@@ -1,3 +1,5 @@
+import Type from "typebox";
+import { parseOr } from "./core/decode";
 import type { AutomationInfo, ChatRow, FileRow, MachineInfo, SettingsView, SkillRow, TaskRow, ToolInfo } from "./protocol";
 import type { PiMessage, PiMessagePart } from "./transcript";
 import type { PiSessionView } from "./view";
@@ -41,6 +43,14 @@ type Cache = {
   readonly sessions: ReadonlyArray<{ readonly session: string; readonly view: CachedView }>;
 };
 
+/**
+ * A cache's frame, checked; what's inside is typed by the build that wrote it, which is the only one
+ * that reads it back (`build`).
+ */
+const CacheSchema = Type.Unsafe<Cache>(
+  Type.Object({ build: Type.String(), shared: Type.Object({}), sessions: Type.Array(Type.Object({ session: Type.String(), view: Type.Object({}) })) })
+);
+
 /** The text last read or written, and what it parsed to, so a save need not parse what it just wrote. */
 let parsed: { readonly raw: string; readonly cache: Cache | null } | null = null;
 
@@ -50,8 +60,7 @@ function read(): Cache | null {
 
     // Another tab may have written since; then the text differs and is parsed again.
     if (raw !== null && raw === parsed?.raw) return parsed.cache;
-    // SAFETY: only `saveView` writes this key, and a cache from another build is ignored below.
-    const cache = raw ? (JSON.parse(raw) as Cache) : null;
+    const cache = raw ? parseOr(CacheSchema, raw, null) : null;
     const current = cache?.build === BUILD ? cache : null;
 
     if (raw !== null) parsed = { raw, cache: current };

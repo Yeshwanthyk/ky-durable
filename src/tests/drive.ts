@@ -13,7 +13,7 @@ import {
   type RunCommand,
   type RunnerCommand,
   type RunnerReport
-} from "../runner-protocol";
+} from "../machines/contract";
 import { ASSERTION } from "../access";
 import { FakeAccess } from "./fake-access";
 import { decodeServerFrame } from "./frames";

@@ -1,5 +1,7 @@
+import Type from "typebox";
 import { CLOUD } from "./cloud-facts";
-import { isMachineName } from "./runner-protocol";
+import { parseOr } from "./core/decode";
+import { isMachineName } from "./machines/contract";
 
 /**
  * Sandboxes: ky's own Linux machines in Cloudflare, one container each, such as one per project.
@@ -51,12 +53,15 @@ const REPO = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/;
 /** The most idle minutes a sandbox may have: a day. */
 const IDLE_MAX = 24 * 60;
 
+/** The `repos` column: JSON, the repos a sandbox clones. */
+const Repos = Type.Array(Type.String());
+
 function sandboxOf(row: Row): Sandbox {
   return {
     id: row.id,
     name: row.name,
-    // SAFETY: only #repos writes it, a JSON array of strings.
-    repos: JSON.parse(row.repos) as string[],
+    // A cell a restore damaged reads as no repos.
+    repos: parseOr(Repos, row.repos, []),
     idleMinutes: row.idle_minutes,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,

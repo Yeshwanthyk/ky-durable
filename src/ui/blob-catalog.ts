@@ -21,7 +21,7 @@ function createBlobVariant(outline: BotOutline, color: BotColor): BlobVariant {
   return { id, outline, color };
 }
 
-export const BLOB_CATALOG: readonly BlobVariant[] = OUTLINES.flatMap((outline) =>
+const BLOB_CATALOG: readonly BlobVariant[] = OUTLINES.flatMap((outline) =>
   COLORS.map((color) => createBlobVariant(outline, color)),
 );
 
@@ -40,11 +40,11 @@ const AUTOMATIC_COLOR_IDS = new Set<ColorId>([
   "violet",
 ]);
 
-export const AUTOMATIC_BLOB_VARIANTS: readonly BlobVariant[] = BLOB_CATALOG.filter(
+const AUTOMATIC_BLOB_VARIANTS: readonly BlobVariant[] = BLOB_CATALOG.filter(
   ({ outline, color }) => AUTOMATIC_OUTLINE_IDS.has(outline.id) && AUTOMATIC_COLOR_IDS.has(color.id),
 );
 
-export function normalizeBlobIdentity(identity: string): string {
+function normalizeBlobIdentity(identity: string): string {
   return identity.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 

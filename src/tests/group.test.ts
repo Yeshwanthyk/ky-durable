@@ -1,9 +1,9 @@
-import type { JsonValue } from "@earendil-works/pi-ai";
 import type { EntryId, EntryRecord } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { forThem, parseRoute, plan, RESPONDER_CAP, recentOf, ROUTER_PROMPT, routerInput } from "../group";
+import { RESPONDER_CAP } from "../peers/contract";
+import { forThem, parseRoute, plan, recentOf, ROUTER_PROMPT, routerInput } from "../peers/group";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import type { SpecialistRow } from "../specialists";
+import type { SpecialistRow } from "../skills/contract";
 import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../transcript";
 import { connect, follow, type Follower, inside, snapshotView, until } from "./drive";
 import { decodeNewChat } from "./frames";
@@ -82,6 +82,7 @@ describe("the chat a specialist sees", () => {
     const input = forThem("hello all", ["a", "b"]);
     expect(input).toBe("[for @a, @b] hello all");
 
+    // SAFETY: a test record; the branded ids are only compared, never resolved against a store.
     const entry: EntryRecord = {
       id: 7 as EntryId,
       conversationId: 1 as EntryRecord["conversationId"],
@@ -197,7 +198,7 @@ describe("specialists in chat", () => {
     await make(name, "a", "b", "c", "d");
     const { socket, client } = await open(name);
     expect(await command(socket, client, { type: "chat-members", session: "1", members: ["a", "b", "c", "d"] })).toMatchObject({ type: "result" });
-    await client.until(() => client.frames.some((frame) => frame.type === "chats" && frame.groups["1"]?.length === 4));
+    await client.until(() => client.frames.some((frame) => frame.type === "chats" && frame.groups?.["1"]?.length === 4));
 
     expect(await submit(socket, client, "route: d, c, b, a\nwhat do you all think?")).toMatchObject({ result: { to: ["d", "c", "b"] } });
     await until(async () => (await replies(name)).length === 3, "three replies");
@@ -237,7 +238,10 @@ describe("specialists in chat", () => {
 
     const first = await submit(socket, client, "route: a, b\nhello", operationId);
     const again = await submit(socket, client, "route: a, b\nhello", operationId);
-    expect(again).toMatchObject({ result: (first as Frame<"result">).result as JsonValue });
+
+    if (first.type !== "result") throw new Error(`the first submit failed: ${first.message}`);
+
+    expect(again).toMatchObject({ result: first.result });
     await until(async () => (await replies(name)).length === 2, "both replies");
     await new Promise((resolve) => setTimeout(resolve, 300));
 

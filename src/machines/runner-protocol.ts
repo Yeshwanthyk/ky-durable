@@ -1,8 +1,9 @@
 import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
+import { decodeOr, parseOr } from "../core/decode.ts";
 
 /**
- * The machine protocol: what MachineHub (src/machines.ts) and the runner
+ * The machine protocol: what MachineHub (src/machines/machines.ts) and the runner
  * (`ky runner run`, cli/runner/) say to each other over the runner's WebSocket. Both ends import
  * this file and decode every frame they receive with it, so a frame either
  * matches these schemas or is not acted on.
@@ -44,7 +45,7 @@ const Text = Type.String();
 const Session = Type.Union([Type.String(), Type.Null()]);
 
 /** The coding agent a task runs as. */
-const AgentSchema = Type.Union([Type.Literal("claude"), Type.Literal("codex")]);
+export const AgentSchema = Type.Union([Type.Literal("claude"), Type.Literal("codex")]);
 
 /** A ChatGPT login for `codex`, written to the task's own `CODEX_HOME`. */
 const CodexCredsSchema = Type.Object({
@@ -133,7 +134,7 @@ const RepoSchema = Type.Object({ name: Text, remote: Type.Union([Text, Type.Null
 const AgentFactsSchema = Type.Object({ installed: Type.Boolean(), signedIn: Type.Boolean() });
 
 /** What the machine is, for the agent to choose where work goes. */
-const FactsSchema = Type.Object({
+export const FactsSchema = Type.Object({
   /** `process.platform`: darwin, linux, win32. */
   os: Text,
   /** Tasks drive the user's own Chrome, with its logins. */
@@ -216,12 +217,6 @@ export type Agent = Static<typeof AgentSchema>;
 /** Each agent by the name the user knows it by. */
 export const AGENT_NAMES: Readonly<Record<Agent, string>> = { claude: "Claude Code", codex: "Codex" };
 
-/** `Omit` applied to each member of a union, so the result stays a union. */
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
-/** A command before the inbox numbers it. */
-export type UnnumberedCommand = DistributiveOmit<RunnerCommand, "seq">;
-
 export function isPipeReport(report: RunnerReport): report is PipeReport {
   return Value.Check(PipeReportSchema, report);
 }
@@ -268,6 +263,17 @@ const PairRequestSchema = Type.Object({ code: Type.String({ minLength: 1 }), nam
 
 export type PairRequest = Static<typeof PairRequestSchema>;
 
+/**
+ * Every schema that crosses the runner's socket or its pairing request. test/invariants hashes
+ * these against PROTOCOL, so changing one without a bump fails the check.
+ */
+export const WIRE = {
+  command: RunnerCommandSchema,
+  frame: ObjectFrameSchema,
+  report: RunnerReportSchema,
+  pair: PairRequestSchema
+};
+
 /** Whether `body`, a parsed JSON request, asks to pair; its facts are checked apart, with isMachineFacts. */
 export function isPairRequest(body: unknown): body is PairRequest {
   return Value.Check(PairRequestSchema, body);
@@ -293,35 +299,25 @@ export type Decoded =
   | { readonly kind: "outdated"; readonly protocol: number }
   | { readonly kind: "malformed" };
 
+/** Just enough of a frame to see that it is a hello, and which protocol it speaks. */
+const HelloProtocolSchema = Type.Object({ type: Type.Literal("hello"), protocol: Type.Integer() });
+
 /**
  * A frame a runner sent. A hello's `protocol` is read before the rest of it,
  * so a runner of another protocol is "outdated" whatever else it says.
  */
 export function decodeReport(text: string): Decoded {
-  let frame;
+  // Text that isn't JSON is undefined here: neither a hello nor a report.
+  const frame = parseOr(Type.Unknown(), text, undefined);
+  const hello = decodeOr(HelloProtocolSchema, frame, undefined);
 
-  try {
-    frame = JSON.parse(text);
-  } catch {
-    return { kind: "malformed" };
-  }
+  if (hello && hello.protocol !== PROTOCOL) return { kind: "outdated", protocol: hello.protocol };
+  const report = decodeOr(RunnerReportSchema, frame, undefined);
 
-  if (frame?.type === "hello" && Number.isInteger(frame.protocol) && frame.protocol !== PROTOCOL) {
-    return { kind: "outdated", protocol: frame.protocol };
-  }
-
-  return Value.Check(RunnerReportSchema, frame) ? { kind: "report", report: frame } : { kind: "malformed" };
+  return report ? { kind: "report", report } : { kind: "malformed" };
 }
 
 /** A frame the object sent, or undefined if it is not one (the Agents SDK's own frames). */
 export function decodeObjectFrame(text: string): ObjectFrame | undefined {
-  let frame;
-
-  try {
-    frame = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-
-  return Value.Check(ObjectFrameSchema, frame) ? frame : undefined;
+  return parseOr(ObjectFrameSchema, text, undefined);
 }

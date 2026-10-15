@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import type { TaskRow } from "../tasks";
+import type { TaskRow } from "../automations/contract";
 import { GLM, GPT_OSS, type PiAgent } from "./stack";
 import { agent, connect, connectExecutor, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 
@@ -304,6 +304,72 @@ describe("automations", () => {
 
     expect(await say(name, automation({ action: "resume", id }))).toBe('tool said: Resumed "Daily digest".');
     expect(await listed(name, id)).toContain(`next: ${nextDaily(9)}`);
+  });
+
+  it("Activity lists an archived automation, and unarchiving it from there brings it back paused", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+    expect(await say(name, automation({ action: "archive", id }))).toBe('tool said: Archived "Daily digest".');
+
+    const socket = await connect(name);
+    const client = follow(socket);
+
+    const listedAs = (status: string) =>
+      client.frames.some((frame) => frame.type === "automations" && frame.automations.some((each) => each.id === id && each.status === status));
+
+    try {
+      await client.until(() => listedAs("archived"));
+      socket.send(JSON.stringify({ type: "automation", id: "unarchive", automation: id, action: "unarchive" }));
+      await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "unarchive"));
+      expect(client.frames.find((frame) => frame.type === "result" && frame.id === "unarchive")).toMatchObject({
+        result: 'Unarchived "Daily digest"; it is paused.'
+      });
+      await client.until(() => listedAs("paused"));
+      expect(await booking(name, id)).toBeUndefined();
+    } finally {
+      socket.close();
+    }
+  });
+
+  it("a pause that lands while an update re-books wins: it stays paused with nothing booked", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+
+    await inside(name, async (instance) => {
+      const updating = instance.automations.update(id, { cron: "30 14 * * *" });
+
+      expect(await instance.automations.pause(id)).toBe('Paused "Daily digest".');
+      await updating;
+    });
+
+    expect(await listed(name, id)).toContain(`[paused] cron 30 14 * * * UTC`);
+    expect(await booking(name, id)).toBeUndefined();
+    expect(await inside(name, (instance) => automationFires(instance))).toEqual([]);
+  });
+
+  it("an archive that lands while a resume books wins", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+    expect(await say(name, automation({ action: "pause", id }))).toBe('tool said: Paused "Daily digest".');
+
+    await inside(name, async (instance) => {
+      const resuming = instance.automations.resume(id);
+
+      expect(await instance.automations.archive(id)).toBe('Archived "Daily digest".');
+      expect(await resuming).toBe('"Daily digest" is archived, not paused or done.');
+    });
+
+    expect(await listed(name, id)).toContain("[archived]");
+    expect(await inside(name, (instance) => automationFires(instance))).toEqual([]);
+  });
+
+  it("an update that sets only thinking keeps the automation's own model", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name, { model: `workers-ai/${GPT_OSS}` });
+
+    expect(await say(name, automation({ action: "update", id, thinking: "high" }))).toBe('tool said: Updated "Daily digest".');
+    expect(await listed(name, id)).toContain(`model: workers-ai/${GPT_OSS} `);
+    expect(await listed(name, id)).not.toContain(GLM);
   });
 
   it("delete cancels the schedule and removes the automation, keeping its past runs", async () => {

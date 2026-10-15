@@ -21,7 +21,7 @@ export type FileRow = {
 
 export const DIFF_TYPE = "text/x-diff";
 
-export const FILE_TYPES: ReadonlySet<string> = new Set([
+const FILE_TYPES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
@@ -31,7 +31,7 @@ export const FILE_TYPES: ReadonlySet<string> = new Set([
   DIFF_TYPE
 ]);
 
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 /** Larger patches would not render on a phone anyway. */
 export const MAX_DIFF_BYTES = 2 * 1024 * 1024;

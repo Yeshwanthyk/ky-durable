@@ -11,7 +11,7 @@ import { call, connect, FACTS, follow, inside, pair, pairingCode, prompt, runner
 import type { Vault as TestVault } from "./stack";
 
 /**
- * The cloud machine's Worker side (src/github.ts, src/cloud.ts, src/machines.ts): the github.internal
+ * The cloud machine's Worker side (src/github.ts, src/cloud.ts, src/machines/machines.ts): the github.internal
  * proxy that holds the token and lets pushes reach `ky/*` only, its GitHub tools, the GitHub row of
  * Settings › Subscriptions, the name `cloud` no runner may take, and no GitHub token in any task.
  * The container itself runs in the harness's cloud scenarios.

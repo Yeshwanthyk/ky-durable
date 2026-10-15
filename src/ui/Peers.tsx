@@ -22,7 +22,7 @@ export const PeerContext = createContext<PeerActions>({
   onRemove: async () => "Not connected."
 });
 
-/** How long an invite works: src/peers.ts INVITE_TTL_MS. */
+/** How long an invite works: src/peers/peers.ts INVITE_TTL_MS. */
 const INVITE_TTL_MS = 10 * 60_000;
 
 const STATES: Record<PeerView["state"], string> = { on: "Paired", revoked: "They unpaired", unreachable: "Not answering" };

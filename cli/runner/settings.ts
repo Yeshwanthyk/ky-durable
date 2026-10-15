@@ -19,7 +19,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import path from "node:path";
 import { type Static, Type } from "typebox";
-import { Value } from "typebox/value";
+import { parseOr } from "../../src/core/decode.ts";
 import { defaultWorkdir, kyConfig, type System } from "./system.ts";
 
 /** Where the machine token is kept: a file only the user can read, or a Keychain item (macOS, paired before ky kept it in the file). */
@@ -55,7 +55,7 @@ export function settingsFile(system: System): string {
 }
 
 /** This machine's name in ky, from `name`, else the host's: lower case, as a runner path allows it. */
-export function machineName(name = hostname().split(".")[0]!): string {
+export function machineName(name = hostname().split(".")[0] ?? ""): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -80,9 +80,9 @@ export async function readSettings(file: string): Promise<Settings | undefined> 
     return undefined;
   }
 
-  const settings = JSON.parse(text);
+  const settings = parseOr(SettingsSchema, text, undefined);
 
-  if (!Value.Check(SettingsSchema, settings)) throw new Error(`${file} isn't a runner's settings; run \`ky runner add\` again`);
+  if (!settings) throw new Error(`${file} isn't a runner's settings; run \`ky runner add\` again`);
 
   return settings;
 }

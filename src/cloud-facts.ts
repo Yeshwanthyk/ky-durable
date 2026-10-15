@@ -1,4 +1,4 @@
-import type { MachineFacts } from "./runner-protocol";
+import type { MachineFacts } from "./machines/contract";
 
 /** The cloud machine's name in ky: one per deploy, which no runner of the user's may pair as. */
 export const CLOUD = "cloud";

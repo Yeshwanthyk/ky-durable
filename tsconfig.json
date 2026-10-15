@@ -2,6 +2,9 @@
   "extends": "agents/tsconfig",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // Pinned here, not inherited from agents/tsconfig: an index or a key lookup may miss.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
     "types": [
       "@cloudflare/workers-types",
       "@cloudflare/vitest-pool-workers/types",

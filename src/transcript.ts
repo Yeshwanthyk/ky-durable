@@ -169,12 +169,13 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
   if (entry.kind === "pi.system" || message === undefined) return undefined;
 
   if (entry.kind === TO_SPECIALISTS) {
-    // SAFETY: only the group desk writes this kind, with ToSpecialistsData.
     const projected = projectMessage(message, String(entry.id));
+
     const parts = projected.parts
       .map((part) => (part.type === "text" ? { ...part, text: part.text.replace(FOR_MARK, "") } : part))
       .filter((part) => part.type !== "text" || part.text !== "");
 
+    // SAFETY: only the group desk writes this kind, with ToSpecialistsData.
     return { ...projected, parts, to: (entry.data as ToSpecialistsData).to };
   }
 

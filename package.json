@@ -12,7 +12,7 @@
     "types": "wrangler types env.d.ts --include-runtime false --env-file .dev.vars.example",
     "test": "vitest run --config src/tests/vitest.config.ts",
     "test:node": "vitest run --config test/node/vitest.config.ts",
-    "lint": "oxlint",
+    "lint": "node --experimental-strip-types --no-warnings test/lint-ratchet.ts",
     "stack": "vite dev --config test/stack/vite.config.ts",
     "harness": "node --experimental-strip-types --no-warnings test/harness/main.ts",
     "test:web": "playwright test --config test/web/playwright.config.ts",
@@ -20,7 +20,11 @@
     "gate:live": "node --experimental-strip-types --no-warnings test/gate-live.ts",
     "live:cloud": "node --experimental-strip-types --no-warnings test/live-cloud.ts",
     "compile": "vite build && node --experimental-strip-types --no-warnings cli/compile.ts",
-    "ky": "node --experimental-strip-types --no-warnings cli/main.ts"
+    "ky": "node --experimental-strip-types --no-warnings cli/main.ts",
+    "knip": "knip --dependencies --no-progress",
+    "fallow": "fallow dead-code --quiet && fallow dupes --quiet --baseline fallow/dupes.json && fallow architecture --quiet && fallow health --quiet --baseline fallow/health.json",
+    "check": "pnpm -s typecheck && pnpm -s lint && pnpm -s knip && pnpm -s fallow && pnpm -s test:invariants",
+    "test:invariants": "vitest run --config test/invariants/vitest.config.ts"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
@@ -58,7 +62,10 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.0.3",
+    "fallow": "^3.33.1",
+    "knip": "^6.41.0",
     "oxlint": "1.86.0",
+    "oxlint-tsgolint": "^7.0.2004",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",

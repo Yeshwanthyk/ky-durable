@@ -1,5 +1,5 @@
 import Type, { type Static, type TSchema } from "typebox";
-import { Value } from "typebox/value";
+import { parseAs, parseOr } from "./core/decode";
 import type { GithubFetch, GithubLogin } from "./github";
 
 /**
@@ -73,20 +73,52 @@ class Refused extends Error {
   }
 }
 
+const Text = Type.String();
+
+const Nullable = <Schema extends TSchema>(schema: Schema) => Type.Union([schema, Type.Null()]);
+
 /** The parts of a pull request the tools read. */
-type Pull = {
-  number: number;
-  html_url: string;
-  title: string;
-  state: "open" | "closed";
-  merged: boolean;
-  merge_commit_sha: string | null;
-  head: { ref: string; repo: { full_name: string } | null };
-  base: { ref: string };
-};
+const PullSchema = Type.Object({
+  number: Type.Number(),
+  html_url: Text,
+  title: Text,
+  state: Type.Union([Type.Literal("open"), Type.Literal("closed")]),
+  merged: Type.Boolean(),
+  merge_commit_sha: Nullable(Text),
+  head: Type.Object({ ref: Text, repo: Nullable(Type.Object({ full_name: Text })) }),
+  base: Type.Object({ ref: Text })
+});
+
+type Pull = Static<typeof PullSchema>;
 
 /** The parts of a workflow run the tools read. */
-type Run = { id: number; path: string; status: string; conclusion: string | null; head_sha: string; event: string; html_url: string; created_at: string };
+const RunSchema = Type.Object({
+  id: Type.Number(),
+  path: Text,
+  status: Text,
+  conclusion: Nullable(Text),
+  head_sha: Text,
+  event: Text,
+  html_url: Text,
+  created_at: Text
+});
+
+type Run = Static<typeof RunSchema>;
+
+/** The other answers of GitHub's the tools read. */
+const CommitSchema = Type.Object({ sha: Text, parents: Type.Array(Type.Object({ sha: Text })) });
+
+const RunsSchema = Type.Object({ workflow_runs: Type.Array(RunSchema) });
+
+const CompareSchema = Type.Object({ status: Text });
+
+const RepoSchema = Type.Object({ default_branch: Text });
+
+/** GitHub's error body, when it is JSON. */
+const ErrorSchema = Type.Object({ message: Type.Optional(Text) });
+
+/** An answer the tools don't read, as a merge's or a dispatch's. */
+const Ignored = Type.Unknown();
 
 /** What the tools answer. */
 type PullView = { number: number; url: string; title: string; state: "open" | "closed" | "merged"; head: string; base: string; mergeCommit: string | null };
@@ -115,7 +147,7 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /** GitHub's REST API with `token`, never following a redirect; GitHub's error, if it answers one, as Refused. */
 function rest(fetch: GithubFetch, token: string) {
-  return async <T>(method: string, path: string, body?: RestBody): Promise<T> => {
+  return async <Schema extends TSchema>(method: string, path: string, schema: Schema, body?: RestBody): Promise<Static<Schema>> => {
     const answer = await fetch(`${API}${path}`, {
       method,
       headers: {
@@ -131,20 +163,16 @@ function rest(fetch: GithubFetch, token: string) {
 
     if (!answer.ok) {
       const text = await answer.text();
-      let message = text;
-
-      try {
-        // SAFETY: GitHub's errors are JSON with a message; anything else is shown as it came.
-        message = (JSON.parse(text) as { message?: string }).message ?? text;
-      } catch {
-        // Not JSON: the text itself.
-      }
+      // GitHub's errors are JSON with a message; anything else is shown as it came.
+      const message = parseOr(ErrorSchema, text, undefined)?.message ?? text;
 
       throw new Refused(answer.status, `GitHub answered ${answer.status}: ${message}`);
     }
 
-    // SAFETY: each caller names the shape GitHub's REST API answers for its route.
-    return (answer.status === 204 ? undefined : await answer.json()) as T;
+    // A 204 has no body: null, which only Ignored takes.
+    const text = answer.status === 204 ? "null" : await answer.text();
+
+    return parseAs(schema, text, `GitHub's answer to ${method} ${path}`);
   };
 }
 
@@ -152,7 +180,7 @@ type Rest = ReturnType<typeof rest>;
 
 /** `repo`'s default branch, which PRs go into and deploys run on. */
 async function defaultBranch(call: Rest, repo: string): Promise<string> {
-  return (await call<{ default_branch: string }>("GET", `/repos/${repo}`)).default_branch;
+  return (await call("GET", `/repos/${repo}`, RepoSchema)).default_branch;
 }
 
 /**
@@ -172,7 +200,7 @@ function kyPull(pr: Pull, repo: string, base: string): Pull {
 /** Delete a merged PR's branch; one already gone, as when the repo deletes merged branches itself, is fine. */
 async function deleteBranch(call: Rest, repo: string, ref: string): Promise<void> {
   try {
-    await call("DELETE", `/repos/${repo}/git/refs/heads/${ref}`);
+    await call("DELETE", `/repos/${repo}/git/refs/heads/${ref}`, Ignored);
   } catch (error) {
     if (!(error instanceof Refused && error.status === 422)) throw error;
   }
@@ -180,7 +208,10 @@ async function deleteBranch(call: Rest, repo: string, ref: string): Promise<void
 
 type Handler<T extends GithubTool> = (call: Rest, input: GithubToolInput<T>) => Promise<ToolAnswer>;
 
-/** Each tool, given input already checked against its schema and a repo the machine may reach. */
+/** One handler for each tool. */
+type Handlers = { readonly [T in GithubTool]: Handler<T> };
+
+/** Each tool, by name, given input already checked against its schema and a repo the machine may reach. */
 const HANDLERS = {
   "pr-create": async (call, { repo, base, head, title, body }) => {
     if (!HEAD.test(head)) throw new Refused(403, `A PR's branch must be under ky/ in ${repo} itself, as pushes are: not ${head}`);
@@ -188,33 +219,33 @@ const HANDLERS = {
 
     if (base !== branch) throw new Refused(403, `A PR goes into ${branch}, ${repo}'s default branch: not ${base}`);
 
-    return pull(await call<Pull>("POST", `/repos/${repo}/pulls`, { title, head, base, body }));
+    return pull(await call("POST", `/repos/${repo}/pulls`, PullSchema, { title, head, base, body }));
   },
   "pr-merge": async (call, { repo, number }) => {
-    const pr = kyPull(await call<Pull>("GET", `/repos/${repo}/pulls/${number}`), repo, await defaultBranch(call, repo));
+    const pr = kyPull(await call("GET", `/repos/${repo}/pulls/${number}`, PullSchema), repo, await defaultBranch(call, repo));
 
     if (pr.merged) return pull(pr);
 
     if (pr.state !== "open") throw new Refused(409, `#${number} is closed without being merged`);
-    await call("PUT", `/repos/${repo}/pulls/${number}/merge`, { merge_method: "squash" });
+    await call("PUT", `/repos/${repo}/pulls/${number}/merge`, Ignored, { merge_method: "squash" });
     await deleteBranch(call, repo, pr.head.ref);
 
-    return pull(await call<Pull>("GET", `/repos/${repo}/pulls/${number}`));
+    return pull(await call("GET", `/repos/${repo}/pulls/${number}`, PullSchema));
   },
-  "pr-view": async (call, { repo, number }) => pull(await call<Pull>("GET", `/repos/${repo}/pulls/${number}`)),
+  "pr-view": async (call, { repo, number }) => pull(await call("GET", `/repos/${repo}/pulls/${number}`, PullSchema)),
   parent: async (call, { repo, sha }) => {
-    const commit = await call<{ sha: string; parents: { sha: string }[] }>("GET", `/repos/${repo}/commits/${sha}`);
+    const commit = await call("GET", `/repos/${repo}/commits/${sha}`, CommitSchema);
 
     return { commit: commit.sha, parent: commit.parents[0]?.sha ?? null };
   },
   runs: async (call, { repo, commit }) => {
     const query = new URLSearchParams({ per_page: "5", ...(commit && { head_sha: commit }) });
-    const listed = await call<{ workflow_runs: Run[] }>("GET", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/runs?${query}`);
+    const listed = await call("GET", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/runs?${query}`, RunsSchema);
 
     return { runs: listed.workflow_runs.map(run) };
   },
   run: async (call, { repo, id }) => {
-    const found = await call<Run>("GET", `/repos/${repo}/actions/runs/${id}`);
+    const found = await call("GET", `/repos/${repo}/actions/runs/${id}`, RunSchema);
 
     if (found.path !== DEPLOY_PATH) throw new Refused(403, `Run ${id} isn't of ${DEPLOY_PATH}`);
 
@@ -223,14 +254,17 @@ const HANDLERS = {
   rollback: async (call, { repo, sha }) => {
     const branch = await defaultBranch(call, repo);
     // From the branch to sha: "behind" or "identical" only when sha is one of its commits.
-    const { status } = await call<{ status: string }>("GET", `/repos/${repo}/compare/${branch}...${sha}`);
+    const { status } = await call("GET", `/repos/${repo}/compare/${branch}...${sha}`, CompareSchema);
 
     if (status !== "behind" && status !== "identical") throw new Refused(403, `${sha} isn't a commit of ${branch}: ky rolls back only to one`);
-    await call("POST", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches`, { ref: branch, inputs: { sha } });
+    await call("POST", `/repos/${repo}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches`, Ignored, { ref: branch, inputs: { sha } });
 
     return { started: true, workflow: DEPLOY_WORKFLOW, ref: branch, sha };
   }
-} satisfies { [T in GithubTool]: Handler<T> };
+} satisfies Handlers;
+
+/** Tool `name`'s handler: Handlers is keyed by tool, so it takes exactly that tool's input. */
+const handlerOf = <T extends GithubTool>(name: T, handlers: Handlers): Handler<T> => handlers[name];
 
 const isTool = (name: string): name is GithubTool => Object.hasOwn(TOOLS, name);
 
@@ -250,30 +284,26 @@ export async function githubTool(request: Request, login: GithubLogin | null, fe
   if (request.method !== "POST") return refuse(405, "Use POST");
 
   if (!login) return refuse(401, "GitHub isn't connected to ky: add a token in Settings › Subscriptions");
-  let input: unknown;
 
-  try {
-    input = await request.json();
-  } catch {
-    return refuse(400, "The input must be JSON");
-  }
+  return runTool(name, await request.text(), login, fetch, selfEdit);
+}
 
-  if (!Value.Check(TOOLS[name], input)) return refuse(400, `Bad input for ${name}`);
-  // SAFETY: checked against TOOLS[name] just above.
-  const checked = input as GithubToolInput<typeof name>;
-  const repo = login.repos.find((allowed) => same(allowed, checked.repo));
+/** Run tool `name` on the JSON `text` it was posted, once its input and repo check out. */
+async function runTool<T extends GithubTool>(name: T, text: string, login: GithubLogin, fetch: GithubFetch, selfEdit: string | null): Promise<Response> {
+  const input: GithubToolInput<T> | undefined = parseOr(TOOLS[name], text, undefined);
 
-  if (!repo) return refuse(403, `ky's GitHub token isn't for ${checked.repo}: pick it in Settings › Subscriptions`);
+  if (input === undefined) return refuse(400, `Bad input for ${name}`);
+  const repo = login.repos.find((allowed) => same(allowed, input.repo));
+
+  if (!repo) return refuse(403, `ky's GitHub token isn't for ${input.repo}: pick it in Settings › Subscriptions`);
 
   if (SELF_EDIT_ONLY.has(name) && !(selfEdit && same(selfEdit, repo))) {
     return refuse(403, `ky's ${name} reaches only its own repo (${selfEdit ?? "not set in Settings"}): not ${repo}`);
   }
 
   try {
-    // SAFETY: HANDLERS[name] takes TOOLS[name]'s input, which `checked` is; the repo is the picked one's spelling.
-    const handler = HANDLERS[name] as Handler<GithubTool>;
-
-    return Response.json(await handler(rest(fetch, login.token), { ...checked, repo }));
+    // The repo as the picked one spells it.
+    return Response.json(await handlerOf(name, HANDLERS)(rest(fetch, login.token), { ...input, repo }));
   } catch (error) {
     if (error instanceof Refused) return refuse(error.status, error.message);
     throw error;

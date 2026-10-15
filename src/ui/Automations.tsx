@@ -165,9 +165,11 @@ function CheckInsSwitch() {
   );
 }
 
-// Scheduled work, active and paused: add, edit, run now, pause, resume, archive and delete.
+// Scheduled work, active and paused: add, edit, run now, pause, resume, archive and delete; archived ones fold away below.
 export function Automations({ now, session }: { now: number; session: string }) {
-  const { automations } = useContext(AutomationsContext);
+  const { automations: all } = useContext(AutomationsContext);
+  const automations = all.filter((automation) => automation.status !== "archived");
+  const archived = all.filter((automation) => automation.status === "archived");
   const [editing, setEditing] = useState<string | null>(null);
   const close = () => setEditing(null);
   // Nothing to list: the empty state stands in for the card.
@@ -211,7 +213,46 @@ export function Automations({ now, session }: { now: number; session: string }) 
           )}
         </ul>
       )}
+      <ArchivedAutomations archived={archived} now={now} />
     </section>
+  );
+}
+
+// Archived automations, folded away until asked for; unarchiving one brings it back paused.
+function ArchivedAutomations({ archived, now }: { archived: readonly AutomationInfo[]; now: number }) {
+  const { onAction } = useContext(AutomationsContext);
+  const [open, setOpen] = useState(false);
+
+  if (archived.length === 0) return null;
+
+  return (
+    <>
+      <button type="button" className="automation-text pressable" aria-expanded={open} onClick={() => setOpen(!open)}>
+        Archived ({archived.length})
+      </button>
+      {open && (
+        <ul className="feed" aria-label="Archived automations">
+          {archived.map((automation) => (
+            <li key={automation.id} className="feed-item automation" aria-label={automation.title} data-paused>
+              <span className="feed-button">
+                <span className="feed-glyph" data-tone="stopped">
+                  <Icon name="clock" size={16} />
+                </span>
+                <span className="feed-text">
+                  <span className="feed-title">{plain(automation.title)}</span>
+                  <span className="feed-step tabular">{scheduleOf(automation, now)} · Archived</span>
+                </span>
+              </span>
+              <span className="automation-actions">
+                <button type="button" className="automation-text pressable" onClick={() => onAction(automation.id, "unarchive")}>
+                  Unarchive
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -291,8 +332,11 @@ function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
   );
 }
 
+/** One chip under an automation's title; `title` is shown on hover. */
+type Detail = { readonly key: string; readonly text: string; readonly title?: string };
+
 /** A gated automation's chip: its last check's outcome, and the whole note on hover. */
-function gateDetail(note: string | null): { key: string; text: string; title?: string } {
+function gateDetail(note: string | null): Detail {
   if (note === null) return { key: "gate", text: "gated" };
 
   return { key: "gate", text: `gate: ${note.split(":")[0]}`, title: note };

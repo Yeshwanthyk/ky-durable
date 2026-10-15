@@ -11,6 +11,7 @@ import {
   type PiMessage,
   type PiMessagePart
 } from "./transcript";
+import { must } from "./core/must";
 
 /** A tool call running now, with its streamed output. */
 export type PiRunningTool = {
@@ -93,7 +94,7 @@ function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
     LIVE_ID
   ).parts;
 
-  return part;
+  return must(part, "an assistant block projects to one part");
 }
 
 function applyChanges(
@@ -143,7 +144,7 @@ function applyChanges(
   return message;
 }
 
-export function reduceView(
+function reduceView(
   view: PiSessionView,
   event: AgentEvent
 ): PiSessionView {

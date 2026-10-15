@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member -- the ported bloub engine: its API is called through refs fallow cannot follow.
 import { arcRender, type ArcRender, type DotRender } from './decor'
 import { blendExpression, type BotExpression } from './expressions'
 import { decalageDesYeux } from './eyefit'

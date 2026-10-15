@@ -11,7 +11,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { Agent, CodexCreds, RunCreds } from "../../src/runner-protocol.ts";
+import type { Agent, CodexCreds, RunCreds } from "../../src/machines/contract.ts";
 import { claudeArgs } from "./claude.ts";
 import { codexArgs } from "./codex.ts";
 import type { AgentProcess, Launch, ProcessEvents, SpawnAgent } from "./runner.ts";

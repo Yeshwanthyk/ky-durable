@@ -1,4 +1,4 @@
-// ky machine protocol: MachineHub (src/machines.ts) + TaskFeed (src/tasks.ts)
+// ky machine protocol: MachineHub (src/machines/machines.ts) + TaskFeed (src/automations/tasks.ts)
 // on the Durable Object, ky-runner (runner/ky-runner.ts) on the machine.
 // One task, several turns (start + send). Each fix is a constant so the
 // same model checks the current code (all false) and the fixed protocol.

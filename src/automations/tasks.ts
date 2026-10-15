@@ -5,62 +5,19 @@
  * and what the main agent's `status` reads.
  */
 
-import type { Agent } from "./runner-protocol";
-
-export type TaskKind = "cloud" | "machine";
-
-export type TaskStatus = "queued" | "working" | "done" | "failed" | "stopped";
-
-/** One thing a task did, such as "Reading tasks.ts", and when. */
-export type TaskStep = { readonly at: number; readonly text: string };
-
-export type TaskRow = {
-  readonly id: string;
-  /** Where it runs. */
-  readonly kind: TaskKind;
-  /** Why it exists: "chat" for work asked for in a chat. */
-  readonly source: string;
-  /** The subagent's name, or the machine a run is placed on. */
-  readonly worker: string;
-  readonly title: string;
-  readonly status: TaskStatus;
-  /** Its result, once a turn ends. */
-  readonly summary: string;
-  /** Its last few steps, oldest first: the last is what it is doing now. */
-  readonly steps: readonly TaskStep[];
-  /** Cloud: the pi session to open. Machine: the agent's session id (Claude Code's session, Codex's thread). */
-  readonly session: string | null;
-  /** Machine: the coding agent it runs as, which each follow-up goes to. Cloud: null. */
-  readonly agent: Agent | null;
-  readonly created_at: number;
-  readonly updated_at: number;
-  /** When its latest stretch of work began: its start, or the message that resumed it. */
-  readonly started_at: number | null;
-  /** When that stretch ended; null while it is queued or working. */
-  readonly finished_at: number | null;
-  /** Model turns and dollars spent, all turns together; null until something reports them. */
-  readonly turns: number | null;
-  readonly cost_usd: number | null;
-};
-
-export type TaskPatch = Partial<
-  Pick<TaskRow, "title" | "status" | "summary" | "session">
->;
-
-const SUMMARY_CHARS = 240;
-
-/** First line of a text, trimmed to fit a task card. */
-export function summarize(text: string): string {
-  const line = text.trim().split("\n").find((part) => part.trim() !== "") ?? "";
-
-  return line.length > SUMMARY_CHARS ? `${line.slice(0, SUMMARY_CHARS - 1)}…` : line;
-}
-
-/** Writes better titles and summaries than a first line, in the background. */
-export type TaskNamer = {
-  readonly title: (id: string, text: string) => void;
-  readonly summary: (id: string, text: string) => void;
-};
+import { decodeOr } from "../core/decode";
+import { must } from "../core/must";
+import type { Agent } from "../machines/contract";
+import {
+  ColumnInfo,
+  summarize,
+  taskRows,
+  type TaskKind,
+  type TaskNamer,
+  type TaskPatch,
+  type TaskRow,
+  type TaskStatus
+} from "./contract";
 
 const STEPS_KEPT = 5;
 
@@ -79,13 +36,6 @@ const ADDED = [
   ["cost_usd", "REAL"],
   ["agent", "TEXT"]
 ] as const;
-
-type StoredRow = Omit<TaskRow, "steps"> & { steps: string };
-
-function rowOf(stored: StoredRow): TaskRow {
-  // SAFETY: only #setSteps writes steps, always a JSON array of TaskStep.
-  return { ...stored, steps: JSON.parse(stored.steps) as TaskStep[] };
-}
 
 /** When a status change moves the task's working stretch: it starts working again, or it ends. */
 function stretch(current: TaskRow, status: TaskStatus, now: number): Pick<TaskRow, "started_at" | "finished_at"> {
@@ -115,10 +65,14 @@ export class TaskFeed {
       session TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL)`);
-    const columns = sql.exec<{ name: string }>("PRAGMA table_info(ky_tasks)").toArray();
+
+    const columns = sql
+      .exec("PRAGMA table_info(ky_tasks)")
+      .toArray()
+      .flatMap((column) => decodeOr(ColumnInfo, column, undefined)?.name ?? []);
 
     for (const [name, type] of ADDED) {
-      if (!columns.some((column) => column.name === name)) sql.exec(`ALTER TABLE ky_tasks ADD COLUMN ${name} ${type}`);
+      if (!columns.includes(name)) sql.exec(`ALTER TABLE ky_tasks ADD COLUMN ${name} ${type}`);
     }
 
     // Machine tasks from before they named their agent all ran as Claude Code.
@@ -146,7 +100,7 @@ export class TaskFeed {
   }
 
   #rows(query: string, ...bindings: Array<string | number>): TaskRow[] {
-    return this.#sql.exec<StoredRow>(query, ...bindings).toArray().map(rowOf);
+    return taskRows(this.#sql.exec(query, ...bindings).toArray());
   }
 
   list(limit = 100): TaskRow[] {
@@ -223,7 +177,7 @@ export class TaskFeed {
     );
     this.#emit();
 
-    return this.get(task.id)!;
+    return must(this.get(task.id), `Task ${task.id} wasn't saved.`);
   }
 
   update(id: string, patch: TaskPatch): void {

@@ -10,8 +10,32 @@
  * is Write, Edit or Delete, and an MCP call is `mcp__<server>__<tool>`.
  */
 
-import { parse, type Adapter, type AgentEvent } from "./agent.ts";
+import Type from "typebox";
+import { type Adapter, type AgentEvent, JsonObjectSchema, TextSchema } from "./agent.ts";
+import { decodeOr, parseOr } from "../../src/core/decode.ts";
 import { describeTool } from "../../src/tool-labels.ts";
+
+const Loose = Type.Optional(Type.Unknown());
+
+/** An item Codex works through, as far as the runner reads it: every field may be missing. */
+const ItemSchema = Type.Object({ id: Loose, type: Loose, command: Loose, changes: Loose, server: Loose, tool: Loose, arguments: Loose, query: Loose, text: Loose });
+
+type Item = Type.Static<typeof ItemSchema>;
+
+/** A file change's kind and path. */
+const ChangesSchema = Type.Array(Type.Object({ kind: Loose, path: Loose }));
+
+/** A line of `codex exec --json`, as far as the runner reads it. */
+const EventSchema = Type.Object({ type: Loose, thread_id: Loose, item: Loose, error: Loose });
+
+type Event = Type.Static<typeof EventSchema>;
+
+/** An error's message, which may be missing. */
+const ErrorSchema = Type.Object({ message: Loose });
+
+const NO_ITEM: Item = {};
+
+const NO_ERROR: Type.Static<typeof ErrorSchema> = {};
 
 /**
  * Flags every `codex exec` takes: JSON events, run anywhere, nothing to
@@ -65,22 +89,23 @@ const FILE_TOOLS = new Map([
 ]);
 
 /** Labels for the tools each kind of item uses; other items are not tools. */
-const TOOLS = new Map<string, (item: any) => string[]>([
-  ["command_execution", (item) => [describeTool("Bash", { command: unwrapShell(String(item.command ?? "")) }).label]],
+const TOOLS = new Map<unknown, (item: Item) => string[]>([
+  ["command_execution", (item) => [describeTool("Bash", { command: unwrapShell(String(decodeOr(TextSchema, item.command, ""))) }).label]],
   [
     "file_change",
-    (item) => (item.changes ?? []).map((change: any) => describeTool(FILE_TOOLS.get(change.kind) ?? "Edit", { file_path: String(change.path ?? "") }).label)
+    (item) => decodeOr(ChangesSchema, item.changes ?? [], []).map((change) => describeTool(FILE_TOOLS.get(String(change.kind)) ?? "Edit", { file_path: String(decodeOr(TextSchema, change.path, "")) }).label)
   ],
-  ["mcp_tool_call", (item) => [describeTool(`mcp__${item.server}__${item.tool}`, item.arguments ?? {}).label]],
-  ["web_search", (item) => [describeTool("WebSearch", { query: String(item.query ?? "") }).label]],
+  ["mcp_tool_call", (item) => [describeTool(`mcp__${String(item.server)}__${String(item.tool)}`, decodeOr(JsonObjectSchema, item.arguments ?? {}, {})).label]],
+  ["web_search", (item) => [describeTool("WebSearch", { query: String(decodeOr(TextSchema, item.query, "")) }).label]],
   ["todo_list", () => [describeTool("TodoWrite").label]]
 ]);
 
 /** A failed turn's error, which Codex often gives as the API's JSON error body. */
 function failure(message: string): string {
-  const body = parse(message);
+  const body = parseOr(Type.Object({ error: Loose }), message, undefined);
+  const said = decodeOr(ErrorSchema, body?.error, NO_ERROR).message;
 
-  return body?.error?.message ? String(body.error.message) : message;
+  return String(decodeOr(TextSchema, said, "")) || message;
 }
 
 /**
@@ -91,10 +116,10 @@ function failure(message: string): string {
  * why in `turn.failed`, so neither is read.
  */
 function reader(): (line: string) => AgentEvent[] {
-  const labelled = new Set<string>();
+  const labelled = new Set<unknown>();
   let said = "";
 
-  const tools = (item: any): AgentEvent[] => {
+  const tools = (item: Item): AgentEvent[] => {
     const labels = labelled.has(item.id) ? [] : (TOOLS.get(item.type)?.(item) ?? []);
 
     if (labels.length === 0) return [];
@@ -103,26 +128,28 @@ function reader(): (line: string) => AgentEvent[] {
     return [{ type: "message", text: "", tools: labels }];
   };
 
-  const answer = (item: any): AgentEvent[] => {
-    said = String(item.text ?? "").trim();
+  const answer = (item: Item): AgentEvent[] => {
+    said = String(decodeOr(TextSchema, item.text, "")).trim();
 
     return [{ type: "message", text: said, tools: [] }];
   };
 
-  const on = new Map<string, (event: any) => AgentEvent[]>([
+  const itemOf = (event: Event) => decodeOr(ItemSchema, event.item ?? NO_ITEM, NO_ITEM);
+
+  const on = new Map<unknown, (event: Event) => AgentEvent[]>([
     ["thread.started", (event) => [{ type: "session", session: String(event.thread_id) }]],
     ["turn.started", () => [{ type: "taken" }]],
-    ["item.started", (event) => tools(event.item ?? {})],
-    ["item.completed", (event) => (event.item?.type === "agent_message" ? answer(event.item) : tools(event.item ?? {}))],
+    ["item.started", (event) => tools(itemOf(event))],
+    ["item.completed", (event) => (itemOf(event).type === "agent_message" ? answer(itemOf(event)) : tools(itemOf(event)))],
     // Each process runs one turn. Its token counts have nowhere to go in a result, and on a subscription nothing says what they cost.
     ["turn.completed", () => [{ type: "result", ok: true, text: said, spent: { turns: 1 } }]],
-    ["turn.failed", (event) => [{ type: "result", ok: false, text: failure(String(event.error?.message ?? "")) }]]
+    ["turn.failed", (event) => [{ type: "result", ok: false, text: failure(String(decodeOr(TextSchema, decodeOr(ErrorSchema, event.error, NO_ERROR).message, ""))) }]]
   ]);
 
   return (line) => {
-    const event = parse(line);
+    const event = parseOr(EventSchema, line, undefined);
 
-    return on.get(event?.type)?.(event) ?? [];
+    return (event && on.get(event.type)?.(event)) ?? [];
   };
 }
 

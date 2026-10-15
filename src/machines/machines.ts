@@ -5,12 +5,39 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
-import { CLOUD_FACTS } from "./cloud-facts";
-import type { FileRow, FileStore } from "./files";
-import { type CloudState, type MachineInfo, osName } from "./protocol";
-import type { Sandboxes } from "./sandboxes";
-import { type Agent, AGENT_NAMES, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport, type UnnumberedCommand } from "./runner-protocol";
-import { summarize, type TaskFeed, type TaskRow } from "./tasks";
+import { CLOUD_FACTS } from "../cloud-facts";
+import type { FileRow, FileStore } from "../files";
+import { type CloudState, type MachineInfo, osName } from "../protocol";
+import type { Sandboxes } from "../sandboxes";
+import type { Static, TSchema } from "typebox";
+import Schema from "typebox";
+import { decode, decodeOr, parseOr } from "../core/decode";
+import { must } from "../core/must";
+import { type Agent, AGENT_NAMES, FactsSchema, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport } from "./runner-protocol";
+import {
+  type CloudHook,
+  InboxRowSchema,
+  LoginRowSchema,
+  MACHINE_ACTIONS,
+  MACHINE_EXTENSION,
+  MACHINE_TOOL,
+  type MachineChange,
+  type MachineLogin,
+  MachineLoginSchema,
+  MachineRowSchema,
+  type MachineState,
+  MachineStateSchema,
+  type Queued,
+  QueuedSchema,
+  ReportRowSchema,
+  runnerTag,
+  type SessionCreds,
+  type TaskOutcome,
+  type TaskTokens,
+  type Turns,
+  TurnsRowSchema
+} from "./contract";
+import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's
@@ -51,62 +78,65 @@ import { summarize, type TaskFeed, type TaskRow } from "./tasks";
  * a repo goes to the sandbox that has it; the agent never guesses one.
  */
 
-const RUNNER_TAG_PREFIX = "runner:";
-
 const OPEN = 1;
-
-export function runnerTag(machine: string): string {
-  return `${RUNNER_TAG_PREFIX}${machine}`;
-}
-
-export function runnerOf(tags: readonly string[]): string | undefined {
-  return tags.find((tag) => tag.startsWith(RUNNER_TAG_PREFIX))?.slice(RUNNER_TAG_PREFIX.length);
-}
-
-type Turns = { turn: number; closed: number; sent: number };
-
-/** on: takes new tasks. paused: finishes its tasks and takes their messages, but no new ones. off: takes nothing from the agent. */
-export type MachineState = "on" | "paused" | "off";
 
 const MACHINE_STATES: readonly MachineState[] = ["on", "paused", "off"];
 
-/** own: tasks sign in with the machine's own login when it has one. ky: always with ky's subscriptions. */
-export type MachineLogin = "own" | "ky";
-
 const MACHINE_LOGINS: readonly MachineLogin[] = ["own", "ky"];
-
-/** What the user changes about a machine: whether ky may use it, what it is for, and whose login its tasks use. */
-export type MachineChange = { state?: MachineState; note?: string; login?: MachineLogin };
 
 const NOTE_CHARS = 200;
 
-type MachineRow = { name: string; seen_at: number; state: MachineState; note: string; facts: string | null; login: MachineLogin };
-
-type Command<T extends UnnumberedCommand["type"]> = Extract<UnnumberedCommand, { type: T }>;
-
-/** A command as the inbox keeps it: no secret. A run's task token and credentials, and a creds command's login, are added as it is sent. */
-type Queued = Command<"stop"> | Omit<Command<"run">, "taskToken" | "creds"> | Omit<Command<"creds">, "codex">;
-
-/** A queued command and its place in the inbox. */
+/** A queued command and its place in the inbox. A run's task token and credentials, and a creds command's login, are added as it is sent. */
 type Pending = Queued & { seq: number };
 
-/** The Vault's task tokens, for the runs the hub sends. */
-export type TaskTokens = {
-  /** The task's live token, the same for every run of it until it is revoked or expires. */
-  issue: (task: string) => Promise<string>;
-  revoke: (task: string) => Promise<void>;
-  /** Revoke the tokens of all of `tasks`. */
-  revokeAll: (tasks: readonly string[]) => Promise<void>;
-};
+/** A queued run as it is sent: with its task's token and, from `creds`, its agent's login if handed one; none without a token. */
+function runWith(command: Extract<Pending, { type: "run" }>, taskToken: string | undefined, creds: RunCreds): RunnerCommand | undefined {
+  if (taskToken === undefined) return undefined;
 
-/** The Vault's subscriptions: what a run is handed for `agent` when the machine doesn't use its own login; none without one. */
-export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
+  const run: RunnerCommand = { ...command, taskToken };
+  const handed = creds[command.agent];
 
-/** The sandboxes, on a deploy that has them: each started when a command waits for it. */
-export type CloudHook = {
-  /** Start the sandbox listed as `machine`. */
-  wake(machine: string): void;
-};
+  return handed ? { ...run, creds: { [command.agent]: handed } } : run;
+}
+
+/** A task from before turns were kept is on its first. */
+const FIRST_TURN: Turns = { turn: 1, closed: 0, sent: 0, stopping: 0 };
+
+const ColumnRow = Schema.Object({ name: Schema.String() });
+
+const SessionRow = Schema.Object({ session: Schema.String() });
+
+const PairingRow = Schema.Object({ pairing: Schema.Union([Schema.String(), Schema.Null()]) });
+
+const KindRow = Schema.Object({ name: Schema.String(), kind: Schema.Union([Schema.String(), Schema.Null()]) });
+
+/** Each row of a query, as `schema` says: only the hub writes these tables, so a row that isn't is a bug. */
+function rows<S extends TSchema>(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>, schema: S, what: string): Static<S>[] {
+  return cursor.toArray().map((row) => decode(schema, row, what));
+}
+
+/** A machine's facts as stored, or none when the column is empty or damaged: the runner says them again at its next hello. */
+function storedFacts(stored: string | null): MachineFacts | null {
+  return stored === null ? null : parseOr(FactsSchema, stored, null);
+}
+
+/** The status and word for how a turn ended. */
+const ENDINGS: Readonly<Record<TaskOutcome, string>> = { done: "finished", failed: "failed", stopped: "stopped" };
+
+/**
+ * How a result ends its turn: done when the runner says it went well; else stopped when the hub
+ * asked the runner to stop that turn or a later one, and failed when it didn't.
+ */
+function outcomeOf(ok: boolean, turn: number, stopping: number): TaskOutcome {
+  if (ok) return "done";
+
+  return stopping >= turn ? "stopped" : "failed";
+}
+
+/** The agent a machine task runs as: start sets it, and the feed set it on older ones. */
+function agentOf(task: TaskRow): Agent {
+  return must(task.agent, `Machine task ${task.id} names no agent.`);
+}
 
 /** How many times a delivery the Vault failed is tried again, a second and then twice as long apart each time. */
 const DELIVERY_RETRIES = 5;
@@ -234,13 +264,13 @@ export class MachineHub {
       text TEXT NOT NULL,
       PRIMARY KEY (task, turn, session))`);
     // `sent`: the command went out on an open socket, so the runner may have it.
-    const inbox = sql.exec<{ name: string }>("PRAGMA table_info(ky_machine_inbox)").toArray();
+    const inbox = rows(sql.exec("PRAGMA table_info(ky_machine_inbox)"), ColumnRow, "a column of ky_machine_inbox");
 
     if (!inbox.some((column) => column.name === "sent")) {
       sql.exec("ALTER TABLE ky_machine_inbox ADD COLUMN sent INTEGER NOT NULL DEFAULT 0");
     }
 
-    const known = sql.exec<{ name: string }>("PRAGMA table_info(ky_machines)").toArray();
+    const known = rows(sql.exec("PRAGMA table_info(ky_machines)"), ColumnRow, "a column of ky_machines");
 
     if (!known.some((column) => column.name === "state")) {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN state TEXT NOT NULL DEFAULT 'on'");
@@ -254,37 +284,40 @@ export class MachineHub {
 
     if (!known.some((column) => column.name === "login")) sql.exec("ALTER TABLE ky_machines ADD COLUMN login TEXT NOT NULL DEFAULT 'own'");
 
-    // Commands from before turns were numbered, which no runner accepts: their tasks end as interrupted
-    // at the runner's next hello.
-    sql.exec("DELETE FROM ky_machine_inbox WHERE json_extract(payload, '$.turn') IS NULL");
+    // The latest turn the hub asked the runner to stop: a result that isn't ok for it, or an earlier one, is a stop, not a failure.
+    const turns = rows(sql.exec("PRAGMA table_info(ky_machine_turns)"), ColumnRow, "a column of ky_machine_turns");
+
+    if (!turns.some((column) => column.name === "stopping")) sql.exec("ALTER TABLE ky_machine_turns ADD COLUMN stopping INTEGER NOT NULL DEFAULT 0");
+
+    // Commands from before turns were numbered, which no runner accepts, and damaged ones, which no runner could read:
+    // their tasks end as interrupted at the runner's next hello.
+    sql.exec("DELETE FROM ky_machine_inbox WHERE CASE WHEN json_valid(payload) THEN json_extract(payload, '$.turn') IS NULL ELSE 1 END");
     // Runs from before they named an agent were all Claude Code's.
     sql.exec(
       `UPDATE ky_machine_inbox SET payload = json_set(payload, '$.agent', 'claude')
        WHERE json_extract(payload, '$.type') = 'run' AND json_extract(payload, '$.agent') IS NULL`
     );
     // Facts from before runners said what kind of machine they are, until the runner says hello again.
-    sql.exec("UPDATE ky_machines SET facts = NULL WHERE json_extract(facts, '$.kind') IS NULL");
+    // Damaged facts are none, too.
+    sql.exec("UPDATE ky_machines SET facts = NULL WHERE CASE WHEN json_valid(facts) THEN json_extract(facts, '$.kind') IS NULL ELSE 1 END");
   }
 
   /** A task's turns; a task from before they were kept is on its first. */
   #turns(task: string): Turns {
-    return (
-      this.#sql
-        .exec<Turns>("SELECT turn, closed, sent FROM ky_machine_turns WHERE task = ?", task)
-        .toArray()[0] ?? { turn: 1, closed: 0, sent: 0 }
-    );
+    return rows(this.#sql.exec("SELECT turn, closed, sent, stopping FROM ky_machine_turns WHERE task = ?", task), TurnsRowSchema, "a task's turns")[0] ?? FIRST_TURN;
   }
 
   #setTurns(task: string, turns: Partial<Turns>): void {
     // Read, merge, write with no await between: the object runs nothing else meanwhile.
     const next = { ...this.#turns(task), ...turns };
     this.#sql.exec(
-      `INSERT INTO ky_machine_turns (task, turn, closed, sent) VALUES (?, ?, ?, ?)
-       ON CONFLICT(task) DO UPDATE SET turn = excluded.turn, closed = excluded.closed, sent = excluded.sent`,
+      `INSERT INTO ky_machine_turns (task, turn, closed, sent, stopping) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(task) DO UPDATE SET turn = excluded.turn, closed = excluded.closed, sent = excluded.sent, stopping = excluded.stopping`,
       task,
       next.turn,
       next.closed,
-      next.sent
+      next.sent,
+      next.stopping
     );
   }
 
@@ -304,28 +337,19 @@ export class MachineHub {
    * turn before; the main conversation for a task from before senders were kept.
    */
   #listeners(task: string, from: number, to: number): string[] {
-    const senders = this.#sql
-      .exec<{ session: string }>(
-        "SELECT session FROM ky_machine_senders WHERE task = ? AND turn > ? AND turn <= ? GROUP BY session ORDER BY MIN(turn)",
-        task,
-        from,
-        to
-      )
-      .toArray()
-      .map((row) => row.session);
+    const senders = rows(
+      this.#sql.exec("SELECT session FROM ky_machine_senders WHERE task = ? AND turn > ? AND turn <= ? GROUP BY session ORDER BY MIN(turn)", task, from, to),
+      SessionRow,
+      "a task's sender"
+    ).map((row) => row.session);
 
     return senders.length > 0 ? senders : [this.#lastSender(task, to)];
   }
 
   #lastSender(task: string, upTo = Number.MAX_SAFE_INTEGER): string {
     return (
-      this.#sql
-        .exec<{ session: string }>(
-          "SELECT session FROM ky_machine_senders WHERE task = ? AND turn <= ? ORDER BY turn DESC LIMIT 1",
-          task,
-          upTo
-        )
-        .toArray()[0]?.session ?? ROOT_SESSION
+      rows(this.#sql.exec("SELECT session FROM ky_machine_senders WHERE task = ? AND turn <= ? ORDER BY turn DESC LIMIT 1", task, upTo), SessionRow, "a task's sender")[0]
+        ?.session ?? ROOT_SESSION
     );
   }
 
@@ -343,14 +367,10 @@ export class MachineHub {
   machines(): MachineInfo[] {
     const sandboxes = new Map(this.#sandboxes.live().map((sandbox, at) => [sandbox.name, { sandbox, at }]));
 
-    return this.#sql
-      .exec<MachineRow>("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name")
-      .toArray()
+    return rows(this.#sql.exec("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name"), MachineRowSchema, "a machine")
       .sort((a, b) => (sandboxes.get(a.name)?.at ?? Infinity) - (sandboxes.get(b.name)?.at ?? Infinity))
       .map((row) => {
         const online = this.online(row.name);
-        // SAFETY: only #onHello and paired write facts, each a checked MachineFacts.
-        const facts = row.facts === null ? null : (JSON.parse(row.facts) as MachineFacts);
         const sandbox = sandboxes.get(row.name)?.sandbox;
 
         return {
@@ -358,10 +378,10 @@ export class MachineHub {
           online,
           seenAt: row.seen_at,
           active: this.#feed.open("machine", row.name).length,
-          state: row.state,
+          state: decodeOr(MachineStateSchema, row.state, "on"),
           note: row.note,
-          facts,
-          login: row.login,
+          facts: storedFacts(row.facts),
+          login: decodeOr(MachineLoginSchema, row.login, "own"),
           cloud: sandbox ? this.#cloudState(row.name, online) : null,
           sandbox: sandbox ? { id: sandbox.id, repos: sandbox.repos, isDefault: sandbox.isDefault, idleMinutes: sandbox.idleMinutes } : null
         };
@@ -404,7 +424,7 @@ export class MachineHub {
 
     for (const watcher of this.#watchers) watcher();
 
-    return this.machine(name)!;
+    return must(this.machine(name), `No machine ${name}.`);
   }
 
   /** A runner left. Only a machine whose runner said hello has a row to update. */
@@ -489,7 +509,7 @@ export class MachineHub {
 
       const [tokens, creds] = await Promise.all([
         Promise.all([...tasks].map(async (task) => [task, await this.#tokens.issue(task)] as const)).then((issued) => new Map(issued)),
-        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all): RunCreds => Object.assign({}, ...all))
+        Promise.all([...agents].map((agent) => this.#creds(agent))).then((all) => all.reduce<RunCreds>((merged, each) => Object.assign(merged, each), {}))
       ]);
 
       this.#send(machine, this.#outgoing(machine, tokens, creds, agents));
@@ -508,11 +528,11 @@ export class MachineHub {
       if (command.type === "stop") commands.push(command);
       else if (command.type === "creds" && creds.codex) commands.push({ ...command, codex: creds.codex });
       else if (command.type === "creds") this.#sql.exec("DELETE FROM ky_machine_inbox WHERE seq = ?", command.seq);
-      else if (!tokens.has(command.task)) break;
       else {
-        const handed = agents.has(command.agent) ? creds[command.agent] : undefined;
-        const run: RunnerCommand = { ...command, taskToken: tokens.get(command.task)! };
-        commands.push(handed ? { ...run, creds: { [command.agent]: handed } } : run);
+        const run = runWith(command, tokens.get(command.task), agents.has(command.agent) ? creds : {});
+
+        if (!run) break;
+        commands.push(run);
       }
     }
 
@@ -527,10 +547,7 @@ export class MachineHub {
   async #renew(machine: string): Promise<void> {
     const open = new Set(this.#feed.open("machine", machine).map((task) => task.id));
 
-    const handed = this.#sql
-      .exec<{ task: string; expires_at: number }>("SELECT task, expires_at FROM ky_machine_logins")
-      .toArray()
-      .filter((row) => open.has(row.task));
+    const handed = rows(this.#sql.exec("SELECT task, expires_at FROM ky_machine_logins"), LoginRowSchema, "a handed login").filter((row) => open.has(row.task));
 
     if (handed.length === 0) return;
     const { codex } = await this.#creds("codex");
@@ -619,19 +636,17 @@ export class MachineHub {
     }
   }
 
+  /** The machine's unacked commands, in seq order. One the inbox can't read is dropped: no runner could act on it. */
   #pending(machine: string): Pending[] {
-    return this.#sql
-      .exec<{ seq: number; payload: string }>(
-        "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? ORDER BY seq",
-        machine
-      )
-      .toArray()
-      .map((row): Pending => {
-        // SAFETY: only #enqueue writes payloads, each a Queued command.
-        const command = JSON.parse(row.payload) as Queued;
+    return rows(this.#sql.exec("SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? ORDER BY seq", machine), InboxRowSchema, "an inbox row").flatMap((row): Pending[] => {
+      const command = parseOr(QueuedSchema, row.payload, undefined);
 
-        return { ...command, seq: row.seq };
-      });
+      if (command) return [{ ...command, seq: row.seq }];
+      console.warn(`dropping ${machine}'s damaged command ${row.seq}`);
+      this.#sql.exec("DELETE FROM ky_machine_inbox WHERE seq = ?", row.seq);
+
+      return [];
+    });
   }
 
   /** The agent a new task on `machine` runs as when none is named. */
@@ -683,8 +698,7 @@ export class MachineHub {
     this.#setTurns(task.id, { turn });
     this.#sentBy(task.id, turn, parent);
     this.#feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-    // SAFETY: every machine task names its agent: start sets it, and the feed set it on older ones.
-    void this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session, task.agent!));
+    void this.#enqueue(task.worker, runCommand(task.id, turn, message, task.session, agentOf(task)));
   }
 
   /**
@@ -699,18 +713,16 @@ export class MachineHub {
       return `${task.id} has already run on ${task.worker}, and its session lives there, so it stays. Start a new task on ${to} with what it needs.`;
     }
 
-    // SAFETY: as in send.
-    const refusal = cannotRun(this.machine(to), task.agent!);
+    const agent = agentOf(task);
+    const refusal = cannotRun(this.machine(to), agent);
 
-    if (refusal) return `${refusal} ${task.id} runs as ${AGENT_NAMES[task.agent!]}, so it stays.`;
+    if (refusal) return `${refusal} ${task.id} runs as ${AGENT_NAMES[agent]}, so it stays.`;
 
-    const commands = this.#sql
-      .exec<{ seq: number; payload: string }>(
-        "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? AND sent = 0 AND json_extract(payload, '$.task') = ? ORDER BY seq",
-        task.worker,
-        task.id
-      )
-      .toArray();
+    const commands = rows(
+      this.#sql.exec("SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? AND sent = 0 AND json_extract(payload, '$.task') = ? ORDER BY seq", task.worker, task.id),
+      InboxRowSchema,
+      "an inbox row"
+    );
 
     for (const command of commands) {
       this.#sql.exec("DELETE FROM ky_machine_inbox WHERE seq = ?", command.seq);
@@ -745,11 +757,12 @@ export class MachineHub {
     ).rowsWritten;
 
     if (withdrawn > 0 && sent <= closed) {
-      await this.#finish(task.id, false, "Stopped before it started.", turn);
+      await this.#finish(task.id, "stopped", "Stopped before it started.", turn);
 
       return;
     }
 
+    this.#setTurns(task.id, { stopping: turn });
     await this.#enqueue(task.worker, { type: "stop", task: task.id, turn });
   }
 
@@ -759,14 +772,12 @@ export class MachineHub {
    */
   async remove(machine: string): Promise<string | null> {
     // First, before any await: from here a runner of this machine is refused.
-    const pairing = this.#sql
-      .exec<{ pairing: string | null }>("DELETE FROM ky_machines WHERE name = ? RETURNING pairing", machine)
-      .toArray()[0]?.pairing ?? null;
+    const pairing = rows(this.#sql.exec("DELETE FROM ky_machines WHERE name = ? RETURNING pairing", machine), PairingRow, "a machine's pairing")[0]?.pairing ?? null;
 
     this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ?", machine);
 
     for (const task of this.#feed.open("machine", machine)) {
-      await this.#finish(task.id, false, `${machine} was removed from ky.`, this.#turns(task.id).turn);
+      await this.#finish(task.id, "failed", `${machine} was removed from ky.`, this.#turns(task.id).turn);
     }
 
     for (const watcher of this.#watchers) watcher();
@@ -810,7 +821,12 @@ export class MachineHub {
     }
 
     if (listed > 0) for (const watcher of this.#watchers) watcher();
-    const kinds = this.#sql.exec<{ name: string; kind: string | null }>("SELECT name, json_extract(facts, '$.kind') AS kind FROM ky_machines ORDER BY name").toArray();
+
+    const kinds = rows(
+      this.#sql.exec("SELECT name, CASE WHEN json_valid(facts) THEN json_extract(facts, '$.kind') END AS kind FROM ky_machines ORDER BY name"),
+      KindRow,
+      "a machine's kind"
+    );
 
     return {
       stale: kinds.filter((row) => row.kind === "cloud" && !this.#sandboxes.named(row.name)).map((row) => row.name),
@@ -847,7 +863,7 @@ export class MachineHub {
   }
 
   #pairing(machine: string): string | null {
-    return this.#sql.exec<{ pairing: string | null }>("SELECT pairing FROM ky_machines WHERE name = ?", machine).toArray()[0]?.pairing ?? null;
+    return rows(this.#sql.exec("SELECT pairing FROM ky_machines WHERE name = ?", machine), PairingRow, "a machine's pairing")[0]?.pairing ?? null;
   }
 
   /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
@@ -868,7 +884,7 @@ export class MachineHub {
     for (const task of lost) {
       await this.#finish(
         task.id,
-        false,
+        "failed",
         "Interrupted: the runner restarted. Send it a message to resume.",
         this.#turns(task.id).turn
       );
@@ -884,35 +900,44 @@ export class MachineHub {
     await this.#deliver(machine);
   }
 
+  /** What a runner said about its tasks and itself: each type of TASK_REPORT_TYPES has its case. */
   async onReport(machine: string, report: TaskReport): Promise<void> {
-    if (report.type === "hello") return this.#onHello(machine, report.active, report.facts);
-
-    if (report.type === "ack") {
-      this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
-
-      return;
-    }
-
-    if (this.#closed(report.task, report.turn)) return;
-
     switch (report.type) {
+      case "hello":
+        return this.#onHello(machine, report.active, report.facts);
+      case "ack":
+        this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
+
+        return;
       case "session":
+        if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { session: report.session, status: "working" });
 
         return;
       case "step":
+        if (this.#closed(report.task, report.turn)) return;
         this.#feed.step(report.task, report.text);
 
         return;
       case "result":
-        if (report.session) this.#feed.update(report.task, { session: report.session });
-
-        if (report.turns !== undefined || report.costUsd !== undefined) {
-          this.#feed.spend(report.task, report.turns ?? 0, report.costUsd ?? 0);
-        }
-
-        await this.#finish(report.task, report.ok, report.text, report.turn);
+        return this.#onResult(report);
+      default:
+        report satisfies never;
     }
+  }
+
+  async #onResult(report: Extract<TaskReport, { type: "result" }>): Promise<void> {
+    const turns = this.#turns(report.task);
+
+    if (report.turn <= turns.closed) return;
+
+    if (report.session) this.#feed.update(report.task, { session: report.session });
+
+    if (report.turns !== undefined || report.costUsd !== undefined) {
+      this.#feed.spend(report.task, report.turns ?? 0, report.costUsd ?? 0);
+    }
+
+    await this.#finish(report.task, outcomeOf(report.ok, report.turn, turns.stopping), report.text, report.turn);
   }
 
   /** Whether `turn` is already reported over: what the runner says about it is late. */
@@ -925,7 +950,7 @@ export class MachineHub {
    * not reported again. The report is owed to everyone who sent one of
    * those turns from the moment the turn closes, and posted to each.
    */
-  async #finish(id: string, ok: boolean, text: string, turn: number): Promise<void> {
+  async #finish(id: string, outcome: TaskOutcome, text: string, turn: number): Promise<void> {
     const task = this.#feed.get(id);
 
     if (!task || this.#closed(id, turn)) return;
@@ -939,11 +964,11 @@ export class MachineHub {
       this.#sql.exec("DELETE FROM ky_machine_logins WHERE task = ?", id);
     }
 
-    const ended = endOf(ok, text);
-    this.#feed.update(id, { status: ended.status, summary: summarize(text) || (ok ? "Done" : "Failed") });
+    const ok = outcome === "done";
+    this.#feed.update(id, { status: outcome, summary: summarize(text) || (ok ? "Done" : "Failed") });
 
     if (ok) this.#feed.describe(id, text);
-    const report = `[machine ${task.worker}, task ${id} "${task.title}" ${ended.word}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(this.#files.forTask(id))}`;
+    const report = `[machine ${task.worker}, task ${id} "${task.title}" ${ENDINGS[outcome]}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(this.#files.forTask(id))}`;
 
     for (const session of this.#listeners(id, from, turn)) {
       this.#sql.exec(
@@ -966,13 +991,13 @@ export class MachineHub {
   async post(task?: string): Promise<void> {
     if (!this.#harness) return;
 
-    type Owed = { task: string; turn: number; session: string; text: string };
-
-    const owed = (
+    const owed = rows(
       task === undefined
-        ? this.#sql.exec<Owed>("SELECT * FROM ky_machine_reports ORDER BY task, turn")
-        : this.#sql.exec<Owed>("SELECT * FROM ky_machine_reports WHERE task = ? ORDER BY turn", task)
-    ).toArray();
+        ? this.#sql.exec("SELECT task, turn, session, text FROM ky_machine_reports ORDER BY task, turn")
+        : this.#sql.exec("SELECT task, turn, session, text FROM ky_machine_reports WHERE task = ? ORDER BY turn", task),
+      ReportRowSchema,
+      "an owed report"
+    );
 
     for (const report of owed) {
       // A report nobody wants any more, like a paused automation's, is forgotten unposted.
@@ -998,15 +1023,6 @@ export class MachineHub {
       );
     }
   }
-}
-
-/** How a task's last turn ended: its status, and the word its report uses. */
-function endOf(ok: boolean, text: string) {
-  if (ok) return { status: "done", word: "finished" } as const;
-
-  return /\b(stopped|interrupted by user)\b/i.test(text)
-    ? ({ status: "stopped", word: "stopped" } as const)
-    : ({ status: "failed", word: "failed" } as const);
 }
 
 /** The line naming a task's shared files under its report, or nothing. */
@@ -1110,8 +1126,7 @@ function listAll(machines: readonly MachineInfo[], feed: TaskFeed): string {
         .list(200)
         .filter((t) => t.kind === "machine" && t.worker === m.name)
         .slice(0, 8)
-        // SAFETY: as in MachineHub.send.
-        .map((t) => `  ${t.id} [${t.status}] ${AGENT_NAMES[t.agent!]}: ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
+        .map((t) => `  ${t.id} [${t.status}] ${AGENT_NAMES[agentOf(t)]}: ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
 
       return [describeMachine(m), ...tasks].join("\n");
     })
@@ -1138,7 +1153,7 @@ function defaultMachine(machines: readonly MachineInfo[]): string | undefined {
   if (sandbox) return sandbox.name;
   const ready = machines.filter((m) => m.state === "on" && m.online);
 
-  return ready.length === 1 ? ready[0]!.name : undefined;
+  return ready.length === 1 ? ready[0]?.name : undefined;
 }
 
 /**
@@ -1194,8 +1209,7 @@ function pickMachine(machines: readonly MachineInfo[], requested: string | undef
 
 /** What the agent hears after starting a task: where it runs and as what, or that it waits and where else it could go. */
 function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow): string {
-  // SAFETY: start names the agent.
-  const started = `Started task ${task.id} on ${task.worker} as ${AGENT_NAMES[task.agent!]}`;
+  const started = `Started task ${task.id} on ${task.worker} as ${AGENT_NAMES[agentOf(task)]}`;
 
   if (hub.online(task.worker)) return `${started}.`;
 
@@ -1226,7 +1240,7 @@ function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskR
 
 /** What the tool was called with. */
 type MachineArgs = {
-  action: "list" | "run" | "send" | "stop" | "move" | "set";
+  action: (typeof MACHINE_ACTIONS)[number];
   machine?: string;
   repo?: string;
   agent?: Agent;
@@ -1278,8 +1292,9 @@ function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, c
 
   if (task.status !== "working") return `Resuming ${task.id} with your message.`;
 
-  // SAFETY: as in MachineHub.send.
-  return STEERS.has(task.agent!) ? `Steering ${task.id}.` : `Queued for ${task.id}: ${AGENT_NAMES[task.agent!]} takes it once its turn ends.`;
+  const agent = agentOf(task);
+
+  return STEERS.has(agent) ? `Steering ${task.id}.` : `Queued for ${task.id}: ${AGENT_NAMES[agent]} takes it once its turn ends.`;
 }
 
 /** stop, move or send, on a task already started. */
@@ -1340,23 +1355,16 @@ function toolDescription(machines: readonly MachineInfo[]): string {
 
 export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
   return defineExtension({
-    name: "machines",
+    name: MACHINE_EXTENSION,
     tools: [
       defineTool({
-        name: "machine",
+        name: MACHINE_TOOL,
         // Read for every model request, so it lists the machines as they are now.
         get description() {
           return toolDescription(hub.machines());
         },
         parameters: Type.Object({
-          action: Type.Union([
-            Type.Literal("list"),
-            Type.Literal("run"),
-            Type.Literal("send"),
-            Type.Literal("stop"),
-            Type.Literal("move"),
-            Type.Literal("set")
-          ]),
+          action: Type.Union(MACHINE_ACTIONS.map((action) => Type.Literal(action))),
           machine: Type.Optional(Type.String()),
           repo: Type.Optional(Type.String({ description: "The GitHub repo (owner/name) a run works on: it goes to the sandbox that has it." })),
           agent: Type.Optional(Type.Union([Type.Literal("claude"), Type.Literal("codex")], { description: "claude (Claude Code) or codex (Codex)." })),

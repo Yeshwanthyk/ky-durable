@@ -6,7 +6,7 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-10-03",
   // global_fetch_strictly_public: a fetch to another Worker on this account goes over the internet, as a
-  // peer's does (src/peers.ts); without it, Cloudflare refuses a workers.dev address on the same account.
+  // peer's does (src/peers/peers.ts); without it, Cloudflare refuses a workers.dev address on the same account.
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // Which deploy is serving; open pages reload when it changes.
   "version_metadata": { "binding": "CF_VERSION_METADATA" },

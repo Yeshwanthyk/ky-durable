@@ -21,7 +21,7 @@ const TITLE_PROMPT = `You name things for a list. Reply with a title of two to s
 const SUMMARY_PROMPT = `You summarize a finished task's report for a list. Reply with one plain sentence of at most 20 words that says what was found or done, with no preamble and no markdown. Reply with the sentence alone.`;
 
 /** The model's first line, without quotes, a label or markdown, trimmed to fit. */
-export function clean(answer: string, limit: number): string {
+function clean(answer: string, limit: number): string {
   const line = answer.trim().split("\n").find((part) => part.trim() !== "")?.trim() ?? "";
 
   const bare = line

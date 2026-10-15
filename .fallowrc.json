@@ -11,7 +11,35 @@
     "test/gate.ts",
     "test/gate-live.ts"
   ],
-  "ignorePatterns": ["explainers/**", "test-results/**"],
-  "ignoreUnresolvedImports": ["../dist/release.pack"],
-  "dynamicallyLoaded": ["cli/commands.ts", "cli/backup.ts", "cli/login.ts", "cli/runner/commands.ts"]
+  "ignorePatterns": [
+    "explainers/**",
+    "test-results/**",
+    "tools/oxlint/anti-slop/vendor/**"
+  ],
+  "ignoreUnresolvedImports": [
+    "../dist/release.pack"
+  ],
+  "dynamicallyLoaded": [
+    "cli/commands.ts",
+    "cli/backup.ts",
+    "cli/login.ts",
+    "cli/runner/commands.ts"
+  ],
+  "ignoreDependencies": [
+    "@earendil-works/pi-telemetry"
+  ],
+  "usedClassMembers": [
+    {
+      "extends": "DurableObject",
+      "members": [
+        "*"
+      ]
+    },
+    {
+      "extends": "WorkerEntrypoint",
+      "members": [
+        "*"
+      ]
+    }
+  ]
 }

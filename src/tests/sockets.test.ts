@@ -1,6 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OUTDATED, PROTOCOL, REVOKED } from "../runner-protocol";
+import { OUTDATED, PROTOCOL, REVOKED } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import { agent, call, connect, connectExecutor, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, until, wait } from "./drive";
 import { GPT_OSS } from "./stack";
@@ -35,6 +35,29 @@ describe("the session WebSocket protocol", () => {
       result: { session: "1", accepted: true }
     });
 
+    socket.close();
+  });
+
+  it("answers a frame it can't take with an error frame, and keeps the socket open", async () => {
+    const socket = await connect(crypto.randomUUID());
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "hello"));
+    const errors = () => client.frames.flatMap((frame) => (frame.type === "error" ? [frame] : []));
+
+    // JSON null once crashed the handler; an old page's message and a broken one name their ids.
+    socket.send("null");
+    socket.send("not json");
+    socket.send(JSON.stringify({ type: "from-the-future", id: "old-1" }));
+    socket.send(JSON.stringify({ type: "rename-chat", id: "bad-1", session: 7, title: "x" }));
+    await client.until(() => errors().length >= 4);
+
+    expect(errors().filter((frame) => frame.id === undefined)).toHaveLength(2);
+    expect(errors().find((frame) => frame.id === "old-1")?.message).toContain("from-the-future");
+    expect(errors().find((frame) => frame.id === "bad-1")?.message).toContain("rename-chat");
+
+    // Still open: the next good message is answered.
+    socket.send(JSON.stringify({ type: "soul-history", id: "ok-1" }));
+    await client.until(() => client.frames.some((frame) => frame.type === "result" && frame.id === "ok-1"));
     socket.close();
   });
 

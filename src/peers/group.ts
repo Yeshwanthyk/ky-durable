@@ -1,5 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage, ImageContent, JsonValue, TextContent } from "@earendil-works/pi-ai";
+import type { Static, TSchema } from "typebox";
 import {
   AssistantEntry,
   type Conversation,
@@ -12,10 +13,13 @@ import {
   type Tx,
   type UserInput
 } from "@earendil-works/pi-durable";
-import { agentModel } from "./models";
-import type { ModelChoice } from "./settings";
-import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "./specialists";
-import { summarize, type TaskFeed } from "./tasks";
+import { decodeOr, parseOr } from "../core/decode";
+import { must } from "../core/must";
+import { refused } from "../core/refusal";
+import { agentModel } from "../models";
+import type { ModelChoice } from "../settings";
+import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "../skills/contract";
+import { summarize, type TaskFeed } from "../automations/contract";
 import {
   FOR_MARK,
   type PiMessage,
@@ -24,7 +28,19 @@ import {
   type SpecialistReplyData,
   TO_SPECIALISTS,
   type ToSpecialistsData
-} from "./transcript";
+} from "../transcript";
+import {
+  ChatMember,
+  type GroupMembers,
+  PEERS_TABLES,
+  type PostCheckpoint,
+  RESPONDER_CAP,
+  ResponderRow,
+  Responders,
+  type ReplyOutcome,
+  type RoutePlan,
+  SeatRow
+} from "./contract";
 
 /**
  * Specialists in chat: the user @-mentions one, or a group chat's members
@@ -42,11 +58,8 @@ import {
  *   responders, and every write after it carries a request id, so it posts once.
  */
 
-/** Specialists that answer one user message, at most. */
-export const RESPONDER_CAP = 3;
-
 /** How long a specialist has for one reply before its seat is stopped. */
-export const REPLY_TIMEOUT_MS = 4 * 60_000;
+const REPLY_TIMEOUT_MS = 4 * 60_000;
 
 /** The chat a specialist and the router see: this many recent messages, each and all cut. */
 const RECENT_MESSAGES = 8;
@@ -59,9 +72,6 @@ const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0,
 
 const flat = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** Who answers a user's message, as decided once. */
-export type Plan = { readonly to: readonly string[] } | { readonly refused: string };
-
 /**
  * Who answers a user's message: the specialists it starts by @-ing, else
  * the members of a group chat `pick` chooses, else ky (an empty list).
@@ -70,10 +80,10 @@ export async function plan(
   text: string,
   members: readonly SpecialistRow[],
   pick: (members: readonly SpecialistRow[]) => Promise<readonly string[]>
-): Promise<Plan> {
+): Promise<RoutePlan> {
   const mentioned = [...new Set(mentions(text))];
 
-  if (mentioned.length > RESPONDER_CAP) return { refused: `At most ${RESPONDER_CAP} specialists can answer one message.` };
+  if (mentioned.length > RESPONDER_CAP) return refused(`At most ${RESPONDER_CAP} specialists can answer one message.`);
 
   if (mentioned.length > 0) return { to: mentioned };
 
@@ -104,7 +114,7 @@ export function parseRoute(answer: string, members: readonly SpecialistRow[]): s
 }
 
 /** The router's pick; none when it fails, so ky answers. */
-export async function route(
+async function route(
   complete: (system: string, text: string) => Promise<string>,
   members: readonly SpecialistRow[],
   recent: string,
@@ -144,7 +154,7 @@ export function recentOf(messages: readonly PiMessage[]): string {
 }
 
 /** What a specialist reads in its seat: the recent chat and the user's message. */
-export function seatPrompt(recent: string, text: string): string {
+function seatPrompt(recent: string, text: string): string {
   return `[a message in the user's chat]${recent ? ` Recent messages there, for context:\n<chat>\n${recent}\n</chat>\n` : "\n"}\nThe user's message:\n${text}`;
 }
 
@@ -157,29 +167,35 @@ export function forThem(input: UserInput, to: readonly string[]): UserInput {
   return [{ type: "text", text: mark }, ...input];
 }
 
-/** The replies a user message to specialists is still waiting for. */
-export function waitingFor(to: readonly string[], replied: readonly string[]): string[] {
-  return to.filter((id) => !replied.includes(id));
-}
+const { chatMembers: MEMBERS, seats: SEATS, groupMessages: MESSAGES } = PEERS_TABLES;
 
 /** Chats' members, specialists' seats in chats, and the decision on each message, by its operation id. */
 const TABLES = [
-  `CREATE TABLE IF NOT EXISTS ky_chat_members (
+  `CREATE TABLE IF NOT EXISTS ${MEMBERS} (
     chat TEXT NOT NULL,
     specialist TEXT NOT NULL,
     PRIMARY KEY (chat, specialist))`,
-  `CREATE TABLE IF NOT EXISTS ky_specialist_seats (
+  `CREATE TABLE IF NOT EXISTS ${SEATS} (
     chat TEXT NOT NULL,
     specialist TEXT NOT NULL,
     session TEXT NOT NULL,
     PRIMARY KEY (chat, specialist))`,
-  `CREATE TABLE IF NOT EXISTS ky_group_messages (
+  `CREATE TABLE IF NOT EXISTS ${MESSAGES} (
     chat TEXT NOT NULL,
     request TEXT NOT NULL,
     responders TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (chat, request))`
 ];
+
+/** Rows as `schema` says; a row a restore or an old version damaged is left out. */
+function rows<Schema extends TSchema>(schema: Schema, cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): Array<Static<Schema>> {
+  return cursor.toArray().flatMap((row) => {
+    const checked = decodeOr(schema, row, undefined);
+
+    return checked === undefined ? [] : [checked];
+  });
+}
 
 export class GroupChats {
   readonly #sql: SqlStorage;
@@ -201,23 +217,24 @@ export class GroupChats {
 
   /** A chat's members that are still specialists, by id. */
   members(chat: string): SpecialistRow[] {
-    return this.#sql
-      .exec<{ specialist: string }>("SELECT specialist FROM ky_chat_members WHERE chat = ? ORDER BY specialist", chat)
-      .toArray()
-      .flatMap(({ specialist }) => this.#specialists.get(specialist) ?? []);
+    return rows(ChatMember, this.#sql.exec(`SELECT chat, specialist FROM ${MEMBERS} WHERE chat = ? ORDER BY specialist`, chat)).flatMap(
+      ({ specialist }) => this.#specialists.get(specialist) ?? []
+    );
   }
 
   /** Every group chat's member ids; a chat with none is not in it. */
-  all(): Record<string, string[]> {
-    const groups: Record<string, string[]> = {};
+  all(): GroupMembers {
+    const groups = new Map<string, string[]>();
 
-    for (const { chat, specialist } of this.#sql
-      .exec<{ chat: string; specialist: string }>("SELECT chat, specialist FROM ky_chat_members ORDER BY specialist")
-      .toArray()) {
-      if (this.#specialists.has(specialist)) (groups[chat] ??= []).push(specialist);
+    for (const { chat, specialist } of rows(ChatMember, this.#sql.exec(`SELECT chat, specialist FROM ${MEMBERS} ORDER BY specialist`))) {
+      if (!this.#specialists.has(specialist)) continue;
+
+      const members = groups.get(chat) ?? [];
+      members.push(specialist);
+      groups.set(chat, members);
     }
 
-    return groups;
+    return Object.fromEntries(groups);
   }
 
   /** Make `ids` the chat's members; none makes it a plain chat again. */
@@ -225,44 +242,39 @@ export class GroupChats {
     const missing = ids.find((id) => !this.#specialists.has(id));
 
     if (missing !== undefined) throw new Error(`No specialist @${missing}.`);
-    this.#sql.exec("DELETE FROM ky_chat_members WHERE chat = ?", chat);
+    this.#sql.exec(`DELETE FROM ${MEMBERS} WHERE chat = ?`, chat);
 
-    for (const id of new Set(ids)) this.#sql.exec("INSERT INTO ky_chat_members (chat, specialist) VALUES (?, ?)", chat, id);
+    for (const id of new Set(ids)) this.#sql.exec(`INSERT INTO ${MEMBERS} (chat, specialist) VALUES (?, ?)`, chat, id);
     this.#emit();
   }
 
   /** The specialist's seat in the chat, made on its first reply there. */
   seat(chat: string, id: string): string | undefined {
-    return this.#sql
-      .exec<{ session: string }>("SELECT session FROM ky_specialist_seats WHERE chat = ? AND specialist = ?", chat, id)
-      .toArray()[0]?.session;
+    return rows(SeatRow, this.#sql.exec(`SELECT session FROM ${SEATS} WHERE chat = ? AND specialist = ?`, chat, id))[0]?.session;
   }
 
   sit(chat: string, id: string, session: string): void {
-    this.#sql.exec("INSERT OR REPLACE INTO ky_specialist_seats (chat, specialist, session) VALUES (?, ?, ?)", chat, id, session);
+    this.#sql.exec(`INSERT OR REPLACE INTO ${SEATS} (chat, specialist, session) VALUES (?, ?, ?)`, chat, id, session);
   }
 
-  /** Who a message was decided for, if it was. */
+  /** Who a message was decided for, if it was; damaged responders read as none, so ky answers it. */
   decided(chat: string, request: string): string[] | undefined {
-    const row = this.#sql
-      .exec<{ responders: string }>("SELECT responders FROM ky_group_messages WHERE chat = ? AND request = ?", chat, request)
-      .toArray()[0];
+    const row = rows(ResponderRow, this.#sql.exec(`SELECT responders FROM ${MESSAGES} WHERE chat = ? AND request = ?`, chat, request))[0];
 
-    // SAFETY: only decide() writes responders, a JSON array of ids.
-    return row && (JSON.parse(row.responders) as string[]);
+    return row && parseOr(Responders, row.responders, []);
   }
 
   /** Record who answers a message; the first decision stands, and is returned. */
   decide(chat: string, request: string, responders: readonly string[]): string[] {
     this.#sql.exec(
-      "INSERT OR IGNORE INTO ky_group_messages (chat, request, responders, created_at) VALUES (?, ?, ?, ?)",
+      `INSERT OR IGNORE INTO ${MESSAGES} (chat, request, responders, created_at) VALUES (?, ?, ?, ?)`,
       chat,
       request,
       JSON.stringify(responders),
       Date.now()
     );
 
-    return this.decided(chat, request)!;
+    return must(this.decided(chat, request), "a decision was just written");
   }
 
   #emit(): void {
@@ -280,7 +292,23 @@ type ReplyInput = {
   readonly feedId: string;
 };
 
-type ReplyState = { phase: "answer" } | { phase: "post"; text: string; failed: boolean };
+type ReplyState = { phase: "answer" } | PostCheckpoint;
+
+const STOPPED: ReplyOutcome = { kind: "stopped", text: "Stopped." };
+
+/** A checkpoint's outcome; one written before outcomes says only whether it failed. */
+function outcomeOf(checkpoint: PostCheckpoint): ReplyOutcome {
+  if ("outcome" in checkpoint) return checkpoint.outcome;
+
+  return { kind: checkpoint.failed ? "failed" : "answered", text: checkpoint.text };
+}
+
+/** What Activity shows for a reply's task. */
+function feedUpdate(outcome: ReplyOutcome) {
+  if (outcome.kind === "answered") return { status: "done", summary: summarize(outcome.text) } as const;
+
+  return { status: outcome.kind === "stopped" ? "stopped" : "failed", summary: outcome.text } as const;
+}
 
 /** What a group desk needs from ky. */
 export type GroupDeps = {
@@ -326,7 +354,9 @@ export class GroupDesk {
     const { feed } = this.#deps;
 
     /** A specialist's post in the chat: a passive entry, so it starts no run and is never routed. */
-    const post = async (chat: string, input: ReplyInput, text: string, failed: boolean) => {
+    const post = async (chat: string, input: ReplyInput, outcome: ReplyOutcome) => {
+      const { text } = outcome;
+      const failed = outcome.kind !== "answered";
       const data: SpecialistReplyData = { specialist: input.specialist, text, failed };
 
       const entry: EntryDraft = {
@@ -339,7 +369,7 @@ export class GroupDesk {
       const conversation = await this.#deps.conversation(chat);
       await conversation.submit({ type: "write", entry, requestId: `specialist-reply:${input.request}:${input.specialist}` }, this.#deps.context);
       this.#deps.answered(chat);
-      feed.update(input.feedId, failed ? { status: text === "Stopped." ? "stopped" : "failed", summary: text } : { status: "done", summary: summarize(text) });
+      feed.update(input.feedId, feedUpdate(outcome));
 
       if (!failed) feed.describe(input.feedId, text);
     };
@@ -352,7 +382,7 @@ export class GroupDesk {
         answer: async (reply, runtime, context) => {
           const { input } = reply;
           feed.update(input.feedId, { status: "working" });
-          const seat = (await runtime.conversation(input.seat, context))!;
+          const seat = must(await runtime.conversation(input.seat, context), `@${input.specialist}'s seat is gone`);
 
           const submission = await seat.submit(
             // SAFETY: start() writes content from the user's input, a UserInput.
@@ -368,29 +398,29 @@ export class GroupDesk {
           if (settled === "late") await seat.abort(context);
 
           return runtime.commit(async (tx) => {
-            const next = (text: string, failed: boolean) => ({ status: "running", checkpoint: { phase: "post", text, failed } }) as const;
+            const next = (outcome: ReplyOutcome) => ({ status: "running", checkpoint: { phase: "post", outcome } }) as const;
+            const failed = (text: string) => next({ kind: "failed", text });
 
-            if (settled === "late") return next(`Ran out of time (${REPLY_TIMEOUT_MS / 60_000} minutes) and stopped.`, true);
+            if (settled === "late") return failed(`Ran out of time (${REPLY_TIMEOUT_MS / 60_000} minutes) and stopped.`);
 
-            if (settled.status === "unanswered") return next(settled.reason === "aborted" ? "Stopped." : `Couldn't answer: ${settled.reason}`, true);
+            if (settled.status === "unanswered") return settled.reason === "aborted" ? next(STOPPED) : failed(`Couldn't answer: ${settled.reason}`);
 
-            if (settled.type !== "input") return next("Couldn't answer.", true);
+            if (settled.type !== "input") return failed("Couldn't answer.");
             // SAFETY: pi-durable types AssistantEntry as Entry<never>, but documents its `model` as [AssistantMessage].
             const message = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined;
             const text = textOf(message).trim();
 
-            return text ? next(text, false) : next("Had nothing to say.", true);
+            return text ? next({ kind: "answered", text }) : failed("Had nothing to say.");
           }, context);
         },
         post: async (reply, runtime, context) => {
-          const { text, failed } = reply.state.checkpoint;
-          await post(String(runtime.conversationId), reply.input, text, failed);
+          await post(String(runtime.conversationId), reply.input, outcomeOf(reply.state.checkpoint));
 
           return runtime.commit(() => terminal, context);
         }
       },
       abort: async (reply, runtime, context) => {
-        await post(String(runtime.conversationId), reply.input, "Stopped.", true);
+        await post(String(runtime.conversationId), reply.input, STOPPED);
 
         return runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context);
       }
@@ -450,7 +480,7 @@ export class GroupDesk {
         const seat = await this.#seat(tx, chat, id);
         const feedId = `group:${chat}:${request}:${id}`;
         // SAFETY: UserInput is JSON: text, or text and image parts.
-        await tx.createTask(this.#reply!, { specialist: id, seat, content: content as JsonValue, request, feedId }, background(conversation.id));
+        await tx.createTask(must(this.#reply, "the reply task is defined once pi opens"), { specialist: id, seat, content: content as JsonValue, request, feedId }, background(conversation.id));
         started.push({ id, seat, feedId });
       }
     }, this.#deps.context);
@@ -462,7 +492,7 @@ export class GroupDesk {
 
   /** The specialist's seat in the chat, on its model now; made the first time. */
   async #seat(tx: Tx, chat: string, id: string): Promise<ConversationId> {
-    const seats = this.#seats!;
+    const seats = must(this.#seats, "seats are set up once pi opens");
     const row = this.#deps.specialists.get(id);
 
     if (!row) throw new Error(`No specialist @${id}.`);
