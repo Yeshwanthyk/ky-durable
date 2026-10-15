@@ -1598,6 +1598,13 @@ function TaskState({ task }: { task: TaskRow }) {
   );
 }
 
+/** An opened task's timeline; a cloud task with a chat can open it from there. */
+function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number; onClose: () => void; onOpen: (session: string) => void }) {
+  const session = task.kind === "cloud" ? task.session : null;
+
+  return <TaskTimeline task={task} now={now} onClose={onClose} onOpenChat={session === null ? undefined : () => onOpen(session)} />;
+}
+
 /** Stop a working task, or cancel a queued one. */
 function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) => void }) {
   if (!isLive(task)) return null;
@@ -1673,14 +1680,7 @@ function TaskItem({
         </span>
         <TaskState task={task} />
       </button>
-      {open ? (
-        <TaskTimeline
-          task={task}
-          now={now}
-          onClose={() => setOpen(false)}
-          onOpenChat={opens ? () => onOpen(task.session!) : undefined}
-        />
-      ) : null}
+      {open ? <TaskSheet task={task} now={now} onClose={() => setOpen(false)} onOpen={onOpen} /> : null}
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />

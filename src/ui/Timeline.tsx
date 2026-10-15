@@ -68,30 +68,42 @@ function Title({ title }: { title: string }) {
 
 const DETAIL: Partial<Record<TimelineState, string>> = { running: "In progress", stopped: "Stopped before it finished" };
 
+/** A step's title and dim line, as a button that opens its raw call when it has one; without one, it has no chevron. */
+function StepRow({ step, opens, open, onToggle }: { step: TimelineStep; opens: boolean; open: boolean; onToggle: () => void }) {
+  const detail = step.detail || DETAIL[step.state];
+
+  return (
+    <button type="button" className="timeline-row" aria-expanded={opens ? open : undefined} disabled={!opens} onClick={onToggle}>
+      <span className="timeline-text">
+        <Title title={step.title} />
+        {detail ? <span className="timeline-detail">{detail}</span> : null}
+      </span>
+      <Icon name="chevronRight" size={14} className="timeline-chevron" />
+    </button>
+  );
+}
+
+/** What a step's tool was given and what came back, in mono. */
+function StepRaw({ step, open }: { step: TimelineStep; open: boolean }) {
+  return (
+    <Reveal open={open}>
+      <div className="timeline-raw">
+        {[step.input, step.output].flatMap((text, index) => (text ? [<pre key={index}>{text}</pre>] : []))}
+      </div>
+    </Reveal>
+  );
+}
+
 function Step({ step }: { step: TimelineStep }) {
   const [open, setOpen] = useState(false);
   const opens = step.input !== "" || step.output !== "";
-  const detail = step.detail || DETAIL[step.state] || "";
 
   return (
     <li className="timeline-step" data-state={step.state}>
       <Glyph state={step.state} />
       <div className="timeline-main">
-        <button type="button" className="timeline-row" aria-expanded={opens ? open : undefined} disabled={!opens} onClick={() => setOpen((value) => !value)}>
-          <span className="timeline-text">
-            <Title title={step.title} />
-            {detail ? <span className="timeline-detail">{detail}</span> : null}
-          </span>
-          {opens ? <Icon name="chevronRight" size={14} className="timeline-chevron" /> : null}
-        </button>
-        {opens ? (
-          <Reveal open={open}>
-            <div className="timeline-raw">
-              {step.input ? <pre>{step.input}</pre> : null}
-              {step.output ? <pre>{step.output}</pre> : null}
-            </div>
-          </Reveal>
-        ) : null}
+        <StepRow step={step} opens={opens} open={open} onToggle={() => setOpen((value) => !value)} />
+        {opens ? <StepRaw step={step} open={open} /> : null}
       </div>
     </li>
   );
@@ -169,31 +181,40 @@ export function TimelineSheet({
 
 const ENDED: Record<TaskRow["status"], string> = { queued: "Queued", working: "Working", done: "Done", failed: "Failed", stopped: "Stopped" };
 
+const EMPTY: Partial<Record<TaskRow["status"], string>> = { queued: "Waiting to start" };
+
+/** Who runs the task and how it stands; once it ends, what it spent. */
+const taskLine = (task: TaskRow, now: number) => [task.worker, ENDED[task.status], ...(isLive(task) ? [] : spendParts(task, now))].join(" · ");
+
+function OpenChat({ onOpen }: { onOpen?: () => void }) {
+  if (!onOpen) return null;
+
+  return (
+    <button type="button" className="timeline-open pressable" onClick={onOpen}>
+      Open chat
+    </button>
+  );
+}
+
+/** What a task reported once it ended. */
+function TaskResult({ task }: { task: TaskRow }) {
+  if (isLive(task) || !task.summary) return null;
+
+  return (
+    <div className="timeline-result" data-tone={task.status}>
+      <Markdown source={task.summary} />
+    </div>
+  );
+}
+
 /** A task's timeline, live while it works; once it ends, what it reported under the steps. */
 export function TaskTimeline({ task, now, onClose, onOpenChat }: { task: TaskRow; now: number; onClose: () => void; onOpenChat?: () => void }) {
   const steps = taskTimeline(task, useTaskLog(task));
-  const working = isLive(task);
-  const sub = [task.worker, ENDED[task.status], ...(working ? [] : spendParts(task, now))].join(" · ");
 
   return (
-    <TimelineSheet
-      title={plain(task.title)}
-      sub={sub}
-      onClose={onClose}
-      tools={
-        onOpenChat ? (
-          <button type="button" className="timeline-open pressable" onClick={onOpenChat}>
-            Open chat
-          </button>
-        ) : undefined
-      }
-    >
-      <Timeline steps={steps} working={working} empty={task.status === "queued" ? "Waiting to start" : "No steps recorded"} />
-      {!working && task.summary ? (
-        <div className="timeline-result" data-tone={task.status}>
-          <Markdown source={task.summary} />
-        </div>
-      ) : null}
+    <TimelineSheet title={plain(task.title)} sub={taskLine(task, now)} onClose={onClose} tools={<OpenChat onOpen={onOpenChat} />}>
+      <Timeline steps={steps} working={isLive(task)} empty={EMPTY[task.status] ?? "No steps recorded"} />
+      <TaskResult task={task} />
     </TimelineSheet>
   );
 }

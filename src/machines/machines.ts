@@ -915,22 +915,21 @@ export class MachineHub {
 
         return;
       case "step":
-        if (report.call !== undefined && report.state !== undefined) {
-          // A tool's end may come after its turn is reported over; its step still says how it went.
-          this.#feed.stepEnd(report.task, report.call, { text: report.text, state: report.state, detail: report.detail ?? "", output: report.output ?? "" });
-
-          return;
-        }
-
-        if (this.#closed(report.task, report.turn)) return;
-        this.#feed.step(report.task, report.text, report.call === undefined ? {} : { call: report.call, input: report.input ?? "" });
-
-        return;
+        return this.#onStep(report);
       case "result":
         return this.#onResult(report);
       default:
         report satisfies never;
     }
+  }
+
+  /** A step a task took: a tool starting, or with a state, the same call done. */
+  #onStep({ task, turn, text, call, input = "", state, detail = "", output = "" }: Extract<TaskReport, { type: "step" }>): void {
+    // A tool's end may come after its turn is reported over; its step still says how it went.
+    if (call !== undefined && state !== undefined) return this.#feed.stepEnd(task, call, { text, state, detail, output });
+
+    if (this.#closed(task, turn)) return;
+    this.#feed.step(task, text, call === undefined ? {} : { call, input });
   }
 
   async #onResult(report: Extract<TaskReport, { type: "result" }>): Promise<void> {

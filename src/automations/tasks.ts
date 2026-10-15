@@ -10,7 +10,6 @@ import { must } from "../core/must";
 import type { Agent } from "../machines/contract";
 import type { StepEnd } from "../step-labels";
 import {
-  AUTOMATION_TABLES,
   ColumnInfo,
   summarize,
   taskLogRows,
@@ -29,8 +28,6 @@ const STEPS_KEPT = 5;
 const LOG_KEPT = 60;
 
 const LOGS_KEPT = 200;
-
-const LOG = AUTOMATION_TABLES.taskSteps;
 
 const LIVE: readonly TaskStatus[] = ["queued", "working"];
 
@@ -87,7 +84,7 @@ export class TaskFeed {
     }
 
     // Every step a task took, with what came back, for its timeline; the steps column keeps the last few for the feed.
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${LOG} (
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_task_steps (
       seq INTEGER PRIMARY KEY,
       task TEXT NOT NULL,
       call TEXT,
@@ -98,7 +95,7 @@ export class TaskFeed {
       detail TEXT NOT NULL DEFAULT '',
       input TEXT NOT NULL DEFAULT '',
       output TEXT NOT NULL DEFAULT '')`);
-    sql.exec(`CREATE INDEX IF NOT EXISTS ${LOG}_task ON ${LOG} (task, seq)`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS task_steps_by_task ON ky_task_steps (task, seq)`);
 
     // Machine tasks from before they named their agent all ran as Claude Code.
     sql.exec("UPDATE ky_tasks SET agent = 'claude' WHERE kind = 'machine' AND agent IS NULL");
@@ -202,7 +199,7 @@ export class TaskFeed {
     );
     // Only the newest tasks keep their full log.
     this.#sql.exec(
-      `DELETE FROM ${LOG} WHERE task NOT IN (SELECT id FROM ky_tasks ORDER BY updated_at DESC LIMIT ?)`,
+      `DELETE FROM ky_task_steps WHERE task NOT IN (SELECT id FROM ky_tasks ORDER BY updated_at DESC LIMIT ?)`,
       LOGS_KEPT
     );
     this.#emit();
@@ -250,21 +247,7 @@ export class TaskFeed {
 
     if (repeated && start.call === undefined) return;
     const now = Date.now();
-    this.#sql.exec(
-      `INSERT INTO ${LOG} (task, call, at, state, text, input) VALUES (?, ?, ?, ?, ?, ?)`,
-      id,
-      start.call ?? null,
-      now,
-      start.call === undefined ? "done" : "running",
-      line,
-      start.input ?? ""
-    );
-    this.#sql.exec(
-      `DELETE FROM ${LOG} WHERE task = ? AND seq <= (SELECT seq FROM ${LOG} WHERE task = ? ORDER BY seq DESC LIMIT 1 OFFSET ?)`,
-      id,
-      id,
-      LOG_KEPT
-    );
+    this.#logStep(id, line, now, start);
 
     if (!repeated) {
       const steps = [...current.steps, { at: now, text: line }].slice(-STEPS_KEPT);
@@ -274,10 +257,29 @@ export class TaskFeed {
     this.update(id, { status: "working" });
   }
 
+  /** Add a step to the task's full log, which keeps its newest LOG_KEPT. */
+  #logStep(id: string, line: string, at: number, { call = null, input = "" }: { call?: string | null; input?: string }): void {
+    this.#sql.exec(
+      `INSERT INTO ky_task_steps (task, call, at, state, text, input) VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      call,
+      at,
+      call === null ? "done" : "running",
+      line,
+      input
+    );
+    this.#sql.exec(
+      `DELETE FROM ky_task_steps WHERE task = ? AND seq <= (SELECT seq FROM ky_task_steps WHERE task = ? ORDER BY seq DESC LIMIT 1 OFFSET ?)`,
+      id,
+      id,
+      LOG_KEPT
+    );
+  }
+
   /** The tool a step's `call` ran is done: its title says what it did, with what came back. */
   stepEnd(id: string, call: string, end: StepEnd): void {
     this.#sql.exec(
-      `UPDATE ${LOG} SET state = ?, text = ?, detail = ?, output = ?, ended_at = ? WHERE task = ? AND call = ? AND state = 'running'`,
+      `UPDATE ky_task_steps SET state = ?, text = ?, detail = ?, output = ?, ended_at = ? WHERE task = ? AND call = ? AND state = 'running'`,
       end.state,
       summarize(end.text),
       end.detail,
@@ -294,7 +296,7 @@ export class TaskFeed {
   /** Every step the task's log kept, oldest first. */
   log(id: string): TaskLogStep[] {
     return taskLogRows(
-      this.#sql.exec(`SELECT seq, call, at, ended_at, state, text, detail, input, output FROM ${LOG} WHERE task = ? ORDER BY seq`, id).toArray()
+      this.#sql.exec(`SELECT seq, call, at, ended_at, state, text, detail, input, output FROM ky_task_steps WHERE task = ? ORDER BY seq`, id).toArray()
     );
   }
 

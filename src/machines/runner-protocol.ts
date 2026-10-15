@@ -13,7 +13,7 @@ import { decodeOr, parseOr } from "../core/decode.ts";
  * says another one with `goodbye` and OUTDATED.
  */
 
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 
 /** Where a runner's socket connects: `GET /runner/<machine>`. */
 export const RUNNER_PATH = "/runner/";

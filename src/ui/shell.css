@@ -3598,13 +3598,27 @@
   }
 }
 
-/* A task's steps as a timeline, after Muse: a near-black sheet, a glyph per step on a dotted line,
-   bold titles with a dim line under each, the raw call behind a chevron. No cards: spacing does it. */
+/* A task's steps as a timeline, after Muse: a sheet in ky's theme, a glyph per step on a dotted line,
+   bold titles with a dim line under each, the raw call behind a chevron. No cards: spacing does it.
+   The glyphs are green, amber and red: ky's own on a light sheet, Apple's system tints on a dark one. */
 .timeline-sheet {
+  --timeline-done: var(--success);
+  --timeline-running: var(--warning);
+  --timeline-failed: var(--danger);
   height: auto;
   max-height: calc(100dvh - max(48px, env(safe-area-inset-top) + 24px));
-  background: #1c1c1e;
-  color: #e5e5ea;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+:root[data-mode="dark"] .timeline-sheet {
+  --timeline-done: #30d158;
+  --timeline-running: #ff9f0a;
+  --timeline-failed: #ff453a;
+}
+
+.timeline-sheet::backdrop {
+  background: var(--overlay);
 }
 
 @media (min-width: 720px) {
@@ -3632,14 +3646,14 @@
   font-size: 17px;
   font-weight: 600;
   line-height: 1.3;
-  color: #f2f2f7;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
 .timeline-heading p {
   margin: 3px 0 0;
   font-size: 13px;
-  color: #8e8e93;
+  color: var(--muted);
 }
 
 .timeline-close {
@@ -3649,8 +3663,8 @@
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: #2c2c2e;
-  color: #aeaeb2;
+  background: var(--raised);
+  color: var(--muted);
 }
 
 .timeline-open {
@@ -3658,8 +3672,8 @@
   height: 32px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #2c2c2e;
-  color: #e5e5ea;
+  background: var(--raised);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 500;
 }
@@ -3692,7 +3706,7 @@
   top: 25px;
   bottom: 3px;
   left: 9.25px;
-  border-left: 1.5px dotted #48484a;
+  border-left: 1.5px dotted var(--line-hover);
 }
 
 .timeline-step:last-child::before {
@@ -3705,20 +3719,20 @@
 
 .timeline-glyph {
   margin-top: 1px;
-  color: #636366;
+  color: var(--quiet);
 }
 
 .timeline-glyph[data-state="done"] {
-  color: #30d158;
+  color: var(--timeline-done);
 }
 
 .timeline-glyph[data-state="running"] {
-  color: #ff9f0a;
+  color: var(--timeline-running);
   animation: timeline-pulse 1.6s ease-in-out infinite;
 }
 
 .timeline-glyph[data-state="failed"] {
-  color: #ff453a;
+  color: var(--timeline-failed);
 }
 
 @keyframes timeline-pulse {
@@ -3757,14 +3771,14 @@
   font-size: 15.5px;
   font-weight: 600;
   line-height: 1.35;
-  color: #e5e5ea;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
 .timeline-title code {
   padding: 0 3px;
   border-radius: 4px;
-  background: rgb(255 255 255 / 0.07);
+  background: var(--selected);
   font-family: var(--font-mono);
   font-size: 0.86em;
   font-weight: 500;
@@ -3777,15 +3791,19 @@
   -webkit-line-clamp: 2;
   font-size: 14px;
   line-height: 1.4;
-  color: #8e8e93;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 
 .timeline-chevron {
   flex: none;
   margin-top: 3px;
-  color: #636366;
+  color: var(--quiet);
   transition: transform 180ms var(--ease-out);
+}
+
+.timeline-row:disabled .timeline-chevron {
+  display: none;
 }
 
 .timeline-row[aria-expanded="true"] .timeline-chevron {
@@ -3804,8 +3822,9 @@
   overflow: auto;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #111113;
-  color: #c7c7cc;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -3819,15 +3838,11 @@
   gap: 10px;
   padding-left: 2px;
   font-size: 14px;
-  color: #8e8e93;
-}
-
-.timeline-working .shimmer {
-  background-image: linear-gradient(90deg, #8e8e93 0%, #f2f2f7 50%, #8e8e93 100%);
+  color: var(--muted);
 }
 
 .timeline-flower {
-  color: #ff9f0a;
+  color: var(--timeline-running);
   animation: timeline-turn 3s linear infinite;
 }
 
@@ -3840,21 +3855,15 @@
 .timeline-empty {
   margin: 0 0 8px;
   font-size: 14px;
-  color: #8e8e93;
+  color: var(--muted);
 }
 
 .timeline-result {
   margin-top: 6px;
   padding-top: 14px;
-  border-top: 1px solid #2c2c2e;
+  border-top: 1px solid var(--line-strong);
   font-size: 14.5px;
   line-height: 1.5;
-  color: #d1d1d6;
-  /* Markdown reads the page's colours; the sheet is dark whatever the theme. */
-  --ink: #d1d1d6;
-  --quiet: #8e8e93;
-  --muted: #aeaeb2;
-  --line: #3a3a3c;
 }
 
 @media (prefers-reduced-motion: reduce) {

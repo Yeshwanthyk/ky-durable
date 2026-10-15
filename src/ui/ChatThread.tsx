@@ -43,11 +43,7 @@ export function ChatThread({
           <Icon name="arrowDown" size={15} />
         </button>
       </div>
-      {steps ? (
-        <TimelineSheet title="This turn" sub={running ? "ky · Working" : "ky · Done"} onClose={() => setSteps(false)}>
-          <Timeline steps={turnTimeline(session)} working={running} empty="No tools used" />
-        </TimelineSheet>
-      ) : null}
+      {steps ? <TurnSteps session={session} onClose={() => setSteps(false)} /> : null}
     </main>
   );
 }
@@ -305,4 +301,13 @@ function anchorsIn(thread: HTMLElement, inner: HTMLElement): Anchor[] {
   if (next) chain.push({ element: next, y: next.getBoundingClientRect().top - edge });
 
   return chain;
+}
+
+/** The current turn's tools as a timeline, live while ky works. */
+function TurnSteps({ session, onClose }: { session: ThreadView; onClose: () => void }) {
+  return (
+    <TimelineSheet title="This turn" sub={session.running ? "ky · Working" : "ky · Done"} onClose={onClose}>
+      <Timeline steps={turnTimeline(session)} working={session.running} empty="No tools used" />
+    </TimelineSheet>
+  );
 }
