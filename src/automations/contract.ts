@@ -60,6 +60,10 @@ const StoredAutomation = Type.Object({
   model: Nullable(Type.String()),
   machine: Nullable(Type.String()),
   chat: Type.String(),
+  gate: Nullable(Type.String()),
+  gate_checked_at: Nullable(Type.Number()),
+  gate_note: Nullable(Type.String()),
+  gate_errors: Type.Number(),
   created_by: AuthorSchema,
   status: AutomationStatusSchema,
   schedule_id: Nullable(Type.String()),
@@ -71,6 +75,9 @@ const StoredAutomation = Type.Object({
  * An automation. `prompt` is all each run is told; `cron` is a 5-field UTC cron and `at` a one-off's
  * epoch ms, exactly one set; `model` null runs on the worker's; `machine` null runs in the cloud;
  * `chat` is the main chat or a side chat's session; `schedule_id` is its Scheduler booking while active.
+ * `gate` is an Executor program each fire runs first, with no model: the run starts only when it returns
+ * something (null runs every fire); `gate_checked_at` and `gate_note` say when the last check ran and what
+ * it came to, and `gate_errors` counts fires in a row whose gate failed (three pause it).
  */
 export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model"> & { model: ModelChoice | null }>;
 
@@ -82,10 +89,11 @@ export const AutomationDraftSchema = Type.Object({
   at: Nullable(Type.Number()),
   model: Nullable(ModelChoiceSchema),
   machine: Nullable(Type.String()),
-  chat: Type.String()
+  chat: Type.String(),
+  gate: Nullable(Type.String())
 });
 
-export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat">;
+export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate">;
 
 /** The `ky_check_ins` row: whether the user turned check-ins off, and their time zone. */
 export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()) });
@@ -209,6 +217,12 @@ export const AutomationToolInput = Type.Object({
   thinking: Type.Optional(Level),
   machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud; cloud to clear it." })),
   chat: Type.Optional(Type.String({ description: "Where results are reported: main, or a side chat's session; this chat when left out." })),
+  gate: Type.Optional(
+    Type.String({
+      description:
+        "An Executor program body run before each fire, with no model: return the matching items to run, or null to skip. none to clear it."
+    })
+  ),
   createdBy: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("ky")])),
   all: Type.Optional(Type.Boolean({ description: "list: include done and archived ones." }))
 });

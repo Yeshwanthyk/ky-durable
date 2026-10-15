@@ -198,7 +198,7 @@ describe("specialists in chat", () => {
     await make(name, "a", "b", "c", "d");
     const { socket, client } = await open(name);
     expect(await command(socket, client, { type: "chat-members", session: "1", members: ["a", "b", "c", "d"] })).toMatchObject({ type: "result" });
-    await client.until(() => client.frames.some((frame) => frame.type === "chats" && frame.groups["1"]?.length === 4));
+    await client.until(() => client.frames.some((frame) => frame.type === "chats" && frame.groups?.["1"]?.length === 4));
 
     expect(await submit(socket, client, "route: d, c, b, a\nwhat do you all think?")).toMatchObject({ result: { to: ["d", "c", "b"] } });
     await until(async () => (await replies(name)).length === 3, "three replies");

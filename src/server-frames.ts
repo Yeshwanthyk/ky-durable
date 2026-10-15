@@ -89,7 +89,7 @@ export const ServerFrameSchema = Type.Union([
   Type.Object({ type: Type.Literal("hello"), session: Text, tools: Tools, version: Text }),
   Type.Object({ type: Type.Literal("events"), session: Text, events: Type.Array(Event) }),
   Type.Object({ type: Type.Literal("tasks"), tasks: Type.Array(Task), machines: Type.Array(Machine), files: Type.Array(File) }),
-  Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat), main: Type.Number(), groups: Type.Record(Text, Texts) }),
+  Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat), main: Type.Number(), groups: Type.Optional(Type.Record(Text, Texts)) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
   Type.Object({ type: Type.Literal("soul"), soul: Type.Object({ body: Text, version: Type.Number(), updated_at: Type.Number() }) }),
   Type.Object({ type: Type.Literal("specialists"), specialists: Type.Array(Specialist) }),

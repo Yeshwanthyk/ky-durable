@@ -4,7 +4,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { TaskRow } from "../automations/contract";
 import { GLM, GPT_OSS, type PiAgent } from "./stack";
-import { agent, connect, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
+import { agent, connect, connectExecutor, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 
 /**
  * Automations through ky's real PiAgent on the fake Workers AI: created and
@@ -54,8 +54,11 @@ async function listed(name: string, id: string): Promise<string> {
   const lines = said.split("\n");
   const start = lines.findIndex((line) => line.includes(`${id} "`));
 
-  // Each automation is three lines: what it is, where it runs, and when.
-  return start === -1 ? "" : lines.slice(start, start + 3).join("\n");
+  if (start === -1) return "";
+  // Each automation is a line of what it is, then indented ones: where it runs, when, and its gate's last check.
+  const end = lines.findIndex((line, index) => index > start && !line.startsWith("  "));
+
+  return lines.slice(start, end === -1 ? undefined : end).join("\n");
 }
 
 /** Run it now, as the user asks, and fire the object's alarm. */
@@ -108,6 +111,12 @@ async function fireAgain(name: string, id: string, slot: number): Promise<void> 
 }
 
 const slotOf = (task: TaskRow) => Number(task.id.split("-").at(-1));
+
+/** A scheduled fire of the automation now, as its cron's would be: no slot of its own, so its gate decides. */
+async function fire(name: string, id: string): Promise<void> {
+  await inside(name, (instance) => instance.automations.scheduler.set(new Date(), "automation", { id }));
+  await runDurableObjectAlarm(agent(name));
+}
 
 /** The next time a daily cron at `hour`:`minute` UTC fires after now, as the list prints it. */
 function nextDaily(hour: number, minute = 0): string {
@@ -542,6 +551,73 @@ describe("automations", () => {
       `tool said: "Daily digest" ran at ${at.toISOString()}. Update \`at\` to run it again.`
     );
     expect(await listed(name, id)).toContain("[done]");
+  });
+
+  it("a gate that finds nothing skips the fire; one that finds something runs with it before the prompt", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const said = await say(name, automation({ action: "create", title: "School mail", prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer null" }));
+    expect(said).toMatch(/^tool said: Created automation \w+, "School mail" \(cron \*\/15 \* \* \* \* UTC\)\.\nGate test: nothing, so a fire now would be skipped\.$/);
+    const id = /Created automation (\w+),/.exec(said)![1]!;
+
+    await fire(name, id);
+    await settle();
+    expect(await runs(name, id)).toEqual([]);
+    expect(await listed(name, id)).toMatch(/gate: last check \S+, nothing$/);
+    expect(await reports(name, "School mail")).toEqual([]);
+
+    const updated = await say(name, automation({ action: "update", id, gate: "answer [\"Trip form due Friday\"]" }));
+    expect(updated).toBe('tool said: Updated "School mail".\nGate test: found, so a fire now would run with this before its prompt:\n["Trip form due Friday"]');
+
+    await fire(name, id);
+    await runEnds(name, id);
+    await until(async () => (await reports(name, "School mail")).length > 0, "the report");
+    expect((await reports(name, "School mail"))[0]).toContain('Gate found:\n["Trip form due Friday"]\n\ntell me what school sent');
+    expect(await listed(name, id)).toMatch(/gate: last check \S+, found: \["Trip form due Friday"\]$/);
+  });
+
+  it("run now runs whatever the gate says, and clearing the gate runs every fire", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const id = await create(name, { gate: "answer []" });
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    expect((await runs(name, id))[0]!.summary).toContain("echo: digest the news");
+
+    expect(await say(name, automation({ action: "update", id, gate: "none" }))).toBe('tool said: Updated "Daily digest".');
+    expect(await listed(name, id)).not.toContain("gate:");
+    await pause(1_100);
+    await fire(name, id);
+    await until(async () => (await runs(name, id)).length === 2, "the ungated fire's run");
+  });
+
+  it("three failed gates in a row pause the automation and tell its chat", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const said = await say(name, automation({ action: "create", title: "School mail", prompt: "check", cron: "*/15 * * * *", gate: "fail no tool gmail.search" }));
+    expect(said).toContain("\nGate test failed: no tool gmail.search. Fix it with update; three failed fires in a row pause it.");
+    const id = /Created automation (\w+),/.exec(said)![1]!;
+
+    await fire(name, id);
+    await fire(name, id);
+    expect(await listed(name, id)).toMatch(/\[active\][\s\S]*gate: last check \S+, error: no tool gmail\.search$/);
+    expect(await told(name, '[automation "School mail" paused]')).toEqual([]);
+
+    await fire(name, id);
+    await until(async () => (await told(name, '[automation "School mail" paused]')).length > 0, "the pause notice");
+    expect(await told(name, '[automation "School mail" paused]')).toEqual([
+      '[automation "School mail" paused] Its gate failed 3 fires in a row; the last said: no tool gmail.search. Fix the gate (automation update) and resume it.'
+    ]);
+    expect(await listed(name, id)).toContain("[paused]");
+    expect(await booking(name, id)).toBeUndefined();
+    expect(await runs(name, id)).toEqual([]);
+  });
+
+  it("a gate without Executor connected fails its test", async () => {
+    const name = crypto.randomUUID();
+    const said = await say(name, automation({ action: "create", title: "School mail", prompt: "check", cron: "*/15 * * * *", gate: "answer x" }));
+    expect(said).toContain("\nGate test failed: Executor is not connected.");
   });
 
   it("reports to the side chat that made it, unarchiving it if needed", async () => {

@@ -21,6 +21,7 @@ import type { ModelChoice } from "../settings";
 import type { Spawn } from "../skills/contract";
 import {
   AUTOMATION_SOURCE as SOURCE,
+  AUTOMATION_TABLES,
   AUTOMATION_TOOL,
   automationRows,
   type AutomationAuthor,
@@ -32,6 +33,7 @@ import {
   type AutomationView,
   type ByIdAction,
   CHECK_IN_TOOLS,
+  ColumnInfo,
   type CheckIns,
   CountRow,
   EXTENSIONS,
@@ -51,6 +53,12 @@ import { isLive } from "./tasks";
  * task on a machine. Its result reaches the main chat through the subagent
  * reporter or the machines report path, and its row in the task feed, with
  * source `automation:<id>`, is the automation's last run.
+ *
+ * A gate keeps a frequent automation cheap: a short Executor program run
+ * before each fire, with no model. When it returns nothing (null, false, an
+ * empty list) the slot is skipped and only the row's last check says so;
+ * when it returns something, that is put before the run's prompt. A gate that
+ * fails three fires in a row pauses its automation and the chat is told.
  *
  * The Scheduler delivers a fire at least once, so a run is keyed by its slot
  * (the fire's due time): task `a-<id>-<slot>`. A slot runs once, a fire is
@@ -73,7 +81,12 @@ export type AutomationRuntime = {
   readonly wake: () => Promise<void>;
   /** Abort what a pi conversation is doing. */
   readonly abort: (session: string) => Promise<void>;
+  /** Say something to a chat, as a steer; `requestId` keeps a retry from saying it twice. */
+  readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
 };
+
+/** What an Executor program answered: its text, and whether it failed. */
+export type GateAnswer = { readonly text: string; readonly error: boolean };
 
 export type AutomationDeps = {
   readonly feed: TaskFeed;
@@ -81,6 +94,8 @@ export type AutomationDeps = {
   readonly chats: ChatList;
   readonly models: Pick<Models, "worker" | "valid" | "catalog">;
   readonly runtime: AutomationRuntime;
+  /** Run a gate's program on the user's Executor. */
+  readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
   /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire. */
   readonly dream: { readonly cron: string; readonly run: () => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
@@ -101,6 +116,24 @@ If you find nothing new, or nothing they could act on now, answer exactly NOTHIN
 
 What to look at:
 `;
+
+/** How long a gate may take before its fire counts it failed. */
+const GATE_TIMEOUT_MS = 30_000;
+
+/** Gate failures in a row that pause an automation. */
+const GATE_ERRORS = 3;
+
+/** The most of a gate's answer put before a run's prompt. */
+const GATE_FOUND_MAX = 8_000;
+
+/** What a gate returns when there is nothing to do, once spaces are taken out. */
+const NOTHING: ReadonlySet<string> = new Set(["", "null", "undefined", "false", "0", "[]", "{}", '""']);
+
+/** What a gate came to: something found, nothing, or why it failed. */
+type GateCheck =
+  | { readonly kind: "found"; readonly text: string }
+  | { readonly kind: "nothing" }
+  | { readonly kind: "error"; readonly text: string };
 
 /** A fire: the automation, and the slot run-now picks; a scheduled fire's slot is its due time. */
 type Fire = { id: string; slot?: number };
@@ -169,11 +202,21 @@ export class Automations {
       model TEXT,
       machine TEXT,
       chat TEXT NOT NULL,
+      gate TEXT,
+      gate_checked_at INTEGER,
+      gate_note TEXT,
+      gate_errors INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL)`);
+    addColumns(sql, AUTOMATION_TABLES.automations, [
+      ["gate", "TEXT"],
+      ["gate_checked_at", "INTEGER"],
+      ["gate_note", "TEXT"],
+      ["gate_errors", "INTEGER NOT NULL DEFAULT 0"]
+    ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
       if (tasks.some((task) => task.source.startsWith(SOURCE))) this.#emit();
@@ -255,8 +298,8 @@ export class Automations {
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, at, model, machine, chat, gate, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -265,6 +308,7 @@ export class Automations {
       checked.model === null ? null : JSON.stringify(checked.model),
       checked.machine,
       checked.chat,
+      checked.gate,
       author,
       booked.id,
       now,
@@ -290,6 +334,9 @@ export class Automations {
     const why = row.status === "active" && retimed ? await this.#rebook(row, checked) : this.#save(id, checked);
 
     if (why) return why;
+
+    // A new gate starts with no checks and no failures.
+    if (checked.gate !== row.gate) this.#set(id, { gate_checked_at: null, gate_note: null, gate_errors: 0 });
 
     return this.get(id) ?? refused(`No automation ${id}.`);
   }
@@ -426,8 +473,9 @@ export class Automations {
 
   /**
    * A fire: start the slot's run unless it is not wanted, already started,
-   * or the last run is still going. It only starts the run and returns, so
-   * it never holds up the alarm.
+   * the last run is still going, or its gate found nothing. It only checks
+   * the gate (at most GATE_TIMEOUT_MS) and starts the run, so it never holds
+   * up the alarm for long.
    */
   async #fire(fire: Fire, schedule: Schedule<Fire>): Promise<void> {
     const row = this.get(fire.id);
@@ -439,9 +487,71 @@ export class Automations {
     if (this.#overlaps(row.id, task)) return;
 
     // Delivered again after its run started, it starts nothing; a one-off still ends done.
-    if (!this.#ran(task)) await this.#start(row, slot, task);
+    if (!this.#ran(task)) {
+      // Run now is the user asking: it runs whatever the gate says.
+      const found = await this.#admit(row, task, fire.slot !== undefined);
+
+      if (found === null) {
+        if (row.at !== null) await this.#done(row.id, schedule.id);
+
+        return;
+      }
+
+      await this.#start({ ...row, prompt: found === "" ? row.prompt : `${found}${row.prompt}` }, slot, task);
+    }
 
     if (row.at !== null) await this.#done(row.id, schedule.id);
+  }
+
+  /**
+   * Check the fire's gate: what to put before the prompt ("" without a gate),
+   * or null to skip the slot. The check is noted on the row, and the
+   * GATE_ERRORS-th failure in a row pauses the automation and tells its chat.
+   */
+  async #admit(row: AutomationRow, task: string, forced: boolean): Promise<string | null> {
+    if (row.gate === null) return "";
+    const check = await this.checkGate(row.gate);
+    const failed = check.kind === "error";
+    const errors = failed ? row.gate_errors + 1 : 0;
+    this.#set(row.id, { gate_checked_at: Date.now(), gate_note: noteOf(check), gate_errors: errors });
+
+    if (check.kind === "found") return `Gate found:\n${check.text.slice(0, GATE_FOUND_MAX)}\n\n`;
+
+    if (forced) return "";
+
+    if (failed && errors >= GATE_ERRORS) {
+      await this.#halt(must(this.get(row.id), `Automation ${row.id} is gone.`), "paused");
+      await this.#deps.runtime.tell(
+        this.#reportTo(row.chat),
+        `[automation "${row.title}" paused] Its gate failed ${errors} fires in a row; the last said: ${check.text}. Fix the gate (automation update) and resume it.`,
+        `gate-paused:${task}`
+      );
+    }
+
+    return null;
+  }
+
+  /** Run a gate's program once, as a fire does, and say what it came to. A tool's create and update test it this way. */
+  async checkGate(code: string): Promise<GateCheck> {
+    const signal = AbortSignal.timeout(GATE_TIMEOUT_MS);
+    let answer: GateAnswer;
+
+    try {
+      answer = await this.#deps.gate(code, signal);
+    } catch (error) {
+      answer = { text: error instanceof Error ? error.message : String(error), error: true };
+    }
+
+    if (signal.aborted) return { kind: "error", text: `timed out after ${GATE_TIMEOUT_MS / 1000}s` };
+
+    if (answer.error) return { kind: "error", text: answer.text.trim() || "Executor gave no reason" };
+
+    // A gate runs unattended, so nobody is there to approve.
+    if (answer.text.includes("approvalUrl")) return { kind: "error", text: "it asked for an approval; a gate may only read" };
+
+    const text = answer.text.trim();
+
+    return NOTHING.has(text.replaceAll(/\s/g, "")) ? { kind: "nothing" } : { kind: "found", text };
   }
 
   async #start(row: AutomationRow, slot: number, task: string): Promise<void> {
@@ -595,7 +705,11 @@ export class Automations {
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): Result<AutomationDraft> {
     const problem =
-      wordsProblem(draft) ?? timingProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
+      wordsProblem(draft) ??
+      timingProblem(draft) ??
+      this.#machineProblem(draft.machine) ??
+      this.#chatProblem(draft.chat) ??
+      gateProblem(draft.gate);
 
     if (problem !== undefined) return refused(problem);
 
@@ -616,6 +730,13 @@ export class Automations {
 
     if (draft.machine !== null || draft.chat !== ROOT_SESSION) return "A check-in runs in the cloud and reports to the main chat.";
 
+    if (draft.gate !== null) return "A check-in has no gate.";
+
+    return this.#checkInCapProblem();
+  }
+
+  /** Whether another check-in would pass the day's or the waiting cap. */
+  #checkInCapProblem(): string | undefined {
     const count = (query: string, ...bindings: number[]) => decodeOr(CountRow, this.#sql.exec(query, ...bindings).one(), { n: 0 }).n;
 
     if (count("SELECT COUNT(*) AS n FROM ky_automations WHERE created_by = 'dream' AND created_at > ?", Date.now() - 86_400_000) >= CHECK_INS_A_DAY) {
@@ -720,8 +841,8 @@ export class Automations {
     if (!current || (when !== undefined && !when.includes(current.status))) return false;
     const next = { ...current, ...patch };
     this.#sql.exec(
-      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, status = ?,
-         schedule_id = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?,
+         gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
       next.title,
       next.prompt,
       next.cron,
@@ -729,6 +850,10 @@ export class Automations {
       next.model === null ? null : JSON.stringify(next.model),
       next.machine,
       next.chat,
+      next.gate,
+      next.gate_checked_at,
+      next.gate_note,
+      next.gate_errors,
       next.status,
       next.schedule_id,
       Date.now(),
@@ -747,6 +872,32 @@ export class Automations {
 /** A title and a prompt are needed: the list shows one, and a run knows only the other. */
 function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
   return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
+}
+
+/** A gate is a program body; blank means no gate, and is saved as null by the tool and the UI. */
+function gateProblem(gate: string | null): string | undefined {
+  return gate !== null && gate.trim() === "" ? "A gate is an Executor program; leave it out for none." : undefined;
+}
+
+/** A gate check as the row keeps it, in a line. */
+function noteOf(check: GateCheck): string {
+  if (check.kind === "nothing") return "nothing";
+
+  const text = check.text.replaceAll(/\s+/g, " ");
+
+  return `${check.kind}: ${text.length > 200 ? `${text.slice(0, 200)}…` : text}`;
+}
+
+/** Add the columns ky_automations was first made without. */
+function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): void {
+  const have = sql
+    .exec(`PRAGMA table_info(${table})`)
+    .toArray()
+    .flatMap((column) => decodeOr(ColumnInfo, column, undefined)?.name ?? []);
+
+  for (const [name, type] of columns) {
+    if (!have.includes(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
 }
 
 /** What is wrong with when it runs, if anything. */
@@ -788,8 +939,8 @@ function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined
 }
 
 /** What an automation is and does, without its status, booking or anything else a row carries. */
-function draftOf({ title, prompt, cron, at, model, machine, chat }: AutomationDraft): AutomationDraft {
-  return { title, prompt, cron, at, model, machine, chat };
+function draftOf({ title, prompt, cron, at, model, machine, chat, gate }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, chat, gate };
 }
 
 /** What the tool's arguments change, leaving out what they do not mention. */
@@ -801,7 +952,8 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
     at: args.at === undefined ? undefined : Date.parse(args.at),
     model: modelArg(args, fallback),
     machine: args.machine === "cloud" ? null : args.machine,
-    chat: args.chat === "main" ? ROOT_SESSION : args.chat
+    chat: args.chat === "main" ? ROOT_SESSION : args.chat,
+    gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate
   };
 
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
@@ -812,12 +964,26 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
   if (!args.title || !args.prompt) return "create needs a title and a prompt.";
 
   // What the arguments leave out: no model or machine, and reports to this chat.
-  const unset = { cron: null, at: null, model: null, machine: null, chat: caller };
+  const unset = { cron: null, at: null, model: null, machine: null, chat: caller, gate: null };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
   const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
-  return isRefusal(created) ? created.refused : `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).`;
+  if (isRefusal(created)) return created.refused;
+
+  return `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).${await gateTest(automations, created.gate)}`;
+}
+
+/** A new gate run once, so the model sees what fires will make of it and can fix it now. */
+async function gateTest(automations: Automations, gate: string | null): Promise<string> {
+  if (gate === null) return "";
+  const check = await automations.checkGate(gate);
+
+  if (check.kind === "nothing") return "\nGate test: nothing, so a fire now would be skipped.";
+
+  if (check.kind === "error") return `\nGate test failed: ${check.text}. Fix it with update; three failed fires in a row pause it.`;
+
+  return `\nGate test: found, so a fire now would run with this before its prompt:\n${check.text.slice(0, GATE_FOUND_MAX)}`;
 }
 
 function scheduleOf(row: Pick<AutomationRow, "cron" | "at">): string {
@@ -832,7 +998,10 @@ function lineOf(automations: Automations, view: AutomationView): string {
   return [
     `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view)}, by ${view.created_by}`,
     `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}`,
-    `  next: ${next}; last run: ${last}`
+    `  next: ${next}; last run: ${last}`,
+    ...(view.gate === null
+      ? []
+      : [`  gate: last check ${view.gate_checked_at === null ? "never" : `${new Date(view.gate_checked_at).toISOString()}, ${view.gate_note}`}`])
   ].join("\n");
 }
 
@@ -880,9 +1049,12 @@ async function dispatch(automations: Automations, { action, args, fallback, call
 
 /** Update from the tool: a level alone is the automation's own model at that level, not the worker's. */
 async function update(automations: Automations, id: string, args: Args, fallback: ModelChoice): Promise<string> {
-  const updated = await automations.update(id, patchOf(args, automations.get(id)?.model ?? fallback));
+  const patch = patchOf(args, automations.get(id)?.model ?? fallback);
+  const updated = await automations.update(id, patch);
 
-  return isRefusal(updated) ? updated.refused : `Updated "${updated.title}".`;
+  if (isRefusal(updated)) return updated.refused;
+
+  return `Updated "${updated.title}".${patch.gate === undefined ? "" : await gateTest(automations, updated.gate)}`;
 }
 
 /** The automation tool, for the main agent, and for a dream to book check-ins. */
@@ -905,7 +1077,13 @@ export function automationExtension(
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
-          "Pause or archive your own once they are no longer needed.",
+          "Pause or archive your own once they are no longer needed. " +
+          "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
+          "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +
+          "Return the matching items (a short list of what the run needs), or null when there are none. " +
+          "Keep it narrow: only the window since the last fire (newer_than:15m for a 15-minute cron), only what the user cares about, read only. " +
+          "Create and update test the gate once and tell you what it returned; fix it until that is what you meant. " +
+          "Without a gate every fire runs.",
         parameters: AutomationToolInput,
         replay: "unsafe",
         execute: async (args, api) =>

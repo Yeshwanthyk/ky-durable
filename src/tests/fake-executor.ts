@@ -13,6 +13,8 @@ import { parsed } from "./frames";
  * - `hang` runs until the caller cancels it;
  * - `lose-response` runs, then the response is lost on the way back, as when
  *   a timeout or a dropped connection comes after the program ran;
+ * - `answer TEXT` runs and answers TEXT, as a gate's program returns;
+ * - `fail TEXT` runs and fails with TEXT;
  * - anything else runs and answers `ran <n>`.
  *
  * `skills` lists two apps and `resume` answers with its request id. Requests
@@ -107,6 +109,12 @@ export class FakeExecutor {
           await new Promise<void>((resolve) => extra.signal.addEventListener("abort", () => resolve(), { once: true }));
           this.cancelled++;
         }
+
+        const [, command, rest = ""] = /^(answer|fail) ?(.*)$/s.exec(code) ?? [];
+
+        if (command === "answer") return { content: [{ type: "text", text: rest }] };
+
+        if (command === "fail") return { content: [{ type: "text", text: rest }], isError: true };
 
         return { content: [{ type: "text", text: `ran ${runs}` }] };
       }

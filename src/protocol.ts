@@ -158,7 +158,8 @@ export type PiServerMessage =
       readonly type: "chats";
       readonly chats: readonly ChatRow[];
       readonly main: number;
-      readonly groups: Readonly<Record<string, readonly string[]>>;
+      /** Missing from a Worker from before group chats, while a deploy settles. */
+      readonly groups?: Readonly<Record<string, readonly string[]>>;
     }
   /** Every skill, active ones first; sent on connect and on change. */
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }

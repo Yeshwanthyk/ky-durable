@@ -3255,6 +3255,39 @@
   max-height: 240px;
 }
 
+.automation-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 14px 11px;
+  border-top: 1px solid var(--line);
+}
+
+.automation-gate-label {
+  color: var(--quiet);
+  font-size: calc(11.5px * var(--text-scale));
+  font-weight: 600;
+}
+
+.automation-gate textarea {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.45;
+  resize: none;
+  field-sizing: content;
+  max-height: 200px;
+}
+
+.automation-gate textarea::placeholder {
+  color: var(--quiet);
+  font-family: var(--font-sans);
+}
+
 .automation-when {
   flex: none;
   width: 148px;

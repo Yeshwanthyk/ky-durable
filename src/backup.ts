@@ -64,6 +64,12 @@ const SKIPPED: ReadonlyArray<readonly [string, string]> = [
   ["ky_settings", "the model slots the purposes replaced: nothing reads it"]
 ];
 
+/** The tables of an archive a restore leaves out, as what it reports: none, unless ky stopped naming one. */
+const strays = (tables: readonly TableDump[]): LeftOut[] =>
+  tables.flatMap((table) =>
+    restores(table.name) ? [] : [{ what: `Table ${table.name}`, why: "this ky doesn't name it", next: "nothing: an old version's table, or one added by hand" }]
+  );
+
 /** SQLite's and the runtime's own tables, which nothing copies. */
 const isSystem = (name: string) => name.startsWith("sqlite_") || name.startsWith("_cf_");
 
@@ -381,7 +387,7 @@ export class Backups {
       "INSERT INTO ky_restore (id, tables, rows, left_out) VALUES (1, ?, ?, ?)",
       JSON.stringify(tables),
       JSON.stringify(end.rows),
-      JSON.stringify(manifest.leftOut)
+      JSON.stringify([...manifest.leftOut, ...strays(manifest.tables)])
     );
   }
 

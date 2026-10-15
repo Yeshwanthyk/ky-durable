@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
+import { Icon } from "./Icon";
 import { Thread } from "./Thread";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
@@ -24,12 +25,17 @@ export function ChatThread({
   const innerRef = useRef<HTMLDivElement>(null);
   const turns = useMemo(() => buildTurns(messages, live, running, tools), [messages, live, running, tools]);
 
-  useFollow(threadRef, innerRef, messages[0]?.id ?? null, turns);
+  const { away, toLatest } = useFollow(threadRef, innerRef, messages[0]?.id ?? null, turns);
 
   return (
     <main ref={threadRef} className="thread" data-scroll>
       <div ref={innerRef} className="thread-inner">
         {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
+      </div>
+      <div className="thread-end">
+        <button type="button" className="to-latest pressable" data-shown={away} inert={!away} aria-label="Jump to latest" onClick={toLatest}>
+          <Icon name="arrowDown" size={15} />
+        </button>
       </div>
     </main>
   );
@@ -75,6 +81,9 @@ function useFollow(
   history: string | null,
   turns: readonly Turn[]
 ) {
+  // The user has scrolled up from the end, so the thread offers a way back.
+  const [away, setAway] = useState(false);
+
   const follow = useRef<Follow>({
     pinned: true,
     top: 0,
@@ -103,6 +112,7 @@ function useFollow(
     if (fresh) {
       state.pinned = true;
       state.glide = null;
+      setAway(false);
       toEnd(thread, state);
     } else if (sent && !state.pinned) {
       glide(thread, state);
@@ -134,6 +144,7 @@ function useFollow(
 
       state.top = top;
       state.anchors = state.pinned ? [] : anchorsIn(thread, inner);
+      setAway(!state.pinned);
     };
 
     const onTouchStart = () => {
@@ -180,6 +191,17 @@ function useFollow(
       observer.disconnect();
     };
   }, [threadRef, innerRef]);
+
+  const toLatest = () => {
+    const thread = threadRef.current;
+
+    if (!thread) return;
+
+    setAway(false);
+    glide(thread, follow.current);
+  };
+
+  return { away, toLatest };
 }
 
 function toEnd(thread: HTMLElement, state: Follow) {

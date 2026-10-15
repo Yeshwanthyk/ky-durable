@@ -104,6 +104,11 @@ class ExecutorClient {
     return connecting;
   }
 
+  /** Close the session, once nothing more will be called. */
+  close(): void {
+    if (this.#client) this.#forget(this.#client);
+  }
+
   /** Drop a connection, unless a newer one already replaced it. */
   #forget(connection: Promise<Client>): void {
     if (this.#client !== connection) return;
@@ -163,6 +168,23 @@ class ExecutorClient {
       // Executor refused the session as unknown or expired: the Streamable HTTP spec answers 404 before running anything.
       return { result: failed(error), neverRan: answered(error, 404) };
     }
+  }
+}
+
+/** Run one program outside a turn, as an automation's gate does, on a session of its own that closes after. */
+export async function executeOnce(
+  config: ExecutorConfig,
+  code: string,
+  signal: AbortSignal
+): Promise<{ text: string; error: boolean }> {
+  const executor = new ExecutorClient(config);
+
+  try {
+    const result = await executor.call("execute", { code }, signal);
+
+    return { text: result.content.map((part) => part.text).join("\n"), error: result.isError === true };
+  } finally {
+    executor.close();
   }
 }
 

@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
-import { Icon, Spinner, type IconName } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { useLightbox } from "./Lightbox";
 
 const categoryIcon: Record<Tool["category"], IconName> = {
@@ -28,22 +28,18 @@ const tenses = new Map<string, readonly [string, string]>([
 // How a row reads: a verb, then its target in mono for paths and commands or as prose.
 type Phrase = { verb: string; target: string; mono: boolean };
 
-function phrase(tool: Tool): Phrase {
-  const running = tool.status === "running";
+// A command or a call reads as one verb for its status, then the whole summary.
+function verbOf(status: Tool["status"], running: string, done: string): string {
+  if (status === "failed") return "Failed";
 
-  if (tool.category === "run")
-    return {
-      verb: tool.status === "failed" ? "Failed" : running ? "Running" : "Ran",
-      target: tool.summary,
-      mono: true,
-    };
+  return status === "running" ? running : done;
+}
+
+function phrase(tool: Tool): Phrase {
+  if (tool.category === "run") return { verb: verbOf(tool.status, "Running", "Ran"), target: tool.summary, mono: true };
 
   if (tool.category === "research" && tool.summary.includes(" · "))
-    return {
-      verb: running ? "Calling" : tool.status === "failed" ? "Failed" : "Called",
-      target: tool.summary,
-      mono: false,
-    };
+    return { verb: verbOf(tool.status, "Calling", "Called"), target: tool.summary, mono: false };
   const [first = "", ...rest] = tool.summary.split(" ");
   const tense = tenses.get(first);
 
@@ -51,13 +47,12 @@ function phrase(tool: Tool): Phrase {
   // File names and paths read in mono; searches and subagent verbs read as prose.
   const prose = ["Search", "Start", "Message"].includes(first);
 
-  return { verb: tense[running ? 0 : 1], target: rest.join(" "), mono: !prose };
+  return { verb: tense[tool.status === "running" ? 0 : 1], target: rest.join(" "), mono: !prose };
 }
 
+// A running tool says so in its verb; the turn's Working line is the one spinner.
 function Trail({ tool }: { tool: Tool }) {
-  if (tool.status === "running") return <Spinner size={12} />;
-
-  return tool.durationMs !== null && tool.durationMs >= 1000 ? (
+  return tool.status !== "running" && tool.durationMs !== null && tool.durationMs >= 1000 ? (
     <span className="tabular">{duration(tool.durationMs)}</span>
   ) : null;
 }
@@ -79,6 +74,8 @@ export function Reveal({ open, children }: { open: boolean; children: ReactNode 
 
 const hasBody = (tool: Tool) => tool.output !== "" || tool.input !== "";
 
+const iconOf = (tool: Tool) => (tool.status === "failed" ? "alert" : categoryIcon[tool.category]);
+
 export function ToolRow({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
   const { verb, target, mono } = phrase(tool);
@@ -94,8 +91,8 @@ export function ToolRow({ tool }: { tool: Tool }) {
         onClick={() => setOpen((value) => !value)}
         title={tool.input || tool.summary}
       >
-        <Icon name={tool.status === "failed" ? "alert" : categoryIcon[tool.category]} size={14} />
-        <span className="verb">{verb}</span>
+        <Icon name={iconOf(tool)} size={14} />
+        <span className={tool.status === "running" ? "verb shimmer" : "verb"}>{verb}</span>
         {target ? <span className={mono ? "target mono" : "target"}>{target}</span> : null}
         <span className="trail">
           <Trail tool={tool} />
@@ -163,10 +160,9 @@ export function ExploreGroup({ tools }: { tools: Tool[] }) {
         onClick={() => setOpen((value) => !value)}
       >
         <Icon name="search" size={14} />
-        <span className="verb">{running ? "Exploring" : "Explored"}</span>
+        <span className={running ? "verb shimmer" : "verb"}>{running ? "Exploring" : "Explored"}</span>
         <span className="target">{parts.join(", ")}</span>
         <span className="trail">
-          {running ? <Spinner size={12} /> : null}
           <Icon name="chevronRight" size={12} className="chevron" />
         </span>
       </button>

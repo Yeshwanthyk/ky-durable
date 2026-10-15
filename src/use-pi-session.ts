@@ -134,7 +134,8 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     subscriptions: ({ subscriptions }) => replace({ subscriptions }),
     executor: ({ executor }) => replace({ executor }),
     tools: ({ tools }) => replace({ catalog: tools }),
-    chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups }),
+    // A Worker from before group chats sends no groups while a deploy settles.
+    chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
     skills: ({ skills }) => replace({ skills }),
     soul: ({ soul }) => replace({ soul }),
     specialists: ({ specialists }) => replace({ specialists }),

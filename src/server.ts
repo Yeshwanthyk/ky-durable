@@ -15,7 +15,7 @@ import { BACKGROUND } from "./background";
 import { ChatList, chatActivityExtension } from "./chats";
 import { Automations, automationTools, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
-import { ExecutorLink, executorExtension } from "./executor";
+import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
 import type { SandboxNow } from "./cloud";
@@ -178,7 +178,16 @@ export class PiAgent extends DurableObject<Env> {
       // As the UI's Stop does.
       abort: async (session) => {
         await this.harness.session(session).abort();
+      },
+      tell: async (session, content, requestId) => {
+        const conversation = await this.harness.conversation(session);
+        await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
       }
+    },
+    gate: async (code, signal) => {
+      const config = await this.executor.config();
+
+      return config ? executeOnce(config, code, signal) : { text: "Executor is not connected.", error: true };
     },
     dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     peers: () => this.sweepPeers()

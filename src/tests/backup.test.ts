@@ -5,6 +5,7 @@ import { backupRoute } from "../backup";
 import { ASSERTION } from "../access";
 import { CLOUD } from "../cloud-facts";
 import { saveKey } from "../sandboxes";
+import { restores } from "../tables";
 import { agent, call, connect, inside, pairing, prompt, until } from "./drive";
 
 /**
@@ -104,6 +105,8 @@ describe("backup and restore", () => {
     expect(manifest.leftOut.map((each) => each.what)).not.toContain("Machine web");
     expect(Object.keys(manifest.skipped)).toEqual(expect.arrayContaining(["ky_machines", "ky_providers", "ky_history", "cf_agents_jobs"]));
     expect(manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["pi_entries", "memo_log", "ky_skill_versions", "vfs_nodes", "ky_sandboxes"]));
+    // Every table a lived-in ky backs up is one a restore puts back: none is dropped on the way.
+    expect(manifest.tables.map((table) => table.name).filter((table) => !restores(table))).toEqual([]);
 
     // A new deploy's bucket: the upload isn't there until the restore puts it back.
     await env.FILES.delete(upload);
@@ -207,7 +210,9 @@ describe("backup and restore", () => {
     expect(archive.manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["ky_stray", "ky_purposes"]));
 
     const target = "stray-target";
-    await restoreArchive(archive, restoreInto(target), false);
+    const restored = await restoreArchive(archive, restoreInto(target), false);
+    // Left out, and said so.
+    expect(restored.leftOut.map((each) => each.what)).toContain("Table ky_stray");
 
     const tables = await inside(target, (_instance, state) =>
       state.storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => row.name)

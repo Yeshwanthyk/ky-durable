@@ -259,6 +259,50 @@ test("stops a running turn", async ({ page }) => {
   await release(page);
 });
 
+test("brings back what was sent with ↑ in an empty composer, and ↓ returns to empty", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page.getByRole("heading", { name: "A side chat" })).toBeVisible();
+  await send(page, "first thing I said");
+  await expect(page.getByText("echo: first thing I said")).toBeVisible();
+  await send(page, "second thing I said");
+  await expect(page.getByText("echo: second thing I said")).toBeVisible();
+
+  await composer(page).press("ArrowUp");
+  await expect(composer(page)).toHaveValue("second thing I said");
+  await composer(page).press("ArrowUp");
+  await expect(composer(page)).toHaveValue("first thing I said");
+  await composer(page).press("ArrowDown");
+  await expect(composer(page)).toHaveValue("second thing I said");
+  await composer(page).press("ArrowDown");
+  await expect(composer(page)).toHaveValue("");
+
+  // A draft keeps ↑ for moving the caret.
+  await composer(page).fill("a draft");
+  await composer(page).press("ArrowUp");
+  await expect(composer(page)).toHaveValue("a draft");
+});
+
+test("offers a way back to the latest message once the user scrolls up, and glides there", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page.getByRole("heading", { name: "A side chat" })).toBeVisible();
+  await send(page, `reply: ${Array.from({ length: 40 }, (_, line) => `Line ${line + 1}`).join("\n\n")}`);
+  await expect(page.getByText("Line 40", { exact: true })).toBeVisible();
+
+  const latest = page.getByRole("button", { name: "Jump to latest" });
+  await expect(latest).toBeHidden();
+
+  await page.locator(".thread").evaluate((thread) => thread.scrollTo({ top: 0 }));
+  await expect(latest).toBeVisible();
+  await latest.click();
+  await expect(page.getByText("Line 40", { exact: true })).toBeInViewport();
+  await expect(latest).toBeHidden();
+});
+
 test("starts a side chat, names it from its first message, and goes back to the main chat", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });
@@ -709,6 +753,45 @@ test.describe("automations in Activity", () => {
     await edit.getByRole("button", { name: "Delete" }).click();
     await edit.getByRole("button", { name: "Delete for good" }).click();
     await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
+  });
+
+  test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
+    await open(page);
+    await connectExecutor(page);
+    const title = `School mail ${crypto.randomUUID().slice(0, 8)}`;
+    const create = { action: "create", title, prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer null" };
+    await send(page, `tool automation ${JSON.stringify(create)}`);
+    await expect(page.getByText("Gate test: nothing, so a fire now would be skipped.")).toBeVisible();
+
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    const automation = panel(page).getByRole("listitem", { name: title });
+    await expect(automation).toContainText("gated");
+
+    // An edit that leaves the gate alone keeps it.
+    await automation.getByRole("button", { name: "Edit" }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
+    await edit.getByLabel("Prompt").fill("tell me what school sent, in one line");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
+
+    await edit.getByLabel("Gate").fill('answer ["Trip form due Friday"]');
+    await edit.getByRole("button", { name: "Save" }).click();
+    await automation.getByRole("button", { name: "Run now" }).click();
+    await expect(automation.getByText("gate: found")).toHaveAttribute("title", 'found: ["Trip form due Friday"]');
+    await expect(automation).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
+
+    // Clearing the field clears the gate.
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByLabel("Gate").fill("");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(automation).not.toContainText("gate");
+
+    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByRole("button", { name: "Delete" }).click();
+    await edit.getByRole("button", { name: "Delete for good" }).click();
+    await expect(automation).toBeHidden();
   });
 });
 
