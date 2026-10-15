@@ -35,7 +35,6 @@ import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { Icon, Spinner, type IconName } from "./Icon";
-import { Markdown } from "./Markdown";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
@@ -44,6 +43,7 @@ import { Executor } from "./Executor";
 import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
+import { TaskTimeline } from "./Timeline";
 import { ago, clock, day } from "./time";
 import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-panel";
 
@@ -1598,30 +1598,11 @@ function TaskState({ task }: { task: TaskRow }) {
   );
 }
 
-/** An opened task: its summary rendered, then its last few steps, oldest first. */
-function TaskDetail({ task, open }: { task: TaskRow; open: boolean }) {
-  if (!open) return null;
+/** An opened task's timeline; a cloud task with a chat can open it from there. */
+function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number; onClose: () => void; onOpen: (session: string) => void }) {
+  const session = task.kind === "cloud" ? task.session : null;
 
-  return (
-    <div className="feed-detail">
-      {task.summary ? <Markdown source={task.summary} /> : null}
-      <StepList task={task} />
-    </div>
-  );
-}
-
-function StepList({ task }: { task: TaskRow }) {
-  if (task.steps.length === 0) return null;
-
-  return (
-    <ol className="feed-steps" aria-label="Recent steps">
-      {task.steps.map((step) => (
-        <li key={`${step.at}-${step.text}`}>
-          <span className="tabular">{clock(step.at)}</span> {plain(step.text)}
-        </li>
-      ))}
-    </ol>
-  );
+  return <TaskTimeline task={task} now={now} onClose={onClose} onOpenChat={session === null ? undefined : () => onOpen(session)} />;
 }
 
 /** Stop a working task, or cancel a queued one. */
@@ -1688,8 +1669,8 @@ function TaskItem({
       <button
         type="button"
         className="ledger-button pressable"
-        aria-expanded={opens ? undefined : open}
-        onClick={() => (opens ? onOpen(task.session!) : setOpen((value) => !value))}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
       >
         <TaskLead task={task} />
         <span className="row-text">
@@ -1699,7 +1680,7 @@ function TaskItem({
         </span>
         <TaskState task={task} />
       </button>
-      <TaskDetail task={task} open={open} />
+      {open ? <TaskSheet task={task} now={now} onClose={() => setOpen(false)} onOpen={onOpen} /> : null}
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />

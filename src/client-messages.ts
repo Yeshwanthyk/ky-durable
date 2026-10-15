@@ -109,6 +109,8 @@ export const ClientMessageSchema = Type.Union([
   message("specialist-brief", { specialist: Text, change: SoulChangeSchema }),
   /** A specialist's brief versions, newest first, as the result. */
   message("specialist-history", { specialist: Text }),
+  /** Answers with every step a task's log kept, oldest first, for its timeline. */
+  message("task-steps", { task: Text }),
   /** Answers with a MemorySearch. */
   message("memory-search", { query: Text }),
   /** Answers with a block's two halves, as MemoryItems. */

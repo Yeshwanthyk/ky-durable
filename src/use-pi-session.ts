@@ -461,6 +461,12 @@ export function usePiSession(session: string) {
     [ask]
   );
 
+  /** Every step a task's log kept, oldest first; none when ky can't say. */
+  const taskSteps = useCallback(
+    (task: string) => ask("task-steps", { task }).catch(() => []),
+    [ask]
+  );
+
   /** A memory block's two halves, newest first. */
   const zoomMemory = useCallback(
     (block: string) => ask("memory-zoom", { block }).catch(() => []),
@@ -511,6 +517,7 @@ export function usePiSession(session: string) {
     changeBrief,
     briefHistory,
     searchMemory,
+    taskSteps,
     zoomMemory,
     forgetMemory,
     changeAutomation,

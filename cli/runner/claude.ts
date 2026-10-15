@@ -5,9 +5,9 @@
  */
 
 import Type from "typebox";
+import { Guard } from "typebox/guard";
 import { type Adapter, type AgentEvent, JsonObjectSchema, TextSchema } from "./agent.ts";
 import { decodeOr, parseOr } from "../../src/core/decode.ts";
-import { describeTool } from "../../src/tool-labels.ts";
 
 type Options = { permissionMode: string; systemPrompt: string; chrome: boolean; session: string | null };
 
@@ -28,7 +28,21 @@ export function claudeArgs({ permissionMode, systemPrompt, chrome, session }: Op
 }
 
 /** One part of an assistant message: text, or a tool it uses. */
-const PartSchema = Type.Object({ type: Type.Optional(Type.Unknown()), name: Type.Optional(Type.Unknown()), input: Type.Optional(Type.Unknown()), text: Type.Optional(Type.Unknown()) });
+const PartSchema = Type.Object({
+  type: Type.Optional(Type.Unknown()),
+  id: Type.Optional(Type.Unknown()),
+  name: Type.Optional(Type.Unknown()),
+  input: Type.Optional(Type.Unknown()),
+  text: Type.Optional(Type.Unknown()),
+  tool_use_id: Type.Optional(Type.Unknown()),
+  content: Type.Optional(Type.Unknown()),
+  is_error: Type.Optional(Type.Unknown())
+});
+
+type Part = Type.Static<typeof PartSchema>;
+
+/** A tool result's content: its text, or its parts, of which the text ones are read. */
+const ResultContentSchema = Type.Union([Type.String(), Type.Array(Type.Object({ type: Type.Optional(Type.Unknown()), text: Type.Optional(Type.Unknown()) }))]);
 
 /** An assistant message's content, as far as the runner reads it; a message that isn't one says nothing. */
 const MessageSchema = Type.Object({ content: Type.Array(PartSchema) });
@@ -48,18 +62,40 @@ const LineSchema = Type.Object({
 
 type Line = Type.Static<typeof LineSchema>;
 
-/** An assistant message: each tool it uses, labelled, and what it says as one line. */
+const partsOf = (event: Line) => decodeOr(MessageSchema, event.message, { content: [] }).content;
+
+/** An assistant message: each tool it uses, and what it says as one line. */
 function messageOf(event: Line): AgentEvent {
-  const parts = decodeOr(MessageSchema, event.message, { content: [] }).content;
+  const parts = partsOf(event);
 
   return {
     type: "message",
-    tools: parts.flatMap((part) => (part.type === "tool_use" ? [describeTool(String(part.name), decodeOr(JsonObjectSchema, part.input, {})).label] : [])),
+    tools: parts.flatMap((part) =>
+      part.type === "tool_use"
+        ? [{ id: Guard.IsString(part.id) ? part.id : undefined, name: String(part.name), args: decodeOr(JsonObjectSchema, part.input, {}) }]
+        : []
+    ),
     text: parts
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join(" ")
       .trim()
   };
+}
+
+/** A tool result's text. */
+function resultText(part: Part): string {
+  const content = decodeOr(ResultContentSchema, part.content ?? "", "");
+
+  return Guard.IsString(content) ? content : content.flatMap((each) => (each.type === "text" ? [String(each.text)] : [])).join("\n");
+}
+
+/** A user message that carries tool results: each tool it answers is done. */
+function resultsOf(event: Line): AgentEvent[] {
+  return partsOf(event).flatMap((part) =>
+    part.type === "tool_result" && Guard.IsString(part.tool_use_id)
+      ? [{ type: "tool-end", id: part.tool_use_id, ok: part.is_error !== true, output: resultText(part) } as const]
+      : []
+  );
 }
 
 /** A count Claude Code reported, if it is one. */
@@ -82,6 +118,7 @@ function read(line: string): AgentEvent[] {
     ...(event.session_id ? [{ type: "session", session: String(decodeOr(TextSchema, event.session_id, "")) } as const] : []),
     // With --replay-user-messages, Claude Code echoes each message it takes in, whether it starts a turn or joins one.
     ...(event.type === "user" && event.isReplay === true ? [{ type: "taken" } as const] : []),
+    ...(event.type === "user" && event.isReplay !== true ? resultsOf(event) : []),
     ...(event.type === "assistant" ? [messageOf(event)] : []),
     ...(event.type === "result"
       ? [

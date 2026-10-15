@@ -12,10 +12,15 @@ export type AgentEvent =
   | { type: "session"; session: string }
   /** It took a prompt in, to start a turn or to join the one running. */
   | { type: "taken" }
-  /** One message: what it says, and a label for each tool it uses. */
-  | { type: "message"; text: string; tools: string[] }
+  /** One message: what it says, and each tool it uses. */
+  | { type: "message"; text: string; tools: ToolUse[] }
+  /** A tool it used is done, with what it returned. */
+  | { type: "tool-end"; id: string; ok: boolean; output: string }
   /** A turn ended, with its answer, and what the process has spent so far when it says any of it. */
   | { type: "result"; ok: boolean; text: string; spent?: { turns?: number; costUsd?: number } };
+
+/** A tool call, by the Claude Code tool it is or is most like; `id` pairs it with its end. */
+export type ToolUse = { id?: string; name: string; args: JsonObject };
 
 export type Adapter = {
   /** What to write to its stdin to give it a prompt. */

@@ -29,6 +29,7 @@ import type {
   SoulVersion,
   SpecialistView,
   SubscriptionView,
+  TaskLogStep,
   TaskRow
 } from "./protocol";
 
@@ -136,6 +137,7 @@ export const ANSWERS = {
     Type.Object({ matches: Type.Array(Type.Object({ id: Type.Number(), date: Text, text: Text })), total: Type.Number(), regex: Type.Boolean() })
   ),
   "memory-zoom": Type.Array(MemoryItemSchema),
+  "task-steps": Type.Unsafe<readonly TaskLogStep[]>(Type.Array(Type.Object({ seq: Type.Number(), text: Text }))),
   "github-repos": Type.Union([Type.Object({ repos: Texts }), Refused]),
   "chatgpt-login": Type.Union([Type.Unsafe<ChatGptCode>(Type.Object({ userCode: Text, verificationUrl: Text, loginId: Text })), Refused]),
   "chatgpt-poll": Type.Unsafe<ChatGptState>(Type.Union([Type.Literal("pending"), Type.Literal("done"), Type.Object({ error: Text })])),

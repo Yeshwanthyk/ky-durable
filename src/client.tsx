@@ -17,6 +17,7 @@ import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
+import { TaskStepsContext } from "./ui/Timeline";
 import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
@@ -393,44 +394,46 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
         <ExecutorContext.Provider value={executor}>
           <PeerContext.Provider value={ky.peerActions}>
             <SettingsNavContext.Provider value={nav}>
-              <PanelMemo
-                name={NAME}
-                variantId={KY_BLOB[view.theme]}
-                active={ky.running || view.working > 0}
-                status={status}
-                model={view.mainModel}
-                tasks={ky.tasks}
-                machines={ky.machines}
-                running={running}
-                catalog={ky.catalog}
-                session={view.session}
-                now={now}
-                settings={ky.settings}
-                setup={ky.setup}
-                skills={ky.skills}
-                soul={ky.soul}
-                memory={ky.memory}
-                memoryActions={memoryActions}
-                specialists={ky.specialists}
-                specialistActions={specialistActions}
-                subscriptions={subscriptions}
-                theme={view.theme}
-                onTheme={setTheme}
-                onSetModel={ky.setModel}
-                onSkillChange={ky.changeSkill}
-                onSkillHistory={ky.skillHistory}
-                onSoulChange={ky.changeSoul}
-                onSoulHistory={ky.soulHistory}
-                onOpen={shell.openSession}
-                onStop={ky.stopTask}
-                onStopAll={ky.stopAll}
-                onSetMachine={ky.setMachine}
-                onSetRepo={ky.setRepo}
-                keyActions={keyActions}
-                onClose={onClose}
-                tab={panel.tab}
-                onTab={panel.setTab}
-              />
+              <TaskStepsContext.Provider value={ky.taskSteps}>
+                <PanelMemo
+                  name={NAME}
+                  variantId={KY_BLOB[view.theme]}
+                  active={ky.running || view.working > 0}
+                  status={status}
+                  model={view.mainModel}
+                  tasks={ky.tasks}
+                  machines={ky.machines}
+                  running={running}
+                  catalog={ky.catalog}
+                  session={view.session}
+                  now={now}
+                  settings={ky.settings}
+                  setup={ky.setup}
+                  skills={ky.skills}
+                  soul={ky.soul}
+                  memory={ky.memory}
+                  memoryActions={memoryActions}
+                  specialists={ky.specialists}
+                  specialistActions={specialistActions}
+                  subscriptions={subscriptions}
+                  theme={view.theme}
+                  onTheme={setTheme}
+                  onSetModel={ky.setModel}
+                  onSkillChange={ky.changeSkill}
+                  onSkillHistory={ky.skillHistory}
+                  onSoulChange={ky.changeSoul}
+                  onSoulHistory={ky.soulHistory}
+                  onOpen={shell.openSession}
+                  onStop={ky.stopTask}
+                  onStopAll={ky.stopAll}
+                  onSetMachine={ky.setMachine}
+                  onSetRepo={ky.setRepo}
+                  keyActions={keyActions}
+                  onClose={onClose}
+                  tab={panel.tab}
+                  onTab={panel.setTab}
+                />
+              </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
           </PeerContext.Provider>
         </ExecutorContext.Provider>

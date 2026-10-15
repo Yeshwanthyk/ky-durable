@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
+import { createContext, memo, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { SENDING } from "../outbox";
 import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
@@ -11,6 +11,9 @@ import { duration } from "./duration";
 import { Icon, Spinner } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
+
+/** Opens the running turn's steps as a timeline; a thread with nowhere to show them has none. */
+export const OpenStepsContext = createContext<(() => void) | null>(null);
 
 // The last few turns stay open; older ones fold behind one button, as in pecan.
 const openTurns = 3;
@@ -206,6 +209,7 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
   const took = started === undefined || ended === undefined ? undefined : duration(ended - started);
   const errors = log.filter((item) => item.kind === "notice" && item.tone === "error");
   const steps = log.filter((item) => item.kind === "tool").length;
+  const openSteps = useContext(OpenStepsContext);
 
   // One layout for live and finished, so the work log and the answer keep their elements when the
   // turn ends: the log folds away behind "Worked" and the answer stays put.
@@ -251,11 +255,17 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
               </div>
             ) : null}
             {live ? (
-              <div className="live">
+              <button type="button" className="live" disabled={openSteps === null} aria-haspopup="dialog" onClick={openSteps ?? undefined}>
                 <Spinner size={13} />
                 <span className="shimmer">Working</span>
                 {took ? <span className="quiet tabular">{took}</span> : null}
-              </div>
+                {steps > 0 && openSteps ? (
+                  <span className="quiet live-steps">
+                    {steps} {steps === 1 ? "step" : "steps"}
+                    <Icon name="chevronRight" size={11} />
+                  </span>
+                ) : null}
+              </button>
             ) : (
               <div className="turn-end" data-state={state}>
                 {state === "aborted" ? (

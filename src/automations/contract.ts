@@ -18,7 +18,8 @@ export type { TaskFeed } from "./tasks";
 export const AUTOMATION_TABLES = Object.freeze({
   automations: "ky_automations",
   checkIns: "ky_check_ins",
-  tasks: "ky_tasks"
+  tasks: "ky_tasks",
+  taskSteps: "ky_task_steps"
 } as const);
 
 /** The automation tool, and the extensions that carry it and the check-in guard. */
@@ -124,6 +125,29 @@ export type TaskStatus = Static<typeof TaskStatusSchema>;
 const TaskStepSchema = Type.Object({ at: Type.Number(), text: Type.String() });
 
 export type TaskStep = Readonly<Static<typeof TaskStepSchema>>;
+
+const StepStateSchema = Type.Union([Type.Literal("running"), Type.Literal("done"), Type.Literal("failed")]);
+
+/**
+ * One step of a task's full log, for its timeline: `call` the tool call it is, when there is one;
+ * `text` its title, `detail` what came back, `input` and `output` the raw call, cut to fit.
+ */
+const TaskLogStepSchema = Type.Object({
+  seq: Type.Number(),
+  call: Nullable(Type.String()),
+  at: Type.Number(),
+  ended_at: Nullable(Type.Number()),
+  state: StepStateSchema,
+  text: Type.String(),
+  detail: Type.String(),
+  input: Type.String(),
+  output: Type.String()
+});
+
+export type TaskLogStep = Readonly<Static<typeof TaskLogStepSchema>>;
+
+/** The rows of `ky_task_steps` that read as steps. */
+export const taskLogRows = (rows: readonly unknown[]): TaskLogStep[] => rows.flatMap((row) => decodeOr(TaskLogStepSchema, row, undefined) ?? []);
 
 /** The `steps` column: JSON, oldest first. */
 const StepsColumn = Type.Array(TaskStepSchema);

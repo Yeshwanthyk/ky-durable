@@ -189,7 +189,7 @@ export type {
   PiToolInfo as ToolInfo
 };
 
-export type { TaskRow } from "./automations/contract";
+export type { TaskLogStep, TaskRow } from "./automations/contract";
 
 export type { ChatRow } from "./chats";
 

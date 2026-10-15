@@ -723,6 +723,29 @@ kbd {
   color: var(--working);
 }
 
+/* The Working line opens the turn's steps. */
+button.live {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.live:disabled {
+  cursor: default;
+}
+
+.live-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+button.live:hover .live-steps {
+  color: var(--ink);
+}
+
 .shimmer {
   background: linear-gradient(90deg, var(--quiet) 0%, var(--ink) 50%, var(--quiet) 100%);
   background-size: 200% 100%;

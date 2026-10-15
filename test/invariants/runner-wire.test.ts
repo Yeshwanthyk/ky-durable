@@ -8,7 +8,8 @@ import { PROTOCOL, WIRE } from "../../src/machines/contract";
  * adds its hash here.
  */
 const SHIPPED = {
-  3: "11ecd029f0034a2f"
+  3: "11ecd029f0034a2f",
+  4: "b7f956d8c29576f3"
 } as const satisfies Record<number, string>;
 
 it("changes the runner's wire only with a PROTOCOL bump", () => {

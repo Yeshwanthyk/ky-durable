@@ -8,10 +8,13 @@
 import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
 import type { Agent } from "../machines/contract";
+import type { StepEnd } from "../step-labels";
 import {
   ColumnInfo,
   summarize,
+  taskLogRows,
   taskRows,
+  type TaskLogStep,
   type TaskKind,
   type TaskNamer,
   type TaskPatch,
@@ -20,6 +23,11 @@ import {
 } from "./contract";
 
 const STEPS_KEPT = 5;
+
+/** How many steps a task's full log keeps, and how many of the newest tasks keep one. */
+const LOG_KEPT = 60;
+
+const LOGS_KEPT = 200;
 
 const LIVE: readonly TaskStatus[] = ["queued", "working"];
 
@@ -74,6 +82,20 @@ export class TaskFeed {
     for (const [name, type] of ADDED) {
       if (!columns.includes(name)) sql.exec(`ALTER TABLE ky_tasks ADD COLUMN ${name} ${type}`);
     }
+
+    // Every step a task took, with what came back, for its timeline; the steps column keeps the last few for the feed.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ky_task_steps (
+      seq INTEGER PRIMARY KEY,
+      task TEXT NOT NULL,
+      call TEXT,
+      at INTEGER NOT NULL,
+      ended_at INTEGER,
+      state TEXT NOT NULL,
+      text TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      input TEXT NOT NULL DEFAULT '',
+      output TEXT NOT NULL DEFAULT '')`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS task_steps_by_task ON ky_task_steps (task, seq)`);
 
     // Machine tasks from before they named their agent all ran as Claude Code.
     sql.exec("UPDATE ky_tasks SET agent = 'claude' WHERE kind = 'machine' AND agent IS NULL");
@@ -175,6 +197,11 @@ export class TaskFeed {
       now,
       task.status === "working" ? now : null
     );
+    // Only the newest tasks keep their full log.
+    this.#sql.exec(
+      `DELETE FROM ky_task_steps WHERE task NOT IN (SELECT id FROM ky_tasks ORDER BY updated_at DESC LIMIT ?)`,
+      LOGS_KEPT
+    );
     this.#emit();
 
     return must(this.get(task.id), `Task ${task.id} wasn't saved.`);
@@ -207,15 +234,70 @@ export class TaskFeed {
     this.#emit();
   }
 
-  /** The task took a step, such as "Reading tasks.ts"; a task that is over takes none. */
-  step(id: string, text: string): void {
+  /**
+   * The task took a step, such as "Reading tasks.ts"; a task that is over takes none. A step with a
+   * `call` is a tool running until `stepEnd` says it is done; one without is done as it is said.
+   */
+  step(id: string, text: string, start: { call?: string; input?: string } = {}): void {
     const current = this.get(id);
     const line = summarize(text);
 
-    if (!current || !isLive(current.status) || line === "" || current.steps.at(-1)?.text === line) return;
-    const steps = [...current.steps, { at: Date.now(), text: line }].slice(-STEPS_KEPT);
-    this.#sql.exec("UPDATE ky_tasks SET steps = ? WHERE id = ?", JSON.stringify(steps), id);
+    if (!current || !isLive(current.status) || line === "") return;
+    const repeated = current.steps.at(-1)?.text === line;
+
+    if (repeated && start.call === undefined) return;
+    const now = Date.now();
+    this.#logStep(id, line, now, start);
+
+    if (!repeated) {
+      const steps = [...current.steps, { at: now, text: line }].slice(-STEPS_KEPT);
+      this.#sql.exec("UPDATE ky_tasks SET steps = ? WHERE id = ?", JSON.stringify(steps), id);
+    }
+
     this.update(id, { status: "working" });
+  }
+
+  /** Add a step to the task's full log, which keeps its newest LOG_KEPT. */
+  #logStep(id: string, line: string, at: number, { call = null, input = "" }: { call?: string | null; input?: string }): void {
+    this.#sql.exec(
+      `INSERT INTO ky_task_steps (task, call, at, state, text, input) VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      call,
+      at,
+      call === null ? "done" : "running",
+      line,
+      input
+    );
+    this.#sql.exec(
+      `DELETE FROM ky_task_steps WHERE task = ? AND seq <= (SELECT seq FROM ky_task_steps WHERE task = ? ORDER BY seq DESC LIMIT 1 OFFSET ?)`,
+      id,
+      id,
+      LOG_KEPT
+    );
+  }
+
+  /** The tool a step's `call` ran is done: its title says what it did, with what came back. */
+  stepEnd(id: string, call: string, end: StepEnd): void {
+    this.#sql.exec(
+      `UPDATE ky_task_steps SET state = ?, text = ?, detail = ?, output = ?, ended_at = ? WHERE task = ? AND call = ? AND state = 'running'`,
+      end.state,
+      summarize(end.text),
+      end.detail,
+      end.output,
+      Date.now(),
+      id,
+      call
+    );
+
+    // A live task's row changes, so a page showing its timeline asks for it again.
+    if (isLive(this.get(id)?.status ?? "done")) this.update(id, {});
+  }
+
+  /** Every step the task's log kept, oldest first. */
+  log(id: string): TaskLogStep[] {
+    return taskLogRows(
+      this.#sql.exec(`SELECT seq, call, at, ended_at, state, text, detail, input, output FROM ky_task_steps WHERE task = ? ORDER BY seq`, id).toArray()
+    );
   }
 
   /** Add model turns and their cost to the task's totals. */
