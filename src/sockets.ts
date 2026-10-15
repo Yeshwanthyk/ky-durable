@@ -826,6 +826,7 @@ export class PiSessionSockets {
     "specialist-save": (message) => this.#saveSpecialist(message),
     "specialist-brief": (message) => this.#brief(message.specialist).apply(message.change, "user"),
     "specialist-history": (message) => this.#brief(message.specialist).history(),
+    "task-steps": (message) => this.#feed.log(message.task),
     "memory-search": (message) => this.#memory.search(message.query),
     "memory-zoom": (message) => this.#memory.children(message.block),
     "memory-forget": (message) => this.#memory.forget(message.block),

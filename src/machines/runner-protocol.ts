@@ -173,8 +173,21 @@ const RunnerReportSchema = Type.Union([
   HelloSchema,
   Type.Object({ type: Type.Literal("ack"), seq: Seq }),
   Type.Object({ type: Type.Literal("session"), task: Text, turn: Turn, session: Text }),
-  /** What the session is doing now, in a few words, such as "Editing tasks.ts". */
-  Type.Object({ type: Type.Literal("step"), task: Text, turn: Turn, text: Text }),
+  /**
+   * What the session is doing now, in a few words, such as "Editing tasks.ts". A tool's step has its
+   * `call` id and `input`; the same call again with a `state` is the tool done, with what came back.
+   */
+  Type.Object({
+    type: Type.Literal("step"),
+    task: Text,
+    turn: Turn,
+    text: Text,
+    call: Type.Optional(Text),
+    input: Type.Optional(Text),
+    state: Type.Optional(Type.Union([Type.Literal("done"), Type.Literal("failed")])),
+    detail: Type.Optional(Text),
+    output: Type.Optional(Text)
+  }),
   /** The end of every turn up to `turn`, with what the session spent on them when the agent says. */
   Type.Object({
     type: Type.Literal("result"),

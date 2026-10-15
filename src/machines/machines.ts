@@ -915,8 +915,15 @@ export class MachineHub {
 
         return;
       case "step":
+        if (report.call !== undefined && report.state !== undefined) {
+          // A tool's end may come after its turn is reported over; its step still says how it went.
+          this.#feed.stepEnd(report.task, report.call, { text: report.text, state: report.state, detail: report.detail ?? "", output: report.output ?? "" });
+
+          return;
+        }
+
         if (this.#closed(report.task, report.turn)) return;
-        this.#feed.step(report.task, report.text);
+        this.#feed.step(report.task, report.text, report.call === undefined ? {} : { call: report.call, input: report.input ?? "" });
 
         return;
       case "result":

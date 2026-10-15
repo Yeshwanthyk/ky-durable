@@ -5,7 +5,8 @@
  * agent's CLI; the tests give it a socket to a real object and fake CLIs.
  */
 
-import type { Adapter, AgentEvent } from "./agent.ts";
+import type { Adapter, AgentEvent, ToolUse } from "./agent.ts";
+import { endStep, startStep } from "../../src/step-labels.ts";
 import { claude } from "./claude.ts";
 import { codex } from "./codex.ts";
 import { Forwarder, type LocalFetch } from "./forward.ts";
@@ -85,6 +86,8 @@ type Run = {
   spent: { turns: number; costUsd: number } | undefined;
   /** When what the agent said was last reported as a step. */
   saidAt: number;
+  /** The tools running now by id, so each one's end is titled by what it was. */
+  calls: Map<string, ToolUse>;
 };
 
 /** How often what the agent says between tools is reported as a step; each tool it uses always is. */
@@ -385,7 +388,27 @@ export class Runner {
       this.#report({ type: "step", task, turn: run.turn, text });
     }
 
-    for (const tool of tools) this.#report({ type: "step", task, turn: run.turn, text: tool });
+    for (const tool of tools) {
+      const start = startStep(tool.name, tool.args);
+
+      if (tool.id === undefined) {
+        this.#report({ type: "step", task, turn: run.turn, text: start.text });
+        continue;
+      }
+
+      run.calls.set(tool.id, tool);
+      this.#report({ type: "step", task, turn: run.turn, text: start.text, call: tool.id, input: start.input });
+    }
+  }
+
+  /** A tool is done: its step says what it did, with what came back. */
+  #onToolEnd(task: string, run: Run, { id, ok, output }: Extract<AgentEvent, { type: "tool-end" }>): void {
+    const tool = run.calls.get(id);
+
+    if (tool === undefined) return;
+    run.calls.delete(id);
+    const end = endStep(tool.name, tool.args, output, ok);
+    this.#report({ type: "step", task, turn: run.turn, call: id, text: end.text, state: end.state, detail: end.detail, output: end.output });
   }
 
   #onEvent(task: string, run: Run, event: AgentEvent): void {
@@ -404,6 +427,10 @@ export class Runner {
         return;
       case "message":
         this.#onMessage(task, run, event);
+
+        return;
+      case "tool-end":
+        this.#onToolEnd(task, run, event);
 
         return;
       case "result":
@@ -460,7 +487,8 @@ export class Runner {
       ended: false,
       dropped: 0,
       spent: undefined,
-      saidAt: 0
+      saidAt: 0,
+      calls: new Map()
     };
 
     this.#runs.set(task, run);

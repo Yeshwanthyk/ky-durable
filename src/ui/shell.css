@@ -3597,3 +3597,269 @@
     background: var(--hover);
   }
 }
+
+/* A task's steps as a timeline, after Muse: a near-black sheet, a glyph per step on a dotted line,
+   bold titles with a dim line under each, the raw call behind a chevron. No cards: spacing does it. */
+.timeline-sheet {
+  height: auto;
+  max-height: calc(100dvh - max(48px, env(safe-area-inset-top) + 24px));
+  background: #1c1c1e;
+  color: #e5e5ea;
+}
+
+@media (min-width: 720px) {
+  .timeline-sheet {
+    width: min(560px, 100vw - 48px);
+    height: fit-content;
+    max-height: min(820px, 100dvh - 64px);
+  }
+}
+
+.timeline-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px 16px 6px 22px;
+}
+
+.timeline-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #f2f2f7;
+  overflow-wrap: anywhere;
+}
+
+.timeline-heading p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: #8e8e93;
+}
+
+.timeline-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #2c2c2e;
+  color: #aeaeb2;
+}
+
+.timeline-open {
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #2c2c2e;
+  color: #e5e5ea;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.timeline-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 22px calc(28px + env(safe-area-inset-bottom));
+}
+
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 14px;
+  padding-bottom: 22px;
+}
+
+/* The dotted line joins each glyph to the next, and the last to Working while the work goes on. */
+.timeline-step::before {
+  content: "";
+  position: absolute;
+  top: 25px;
+  bottom: 3px;
+  left: 9.25px;
+  border-left: 1.5px dotted #48484a;
+}
+
+.timeline-step:last-child::before {
+  display: none;
+}
+
+.timeline:has(+ .timeline-working) .timeline-step:last-child::before {
+  display: block;
+}
+
+.timeline-glyph {
+  margin-top: 1px;
+  color: #636366;
+}
+
+.timeline-glyph[data-state="done"] {
+  color: #30d158;
+}
+
+.timeline-glyph[data-state="running"] {
+  color: #ff9f0a;
+  animation: timeline-pulse 1.6s ease-in-out infinite;
+}
+
+.timeline-glyph[data-state="failed"] {
+  color: #ff453a;
+}
+
+@keyframes timeline-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.timeline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-row:disabled {
+  cursor: default;
+}
+
+.timeline-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.timeline-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #e5e5ea;
+  overflow-wrap: anywhere;
+}
+
+.timeline-title code {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.07);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 500;
+}
+
+.timeline-detail {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #8e8e93;
+  overflow-wrap: anywhere;
+}
+
+.timeline-chevron {
+  flex: none;
+  margin-top: 3px;
+  color: #636366;
+  transition: transform 180ms var(--ease-out);
+}
+
+.timeline-row[aria-expanded="true"] .timeline-chevron {
+  transform: rotate(90deg);
+}
+
+.timeline-raw {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.timeline-raw pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #111113;
+  color: #c7c7cc;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.timeline-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 2px;
+  font-size: 14px;
+  color: #8e8e93;
+}
+
+.timeline-working .shimmer {
+  background-image: linear-gradient(90deg, #8e8e93 0%, #f2f2f7 50%, #8e8e93 100%);
+}
+
+.timeline-flower {
+  color: #ff9f0a;
+  animation: timeline-turn 3s linear infinite;
+}
+
+@keyframes timeline-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.timeline-empty {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #8e8e93;
+}
+
+.timeline-result {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #2c2c2e;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: #d1d1d6;
+  /* Markdown reads the page's colours; the sheet is dark whatever the theme. */
+  --ink: #d1d1d6;
+  --quiet: #8e8e93;
+  --muted: #aeaeb2;
+  --line: #3a3a3c;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-glyph[data-state="running"],
+  .timeline-flower {
+    animation: none;
+  }
+}

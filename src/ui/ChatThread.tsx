@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
 import { Icon } from "./Icon";
-import { Thread } from "./Thread";
+import { OpenStepsContext, Thread } from "./Thread";
+import { Timeline, TimelineSheet } from "./Timeline";
+import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
 
@@ -26,17 +28,26 @@ export function ChatThread({
   const turns = useMemo(() => buildTurns(messages, live, running, tools), [messages, live, running, tools]);
 
   const { away, toLatest } = useFollow(threadRef, innerRef, messages[0]?.id ?? null, turns);
+  const [steps, setSteps] = useState(false);
+  const openSteps = useCallback(() => setSteps(true), []);
 
   return (
     <main ref={threadRef} className="thread" data-scroll>
       <div ref={innerRef} className="thread-inner">
-        {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
+        <OpenStepsContext.Provider value={openSteps}>
+          {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
+        </OpenStepsContext.Provider>
       </div>
       <div className="thread-end">
         <button type="button" className="to-latest pressable" data-shown={away} inert={!away} aria-label="Jump to latest" onClick={toLatest}>
           <Icon name="arrowDown" size={15} />
         </button>
       </div>
+      {steps ? (
+        <TimelineSheet title="This turn" sub={running ? "ky · Working" : "ky · Done"} onClose={() => setSteps(false)}>
+          <Timeline steps={turnTimeline(session)} working={running} empty="No tools used" />
+        </TimelineSheet>
+      ) : null}
     </main>
   );
 }

@@ -22,6 +22,7 @@ import {
 } from "./drive";
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../machines/contract";
+import { taskLogRows } from "../automations/contract";
 import { decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
@@ -611,6 +612,25 @@ describe("machine tasks", () => {
     expect(row()?.steps.map((step) => step.text)).toEqual(["Running pnpm build", "Editing tasks.ts"]);
     expect(row()?.started_at).toBeGreaterThan(0);
 
+    // A tool's step names its call; the same call with a state ends it, with what came back.
+    mac.send({ type: "step", task: run.task, turn: run.turn, text: "Running `pnpm test`", call: "t1", input: "pnpm test" });
+    mac.send({ type: "step", task: run.task, turn: run.turn, text: "Ran `pnpm test`", call: "t1", state: "failed", detail: "1 failed", output: "FAIL a.test.ts" });
+
+    const steps = async () => {
+      const reply = await command(socket, client, { type: "task-steps", task: run.task });
+
+      return reply.type === "result" && Array.isArray(reply.result) ? taskLogRows(reply.result) : [];
+    };
+
+    await client.until(() => row()?.steps.at(-1)?.text === "Running `pnpm test`");
+
+    for (let tries = 0; tries < 50 && (await steps()).at(-1)?.state !== "failed"; tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await steps()).toMatchObject([
+      { text: "Running pnpm build", state: "done", call: null },
+      { text: "Editing tasks.ts", state: "done", call: null },
+      { text: "Ran `pnpm test`", state: "failed", detail: "1 failed", input: "pnpm test", output: "FAIL a.test.ts", call: "t1" }
+    ]);
+
     await prompt(name, `tool machine {"action":"send","task":"${run.task}","message":"also test it"}`);
     const followUp = await mac.run();
     expect(followUp).toMatchObject({ type: "run", task: run.task, prompt: "also test it", session: "claude-session-1" });
@@ -884,6 +904,9 @@ describe("subagents", () => {
     await client.until(() => row()?.status === "done");
     expect(row()?.steps.map((step) => step.text)).toEqual(["multiply"]);
     expect(row()).toMatchObject({ source: "chat", turns: 2 });
+    // Its log has the tool done, with what it returned.
+    const log = await command(socket, client, { type: "task-steps", task: row()?.id ?? "" });
+    expect(log).toMatchObject({ type: "result", result: [{ text: "multiply", state: "done", input: '{\n  "value": 6\n}' }] });
     expect(row()?.cost_usd).toBeGreaterThanOrEqual(0);
     expect(row()?.finished_at).toBeGreaterThanOrEqual(row()?.started_at ?? Infinity);
     socket.close();

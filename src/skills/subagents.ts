@@ -23,7 +23,7 @@ import type { ModelChoice } from "../settings";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
 import { summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
-import { describeTool } from "../tool-labels";
+import { endStep, startStep } from "../step-labels";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
 /**
@@ -551,7 +551,8 @@ export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
 };
 
 /**
- * Each tool a subagent uses becomes a step on its task, and each model
+ * Each tool a subagent uses becomes a step on its task, done with what it
+ * returned once it returns, and each model
  * response adds a turn and its cost. Installed for every conversation, since
  * subagents drop the `subagents` extension; a conversation with no working
  * cloud task, such as the main chat, records nothing.
@@ -566,7 +567,18 @@ export function subagentProgressExtension(feed: TaskFeed): Extension {
         beforeTool(call, api) {
           const id = task(api.conversationId);
 
-          if (id !== undefined) feed.step(id, describeTool(call.name, call.arguments).label);
+          if (id === undefined) return undefined;
+          const start = startStep(call.name, call.arguments);
+          feed.step(id, start.text, { call: call.id, input: start.input });
+
+          return undefined;
+        },
+        afterTool(call, result, api) {
+          const id = task(api.conversationId);
+
+          if (id === undefined) return undefined;
+          const output = (result.content ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+          feed.stepEnd(id, call.id, endStep(call.name, call.arguments, output, result.isError !== true));
 
           return undefined;
         }
