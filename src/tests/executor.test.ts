@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { connectExecutor, inside, prompt, promptTool, submit, until } from "./drive";
+import { EXECUTOR_TOKEN, EXECUTOR_URL } from "./stack";
 
 /** What the fake Executor saw: how often `code` ran, cancellations, sessions opened. */
 function executorSaw(name: string, code: string): Promise<{ runs: number; cancelled: number; sessions: number }> {
@@ -79,5 +80,73 @@ describe("executor tools over MCP", () => {
     await inside(name, (agent) => agent.harness.session().abort());
     await until(async () => (await executorSaw(name, "hang")).cancelled === 1, "Executor saw the cancel");
     expect((await executorSaw(name, "hang")).runs).toBe(1);
+  });
+});
+
+describe("executor approvals in model mode", () => {
+  const BROWSER = `${EXECUTOR_URL}?elicitation_mode=browser`;
+
+  /** Connect with the browser-mode URL a ky may have saved. */
+  async function connectBrowserUrl(name: string): Promise<void> {
+    await inside(name, async (instance) => {
+      expect(await instance.executor.connect(BROWSER, EXECUTOR_TOKEN)).toEqual({});
+      instance.boundary.executorFake.sessions = 0;
+    });
+  }
+
+  it("connects without elicitation_mode, and keeps the saved URL as it was", async () => {
+    const name = crypto.randomUUID();
+    await connectBrowserUrl(name);
+    await prompt(name, "executor hello");
+
+    const { urls, saved } = await inside(name, async (instance) => ({
+      urls: instance.boundary.executorFake.connectedUrls,
+      saved: (await instance.executor.view()).url
+    }));
+
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every((url) => !new URL(url).searchParams.has("elicitation_mode"))).toBe(true);
+    expect(saved).toBe(BROWSER);
+  });
+
+  it("passes resume's response to Executor unchanged", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const args = { requestId: "request-9", response: { action: "accept", content: { reason: "yes", count: 2, ok: true, tags: ["a", "b"] } } };
+
+    await prompt(name, `tool executor_resume ${JSON.stringify(args)}`);
+
+    expect(await inside(name, (instance) => instance.boundary.executorFake.resumes)).toEqual([args]);
+  });
+
+  it("answers an approval asked in one session after the client reconnects", async () => {
+    const name = crypto.randomUUID();
+    await connectBrowserUrl(name);
+
+    expect((await prompt(name, 'tool executor_execute {"code":"approve send mail to sam"}')).text).toBe(
+      'tool said: {"status":"approval-required","requestId":"request-1","message":"send mail to sam"}'
+    );
+    // Executor forgets the session, as a new one after the Durable Object wakes.
+    await inside(name, (instance) => instance.boundary.executorFake.open.clear());
+
+    expect((await prompt(name, 'tool executor_resume {"requestId":"request-1","response":{"action":"accept"}}')).text).toBe(
+      'tool said: {"status":"completed","result":"did send mail to sam"}'
+    );
+    expect(await inside(name, (instance) => instance.boundary.executorFake.sessions)).toBe(2);
+  });
+
+  it("refuses a gate that asks for an approval or for input", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+
+    const checks = await inside(name, async (instance) => [
+      await instance.automations.checkGate("approve send mail"),
+      await instance.automations.checkGate("ask which label")
+    ]);
+
+    expect(checks).toEqual([
+      { kind: "error", text: "it asked for an approval or input; a gate may only read" },
+      { kind: "error", text: "it asked for an approval or input; a gate may only read" }
+    ]);
   });
 });

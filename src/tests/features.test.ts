@@ -186,8 +186,11 @@ describe("the tools", () => {
     const ran = await prompt(name, 'tool executor_execute {"code":"return 1"}');
     expect(ran.text).toBe("tool said: ran 1");
 
-    const resumed = await prompt(name, 'tool executor_resume {"requestId":"approval-1"}');
-    expect(resumed.text).toBe("tool said: fake executor resumed approval-1");
+    const paused = await prompt(name, 'tool executor_execute {"code":"approve send mail"}');
+    expect(paused.text).toBe('tool said: {"status":"approval-required","requestId":"request-1","message":"send mail"}');
+
+    const resumed = await prompt(name, 'tool executor_resume {"requestId":"request-1","response":{"action":"accept"}}');
+    expect(resumed.text).toBe('tool said: {"status":"completed","result":"did send mail"}');
   });
 });
 
