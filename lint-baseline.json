@@ -71,9 +71,6 @@
     "typescript(await-thenable)": 1,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/providers/api-key.ts": {
-    "typescript(no-non-null-assertion)": 1
-  },
   "src/providers/records.ts": {
     "ky(no-unchecked-parse)": 1
   },

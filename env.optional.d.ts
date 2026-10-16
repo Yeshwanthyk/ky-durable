@@ -20,6 +20,10 @@ interface Env {
   readonly KY_CLOUD?: string;
   /** How many idle minutes the cloud machine stays up before it sleeps (src/cloud.ts): 10 when unset; a live test sets 1. */
   readonly KY_CLOUD_IDLE_MINUTES?: string;
+  /** How many questions one peer may have open with this ky at once (src/peers/peers.ts): 3 when unset. */
+  readonly KY_PEER_OPEN_ASKS?: string;
+  /** How many questions one peer may ask this ky in an hour: 10 when unset. */
+  readonly KY_PEER_HOURLY_ASKS?: string;
   /** "1" signs every request in as KY_DEV_EMAIL, with no Access: `pnpm start` only, never a deploy. */
   readonly KY_DEV?: string;
   readonly KY_DEV_EMAIL?: string;

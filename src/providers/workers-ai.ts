@@ -7,8 +7,9 @@ import {
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
-import type { Endpoint } from "../models";
 import { Breaker } from "./breaker";
+import type { Endpoint } from "./endpoint";
+import { offered } from "./offer";
 import type { ProviderRecord } from "./records";
 import { sending } from "./transport";
 
@@ -102,7 +103,8 @@ export function workersAI(ai: AiBinding): Endpoint {
     kind: WORKERS_AI_RECORD.kind,
     name: WORKERS_AI_RECORD.label,
     needs: "the AI binding",
-    models,
+    // Only the models probed above are offered, so each is featured.
+    ...offered(models, { featured: models.map((model) => model.id) }),
     thinkingLevel: "high",
     breaker,
     connected: () => true

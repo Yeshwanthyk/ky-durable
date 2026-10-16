@@ -775,15 +775,15 @@ export class Automations {
     return `${title || "untitled"} (${session})`;
   }
 
-  /** The models an automation can use, and their thinking levels. */
+  /** The featured models an automation can use, and their thinking levels; any other a provider offers works too. */
   #choices(): string {
     const models = this.#deps.models.catalog().flatMap((provider) =>
       provider.connected
-        ? provider.models.map((model) => `${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`)
+        ? provider.models.flatMap((model) => (model.featured ? [`${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`] : []))
         : []
     );
 
-    return `Choose one of: ${models.join("; ")}.`;
+    return `Choose one of: ${models.join("; ")}. Any other model those providers offer works too, by its id.`;
   }
 
   /** Book its fires: the cron, or the one-off at its time, or now if that has passed. */

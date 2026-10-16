@@ -295,7 +295,7 @@ describe("a turn", () => {
 });
 
 describe("an API key added in Settings", () => {
-  it("makes Anthropic's models selectable once a test call takes it, and moves main to Claude", async () => {
+  it("makes Anthropic's models selectable once a test call takes it, featuring three, and moves main to Claude", async () => {
     const name = await fresh("bare");
 
     expect(await addKey(name, "anthropic", ` ${ANTHROPIC_KEY}\n`)).toEqual({});
@@ -305,10 +305,22 @@ describe("an API key added in Settings", () => {
     expect(test!.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
 
     const catalog = await inside(name, (instance) => instance.models.view());
-    expect(catalog.providers.map(({ id, kind, models }) => ({ id, kind, models: models.map((model) => model.modelId) }))).toEqual([
+
+    const featured = catalog.providers.map(({ id, kind, models }) => ({
+      id,
+      kind,
+      models: models.flatMap((model) => (model.featured ? [model.modelId] : []))
+    }));
+
+    expect(featured).toEqual([
       { id: "anthropic", kind: "api-key", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] },
       { id: "workers-ai", kind: "workers-ai", models: [GLM, KIMI, GPT_OSS] }
     ]);
+    // The rest of pi-ai's Anthropic catalog follows, without dated snapshots; Workers AI offers only what was probed.
+    const [anthropic, workers] = catalog.providers;
+    expect(anthropic!.models.map((model) => model.modelId)).toEqual(expect.arrayContaining(["claude-sonnet-4-6", "claude-haiku-5-5"]));
+    expect(anthropic!.models.map((model) => model.modelId)).not.toContain("claude-haiku-4-5-20251001");
+    expect(workers!.models.map((model) => model.modelId)).toEqual([GLM, KIMI, GPT_OSS]);
     expect(catalog.vendors.map((vendor) => vendor.id)).toEqual(["openai", "opencode-go"]);
     expect(await resolve(name, "main")).toEqual({ provider: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
 
@@ -319,6 +331,14 @@ describe("an API key added in Settings", () => {
     const sent = (await calls(name)).at(-1);
     expect(sent).toMatchObject({ model: "claude-opus-5-5" });
     expect(sent!.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
+
+    // A model behind "Show all" can be chosen, and runs.
+    expect(await set(name, "main", { provider: "anthropic", modelId: "claude-sonnet-4-6", thinkingLevel: "medium" })).toMatchObject({
+      modelId: "claude-sonnet-4-6"
+    });
+    await inside(name, (instance) => instance.applyMain());
+    expect((await prompt(name, "again")).text).toBe("echo: again");
+    expect((await calls(name)).at(-1)).toMatchObject({ model: "claude-sonnet-4-6" });
   });
 
   it("makes OpenAI's models selectable, and runs a turn on them", async () => {

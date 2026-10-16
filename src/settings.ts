@@ -39,6 +39,8 @@ export type ModelChoice = Readonly<Static<typeof ModelChoiceSchema>>;
 export type ModelOption = {
   readonly modelId: string;
   readonly name: string;
+  /** Settings lists it up front; the rest are behind "Show all". */
+  readonly featured: boolean;
   /** Thinking levels the model accepts; the first is the lowest. */
   readonly levels: readonly ModelThinkingLevel[];
   /** It reads images in the user's messages. */

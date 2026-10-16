@@ -118,7 +118,7 @@ describe("the panel's specialist sheet", () => {
     kind: "api-key",
     name: "Anthropic",
     connected,
-    models: [{ modelId: "claude", name: "Claude", levels: ["off", "high"], images: true }]
+    models: [{ modelId: "claude", name: "Claude", featured: true, levels: ["off", "high"], images: true }]
   });
 
   it("keeps the stored model when the user didn't change it, even with its provider disconnected", () => {
