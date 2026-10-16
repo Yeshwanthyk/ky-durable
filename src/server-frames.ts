@@ -13,6 +13,7 @@ import Type, { type Static, type TSchema } from "typebox";
 import { BloubSpecSchema } from "./avatar-spec.ts";
 import type {
   AutomationInfo,
+  BriefView,
   ChatGptCode,
   ChatGptState,
   ChatRow,
@@ -24,6 +25,7 @@ import type {
   MailView,
   PeerInvite,
   PeerView,
+  ProactivityView,
   SettingsView,
   SetupView,
   SkillRow,
@@ -101,6 +103,16 @@ export const ServerFrameSchema = Type.Union([
     type: Type.Literal("memory"),
     memory: Type.Object({ count: Type.Number(), newest: Type.Union([Text, Type.Null()]), items: Type.Array(MemoryItemSchema) })
   }),
+  Type.Object({
+    type: Type.Literal("brief"),
+    brief: Type.Unsafe<BriefView>(
+      Type.Object({
+        day: Text,
+        expires_at: Type.Number(),
+        lines: Type.Array(Type.Object({ key: Text, text: Text, chip: Type.Union([Text, Type.Null()]), pinned: Type.Boolean() }))
+      })
+    )
+  }),
   Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation), checkIns: Type.Boolean() }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("setup"), setup: Setup }),
@@ -132,6 +144,13 @@ const Refusable = Type.Object({ refused: Type.Optional(Text) });
 const Refused = Type.Object({ refused: Text });
 
 const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Text, actor: Text, body: Text, created_at: Type.Number() }));
+
+const Rate = Type.Object({ count: Type.Number(), of: Type.Number() });
+
+/** Settings › Proactivity: the level and how the brief and anticipations went. */
+const Proactivity = Type.Unsafe<ProactivityView>(
+  Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]), accepted: Rate, dismissed: Rate, expired: Rate })
+);
 
 /** What the server answers each ask with, by the ask's message type. */
 export const ANSWERS = {
@@ -169,7 +188,12 @@ export const ANSWERS = {
   ),
   "mail-approve": Refusable,
   "mail-discard": Refusable,
-  "mail-disallow": Refusable
+  "mail-disallow": Refusable,
+  proactivity: Proactivity,
+  "set-proactivity": Proactivity,
+  "brief-act": Type.Null(),
+  "brief-pin": Type.Null(),
+  "brief-dismiss": Type.Null()
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 
 /** A message type the page asks with: one whose answer it waits for. */

@@ -13,12 +13,14 @@ import type {
   AutomationAction,
   AutomationDraft,
   AutomationInfo,
+  BriefView,
   ChatRow,
   ClientMessage,
   FileRow,
   MachineInfo,
   MemoryView,
   ModelChoice,
+  ProactivityLevel,
   Purpose,
   ServerMessage,
   SettingsView,
@@ -69,6 +71,8 @@ type State = SessionView & {
   readonly automations: readonly AutomationInfo[];
   /** Whether the nightly dream books check-ins. */
   readonly checkIns: boolean;
+  /** Today's brief as the card shows it; null when there is none to show. Never cached: it shows once. */
+  readonly brief: BriefView | null;
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** ky's repo and the tools this deploy lacks; null until the server sends them. */
@@ -144,8 +148,17 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     specialists: ({ specialists }) => replace({ specialists }),
     avatars: ({ avatars }) => replace({ avatars }),
     memory: ({ memory }) => replace({ memory }),
-    automations: ({ automations, checkIns }) => replace({ automations, checkIns })
+    automations: ({ automations, checkIns }) => replace({ automations, checkIns }),
+    brief: ({ brief }) => setState((current) => ({ ...current, brief: mergeBrief(current.brief, brief) }))
   };
+}
+
+/** A brief frame on the card: another day's replaces it, the same day's lines join it by key. */
+function mergeBrief(current: BriefView | null, next: BriefView): BriefView {
+  if (current === null || current.day !== next.day) return next;
+  const incoming = new Map(next.lines.map((line) => [line.key, line]));
+
+  return { ...next, lines: [...current.lines.map((line) => incoming.get(line.key) ?? line), ...next.lines.filter((line) => !current.lines.some((each) => each.key === line.key))] };
 }
 
 /** The fields of an ask of `Type`, all but its type and the id the page gives it. */
@@ -181,6 +194,7 @@ const INITIAL_STATE: State = {
   memory: null,
   automations: [],
   checkIns: true,
+  brief: null,
   settings: null,
   setup: null,
   subscriptions: [],
@@ -275,6 +289,7 @@ export function usePiSession(session: string) {
       memory: current.memory,
       automations: current.automations,
       checkIns: current.checkIns,
+      brief: current.brief,
       settings: current.settings,
       setup: current.setup,
       subscriptions: current.subscriptions,
@@ -424,7 +439,7 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  const { executorActions, peerActions, mailActions } = useSettingsActions(ask, send);
+  const { executorActions, peerActions, mailActions, proactivityActions } = useSettingsActions(ask, send);
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -527,6 +542,8 @@ export function usePiSession(session: string) {
 
   const { changeAutomation, setCheckIns } = useAutomationActions(send);
 
+  const briefActions = useBriefActions(ask, setState);
+
   return {
     ...state,
     submit,
@@ -547,6 +564,8 @@ export function usePiSession(session: string) {
     executorActions,
     peerActions,
     mailActions,
+    proactivityActions,
+    briefActions,
     newChat,
     archiveChat,
     renameChat,
@@ -651,6 +670,44 @@ function useAutomationActions(send: (message: ClientMessage) => void) {
   return { changeAutomation, setCheckIns };
 }
 
+/**
+ * The brief card's taps: the card changes at once, and the server records the outcome; one it refuses shows
+ * as the page's error, like any refused ask.
+ */
+function useBriefActions(ask: AskFn, setState: (update: (current: State) => State) => void) {
+  return useMemo(() => {
+    const change = (update: (brief: BriefView) => BriefView | null) =>
+      setState((current) => {
+        const brief = current.brief === null ? null : update(current.brief);
+
+        return { ...current, brief: brief === null || brief.lines.length === 0 ? null : brief };
+      });
+
+    const without = (key: string) => (brief: BriefView) => ({ ...brief, lines: brief.lines.filter((line) => line.key !== key) });
+    const settle = () => undefined;
+
+    return {
+      /** The line's chip went into the composer: it is done with. */
+      onAct: (key: string) => {
+        change(without(key));
+        ask("brief-act", { key }).catch(settle);
+      },
+      onPin: (key: string) => {
+        change((brief) => ({ ...brief, lines: brief.lines.map((line) => (line.key === key ? { ...line, pinned: true } : line)) }));
+        ask("brief-pin", { key }).catch(settle);
+      },
+      onDismiss: (key: string) => {
+        change(without(key));
+        ask("brief-dismiss", { key }).catch(settle);
+      },
+      onDismissAll: () => {
+        change(() => null);
+        ask("brief-dismiss", {}).catch(settle);
+      }
+    };
+  }, [ask, setState]);
+}
+
 /** Settings › Subscriptions' actions, answered over the socket. */
 function useSubscriptionActions(ask: AskFn, send: (message: ClientMessage) => void) {
   return useMemo(
@@ -675,7 +732,11 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
         onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
       },
       peerActions: peerActions(ask),
-      mailActions: mailActions(ask)
+      mailActions: mailActions(ask),
+      proactivityActions: {
+        onView: () => ask("proactivity", {}),
+        onSet: (level: ProactivityLevel) => ask("set-proactivity", { level })
+      }
     }),
     [ask, send]
   );

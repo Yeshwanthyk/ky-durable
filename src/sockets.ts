@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { DreamLedger, Memory, Presence, Soul } from "./dreaming/contract";
+import type { Brief, DreamLedger, Memory, Presence, Proactivity, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -176,6 +176,9 @@ export class PiSessionSockets {
   readonly #ledger: DreamLedger;
   readonly #automations: Automations;
   readonly #presence: Presence;
+  /** The day's brief; #brief is a specialist's. */
+  readonly #morning: Brief;
+  readonly #proactivity: Proactivity;
   readonly #setup: Setup;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
@@ -207,6 +210,8 @@ export class PiSessionSockets {
     ledger: DreamLedger,
     automations: Automations,
     presence: Presence,
+    brief: Brief,
+    proactivity: Proactivity,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
@@ -237,6 +242,8 @@ export class PiSessionSockets {
     this.#ledger = ledger;
     this.#automations = automations;
     this.#presence = presence;
+    this.#morning = brief;
+    this.#proactivity = proactivity;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
@@ -499,6 +506,10 @@ export class PiSessionSockets {
       version: this.#version,
       tools: this.#tools()
     });
+    // Once a day, as a card and never a chat message: lines this browser shows are recorded as shown.
+    const brief = this.#morning.show();
+
+    if (brief !== undefined) send(connection, { type: "brief", brief });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
@@ -921,6 +932,24 @@ export class PiSessionSockets {
     "dream-undo": (message) => this.#ledger.undo(message.entry),
     "automation-save": (message) => this.#saveAutomation(message),
     automation: (message) => this.#automationActions[message.action](message.automation),
+    "brief-act": (message) => {
+      this.#morning.act(message.key);
+
+      return null;
+    },
+    "brief-pin": (message) => {
+      this.#morning.pin(message.key);
+
+      return null;
+    },
+    "brief-dismiss": (message) => {
+      if (message.key === undefined) this.#morning.dismissAll();
+      else this.#morning.dismiss(message.key);
+
+      return null;
+    },
+    proactivity: () => this.#proactivity.view(),
+    "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-check-ins": async (message) => {
       await this.#automations.setCheckIns(message.on);
 

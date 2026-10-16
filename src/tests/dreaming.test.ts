@@ -15,7 +15,7 @@ const never = () => Promise.reject(new Error("no summaries in this test"));
 describe("dreaming's contract", () => {
   it("allowlists only tools the domain registers", async () => {
     const names = await inside(crypto.randomUUID(), (instance) => {
-      const { soul, memory } = dreamingTools({ soul: instance.soul, memory: instance.memory, anticipations: instance.anticipations, history: instance.history, reviews: instance.reviews, chat: () => true });
+      const { soul, memory } = dreamingTools({ soul: instance.soul, memory: instance.memory, anticipations: instance.anticipations, brief: instance.brief, history: instance.history, reviews: instance.reviews, chat: () => true });
 
       return [...(soul.tools ?? []), ...(memory.tools ?? [])].map((tool) => tool.name);
     });

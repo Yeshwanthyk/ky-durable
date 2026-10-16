@@ -6,6 +6,7 @@ import type { SettingsView, TaskRow } from "./protocol";
 import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext } from "./ui/Automations";
+import { BriefCard } from "./ui/BriefCard";
 import { SendTaskContext } from "./ui/change-review";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
@@ -16,6 +17,7 @@ import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { MailContext } from "./ui/Mail";
+import { ProactivityContext } from "./ui/Proactivity";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
@@ -378,6 +380,7 @@ function Stage(parts: Parts) {
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
+        <BriefCard brief={ky.brief} actions={ky.briefActions} onPick={onPick} />
         <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} />
         <DraftDock
           handle={composer}
@@ -456,6 +459,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
         <ExecutorContext.Provider value={executor}>
           <PeerContext.Provider value={ky.peerActions}>
           <MailContext.Provider value={ky.mailActions}>
+          <ProactivityContext.Provider value={ky.proactivityActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -498,6 +502,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </ProactivityContext.Provider>
           </MailContext.Provider>
           </PeerContext.Provider>
         </ExecutorContext.Provider>

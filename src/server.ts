@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
+import { Anticipations, Brief, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -225,6 +225,17 @@ export class PiAgent extends DurableObject<Env> {
   readonly presence = new Presence(this.ctx.storage.sql);
   /** What the user will need soon; a done one becomes a memory. */
   readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory);
+  /** What ky put in front of the user unasked, and what they did with it. */
+  readonly surfaced = new Surfaced(this.ctx.storage.sql);
+  /** How proactive ky is, from Settings › Proactivity. */
+  readonly proactivity = new Proactivity(this.ctx.storage.sql, this.surfaced, this.anticipations);
+  /** The day's brief: the card above the chat on the user's first visit of the day. */
+  readonly brief = new Brief(this.ctx.storage.sql, {
+    zone: () => this.automations.checkIns().zone,
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    anticipations: this.anticipations
+  });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
     anticipations: this.anticipations,
@@ -245,7 +256,9 @@ export class PiAgent extends DurableObject<Env> {
       waiting: (await this.automations.list(false))
         .filter((each) => each.created_by === "dream" && each.status === "active")
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
-    })
+    }),
+    surfaced: this.surfaced,
+    proactivity: this.proactivity
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -254,7 +267,7 @@ export class PiAgent extends DurableObject<Env> {
       const chat = (session: string) => this.isChat(session);
 
       // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
-      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, anticipations: this.anticipations, history: this.history, reviews: this.reviews, chat });
+      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, anticipations: this.anticipations, brief: this.brief, history: this.history, reviews: this.reviews, chat });
 
       const skilling: SkillsWiring = {
         skills: this.skills,
@@ -369,6 +382,8 @@ export class PiAgent extends DurableObject<Env> {
     this.ledger,
     this.automations,
     this.presence,
+    this.brief,
+    this.proactivity,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
