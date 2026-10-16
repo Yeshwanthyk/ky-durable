@@ -156,11 +156,12 @@ describe("adding an anticipation", () => {
       // The next night's run starts its own five.
       store.add(loop(message, { text: "tomorrow's" }), "dream", now + 13 * HOUR);
 
-      for (let i = 0; i < 14; i++) store.add(loop(message, { text: `episode ${i}` }), "episode", now);
+      // Later nights' runs fill the open room: 6 so far, 14 more.
+      for (let i = 0; i < 14; i++) store.add(loop(message, { text: `later ${i}` }), "dream", now + (2 + Math.floor(i / 5)) * 13 * HOUR);
 
       const full = (() => {
         try {
-          store.add(loop(message, { text: "one more" }), "episode", now);
+          store.add(loop(message, { text: "one more" }), "dream", now + 10 * 13 * HOUR);
         } catch (error) {
           return String(error);
         }

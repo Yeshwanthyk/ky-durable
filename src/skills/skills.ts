@@ -58,7 +58,7 @@ const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
 };
 
 /** What a blocked call calls each kind. */
-const KIND_NAMES: Record<ReviewKind, string> = { review: "skill review", dream: "dream", episode: "episode reflection" };
+const KIND_NAMES: Record<ReviewKind, string> = { review: "A skill review", dream: "A dream", episode: "An episode reflection" };
 
 /** A skill not opened in this long, and older than STALE_MIN_AGE_MS, is archived by `stale`. */
 const STALE_UNUSED_MS = 60 * 24 * 60 * 60 * 1000;
@@ -79,7 +79,9 @@ const Touched = Type.Object({ name: Type.String(), at: Type.Number() });
 
 const Inserted = Type.Object({ id: Type.Number() });
 
-const Reached = Type.Object({ upto: Type.Union([Type.Number(), Type.Null()]) });
+const Reached = Type.Object({ upto: Type.Number(), created_at: Type.Number() });
+
+const Forked = Type.Object({ parent: Type.String(), upto: Type.Number() });
 
 /** Add the columns a table was first made without; returns the ones it added. */
 function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): string[] {
@@ -425,6 +427,8 @@ export class Reviews {
       ["upto", "INTEGER"],
       ["run", "TEXT"]
     ]);
+    // reached and window read a chat's rows of one kind on every turn's end.
+    sql.exec(`CREATE INDEX IF NOT EXISTS skill_reviews_by_parent ON ${SKILL_TABLES.skillReviews} (parent, kind)`);
   }
 
   kind(conversation: string): ReviewKind | undefined {
@@ -446,29 +450,60 @@ export class Reviews {
   /**
    * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
    * was made at, so the next one of its kind knows where this one read to. `run` is a dream's token, which its stale
-   * pass used too.
+   * pass used too. `at` is when it ran, now unless said: a mark that ran nothing records 0.
    */
-  add(conversation: string, parent: string, kind: ReviewKind = "review", mark: { readonly upto?: number; readonly run?: string } = {}): void {
+  add(conversation: string, parent: string, kind: ReviewKind = "review", mark: { readonly upto?: number; readonly run?: string; readonly at?: number } = {}): void {
     this.#sql.exec(
       `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto, run) VALUES (?, ?, ?, ?, ?, ?)`,
       conversation,
       parent,
-      Date.now(),
+      mark.at ?? Date.now(),
       kind,
       mark.upto ?? null,
       mark.run ?? null
     );
   }
 
-  /** The newest entry of `parent` a fork of `kind` was made at; 0 before the first. */
-  reached(parent: string, kind: ReviewKind): number {
+  /** The newest entry of `parent` a fork of `kind` was made at, and when that fork ran; undefined before the first. */
+  reached(parent: string, kind: ReviewKind): { readonly upto: number; readonly at: number } | undefined {
     const row = rows(
-      this.#sql.exec(`SELECT max(upto) AS upto FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ?`, parent, kind),
+      this.#sql.exec(
+        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ? AND upto IS NOT NULL ORDER BY upto DESC LIMIT 1`,
+        parent,
+        kind
+      ),
       Reached,
       "where a review read to"
     )[0];
 
-    return row?.upto ?? 0;
+    return row === undefined ? undefined : { upto: row.upto, at: row.created_at };
+  }
+
+  /**
+   * What the fork `conversation` read of its parent: the parent, and its entries after the one the fork before it of
+   * the same kind was made at, up to its own. Undefined for a fork that recorded no entry, or for no fork.
+   */
+  window(conversation: string): { readonly parent: string; readonly after: number; readonly upto: number } | undefined {
+    const row = rows(
+      this.#sql.exec(`SELECT parent, upto FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ? AND upto IS NOT NULL`, conversation),
+      Forked,
+      "what a review read"
+    )[0];
+
+    if (row === undefined) return undefined;
+
+    const before = rows(
+      this.#sql.exec(
+        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = (SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?) AND upto < ? ORDER BY upto DESC LIMIT 1`,
+        row.parent,
+        conversation,
+        row.upto
+      ),
+      Reached,
+      "where the review before read to"
+    )[0];
+
+    return { parent: row.parent, after: before?.upto ?? 0, upto: row.upto };
   }
 }
 
@@ -561,7 +596,7 @@ export function skillsExtension(
 
           if (kind === undefined || ALLOWED[kind].has(call.name)) return undefined;
 
-          return { block: `A ${KIND_NAMES[kind]} may only call ${[...ALLOWED[kind]].join(", ")}.` };
+          return { block: `${KIND_NAMES[kind]} may only call ${[...ALLOWED[kind]].join(", ")}.` };
         }
       })
     ],

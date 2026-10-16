@@ -356,26 +356,21 @@ type BackgroundTask = { readonly id: string; readonly worker: string; readonly t
 /** The source of a task `runInFeed` runs: only this object's memory waits on it, so a restart cuts it off. */
 export const BACKGROUND_SOURCE = "background";
 
-/**
- * Show a task in Activity, send its one message to the conversation, and
- * report the answer. Returns the answer, or undefined when the task failed.
- */
-export async function runInFeed(
-  host: ReviewHost,
-  conversation: Conversation,
-  { id, worker, title, content }: BackgroundTask
-): Promise<string | undefined> {
-  const { context, feed } = host;
-  feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
+/** How a background task's one message ended: its answer, or how Activity shows that it got none. */
+export type BackgroundOutcome =
+  | { readonly status: "done"; readonly answer: string }
+  | { readonly status: "stopped" | "failed"; readonly summary: string };
+
+/** Send a background task's one message to `conversation` and wait for the answer, showing nothing; never throws. */
+export async function askInBackground(host: ReviewHost, conversation: Conversation, { id, worker, title, content }: BackgroundTask): Promise<BackgroundOutcome> {
+  const { context } = host;
 
   try {
     const submission = await conversation.submit({ type: "input", content, requestId: `${worker}:${id}` }, context);
     const settled = await submission.wait(context);
 
     if (settled.status === "unanswered") {
-      feed.update(id, settled.reason === "aborted" ? { status: "stopped", summary: "Stopped" } : { status: "failed", summary: `Failed: ${settled.reason}` });
-
-      return undefined;
+      return settled.reason === "aborted" ? { status: "stopped", summary: "Stopped" } : { status: "failed", summary: `Failed: ${settled.reason}` };
     }
 
     const answer =
@@ -387,14 +382,37 @@ export async function runInFeed(
           )
         : undefined;
 
-    const said = textOf(answer);
-    feed.update(id, { status: "done", summary: summarize(said) || "Done" });
-
-    return said;
+    return { status: "done", answer: textOf(answer) };
   } catch (error) {
     console.warn(`${title} failed`, error);
-    feed.update(id, { status: "failed", summary: summarize(String(error)) });
 
-    return undefined;
+    return { status: "failed", summary: summarize(String(error)) };
   }
+}
+
+/** A background task's card in Activity, working until it ends. */
+function startCard(host: ReviewHost, conversation: Conversation, { id, worker, title }: Omit<BackgroundTask, "content">): void {
+  host.feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
+}
+
+function endCard(host: ReviewHost, id: string, outcome: BackgroundOutcome): void {
+  host.feed.update(id, outcome.status === "done" ? { status: "done", summary: summarize(outcome.answer) || "Done" } : outcome);
+}
+
+/** A background task that already ended, shown in Activity as `runInFeed` leaves one. */
+export function showEnded(host: ReviewHost, conversation: Conversation, task: Omit<BackgroundTask, "content">, outcome: BackgroundOutcome): void {
+  startCard(host, conversation, task);
+  endCard(host, task.id, outcome);
+}
+
+/**
+ * Show a task in Activity, send its one message to the conversation, and
+ * report the answer. Returns the answer, or undefined when the task failed.
+ */
+export async function runInFeed(host: ReviewHost, conversation: Conversation, task: BackgroundTask): Promise<string | undefined> {
+  startCard(host, conversation, task);
+  const outcome = await askInBackground(host, conversation, task);
+  endCard(host, task.id, outcome);
+
+  return outcome.status === "done" ? outcome.answer : undefined;
 }

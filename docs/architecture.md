@@ -73,13 +73,19 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   messages (from a chat, never a dream's, a subagent's or a task's) or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional
   window. The `anticipate` tool (on memory's extension, so specialists cannot call it) adds, closes, extends, absorbs,
   pins (the user only) and lists them, all open or by words (`match`) or the hours ahead (`due`): the dream as `dream`, at most 5 a run and only while fewer than 20 are open, changing only machine-made,
-  unpinned rows; an episode reflection as `episode`, under the same 20; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.
-  Episode reflections (`src/dreaming/episodes.ts`) keep them between dreams: after a main-chat or side-chat turn busy
-  enough for a skill review, or once 6 of the user's messages came since the last pass, ky forks the chat when it is
-  idle and asks the fork, on the background model, what is still open, with the messages since the last pass and their ids.
+  unpinned rows; an episode reflection as `episode`, under the same 20, only adding (at most 3 a pass, each citing the user's
+  own messages from the stretch of the chat it read) and listing; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.
+  Episode reflections (`src/dreaming/episodes.ts`) keep them between dreams: after a main-chat or side-chat turn at
+  least 30 minutes after the chat's last pass, busy enough for a skill review with 2 of the user's own messages since,
+  or once 6 of them came, ky forks the chat when it is idle and asks the fork, on the background model, what is still
+  open, with the messages since the last pass and their ids. A user entry is the user's own only when its submission's
+  request id is a bare UUID (`src/history.ts` `ownMessages`); a relay is a `notice:` line and never a turn.
   The fork may call only `anticipate` and `memory_recall`, is told to answer [SILENT] when nothing is open, and shows in
-  Activity as "Episode reflection" ("Nothing open" when silent). Its review row (`ky_skill_reviews`, kind `episode`)
-  records the chat entry it forked at, so the count of messages since the last pass needs no state of its own.
+  Activity as "Episode reflection" only when it kept something or failed: a silent pass leaves no card. Its review row
+  (`ky_skill_reviews`, kind `episode`, indexed by parent and kind) records the chat entry it forked at, so the count of
+  messages since the last pass, the cooldown, and the stretch its evidence must come from need no state of their own;
+  a chat's first turn writes a mark row (`episode-seed:<chat>`, at 0) just before itself, so history from before
+  episodes gets no pass.
   Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
   with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
   Turn-start recall will read them with `match`; no panel shows them yet.
