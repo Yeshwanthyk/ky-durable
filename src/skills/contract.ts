@@ -53,6 +53,15 @@ export const SkillAction = Type.Union([
 
 export type SkillAction = Static<typeof SkillAction>;
 
+/** Pinning keeps a skill from the dream: no archive, merge or patch. Not a version: it changes no content. */
+export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
+
+
+/** Who made a skill. A dream may archive only what ky made (agent, review or dream); ky's starter skills count as the user's. */
+const SkillOrigin = Type.Union([Type.Literal("agent"), Type.Literal("review"), Type.Literal("dream"), Type.Literal("user")]);
+
+export type SkillOrigin = Static<typeof SkillOrigin>;
+
 const SkillStatus = Type.Union([Type.Literal("active"), Type.Literal("archived")]);
 
 export type SkillStatus = Static<typeof SkillStatus>;
@@ -66,11 +75,15 @@ const EDITS = {
 
 /** One change to the library, skill_manage's input; which fields it needs depends on the action. */
 export const SkillChange = Type.Object({
-  action: SkillAction,
+  action: Type.Union([SkillAction, PinAction]),
   name: Type.String(),
   description: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
-  ...EDITS
+  ...EDITS,
+  /** On an archive that is a merge: the active skill that now covers this one. A dream must give it. */
+  absorbed_into: Type.Optional(Type.String()),
+  /** Why, in a few words; a dream's shows in Activity's Last night. */
+  reason: Type.Optional(Type.String())
 });
 
 export type SkillChange = Static<typeof SkillChange>;
@@ -81,8 +94,8 @@ export const SkillViewInput = Type.Object({
   history: Type.Optional(Type.Boolean())
 });
 
-/** A row of ky_skills. */
-export const SkillRow = Type.Object({
+/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. */
+export const SkillStored = Type.Object({
   name: Type.String(),
   description: Type.String(),
   body: Type.String(),
@@ -91,10 +104,35 @@ export const SkillRow = Type.Object({
   /** When skill_view last opened it; null if never. */
   last_used_at: Type.Union([Type.Number(), Type.Null()]),
   created_at: Type.Number(),
-  updated_at: Type.Number()
+  updated_at: Type.Number(),
+  pinned: Type.Number(),
+  created_by: SkillOrigin
 });
 
-export type SkillRow = Static<typeof SkillRow>;
+export type SkillRow = Omit<Static<typeof SkillStored>, "pinned"> & {
+  /** The user pinned it: a dream leaves it as it is. */
+  readonly pinned: boolean;
+};
+
+/** A stored skill, its pin as a boolean. */
+export function skillOf({ pinned, ...row }: Static<typeof SkillStored>): SkillRow {
+  return { ...row, pinned: pinned !== 0 };
+}
+
+/**
+ * A change about to be written, as Skills tells its watchers (the dream's ledger, src/dreaming/ledger.ts):
+ * `before` is the skill's newest version until now, null for a create.
+ */
+export type SkillWrite = {
+  readonly name: string;
+  readonly action: SkillAction;
+  readonly actor: string;
+  /** The conversation that made it; null for the user's and for ky's staleness pass. */
+  readonly conversation: string | null;
+  readonly before: number | null;
+  readonly absorbed_into: string | null;
+  readonly reason: string | null;
+};
 
 /** A row of ky_skill_versions. */
 export const SkillVersion = Type.Object({
