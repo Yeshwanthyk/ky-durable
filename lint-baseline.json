@@ -162,7 +162,7 @@
     "typescript(no-non-null-assertion)": 2
   },
   "src/ui/Panel.tsx": {
-    "typescript(no-non-null-assertion)": 4
+    "typescript(no-non-null-assertion)": 3
   },
   "src/ui/bloub/decor.ts": {
     "eslint(no-unused-vars)": 1

@@ -306,7 +306,7 @@ export function Composer({
               }}
               onPointerEnter={() => setHighlight(index)}
             >
-              <BotAvatar name={`@${option.id}`} identity={option.id} still size={24} />
+              <BotAvatar name={`@${option.id}`} identity={option.id} owner={option.id} still size={24} />
               <span className="mention-id">@{option.id}</span>
               <span className="mention-description">{option.description}</span>
             </li>

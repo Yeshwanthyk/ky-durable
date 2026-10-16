@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   blobPhaseForIdentity,
@@ -8,16 +8,12 @@ import {
 } from "./blob-catalog";
 import { BotEngine, type BotFrame } from "./bloub/engine";
 import { DEMI_VIEWBOX, RAYON } from "./bloub/repere";
+import { AvatarsContext, Bloub } from "./Bloub";
+import type { Mood } from "./bloub-motion";
+import { useFrames, useReducedMotion } from "./use-frames";
+import { KY_AVATAR, rollSpec } from "../avatar-spec";
 
 const IDLE_VIEWBOX_RADIUS = 126;
-
-const FRAME_INTERVAL = 1000 / 60;
-
-/** rAF times jitter (WebKit rounds them to whole milliseconds); without slack a 60Hz screen skips about a third of frames. */
-const FRAME_SLACK = 1;
-
-/** How often a running avatar checks whether something now sits over it, and a covered one whether it is clear. */
-const COVER_CHECK_INTERVAL = 500;
 
 // Ziggy's animated blob avatar (../ziggy/clients/web/src/components/bot-avatar.tsx), with `still`
 // for lists: one frame, no animation loop per row. It looks around and blinks at rest, winks
@@ -29,50 +25,30 @@ export interface BotAvatarProps {
   identity?: string;
   variantId?: BlobVariantId;
   active?: boolean;
+  /** Its last answer failed: a bloub droops. */
+  failed?: boolean;
+  /** Whose avatar this is, "ky" or a specialist's id: a saved bloub shows instead, and a specialist without one gets one rolled from its id. */
+  owner?: string;
   size?: number;
   className?: string;
 }
 
-// Whether something opaque sits over the avatar's middle. On a phone the full-screen panel covers
-// the topbar and welcome avatars without moving them, so the IntersectionObserver still sees them.
-function covered(svg: SVGSVGElement): boolean {
-  const box = svg.getBoundingClientRect();
-  let node = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+export function BotAvatar({ owner, failed = false, ...props }: BotAvatarProps) {
+  const avatars = useContext(AvatarsContext);
 
-  if (!node || svg.contains(node)) return false;
-
-  // Climb from what is on top to the first box that holds the avatar too: a see-through scrim
-  // on the way still shows it, so it keeps moving.
-  for (; node && !node.contains(svg); node = node.parentElement) {
-    if (opaque(getComputedStyle(node).backgroundColor)) return true;
-  }
-
-  return false;
-}
-
-// Computed colours with any transparency come back as rgba(...) or with a "/ alpha".
-const opaque = (color: string) => !color.startsWith("rgba(") && !color.includes("/");
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(() =>
-    typeof window === "undefined"
-      ? false
-      : window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  const spec = useMemo(
+    () => (owner === undefined ? undefined : (avatars[owner] ?? (owner === KY_AVATAR ? undefined : rollSpec(owner)))),
+    [avatars, owner],
   );
 
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(query.matches);
-    update();
-    query.addEventListener("change", update);
+  if (!spec) return <BlobAvatar {...props} />;
 
-    return () => query.removeEventListener("change", update);
-  }, []);
+  const mood: Mood = props.active ? "working" : failed ? "failed" : "idle";
 
-  return reduced;
+  return <Bloub spec={spec} name={props.name} mood={mood} still={props.still} size={props.size} className={props.className} />;
 }
 
-export function BotAvatar({
+function BlobAvatar({
   name,
   identity = name,
   variantId,
@@ -80,7 +56,7 @@ export function BotAvatar({
   active = false,
   size = 40,
   className,
-}: BotAvatarProps) {
+}: Omit<BotAvatarProps, "owner" | "failed">) {
   const reducedMotion = useReducedMotion();
   const animated = !reducedMotion && !still;
 
@@ -113,80 +89,17 @@ export function BotAvatar({
     engine.setState(active ? "thinking" : poked ? "wink" : "idle", engineTime.current);
     engine.setLook({ yaw: 0, pitch: 0, mix: 0, spin: 0, wander: 1 }, engineTime.current);
 
+    // Still, it shows one frame of the new state; moving, the frames below pick it up.
     if (reducedMotion || still) {
       engineTime.current += 1;
       setFrame(engine.sample(engineTime.current));
-
-      return;
     }
+  }, [active, engine, poked, reducedMotion, still]);
 
-    const svg = svgRef.current;
-
-    if (!animated || !svg) return;
-
-    let animationFrame = 0;
-    let segmentStartedAt: number | undefined;
-    let lastRenderedAt = -Infinity;
-    let onScreen = true;
-    let overlaid = false;
-
-    const tick = (now: number) => {
-      segmentStartedAt ??= now;
-
-      if (now - lastRenderedAt >= FRAME_INTERVAL - FRAME_SLACK) {
-        engineTime.current += (now - segmentStartedAt) / 1000;
-        segmentStartedAt = now;
-        lastRenderedAt = now;
-        setFrame(engine.sample(engineTime.current));
-      }
-
-      animationFrame = requestAnimationFrame(tick);
-    };
-
-    const start = () => {
-      if (animationFrame !== 0) return;
-      segmentStartedAt = undefined;
-      animationFrame = requestAnimationFrame(tick);
-    };
-
-    // Paused, engine time stands still, so it picks up where it left off rather than jumping.
-    const stop = () => {
-      if (animationFrame === 0) return;
-      cancelAnimationFrame(animationFrame);
-      animationFrame = 0;
-      segmentStartedAt = undefined;
-    };
-
-    // Only animate what can be seen: not in a hidden tab, scrolled away, or under the panel.
-    const sync = () => {
-      if (document.visibilityState !== "hidden" && onScreen && !overlaid) start();
-      else stop();
-    };
-
-    const handleVisibilityChange = () => sync();
-
-    const observer = new IntersectionObserver(([entry]) => {
-      onScreen = entry?.isIntersecting ?? onScreen;
-      sync();
-    });
-
-    const coverCheck = window.setInterval(() => {
-      if (!onScreen || document.visibilityState === "hidden") return;
-      overlaid = covered(svg);
-      sync();
-    }, COVER_CHECK_INTERVAL);
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    observer.observe(svg);
-    sync();
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      observer.disconnect();
-      window.clearInterval(coverCheck);
-      stop();
-    };
-  }, [active, animated, engine, poked, reducedMotion, still]);
+  useFrames(svgRef, animated, (seconds) => {
+    engineTime.current += seconds;
+    setFrame(engine.sample(engineTime.current));
+  });
 
   const ink = variant.color.hex;
   const viewBoxRadius = IDLE_VIEWBOX_RADIUS;

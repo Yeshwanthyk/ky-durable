@@ -300,10 +300,10 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
 type Reply = Extract<Item, { kind: "specialist" }>;
 
 // Who wrote a specialist's message: its blob and @id, as a chat shows a member.
-function Speaker({ id, active = false, children }: { id: string; active?: boolean; children?: ReactNode }) {
+function Speaker({ id, active = false, failed = false, children }: { id: string; active?: boolean; failed?: boolean; children?: ReactNode }) {
   return (
     <div className="specialist-head">
-      <BotAvatar name={`@${id}`} identity={id} still={!active} active={active} size={22} />
+      <BotAvatar name={`@${id}`} identity={id} owner={id} still={!active} active={active} failed={failed} size={22} />
       <span className="specialist-name">@{id}</span>
       {children}
     </div>
@@ -313,7 +313,7 @@ function Speaker({ id, active = false, children }: { id: string; active?: boolea
 function SpecialistReply({ reply }: { reply: Reply }) {
   return (
     <section className="specialist-reply" aria-label={`@${reply.from} replied`} data-failed={reply.failed}>
-      <Speaker id={reply.from}>
+      <Speaker id={reply.from} failed={reply.failed}>
         {reply.failed ? null : (
           <span className="answer-actions">
             <CopyButton text={reply.text} label={`Copy @${reply.from}'s reply`} />

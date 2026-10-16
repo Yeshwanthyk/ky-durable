@@ -35,6 +35,7 @@ import { wide } from "./ui/layout";
 import { useShell, type Shell } from "./ui/use-shell";
 import { shallow, useSame, useStableCallback } from "./ui/use-stable";
 import { useTheme } from "./ui/use-theme";
+import { AvatarsContext } from "./ui/Bloub";
 import { type FirstRunTarget, type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
@@ -509,41 +510,43 @@ function App() {
   const unread = useSeen(session, times);
 
   return (
-    <FilesContext.Provider value={ky.files}>
-      <SendTaskContext.Provider value={ky.sendTask}>
-        <LightboxProvider>
-          <div
-            className="shell"
-            data-panel={panel.open}
-            data-panel-closing={panel.closing}
-            data-drawer={shell.drawerOpen}
-            data-sidebar={shell.sidebarHidden ? "hidden" : undefined}
-          >
-            <div className="sidebar-slot">
-              <ChatsSidebar
-                chats={ky.chats}
-                session={session}
-                main={MAIN_SESSION}
-                mainUpdatedAt={ky.mainUpdatedAt}
-                unread={unread}
-                onOpen={shell.openSession}
-                onNew={shell.startChat}
-                onSearch={onSearch}
-                onArchive={ky.archiveChat}
-                onRename={ky.renameChat}
-                creating={shell.creating}
-              />
-            </div>
-            {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
-            <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} />
+    <AvatarsContext.Provider value={ky.avatars}>
+      <FilesContext.Provider value={ky.files}>
+        <SendTaskContext.Provider value={ky.sendTask}>
+          <LightboxProvider>
+            <div
+              className="shell"
+              data-panel={panel.open}
+              data-panel-closing={panel.closing}
+              data-drawer={shell.drawerOpen}
+              data-sidebar={shell.sidebarHidden ? "hidden" : undefined}
+            >
+              <div className="sidebar-slot">
+                <ChatsSidebar
+                  chats={ky.chats}
+                  session={session}
+                  main={MAIN_SESSION}
+                  mainUpdatedAt={ky.mainUpdatedAt}
+                  unread={unread}
+                  onOpen={shell.openSession}
+                  onNew={shell.startChat}
+                  onSearch={onSearch}
+                  onArchive={ky.archiveChat}
+                  onRename={ky.renameChat}
+                  creating={shell.creating}
+                />
+              </div>
+              {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
+              <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} />
 
-            <Stage {...parts} />
-            <KyPanel {...parts} />
-            {shell.paletteOpen ? <Palette {...parts} /> : null}
-          </div>
-        </LightboxProvider>
-      </SendTaskContext.Provider>
-    </FilesContext.Provider>
+              <Stage {...parts} />
+              <KyPanel {...parts} />
+              {shell.paletteOpen ? <Palette {...parts} /> : null}
+            </div>
+          </LightboxProvider>
+        </SendTaskContext.Provider>
+      </FilesContext.Provider>
+    </AvatarsContext.Provider>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
+import { KY_AVATAR } from "../avatar-spec";
 import { Icon, type IconName } from "./Icon";
 import type { ChatKind } from "./open-chat";
 
@@ -249,7 +250,7 @@ export function Welcome({
   return (
     <div className="welcome" data-enter={enter}>
       <div className="welcome-avatar">
-        <BotAvatar name={speaker} variantId={variantId} active={running} size={88} />
+        <BotAvatar name={speaker} variantId={variantId} owner={variantId && KY_AVATAR} active={running} size={88} />
       </div>
       <h1 className="welcome-title">{copy.title}</h1>
       <p className="welcome-text">{copy.text}</p>

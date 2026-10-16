@@ -58,7 +58,7 @@ export function GroupMembers({ members, specialists, onChange }: Group) {
         ) : (
           <span className="group-faces">
             {members.slice(0, FACES).map((id) => (
-              <BotAvatar key={id} name={`@${id}`} identity={id} still size={22} />
+              <BotAvatar key={id} name={`@${id}`} identity={id} owner={id} still size={22} />
             ))}
             {members.length > FACES ? <span className="group-more">+{members.length - FACES}</span> : null}
           </span>
@@ -79,7 +79,7 @@ export function GroupMembers({ members, specialists, onChange }: Group) {
                 className="group-option pressable"
                 onClick={() => toggle(specialist.id)}
               >
-                <BotAvatar name={`@${specialist.id}`} identity={specialist.id} still size={26} />
+                <BotAvatar name={`@${specialist.id}`} identity={specialist.id} owner={specialist.id} still size={26} />
                 <span className="group-option-text">
                   <span className="mention-id">@{specialist.id}</span>
                   <span className="mention-description">{specialist.description}</span>

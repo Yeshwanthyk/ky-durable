@@ -10,6 +10,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
+import { BloubSpecSchema } from "./avatar-spec";
 import type {
   AutomationInfo,
   ChatGptCode,
@@ -94,6 +95,7 @@ export const ServerFrameSchema = Type.Union([
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
   Type.Object({ type: Type.Literal("soul"), soul: Type.Object({ body: Text, version: Type.Number(), updated_at: Type.Number() }) }),
   Type.Object({ type: Type.Literal("specialists"), specialists: Type.Array(Specialist) }),
+  Type.Object({ type: Type.Literal("avatars"), avatars: Type.Record(Text, BloubSpecSchema) }),
   Type.Object({
     type: Type.Literal("memory"),
     memory: Type.Object({ count: Type.Number(), newest: Type.Union([Text, Type.Null()]), items: Type.Array(MemoryItemSchema) })

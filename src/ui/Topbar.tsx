@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
+import { KY_AVATAR } from "../avatar-spec";
 import { type Group, GroupMembers } from "./GroupMembers";
 import { Icon } from "./Icon";
 import type { OpenChat } from "./open-chat";
@@ -78,7 +79,7 @@ function Who({
       onClick={panel.toggle}
     >
       <span className="who-inner" ref={innerRef}>
-        <BotAvatar name={speaker} variantId={variantId} active={running} size={28} />
+        <BotAvatar name={speaker} variantId={variantId} owner={variantId && KY_AVATAR} active={running} size={28} />
         <span className="who-text">
           <span className="who-name">
             {speaker}

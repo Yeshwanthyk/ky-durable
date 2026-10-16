@@ -1,4 +1,6 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
+import { AVATAR_TOOL } from "../avatar-spec";
+import { BloubOptions, bloubsIn } from "./Bloub";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
 import { Icon, type IconName } from "./Icon";
@@ -100,6 +102,7 @@ export function ToolRow({ tool }: { tool: Tool }) {
         </span>
       </button>
       {tool.images.length > 0 ? <ToolImages tool={tool} /> : null}
+      {tool.name === AVATAR_TOOL ? <ToolBloubs output={tool.output} /> : null}
       {expandable ? (
         <Reveal open={open}>
           <ToolBody tool={tool} />
@@ -124,6 +127,13 @@ function ToolImages({ tool }: { tool: Tool }) {
       ))}
     </div>
   );
+}
+
+// The bloubs an avatar call previewed, rolled or saved, drawn and moving under its row.
+function ToolBloubs({ output }: { output: string }) {
+  const specs = useMemo(() => bloubsIn(output), [output]);
+
+  return specs && specs.length > 0 ? <BloubOptions specs={specs} /> : null;
 }
 
 function ToolBody({ tool }: { tool: Tool }) {

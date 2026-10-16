@@ -39,7 +39,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_files` (`src/files.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -78,6 +78,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   the consult runs in a fresh conversation that can't ask on, shown as "@a → @b" in Activity). `subagent discuss`
   puts 2 to 4 specialists through 1 or 2 rounds without tools, and ky gives you where they agree, where they
   disagree, and its recommendation.
+- Avatars: bloubs, small animated characters for ky or a specialist (`avatar` tool, `src/avatars.ts`). A model fills a
+  spec from a fixed set of parts (body size, corner and colour, one or two eyes, a top, cheeks, feet;
+  `src/avatar-spec.ts`); the server checks and clamps it and the page draws it (`src/ui/Bloub.tsx`, motion in
+  `src/ui/bloub-motion.ts`), so a model never writes SVG. `preview` and `roll` show options in the chat to pick from;
+  `set` saves one. The built-in `make-avatar` skill (`src/seeds.ts`) is how it designs a good one. ky keeps its blob
+  until one is saved; a specialist without one gets a bloub rolled from its id. A bloub breathes and blinks, follows
+  the pointer, hops when hovered, squishes and sends a heart when clicked, gets dizzy after five quick pokes, leans
+  in while working and droops when its answer failed; with reduced motion it stays still.
 - Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still

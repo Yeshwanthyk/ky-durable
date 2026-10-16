@@ -2,6 +2,7 @@ import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Asks } from "./asks";
+import type { AvatarsView } from "./avatar-spec";
 import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
 import { type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
@@ -60,6 +61,8 @@ type State = SessionView & {
   readonly soul: SoulView | null;
   /** The user's specialists and their briefs. */
   readonly specialists: readonly SpecialistView[];
+  /** The bloubs ky and the specialists wear, by "ky" or specialist id. */
+  readonly avatars: AvatarsView;
   /** ky's memory as wake shows it; null until the server sends it. */
   readonly memory: MemoryView | null;
   /** Active, paused and archived automations, newest first. */
@@ -139,6 +142,7 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     skills: ({ skills }) => replace({ skills }),
     soul: ({ soul }) => replace({ soul }),
     specialists: ({ specialists }) => replace({ specialists }),
+    avatars: ({ avatars }) => replace({ avatars }),
     memory: ({ memory }) => replace({ memory }),
     automations: ({ automations, checkIns }) => replace({ automations, checkIns })
   };
@@ -173,6 +177,7 @@ const INITIAL_STATE: State = {
   skills: [],
   soul: null,
   specialists: [],
+  avatars: {},
   memory: null,
   automations: [],
   checkIns: true,
@@ -266,6 +271,7 @@ export function usePiSession(session: string) {
       skills: current.skills,
       soul: current.soul,
       specialists: current.specialists,
+      avatars: current.avatars,
       memory: current.memory,
       automations: current.automations,
       checkIns: current.checkIns,
