@@ -268,6 +268,18 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
   };
 }
 
+/** The config's `send_email` bindings: ky's mail, sent from its own address. */
+const sendEmail = (config: Unstable_RawConfig) =>
+  (config.send_email ?? []).map(
+    (email): Binding => ({
+      type: "send_email",
+      name: email.name,
+      destinationAddress: email.destination_address,
+      allowedDestinationAddresses: email.allowed_destination_addresses,
+      allowedSenderAddresses: email.allowed_sender_addresses
+    })
+  );
+
 /** The Worker's bindings, from the config, with its buckets and `env` added as plain text. */
 function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Record<string, string>): Binding[] {
   for (const key of Object.keys(config))
@@ -289,15 +301,7 @@ function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Re
       (limit): Binding => ({ type: "ratelimit", name: limit.name, namespaceId: limit.namespace_id, simple: limit.simple })
     ),
     ...(config.vpc_services ?? []).map((service): Binding => ({ type: "vpc_service", name: service.binding, serviceId: service.service_id })),
-    ...(config.send_email ?? []).map(
-      (email): Binding => ({
-        type: "send_email",
-        name: email.name,
-        destinationAddress: email.destination_address,
-        allowedDestinationAddresses: email.allowed_destination_addresses,
-        allowedSenderAddresses: email.allowed_sender_addresses
-      })
-    ),
+    ...sendEmail(config),
     ...Object.entries({ ...config.vars, ...env }).map(
       ([name, value]): Binding => (Value.Check(Type.String(), value) ? { type: "plain_text", name, text: value } : { type: "json", name, json: value })
     )

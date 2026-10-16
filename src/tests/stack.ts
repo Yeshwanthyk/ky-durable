@@ -834,7 +834,7 @@ function peerHost(request: Request, env: Env): Promise<Response> | undefined {
 /** The stack, and each test ky's peer routes at its own address. */
 const kys = {
   fetch: (request: Request, env: Env): Promise<Response> => peerHost(request, env) ?? stack.fetch(request, env),
-  email: ky.email
+  email: (message: ForwardableEmailMessage, env: Env): Promise<void> => ky.email(message, env)
 } satisfies ExportedHandler<Env>;
 
 export default kys;

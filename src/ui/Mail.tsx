@@ -156,6 +156,32 @@ function HeldMail({ mail, onSend, onDiscard }: { mail: MailItem; onSend: (id: st
   );
 }
 
+const DIRECTION_ICON = { in: "mail", out: "send" } as const;
+
+/** Who a mail is from, or who it went to. */
+const who = (mail: MailItem) => (mail.direction === "in" ? mail.partyName || mail.party : `To ${mail.party}`);
+
+/** One mail in the recent list: which way, its subject, who, its state, and when. */
+function MailLine({ mail, now }: { mail: MailItem; now: number }) {
+  return (
+    <div className="row mail-row" data-direction={mail.direction}>
+      <span className="row-tile">
+        <Icon name={DIRECTION_ICON[mail.direction]} size={15} />
+      </span>
+      <span className="row-text">
+        <span className="row-label row-sub-text">{mail.subject || "(no subject)"}</span>
+        <span className="row-sub peer-sub">
+          <span className="mail-state" data-state={mail.state} />
+          <span className="row-sub-text" title={mail.note || mail.preview}>
+            {who(mail)} · {STATES[mail.state]}
+          </span>
+        </span>
+      </span>
+      <span className="row-value">{ago(mail.at, now)}</span>
+    </div>
+  );
+}
+
 function RecentMail({ mail, address }: { mail: readonly MailItem[]; address: string }) {
   const now = useNow();
 
@@ -164,21 +190,7 @@ function RecentMail({ mail, address }: { mail: readonly MailItem[]; address: str
   return (
     <div className="card">
       {mail.map((each) => (
-        <div key={each.id} className="row mail-row" data-direction={each.direction}>
-          <span className="row-tile">
-            <Icon name={each.direction === "in" ? "mail" : "send"} size={15} />
-          </span>
-          <span className="row-text">
-            <span className="row-label row-sub-text">{each.subject || "(no subject)"}</span>
-            <span className="row-sub peer-sub">
-              <span className="mail-state" data-state={each.state} />
-              <span className="row-sub-text" title={each.note || each.preview}>
-                {each.direction === "in" ? each.partyName || each.party : `To ${each.party}`} · {STATES[each.state]}
-              </span>
-            </span>
-          </span>
-          <span className="row-value">{ago(each.at, now)}</span>
-        </div>
+        <MailLine key={each.id} mail={each} now={now} />
       ))}
     </div>
   );

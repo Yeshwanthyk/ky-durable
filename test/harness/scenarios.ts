@@ -639,7 +639,7 @@ export const SCENARIOS: Scenario[] = [
       await status(context, task, "done");
       const row = context.main.task(task)!;
       const steps = row.steps.map((step) => step.text).join(" | ");
-      check(steps === "Running pnpm test | Editing tasks.ts", `the steps are the tools used, got ${steps}`);
+      check(steps === "Running `pnpm test` | Editing tasks.ts", `the steps are the tools used, got ${steps}`);
       check(`${row.turns} ${row.cost_usd}` === "1 0.01", `the task spent one turn and a cent, got ${row.turns} and ${row.cost_usd}`);
       check(Number(row.finished_at) >= Number(row.started_at), "the task has a start and a finish");
     }
@@ -672,7 +672,7 @@ export const SCENARIOS: Scenario[] = [
       check(row.agent === "codex", `the task records its agent, got ${row.agent}`);
       check(turns(mac, task).length === 0 && turns(mac, task, mac.codex()).length === 1, "codex ran it once, and claude never did");
       const steps = row.steps.map((step) => step.text).join(" | ");
-      check(steps.startsWith("Running pnpm test | Editing tasks.ts"), `codex's items show as steps, got ${steps}`);
+      check(steps.startsWith("Running `pnpm test` | Editing tasks.ts"), `codex's items show as steps, got ${steps}`);
       const start = codexStart(mac, task, 0);
       check(start.home === path.join(mac.dir, "state", "codex", task), `the task has its own CODEX_HOME, got ${start.home}`);
       check(start.auth === path.join(mac.dir, "home", ".codex", "auth.json"), `its auth.json links to the machine's, got ${start.auth}`);

@@ -10,7 +10,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
-import { BloubSpecSchema } from "./avatar-spec";
+import { BloubSpecSchema } from "./avatar-spec.ts";
 import type {
   AutomationInfo,
   ChatGptCode,
