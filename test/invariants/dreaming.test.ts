@@ -8,6 +8,7 @@ import {
   datesOf,
   DREAM_MEMORY_TOOLS,
   DREAMING_TABLES,
+  ledgerRow,
   markOf,
   MEMORY_WRITE_TOOLS,
   memoryRow,
@@ -63,6 +64,19 @@ describe("a damaged row decodes to its default", () => {
     expect(anticipationRow({ ...anticipation, status: "snoozed" })).toBeUndefined();
     expect(anticipationRow({ ...anticipation, created_by: "agent" })).toBeUndefined();
     expect(anticipationRow(anticipation)).toEqual({ ...anticipation, evidence: { messages: [4], memories: [0] }, pinned: true });
+  });
+
+  it.each(damaged)("a dream ledger row from %o is skipped", (row) => {
+    expect(ledgerRow(row)).toBeUndefined();
+  });
+
+  it("a ledger row of an unknown kind or with a damaged cell is skipped, and a whole one decodes, with or without the later columns' values", () => {
+    const row = { id: 3, run: "dream-1", actor: "dream", kind: "skill", action: "patch", target: "tea", before: 4, reason: null, absorbed_into: null, after: 5, at: 1, undone_at: null };
+    expect(ledgerRow({ ...row, kind: "soul" })).toBeUndefined();
+    expect(ledgerRow({ ...row, at: "yesterday" })).toBeUndefined();
+    expect(ledgerRow({ ...row, after: "5" })).toBeUndefined();
+    expect(ledgerRow(row)).toEqual(row);
+    expect(ledgerRow({ ...row, actor: null, after: null, kind: "memory", before: "a summary" })).toEqual({ ...row, actor: null, after: null, kind: "memory", before: "a summary" });
   });
 
   it.each(damaged)("a SOUL.md version from %o is skipped", (row) => {

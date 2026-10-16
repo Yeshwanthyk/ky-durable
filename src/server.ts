@@ -224,7 +224,7 @@ export class PiAgent extends DurableObject<Env> {
   /** When the user was last here; the dream waits until they are away. */
   readonly presence = new Presence(this.ctx.storage.sql);
   /** What the user will need soon; a done one becomes a memory. */
-  readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory);
+  readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory, (session) => this.isChat(session));
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
     anticipations: this.anticipations,

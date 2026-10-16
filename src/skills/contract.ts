@@ -53,9 +53,16 @@ export const SkillAction = Type.Union([
 
 export type SkillAction = Static<typeof SkillAction>;
 
-/** Pinning keeps a skill from the dream: no archive, merge or patch. Not a version: it changes no content. */
+/** Pinning keeps a skill from ky's background runs (a dream, a review): no archive, merge or patch. Not a version: it changes no content. */
 export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
 
+/**
+ * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
+ * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
+ * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
+ * a new ky's first start laying down its starter skills (src/seeds.ts), before anything is the user's.
+ */
+export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
 
 /** Who made a skill. A dream may archive only what ky made (agent, review or dream); ky's starter skills count as the user's. */
 const SkillOrigin = Type.Union([Type.Literal("agent"), Type.Literal("review"), Type.Literal("dream"), Type.Literal("user")]);
@@ -129,6 +136,8 @@ export type SkillWrite = {
   readonly actor: string;
   /** The conversation that made it; null for the user's and for ky's staleness pass. */
   readonly conversation: string | null;
+  /** The run it belongs to when it has no conversation: ky's staleness pass gives the dream's that runs it. */
+  readonly run: string | null;
   readonly before: number | null;
   readonly absorbed_into: string | null;
   readonly reason: string | null;
@@ -158,6 +167,9 @@ export type ReviewKind = Static<typeof ReviewKind>;
 
 /** A row of ky_skill_reviews, as `kind` reads it. */
 export const ReviewRow = Type.Object({ kind: ReviewKind });
+
+/** A row of ky_skill_reviews, as `run` reads it: a dream's run token, null for a review, whose run is its conversation. */
+export const ReviewRunRow = Type.Object({ run: Type.Union([Type.String(), Type.Null()]) });
 
 const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memory_zoom"] as const;
 

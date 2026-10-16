@@ -200,11 +200,16 @@ export type CheckInsNow = Static<typeof CheckInsNowSchema>;
 
 // The dream's ledger.
 
-/** A change a dream made: to a skill (`before` its prior version's id, null for a create) or a forget (`before` the summary's words). */
+/**
+ * A change a background run made: to a skill (`before` its prior version's id, null for a create; `after` the
+ * version it made) or a forget (`before` the summary's words).
+ */
 export const DreamLedgerRow = Type.Object({
   id: Type.Number(),
-  /** The dream's session, or stale-<date> for ky's own pass over unused skills. */
+  /** The dream's run token, which its stale pass shares; a review's conversation; or, from before tokens, a dream's session or stale-<date>. */
   run: Type.String(),
+  /** Who made it: "dream", "review" or a later background run; null for a dream's from before this was kept. */
+  actor: Type.Union([Type.String(), Type.Null()]),
   kind: Type.Union([Type.Literal("skill"), Type.Literal("memory")]),
   action: Type.String(),
   /** The skill's name, or the forgotten summary's block. */
@@ -212,11 +217,16 @@ export const DreamLedgerRow = Type.Object({
   before: Type.Union([Type.Number(), Type.String(), Type.Null()]),
   reason: Type.Union([Type.String(), Type.Null()]),
   absorbed_into: Type.Union([Type.String(), Type.Null()]),
+  /** The skill version the change made; null for a forget, and for changes from before this was kept, whose undo looks at nothing since. */
+  after: Type.Union([Type.Number(), Type.Null()]),
   at: Type.Number(),
   undone_at: Type.Union([Type.Number(), Type.Null()])
 });
 
 export type DreamLedgerRow = Static<typeof DreamLedgerRow>;
+
+/** A ledger row as stored, or undefined when a restore left it damaged: callers skip it. */
+export const ledgerRow = (row: Row): DreamLedgerRow | undefined => decodeOr(DreamLedgerRow, row, undefined);
 
 export type { DreamLedger } from "./ledger";
 

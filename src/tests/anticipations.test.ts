@@ -84,6 +84,56 @@ describe("adding an anticipation", () => {
     expect(row).toMatchObject({ created_by: "dream", status: "open", pinned: false, evidence: { messages: [message], memories: [0] } });
   });
 
+  it("is refused citing a message from a dream's or a subagent's conversation, not a chat", async () => {
+    const name = crypto.randomUUID();
+    const message = await seeded(name);
+    const said = await dreamSession(name);
+    await said("the dream's own prompt, which names no commitment of the user's");
+
+    const newest = (kind: string) =>
+      inside(name, (_instance, state) => Number(state.storage.sql.exec("SELECT max(id) AS id FROM pi_entries WHERE json_extract(record, '$.kind') = ?", kind).one().id));
+
+    const prompted = await newest("pi.user");
+    const answered = await newest("pi.assistant");
+    expect(prompted).toBeGreaterThan(message);
+
+    const errors = await inside(name, (instance) =>
+      [[prompted], [answered], [message, prompted]].map((messages) => {
+        try {
+          instance.anticipations.add(loop(message, { evidence: { messages, memories: [] } }), "dream");
+
+          return "added";
+        } catch (error) {
+          return String(error);
+        }
+      })
+    );
+
+    expect(errors[0]).toContain(`Message #${prompted} is not from a chat`);
+    expect(errors[1]).toContain(`Message #${answered} is not from a chat`);
+    // A chat message does not carry one from elsewhere.
+    expect(errors[2]).toContain(`Message #${prompted} is not from a chat`);
+    expect(await inside(name, (instance) => instance.anticipations.open())).toEqual([]);
+  });
+
+  it("counts no damaged row against a machine's room", async () => {
+    const name = crypto.randomUUID();
+    const message = await seeded(name);
+
+    const row = await inside(name, (instance, state) => {
+      for (let i = 0; i < 25; i++) {
+        state.storage.sql.exec(
+          "INSERT INTO ky_anticipations (created_at, created_by, kind, text, evidence) VALUES (?, 'dream', 'open_loop', 'damaged', '[not json')",
+          Date.now()
+        );
+      }
+
+      return instance.anticipations.add(loop(message), "dream");
+    });
+
+    expect(row).toMatchObject({ created_by: "dream", status: "open" });
+  });
+
   it("holds 5 a dream run, and 20 open for a machine, while the user's own always fit", async () => {
     const name = crypto.randomUUID();
     const message = await seeded(name);

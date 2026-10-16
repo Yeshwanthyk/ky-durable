@@ -417,6 +417,18 @@ export class Memory {
     return `Saved as #${id}.`;
   }
 
+  /**
+   * Note a forgotten summary again, as the ledger's undo does: on one line, and cut to a memory's ENTRY_BYTES
+   * when it ran over (a summary from before the limit held), saying so.
+   */
+  renote(summary: string): string {
+    const line = summary.replace(/\s+/g, " ").trim();
+    const cut = cutBytes(line, ENTRY_BYTES);
+    const saved = this.note(cut);
+
+    return cut === line ? saved : `${saved} It was ${bytes(line)} bytes, so it was cut to ${ENTRY_BYTES}.`;
+  }
+
   recall(pattern: string): string {
     const regex = regexOf(pattern);
     const hits: string[] = [];
