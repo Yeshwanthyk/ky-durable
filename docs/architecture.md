@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -53,13 +53,16 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   (`src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
-- Dreaming: once a night (04:00 UTC, booked on the automations Scheduler), ky reads what happened since the last
-  dream (new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with memory, and
+- Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
+  and again when the zone changes), ky reads what happened since the last dream (what the user said in the main chat
+  and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with
+  memory, notes what the user said that memory lacks, and
   tends the skills: creates one for a task that keeps coming up, merges overlaps, archives ones unused for 60 days,
   and fixes ones a later correction contradicts (`src/dreaming/dreaming.ts`). It may call only the skill tools and memory's;
   it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
-  on the stale summary, is told to note at most five, and pays the compressions its notes make due. It shows in Activity as
-  "Dreaming", and skips the night when nothing happened. It also books check-ins (below).
+  on the stale summary, is told to note at most 15, and pays the compressions its notes make due. It shows in Activity as
+  "Dreaming", and skips the night when nothing happened. While the user was here in the last 2 hours (`ky_presence`,
+  `src/dreaming/presence.ts`) it waits and looks again 2 hours later. It also books check-ins (below).
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its

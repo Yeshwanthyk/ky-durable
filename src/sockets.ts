@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Memory, Soul } from "./dreaming/contract";
+import type { Memory, Presence, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -174,6 +174,7 @@ export class PiSessionSockets {
   readonly #groups: GroupChats;
   readonly #memory: Memory;
   readonly #automations: Automations;
+  readonly #presence: Presence;
   readonly #setup: Setup;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
@@ -203,6 +204,7 @@ export class PiSessionSockets {
     groups: GroupChats,
     memory: Memory,
     automations: Automations,
+    presence: Presence,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
@@ -231,6 +233,7 @@ export class PiSessionSockets {
     this.#groups = groups;
     this.#memory = memory;
     this.#automations = automations;
+    this.#presence = presence;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
@@ -482,10 +485,11 @@ export class PiSessionSockets {
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
     this.#setup.opened(ctx.request.url);
+    this.#presence.seen();
     // Cloudflare places the browser's connection in a time zone; check-ins are booked for the user's morning.
     const zone = ctx.request.cf?.timezone;
 
-    if (Guard.IsString(zone) && zone) this.#automations.setZone(zone);
+    if (Guard.IsString(zone) && zone) await this.#automations.setZone(zone);
     send(connection, {
       type: "hello",
       session,
@@ -698,6 +702,7 @@ export class PiSessionSockets {
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
+      this.#presence.seen();
       const all = this.#specialists.list();
       const text = textOf(message.input);
       const unknown = all.length === 0 ? undefined : mentions(text).find((id) => !this.#specialists.has(id));

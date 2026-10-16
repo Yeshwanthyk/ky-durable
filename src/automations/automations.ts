@@ -97,8 +97,8 @@ export type AutomationDeps = {
   readonly runtime: AutomationRuntime;
   /** Run a gate's program on the user's Executor. */
   readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
-  /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire. */
-  readonly dream: { readonly cron: string; readonly run: () => void };
+  /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire, at its cron in the user's zone. */
+  readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
 };
@@ -269,10 +269,11 @@ export class Automations {
     this.#emit();
   }
 
-  /** The user's time zone, from where their browser connects; check-ins are booked for their morning. */
-  setZone(zone: string): void {
+  /** The user's time zone, from where their browser connects; check-ins are booked for their morning, and the dream for their night. */
+  async setZone(zone: string): Promise<void> {
     if (zone === this.checkIns().zone) return;
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
+    await this.#bookDream();
   }
 
   /** Whether the pi session is a check-in's run at work. */
@@ -456,20 +457,30 @@ export class Automations {
     await this.scheduler.set(new Date(at), "peers");
   }
 
+  /** One dream at `at`, epoch ms, besides the nightly one: the dream's own, when the user was here. */
+  async dreamAt(at: number): Promise<void> {
+    await this.scheduler.set(new Date(at), "dream");
+  }
+
   /** On start: book the nightly dream, and any active automation whose booking is missing. */
   async recover(): Promise<void> {
-    for (const old of await this.scheduler.list()) {
-      if (old.callback === "dream" && (old.type !== "cron" || old.cron !== this.#deps.dream.cron)) {
-        await this.scheduler.cancel(old.id);
-      }
-    }
-
-    await this.scheduler.set(this.#deps.dream.cron, "dream", undefined, { idempotent: true });
+    await this.#bookDream();
 
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
       await this.#keepBooking(row.id, await this.#book(row.id, row));
     }
+  }
+
+  /** Book the nightly dream at the user's zone, dropping one booked at another cron, so ky never dreams twice a night. */
+  async #bookDream(): Promise<void> {
+    const cron = this.#deps.dream.cron(this.checkIns().zone);
+
+    for (const old of await this.scheduler.list()) {
+      if (old.callback === "dream" && old.type === "cron" && old.cron !== cron) await this.scheduler.cancel(old.id);
+    }
+
+    await this.scheduler.set(cron, "dream", undefined, { idempotent: true });
   }
 
   /**

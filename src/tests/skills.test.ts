@@ -191,8 +191,11 @@ describe("dreaming", () => {
 
     expect(rebooked).toMatchObject([{ type: "cron", cron: "0 4 * * *" }]);
 
+    // What was said is something that happened: the first dream reads "hello", the next finds nothing new.
     await inside(name, (instance) => instance.dreaming.run());
-    expect(await dreams(name)).toEqual([]);
+    expect(await dreams(name)).toHaveLength(1);
+    await inside(name, (instance) => instance.dreaming.run());
+    expect(await dreams(name)).toHaveLength(1);
   });
 
   it("reads what happened since the last dream in a fresh conversation that wakes with memory", async () => {

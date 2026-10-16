@@ -19,6 +19,8 @@ export const DREAMING_TABLES = {
   memoryTree: "memo_tree",
   /** Where the last finished dream read up to: one row. */
   dreamMark: "ky_dream",
+  /** When the user was last here, so the dream waits until they are away: one row. */
+  presence: "ky_presence",
   /** Every version of SOUL.md and of each specialist's brief, told apart by `key`. */
   soulVersions: "ky_soul_versions"
 } as const;
@@ -136,5 +138,7 @@ const CheckInsNowSchema = Type.Object({
 export type CheckInsNow = Static<typeof CheckInsNowSchema>;
 
 export type { Compressor, Memory } from "./memory";
+
+export type { Presence } from "./presence";
 
 export type { Soul } from "./soul";

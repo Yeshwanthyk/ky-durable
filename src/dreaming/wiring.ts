@@ -4,9 +4,11 @@ import { memoryExtension, type Memory } from "./memory";
 import { soulExtension, type Soul } from "./soul";
 
 /** What the agent (src/server.ts) and other domains run: the dreaming domain's classes. */
-export { DREAM_CRON, Dreaming } from "./dreaming";
+export { dreamCron, Dreaming } from "./dreaming";
 
 export { Memory } from "./memory";
+
+export { Presence } from "./presence";
 
 export { Soul, TEMPLATE } from "./soul";
 

@@ -129,6 +129,16 @@ export class TaskFeed {
     return this.#rows("SELECT * FROM ky_tasks ORDER BY updated_at DESC LIMIT ?", limit);
   }
 
+  /** The newest `limit` tasks that finished after `at`, newest first, leaving out the `except` workers' own. */
+  finishedSince(at: number, limit: number, except: readonly string[]): TaskRow[] {
+    return this.#rows(
+      `SELECT * FROM ky_tasks WHERE finished_at > ? AND worker NOT IN (${except.map(() => "?").join(", ")}) ORDER BY finished_at DESC LIMIT ?`,
+      at,
+      ...except,
+      limit
+    );
+  }
+
   get(id: string): TaskRow | undefined {
     return this.#rows("SELECT * FROM ky_tasks WHERE id = ?", id)[0];
   }

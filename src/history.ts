@@ -1,4 +1,6 @@
 import { ROOT_SESSION } from "agents/harness/pi";
+import Type from "typebox";
+import { decodeOr } from "./core/decode";
 
 /**
  * Chat search: a full-text index over every message of the main chat and the
@@ -16,6 +18,9 @@ const MATCHES = 8;
 /** A neighbor's text when `around` shows the messages next to a match. */
 
 const NEIGHBOR_CHARS = 600;
+/** A message's text in `since`, so one long answer leaves room for the rest of the day. */
+
+const SINCE_CHARS = 1_000;
 /** The whole answer's cap, so a search never floods the context. */
 
 const OUTPUT_CHARS = 12_000;
@@ -34,6 +39,11 @@ type EntryRow = { id: number; conversation_id: number; kind: string | null; at: 
 type Hit = { rowid: number; conversation: string; role: string; at: number; snippet: string };
 
 type Line = { rowid: number; role: string; at: number; text: string };
+
+const CountRow = Type.Object({ n: Type.Number() });
+
+/** A message as `since` reads it; a row a restore damaged is skipped. */
+const SaidRow = Type.Object({ rowid: Type.Number(), conversation: Type.String(), role: Type.String(), at: Type.Number(), text: Type.String() });
 
 export class History {
   readonly #sql: SqlStorage;
@@ -149,6 +159,37 @@ export class History {
     return [head, ...before.map(neighbor), `> #${hit.rowid} ${hit.role}: ${flat(hit.snippet)}`, ...after.map(neighbor)].join(
       "\n"
     );
+  }
+
+  /**
+   * The chat messages said after `at`, oldest first, one line each, as many of
+   * the newest as fit `chars`; `left` counts the older ones that did not fit.
+   */
+  since(at: number, chars: number) {
+    this.#catchUp();
+
+    const total = decodeOr(CountRow, this.#sql.exec("SELECT count(*) AS n FROM ky_history WHERE at > ?", at).one(), { n: 0 }).n;
+    // A cursor reads lazily, so a first dream over the whole history stops reading at the cap.
+    const rows = this.#sql.exec("SELECT rowid, conversation, role, at, text FROM ky_history WHERE at > ? ORDER BY rowid DESC", at);
+
+    const lines: string[] = [];
+
+    let used = 0;
+
+    for (const raw of rows) {
+      const row = decodeOr(SaidRow, raw, undefined);
+
+      if (row === undefined) continue;
+
+      const line = `#${row.rowid} ${day(row.at)} ${this.#chatName(row.conversation)}, ${row.role}: ${cut(flat(row.text), SINCE_CHARS)}`;
+
+      if (used + line.length > chars) break;
+
+      lines.push(line);
+      used += line.length + 1;
+    }
+
+    return { lines: lines.reverse(), left: total - lines.length };
   }
 
   #chatName(conversation: string): string {

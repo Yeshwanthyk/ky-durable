@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { DREAM_CRON, Dreaming, dreamingTools, Memory, Soul } from "./dreaming/wiring";
+import { dreamCron, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -207,7 +207,7 @@ export class PiAgent extends DurableObject<Env> {
 
       return config ? executeOnce(config, code, signal) : { text: "Executor is not connected.", error: true };
     },
-    dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) },
+    dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     peers: () => this.sweepPeers()
   });
   readonly registry = createRegistry();
@@ -219,7 +219,12 @@ export class PiAgent extends DurableObject<Env> {
     context: BACKGROUND,
     model: () => agentModel(this.models.resolve("background").choice)
   };
+  /** When the user was last here; the dream waits until they are away. */
+  readonly presence = new Presence(this.ctx.storage.sql);
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
+    history: this.history,
+    presence: this.presence,
+    later: (at) => this.automations.dreamAt(at),
     memory: this.memory,
     skills: this.skills,
     reviews: this.reviews,
@@ -357,6 +362,7 @@ export class PiAgent extends DurableObject<Env> {
     this.groups,
     this.memory,
     this.automations,
+    this.presence,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
