@@ -3,7 +3,7 @@ import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
 import type { BrowserWorker } from "@cloudflare/playwright";
-import { createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
+import { ConversationBusy, createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -15,7 +15,7 @@ import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { ChatList, chatActivityExtension } from "./chats";
-import { Automations, automationTools, TaskFeed } from "./automations/wiring";
+import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
@@ -199,10 +199,7 @@ export class PiAgent extends DurableObject<Env> {
       abort: async (session) => {
         await this.harness.session(session).abort();
       },
-      tell: async (session, content, requestId) => {
-        const conversation = await this.harness.conversation(session);
-        await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
-      }
+      deliver: (item): Promise<void> => this.deliveries.deliver(item)
     },
     gate: async (code, signal) => {
       const config = await this.executor.config();
@@ -235,6 +232,28 @@ export class PiAgent extends DurableObject<Env> {
     surfaced: this.surfaced,
     proactivity: this.proactivity,
     anticipations: this.anticipations
+  });
+  /** How an automation's report reaches the user: in its chat between turns, or in the brief while they are away. */
+  readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
+    presence: this.presence,
+    proactivity: this.proactivity,
+    brief: this.brief,
+    surfaced: this.surfaced,
+    chats: this.chats,
+    submit: async (session, content, requestId) => {
+      const conversation = await this.harness.conversation(session);
+
+      try {
+        await conversation.submit({ type: "input", content, whenBusy: "reject", requestId }, BACKGROUND);
+      } catch (error) {
+        if (error instanceof ConversationBusy) return false;
+        throw error;
+      }
+
+      return true;
+    },
+    idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND),
+    later: (work) => this.ctx.waitUntil(work)
   });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
@@ -288,7 +307,8 @@ export class PiAgent extends DurableObject<Env> {
         models: this.models,
         automations: this.automations,
         background: this.#background,
-        chat
+        chat,
+        deliver: (item) => this.deliveries.deliver(item)
       };
 
       // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
@@ -340,6 +360,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(progress);
       this.registry.install(checkInGuard);
       this.registry.install(chatActivityExtension(this.chats));
+      this.registry.install(deliveryExtension(this.deliveries));
       this.registry.install(peer);
       this.registry.install(mail);
 
@@ -594,6 +615,8 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.machines.sweepTokens());
     await this.applyMain();
     await this.automations.recover();
+    // Reports a restart left waiting for their chat's turn to end.
+    this.deliveries.recover();
 
     if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.
