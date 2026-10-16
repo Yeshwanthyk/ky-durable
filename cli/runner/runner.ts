@@ -124,6 +124,8 @@ export class Runner {
   /** Reports made while disconnected, sent on the next connect. */
   readonly #outbox: RunnerReport[] = [];
   #link: Link | undefined;
+  /** Shut down: no socket takes reports, and no process starts. */
+  #closing = false;
 
   constructor(
     spawn: SpawnAgent,
@@ -157,6 +159,7 @@ export class Runner {
    * declared interrupted and then reported again as done.
    */
   open(link: Link): void {
+    if (this.#closing) return;
     this.#link = link;
     link.send(JSON.stringify(this.#hello()));
 
@@ -175,12 +178,19 @@ export class Runner {
     this.#link?.send(JSON.stringify(this.#hello()));
   }
 
-  /** The process is exiting: end every session. */
+  /**
+   * The process is exiting: end every session, and report nothing more, so the next hello, which
+   * lists none of them, tells the object they were interrupted. Queued turns never start.
+   */
   shutdown(): void {
+    this.#closing = true;
+    this.#link = undefined;
+
     for (const run of this.#runs.values()) run.child.interrupt();
   }
 
   message(text: string): void {
+    if (this.#closing) return;
     // The socket also carries the Agents SDK's own frames; only the object's are acted on.
     const frame = decodeObjectFrame(text);
 
@@ -463,7 +473,7 @@ export class Runner {
 
         const [first, ...rest] = run.next;
 
-        if (!first) return;
+        if (!first || this.#closing) return;
 
         const next = this.#start(task, agent, { ...first, session: run.session ?? first.session });
 

@@ -1,6 +1,7 @@
 # Machine invariants: how ky connects to machines and runs tasks on them
 
-Status: issue doc, 2026-10-15. Nothing here is implemented yet. Verification lives in
+Status: issue doc, 2026-10-15, being implemented as the stacked PRs of [§8](#8-slim-plan-supersedes-7).
+Rows marked *(PR n)* below were re-measured after that PR. Verification lives in
 `.claude/skills/verify-ky-machines/` (see [Baseline](#baseline-2026-10-15)).
 
 **What we want.** A machine is clearly on or off, always with a reason, and the reason is true.
@@ -175,8 +176,8 @@ checks it today; "—" means it needs a new probe or a unit test.
 | M9 | No | deploy.yml deploys on every merge and doesn't know which runner was released. |
 | M10 | No | Strict equality (`runner-protocol.ts:319-327`). |
 | M11 | No | The runner exits 0 so the service won't relaunch it (`run.ts:194-201`). The Worker forgets the refusal. |
-| M12 | No | See incident 3. The baseline reproduces it. |
-| M13 | No | The new hello fails every open task as "Interrupted" (`machines.ts:875-890`). There's no auto-resume, and an orphan may still be working. |
+| M12 | Yes, except `kill -9` *(PR 1)* | Each agent leads its own process group (`detached`); shutdown interrupts every group, waits up to 6 s, SIGKILLs what's left, **then** exits (`tasks.ts` `settle`, `run.ts` `shutdown`). Reaping on boot was cut (§8), so a `kill -9` of the runner can still orphan. |
+| M13 | Yes *(PR 1)* | The new hello fails each open task once as "Interrupted: the runner restarted", the agent ran once, and with M12 no orphan keeps working on it. The stopping runner reports nothing more, so the hello is what closes the task. Delivery stays at-most-once. |
 | M14 | Partly | State dirs, status files and labels are already split (`system.ts:135-155`). `restartRunner` restarts all instances (`commands.ts:395-408`), and `ky upgrade` restarts runners even when the Worker is already current (`cli/commands.ts:97-100`). |
 | M15 | No | The status file isn't checked for a live pid or its age. Logs have `HH:MM:SS` in **UTC** only (`run.ts:63-65`), while `ky runner status` and launchd use local time. SIGTERM isn't logged. |
 | M16 | Partly | `waking` is derived and has no deadline in the UI. Container-start failures are `console.warn`ed and retried by the alarm (`src/cloud.ts:187-190, 332-347`), but they never become a machine reason. |
@@ -240,7 +241,7 @@ between. Total wall time is about 2.5 min. Raw numbers are in `test-results/mach
 | | row → `working` | p50 127 / p95 141 ms |
 | | row → first step visible | **p50 128 / p95 143 ms** |
 | | row → done (fake agent, 200 ms of work) | p50 348 / p95 401 ms |
-| restart | SIGINT → runner exits | 4 ms (does not wait for its child) |
+| restart | SIGINT → runner exits | 5013 ms *(PR 1; was 4 ms)*: waits for its agent; this one ignores SIGINT, so the 5 s group SIGKILL ends it |
 | | relaunch → online | 319 ms |
 | skew, Worker ahead | launch → runner exits for good | 656 ms (exit 1 in the foreground; under launchd it's 0, so no relaunch) |
 | skew, runner ahead | hello → close 4426 | 333 ms |
@@ -261,8 +262,8 @@ latency is not where the problem is. Everything that goes wrong is about **truth
 |---|---|---|
 | HOLDS | pickup p95 < 1 s (16 ms) | M5 |
 | HOLDS | first visible output p95 < 2 s (143 ms) | M5 |
-| **GAP** | no orphan 6 s after its runner exits: pid still alive, reparented to launchd | M12 |
-| **GAP** | a task interrupted by a restart resumes: it fails "Interrupted: the runner restarted" | M13 |
+| HOLDS *(PR 1)* | no orphan 6 s after its runner exits (was GAP: pid alive, reparented to launchd) | M12 |
+| HOLDS *(PR 1)* | a task interrupted by a restart fails once, says why, and never runs twice. *The bench used to check "resumes on its own", which M13 rejects; the check now matches M13.* | M13 |
 | **GAP** | Worker ahead: the user sees *outdated*, not just offline. The row has no reason field (`name,online,seenAt,active,state,note,facts,login,cloud,sandbox`) | M2, M11 |
 | HOLDS | runner ahead: refused with 4426 and a reason, but only the runner sees it | M2 (runner side only) |
 | HOLDS* | runner ahead: never listed online before its hello was accepted. *The bench didn't catch the window, but it is real: `sockets.ts:460-461` tags the socket at upgrade and `online()` counts it (`machines.ts:362-364`), and `#send` will deliver to it. Treat this as untested, not as holding. | M3 |

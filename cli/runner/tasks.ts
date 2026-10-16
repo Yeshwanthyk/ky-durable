@@ -7,7 +7,7 @@
  * Codex as under Claude Code (Codex would drop them, and KY_TASK_TOKEN with them). An
  * OPENAI_API_KEY here also makes Codex bill that API key rather than sign in with auth.json.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -59,6 +59,21 @@ For anything that needs the user's logins, use the user's own Chrome through the
  */
 const CODEX_HOME_KEPT_MS = 14 * 24 * 60 * 60_000;
 
+/**
+ * Signal an agent's whole process group: the CLI and every tool it started. Each agent leads its
+ * own group (`detached`), so a runner that exits takes them all down, and a Ctrl-C at the
+ * runner's terminal reaches them only through the runner. A group already gone is nothing to do.
+ */
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // Exited, with everything it started.
+  }
+}
+
 /** This process's env without ky's own variables, which are the runner's and never a task's. */
 function outsideEnv(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("KY_")));
@@ -85,6 +100,8 @@ export function tasks(config: TaskConfig) {
   const codexHomes = join(config.state, "codex");
   const bin = join(config.state, "bin");
   const prompt = taskPrompt(config.workdir);
+  /** Each agent still running, or with a tool still holding its output open, and when it closes. */
+  const live = new Map<ChildProcess, Promise<void>>();
 
   /** Puts `ky` where each task finds it on its PATH: this `ky`, whichever its user runs. */
   function installKy(): void {
@@ -202,6 +219,8 @@ export function tasks(config: TaskConfig) {
 
     const child: ChildProcessWithoutNullStreams = spawn(command, args, {
       cwd: config.workdir,
+      // Its own process group, which signalGroup ends whole.
+      detached: true,
       // C1's env, for either agent: where ky is, which task this is, and the task's own token. Never a
       // GitHub token of ky's: the cloud machine reaches GitHub through github.internal, which holds it.
       env: {
@@ -214,12 +233,15 @@ export function tasks(config: TaskConfig) {
       }
     });
 
+    live.set(child, new Promise((resolve) => child.once("close", () => resolve())));
     createInterface({ input: child.stdout }).on("line", (line) => events.line(line));
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr = (stderr + chunk).slice(-2000);
     });
     child.on("close", (code) => {
+      live.delete(child);
+
       if (handed) signOut(task);
       events.exit(code, stderr);
     });
@@ -235,8 +257,8 @@ export function tasks(config: TaskConfig) {
         child.stdin.end();
       },
       interrupt: () => {
-        child.kill("SIGINT");
-        setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+        signalGroup(child, "SIGINT");
+        setTimeout(() => signalGroup(child, "SIGKILL"), 5_000).unref();
       },
       renew: (codex) => {
         if (handed) writeCodexAuth(join(codexHomes, task), codex);
@@ -244,5 +266,28 @@ export function tasks(config: TaskConfig) {
     };
   };
 
-  return { installKy, sweepCodexHomes, spawnAgent };
+  /**
+   * Wait up to `withinMs` for every agent to close, then SIGKILL the groups of those that haven't,
+   * so the runner exits after its agents, never before. Call it once they are interrupted.
+   */
+  async function settle(withinMs: number): Promise<void> {
+    await closed(withinMs);
+
+    for (const child of live.keys()) {
+      config.log(`pid ${child.pid} did not exit within ${withinMs / 1000}s of its interrupt; killing its process group`);
+      signalGroup(child, "SIGKILL");
+    }
+
+    // A tool that left the group could hold the output open for ever; a SIGKILLed group closes at once.
+    await closed(1_000);
+  }
+
+  /** Every agent closed, or `ms` passed. */
+  async function closed(ms: number): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([Promise.all(live.values()), new Promise((resolve) => (timer = setTimeout(resolve, ms)))]);
+    clearTimeout(timer);
+  }
+
+  return { installKy, sweepCodexHomes, spawnAgent, settle };
 }

@@ -221,7 +221,8 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
       },
       verdicts: [
         { invariant: "no orphan: the agent is gone 6s after its runner exits", holds: !orphaned, detail: orphaned ? `pid ${pid} still alive (reparented)` : "gone" },
-        { invariant: "a task interrupted by a restart resumes on its own", holds: after.startsWith("done") || after.startsWith("working"), detail: after }
+        // M13: no auto-resume; the task fails once, says the runner restarted, and its agent ran once.
+        { invariant: "a task interrupted by a restart fails once, says why, and never runs twice", holds: after.startsWith("failed") && /restarted/.test(after) && reran === 1, detail: `${after} (agent starts: ${reran})` }
       ]
     };
   },
