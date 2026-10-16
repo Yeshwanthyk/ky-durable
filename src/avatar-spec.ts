@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
-import { decodeOr } from "./core/decode";
-import { must } from "./core/must";
+import { decodeOr } from "./core/decode.ts";
+import { must } from "./core/must.ts";
 
 /**
  * A bloub: an avatar as a few choices from a fixed parts list, which ui/Bloub.tsx draws and animates.

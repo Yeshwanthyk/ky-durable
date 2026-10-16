@@ -14,6 +14,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
                                                          ├─ LOADER   exec sandbox (Dynamic Workers)
                                                          ├─ BROWSER  Kitesurf browser (browse tool)
                                                          ├─ FILES    R2 bucket <worker>-files
+                                                         ├─ EMAIL    Email Service: ky's own address (send; Email Routing → email handler)
                                                          ├─ Executor MCP (HTTPS)
                                                          ├─ API-key vendors (HTTPS)
                                                          └─ VibeProxy on a computer, over its runner socket (or a VPC tunnel)
@@ -27,6 +28,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | exec sandbox | `exec` runs JavaScript in a fresh Dynamic Worker over the DO's workspace (`/workspace`). No network except git over HTTPS, no shell or npm. | `src/workspace.ts`, binding `LOADER` |
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
 | R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
+| Email Service | ky's own address (`KY_MAIL_ADDRESS`). Email Routing hands mail to the Worker's `email` handler, which parses it and passes it to the DO; each mail is read in a background conversation that may call no tool, and reported where it matters. The `mail` tool sends with the `EMAIL` binding: at once to the user's addresses and ones they allowed, otherwise held until the user sends it in Settings › Mail. | `src/mail.ts`, `src/ui/Mail.tsx`, binding `EMAIL` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`; its URL and token are added in Settings › Tools › Executor and kept in the Vault |
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
 | API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/api-key.ts`, `src/vault.ts` |
@@ -39,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.

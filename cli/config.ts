@@ -43,7 +43,7 @@ export async function namedOverlay(overlay: string, name: string): Promise<strin
 }
 
 /** What the CLI's overlay may set: anything else would replace the release's own. */
-const SETTINGS = new Set(["$schema", "account_id", "name", "vars", "vpc_services"]);
+const SETTINGS = new Set(["$schema", "account_id", "name", "vars", "vpc_services", "send_email"]);
 
 /** The overlay `ky init` writes: what was saved, with the account, the Worker's name and who Access lets in. */
 export function overlayFor(saved: Unstable_RawConfig, account: string, name: string, allowed: string): Unstable_RawConfig {
@@ -55,6 +55,13 @@ export function emails(config: Unstable_RawConfig): string[] {
   const value = config.vars?.ACCESS_EMAILS;
 
   return Value.Check(Type.String(), value) ? value.split(",").map((email) => email.trim()).filter(Boolean) : [];
+}
+
+/** ky's own address, KY_MAIL_ADDRESS, lowercased; undefined when the config has none. */
+export function mailAddress(config: Unstable_RawConfig): string | undefined {
+  const value = config.vars?.KY_MAIL_ADDRESS;
+
+  return Value.Check(Type.String({ pattern: "@" }), value) ? value.trim().toLowerCase() : undefined;
 }
 
 /** What the overlay lacks for a deploy, each with the `ky init` flag that fills it in. */
@@ -79,7 +86,7 @@ export async function readOverlay(file: string): Promise<Unstable_RawConfig | un
   const other = Object.keys(overlay).find((key) => !SETTINGS.has(key));
 
   if (other)
-    throw new Error(`${file} sets \`${other}\`, which would replace ky's own; remove it (ky's settings are account_id, name, vars and vpc_services)`);
+    throw new Error(`${file} sets \`${other}\`, which would replace ky's own; remove it (ky's settings are account_id, name, vars, vpc_services and send_email)`);
 
   return overlay;
 }

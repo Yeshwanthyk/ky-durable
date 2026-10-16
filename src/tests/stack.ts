@@ -335,7 +335,14 @@ export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
   /** Every request to Workers AI and the api-key vendors, as the wire carried it. */
   readonly calls: AiCall[];
+  /** Every mail Email Service was asked to send; one to an address with "bounce" in it is refused. */
+  readonly mailSent: EmailMessageBuilder[];
 };
+
+/** A test ky's own address. A ky named with NO_MAIL has none, as a deploy with no domain. */
+export const MAIL_ADDRESS = "ky@mail.test";
+
+export const NO_MAIL = "nomail-";
 
 const call = (tool: string, args: Record<string, JsonValue>): Reply => ({ tool, args });
 
@@ -438,6 +445,18 @@ function answer(prompt: string): Reply {
 
   if (said) return { text: said[1]! };
 
+  // A triage reads a mail (src/mail.ts mailTriage): a newsletter needs nobody; a `tool` line in it is tried, as a mail
+  // that talks the model round would; anything else is summed up by its subject.
+  const mail = /^\[a mail to ky from [^\]]+\][\s\S]*?\nSubject: (.*)\n\n([\s\S]*)$/.exec(prompt);
+
+  if (mail) {
+    const tool = /^tool \S+ \{.*\}$/m.exec(mail[2]!);
+
+    if (tool) return answer(tool[0]);
+
+    return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
+  }
+
   // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
   const peer = /^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/.exec(prompt);
 
@@ -522,6 +541,17 @@ export class PiAgent extends ProductionAgent {
     });
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
+    const mailSent: EmailMessageBuilder[] = [];
+
+    const mail = {
+      address: MAIL_ADDRESS,
+      send: async (message: EmailMessageBuilder) => {
+        if (JSON.stringify(message.to).includes("bounce")) throw new Error("The fake Email Service refuses this address.");
+        mailSent.push(message);
+
+        return { messageId: `<sent-${mailSent.length}@mail.test>` };
+      }
+    };
 
     const refusing = (provider: FakeProvider) => async () =>
       (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
@@ -559,8 +589,10 @@ export class PiAgent extends ProductionAgent {
       },
       seeds: this.ctx.id.name?.startsWith(FRESH) === true,
       extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
+      mail: this.ctx.id.name?.startsWith(NO_MAIL) === true ? undefined : mail,
       executorFake,
-      calls
+      calls,
+      mailSent
     };
   }
 
@@ -801,7 +833,8 @@ function peerHost(request: Request, env: Env): Promise<Response> | undefined {
 
 /** The stack, and each test ky's peer routes at its own address. */
 const kys = {
-  fetch: (request: Request, env: Env): Promise<Response> => peerHost(request, env) ?? stack.fetch(request, env)
+  fetch: (request: Request, env: Env): Promise<Response> => peerHost(request, env) ?? stack.fetch(request, env),
+  email: (message: ForwardableEmailMessage, env: Env): Promise<void> => ky.email(message, env)
 } satisfies ExportedHandler<Env>;
 
 export default kys;

@@ -69,6 +69,30 @@ export type CloudState = "asleep" | "waking" | "running";
 
 export type SubscriptionKind = Static<typeof SubscriptionKindSchema>;
 
+/** A mail, as Settings › Mail shows it. */
+export type MailItem = {
+  readonly id: string;
+  readonly direction: "in" | "out";
+  /** The sender of one that came in; the recipient of one ky wrote. */
+  readonly party: string;
+  readonly partyName: string;
+  readonly subject: string;
+  /** Its text's start; for one that came in, what its triage said, if it said anything. */
+  readonly preview: string;
+  readonly state: "new" | "triaged" | "kept" | "held" | "discarded" | "sending" | "sent" | "failed";
+  /** Why one ky wrote failed. */
+  readonly note: string;
+  readonly at: number;
+};
+
+/** Settings › Mail: ky's address (null until set up), the mail waiting for the user, the newest, and who ky may write to. */
+export type MailView = {
+  readonly address: string | null;
+  readonly held: readonly MailItem[];
+  readonly recent: readonly MailItem[];
+  readonly allowed: readonly string[];
+};
+
 /** A peer, another person's ky this one is paired with, as Settings › Peers shows it: never its token. */
 export type PeerView = {
   readonly name: string;

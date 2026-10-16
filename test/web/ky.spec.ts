@@ -720,6 +720,33 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
   await expect(pair.getByRole("alert")).toHaveText("That is this ky's own address.");
 });
 
+test("tells the chat what a mail to ky says, and sends ky's mail to someone new once the user does in Settings › Mail", async ({ page, request }) => {
+  await open(page);
+  // The Worker's email handler, as Email Routing calls it.
+  const mail = ["From: Ana <ana@friend.test>", "To: ky@mail.test", "Subject: Dinner Friday?", `Message-ID: <${crypto.randomUUID()}@friend.test>`, "", "Are you free?"];
+  const delivered = await request.post("/cdn-cgi/handler/email?from=ana@friend.test&to=ky@mail.test", { data: mail.join("\r\n") });
+  expect(delivered.ok()).toBe(true);
+  // The report comes into the main chat, which answers it (the stack's model echoes).
+  await expect(chat(page).getByText('from ana@friend.test, "Dinner Friday?": a summary of a stranger\'s words').first()).toBeVisible();
+  await expect(composer(page)).toHaveAttribute("placeholder", "Message ky");
+
+  const to = `desk-${crypto.randomUUID().slice(0, 6)}@cafe.test`;
+  await send(page, `tool mail ${JSON.stringify({ action: "send", to, subject: "Table for two", text: "Friday at 7?" })}`);
+  await expect(chat(page).getByText(`ky hasn't written to ${to} before`).first()).toBeVisible();
+
+  await settings(page, "Mail");
+  await expect(panel(page).getByText("ky@mail.test")).toBeVisible();
+  await expect(panel(page).getByText("Friday at 7?")).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/mail-held.png` : undefined });
+  await panel(page).getByRole("button", { name: "Send", exact: true }).click();
+
+  await expect(panel(page).getByText(`To ${to} · Sent`)).toBeVisible();
+  await expect(chat(page).getByText(`the user sent your mail to ${to}`).first()).toBeVisible();
+  // Sending allowed the address; removing it puts the shared stack back.
+  await panel(page).getByRole("button", { name: `Stop allowing ${to}` }).click();
+  await expect(panel(page).getByRole("button", { name: `Stop allowing ${to}` })).toBeHidden();
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");

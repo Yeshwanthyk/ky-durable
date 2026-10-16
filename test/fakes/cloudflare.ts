@@ -109,7 +109,18 @@ export type FakeAccount = {
   paid: boolean;
   /** Container apps by id. */
   containerApps: Map<string, FakeContainerApp>;
+  /** The account's domains, by zone id. */
+  zones: Map<string, FakeZone>;
 };
+
+export type FakeRule = { id: string; name: string; enabled: boolean; matchers: { type: string; field?: string; value?: string }[]; actions: { type: string; value?: string[] }[] };
+
+/** A domain on the account, with Email Routing on or off and its routing rules. */
+export type FakeZone = { id: string; name: string; routing: boolean; rules: FakeRule[] };
+
+export function fakeZone(name: string, zone: Partial<FakeZone> = {}): FakeZone {
+  return { id: `zone-${name}`, name, routing: true, rules: [], ...zone };
+}
 
 export type FakeCloudflare = {
   url: string;
@@ -141,7 +152,7 @@ class Failure extends Error {
 }
 
 export function fakeAccount(id: string, name: string, account: Partial<FakeAccount> = {}): FakeAccount {
-  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), paid: false, containerApps: new Map(), ...account };
+  return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), paid: false, containerApps: new Map(), zones: new Map(), ...account };
 }
 
 async function body(message: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
@@ -511,10 +522,81 @@ function refuseLogin(path: string[], authorization: string | null): void {
   if (path.join("/") === "access/organizations" && authorization === `Bearer ${NO_ORGANIZATION_TOKEN}`) throw new Failure(403, 10000, "Authentication error");
 }
 
+const RuleBody = Type.Object({
+  name: Type.String(),
+  enabled: Type.Boolean(),
+  matchers: Type.Array(Type.Object({ type: Type.String(), field: Type.Optional(Type.String()), value: Type.Optional(Type.String()) })),
+  actions: Type.Array(Type.Object({ type: Type.String(), value: Type.Optional(Type.Array(Type.String())) }))
+});
+
+/** A zone, as GET /zones lists it. */
+function zoneItem(zone: FakeZone, account: FakeAccount) {
+  const at = "2026-01-01T00:00:00Z";
+
+  return {
+    id: zone.id,
+    name: zone.name,
+    account: { id: account.id, name: account.name },
+    activated_on: at,
+    created_on: at,
+    modified_on: at,
+    development_mode: 0,
+    meta: {},
+    name_servers: [],
+    original_dnshost: "",
+    original_name_servers: [],
+    original_registrar: "",
+    owner: {},
+    plan: {},
+    status: "active"
+  };
+}
+
+/** The zones API: listing zones, and a zone's Email Routing and its rules. */
+async function zoneRoute(fake: FakeCloudflare, request: Request, url: URL, path: string[]): Promise<object | null> {
+  const accounts = [...fake.accounts.values()];
+
+  if (path.length === 0 && request.method === "GET") {
+    const only = url.searchParams.get("account.id");
+    const name = url.searchParams.get("name");
+
+    return new Page(
+      accounts
+        .filter((account) => !only || account.id === only)
+        .flatMap((account) => [...account.zones.values()].flatMap((zone) => (!name || zone.name === name ? [zoneItem(zone, account)] : []))),
+      url
+    );
+  }
+
+  const [zoneId, ...rest] = path;
+  const account = accounts.find((each) => each.zones.has(zoneId ?? ""));
+  const zone = account?.zones.get(zoneId ?? "");
+
+  if (!account || !zone) throw new Failure(404, 7003, "Could not route to /zones/…, perhaps your object identifier is invalid?");
+  fake.requests.push(`${request.method} zones/${zone.name}/${rest.join("/")}`);
+  const call = `${request.method} ${rest.join("/")}`;
+
+  if (call === "GET email/routing") return { id: zone.id, name: zone.name, enabled: zone.routing };
+
+  if (call === "GET email/routing/rules") return new Page(zone.rules, url);
+
+  if (call === "POST email/routing/rules") {
+    const rule = { id: `rule-${zone.rules.length + 1}`, ...decode(RuleBody, await request.text()) };
+
+    zone.rules.push(rule);
+
+    return rule;
+  }
+
+  throw new Failure(404, 7003, `No route for ${call}`);
+}
+
 /** The route's result, or a Failure. */
 async function route(fake: FakeCloudflare, request: Request): Promise<object | null> {
   const url = new URL(request.url);
   const [root, id, ...path] = url.pathname.split("/").filter(Boolean);
+
+  if (root === "zones") return zoneRoute(fake, request, url, [id, ...path].filter((part): part is string => part !== undefined));
 
   if (root !== "accounts") throw new Failure(404, 7003, `No route for ${url.pathname}`);
 

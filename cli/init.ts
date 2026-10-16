@@ -1,7 +1,8 @@
 /**
  * `ky init`: from a Cloudflare login to ky running behind Access. It signs in, picks the account,
  * makes sure Zero Trust is on, asks for a workers.dev subdomain when the account has none, the
- * Worker's name and the owner's email; then, with every question answered so the slow part runs
+ * Worker's name, the owner's email and, for a new ky, an optional domain for ky's own address
+ * (`<name>@<domain>`, `--mail`); then, with every question answered so the slow part runs
  * unattended, it turns the subdomain on, writes the overlay (cli/config.ts) and deploys. Run again,
  * it keeps what the overlay has and asks only for what it lacks, so it's also how `ky doctor` fixes a
  * missing setting.
@@ -15,11 +16,11 @@ import { isCancel, password, select, text } from "@clack/prompts";
 import type { Unstable_RawConfig } from "wrangler";
 import { Cloudflare, refused, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
-import { emails, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
+import { emails, mailAddress, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
 import { claim, type Deployed, deploy, NameTaken, teamDomain, zeroTrustPage } from "./deployer.ts";
 import { bold, cancelled, dim, green, open, type Output, output, qr, terminal } from "./output.ts";
 
-export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string };
+export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string; mail?: string };
 
 /** A Worker name whose bucket, `<name>-files`, is a valid bucket name too. */
 const NAME = /^[a-z0-9]([a-z0-9-]{0,55}[a-z0-9])?$/;
@@ -38,6 +39,9 @@ async function ask(given: string | undefined, flag: string, prompt: () => Return
 
 /** A pasted token's check: a blank one would reach Cloudflare as "Invalid request headers". */
 const blank = (value: string | undefined) => (value?.trim() ? undefined : "Paste the token");
+
+/** A domain ky's address can be on: a zone of the account. */
+const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function validName(name: string): string | undefined {
   return NAME.test(name) ? undefined : "Lowercase letters, digits and dashes, at most 57";
@@ -167,7 +171,48 @@ async function settings(context: Context, saved: Unstable_RawConfig, account: st
     )
   );
 
-  return { name, overlay: overlayFor(saved, account, name, allowed) };
+  const overlay = overlayFor(saved, account, name, allowed);
+  const domain = await mailDomain(saved, flags.mail);
+
+  return { name, overlay: domain ? withMail(overlay, `${name}@${domain}`) : overlay };
+}
+
+/**
+ * The domain ky's own address goes on, `<name>@<domain>`: the flag's; else, setting a new ky up in a terminal,
+ * the answer, if any. A ky that has an address keeps it.
+ */
+async function mailDomain(saved: Unstable_RawConfig, given: string | undefined): Promise<string | undefined> {
+  const has = mailAddress(saved);
+
+  if (has) {
+    if (given !== undefined) throw new Error(`This ky's address is already ${has}; edit KY_MAIL_ADDRESS in its settings to change it`);
+
+    return undefined;
+  }
+
+  const domain = (
+    given ??
+    (!saved.name && terminal()
+      ? await ask(undefined, "", () =>
+          text({
+            message: `A domain for ky's own email ${dim("— ky gets <name>@<domain>; Enter to skip")}`,
+            defaultValue: "",
+            validate: (value) => (!value || DOMAIN.test(value.trim().toLowerCase()) ? undefined : "A domain on this Cloudflare account, like example.com")
+          })
+        )
+      : "")
+  )
+    .trim()
+    .toLowerCase();
+
+  if (domain && !DOMAIN.test(domain)) throw new Error(`--mail ${domain}: a domain on this Cloudflare account, like example.com`);
+
+  return domain || undefined;
+}
+
+/** The overlay with ky's own address, and the binding that sends from it and no other. */
+function withMail(overlay: Unstable_RawConfig, address: string): Unstable_RawConfig {
+  return { ...overlay, vars: { ...overlay.vars, KY_MAIL_ADDRESS: address }, send_email: [{ name: "EMAIL", allowed_sender_addresses: [address] }] };
 }
 
 /** A setting for the summary, marked when it was already in the overlay. */
@@ -199,7 +244,8 @@ export async function initCommand(context: Context, flags: InitFlags): Promise<n
     setting("Worker", name, Boolean(saved.name)),
     setting("Release", release.version, false),
     setting("Address", `https://${name}.${subdomain}.workers.dev`, false),
-    setting("Access", allowed, emails(saved).length > 0)
+    setting("Access", allowed, emails(saved).length > 0),
+    ...[mailAddress(overlay)].flatMap((mail) => (mail ? [setting("Mail", mail, Boolean(mailAddress(saved)))] : []))
   ]);
 
   const deployed: Deployed = await out.steps(`Stopped. Run \`ky init\` again to pick up where it left off.`, async (say) => {

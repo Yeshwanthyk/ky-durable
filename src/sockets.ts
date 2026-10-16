@@ -42,6 +42,7 @@ import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
+import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
@@ -161,6 +162,7 @@ export class PiSessionSockets {
   readonly #models: Models;
   readonly #subscriptions: Subscriptions;
   readonly #peers: PeerDesk;
+  readonly #mail: MailDesk;
   readonly #pipe: RunnerPipe;
   readonly #executor: ExecutorLink;
   readonly #chats: ChatList;
@@ -189,6 +191,7 @@ export class PiSessionSockets {
     models: Models,
     subscriptions: Subscriptions,
     peers: PeerDesk,
+    mail: MailDesk,
     pipe: RunnerPipe,
     executor: ExecutorLink,
     chats: ChatList,
@@ -216,6 +219,7 @@ export class PiSessionSockets {
     this.#models = models;
     this.#subscriptions = subscriptions;
     this.#peers = peers;
+    this.#mail = mail;
     this.#pipe = pipe;
     this.#executor = executor;
     this.#chats = chats;
@@ -868,6 +872,10 @@ export class PiSessionSockets {
     "peer-invite": (message) => peerInvite(this.#peers, message.name),
     "peer-pair": (message) => peerPair(this.#peers, message.name, message.address, message.code),
     "peer-remove": (message) => peerRemove(this.#peers, message.name),
+    "mail-view": () => mailView(this.#mail),
+    "mail-approve": (message) => mailApprove(this.#mail, message.mail),
+    "mail-discard": (message) => mailDiscard(this.#mail, message.mail),
+    "mail-disallow": (message) => mailDisallow(this.#mail, message.address),
     "new-chat": async () => ({ session: await this.#newChat() }),
     "archive-chat": (message) => {
       if (!this.#chats.has(message.session)) throw new Error(`No side chat ${message.session}`);

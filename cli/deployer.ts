@@ -15,14 +15,16 @@ import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import * as Containers from "@distilled.cloud/cloudflare/containers";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
+import * as EmailRouting from "@distilled.cloud/cloudflare/email-routing";
 import * as R2 from "@distilled.cloud/cloudflare/r2";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
+import * as Zones from "@distilled.cloud/cloudflare/zones";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
 import { answeredWithError, type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
-import { emails, writeDeployed } from "./config.ts";
+import { emails, mailAddress, writeDeployed } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
 import { copyImage, imageDigest, TARGET } from "./image.ts";
 import { type Release, releaseImage } from "./release.ts";
@@ -54,7 +56,8 @@ const DEPLOYS = new Set([
   "migrations",
   "observability",
   "vars",
-  "vpc_services"
+  "vpc_services",
+  "send_email"
 ]);
 
 /** Why a key wrangler.jsonc may hold isn't deployed here. */
@@ -265,6 +268,18 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
   };
 }
 
+/** The config's `send_email` bindings: ky's mail, sent from its own address. */
+const sendEmail = (config: Unstable_RawConfig) =>
+  (config.send_email ?? []).map(
+    (email): Binding => ({
+      type: "send_email",
+      name: email.name,
+      destinationAddress: email.destination_address,
+      allowedDestinationAddresses: email.allowed_destination_addresses,
+      allowedSenderAddresses: email.allowed_sender_addresses
+    })
+  );
+
 /** The Worker's bindings, from the config, with its buckets and `env` added as plain text. */
 function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Record<string, string>): Binding[] {
   for (const key of Object.keys(config))
@@ -286,6 +301,7 @@ function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Re
       (limit): Binding => ({ type: "ratelimit", name: limit.name, namespaceId: limit.namespace_id, simple: limit.simple })
     ),
     ...(config.vpc_services ?? []).map((service): Binding => ({ type: "vpc_service", name: service.binding, serviceId: service.service_id })),
+    ...sendEmail(config),
     ...Object.entries({ ...config.vars, ...env }).map(
       ([name, value]): Binding => (Value.Check(Type.String(), value) ? { type: "plain_text", name, text: value } : { type: "json", name, json: value })
     )
@@ -561,6 +577,55 @@ async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string
   );
 }
 
+/** What a login needs, past a deploy's, to route ky's mail. */
+const MAIL_SCOPES = "Zone: Read and Email Routing Rules: Edit";
+
+/** Where the user turns Email Routing on for a domain. */
+const emailRoutingPage = (accountId: string, domain: string) => `https://dash.cloudflare.com/${accountId}/${domain}/email/routing/overview`;
+
+/** Whether `rule` takes mail to `address`, and nothing else. */
+const takes = (rule: EmailRouting.GetRuleResponse, address: string) =>
+  rule.matchers?.length === 1 && rule.matchers[0]?.type === "literal" && rule.matchers[0].value?.toLowerCase() === address;
+
+/** Whether `rule` hands its mail to the Worker `script`. */
+const handsTo = (rule: EmailRouting.GetRuleResponse, script: string) => rule.actions?.some((action) => action.type === "worker" && action.value?.includes(script)) === true;
+
+/**
+ * The Email Routing rule that hands mail to ky's address to this Worker: made when it's missing. The address's
+ * domain is a zone of the account with Email Routing on; a rule that sends the address elsewhere is the user's, and refused.
+ */
+async function ensureMailRoute(cloudflare: Cloudflare, accountId: string, script: string, address: string): Promise<void> {
+  const domain = address.split("@")[1] ?? "";
+
+  try {
+    const [zone] = await cloudflare.list(Zones.listZones.items({ name: domain, account: { id: accountId } }));
+
+    if (!zone) throw new Error(`${domain}, ky's mail domain, isn't on this Cloudflare account: add it, then run \`ky deploy\``);
+    const routing = await cloudflare.run(EmailRouting.getEmailRouting({ zoneId: zone.id }));
+
+    if (!routing.enabled) throw new Error(`Email Routing is off for ${domain}: turn it on at ${emailRoutingPage(accountId, domain)}, then run \`ky deploy\``);
+    const rules = await cloudflare.list(EmailRouting.listRules.items({ zoneId: zone.id }));
+    const found = rules.find((rule) => takes(rule, address));
+
+    if (found && handsTo(found, script)) return;
+
+    if (found) throw new Error(`An Email Routing rule already sends ${address} elsewhere: point it at the Worker ${script} at ${emailRoutingPage(accountId, domain)}, or pick another address`);
+
+    await cloudflare.run(
+      EmailRouting.createRule({
+        zoneId: zone.id,
+        name: `ky: ${script}`,
+        enabled: true,
+        matchers: [{ type: "literal", field: "to", value: address }],
+        actions: [{ type: "worker", value: [script] }]
+      })
+    );
+  } catch (error) {
+    if (refused(error)) throw new Error(`Routing ${address} to ky needs a token with ${MAIL_SCOPES} too: add them at ${tokenPage()}, then run \`ky login\``);
+    throw error;
+  }
+}
+
 /**
  * Deploys the release: buckets, the Access apps, the web app, then the Worker with its bindings,
  * the migrations it hasn't run and `ACCESS_*`; then workers.dev.
@@ -624,6 +689,14 @@ export async function deploy(target: Target, release: Release, say: (step: strin
 
   say("Turning on workers.dev");
   await cloudflare.run(Workers.createScriptSubdomain({ accountId, scriptName: name.script, enabled: true, previewsEnabled: false }));
+
+  const mail = mailAddress(config);
+
+  if (mail) {
+    say(`Routing ${mail} to ky`);
+    await ensureMailRoute(cloudflare, accountId, name.script, mail);
+  }
+
   // So ky backup and ky restore find it with no Cloudflare login, only cloudflared's.
   await writeDeployed(target.settings, { account: accountId, name: name.script, url: `https://${address}` });
 

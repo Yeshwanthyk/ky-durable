@@ -24,6 +24,14 @@ interface Env {
   readonly KY_PEER_OPEN_ASKS?: string;
   /** How many questions one peer may ask this ky in an hour: 10 when unset. */
   readonly KY_PEER_HOURLY_ASKS?: string;
+  /** Email Service's send binding, for mail from ky's own address (src/mail.ts). */
+  readonly EMAIL?: SendEmail;
+  /** ky's own address, like ky@example.com, on a domain onboarded to Email Service; its routing rule sends mail to this Worker. */
+  readonly KY_MAIL_ADDRESS?: string;
+  /** The most mails ky sends in a day (src/mail.ts): 50 when unset. */
+  readonly KY_MAIL_DAILY_SENDS?: string;
+  /** The most mails ky triages in an hour; the rest are only kept: 20 when unset. */
+  readonly KY_MAIL_HOURLY_TRIAGES?: string;
   /** "1" signs every request in as KY_DEV_EMAIL, with no Access: `pnpm start` only, never a deploy. */
   readonly KY_DEV?: string;
   readonly KY_DEV_EMAIL?: string;

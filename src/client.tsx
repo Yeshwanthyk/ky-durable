@@ -15,6 +15,7 @@ import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
+import { MailContext } from "./ui/Mail";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
@@ -454,6 +455,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
       <AutomationsContext.Provider value={automations}>
         <ExecutorContext.Provider value={executor}>
           <PeerContext.Provider value={ky.peerActions}>
+          <MailContext.Provider value={ky.mailActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -496,6 +498,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </MailContext.Provider>
           </PeerContext.Provider>
         </ExecutorContext.Provider>
       </AutomationsContext.Provider>
