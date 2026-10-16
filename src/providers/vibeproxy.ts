@@ -1,7 +1,7 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
-import type { Endpoint } from "../models";
 import type { NotSetUp } from "../setup";
+import type { Endpoint } from "./endpoint";
+import type { Offer } from "./offer";
 import type { ProviderRecord } from "./records";
 import { type RunnerLocalConfig, runnerLocal } from "./runner-local";
 
@@ -26,8 +26,8 @@ export const VIBEPROXY_PORT = 8317;
 
 const NAME = "Claude via VibeProxy";
 
-/** Claude models to offer: the main agent's first, then a small and quick one. */
-const MODEL_IDS = ["claude-opus-5-5", "claude-haiku-5-5"];
+/** Every Claude model pi-ai knows, featuring the main agent's first, then a small and quick one. */
+export const VIBEPROXY_OFFER: Offer = { featured: ["claude-opus-5-5", "claude-haiku-5-5"], light: "claude-haiku-5-5" };
 
 /** What reaches VibeProxy from outside the Worker: production's in server.ts, the fakes' in src/tests/stack.ts. */
 export type VibeProxyBoundary = {
@@ -74,22 +74,14 @@ export type VibeProxyConfig = Pick<RunnerLocalConfig, "transport" | "online" | "
 };
 
 export function vibeProxy({ machine, key, ...config }: VibeProxyConfig): Endpoint {
-  const models = MODEL_IDS.map((modelId): Model<Api> => {
-    const model = Object.values(ANTHROPIC_MODELS).find((each) => each.id === modelId);
-
-    if (!model) throw new TypeError(`No Anthropic model "${modelId}" in pi-ai's catalog.`);
-
-    return model;
-  });
-
   return runnerLocal({
     ...config,
     id: VIBEPROXY_PROVIDER,
     name: machine === null ? NAME : `${NAME} on ${machine}`,
     needs: machine === null ? "the computer online with VibeProxy" : `${machine} online, with VibeProxy on port ${new URL(config.origin).port}`,
     api: "anthropic-messages",
-    models,
-    light: "claude-haiku-5-5",
+    catalog: Object.values(ANTHROPIC_MODELS),
+    offer: VIBEPROXY_OFFER,
     thinkingLevel: "medium",
     // A VibeProxy that checks no key takes any, and pi sends one.
     key: key ?? "none"

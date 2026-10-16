@@ -502,16 +502,19 @@ function formOf(automation: AutomationInfo | undefined): Form {
 type Pickable = {
   value: string;
   label: string;
+  /** Listed in the picker; the rest can be stored and still resolve. */
+  featured: boolean;
   levels: readonly ModelThinkingLevel[];
 };
 
-/** Every model a connected provider offers, as `provider/modelId`. */
+/** Every model a connected provider offers, as `provider/modelId`, featured or not. */
 export function modelChoices(providers: readonly ProviderInfo[]): Pickable[] {
   return providers.flatMap((provider) =>
     provider.connected
       ? provider.models.map((model) => ({
           value: `${provider.id}/${model.modelId}`,
           label: `${model.name} · ${provider.name}`,
+          featured: model.featured,
           levels: model.levels,
         }))
       : [],
@@ -764,7 +767,7 @@ export function ModelPicks({
     <>
       <Pick label="Model" value={form.model} onChange={(model) => set({ model })}>
         <option value="">Subagents model</option>
-        {choices.map((choice) => (
+        {choices.filter((choice) => choice.featured || choice.value === form.model).map((choice) => (
           <option key={choice.value} value={choice.value}>
             {choice.label}
           </option>

@@ -30,7 +30,7 @@ import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS } from "./peers/contract";
-import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
+import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -97,7 +97,7 @@ export class PiAgent extends DurableObject<Env> {
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** The questions this ky and its peers ask each other. */
-  readonly peerAsks = new PeerAsks(this.ctx.storage.sql);
+  readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage.sql);
   /** What the peer tool and Settings › Peers work with. */

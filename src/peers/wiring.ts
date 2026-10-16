@@ -6,7 +6,7 @@ import { type PeerDesk, peerExtension } from "./peers";
 /** What the agent (src/server.ts) and its sockets run: the peers domain's classes and routes. */
 export { GroupChats, GroupDesk } from "./group";
 
-export { deliver, peerAnswer, PeerAsks, type PeerDesk, peerInvite, peerList, peerPair, peerQuestion, peerRemove, peerRoute, Peers, sweepPeers } from "./peers";
+export { deliver, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerInvite, peerList, peerPair, peerQuestion, peerRemove, peerRoute, Peers, sweepPeers } from "./peers";
 
 /** What the peers domain's tools are made from, on the agent (src/server.ts). */
 export type PeersWiring = {

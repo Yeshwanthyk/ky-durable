@@ -3,8 +3,9 @@ import type { Provider } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import type { Endpoint } from "../models";
 import { Breaker } from "./breaker";
+import type { Endpoint } from "./endpoint";
+import { type Offer, offered } from "./offer";
 import type { ProviderRecord } from "./records";
 import { sending } from "./transport";
 
@@ -23,10 +24,8 @@ export type Vendor = {
   readonly id: string;
   readonly name: string;
   readonly provider: () => Provider;
-  /** The models offered, the first being the default; pi-ai's first model of the vendor stands in for any it has dropped. */
-  readonly modelIds: readonly string[];
-  /** Its quick, cheap model, which also takes the test call a new key gets. */
-  readonly light?: string;
+  /** Its featured models, the first being the default, and its light one, which also takes the test call a new key gets. */
+  readonly offer: Offer;
   readonly thinkingLevel: ModelThinkingLevel;
   /** The session sent with a request that has none, for a vendor that refuses those. */
   readonly session?: string;
@@ -43,8 +42,7 @@ export const VENDORS: readonly Vendor[] = [
     id: "anthropic",
     name: "Anthropic",
     provider: anthropicProvider,
-    modelIds: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
-    light: "claude-haiku-4-5",
+    offer: { featured: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"], light: "claude-haiku-4-5" },
     thinkingLevel: "medium",
     // pi sends a subscription token as Claude Code would, which policy 8 rules out.
     refuse: (key) => (key.includes("sk-ant-oat") ? CLAUDE_TOKEN_HERE : undefined)
@@ -53,15 +51,14 @@ export const VENDORS: readonly Vendor[] = [
     id: "openai",
     name: "OpenAI",
     provider: openaiProvider,
-    modelIds: ["gpt-6.1-sol", "gpt-6-luna"],
-    light: "gpt-6-luna",
+    offer: { featured: ["gpt-6.1-sol", "gpt-6-luna"], light: "gpt-6-luna" },
     thinkingLevel: "medium"
   },
   {
     id: "opencode-go",
     name: "OpenCode Go",
     provider: opencodeGoProvider,
-    modelIds: ["deepseek-v4.1-flash"],
+    offer: { featured: ["deepseek-v4.1-flash"] },
     thinkingLevel: "high",
     // OpenCode Go routes by session and refuses requests without one.
     session: "ky"
@@ -88,10 +85,7 @@ export function apiKey(
   key: (providerId: string) => Promise<ProviderKey | null>
 ): Endpoint {
   const provider = vendor.provider();
-  const all = provider.getModels();
-  const offered = vendor.modelIds.flatMap((id) => all.find((model) => model.id === id) ?? []);
-  // SAFETY: pi-ai's vendor providers ship fixed, non-empty model lists.
-  const models = offered.length > 0 ? offered : [all[0]!];
+  const { models, featured, light } = offered(provider.getModels(), vendor.offer);
   const breaker = new Breaker(vendor.name);
   const watched = breaker.watch(fetch);
 
@@ -115,7 +109,8 @@ export function apiKey(
     name: vendor.name,
     needs: "an API key",
     models,
-    light: models.find((model) => model.id === vendor.light),
+    featured,
+    ...(light && { light }),
     thinkingLevel: vendor.thinkingLevel,
     breaker,
     connected: () => true

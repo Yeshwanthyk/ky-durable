@@ -2,7 +2,8 @@ import type { Api, FetchFunction, Model, ModelThinkingLevel } from "@earendil-wo
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider } from "@earendil-works/pi-ai/models";
-import type { Endpoint } from "../models";
+import type { Endpoint } from "./endpoint";
+import { type Offer, offered } from "./offer";
 import { Breaker } from "./breaker";
 import { sending } from "./transport";
 
@@ -44,9 +45,10 @@ export type RunnerLocalConfig = {
   readonly api: LocalApi;
   /** The server's address as pi's models name it, e.g. http://127.0.0.1:8317; only its path reaches the server. */
   readonly origin: string;
-  /** The models offered, the first its default; their `baseUrl` is set to `origin`. */
-  readonly models: readonly Model<Api>[];
-  readonly light?: string;
+  /** The server's catalog; each model's `baseUrl` is set to `origin`. */
+  readonly catalog: readonly Model<Api>[];
+  /** What of the catalog is featured, and its light model. */
+  readonly offer: Offer;
   readonly thinkingLevel: ModelThinkingLevel;
   /** The server's own key. */
   readonly key: string;
@@ -63,7 +65,12 @@ export type RunnerLocalConfig = {
 export function runnerLocal(config: RunnerLocalConfig): Endpoint {
   const origin = new URL(config.origin).origin;
   const { paths, probe: probeHeaders, api } = APIS[config.api];
-  const models = config.models.map((model) => ({ ...model, provider: config.id, baseUrl: origin }));
+
+  const { models, featured, light } = offered(
+    config.catalog.map((model) => ({ ...model, provider: config.id, baseUrl: origin })),
+    config.offer
+  );
+
   const breaker = new Breaker(config.name);
 
   const allowed =
@@ -131,7 +138,8 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
     name: config.name,
     needs: config.needs,
     models,
-    light: models.find((model) => model.id === config.light),
+    featured,
+    ...(light && { light }),
     thinkingLevel: config.thinkingLevel,
     breaker,
     /** Online, and the last probe reached it. Starts a new probe when that one is stale. */

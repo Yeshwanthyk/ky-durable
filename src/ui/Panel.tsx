@@ -1815,7 +1815,7 @@ function choiceOf(provider: ProviderInfo, model: ModelOption, current: ModelChoi
   return { provider: provider.id, modelId: model.modelId, thinkingLevel };
 }
 
-// Every model of every connected provider, with its price; the chosen one is checked.
+// The featured models of every connected provider, with their prices, and the rest behind "Show all"; the chosen one is checked and always shown.
 function ModelChoices({
   purpose,
   current,
@@ -1827,19 +1827,22 @@ function ModelChoices({
   settings: SettingsView;
   onSet: (purpose: Purpose, choice: ModelChoice) => void;
 }) {
+  const [all, setAll] = useState(false);
   const connected = settings.providers.filter((provider) => provider.connected);
+  const chosen = (provider: ProviderInfo, model: ModelOption) => provider.id === current.provider && model.modelId === current.modelId;
+  const hidden = connected.reduce((sum, provider) => sum + provider.models.filter((each) => !each.featured && !chosen(provider, each)).length, 0);
 
   return (
     <section className="group">
       <h4 className="group-label">Model</h4>
       <ul className="card choices" role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} model`}>
         {connected.flatMap((provider) =>
-          provider.models.map((each) => (
+          provider.models.filter((each) => all || each.featured || chosen(provider, each)).map((each) => (
             <li key={`${provider.id}/${each.modelId}`}>
               <button
                 type="button"
                 role="radio"
-                aria-checked={provider.id === current.provider && each.modelId === current.modelId}
+                aria-checked={chosen(provider, each)}
                 className="choice"
                 onClick={() => onSet(purpose, choiceOf(provider, each, current))}
               >
@@ -1853,6 +1856,13 @@ function ModelChoices({
               </button>
             </li>
           )),
+        )}
+        {hidden > 0 && (
+          <li>
+            <button type="button" className="choice" aria-expanded={all} onClick={() => setAll(!all)}>
+              <span className="choice-text row-sub">{all ? "Show fewer models" : `Show all models (${hidden} more)`}</span>
+            </button>
+          </li>
         )}
       </ul>
     </section>

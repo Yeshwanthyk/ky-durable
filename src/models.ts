@@ -5,7 +5,6 @@ import type {
   FetchFunction,
   Message,
   Model,
-  ModelThinkingLevel,
   SimpleStreamOptions,
   TranscriptContext
 } from "@earendil-works/pi-ai";
@@ -21,7 +20,7 @@ import type { AgentChange } from "@earendil-works/pi-durable";
 import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
 import type { MachineHub } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
-import type { Breaker } from "./providers/breaker";
+import type { Endpoint } from "./providers/endpoint";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
 import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
 import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./providers/workers-ai";
@@ -63,28 +62,6 @@ const KEY_TEST: AskLimits = { timeoutMs: 20_000, maxTokens: 16 };
 
 /** Keys come from the Vault, never from the Worker's env or files. */
 const NO_ENV = { env: async () => undefined, fileExists: async () => false };
-
-/** A provider record made live: pi's provider, sending through its transport, and what the catalog shows about it. */
-export type Endpoint = {
-  readonly provider: Provider;
-  readonly kind: ProviderKind;
-  /** The name Settings shows. */
-  readonly name: string;
-  /** What connects it, when it is not. */
-  readonly needs: string;
-  /** The models offered; the first is the provider's default. */
-  readonly models: readonly Model<Api>[];
-  /** Its quick, cheap model for background work while it stands in; its default when unset. */
-  readonly light?: Model<Api>;
-  /** The thinking level its models run at by default. */
-  readonly thinkingLevel: ModelThinkingLevel;
-  /** Opens on a response that says the provider can't take requests now. */
-  readonly breaker: Breaker;
-  /** It took requests when last checked; never waits. */
-  readonly connected: () => boolean;
-  /** Ask it now (or reuse a fresh answer), for a provider that can go away. */
-  readonly reachable?: () => Promise<boolean>;
-};
 
 /** What the models reach outside the Worker: production's in server.ts, the fakes' in src/tests/stack.ts. */
 export type ModelsBoundary = {
@@ -186,7 +163,7 @@ export class Models {
         name: endpoint.name,
         connected: endpoint.connected(),
         needs: endpoint.needs,
-        models: endpoint.models.map(option)
+        models: endpoint.models.map((model) => option(model, endpoint.featured.includes(model)))
       };
 
       return failure === undefined ? info : { ...info, failure };
@@ -347,7 +324,7 @@ export class Models {
     trial.setProvider(candidate.provider);
 
     const answer = await trial.completeSimple(
-      candidate.light ?? candidate.models[0]!,
+      candidate.light ?? candidate.featured[0]!,
       { messages: [{ role: "user", content: "Say hi.", timestamp: Date.now() }] },
       { maxTokens: KEY_TEST.maxTokens, signal: AbortSignal.timeout(KEY_TEST.timeoutMs) }
     );
@@ -488,7 +465,7 @@ export class Models {
   /** Workers AI's default model, or main's while the Workers AI record is disabled, at its lowest thinking level. */
   #background(need: Need): ModelChoice {
     const workersAI = this.#endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
-    const first = workersAI?.models[0];
+    const first = workersAI?.featured[0];
     const { choice, model } = workersAI && first ? { choice: choiceOf(workersAI, first), model: first } : this.resolve("main", need);
 
     return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
@@ -571,15 +548,15 @@ function made({ id, kind, vendor, machine, port, api }: ProviderRecord): string 
 /** The light model of the last of `endpoints`, which are ranked dearest first. */
 function cheapest(endpoints: readonly Endpoint[]): ModelChoice | undefined {
   const endpoint = endpoints.at(-1);
-  const model = endpoint?.light ?? endpoint?.models[0];
+  const model = endpoint?.light ?? endpoint?.featured[0];
 
   return endpoint && model && choiceOf(endpoint, model);
 }
 
-/** The first model of `endpoints`, in order, that meets `need` and isn't `except`. */
+/** The first featured model of `endpoints`, in order, that meets `need` and isn't `except`. */
 function best(endpoints: readonly Endpoint[], need: Need = {}, except?: Model<Api>): ModelChoice | undefined {
   for (const endpoint of endpoints) {
-    const model = endpoint.models.find((each) => each !== except && (!need.images || each.input.includes("image")));
+    const model = endpoint.featured.find((each) => each !== except && (!need.images || each.input.includes("image")));
 
     if (model) return choiceOf(endpoint, model);
   }
@@ -618,10 +595,11 @@ function textOf(answer: AssistantMessage): string {
   return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
-function option(model: Model<Api>): ModelOption {
+function option(model: Model<Api>, featured: boolean): ModelOption {
   const base: ModelOption = {
     modelId: model.id,
     name: model.name,
+    featured,
     levels: getSupportedThinkingLevels(model),
     images: model.input.includes("image")
   };

@@ -56,11 +56,22 @@ const CALL_TIMEOUT_MS = 15_000;
 /** A peer's name: lowercase letters, digits and dashes, up to 32, as a machine's. */
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-/** How many questions one peer may have open with this ky at once. */
-const OPEN_ASKS = 3;
+/** How many questions one peer may have open with this ky at once, and ask it in an hour. */
+export type PeerLimits = { readonly openAsks: number; readonly hourlyAsks: number };
 
-/** How many questions one peer may ask this ky in an hour. */
-const HOURLY_ASKS = 10;
+/** The limits unless the overlay's vars say: 3 open, 10 an hour. */
+const PEER_LIMITS: PeerLimits = { openAsks: 3, hourlyAsks: 10 };
+
+/** KY_PEER_OPEN_ASKS and KY_PEER_HOURLY_ASKS, each a positive whole number, else its default. */
+export function peerLimits(vars: { readonly KY_PEER_OPEN_ASKS?: string; readonly KY_PEER_HOURLY_ASKS?: string }): PeerLimits {
+  return { openAsks: cap(vars.KY_PEER_OPEN_ASKS, PEER_LIMITS.openAsks), hourlyAsks: cap(vars.KY_PEER_HOURLY_ASKS, PEER_LIMITS.hourlyAsks) };
+}
+
+function cap(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+
+  return value?.trim() && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /** How long until ky tries again to send an answer that didn't reach its peer. */
 const RESEND_MS = 5 * 60_000;
@@ -132,9 +143,11 @@ const ASK_COLUMNS = "id, peer, direction, question, state, answer, session, sent
 /** The questions this ky asked its peers, and they asked it. */
 export class PeerAsks {
   readonly #sql: SqlStorage;
+  readonly #limits: PeerLimits;
 
-  constructor(sql: SqlStorage) {
+  constructor(sql: SqlStorage, limits: PeerLimits = PEER_LIMITS) {
     this.#sql = sql;
+    this.#limits = limits;
     sql.exec(`CREATE TABLE IF NOT EXISTS ${ASKS} (
       id TEXT NOT NULL,
       peer TEXT NOT NULL,
@@ -176,9 +189,11 @@ export class PeerAsks {
 
     if (count("id = ?", id) > 0) return "known";
 
-    if (count("state IN ('open', 'asking')") >= OPEN_ASKS) return `You have ${OPEN_ASKS} questions open with this ky; wait for its answers.`;
+    const { openAsks, hourlyAsks } = this.#limits;
 
-    if (count("created_at > ?", now - 3_600_000) >= HOURLY_ASKS) return `You asked this ky ${HOURLY_ASKS} questions this hour; ask again later.`;
+    if (count("state IN ('open', 'asking')") >= openAsks) return `You have ${openAsks} questions open with this ky; wait for its answers.`;
+
+    if (count("created_at > ?", now - 3_600_000) >= hourlyAsks) return `You asked this ky ${hourlyAsks} questions this hour; ask again later.`;
     this.#sql.exec(
       `INSERT INTO ${ASKS} (id, peer, direction, question, state, session, created_at) VALUES (?, ?, 'in', ?, 'open', '', ?)`,
       id,

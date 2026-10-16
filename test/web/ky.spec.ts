@@ -446,6 +446,30 @@ test("picks a purpose's model in settings and keeps it after a reload, with Vibe
   await expect(panel(page).getByRole("button", { name: /^Background/ })).not.toContainText("GPT OSS 120B");
 });
 
+test("lists VibeProxy's featured Claude models, and the rest of the catalog behind Show all", async ({ page }) => {
+  await mac(page, "1");
+  await open(page);
+  await settings(page, "Models", "Main agent");
+  const models = panel(page).getByRole("radiogroup", { name: "Main agent model" });
+  await expect(models.getByRole("radio", { name: /^Claude Opus 5\.5/ })).toBeVisible();
+  await expect(models.getByRole("radio", { name: /^Claude Sonnet 4\.6/ })).toBeHidden();
+
+  await models.getByRole("button", { name: /^Show all models/ }).click();
+  await models.getByRole("radio", { name: /^Claude Sonnet 4\.6/ }).click();
+  await expect(models.getByRole("radio", { name: /^Claude Sonnet 4\.6/ })).toHaveAttribute("aria-checked", "true");
+
+  // After a reload the chosen model shows with the list folded.
+  await page.reload();
+  await settings(page, "Models", "Main agent");
+  await expect(models.getByRole("button", { name: /^Show all models/ })).toBeVisible();
+  await expect(models.getByRole("radio", { name: /^Claude Sonnet 4\.6/ })).toHaveAttribute("aria-checked", "true");
+
+  // Put it back for the other tests.
+  await settings(page);
+  await pick(page, "Main agent", /^Glm 5.3 Flash/);
+  await mac(page, "0");
+});
+
 test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
   await open(page);
   await settings(page, "Self-edits");
@@ -499,7 +523,7 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
   try {
     await key.fill(ANTHROPIC_KEY);
     await providers.getByRole("button", { name: "Test and save" }).click();
-    await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText("3 models");
+    await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText(/\d+ models/);
     await expect(key).toHaveValue("");
     await expect(providers.getByRole("alert")).toBeHidden();
     await settings(page, "Models");

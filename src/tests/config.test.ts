@@ -1,7 +1,11 @@
 import { env, SELF } from "cloudflare:test";
+import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { describe, expect, it } from "vitest";
+import { peerLimits } from "../peers/peers";
 import { apiKey, VENDORS } from "../providers/api-key";
+import { missing } from "../providers/offer";
+import { VIBEPROXY_OFFER } from "../providers/vibeproxy";
 import { notSetUp, PiAgent } from "../server";
 
 /**
@@ -50,9 +54,23 @@ describe("a deploy's config", () => {
     expect(notSetUp(boundary(without), ["vibeproxy"])).toEqual([]);
   });
 
-  it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
-    const vendor = { ...VENDORS.find((each) => each.id === "opencode-go")!, modelIds: ["no-such-model"] };
+  it("finds every featured and light model in pi-ai's catalog, so a pi-ai that drops one fails here", () => {
+    for (const vendor of VENDORS) expect(missing(vendor.provider().getModels(), vendor.offer)).toEqual([]);
 
-    expect(apiKey(vendor, fetch, async () => null).models).toEqual([opencodeGoProvider().getModels()[0]]);
+    expect(missing(Object.values(ANTHROPIC_MODELS), VIBEPROXY_OFFER)).toEqual([]);
+  });
+
+  it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
+    const vendor = { ...VENDORS.find((each) => each.id === "opencode-go")!, offer: { featured: ["no-such-model"] } };
+    const endpoint = apiKey(vendor, fetch, async () => null);
+
+    expect(endpoint.featured).toEqual([opencodeGoProvider().getModels()[0]]);
+  });
+
+  it("caps a peer's asks at 3 open and 10 an hour unless the overlay's vars say", () => {
+    expect(peerLimits({})).toEqual({ openAsks: 3, hourlyAsks: 10 });
+    expect(peerLimits({ KY_PEER_OPEN_ASKS: "5", KY_PEER_HOURLY_ASKS: "40" })).toEqual({ openAsks: 5, hourlyAsks: 40 });
+
+    for (const bad of ["", " ", "0", "-2", "1.5", "lots"]) expect(peerLimits({ KY_PEER_OPEN_ASKS: bad }).openAsks).toBe(3);
   });
 });
