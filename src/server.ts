@@ -35,7 +35,7 @@ import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, ty
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
 import { Titler } from "./titles";
@@ -568,6 +568,8 @@ export class PiAgent extends DurableObject<Env> {
       this.ctx.waitUntil(this.#dropLostDisks());
     }
 
+    // Reviews, dreams, peer answers and mail triage the last instance was waiting on in memory.
+    this.feed.cutOff(BACKGROUND_SOURCE);
     await this.sockets.reattach();
     // Reports a restart cut off between a task's turn ending and its conversation hearing of it,
     // posted once the start is over: a submit waits for the harness, which starts after this.

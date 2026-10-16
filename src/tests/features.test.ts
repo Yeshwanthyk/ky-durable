@@ -23,6 +23,7 @@ import {
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../machines/contract";
 import { taskLogRows } from "../automations/contract";
+import { BACKGROUND_SOURCE } from "../skills/contract";
 import { decodeDreamLedger, decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
@@ -958,6 +959,38 @@ describe("machine tasks", () => {
     expect(await command(socket, client, { type: "send-task", task: "not-a-task", message: "hi" })).toMatchObject({ type: "error" });
     socket.close();
     mac.socket.close();
+  });
+});
+
+describe("background work the object was waiting on", () => {
+  /** A working cloud task with nothing waiting on it, as a review is once the deploy that ran it restarts. */
+  const orphan = (name: string, source: string) =>
+    inside(name, async (instance) => {
+      const { id: session } = await instance.harness.sessions.create();
+
+      return instance.feed.create({ id: crypto.randomUUID(), kind: "cloud", source, worker: "skills", title: "Skill review", status: "working", session }).id;
+    });
+
+  it("fails a review a restart cut off, instead of spinning forever", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, "hello");
+    const id = await orphan(name, BACKGROUND_SOURCE);
+
+    await evictDurableObject(agent(name));
+    await prompt(name, "after the restart");
+
+    expect(await inside(name, (instance) => instance.feed.get(id))).toMatchObject({ status: "failed", summary: "Cut off by a restart" });
+  });
+
+  it("stops one from the task list though nothing is waiting on it", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    // A review from before reviews were marked background, which no restart cuts off.
+    const id = await orphan(name, "chat");
+
+    await command(socket, client, { type: "stop-task", task: id });
+    await client.until(() => latest(client, "tasks")?.tasks.find((task) => task.id === id)?.status === "stopped");
+    socket.close();
   });
 });
 
