@@ -54,15 +54,20 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
 - Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
-  and again when the zone changes), ky reads what happened since the last dream (what the user said in the main chat
+  and again when the zone changes), ky reads what happened since the last dream (what was said in the main chat
   and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with
   memory, notes what the user said that memory lacks, and
   tends the skills: creates one for a task that keeps coming up, merges overlaps, archives ones unused for 60 days,
   and fixes ones a later correction contradicts (`src/dreaming/dreaming.ts`). It may call only the skill tools and memory's;
   it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
   on the stale summary, is told to note at most 15, and pays the compressions its notes make due. It shows in Activity as
-  "Dreaming", and skips the night when nothing happened. While the user was here in the last 2 hours (`ky_presence`,
-  `src/dreaming/presence.ts`) it waits and looks again 2 hours later. It also books check-ins (below).
+  "Dreaming", and skips the night when nothing happened. What was said comes from chat search (`src/history.ts`
+  `since`), oldest first: the user's messages get the room, ky's and notices are cut short, and what does not fit
+  waits for the next night, which starts after the last one read by pi's commit sequence. A user entry ky posted for
+  someone else (a mail's summary, a peer's question, a report) is labelled `notice`, never `user`, by its
+  submission's request id. While the user sent a message in the last 2 hours (`ky_presence`,
+  `src/dreaming/presence.ts`; a connecting tab does not count) it books one look for 2 hours after, until 08:00 their
+  time, when it leaves the night's reading to the next. It also books check-ins (below).
 - Anticipations: what ky expects to matter soon, in `ky_anticipations` (`src/dreaming/anticipations.ts`): an open
   loop the user committed to, a date ahead, a question likely next, or something to watch, each citing the chat
   messages or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional

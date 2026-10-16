@@ -488,11 +488,18 @@ export class PiSessionSockets {
     const session = sessionFromRequest(ctx.request, ROOT_SESSION);
 
     this.#setup.opened(ctx.request.url);
-    this.#presence.seen();
     // Cloudflare places the browser's connection in a time zone; check-ins are booked for the user's morning.
     const zone = ctx.request.cf?.timezone;
 
-    if (Guard.IsString(zone) && zone) await this.#automations.setZone(zone);
+    // A booking that fails must not keep the page from opening; the next connect tries again.
+    if (Guard.IsString(zone) && zone) {
+      try {
+        await this.#automations.setZone(zone);
+      } catch (error) {
+        console.warn("booking the dream in the user's zone failed", error);
+      }
+    }
+
     send(connection, {
       type: "hello",
       session,
@@ -705,6 +712,7 @@ export class PiSessionSockets {
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
+      // Only a message the user sends counts as being here: a tab that reconnects in the night does not.
       this.#presence.seen();
       const all = this.#specialists.list();
       const text = textOf(message.input);
