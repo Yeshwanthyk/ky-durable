@@ -170,9 +170,9 @@ checks it today; "—" means it needs a new probe or a unit test.
 | M3 | No | `online()` = socket OPEN (`machines.ts:362-364`). It counts sockets before their hello (`sockets.ts:460`), and a silent half-open socket stays "online" until Cloudflare notices. |
 | M4 | No | No debounce, no counter. Reconnects only appear in the runner log. |
 | M5 | Mostly (latency) / No (resend) | Delivery is immediate when online (see baseline). There's no ack timeout: resend waits for the next hello (≤ 30 s) or the next enqueue. `#retry` only covers token or creds failures (`machines.ts:463-488`). |
-| M6 | No | Statuses are `queued \| working \| done \| failed \| stopped` (`automations/contract.ts:114-119`). `working` only comes from the first `session` report (`machines.ts:912`). The Panel calls open tasks "running" even when they're queued (`Panel.tsx:1149-1156`). |
-| M7 | No | No watchdog at all (`runner.ts:441-501`). |
-| M8 | Partly | A signal exit becomes "exited with null" (`tasks.ts:222`). A spawn `error` only appends to stderr (`tasks.ts:226-228`). Unparseable lines are dropped silently (`claude.ts:113`). `step` and `ack` reports made while disconnected are dropped (`runner.ts:224`). |
+| M6 | Yes, slim *(PR 2)* | No new statuses (§8): the hub marks a run `working` at the runner's ack, which is when it spawns the agent (`machines.ts` `#onAck`), and M7 catches a start that then hangs. Before: statuses are `queued \| working \| done \| failed \| stopped` (`automations/contract.ts:114-119`). `working` only comes from the first `session` report (`machines.ts:912`). The Panel calls open tasks "running" even when they're queued (`Panel.tsx:1149-1156`). |
+| M7 | Yes *(PR 2)* | An agent that writes no line within 60 s (`FIRST_OUTPUT_WITHIN_MS`) is interrupted and its turn fails at once: "claude started (pid N) but wrote nothing in 60s, so it was stopped. stderr: …" (`runner.ts` `#silent`). No mid-run idle check (out of scope, §3). |
+| M8 | Mostly *(PR 2)* | Fixed: a signal exit says "claude was killed by SIGKILL."; a spawn `error` (ENOENT, EACCES) ends the turn with "It could not start: …". Still open: unparseable lines dropped silently, and `step`/`ack` reports made while disconnected are dropped. Before: a signal exit became "exited with null" (`tasks.ts:222`). A spawn `error` only appends to stderr (`tasks.ts:226-228`). Unparseable lines are dropped silently (`claude.ts:113`). `step` and `ack` reports made while disconnected are dropped (`runner.ts:224`). |
 | M9 | No | deploy.yml deploys on every merge and doesn't know which runner was released. |
 | M10 | No | Strict equality (`runner-protocol.ts:319-327`). |
 | M11 | No | The runner exits 0 so the service won't relaunch it (`run.ts:194-201`). The Worker forgets the refusal. |
@@ -246,7 +246,8 @@ between. Total wall time is about 2.5 min. Raw numbers are in `test-results/mach
 | skew, Worker ahead | launch → runner exits for good | 656 ms (exit 1 in the foreground; under launchd it's 0, so no relaunch) |
 | skew, runner ahead | hello → close 4426 | 333 ms |
 | hang | row → spawn | 52 ms |
-| | stop → `stopped` (agent ignores SIGINT) | 5051 ms (the SIGKILL timer fires because the runner stays up) |
+| | status after the watch | `failed` at 70 s *(PR 2; was `queued` at 45 s)*: "claude started (pid N) but wrote nothing in 60s, so it was stopped. Nothing on stderr." |
+| | stop → `stopped` (agent ignores SIGINT) | 1 ms *(PR 2: already failed; was 5051 ms)* |
 | offline (clean cut) | cut → UI offline | 27 ms |
 | | network back → online | 2070 ms (1 s backoff + reconnect) |
 | | network back → task queued while offline is done | 2434 ms |
@@ -268,8 +269,8 @@ latency is not where the problem is. Everything that goes wrong is about **truth
 | HOLDS | runner ahead: refused with 4426 and a reason, but only the runner sees it | M2 (runner side only) |
 | HOLDS* | runner ahead: never listed online before its hello was accepted. *The bench didn't catch the window, but it is real: `sockets.ts:460-461` tags the socket at upgrade and `online()` counts it (`machines.ts:362-364`), and `#send` will deliver to it. Treat this as untested, not as holding. | M3 |
 | **GAP** | runner ahead: the user sees why | M2 |
-| **GAP** | a spawned agent shows as started: still `queued` after 45 s | M6 |
-| **GAP** | a silent agent fails loudly within 45 s: still `queued`, and `ky runner status` says online | M7 |
+| HOLDS *(PR 2)* | a spawned agent shows as started (`working` from the ack; was `queued` after 45 s) | M6 |
+| HOLDS *(PR 2)* | a silent agent fails loudly: `failed` with pid and stderr by 70 s. *The watch moved from 45 s to 70 s: the watchdog is 60 s by §8, plus the 5 s group SIGKILL.* `ky runner status` still says online (PR 5 territory) | M7 |
 | HOLDS | a stop ends a hung agent (while the runner stays up) | M8 |
 | HOLDS | clean cut → offline within 2 s; back within 5 s; a task sent while offline runs when it's back | M4, M5 |
 | **GAP** | a runner silent for 60 s+ (half-open) is shown offline: still online at 70 s | M3 |

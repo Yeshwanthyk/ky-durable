@@ -38,12 +38,16 @@ export type AgentProcess = {
   interrupt(): void;
   /** Hand a Codex process that was started with ky's ChatGPT login the refreshed one, for its next request. */
   renew(codex: CodexCreds): void;
+  /** Its process id, once it has one. */
+  readonly pid: number | undefined;
+  /** The end of what it has written to stderr so far. */
+  stderr(): string;
 };
 
-/** What an agent process says: each stdout line, then its exit. */
+/** What an agent process says: each stdout line, then its exit, with the signal that ended it if one did. */
 export type ProcessEvents = {
   line(text: string): void;
-  exit(code: number | null, stderr: string): void;
+  exit(code: number | null, stderr: string, signal?: NodeJS.Signals | null): void;
 };
 
 /**
@@ -92,6 +96,20 @@ type Run = {
 
 /** How often what the agent says between tools is reported as a step; each tool it uses always is. */
 const TEXT_STEP_EVERY_MS = 4_000;
+
+/**
+ * How long a started agent has to write its first line. Claude Code and Codex each write one at
+ * once; one that writes nothing for this long is stuck (a blocked open(), a prompt nobody sees),
+ * so it is interrupted and its turn fails, saying so, rather than showing as working for ever.
+ */
+export const FIRST_OUTPUT_WITHIN_MS = 60_000;
+
+/** Why a process ended without a result: the signal that killed it or its exit code, then the end of its stderr. */
+function exitText(agent: Agent, code: number | null, signal: NodeJS.Signals | null, stderr: string): string {
+  const how = signal ? `${agent} was killed by ${signal}.` : code === null ? "" : `${agent} exited with ${code}.`;
+
+  return `${how} ${stderr.trim()}`.trim();
+}
 
 /** A stopped session's result, naming the queued messages a second stop dropped. */
 function stoppedText(run: Run): string {
@@ -356,6 +374,16 @@ export class Runner {
     run.child.write(ADAPTERS[run.agent].prompt(prompt));
   }
 
+  /** A started agent wrote nothing in time: interrupt it, and fail its turn now, naming the process and what it said on stderr. */
+  #silent(task: string, run: Run): void {
+    if (run.ended || run.stopped || this.#runs.get(task) !== run) return;
+    const stderr = run.child.stderr().trim();
+    const text = `${run.agent} started (pid ${run.child.pid ?? "unknown"}) but wrote nothing in ${FIRST_OUTPUT_WITHIN_MS / 1000}s, so it was stopped. ${stderr ? `stderr: ${stderr.slice(-500)}` : "Nothing on stderr."}`;
+    this.#log(`${task}: ${text}`);
+    run.child.interrupt();
+    this.#end(task, run, false, text);
+  }
+
   /** Report the session's last turn over; turns queued behind it start once it exits. */
   #end(task: string, run: Run, ok: boolean, text: string): void {
     this.#report({ type: "result", task, turn: run.turn, ok, text, session: run.session, agent: run.agent, ...run.spent });
@@ -448,6 +476,18 @@ export class Runner {
     }
   }
 
+  /** A process exited: the turns queued behind it run in a new one, unless the runner is shutting down. */
+  #startNext(task: string, run: Run): void {
+    const [first, ...rest] = run.next;
+
+    if (!first || this.#closing) return;
+
+    const next = this.#start(task, run.agent, { ...first, session: run.session ?? first.session });
+
+    if (ADAPTERS[run.agent].steers) for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
+    else next.next = rest;
+  }
+
   #start(task: string, agent: Agent, { turn, prompt, session, taskToken, creds }: Turn): Run {
     this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     const adapter = ADAPTERS[agent];
@@ -455,30 +495,25 @@ export class Runner {
 
     const child = this.#spawn(agent, task, { taskToken, session, creds }, {
       line: (line) => {
+        clearTimeout(silence);
+
         for (const event of read(line)) {
           if (run.ended) return;
           this.#onEvent(task, run, event);
         }
       },
-      exit: (code, stderr) => {
-        this.#log(`${task}: exit ${code}`);
+      exit: (code, stderr, signal = null) => {
+        clearTimeout(silence);
+        this.#log(`${task}: exit ${signal ?? code}`);
 
         if (this.#runs.get(task) !== run) return;
 
         if (!run.ended) {
-          this.#end(task, run, false, run.stopped ? stoppedText(run) : `${agent} exited with ${code}. ${stderr.trim()}`);
+          this.#end(task, run, false, run.stopped ? stoppedText(run) : exitText(agent, code, signal, stderr));
         }
 
         this.#runs.delete(task);
-
-        const [first, ...rest] = run.next;
-
-        if (!first || this.#closing) return;
-
-        const next = this.#start(task, agent, { ...first, session: run.session ?? first.session });
-
-        if (adapter.steers) for (const queued of rest) this.#steer(next, queued.turn, queued.prompt);
-        else next.next = rest;
+        this.#startNext(task, run);
       }
     });
 
@@ -502,6 +537,7 @@ export class Runner {
     };
 
     this.#runs.set(task, run);
+    const silence = setTimeout(() => this.#silent(task, run), FIRST_OUTPUT_WITHIN_MS);
     child.write(adapter.prompt(prompt));
 
     // Each turn is its own process: closing stdin tells it the prompt is all there is.

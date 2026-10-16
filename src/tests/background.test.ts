@@ -27,10 +27,10 @@ describe("delegated work leaves the main chat free", () => {
     expect(started.text).toMatch(/^tool said: Started task \S+ on mac as Claude Code\.$/);
     const run = await mac.run();
 
-    // The runner has not answered; the main agent must still answer.
+    // The runner has taken the run but not answered; the main agent must still answer.
     const reply = await prompt(name, "hello");
     expect(reply.text).toBe("echo: hello");
-    expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "queued" }]);
+    expect(await tasks(name)).toEqual([{ kind: "machine", worker: "mac", status: "working" }]);
 
     mac.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "built", session: null, agent: "claude" });
     await said(name, `build it" finished`);

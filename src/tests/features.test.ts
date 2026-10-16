@@ -906,7 +906,7 @@ describe("machine tasks", () => {
     expect(reviewing).toMatchObject({ type: "run", prompt: "review it", agent: "codex", turn: 1 });
     expect(await tasks(name)).toHaveLength(before + 1);
     expect(await agentOf(reviewing.task)).toBe("codex");
-    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain(`${reviewing.task} [queued] Codex: `);
+    expect((await prompt(name, `tool machine {"action":"list"}`)).text).toContain(`${reviewing.task} [working] Codex: `);
 
     // A follow-up goes to the task's own agent, whatever the machine would pick now.
     mac.send({ type: "session", task: reviewing.task, turn: 1, session: "thread-1" });

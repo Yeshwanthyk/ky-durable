@@ -194,7 +194,8 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
   async restart() {
     const { mac, runner, proxy } = await fresh("bench-restart", { FAKE_CLAUDE_SIGINT_MS: "15000" });
     const { id } = await startTask("bench-restart", "[delay=20000] long task");
-    await until("working", () => status(id) === "working", 20_000);
+    // The agent itself started: `working` alone now comes at the runner's ack, a moment before the spawn.
+    await until("the agent to start", () => mac.claude().some((event) => event.event === "start" && event.task === id), 20_000);
     const pid = mac.claude().find((event) => event.event === "start" && event.task === id)?.pid;
     const stoppedAt = Date.now();
     await runner.stop();
@@ -286,7 +287,8 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
 
   /** An agent that hangs at start: does anyone notice? */
   async hang() {
-    const watchMs = option("--hang-watch", 45_000);
+    // The runner's first-output watchdog is 60s (FIRST_OUTPUT_WITHIN_MS), then 5s to SIGKILL the group: look after both.
+    const watchMs = option("--hang-watch", 70_000);
     const { mac } = await fresh("bench-hang", { KY_CLAUDE: hangingClaude() });
     const { id, rowAt } = await startTask("bench-hang", "this will hang");
     const spawnAt = await when("the agent to spawn", () => mac.claude().some((event) => event.event === "start" && event.task === id), 15_000);

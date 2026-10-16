@@ -212,7 +212,7 @@ export function tasks(config: TaskConfig) {
       // After this returns: the runner records the process before it hears it exit.
       setImmediate(() => events.exit(null, `It could not start: ${String(error)}`));
 
-      return { write: () => {}, end: () => {}, interrupt: () => {}, renew: () => {} };
+      return { write: () => {}, end: () => {}, interrupt: () => {}, renew: () => {}, pid: undefined, stderr: () => "" };
     }
 
     const { command, args, env } = launch;
@@ -239,14 +239,19 @@ export function tasks(config: TaskConfig) {
     child.stderr.on("data", (chunk) => {
       stderr = (stderr + chunk).slice(-2000);
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       live.delete(child);
 
       if (handed) signOut(task);
-      events.exit(code, stderr);
+
+      // A CLI that could not be started (ENOENT, EACCES) says only why.
+      if (spawnError) events.exit(null, `It could not start: ${String(spawnError)}`);
+      else events.exit(code, stderr, signal);
     });
+    let spawnError: Error | undefined;
     child.on("error", (error) => {
-      stderr += String(error);
+      if (child.pid === undefined) spawnError = error;
+      else stderr += String(error);
     });
 
     return {
@@ -262,7 +267,9 @@ export function tasks(config: TaskConfig) {
       },
       renew: (codex) => {
         if (handed) writeCodexAuth(join(codexHomes, task), codex);
-      }
+      },
+      pid: child.pid,
+      stderr: () => stderr
     };
   };
 
