@@ -43,6 +43,7 @@ import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
 import { Mail } from "./Mail";
 import { Proactivity } from "./Proactivity";
+import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
@@ -445,6 +446,7 @@ function Activity({
     <div ref={body} className="panel-body" data-scroll>
       <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
       <Automations now={feed.now} session={feed.session} />
+      <LastNight now={feed.now} />
       <History past={tasks.filter((task) => !isLive(task))} {...feed} />
       {tasks.length === 0 && running.length === 0 ? (
         <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>

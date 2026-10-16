@@ -1,5 +1,6 @@
 import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { DreamLedgerRow } from "../dreaming/contract";
 import type { TaskTokens } from "../machines/contract";
 import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
@@ -651,6 +652,33 @@ export class PiAgent extends ProductionAgent {
     });
   }
 
+  /**
+   * A night's dream, as Activity › Last night lists it, through the real skill library, memory and ledger: two
+   * skills the agent wrote, then a dream that forgets a memory summary, edits one skill, merges the other into
+   * it and makes a third. Each name ends in `tag`. Answers with the dream's ledger rows.
+   */
+  async seedDreamNight(tag: string): Promise<DreamLedgerRow[]> {
+    const [groceries, run, tea] = [`weekly-groceries-${tag}`, `grocery-run-${tag}`, `tea-order-${tag}`];
+
+    for (const name of [groceries, run]) {
+      this.skills.apply({ action: "create", name, description: `Ordering groceries (${tag})`, body: "1. Open the list.\n2. Order oat milk." }, "agent");
+    }
+
+    const from = this.memory.count();
+    this.memory.note(`the user drinks green tea (${tag})`);
+    this.memory.note(`the user switched to oolong (${tag})`);
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (?, ?, ?)", from, from + 2, `the user drinks green tea, then oolong (${tag})`);
+
+    const { id } = await this.harness.sessions.create();
+    this.reviews.add(id, "", "dream", { run: `dream-${tag}` });
+    this.memory.forget(`${from}-${from + 1}`, id);
+    this.skills.apply({ action: "patch", name: groceries, old: "oat milk", new: "oat milk, and tea on Fridays", reason: "You order tea every Friday" }, "dream", id);
+    this.skills.apply({ action: "archive", name: run, absorbed_into: groceries, reason: `Same steps as ${groceries}` }, "dream", id);
+    this.skills.apply({ action: "create", name: tea, description: "Ordering tea", body: "1. Order oolong.", reason: "You asked for tea three times" }, "dream", id);
+
+    return this.ledger.lastNight().filter((row) => row.run === `dream-${tag}`);
+  }
+
   /** What ky surfaced, and what became of each, oldest first. */
   surfacedRows(): Array<Record<string, SqlStorageValue>> {
     return this.ctx.storage.sql.exec("SELECT kind, loop, ref, item, text, outcome FROM ky_surfaced ORDER BY id").toArray();
@@ -725,6 +753,8 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
   // Each line= is a brief line for today, "text | chip"; answers with their keys.
   ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
   ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
+  // A dream's night of changes, each name ending in tag=; answers with its ledger rows.
+  ["POST /test/dream-night", async (me, url) => Response.json(await me.seedDreamNight(url.searchParams.get("tag") ?? "seed"))],
   // n is the tool calls a turn needs to be reviewed for skills; 5 is ky's default.
   [
     "POST /test/review-after",

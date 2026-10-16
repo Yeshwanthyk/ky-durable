@@ -226,7 +226,7 @@ export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
 
-export type { BriefCardLine, BriefView, ProactivityLevel, ProactivityView, Rate } from "./dreaming/contract";
+export type { BriefCardLine, BriefView, DreamLedgerRow, ProactivityLevel, ProactivityView, Rate } from "./dreaming/contract";
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 

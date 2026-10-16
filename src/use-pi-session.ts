@@ -544,6 +544,17 @@ export function usePiSession(session: string) {
 
   const briefActions = useBriefActions(ask, setState);
 
+  const open = state.status === "open";
+
+  /**
+   * Activity › Last night's: the latest dream's changes, and undoing one. New on each connect, so a list that
+   * opened before the socket did, or across a reconnect, reads again.
+   */
+  const ledgerActions = useMemo(
+    () => ({ open, onView: () => ask("dream-ledger", {}), onUndo: (entry: number) => ask("dream-undo", { entry }) }),
+    [ask, open]
+  );
+
   return {
     ...state,
     submit,
@@ -565,6 +576,7 @@ export function usePiSession(session: string) {
     peerActions,
     mailActions,
     proactivityActions,
+    ledgerActions,
     briefActions,
     newChat,
     archiveChat,

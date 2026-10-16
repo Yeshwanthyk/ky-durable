@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { SkillChange, SkillRow, SkillVersion } from "../protocol";
 import { Icon } from "./Icon";
 import { ago } from "./time";
@@ -10,6 +10,54 @@ const since = (time: number, now: number) => {
 };
 
 const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
+
+/** Whose a skill is: the user's (ky's starter skills count as theirs), or one ky wrote, which its dreams may tend. */
+const origin = (skill: SkillRow) =>
+  skill.created_by === "user"
+    ? { mark: "yours", by: "Yours", title: "Yours: ky's dreams never archive it" }
+    : { mark: "ky's", by: "Written by ky", title: "ky wrote it: its dreams may merge or archive it" };
+
+// The row's right edge: a pin when pinned, and whose the skill is.
+function SkillMarks({ skill }: { skill: SkillRow }) {
+  const { mark, title } = origin(skill);
+
+  return (
+    <>
+      {skill.pinned ? <Icon name="pin" size={13} label="Pinned" className="skill-pin" /> : null}
+      <span className="skill-origin" title={title}>
+        {mark}
+      </span>
+    </>
+  );
+}
+
+// Whose it is, how often it's used, when it changed, and what a pin means.
+function SkillMeta({ skill, now }: { skill: SkillRow; now: number }) {
+  return (
+    <p className="row-sub">
+      {origin(skill).by} · used {times(skill.uses)} · changed {since(skill.updated_at, now)}
+      {skill.pinned ? " · pinned, so ky's dreams and reviews leave it as it is" : null}
+    </p>
+  );
+}
+
+// Pin or unpin an active skill; an archived one has nothing to keep.
+function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: SkillChange) => void }) {
+  if (skill.status === "archived") return null;
+
+  return (
+    <button
+      type="button"
+      className="pill"
+      aria-pressed={skill.pinned}
+      title={skill.pinned ? "Let ky's dreams and reviews tend it again" : "Keep ky's dreams and reviews from changing it"}
+      onClick={() => onChange({ action: skill.pinned ? "unpin" : "pin", name: skill.name })}
+    >
+      <Icon name="pin" size={13} />
+      {skill.pinned ? "Unpin" : "Pin"}
+    </button>
+  );
+}
 
 // ky's skills: what each is for and how it reads, with editing, archiving, and going back a version.
 export function Skills({
@@ -97,14 +145,13 @@ function SkillItem({
           <span className="row-label">{skill.name}</span>
           <span className="row-sub row-sub-text">{skill.description}</span>
         </span>
+        <SkillMarks skill={skill} />
         <Icon name="chevronRight" size={14} className="row-chevron chevron" />
       </button>
       <div className="expand" inert={!open}>
         <div className="expand-inner">
           <div className="item-body skill-detail">
-            <p className="row-sub">
-              Used {times(skill.uses)} · changed {since(skill.updated_at, now)}
-            </p>
+            <SkillMeta skill={skill} now={now} />
             {mode === "edit" ? (
               <SkillForm
                 skill={skill}
@@ -130,6 +177,7 @@ function SkillItem({
             <SkillActions
               mode={mode}
               archived={archived}
+              pin={<PinButton skill={skill} onChange={onChange} />}
               onMode={setMode}
               onHistory={showHistory}
               onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
@@ -144,12 +192,14 @@ function SkillItem({
 function SkillActions({
   mode,
   archived,
+  pin,
   onMode,
   onHistory,
   onArchive,
 }: {
   mode: Mode;
   archived: boolean;
+  pin: ReactNode;
   onMode: (mode: Mode) => void;
   onHistory: () => void;
   onArchive: () => void;
@@ -173,6 +223,7 @@ function SkillActions({
           </button>
         </>
       )}
+      {pin}
       <button type="button" className="pill" onClick={onArchive}>
         {archived ? "Restore" : "Archive"}
       </button>

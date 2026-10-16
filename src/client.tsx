@@ -18,6 +18,7 @@ import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext } from "./ui/Proactivity";
+import { LedgerContext } from "./ui/LastNight";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
@@ -460,6 +461,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           <PeerContext.Provider value={ky.peerActions}>
           <MailContext.Provider value={ky.mailActions}>
           <ProactivityContext.Provider value={ky.proactivityActions}>
+          <LedgerContext.Provider value={ky.ledgerActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -502,6 +504,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </LedgerContext.Provider>
           </ProactivityContext.Provider>
           </MailContext.Provider>
           </PeerContext.Provider>
