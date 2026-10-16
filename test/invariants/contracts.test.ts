@@ -157,7 +157,7 @@ describe("storage", () => {
 
     const task = {
       id: "t1", kind: "machine", source: "chat", worker: "laptop", title: "T", status: "done", summary: "", steps: "[{",
-      session: null, agent: null, created_at: 1, updated_at: 1, started_at: null, finished_at: null, turns: null, cost_usd: null
+      session: null, agent: null, chat: null, created_at: 1, updated_at: 1, started_at: null, finished_at: null, turns: null, cost_usd: null
     };
 
     expect(taskRows([task])[0]?.steps).toEqual([]);

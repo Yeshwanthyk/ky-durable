@@ -259,6 +259,11 @@ export function tasks(name: string): Promise<Array<{ kind: string; worker: strin
   );
 }
 
+/** Who each task is for and the chat it works for, if any. */
+export function taskChats(name: string): Promise<Array<{ worker: string; chat: string | null }>> {
+  return inside(name, (instance) => instance.feed.list().map(({ worker, chat }) => ({ worker, chat })));
+}
+
 export type FakeRunner = {
   socket: WebSocket;
   commands: RunnerCommand[];

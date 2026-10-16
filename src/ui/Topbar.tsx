@@ -3,6 +3,8 @@ import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatar-spec";
+import { CrewCount, CrewRow, crewSays, kyGaze } from "./Crew";
+import type { Crew } from "./crew-of";
 import { type Group, GroupMembers } from "./GroupMembers";
 import { Icon } from "./Icon";
 import type { OpenChat } from "./open-chat";
@@ -45,7 +47,8 @@ function NavButton({ talksToMain, drawer, onBack }: { talksToMain: boolean; draw
   );
 }
 
-// The agent pill: who is talking, how it is connected, and what it is doing. A click shows or hides the panel.
+// The agent pill: who is talking, how it is connected, and what it is doing, with the specialists
+// working for the chat sat beside it. A click shows or hides the panel.
 function Who({
   speaker,
   variantId,
@@ -54,6 +57,7 @@ function Who({
   sub,
   activity,
   panel,
+  crew,
 }: {
   speaker: string;
   variantId: BlobVariantId | undefined;
@@ -62,6 +66,7 @@ function Who({
   sub: string;
   activity: Activity | null;
   panel: PillPanel;
+  crew: Crew;
 }) {
   const innerRef = useRef<HTMLSpanElement>(null);
   useFitWidth(panel.whoRef, innerRef);
@@ -75,15 +80,19 @@ function Who({
       className="who pressable"
       data-busy={activity !== null}
       aria-expanded={panel.shown}
-      aria-label={`${speaker}: ${status.label}. ${panel.open ? "Hide" : "Show"} activity`}
+      aria-label={`${speaker}: ${status.label}.${crewSays(crew)} ${panel.open ? "Hide" : "Show"} activity`}
       onClick={panel.toggle}
     >
       <span className="who-inner" ref={innerRef}>
-        <BotAvatar name={speaker} variantId={variantId} owner={variantId && KY_AVATAR} active={running} size={28} />
+        <span className="who-faces">
+          <BotAvatar name={speaker} variantId={variantId} owner={variantId && KY_AVATAR} active={running} gaze={kyGaze(crew)} size={28} />
+          <CrewRow faces={crew.faces} />
+        </span>
         <span className="who-text">
           <span className="who-name">
             {speaker}
             <span className="status-dot" data-connected={status.connected} data-pop={reconnected} />
+            <CrewCount crew={crew} />
           </span>
           <WhoSub activity={activity} idle={sub} />
         </span>
@@ -110,15 +119,17 @@ export type TopbarProps = {
   updated: boolean;
   /** The chat's specialists, when there are specialists to have. */
   group?: Group;
+  /** The specialists working for the chat now, sat in the pill. */
+  crew: Crew;
 };
 
-export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group }: TopbarProps) {
+export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group, crew }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="topbar-side">
         <NavButton talksToMain={open.talksToMain} drawer={drawer} onBack={onBack} />
       </div>
-      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} />
+      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} crew={crew} />
       <div className="topbar-side end">
         {updated ? (
           <button type="button" className="pill pressable" onClick={() => location.reload()}>
