@@ -356,36 +356,12 @@ export class History {
       .toArray();
   }
 
-  /**
-   * Of these entries, the user entries the user sent: placed by a submission whose request id the browser or
-   * the harness made up. Every other user entry is a notice ky posted for someone else.
-   */
-  #own(rows: readonly EntryRow[]): Set<number> {
-    const users = rows.flatMap((row) => (row.kind === "pi.user" ? [row.id] : []));
-
-    if (users.length === 0) return new Set();
-
-    const low = Math.min(...users);
-    const high = Math.max(...users);
-
-    const placed = this.#sql.exec(
-      `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
-       WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') BETWEEN ? AND ?`,
-      low - PLACED_SLACK,
-      high + PLACED_SLACK,
-      low,
-      high
+  /** Of these entries, the user entries the user sent; every other user entry is a notice. */
+  #own(rows: readonly EntryRow[]): ReadonlySet<number> {
+    return ownMessages(
+      this.#sql,
+      rows.flatMap((row) => (row.kind === "pi.user" ? [row.id] : []))
     );
-
-    const own = new Set<number>();
-
-    for (const raw of placed) {
-      const row = decodeOr(PlacedRow, raw, undefined);
-
-      if (row?.request !== null && row?.request !== undefined && OWN_REQUEST.test(row.request)) own.add(row.entry);
-    }
-
-    return own;
   }
 
   /** Index one entry, if it is a chat's message with text, and is not indexed yet. */
@@ -406,7 +382,6 @@ export class History {
   }
 }
 
-/** A user entry is the user's own only if they sent it; anything else ky wrote. */
 /**
  * What of `said` fits `chars`: the user's lines, oldest first, up to the first that does not fit (`end`, at
  * commit `stopAt`), where this reading ends; then ky's and notices before `end` while room is left.
@@ -440,10 +415,49 @@ function fit(said: readonly SaidLine[], chars: number) {
   return { end, stopAt, shown };
 }
 
+/** A user entry is the user's own only if they sent it; anything else ky wrote. */
 function roleOf(row: EntryRow, own: ReadonlySet<number>): Role {
   if (row.kind !== "pi.user") return "ky";
 
   return own.has(row.id) ? "user" : "notice";
+}
+
+/** Whether a submission's request id is one the browser or the harness made up for a message the user sent: a bare UUID. */
+export function isOwnRequest(requestId: string | undefined): boolean {
+  return requestId !== undefined && OWN_REQUEST.test(requestId);
+}
+
+/**
+ * Of the user entries `users` (pi's entry ids), the ones the user sent: placed by a submission whose request id the
+ * browser or the harness made up, a bare UUID. Every other user entry is a notice ky posted for someone else (a mail's
+ * summary, a peer's question, a subagent's report), never the user's own words. Chat search labels by it, and an
+ * episode reflection (src/dreaming/episodes.ts) counts only these as the user's turns.
+ */
+export function ownMessages(sql: SqlStorage, users: readonly number[]): ReadonlySet<number> {
+  if (users.length === 0) return new Set();
+
+  const low = Math.min(...users);
+  const high = Math.max(...users);
+  const wanted = new Set(users);
+
+  const placed = sql.exec(
+    `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
+     WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') BETWEEN ? AND ?`,
+    low - PLACED_SLACK,
+    high + PLACED_SLACK,
+    low,
+    high
+  );
+
+  const own = new Set<number>();
+
+  for (const raw of placed) {
+    const row = decodeOr(PlacedRow, raw, undefined);
+
+    if (row !== undefined && wanted.has(row.entry) && isOwnRequest(row.request ?? undefined)) own.add(row.entry);
+  }
+
+  return own;
 }
 
 const day = (at: number) => (at > 0 ? new Date(at).toISOString().slice(0, 10) : "----------");

@@ -1,6 +1,7 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
+import { ownMessages } from "../history";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,
@@ -35,7 +36,8 @@ import type { Memory } from "./memory";
  * - the panel, later: `open`, `pin`/`unpin` (the tool's, for the user, today), and `close` as dismissed.
  *
  * Status moves only forward: open → surfaced → done | dismissed, and open → done | dismissed | expired.
- * A machine (the dream, an episode review) may change only rows a machine made, and never a pinned one.
+ * A machine (the dream, an episode review) may change only rows a machine made, and never a pinned one. An episode
+ * changes none: it only adds, citing the user's own words from the stretch of the chat it read, and lists.
  */
 
 /** Open rows (open or surfaced) past which a machine may add no more. */
@@ -43,6 +45,9 @@ const OPEN_CAP = 20;
 
 /** Rows a dream may add in one run. */
 export const RUN_CAP = 5;
+
+/** Rows one episode reflection may add: a stretch of a chat leaves a few things open at most. */
+export const EPISODE_CAP = 3;
 
 /** A dream's run, for RUN_CAP: rows the dream added this long ago or less count against it. */
 const RUN_MS = 12 * 3_600_000;
@@ -58,6 +63,11 @@ const TERM_CHARS = 3;
 
 /** Who acts on a row: whoever may make one. */
 export type Actor = Creator;
+
+/**
+ * The stretch of a chat an episode reflection read, the parent's entries after `after` up to `upto` (src/skills/skills.ts Reviews.window). Its evidence must come from there.
+ */
+export type EpisodePass = { readonly parent: string; readonly after: number; readonly upto: number };
 
 /** When a row matters, epoch ms; to is never before from. */
 export type Window = { readonly from: number; readonly to: number };
@@ -155,12 +165,14 @@ export class Anticipations {
   /**
    * Add a row by `by`. Refused when its evidence is empty or cites a message or memory that is not there, when
    * its text or prepared context is over its limit, when an upcoming one has no window, and for a machine when
-   * OPEN_CAP rows are open or, for a dream, when it added RUN_CAP this run. The user's own always fit.
+   * OPEN_CAP rows are open or, for a dream, when it added RUN_CAP this run. The user's own always fit. An episode's
+   * needs its `pass`: it cites only the user's own messages from the stretch it read, and adds EPISODE_CAP at most.
    */
-  add(draft: Draft, by: Creator, now = Date.now()): Anticipation {
+  add(draft: Draft, by: Creator, now = Date.now(), pass?: EpisodePass): Anticipation {
     const { text, prepared, window } = checkDraft(draft);
     const evidence = this.checkEvidence(draft.evidence);
 
+    if (by === "episode") this.#checkPass(evidence, pass);
     this.#checkRoom(by, now);
 
     const row = this.#rows(
@@ -190,6 +202,30 @@ export class Anticipations {
     if (by === "dream" && this.#rows("SELECT * FROM ky_anticipations WHERE created_by = 'dream' AND created_at > ?", now - RUN_MS).length >= RUN_CAP) {
       throw new Error(`A dream adds at most ${RUN_CAP}; this one has.`);
     }
+  }
+
+  /** Refuse an episode's add without its pass, citing anything but the user's own words in the stretch it read, or past EPISODE_CAP. */
+  #checkPass(evidence: Evidence, pass: EpisodePass | undefined): void {
+    if (pass === undefined) throw new Error("Only an episode reflection's own fork adds as an episode.");
+
+    if (evidence.messages.length === 0) throw new Error("Cite the user's own messages (#id) it rests on.");
+    const own = ownMessages(this.#sql, evidence.messages);
+    const outside = evidence.messages.filter((id) => id <= pass.after || id > pass.upto || !own.has(id) || this.#messageIn(id) !== pass.parent);
+
+    if (outside.length > 0) {
+      throw new Error(`Message ${outside.map((id) => `#${id}`).join(", ")} is not the user's own words in the stretch you read: cite only the user's lines above.`);
+    }
+
+    const added = this.#count(
+      `SELECT COUNT(*) AS n FROM ky_anticipations AS a WHERE created_by = 'episode' AND EXISTS (
+         SELECT 1 FROM json_each(a.evidence, '$.messages') AS cited JOIN pi_entries AS e ON e.id = cited.value
+         WHERE e.conversation_id = ? AND e.id > ? AND e.id <= ?)`,
+      Number(pass.parent),
+      pass.after,
+      pass.upto
+    );
+
+    if (added >= EPISODE_CAP) throw new Error(`An episode reflection adds at most ${EPISODE_CAP}; this one has.`);
   }
 
   /** Evidence with each id once, when it cites at least one id and every id is there; an error saying what is wrong otherwise. */
@@ -296,9 +332,11 @@ export class Anticipations {
     this.#sql.exec("UPDATE ky_anticipations SET status = ?, closed_at = ?, absorbed_into = ? WHERE id = ?", to, closed, absorbedInto, row.id);
   }
 
-  /** The row `id`, when `by` may change it: a machine only its own kind's rows, never a pinned one. */
+  /** The row `id`, when `by` may change it: a machine only its own kind's rows, never a pinned one; an episode none. */
   #changeable(id: number, by: Actor): Anticipation {
     const row = this.get(id);
+
+    if (by === "episode") throw new Error("An episode reflection only adds and lists; the dream and the user close, extend and absorb.");
 
     if (by !== "user" && row.created_by === "user") throw new Error(`#${id} is the user's; only they change it.`);
 
@@ -467,7 +505,14 @@ const AnticipateInput = Type.Object({
   chip: Type.Optional(Type.String({ description: "For brief: the ask a tap puts in the user's composer, ready to send." }))
 });
 
-type Call = { readonly args: Static<typeof AnticipateInput>; readonly by: Actor; readonly session: string; readonly now: number };
+type Call = {
+  readonly args: Static<typeof AnticipateInput>;
+  readonly by: Actor;
+  readonly session: string;
+  readonly now: number;
+  /** For an episode: the stretch of its chat it read. */
+  readonly pass: EpisodePass | undefined;
+};
 
 const lines = (rows: readonly Anticipation[], now: number) => (rows.length === 0 ? "None open." : rows.map((row) => anticipationLine(row, now)).join("\n"));
 
@@ -497,7 +542,7 @@ function handlers(anticipations: Anticipations, brief: Brief): Readonly<Record<C
   };
 
   return {
-    add: ({ args, by, session, now }) => {
+    add: ({ args, by, session, now, pass }) => {
       const asked = by === "user" ? anticipations.latestAsk(session) : undefined;
       const messages = [...(args.messages ?? []), ...(asked === undefined ? [] : [asked])];
 
@@ -510,7 +555,8 @@ function handlers(anticipations: Anticipations, brief: Brief): Readonly<Record<C
           window: windowOf(args.from, args.to, now)
         },
         by,
-        now
+        now,
+        pass
       );
 
       return `Saved as #${row.id}.`;
@@ -556,10 +602,10 @@ function handlers(anticipations: Anticipations, brief: Brief): Readonly<Record<C
 
 /**
  * The `anticipate` tool, for the dream (as `dream`), an episode reflection (as `episode`), and the main chat and
- * side chats (as `user`); `actor` says which a session is. Memory's extension carries it (src/dreaming/memory.ts),
- * so a specialist, which may not write memory, may not call it.
+ * side chats (as `user`); `actor` says which a session is, and `pass` what stretch of its chat an episode read.
+ * Memory's extension carries it (src/dreaming/memory.ts), so a specialist, which may not write memory, may not call it.
  */
-export function anticipateTool(anticipations: Anticipations, brief: Brief, actor: (session: string) => Actor) {
+export function anticipateTool(anticipations: Anticipations, brief: Brief, actor: (session: string) => Actor, pass: (session: string) => EpisodePass | undefined) {
   const actions = handlers(anticipations, brief);
 
   return defineTool({
@@ -570,8 +616,9 @@ export function anticipateTool(anticipations: Anticipations, brief: Brief, actor
     replay: "unsafe",
     execute: async (args, api) => {
       const session = String(api.conversationId);
+      const by = actor(session);
 
-      return text(actions[args.action]({ args, by: actor(session), session, now: Date.now() }));
+      return text(actions[args.action]({ args, by, session, now: Date.now(), pass: by === "episode" ? pass(session) : undefined }));
     }
   });
 }

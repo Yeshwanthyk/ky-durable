@@ -51,7 +51,8 @@ export function dreamingTools({ soul, memory, anticipations, brief, history, rev
     return kind === "dream" || kind === "episode" ? kind : "user";
   };
 
-  const anticipate = anticipateTool(anticipations, brief, actor);
+  // An episode's evidence must come from the stretch of its chat its fork read.
+  const anticipate = anticipateTool(anticipations, brief, actor, (session) => reviews.window(session));
 
   return {
     soul: soulExtension(soul),
