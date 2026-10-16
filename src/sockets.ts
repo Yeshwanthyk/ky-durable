@@ -554,8 +554,15 @@ export class PiSessionSockets {
 
       if (!task || (task.status !== "queued" && task.status !== "working")) continue;
 
-      if (task.kind === "machine") await this.#hub.stop(task);
-      else if (task.session !== null) await this.#harness.session(task.session).abort();
+      if (task.kind === "machine") {
+        await this.#hub.stop(task);
+        continue;
+      }
+
+      if (task.session !== null) await this.#harness.session(task.session).abort();
+
+      // A cloud task nothing is waiting on any more, as after a restart, would stay live: end it here.
+      if (this.#feed.get(id)?.status === "working") this.#feed.update(id, { status: "stopped", summary: "Stopped" });
     }
   }
 

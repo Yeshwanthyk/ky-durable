@@ -287,6 +287,9 @@ export type ReviewHost = {
 /** A background task as it shows in Activity. */
 type BackgroundTask = { readonly id: string; readonly worker: string; readonly title: string; readonly content: string };
 
+/** The source of a task `runInFeed` runs: only this object's memory waits on it, so a restart cuts it off. */
+export const BACKGROUND_SOURCE = "background";
+
 /**
  * Show a task in Activity, send its one message to the conversation, and
  * report the answer. Returns the answer, or undefined when the task failed.
@@ -297,14 +300,14 @@ export async function runInFeed(
   { id, worker, title, content }: BackgroundTask
 ): Promise<string | undefined> {
   const { context, feed } = host;
-  feed.create({ id, kind: "cloud", worker, title, status: "working", session: String(conversation.id) });
+  feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
 
   try {
     const submission = await conversation.submit({ type: "input", content, requestId: `${worker}:${id}` }, context);
     const settled = await submission.wait(context);
 
     if (settled.status === "unanswered") {
-      feed.update(id, { status: "failed", summary: `Failed: ${settled.reason}` });
+      feed.update(id, settled.reason === "aborted" ? { status: "stopped", summary: "Stopped" } : { status: "failed", summary: `Failed: ${settled.reason}` });
 
       return undefined;
     }

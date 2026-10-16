@@ -228,6 +228,19 @@ export class TaskFeed {
     this.#emit();
   }
 
+  /** Fail the live tasks of `source` that a restart cut off: nothing is left to finish them. */
+  cutOff(source: string): void {
+    const now = Date.now();
+    this.#sql.exec(
+      `UPDATE ky_tasks SET status = 'failed', summary = 'Cut off by a restart', finished_at = coalesce(finished_at, ?), updated_at = ?
+       WHERE source = ? AND status IN ('queued', 'working')`,
+      now,
+      now,
+      source
+    );
+    this.#emit();
+  }
+
   /** The task now runs on `worker`: a machine task moved before it started. */
   reassign(id: string, worker: string): void {
     this.#sql.exec("UPDATE ky_tasks SET worker = ?, updated_at = ? WHERE id = ?", worker, Date.now(), id);
