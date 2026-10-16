@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { Anticipations, Brief, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Soul, Surfaced } from "./dreaming/wiring";
+import { Anticipations, Brief, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -226,6 +226,17 @@ export class PiAgent extends DurableObject<Env> {
   readonly surfaced = new Surfaced(this.ctx.storage.sql);
   /** How proactive ky is, from Settings › Proactivity. */
   readonly proactivity = new Proactivity(this.ctx.storage.sql, this.surfaced, this.anticipations);
+  /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
+  readonly recall = new Recall({
+    sql: this.ctx.storage.sql,
+    memory: this.memory,
+    history: this.history,
+    anticipations: this.anticipations,
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    skills: () => this.skills.list(),
+    chat: (session) => this.isChat(session)
+  });
   /** The day's brief: the card above the chat on the user's first visit of the day. */
   readonly brief = new Brief(this.ctx.storage.sql, {
     zone: () => this.automations.checkIns().zone,
@@ -286,11 +297,12 @@ export class PiAgent extends DurableObject<Env> {
       const chat = (session: string) => this.isChat(session);
 
       // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
-      const { soul, memory, episodes } = dreamingTools({
+      const { soul, memory, episodes, recall } = dreamingTools({
         soul: this.soul,
         memory: this.memory,
         anticipations: this.anticipations,
         brief: this.brief,
+        recall: this.recall,
         history: this.history,
         reviews: this.reviews,
         chat,
@@ -341,6 +353,7 @@ export class PiAgent extends DurableObject<Env> {
       const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
+      this.registry.install(recall);
       this.registry.install(episodes);
       this.registry.install(machines);
       this.registry.install(automations);
@@ -417,6 +430,7 @@ export class PiAgent extends DurableObject<Env> {
     this.presence,
     this.brief,
     this.proactivity,
+    this.recall,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),

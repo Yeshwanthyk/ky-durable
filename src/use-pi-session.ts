@@ -73,6 +73,8 @@ type State = SessionView & {
   readonly checkIns: boolean;
   /** Today's brief as the card shows it; null when there is none to show. Never cached: the server sends it on each hello. */
   readonly brief: BriefView | null;
+  /** The open chat's recalled context, the lines under each user message, by its message id. Sent again on each connect. */
+  readonly recalled: Readonly<Record<string, readonly string[]>>;
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
   /** ky's repo and the tools this deploy lacks; null until the server sends them. */
@@ -150,7 +152,9 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     memory: ({ memory }) => replace({ memory }),
     automations: ({ automations, checkIns }) => replace({ automations, checkIns }),
     // The server sends the whole card each time: it replaces this one, and an empty one clears it.
-    brief: ({ brief }) => replace({ brief: brief.lines.length === 0 ? null : brief })
+    brief: ({ brief }) => replace({ brief: brief.lines.length === 0 ? null : brief }),
+    recalled: ({ recalls }) =>
+      setState((current) => ({ ...current, recalled: { ...current.recalled, ...Object.fromEntries(recalls.map((each) => [String(each.entry), each.lines])) } }))
   };
 }
 
@@ -188,6 +192,7 @@ const INITIAL_STATE: State = {
   automations: [],
   checkIns: true,
   brief: null,
+  recalled: {},
   settings: null,
   setup: null,
   subscriptions: [],

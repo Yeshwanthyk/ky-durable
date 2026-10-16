@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Brief, DreamLedger, Memory, Presence, Proactivity, Soul } from "./dreaming/contract";
+import type { Brief, DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -179,6 +179,8 @@ export class PiSessionSockets {
   /** The day's brief; #brief is a specialist's. */
   readonly #morning: Brief;
   readonly #proactivity: Proactivity;
+  /** Turn-start recall, for the chips under the user's messages. */
+  readonly #recall: Recall;
   readonly #setup: Setup;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
@@ -212,6 +214,7 @@ export class PiSessionSockets {
     presence: Presence,
     brief: Brief,
     proactivity: Proactivity,
+    recall: Recall,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
@@ -244,6 +247,7 @@ export class PiSessionSockets {
     this.#presence = presence;
     this.#morning = brief;
     this.#proactivity = proactivity;
+    this.#recall = recall;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
@@ -279,6 +283,10 @@ export class PiSessionSockets {
       const message = this.#specialistsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    // A block made for a message shows as a chip under it, in the browsers following that chat.
+    recall.onShown((session, recalled) => {
+      for (const socket of this.#getWebSockets(sessionTag(session))) send(socket, { type: "recalled", session, recalls: [recalled] });
     });
     memory.onChange(() => {
       const message = this.#memoryMessage();
@@ -546,6 +554,9 @@ export class PiSessionSockets {
     const stream = await this.#harness.session(session).events();
     this.#watches.set(socket, stream);
     send(socket, { type: "events", session, events: [stream.snapshot] });
+    const recalls = this.#recall.shown(session);
+
+    if (recalls.length > 0) send(socket, { type: "recalled", session, recalls });
     stream.start(async (events) => {
       if (socket.readyState !== OPEN) {
         void this.#unwatch(socket);

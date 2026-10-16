@@ -869,6 +869,27 @@ test("lists last night's dream in Activity with its reasons, undoes a change, sa
   await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
 });
 
+test("shows what ky recalled for a message under it, and the recalled lines on a tap", async ({ page }) => {
+  await open(page);
+  const tag = `zq${crypto.randomUUID().slice(0, 6)}`;
+  const said = chat(page).getByText(/^tool said: /);
+  const before = await said.count();
+  await send(page, `tool memory_note {"text":"the user keeps ${tag} tea in the blue tin"}`);
+  await expect(said).toHaveCount(before + 1);
+
+  await send(page, `where is my ${tag} tea`);
+  await expect(page.getByText(`echo: where is my ${tag} tea`)).toBeVisible();
+
+  // The chip sits under the user's message; the answer and the transcript never hold the block.
+  const chip = chat(page).getByRole("button", { name: /^Recalled \d+/ }).last();
+  await expect(chip).toBeVisible();
+  await expect(chat(page).getByText("<recalled>")).toHaveCount(0);
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  await expect(chat(page).getByRole("list", { name: "Recalled context" }).last().getByText(new RegExp(`^memory #\\d+ .*${tag} tea in the blue tin`))).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/recalled.png` : undefined, animations: "disabled" });
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");

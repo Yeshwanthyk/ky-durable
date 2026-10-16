@@ -82,14 +82,14 @@ describe("the dream writing the brief", () => {
     const message = await seeded(name);
     const id = await inside(name, (instance) => instance.anticipations.add(loop(message), "dream").id);
 
-    expect((await prompt(name, tool("anticipate", { action: "brief", id, text: "Reply to Sam today" }))).text).toContain("Only the dream writes the brief.");
-
     const dream = await dreamSession(name);
     expect(await dream(tool("anticipate", { action: "brief", id, text: "Reply to Sam about Lisbon today", chip: "Draft my reply to Sam" }))).toMatch(
       /In the brief as \d{4}-\d{2}-\d{2}#0\.$/
     );
     // Written is not seen: a line nobody saw leaves its anticipation open, free to expire.
     expect(await inside(name, (instance) => instance.anticipations.get(id).status)).toBe("open");
+    // The main chat may not write one. (Asking there runs turn-start recall, which may surface the anticipation itself.)
+    expect((await prompt(name, tool("anticipate", { action: "brief", id, text: "Reply to Sam today" }))).text).toContain("Only the dream writes the brief.");
     // The same anticipation twice is one line.
     expect(await dream(tool("anticipate", { action: "brief", id, text: "Again" }))).toContain(`already has a line from anticipation:${id}`);
     expect(await dream(tool("anticipate", { action: "brief", text: "Invented" }))).toContain("No evidence");
