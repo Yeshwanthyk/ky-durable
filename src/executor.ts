@@ -22,10 +22,13 @@ import type { Vault } from "./vault";
  * and `resume` continues a program that paused for an approval.
  *
  * The connection uses a personal access token, so ky never needs a browser
- * sign-in. On Executor's default MCP URL (`https://mcp.executor.sh/mcp`) a
- * tool that needs approval pauses in model elicitation mode: the agent asks
- * the user in the chat and answers with `resume`. A URL with
- * `?elicitation_mode=browser` sends an approval link instead.
+ * sign-in, and always runs in model elicitation mode: a tool that needs
+ * approval pauses with `status: "approval-required"`, the agent asks the user
+ * in the chat, and answers with `resume`. Browser mode can't work for ky,
+ * because there a request belongs to the MCP session that made it, and ky's
+ * session lives in the Durable Object's memory: it is gone after the object
+ * hibernates while the user approves, and `resume` then finds nothing. In model
+ * mode a new session on the same token can still answer the request.
  */
 
 /** Where Executor is and the token it takes, as the user connects it in Settings; kept in the Vault. */
@@ -81,9 +84,22 @@ async function open(config: ExecutorConfig): Promise<Client> {
   };
 
   if (config.fetch) options.fetch = config.fetch;
-  await client.connect(new StreamableHTTPClientTransport(new URL(config.url), options));
+  await client.connect(new StreamableHTTPClientTransport(modelMode(config.url), options));
 
   return client;
+}
+
+/**
+ * The URL ky connects to: the saved one without `elicitation_mode`, so
+ * Executor uses model mode, its default. The same token works in every mode,
+ * and the saved URL is left as it is.
+ */
+function modelMode(url: string): URL {
+  const parsed = new URL(url);
+
+  parsed.searchParams.delete("elicitation_mode");
+
+  return parsed;
 }
 
 class ExecutorClient {
@@ -194,9 +210,16 @@ const GUIDE = `Executor connects the user's accounts and apps (calendar, email, 
 
 - executor_skills: read what apps are available and the instructions they ship. Start here when you do not know what is connected.
 - executor_execute: run a short JavaScript program. Inside it, \`await tools.search({ query: "..." })\` returns callable paths and TypeScript signatures, and app tools are async functions like \`await tools.vercel.listProjects({})\`. Join and filter results in the program and return only what you need. There is no fetch, no filesystem and no imports. Limits: 100 tool calls, 5 minutes, 64 KB of output.
-- When a call pauses for an approval or for input, it carries a requestId. Ask the user in the chat, quoting what Executor wants to do or know. Once they answer, call executor_resume with the requestId and their answer in the fields the paused result names. If the result carries an approvalUrl instead, give the user that link, wait for them to say they decided, and then call executor_resume with the requestId.
-- executor_connection: show or change the URL ky reaches Executor at, keeping the token. Use it when the user asks to change how approvals arrive. Without \`?elicitation_mode=browser\` they are asked in the chat, and with it they come as approval links.
-- Never resume without the user's answer. Never re-run a program to get past a refusal, because earlier calls may already have taken effect.`;
+
+Approvals happen in this chat. A tool that needs approval pauses the program, and the result has \`status: "approval-required"\` (or \`"input-required"\` when it needs information), a requestId, and what the tool is about to do.
+1. Tell the user in plain words what will happen: what is sent, changed or deleted, where, and to whom. Decode what they can't read. For a Gmail send, decode the base64url \`raw\` and show the recipient, the subject and the body. Don't show the encoded text.
+2. Stop and wait for the user's answer in the chat.
+3. Only after the user explicitly says yes to this request, call executor_resume with \`{ requestId, response: { action: "accept" } }\`. A no is \`action: "decline"\`. If they want to stop altogether, use \`action: "cancel"\`. For input, put their answers in \`response.content\`.
+
+- Never approve on the user's behalf, and never accept without a yes to this exact request. An earlier yes, or a yes to a different request, does not count.
+- Never re-run a program after a refusal, after a decline, or after an approval that got lost. Earlier calls in it may already have taken effect.
+- If a resume answers not-found or expired, the request is gone. First check with a read-only program whether the action happened, for example by looking in Sent. Then tell the user, and ask again before you try anything new.
+- executor_connection: show or change the URL ky reaches Executor at, keeping the token.`;
 
 /** How the agent changes where ky reaches Executor, on the same origin and with the token already connected. */
 export type ExecutorRetarget = (url: string) => Promise<{ refused?: string }>;
@@ -233,11 +256,23 @@ export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRet
       defineTool({
         name: "executor_resume",
         description:
-          "Continue an Executor program that paused for an approval or for input, after the user answered in the chat or decided at the approval link. Pass the requestId and the answer fields the paused result names.",
-        parameters: Type.Object(
-          { requestId: Type.String() },
-          { additionalProperties: true }
-        ),
+          "Continue an Executor program that paused for an approval or for input, with the user's answer from the chat. accept only after the user explicitly said yes to this request.",
+        parameters: Type.Object({
+          requestId: Type.String(),
+          response: Type.Object({
+            action: Type.Union([Type.Literal("accept"), Type.Literal("decline"), Type.Literal("cancel")], {
+              description: "accept on the user's yes, decline on their no, cancel to stop altogether."
+            }),
+            content: Type.Optional(
+              Type.Record(
+                Type.String(),
+                // What an MCP elicitation answer holds per field.
+                Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Array(Type.String())]),
+                { description: "The user's answers, when Executor asked for input." }
+              )
+            )
+          })
+        }),
         replay: "unsafe",
         execute: async (args, _api, context) => executor.call("resume", args, context.abortSignal)
       }),
@@ -247,15 +282,14 @@ export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRet
 }
 
 /**
- * The agent's way to edit the connection from the chat, as when the user wants
- * approvals asked in the chat rather than at a browser link. It changes only
+ * The agent's way to edit the connection from the chat. It changes only
  * the path and query: a new origin would send the token to another host, so
  * that stays in Settings.
  */
 function connectionTool(current: string, retarget: ExecutorRetarget) {
   return defineTool({
     name: "executor_connection",
-    description: `Show or change the URL ky reaches Executor at (now ${current}), keeping the connected token. Only the path and query can change, on the same origin. Drop \`?elicitation_mode=browser\` to have approvals asked in the chat; add it to get approval links. ky tests the new URL before keeping it. Change it only when the user asks.`,
+    description: `Show or change the URL ky reaches Executor at (now ${current}), keeping the connected token. Only the path and query can change, on the same origin. Approvals are always asked in the chat, and ky ignores any elicitation_mode in the URL. ky tests the new URL before keeping it. Change it only when the user asks.`,
     parameters: Type.Object({ url: Type.Optional(Type.String({ description: "The new URL. Leave out to only show the current one." })) }),
     replay: "safe",
     execute: async (args) => {

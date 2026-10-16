@@ -43,6 +43,7 @@ import {
   type TaskRow,
   type ToolAction
 } from "./contract";
+import { pausedForUser } from "../executor-status";
 import { isLive } from "./tasks";
 
 /**
@@ -546,8 +547,8 @@ export class Automations {
 
     if (answer.error) return { kind: "error", text: answer.text.trim() || "Executor gave no reason" };
 
-    // A gate runs unattended, so nobody is there to approve.
-    if (answer.text.includes("approvalUrl")) return { kind: "error", text: "it asked for an approval; a gate may only read" };
+    // A gate runs unattended, so nobody is there to approve or answer.
+    if (pausedForUser(answer.text)) return { kind: "error", text: "it asked for an approval or input; a gate may only read" };
 
     const text = answer.text.trim();
 

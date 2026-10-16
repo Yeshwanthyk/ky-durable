@@ -15,10 +15,15 @@ import { parsed } from "./frames";
  *   a timeout or a dropped connection comes after the program ran;
  * - `answer TEXT` runs and answers TEXT, as a gate's program returns;
  * - `fail TEXT` runs and fails with TEXT;
+ * - `approve TEXT` pauses for an approval to do TEXT, as a Gmail send does,
+ *   and `ask TEXT` pauses for input;
  * - anything else runs and answers `ran <n>`.
  *
- * `skills` lists two apps and `resume` answers with its request id. Requests
- * without `Authorization: Bearer <token>` get a 401.
+ * `skills` lists two apps. `resume` answers a paused request as Executor does:
+ * in model mode, the default, any session on the token can answer it; in
+ * browser mode (`?elicitation_mode=browser`) only the session that made it,
+ * and any other gets `not-found`. Requests without
+ * `Authorization: Bearer <token>` get a 401.
  */
 export class FakeExecutor {
   /** The token it takes; a test changes it to make ky's token wrong. */
@@ -35,6 +40,14 @@ export class FakeExecutor {
   readonly open = new Map<string, WebStandardStreamableHTTPServerTransport>();
   /** Connection attempts still to fail before they reach the server. */
   refuseConnects = 0;
+  /** The URL of each session's `initialize`, as ky connected it. */
+  readonly connectedUrls: string[] = [];
+  /** Each `resume`'s arguments, as they arrived. */
+  readonly resumes: unknown[] = [];
+  /** What each paused request will do once accepted, and the session that made it. */
+  readonly #paused = new Map<string, { does: string; session: string | undefined }>();
+  /** Each session's elicitation mode, from its `initialize` URL. */
+  readonly #modes = new Map<string, string>();
 
   constructor(token: string) {
     this.token = token;
@@ -53,7 +66,10 @@ export class FakeExecutor {
     if (request.method === "GET") return new Response(null, { status: 405 });
 
     const body = await mcpRequest(request);
-    const transport = await this.#transport(body.method, request.headers.get("mcp-session-id"));
+
+    if (body.method === "initialize") this.connectedUrls.push(request.url);
+    const mode = new URL(request.url).searchParams.get("elicitation_mode") ?? "model";
+    const transport = await this.#transport(body.method, request.headers.get("mcp-session-id"), mode);
 
     if (transport === undefined) {
       return Response.json(
@@ -75,7 +91,8 @@ export class FakeExecutor {
   /** A new session for `initialize`, unless the connection is refused; else the open session the request names. */
   async #transport(
     method: string | undefined,
-    session: string | null
+    session: string | null,
+    mode: string
   ): Promise<WebStandardStreamableHTTPServerTransport | undefined> {
     if (method !== "initialize") return session === null ? undefined : this.open.get(session);
 
@@ -84,16 +101,17 @@ export class FakeExecutor {
       throw new TypeError("Network connection lost.");
     }
 
-    return this.#session();
+    return this.#session(mode);
   }
 
-  async #session(): Promise<WebStandardStreamableHTTPServerTransport> {
+  async #session(mode: string): Promise<WebStandardStreamableHTTPServerTransport> {
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       enableJsonResponse: true,
       onsessioninitialized: (id) => {
         this.sessions++;
         this.open.set(id, transport);
+        this.#modes.set(id, mode);
       }
     });
 
@@ -110,9 +128,18 @@ export class FakeExecutor {
           this.cancelled++;
         }
 
-        const [, command, rest = ""] = /^(answer|fail) ?(.*)$/s.exec(code) ?? [];
+        const [, command, rest = ""] = /^(answer|fail|approve|ask) ?(.*)$/s.exec(code) ?? [];
 
         if (command === "answer") return { content: [{ type: "text", text: rest }] };
+
+        if (command === "approve" || command === "ask") {
+          const requestId = `request-${this.#paused.size + 1}`;
+          const status = command === "approve" ? "approval-required" : "input-required";
+
+          this.#paused.set(requestId, { does: rest, session: extra.sessionId });
+
+          return { content: [{ type: "text", text: JSON.stringify({ status, requestId, message: rest }) }] };
+        }
 
         if (command === "fail") return { content: [{ type: "text", text: rest }], isError: true };
 
@@ -129,9 +156,30 @@ export class FakeExecutor {
         return { content: [{ type: "text", text: apps }], structuredContent: { apps } };
       }
     );
-    server.registerTool("resume", { inputSchema: { requestId: z.string() } }, async ({ requestId }) => ({
-      content: [{ type: "text", text: `fake executor resumed ${requestId}` }]
-    }));
+    server.registerTool(
+      "resume",
+      {
+        inputSchema: {
+          requestId: z.string(),
+          response: z.object({ action: z.enum(["accept", "decline", "cancel"]), content: z.record(z.string(), z.unknown()).optional() })
+        }
+      },
+      async (args, extra) => {
+        this.resumes.push(args);
+        const paused = this.#paused.get(args.requestId);
+        const browser = paused !== undefined && this.#modes.get(paused.session ?? "") === "browser";
+
+        // Browser mode keeps a request on the session that made it; model mode lets any session answer.
+        if (paused === undefined || (browser && paused.session !== extra.sessionId)) {
+          return { content: [{ type: "text", text: JSON.stringify({ status: "unavailable", reason: "not-found" }) }] };
+        }
+
+        this.#paused.delete(args.requestId);
+        const done = args.response.action === "accept" ? { status: "completed", result: `did ${paused.does}` } : { status: "declined" };
+
+        return { content: [{ type: "text", text: JSON.stringify(done) }] };
+      }
+    );
     await server.connect(transport);
 
     return transport;

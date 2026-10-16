@@ -100,8 +100,9 @@ a computer of yours: run it on port 8317, and share that port when `ky runner ad
 
 **Executor.** Connect Executor in Settings › Tools › Executor with its URL (`https://mcp.executor.sh/mcp`)
 and a personal access token from executor.sh › Account settings › Tokens, and ky gets your connected apps as
-tools. Because it uses a token, there is no browser sign-in. When a tool needs approval, ky asks you in the chat.
-To get an approval link instead, add `?elicitation_mode=browser` to the URL. Edit changes the URL without
+tools. Because it uses a token, there is no browser sign-in. When a tool needs approval, ky shows you what it will do and asks you in the chat.
+ky connects in Executor's model mode and ignores any `elicitation_mode` in the URL, because browser approval links
+belong to an MCP session that ky can lose while you approve. Edit changes the URL without
 re-entering the token.
 
 ## Keep it up to date
