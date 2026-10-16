@@ -1,6 +1,7 @@
 import type { History } from "../history";
-import type { Reviews } from "../skills/contract";
-import { anticipateTool, type Anticipations } from "./anticipations";
+import type { ReviewHost, Reviews } from "../skills/contract";
+import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
+import { episodeExtension } from "./episodes";
 import { memoryExtension, type Memory } from "./memory";
 import { soulExtension, type Soul } from "./soul";
 
@@ -26,16 +27,28 @@ export type DreamingWiring = {
   readonly reviews: Reviews;
   /** The main chat or a side chat. */
   readonly chat: (session: string) => boolean;
+  /** Where episode reflections run and report, and the store their count reads (src/dreaming/episodes.ts). */
+  readonly sql: SqlStorage;
+  readonly background: ReviewHost;
+  /** Tool calls that make a turn busy enough for a skill review, and so for an episode reflection. */
+  readonly busyAfter: () => number;
 };
 
-/** SOUL.md's tool and sections, and memory's; the agent installs them, soul first. */
-export function dreamingTools({ soul, memory, anticipations, history, reviews, chat }: DreamingWiring) {
-  // A dream's rows are the dream's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
-  const anticipate = anticipateTool(anticipations, (session) => (reviews.kind(session) === "dream" ? "dream" : "user"));
+/** SOUL.md's tool and sections, memory's, and the episode reflections after chat turns; the agent installs them, soul first. */
+export function dreamingTools({ soul, memory, anticipations, history, reviews, chat, sql, background, busyAfter }: DreamingWiring) {
+  // A dream's and an episode's rows are a machine's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
+  const actor = (session: string): Actor => {
+    const kind = reviews.kind(session);
+
+    return kind === "dream" || kind === "episode" ? kind : "user";
+  };
+
+  const anticipate = anticipateTool(anticipations, actor);
 
   return {
     soul: soulExtension(soul),
-    // Reviews and dreams remember too: a review fork keeps the memory its chat showed, and a dream wakes with it.
-    memory: memoryExtension(memory, history, (session) => chat(session) || reviews.has(session), anticipate)
+    // Reviews, dreams and episodes remember too: a fork keeps the memory its chat showed, and a dream wakes with it.
+    memory: memoryExtension(memory, history, (session) => chat(session) || reviews.has(session), anticipate),
+    episodes: episodeExtension({ sql, reviews, host: background, chat, busyAfter })
   };
 }

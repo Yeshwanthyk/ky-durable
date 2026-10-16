@@ -254,7 +254,17 @@ export class PiAgent extends DurableObject<Env> {
       const chat = (session: string) => this.isChat(session);
 
       // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
-      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, anticipations: this.anticipations, history: this.history, reviews: this.reviews, chat });
+      const { soul, memory, episodes } = dreamingTools({
+        soul: this.soul,
+        memory: this.memory,
+        anticipations: this.anticipations,
+        history: this.history,
+        reviews: this.reviews,
+        chat,
+        sql: this.ctx.storage.sql,
+        background: this.#background,
+        busyAfter: () => this.skills.reviewAfter
+      });
 
       const skilling: SkillsWiring = {
         skills: this.skills,
@@ -297,6 +307,7 @@ export class PiAgent extends DurableObject<Env> {
       const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
+      this.registry.install(episodes);
       this.registry.install(machines);
       this.registry.install(automations);
 

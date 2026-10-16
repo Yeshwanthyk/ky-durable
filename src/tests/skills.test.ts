@@ -83,13 +83,13 @@ describe("skills", () => {
     socket.close();
   });
 
-  it("lets a review and a dream call only tools ky registers", async () => {
+  it("lets a review, a dream and an episode reflection call only tools ky registers", async () => {
     const name = crypto.randomUUID();
     await prompt(name, "hello");
-    // A review and a dream are offered every tool the main chat is.
+    // Each is offered every tool the main chat is.
     const registered = await inside(name, (instance) => Object.keys(instance.boundary.calls.at(-1)?.tools ?? {}));
 
-    for (const kind of ["review", "dream"] as const) expect(registered).toEqual(expect.arrayContaining([...REVIEW_ALLOWED[kind]]));
+    for (const kind of ["review", "dream", "episode"] as const) expect(registered).toEqual(expect.arrayContaining([...REVIEW_ALLOWED[kind]]));
   });
 
   it("lists active skills in the system prompt, and drops archived ones", async () => {
