@@ -45,7 +45,8 @@
   --user-ink: var(--ink);
 }
 
-:root[data-mode="dark"] {
+/* The dark theme, and anything that is dark in both themes (the Sheet), so tokens inside it read on its surface. */
+[data-mode="dark"] {
   --bg: #111111;
   --sidebar: #161616;
   --surface: #1b1b1b;
