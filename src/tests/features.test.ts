@@ -222,6 +222,56 @@ describe("running turns", () => {
     socket.close();
   });
 
+  it("steers now: stops the step the run is on and places the queue at once", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    socket.send(JSON.stringify({ type: "submit", input: "gate" }));
+    await gateStarted(name, 1);
+
+    socket.send(JSON.stringify({ type: "submit", input: "also this", whenBusy: "steer" }));
+    await client.until(() => client.view().queued === 1);
+
+    expect(await command(socket, client, { type: "steer-now" })).toMatchObject({ type: "result" });
+    // The gate is never released: the queued message goes in because the step it waited on stopped.
+    await client.until(() => shows(client.view(), "echo: also this") && !client.view().running);
+    expect(shows(client.view(), "released")).toBe(false);
+    socket.close();
+  });
+
+  it("steers now before the step's tools start: each stops as it starts, and the queue goes in", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    // Workers AI refuses, so the run waits in pi's retry with no tool started yet.
+    await agent(name).provider("workers-ai", false);
+    socket.send(JSON.stringify({ type: "submit", input: "gate" }));
+    await client.until(() => client.view().running);
+
+    socket.send(JSON.stringify({ type: "submit", input: "also this", whenBusy: "steer" }));
+    await client.until(() => client.view().queued === 1);
+    expect(await command(socket, client, { type: "steer-now" })).toMatchObject({ type: "result" });
+
+    await agent(name).provider("workers-ai", true);
+    await gateStarted(name, 1);
+    await client.until(() => shows(client.view(), "echo: also this") && !client.view().running);
+    expect(shows(client.view(), "released")).toBe(false);
+    socket.close();
+  }, 30_000);
+
+  it("steers now with nothing queued leaves the run going", async () => {
+    const name = crypto.randomUUID();
+    const { socket, client } = await session(name);
+    socket.send(JSON.stringify({ type: "submit", input: "gate" }));
+    await gateStarted(name, 1);
+    await client.until(() => client.view().running);
+
+    expect(await command(socket, client, { type: "steer-now" })).toMatchObject({ type: "result" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(client.view().running).toBe(true);
+    await agent(name).release();
+    await client.until(() => shows(client.view(), "released") && !client.view().running);
+    socket.close();
+  });
+
   it("serves the deploy's version, and a fresh snapshot on resync", async () => {
     const { socket, client } = await session(crypto.randomUUID());
     expect(latest(client, "hello")?.version).toEqual(expect.any(String));

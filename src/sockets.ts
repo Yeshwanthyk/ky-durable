@@ -153,6 +153,8 @@ export class PiSessionSockets {
   readonly #registry: RegistryReader;
   readonly #getWebSockets: (tag?: string) => WebSocket[];
   readonly #watches = new Map<WebSocket, AgentEventStream>();
+  /** A steer waiting for the run's next tools to stop, by session; in memory, as the click that asked for it. */
+  readonly #steering = new Map<PiSessionId, AgentEventStream>();
   readonly #feed: TaskFeed;
   readonly #hub: MachineHub;
   readonly #files: FileStore;
@@ -726,6 +728,60 @@ export class PiSessionSockets {
     return (await (await this.#harness.pi()).abortSubmission(record.id, BACKGROUND, conversation.id)) === "aborted";
   }
 
+  /**
+   * Steer now: abort the tool calls the run is waiting on, so pi's boundary after the round places
+   * what is queued and the run goes on with it. Unlike `abort()`, nothing queued is withdrawn and
+   * the run is not ended; aborting its generation instead would end it and leave the queue behind.
+   * While the model is still writing there is nothing to stop yet, so the steer waits on the
+   * session's events and stops each tool as it starts, until the queue goes in or the run ends.
+   */
+  async #steerNow(session: PiSessionId): Promise<null> {
+    if (this.#steering.has(session)) return null;
+    const stream = await this.#harness.session(session).events();
+
+    if (!stream.snapshot.run || stream.snapshot.inbox.length === 0) {
+      await stream.stop();
+
+      return null;
+    }
+
+    this.#steering.set(session, stream);
+
+    const done = async () => {
+      if (this.#steering.get(session) !== stream) return;
+      this.#steering.delete(session);
+      await stream.stop();
+    };
+
+    stream.start(async (events) => {
+      if (events.some((event) => event.type === "run_end" || (event.type === "inbox_update" && event.items.length === 0))) await done();
+      else if (events.some((event) => event.type === "tool_execution_start")) await this.#stopRound(session);
+    });
+
+    // Watching first, so a tool that starts while this looks is stopped by the watch.
+    if (!(await this.#stopRound(session))) await done();
+
+    return null;
+  }
+
+  /** Abort the tool calls in flight in the session's run, while anything is queued; false once nothing is. */
+  async #stopRound(session: PiSessionId): Promise<boolean> {
+    const conversation = await this.#harness.conversation(session);
+    const pi = await this.#harness.pi();
+    const { tasks, submissions } = await pi.inspect(BACKGROUND);
+    const queued = submissions.some((each) => each.conversationId === conversation.id && each.type === "input" && each.status === "queued");
+
+    if (!queued) return false;
+
+    for (const { record } of tasks) {
+      if (record.kind === "pi.tool" && record.conversationId === conversation.id && !record.background && !record.abortRequested) {
+        await pi.abortTask(record.id, BACKGROUND);
+      }
+    }
+
+    return true;
+  }
+
   /** What each action from Activity does to one automation, by id. */
   readonly #automationActions: AutomationActions = {
     pause: (id) => this.#automations.pause(id),
@@ -741,6 +797,7 @@ export class PiSessionSockets {
     submit: (message, _connection, session) => this.#submit(session, message),
     abort: (_message, _connection, session) => this.#harness.session(session).abort(),
     withdraw: (message, _connection, session) => this.#withdraw(session, message.operationId),
+    "steer-now": (_message, _connection, session) => this.#steerNow(session),
     reset: async (message, _connection, session) => {
       await this.#harness.session(session).reset(message.handoff);
 

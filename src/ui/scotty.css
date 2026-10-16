@@ -1005,12 +1005,38 @@ button.live:hover .live-steps {
   background: var(--bg);
 }
 
-.queue-head,
+.queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 2px;
+}
+
+.queue-note,
 .queue-more {
   margin: 0;
   padding: 2px 8px 4px;
   font-size: calc(12px * var(--text-scale));
   color: var(--quiet);
+}
+
+.queue-steer {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink);
+}
+
+.queue-steer:disabled {
+  opacity: 0.5;
 }
 
 .queue-more {
