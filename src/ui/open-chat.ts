@@ -1,7 +1,19 @@
 import type { ChatRow, SettingsView, TaskRow } from "../protocol";
 import type { ConnectionStatus } from "../use-pi-session";
 
-export const NAME = "ky";
+/**
+ * What to call this ky: its Worker's name, the first label of its address ("work" at
+ * https://work.example.workers.dev), as Peers names one. "ky" on localhost or a bare IP.
+ */
+function instanceName(hostname: string): string {
+  const label = hostname.split(".")[0]?.toLowerCase() ?? "";
+
+  if (label === "" || label === "localhost" || /^[\d.]+$|:/.test(hostname)) return "ky";
+
+  return label.replace(/[^a-z0-9-]/g, "-").replace(/^-+/, "").slice(0, 32) || "ky";
+}
+
+export const NAME = instanceName(typeof location === "undefined" ? "" : location.hostname);
 
 /** The main chat's session. Side chats and subagents have their own. */
 export const MAIN_SESSION = "1";
