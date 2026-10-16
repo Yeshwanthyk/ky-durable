@@ -41,6 +41,8 @@ export const ClientMessageSchema = Type.Union([
     operationId: Type.Optional(Text)
   }),
   message("abort", {}),
+  /** Stop the step the run is on, so what is queued goes in now rather than after it. */
+  message("steer-now", {}),
   /** Take back a message still queued behind the run; answers false once pi has placed it. */
   message("withdraw", { operationId: Text }),
   message("reset", { handoff: Type.Optional(Text) }),

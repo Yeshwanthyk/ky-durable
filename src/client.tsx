@@ -1,5 +1,5 @@
 import type { UserInput } from "@earendil-works/pi-durable";
-import { memo, useCallback, useImperativeHandle, useMemo, useRef, type ComponentProps, type RefObject } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ComponentProps, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
@@ -10,7 +10,7 @@ import { SendTaskContext } from "./ui/change-review";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
-import { isQueued, type Outgoing, sendingMessage } from "./outbox";
+import { isQueued, isReturned, type Outgoing, sendingMessage } from "./outbox";
 import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
@@ -157,19 +157,59 @@ type DraftDockProps = {
   /** A newer deploy is serving; reload unless that would throw the draft away. */
   updated: boolean;
   queue: readonly Outgoing[];
+  /** Queued messages ky gave back, as Stop does, for the composer to take in. */
+  returned: readonly Outgoing[];
   onSend: (input: UserInput) => void;
   onStop: () => void;
+  /** Stop the step ky is on, so the queue goes in now. */
+  onSteer: () => void;
   /** Take a queued message back; false once pi has placed it. */
   onWithdraw: (operationId: string) => Promise<boolean>;
+  /** The composer has taken in these returned messages. */
+  onReturned: (operationIds: ReadonlySet<string>) => void;
 };
 
+/**
+ * Messages ky gave back go into the composer, oldest first and above what is there, so nothing the
+ * user sent is lost: Stop, or a run that ended with them still queued, hands them back to edit or send.
+ */
+function useTakeReturned(returned: readonly Outgoing[], restore: (input: UserInput) => void, onReturned: (operationIds: ReadonlySet<string>) => void) {
+  const taken = useRef(new Set<string>());
+
+  useEffect(() => {
+    const fresh = returned.filter((item) => !taken.current.has(item.operationId));
+
+    if (fresh.length === 0) return;
+
+    for (const item of fresh) taken.current.add(item.operationId);
+
+    // Each restore goes above the draft, so the newest goes first and the oldest ends on top.
+    for (const item of [...fresh].reverse()) restore(item.input);
+    onReturned(new Set(fresh.map((item) => item.operationId)));
+  }, [returned, restore, onReturned]);
+}
+
+/** Edit takes a queued message back into the composer, first out of the queue so it never goes in twice; delete just takes it back. */
+function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, restore: (input: UserInput) => void) {
+  const onEdit = async (item: Outgoing) => {
+    if (await onWithdraw(item.operationId)) restore(item.input);
+  };
+
+  const onDelete = async (item: Outgoing) => {
+    await onWithdraw(item.operationId);
+  };
+
+  return { onEdit, onDelete };
+}
+
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, onSend, onStop, onWithdraw }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
   useImperativeHandle(handle, () => ({ setPrompt: draft.setPrompt }), [draft.setPrompt]);
   useReloadOnDeploy(updated, draft);
+  useTakeReturned(returned, draft.restore, onReturned);
 
   const submit = () => {
     const input = canSend(connected, draft.reading, cantSee) ? draft.take() : null;
@@ -177,14 +217,7 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
     if (input !== null) onSend(input);
   };
 
-  // Editing takes the message out of the queue first, so it never goes in twice.
-  const onEdit = async (item: Outgoing) => {
-    if (await onWithdraw(item.operationId)) draft.restore(item.input);
-  };
-
-  const onDelete = async (item: Outgoing) => {
-    await onWithdraw(item.operationId);
-  };
+  const { onEdit, onDelete } = useQueueActions(onWithdraw, draft.restore);
 
   return (
     <ComposerDock
@@ -199,6 +232,7 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
       history={history}
       onSubmit={submit}
       onStop={onStop}
+      onSteer={onSteer}
       onEdit={onEdit}
       onDelete={onDelete}
     />
@@ -261,21 +295,35 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
 }
 
 // The chat: the topbar, the thread, and the composer.
+/**
+ * Where each outgoing message shows: one on its way in the thread at once, one waiting behind the
+ * run in the queue, and one ky gave back in the composer.
+ */
+function useOutboxParts(outbox: readonly Outgoing[]) {
+  const queue = useSame(
+    useMemo(() => outbox.filter(isQueued), [outbox]),
+    shallow
+  );
+
+  const sending = useSame(
+    useMemo(() => outbox.filter((item) => !isQueued(item) && !isReturned(item)), [outbox]),
+    shallow
+  );
+
+  const returned = useSame(
+    useMemo(() => outbox.filter(isReturned), [outbox]),
+    shallow
+  );
+
+  return { queue, sending, returned };
+}
+
 function Stage(parts: Parts) {
   const { ky, view, panel } = parts;
   const { open, variantId } = view;
   const composer = useRef<DraftHandle>(null);
 
-  // A message on its way shows in the thread at once; one waiting behind the run shows in the queue.
-  const queue = useSame(
-    useMemo(() => ky.outbox.filter(isQueued), [ky.outbox]),
-    shallow
-  );
-
-  const sending = useSame(
-    useMemo(() => ky.outbox.filter((item) => !isQueued(item)), [ky.outbox]),
-    shallow
-  );
+  const { queue, sending, returned } = useOutboxParts(ky.outbox);
 
   const messages = useMemo(
     () => (sending.length === 0 ? ky.messages : [...ky.messages, ...sending.map(sendingMessage)]),
@@ -341,9 +389,12 @@ function Stage(parts: Parts) {
           history={history}
           updated={ky.updated}
           queue={queue}
+          returned={returned}
           onSend={onSend}
           onStop={ky.abort}
+          onSteer={ky.steerNow}
           onWithdraw={ky.withdraw}
+          onReturned={ky.takeReturned}
         />
       </div>
     </section>

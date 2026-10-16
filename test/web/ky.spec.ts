@@ -403,6 +403,44 @@ test("shows queued messages' words, and takes one back to edit or deletes it", a
   await expect(page.getByRole("region", { name: "Chat" }).getByText("first queued thing")).toBeHidden();
 });
 
+test("steers the queue in now: the step ky waits on stops and the queued message goes in", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await send(page, "gate");
+  await expect(composer(page)).toHaveAttribute("placeholder", "Steer the running turn");
+
+  await send(page, "steer this in now");
+  const queue = page.getByRole("region", { name: "Queued messages" });
+  await expect(queue.getByText("steer this in now")).toBeVisible();
+  await queue.getByRole("button", { name: "Steer now" }).click();
+
+  await expect(page.getByText("echo: steer this in now")).toBeVisible();
+  await expect(queue).toBeHidden();
+  await expect(page.getByText("tool said: released")).toBeHidden();
+  await release(page);
+});
+
+test("gives queued messages back to the composer when the turn is stopped", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await send(page, "gate");
+  await expect(composer(page)).toHaveAttribute("placeholder", "Steer the running turn");
+
+  await send(page, "first kept thing");
+  await send(page, "second kept thing");
+  const queue = page.getByRole("region", { name: "Queued messages" });
+  await expect(queue.getByText("second kept thing")).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+
+  await expect(queue).toBeHidden();
+  await expect(composer(page)).toHaveValue("first kept thing\n\nsecond kept thing");
+  await release(page);
+});
+
 test("marks a side chat that ky answered while the user was in another chat, until it is opened", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });

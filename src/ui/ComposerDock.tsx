@@ -40,6 +40,7 @@ export function ComposerDock({
   history,
   onSubmit,
   onStop,
+  onSteer,
   onEdit,
   onDelete,
 }: {
@@ -59,6 +60,8 @@ export function ComposerDock({
   history?: readonly string[];
   onSubmit: () => void;
   onStop: () => void;
+  /** Stop the step ky is on, so the queue goes in now. */
+  onSteer: () => void;
   onEdit: (item: Outgoing) => Promise<void>;
   onDelete: (item: Outgoing) => Promise<void>;
 }) {
@@ -70,6 +73,8 @@ export function ComposerDock({
         items={queue}
         more={Math.max(0, session.queued - queue.filter((item) => item.submission !== null).length)}
         connected={connected}
+        running={session.running}
+        onSteer={onSteer}
         onEdit={onEdit}
         onDelete={onDelete}
       />

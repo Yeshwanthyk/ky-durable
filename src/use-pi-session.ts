@@ -5,7 +5,7 @@ import { Asks } from "./asks";
 import type { AvatarsView } from "./avatar-spec";
 import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
-import { type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
+import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
@@ -318,7 +318,7 @@ export function usePiSession(session: string) {
       // It shows before the server answers: in the thread, or queued behind the run going now.
       setState((current) => ({
         ...current,
-        outbox: [...current.outbox, { operationId, input, at: Date.now(), behind: current.running, submission: null }]
+        outbox: [...current.outbox, { operationId, input, at: Date.now(), behind: current.running, submission: null, back: null }]
       }));
       send(message);
     },
@@ -327,8 +327,41 @@ export function usePiSession(session: string) {
 
   /** Take back a queued message; resolves false once pi has placed it, too late to take back. */
   const withdraw = useCallback(
-    (operationId: string) => ask("withdraw", { operationId }).catch(() => false),
+    async (operationId: string) => {
+      // Marked first, so pi's word that it is withdrawn drops it rather than returning it to the composer.
+      setState((current) => ({ ...current, outbox: markTaking(current.outbox, operationId, true) }));
+      const taken = await ask("withdraw", { operationId }).catch(() => false);
+
+      if (!taken) setState((current) => ({ ...current, outbox: markTaking(current.outbox, operationId, false) }));
+
+      return taken;
+    },
     [ask]
+  );
+
+  /** The composer has taken in these returned messages. */
+  const takeReturned = useCallback(
+    (operationIds: ReadonlySet<string>) => setState((current) => ({ ...current, outbox: dropReturned(current.outbox, operationIds) })),
+    []
+  );
+
+  // A message pi still holds queued once the run has ended would never go in: withdraw it, and it comes back to the composer.
+  const askedBack = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (state.status !== "open") return;
+
+    for (const item of state.outbox) {
+      if (!isStranded(item, state.running) || askedBack.current.has(item.operationId)) continue;
+      askedBack.current.add(item.operationId);
+      void ask("withdraw", { operationId: item.operationId }).catch(() => false);
+    }
+  }, [state.outbox, state.running, state.status, ask]);
+
+  /** Stop the tool calls the run waits on, so what is queued goes in now. */
+  const steerNow = useCallback(
+    () => send({ type: "steer-now", id: crypto.randomUUID() }),
+    [send]
   );
 
   const abort = useCallback(
@@ -498,6 +531,8 @@ export function usePiSession(session: string) {
     ...state,
     submit,
     withdraw,
+    takeReturned,
+    steerNow,
     abort,
     reset,
     stopTask,
