@@ -1961,3 +1961,132 @@ button.live:hover .live-steps {
   visibility: hidden;
   transition-delay: 0s, 0s, 0s, var(--fast);
 }
+
+/* ---------- The brief: today's few lines, above the chat ---------- */
+
+.brief {
+  width: calc(100% - 40px);
+  max-width: calc(var(--thread-width) - 40px);
+  /* Below the floating header, which the thread otherwise makes room for itself. */
+  margin: calc(64px + env(safe-area-inset-top)) auto 0;
+  padding: 8px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--sunken);
+  flex: none;
+  transition:
+    opacity 150ms var(--ease-out),
+    translate 200ms var(--ease-out);
+}
+
+/* The card already clears the header, so the thread under it starts close. */
+.stage .brief + .thread .thread-inner {
+  padding-top: 20px;
+}
+
+@starting-style {
+  .brief {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+.brief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brief-title {
+  margin: 0;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.brief-close {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+}
+
+.brief-close:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.brief-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.brief-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.brief-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.brief-text {
+  margin: 0;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.brief-chip {
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.brief-chip:hover {
+  border-color: var(--line-hover);
+}
+
+.brief-action,
+.brief-pinned {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--quiet);
+}
+
+.brief-pinned {
+  color: var(--ink);
+}
+
+@media (max-width: 767px) {
+  .brief {
+    width: calc(100% - 32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brief {
+    transition: opacity 150ms var(--ease-out);
+  }
+}

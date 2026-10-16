@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a dream made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a dream made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -82,8 +82,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   records the chat entry it forked at, so the count of messages since the last pass needs no state of its own.
   Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
   with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
-  Turn-start recall and the morning brief will read them with `match` and `due` and mark what they show surfaced;
-  no panel shows them yet.
+  Turn-start recall will read them with `match`; no panel shows them yet.
+- The morning brief: up to 3 lines for the user's day in `ky_brief` (`src/dreaming/brief.ts`), one row per local
+  day, gone at their midnight. The dream writes them with the `anticipate` tool's brief action from what is `due`
+  and open (a line from an anticipation marks it surfaced); events may `append` lines too. The first browser hello
+  of the day gets a `brief` frame, shown as a card above the chat, not a chat message. Each line shown, and its
+  outcome (acted, pinned, dismissed, or expired at midnight), is a `ky_surfaced` row (`src/dreaming/surfaced.ts`);
+  the dream's digest reads last week's counts and dismissed lines, and the cap drops to 2 after two weeks in a row
+  under 25% acted or pinned. Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its

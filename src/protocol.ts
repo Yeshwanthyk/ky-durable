@@ -11,7 +11,7 @@ import type { MachineFacts, MachineLogin, MachineState } from "./machines/contra
 import type { SettingsView } from "./settings";
 import type { SetupView } from "./setup";
 import type { SkillRow, SpecialistView } from "./skills/contract";
-import type { MemoryView, SoulView } from "./dreaming/contract";
+import type { BriefView, MemoryView, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
@@ -195,6 +195,8 @@ export type PiServerMessage =
   /** The specialists and their briefs; sent on connect and on change. */
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
+  /** Today's brief: the lines this browser has not shown yet, and the pinned ones; sent on connect when there are any. */
+  | { readonly type: "brief"; readonly brief: BriefView }
   /** The active, paused and archived automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[]; readonly checkIns: boolean }
   /** Providers, their models, and each purpose's model; sent on connect and on change. */
@@ -223,6 +225,8 @@ export type { ChatRow } from "./chats";
 export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
+
+export type { BriefCardLine, BriefView, ProactivityLevel, ProactivityView, Rate } from "./dreaming/contract";
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 

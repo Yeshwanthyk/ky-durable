@@ -642,6 +642,20 @@ export class PiAgent extends ProductionAgent {
     await this.dreaming.run();
   }
 
+  /** Put lines in today's brief, as events while the user was away do; each line's chip, when it has one, after a " | ". */
+  seedBrief(lines: readonly string[]): string[] {
+    return lines.map((line, index) => {
+      const [text = "", chip] = line.split(" | ");
+
+      return this.brief.append({ text, chip }, { loop: "event", ref: `test:${Date.now()}:${index}` });
+    });
+  }
+
+  /** What ky surfaced, and what became of each, oldest first. */
+  surfacedRows(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT kind, loop, ref, item, text, outcome FROM ky_surfaced ORDER BY id").toArray();
+  }
+
   /** Review turns with at least this many tool calls; in memory, so a restart puts back the default. */
   reviewAfterTools(count: number): void {
     this.skills.reviewAfter = count;
@@ -708,6 +722,9 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
+  // Each line= is a brief line for today, "text | chip"; answers with their keys.
+  ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
+  ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
   // n is the tool calls a turn needs to be reviewed for skills; 5 is ky's default.
   [
     "POST /test/review-after",

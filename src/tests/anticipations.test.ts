@@ -4,6 +4,7 @@ import type { Draft } from "../dreaming/anticipations";
 import type { Anticipation } from "../dreaming/contract";
 import { REVIEW_ALLOWED } from "../skills/contract";
 import { inside, prompt } from "./drive";
+import type { PiAgent } from "./stack";
 
 /**
  * Anticipations (src/dreaming/anticipations.ts) on ky's real PiAgent: what is still open, each row citing the
@@ -36,8 +37,8 @@ const loop = (message: number, more: Partial<Draft> = {}): Draft => ({
   ...more
 });
 
-/** Mark a row surfaced, as turn-start recall and the brief will when they show one; nothing does yet. */
-const surfaced = (state: DurableObjectState, id: number) => state.storage.sql.exec("UPDATE ky_anticipations SET status = 'surfaced' WHERE id = ?", id);
+/** Mark a row surfaced, as the brief does when it shows one. */
+const surfaced = (instance: PiAgent, id: number) => instance.anticipations.surface(id);
 
 /** A dream's conversation, as the dream makes one; its prompts' tool calls are the dream's. */
 async function dreamSession(name: string): Promise<(text: string) => Promise<string>> {
@@ -180,7 +181,7 @@ describe("an anticipation's status", () => {
     const name = crypto.randomUUID();
     const message = await seeded(name);
 
-    const [count, statuses] = await inside(name, (instance, state) => {
+    const [count, statuses] = await inside(name, (instance) => {
       const store = instance.anticipations;
       const now = Date.now();
       const past = { from: now - 3 * HOUR, to: now - HOUR };
@@ -189,7 +190,7 @@ describe("an anticipation's status", () => {
       const kept = store.add(loop(message, { text: "kept", window: past }), "dream", now);
       const ahead = store.add(loop(message, { text: "ahead", window: { from: now, to: now + HOUR } }), "dream", now);
       store.extend(stale.id, past, "dream");
-      surfaced(state, seen.id);
+      surfaced(instance, seen.id);
       store.pin(kept.id);
 
       const count = store.expire(now);
@@ -336,10 +337,10 @@ describe("the dream and anticipations", () => {
     const name = crypto.randomUUID();
     const message = await seeded(name);
 
-    await inside(name, (instance, state) => {
+    await inside(name, (instance) => {
       const store = instance.anticipations;
       const old = store.add(loop(message, { text: "Old loop" }), "dream", Date.now() - 3 * 24 * HOUR);
-      surfaced(state, old.id);
+      surfaced(instance, old.id);
       store.add(loop(message, { text: "Stale date", kind: "upcoming", window: { from: 0, to: 1 } }), "user");
       store.add(loop(message, { text: "Pinned one" }), "user");
       store.pin(3);

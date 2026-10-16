@@ -24,6 +24,7 @@ describe("dreaming's contract", () => {
         soul: instance.soul,
         memory: instance.memory,
         anticipations: instance.anticipations,
+        brief: instance.brief,
         history: instance.history,
         reviews: instance.reviews,
         chat: () => true,

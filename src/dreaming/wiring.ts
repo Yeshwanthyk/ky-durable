@@ -2,11 +2,14 @@ import type { History } from "../history";
 import type { ReviewHost, Reviews } from "../skills/contract";
 import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
 import { episodeExtension } from "./episodes";
+import type { Brief } from "./brief";
 import { memoryExtension, type Memory } from "./memory";
 import { soulExtension, type Soul } from "./soul";
 
 /** What the agent (src/server.ts) and other domains run: the dreaming domain's classes. */
 export { Anticipations } from "./anticipations";
+
+export { Brief } from "./brief";
 
 export { dreamCron, Dreaming } from "./dreaming";
 
@@ -16,13 +19,18 @@ export { Memory } from "./memory";
 
 export { Presence } from "./presence";
 
+export { Proactivity } from "./proactivity";
+
 export { Soul, TEMPLATE } from "./soul";
+
+export { Surfaced } from "./surfaced";
 
 /** What the dreaming domain's tools are made from, on the agent (src/server.ts). */
 export type DreamingWiring = {
   readonly soul: Soul;
   readonly memory: Memory;
   readonly anticipations: Anticipations;
+  readonly brief: Brief;
   readonly history: History;
   readonly reviews: Reviews;
   /** The main chat or a side chat. */
@@ -35,7 +43,7 @@ export type DreamingWiring = {
 };
 
 /** SOUL.md's tool and sections, memory's, and the episode reflections after chat turns; the agent installs them, soul first. */
-export function dreamingTools({ soul, memory, anticipations, history, reviews, chat, sql, background, busyAfter }: DreamingWiring) {
+export function dreamingTools({ soul, memory, anticipations, brief, history, reviews, chat, sql, background, busyAfter }: DreamingWiring) {
   // A dream's and an episode's rows are a machine's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
   const actor = (session: string): Actor => {
     const kind = reviews.kind(session);
@@ -43,7 +51,7 @@ export function dreamingTools({ soul, memory, anticipations, history, reviews, c
     return kind === "dream" || kind === "episode" ? kind : "user";
   };
 
-  const anticipate = anticipateTool(anticipations, actor);
+  const anticipate = anticipateTool(anticipations, brief, actor);
 
   return {
     soul: soulExtension(soul),

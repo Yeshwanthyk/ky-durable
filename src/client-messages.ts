@@ -9,7 +9,7 @@
 import Type, { type TSchema } from "typebox";
 import { parseOr } from "./core/decode";
 import { AutomationActionSchema, AutomationDraftSchema } from "./automations/contract";
-import { SoulChangeSchema } from "./dreaming/contract";
+import { ProactivityLevelSchema, SoulChangeSchema } from "./dreaming/contract";
 import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
 import { ModelChoiceSchema, PurposeSchema } from "./settings";
 import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
@@ -135,6 +135,16 @@ export const ClientMessageSchema = Type.Union([
   message("automation-save", { automation: Type.Optional(Text), draft: AutomationDraftSchema }),
   /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
   message("automation", { automation: Text, action: AutomationActionSchema }),
+  /** The user tapped a brief line's chip, which put its ask in the composer: by the line's key. */
+  message("brief-act", { key: Text }),
+  /** Keep a brief line on the card for the day, and its anticipation for good. */
+  message("brief-pin", { key: Text }),
+  /** Drop a brief line, closing its anticipation as dismissed; without a key, the whole card. */
+  message("brief-dismiss", { key: Type.Optional(Text) }),
+  /** Answers with Settings › Proactivity: the level and its rates. */
+  message("proactivity", {}),
+  /** Set how proactive ky is; answers with Settings › Proactivity. */
+  message("set-proactivity", { level: ProactivityLevelSchema }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Choose the model, and its thinking level, for one purpose. */

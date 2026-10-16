@@ -26,7 +26,13 @@ export const DREAMING_TABLES = {
   /** One row per change a dream made, with what it replaced, so the user can undo it. */
   dreamLedger: "ky_dream_ledger",
   /** What ky expects to matter soon: open loops, dates ahead, likely asks, watches; each cites its evidence. */
-  anticipations: "ky_anticipations"
+  anticipations: "ky_anticipations",
+  /** The brief: one row per local day, its lines as JSON, gone at the user's midnight. */
+  brief: "ky_brief",
+  /** Each thing ky put in front of the user unasked (a brief line), and what they did with it. */
+  surfaced: "ky_surfaced",
+  /** How proactive ky is: off, the brief only, or the brief and boundary lines. One row. */
+  proactivity: "ky_proactivity"
 } as const;
 
 // Tool names.
@@ -159,6 +165,83 @@ export function anticipationRow(row: Row): Anticipation | undefined {
   return evidence === undefined ? undefined : { ...stored, evidence, pinned: stored.pinned !== 0 };
 }
 
+// The brief and what ky surfaced.
+
+/** How proactive ky is: nothing unasked, a morning brief, or the brief and lines at a task's boundary. */
+export const ProactivityLevelSchema = Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]);
+
+export type ProactivityLevel = Static<typeof ProactivityLevelSchema>;
+
+export const PROACTIVITY_LEVELS: readonly ProactivityLevel[] = ["off", "brief", "boundary"];
+
+/** Where a brief line came from: the dream, or an event while the user was away; `ref` names what it rests on, like anticipation:12. */
+const BriefSourceSchema = Type.Object({ loop: Type.Union([Type.Literal("dream"), Type.Literal("event")]), ref: Type.String() });
+
+export type BriefSource = Static<typeof BriefSourceSchema>;
+
+/** A line as ky_brief stores it: its text, source, and the prepared ask its chip puts in the composer. */
+const BriefLineSchema = Type.Object({ text: Type.String(), source: BriefSourceSchema, chip: Type.Union([Type.String(), Type.Null()]) });
+
+export type BriefLine = Static<typeof BriefLineSchema>;
+
+/** A row of ky_brief as stored: its lines as JSON text, and its midnight. */
+const BriefStoredSchema = Type.Object({ lines: Type.String(), expires_at: Type.Number() });
+
+/** A day's stored lines and midnight, or undefined when there is no row or a restore damaged it (lines included). */
+export function briefRow(row: Row): { lines: BriefLine[]; expires_at: number } | undefined {
+  const stored = decodeOr(BriefStoredSchema, row, undefined);
+  const lines = stored === undefined ? undefined : parseOr(Type.Array(BriefLineSchema), stored.lines, undefined);
+
+  return stored === undefined || lines === undefined ? undefined : { lines, expires_at: stored.expires_at };
+}
+
+/** A line as the card shows it: its key (day#n), and whether the user pinned it. */
+const BriefCardLineSchema = Type.Object({ key: Type.String(), text: Type.String(), chip: Type.Union([Type.String(), Type.Null()]), pinned: Type.Boolean() });
+
+export type BriefCardLine = Static<typeof BriefCardLineSchema>;
+
+/** The card: the local day, when it goes (the user's midnight, epoch ms), and its lines. */
+const BriefViewSchema = Type.Object({ day: Type.String(), expires_at: Type.Number(), lines: Type.Array(BriefCardLineSchema) });
+
+export type BriefView = Static<typeof BriefViewSchema>;
+
+/** What became of a surfaced thing; ignored is a boundary line the user went past. */
+const SurfacedOutcomeSchema = Type.Union([
+  Type.Literal("acted"),
+  Type.Literal("pinned"),
+  Type.Literal("dismissed"),
+  Type.Literal("ignored"),
+  Type.Literal("expired")
+]);
+
+export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
+
+export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "ignored", "expired"];
+
+/** One outcome's count, null for the shown ones that have none yet. */
+const OutcomeCountRow = Type.Object({ outcome: Type.Union([SurfacedOutcomeSchema, Type.Null()]), n: Type.Integer() });
+
+/** A GROUP BY outcome row, or undefined when it is damaged: callers skip it. */
+export const outcomeCount = (row: Row): Static<typeof OutcomeCountRow> | undefined => decodeOr(OutcomeCountRow, row, undefined);
+
+/** A rate as Settings › Proactivity shows it: so many of so many; nothing to show while `of` is 0. */
+const RateSchema = Type.Object({ count: Type.Integer(), of: Type.Integer() });
+
+export type Rate = Static<typeof RateSchema>;
+
+/** Settings › Proactivity: the level, and how the last week's brief and the last month's anticipations went. */
+const ProactivityViewSchema = Type.Object({
+  level: ProactivityLevelSchema,
+  /** Brief lines acted on or pinned, of those shown, the last 7 days. */
+  accepted: RateSchema,
+  /** Brief lines dismissed, of those shown, the last 7 days. */
+  dismissed: RateSchema,
+  /** Anticipations that expired unseen, of those made, the last 30 days. */
+  expired: RateSchema
+});
+
+export type ProactivityView = Static<typeof ProactivityViewSchema>;
+
 // SOUL.md.
 
 export {
@@ -223,5 +306,9 @@ export type { DreamLedger } from "./ledger";
 export type { Compressor, Memory } from "./memory";
 
 export type { Presence } from "./presence";
+
+export type { Brief } from "./brief";
+
+export type { Proactivity } from "./proactivity";
 
 export type { Soul } from "./soul";

@@ -42,6 +42,7 @@ import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
 import { Mail } from "./Mail";
+import { Proactivity } from "./Proactivity";
 import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
@@ -2398,6 +2399,7 @@ const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; v
   },
   { to: { kind: "peers" }, icon: "nodes", label: "Peers", value: () => "Other people's kys" },
   { to: { kind: "mail" }, icon: "mail", label: "Mail", value: () => "ky's own address" },
+  { to: { kind: "proactivity" }, icon: "sun", label: "Proactivity", value: () => "What ky says unasked" },
   { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
   { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
   { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
@@ -2494,6 +2496,15 @@ function MailPage() {
   );
 }
 
+function ProactivityPage() {
+  return (
+    <>
+      <PageHead title="Proactivity">What ky brings up without being asked. Off means no brief, and the dream writes none.</PageHead>
+      <Proactivity />
+    </>
+  );
+}
+
 function ToolsPage({ catalog }: PageProps) {
   return (
     <>
@@ -2547,6 +2558,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   subscriptions: SubscriptionsPage,
   peers: PeersPage,
   mail: MailPage,
+  proactivity: ProactivityPage,
   tools: ToolsPage,
   appearance: AppearancePage,
   "self-edits": SelfEditsPage,
