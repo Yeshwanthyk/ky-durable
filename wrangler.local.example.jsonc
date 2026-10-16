@@ -6,7 +6,15 @@
   "vars": {
     // VibeProxy's listen address on your computer; the VIBEPROXY tunnel forwards here. Needs VIBEPROXY_KEY.
     "VIBEPROXY_ORIGIN": "http://127.0.0.1:8317"
+    // ky's own email address, on a domain onboarded in Email Service › Email Sending, with an Email Routing rule
+    // sending it to this Worker. Needs the EMAIL binding below.
+    // "KY_MAIL_ADDRESS": "ky@example.com",
+    // How many mails ky sends a day (50) and reads an hour (20); the rest are kept, unread, in Settings › Mail.
+    // "KY_MAIL_DAILY_SENDS": "50",
+    // "KY_MAIL_HOURLY_TRIAGES": "20"
   },
+  // Sends ky's mail from KY_MAIL_ADDRESS (Email Service).
+  // "send_email": [{ "name": "EMAIL", "remote": true }],
   // Your computer's VibeProxy, reached only through a private tunnel (no public hostname).
   "vpc_services": [{ "binding": "VIBEPROXY", "service_id": "<your VPC service id>", "remote": true }]
   // A custom domain, if you have one:

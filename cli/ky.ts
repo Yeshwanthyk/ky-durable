@@ -23,7 +23,7 @@ const help = (settings: string) => `${bold("ky")}: your own durable agent, on yo
 
   ${bold("ky login")}       check a Cloudflare token can deploy ky, and keep it for the commands below; ${bold("ky logout")} forgets it
   ${bold("ky init")}        sign in, pick the account, deploy ky behind Access, and open it; run again, it fills in what's missing
-                 ${dim("[--account <id or name>] [--name <worker>] [--email <you@example.com>] [--subdomain <name>] [--as <name>]")}
+                 ${dim("[--account <id or name>] [--name <worker>] [--email <you@example.com>] [--subdomain <name>] [--mail <domain>] [--as <name>]")}
   ${bold("ky deploy")}      deploy this ky's release with your settings ${dim("[name]")}
   ${bold("ky upgrade")}     deploy this ky's release, when the Worker runs another one ${dim("[name]")}
   ${bold("ky doctor")}      check each piece of the deploy and print what fixes the first one missing ${dim("[name] [--json]")}
@@ -56,6 +56,7 @@ const OPTIONS = {
   replace: { type: "boolean" },
   email: { type: "string" },
   subdomain: { type: "string" },
+  mail: { type: "string" },
   confirm: { type: "string" },
   out: { type: "string", short: "o" },
   url: { type: "string" },

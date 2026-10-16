@@ -3407,6 +3407,69 @@
   margin: 0 8px;
 }
 
+/* ---------- Mail ---------- */
+
+.mail-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.mail-steps > li + li {
+  margin-top: 4px;
+}
+
+.mail-steps code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+/* A mail waiting for the user: its text under the row, set in from the tile, then Discard and Send. */
+.mail-held + .mail-held {
+  border-top: 1px solid var(--line);
+}
+
+.mail-preview {
+  margin: -4px 14px 0 52px;
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mail-held-actions {
+  padding: 10px 14px 12px;
+}
+
+.mail-held > .automation-refused {
+  padding: 0 14px 10px;
+}
+
+/* A mail's dot: green once read or sent, amber while it waits or goes, red when it failed, none when it needs nothing. */
+.mail-state {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.mail-state:is([data-state="triaged"], [data-state="sent"]) {
+  background: var(--success);
+}
+
+.mail-state:is([data-state="new"], [data-state="sending"], [data-state="held"]) {
+  background: var(--warning);
+}
+
+.mail-state[data-state="failed"] {
+  background: var(--danger);
+}
+
 .automation-pick {
   position: relative;
   display: flex;

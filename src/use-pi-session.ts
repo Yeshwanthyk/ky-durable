@@ -391,7 +391,7 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  const { executorActions, peerActions } = useSettingsActions(ask, send);
+  const { executorActions, peerActions, mailActions } = useSettingsActions(ask, send);
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -511,6 +511,7 @@ export function usePiSession(session: string) {
     subscriptionActions,
     executorActions,
     peerActions,
+    mailActions,
     newChat,
     archiveChat,
     renameChat,
@@ -638,7 +639,8 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
         onConnect: (url: string, token: string) => ask("set-executor", { url, token }).then(refusal, why),
         onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
       },
-      peerActions: peerActions(ask)
+      peerActions: peerActions(ask),
+      mailActions: mailActions(ask)
     }),
     [ask, send]
   );
@@ -651,6 +653,16 @@ function peerActions(ask: AskFn) {
     onInvite: (name: string) => ask("peer-invite", { name }).catch(refused),
     onPair: (name: string, address: string, code: string) => ask("peer-pair", { name, address, code }).then(refusal, why),
     onRemove: (name: string) => ask("peer-remove", { name }).then(refusal, why)
+  };
+}
+
+/** Settings › Mail's actions. */
+function mailActions(ask: AskFn) {
+  return {
+    onView: () => ask("mail-view", {}),
+    onApprove: (mail: string) => ask("mail-approve", { mail }).then(refusal, why),
+    onDiscard: (mail: string) => ask("mail-discard", { mail }).then(refusal, why),
+    onDisallow: (address: string) => ask("mail-disallow", { address }).then(refusal, why)
   };
 }
 

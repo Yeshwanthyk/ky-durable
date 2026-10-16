@@ -18,7 +18,7 @@ import { settingsFile, writeSettings } from "../../cli/runner/settings.ts";
 import { bundleOf, loadRelease, packOf, type Release, useRelease } from "../../cli/release.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 import { type FakeRegistry, fakeRegistry } from "../fakes/registry.ts";
-import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, NO_ORGANIZATION_TOKEN, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
+import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, fakeZone, NO_ORGANIZATION_TOKEN, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
 
@@ -384,6 +384,69 @@ describe("ky init and deploy", () => {
     await upgradeCommand(ky);
     expect(script()?.metadata.bindings).toContainEqual({ type: "r2_bucket", name: "RUNNER_FILES", bucket_name: "ky-runner-files" });
     expect([...account.buckets.keys()]).toEqual(["ky-files", "ky-runner-files"]);
+  });
+
+  it("gives ky <name>@<domain> with --mail, routes it to the Worker once, and sends from that address only", async () => {
+    const zone = fakeZone("example.com");
+
+    account.zones.set(zone.id, zone);
+    const ky = await fresh();
+
+    await initCommand(ky, { account: "Test", name: "ky", email: EMAIL, mail: "Example.com" });
+    expect(await readOverlay(ky.overlay)).toMatchObject({
+      vars: { KY_MAIL_ADDRESS: "ky@example.com" },
+      send_email: [{ name: "EMAIL", allowed_sender_addresses: ["ky@example.com"] }]
+    });
+    expect(script()?.metadata.bindings).toEqual(
+      expect.arrayContaining([
+        { type: "send_email", name: "EMAIL", allowed_sender_addresses: ["ky@example.com"] },
+        { type: "plain_text", name: "KY_MAIL_ADDRESS", text: "ky@example.com" }
+      ])
+    );
+    await deployCommand(ky);
+    expect(zone.rules).toEqual([
+      { id: "rule-1", name: "ky: ky", enabled: true, matchers: [{ type: "literal", field: "to", value: "ky@example.com" }], actions: [{ type: "worker", value: ["ky"] }] }
+    ]);
+    await expect(initCommand(ky, { mail: "example.com" })).rejects.toThrow("This ky's address is already ky@example.com");
+  });
+
+  it("gives each ky on one domain its own address, routed to its own Worker", async () => {
+    const zone = fakeZone("example.com");
+
+    account.zones.set(zone.id, zone);
+    await initCommand(await fresh(), { account: "Test", name: "ky", email: EMAIL, mail: "example.com" });
+    await initCommand(await fresh(), { account: "Test", name: "work", email: EMAIL, mail: "example.com" });
+    expect(zone.rules.map((rule) => [rule.matchers[0]?.value, rule.actions[0]?.value])).toEqual([
+      ["ky@example.com", ["ky"]],
+      ["work@example.com", ["work"]]
+    ]);
+  });
+
+  it("says what stops ky's mail: a domain not on the account, Email Routing off, or the address routed elsewhere", async () => {
+    const ky = await fresh();
+
+    await expect(initCommand(ky, { account: "Test", name: "ky", email: EMAIL, mail: "example.com" })).rejects.toThrow(
+      "example.com, ky's mail domain, isn't on this Cloudflare account"
+    );
+    const zone = fakeZone("example.com", { routing: false });
+
+    account.zones.set(zone.id, zone);
+    await expect(deployCommand(ky)).rejects.toThrow("Email Routing is off for example.com: turn it on at https://dash.cloudflare.com/acc/example.com/email/routing/overview");
+    zone.routing = true;
+    zone.rules.push({ id: "theirs", name: "", enabled: true, matchers: [{ type: "literal", field: "to", value: "ky@example.com" }], actions: [{ type: "forward", value: ["me@else.test"] }] });
+    await expect(deployCommand(ky)).rejects.toThrow("An Email Routing rule already sends ky@example.com elsewhere");
+    expect(zone.rules).toHaveLength(1);
+  });
+
+  it("refuses a --mail that isn't a domain", async () => {
+    await expect(initCommand(await fresh(), { account: "Test", name: "ky", email: EMAIL, mail: "not a domain" })).rejects.toThrow("--mail not a domain: a domain");
+  });
+
+  it("refuses an overlay that would replace the release's own bindings", async () => {
+    const ky = await setUp();
+
+    await writeOverlay(ky.overlay, { ...(await readOverlay(ky.overlay)), r2_buckets: [] });
+    await expect(deployCommand(ky)).rejects.toThrow("sets `r2_buckets`, which would replace ky's own");
   });
 
   it("refuses a name whose bucket R2 wouldn't take, before anything is written", async () => {

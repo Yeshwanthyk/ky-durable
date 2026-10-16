@@ -17,6 +17,10 @@ const CORE_TABLES = [
   "ky_main_chat",
   // files.ts
   "ky_files",
+  // mail.ts
+  "ky_mail",
+  "ky_mail_allowed",
+  "ky_mail_expect",
   // settings.ts
   "ky_purposes",
   // sandboxes.ts

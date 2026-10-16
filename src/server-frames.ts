@@ -21,6 +21,7 @@ import type {
   MachineInfo,
   MemoryItem,
   MemorySearch,
+  MailView,
   PeerInvite,
   PeerView,
   SettingsView,
@@ -112,6 +113,19 @@ export const ServerFrameSchema = Type.Union([
 
 export type ServerFrame = Static<typeof ServerFrameSchema>;
 
+/** A mail as Settings › Mail lists it. */
+const MailItemSchema = Type.Object({
+  id: Text,
+  direction: Text,
+  party: Text,
+  partyName: Text,
+  subject: Text,
+  preview: Text,
+  state: Text,
+  note: Text,
+  at: Type.Number()
+});
+
 /** A save the server may refuse: `{ refused }` says why; anything else in it is what it saved. */
 const Refusable = Type.Object({ refused: Type.Optional(Text) });
 
@@ -144,7 +158,18 @@ export const ANSWERS = {
   "chatgpt-login": Type.Union([Type.Unsafe<ChatGptCode>(Type.Object({ userCode: Text, verificationUrl: Text, loginId: Text })), Refused]),
   "chatgpt-poll": Type.Unsafe<ChatGptState>(Type.Union([Type.Literal("pending"), Type.Literal("done"), Type.Object({ error: Text })])),
   "peer-list": Type.Unsafe<PeerView[]>(Type.Array(Type.Object({ name: Text, address: Text, state: Text }))),
-  "peer-invite": Type.Union([Type.Unsafe<PeerInvite>(Type.Object({ address: Text, code: Text })), Refused])
+  "peer-invite": Type.Union([Type.Unsafe<PeerInvite>(Type.Object({ address: Text, code: Text })), Refused]),
+  "mail-view": Type.Unsafe<MailView>(
+    Type.Object({
+      address: Type.Union([Text, Type.Null()]),
+      held: Type.Array(MailItemSchema),
+      recent: Type.Array(MailItemSchema),
+      allowed: Texts
+    })
+  ),
+  "mail-approve": Refusable,
+  "mail-discard": Refusable,
+  "mail-disallow": Refusable
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 
 /** A message type the page asks with: one whose answer it waits for. */

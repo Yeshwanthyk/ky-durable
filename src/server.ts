@@ -31,6 +31,7 @@ import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
+import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
@@ -64,6 +65,8 @@ export type Boundary = ModelsBoundary & {
   readonly seeds: boolean;
   /** How requests reach other people's kys (src/peers/peers.ts); global fetch unless set. */
   readonly peerFetch?: typeof fetch;
+  /** ky's own address and the binding it sends with (src/mail.ts); undefined until the deploy has both. */
+  readonly mail?: MailBoundary | undefined;
   /** More tools for every agent, after ky's own. */
   readonly extensions: readonly Extension[];
 };
@@ -112,6 +115,17 @@ export class PiAgent extends DurableObject<Env> {
       await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
     },
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
+  };
+  /** ky's own mail (src/mail.ts). */
+  readonly mailBox = new MailBox(this.ctx.storage.sql);
+  /** What the mail tool, the email handler and Settings › Mail work with. */
+  readonly mailDesk: MailDesk = {
+    box: this.mailBox,
+    boundary: this.boundary.mail,
+    limits: mailLimits(this.env),
+    owners: () => (this.env.ACCESS_EMAILS ?? "").split(",").map(addressOf).filter((address) => address !== ""),
+    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
+    triage: (mail, content, started) => this.#triageMail(mail.id, mail.party, content, started)
   };
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
@@ -285,12 +299,14 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(subagents);
 
       // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
-      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents]);
+      const mail = mailExtension(this.mailDesk, chat);
+      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail]);
       this.registry.install(seat);
       this.registry.install(progress);
       this.registry.install(checkInGuard);
       this.registry.install(chatActivityExtension(this.chats));
       this.registry.install(peer);
+      this.registry.install(mail);
 
       return Harness.open(
         storage,
@@ -329,6 +345,7 @@ export class PiAgent extends DurableObject<Env> {
     this.models,
     this.subscriptions,
     this.peerDesk,
+    this.mailDesk,
     this.pipe,
     this.executor,
     this.chats,
@@ -504,9 +521,12 @@ export class PiAgent extends DurableObject<Env> {
   boundaryFor(env: Env): Boundary {
     const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key } = env;
 
+    const { EMAIL: email, KY_MAIL_ADDRESS: address } = env;
+
     return {
       ai: env.AI,
       fetch: (input, init) => fetch(input, init),
+      mail: email && address ? { address: addressOf(address), send: (message) => email.send(message) } : undefined,
       vibeProxy: { port: VIBEPROXY_PORT, key: key || undefined, tunnel: binding && origin && key ? { binding, origin } : undefined },
       browser: env.BROWSER,
       extensions: [],
@@ -712,6 +732,20 @@ export class PiAgent extends DurableObject<Env> {
     return true;
   }
 
+  /** A mail came to ky's address: kept before this returns, then triaged in the background. */
+  mailReceived(mail: InboundMail): void {
+    this.ctx.waitUntil(receive(this.mailDesk, mail));
+  }
+
+  /** Read a mail in a triage conversation of its own on the background model, shown in Activity: what it said. */
+  async #triageMail(id: string, sender: string, content: string, started: (session: string) => void): Promise<string | undefined> {
+    const { id: session } = await this.harness.sessions.create();
+    started(session);
+    await this.#configure(session, "background");
+
+    return runInFeed(this.#background, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
+  }
+
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */
   sweepPeers(now = Date.now()): Promise<void> {
     return sweepPeers(this.peerDesk, now);
@@ -831,6 +865,14 @@ export function worker(access: Access) {
           { status: 500 }
         );
       }
+    },
+
+    /** Mail to ky's address, sent here by an Email Routing rule (src/mail.ts). */
+    async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+      if (message.rawSize > MAIL_BYTES) return message.setReject("This mail is too large for ky.");
+      const mail = await readMail(message.raw, { from: message.from, to: message.to });
+
+      await env.PiAgent.getByName("me").mailReceived(mail);
     }
   } satisfies ExportedHandler<Env>;
 }

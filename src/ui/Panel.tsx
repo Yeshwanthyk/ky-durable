@@ -41,6 +41,7 @@ import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { Mail } from "./Mail";
 import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
@@ -2396,6 +2397,7 @@ const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; v
     value: ({ subscriptions }) => countOrNone(subscriptions.views.filter((view) => view.connected).length, "connected"),
   },
   { to: { kind: "peers" }, icon: "nodes", label: "Peers", value: () => "Other people's kys" },
+  { to: { kind: "mail" }, icon: "mail", label: "Mail", value: () => "ky's own address" },
   { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
   { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
   { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
@@ -2483,6 +2485,15 @@ function PeersPage() {
   );
 }
 
+function MailPage() {
+  return (
+    <>
+      <PageHead title="Mail">ky's own email address, to sign up for things and write to people for you. It asks before writing to anyone new.</PageHead>
+      <Mail />
+    </>
+  );
+}
+
 function ToolsPage({ catalog }: PageProps) {
   return (
     <>
@@ -2535,6 +2546,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   machine: MachinePage,
   subscriptions: SubscriptionsPage,
   peers: PeersPage,
+  mail: MailPage,
   tools: ToolsPage,
   appearance: AppearancePage,
   "self-edits": SelfEditsPage,

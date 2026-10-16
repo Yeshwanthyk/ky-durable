@@ -87,6 +87,14 @@ export const ClientMessageSchema = Type.Union([
   message("peer-pair", { name: Text, address: Text, code: Text }),
   /** Unpair a peer, both ways; the result is `{ refused }` when there is none by that name. */
   message("peer-remove", { name: Text }),
+  /** What Settings › Mail shows, as a MailView. */
+  message("mail-view", {}),
+  /** Send a mail held for the user, and allow its address from then on; the result is `{ refused }` when it can't. */
+  message("mail-approve", { mail: Text }),
+  /** Discard a mail held for the user; the result is `{ refused }` when it isn't held. */
+  message("mail-discard", { mail: Text }),
+  /** Forget an allowed address: ky asks again before writing to it. */
+  message("mail-disallow", { address: Text }),
   /** Start a side chat; the result is `{ session }`. */
   message("new-chat", {}),
   /** Archive a side chat, or unarchive it with `archived: false`. */
