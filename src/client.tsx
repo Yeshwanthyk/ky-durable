@@ -50,6 +50,10 @@ const speakerBlob = (subagent: TaskRow | undefined, theme: Theme) => (subagent ?
 /** One empty list, so a prop that falls back to none keeps its identity. */
 const NONE: readonly never[] = [];
 
+/** What a specialist's "New avatar" asks ky: the make-avatar skill does the rest, in chat. */
+const avatarRequest = (id: string) =>
+  `Design a new avatar for @${id}, from what its brief says it does. Show me three options, then save the one I pick.`;
+
 // The heavy parts, memoised here so a render of the page that leaves their props alone skips them:
 // each streamed token, each tick, and anything else the page re-renders for.
 const TopbarMemo = memo(Topbar);
@@ -378,8 +382,13 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
   );
 
   const specialistActions = useMemo(
-    () => ({ onSave: ky.saveSpecialist, onBrief: ky.changeBrief, onHistory: ky.briefHistory }),
-    [ky.saveSpecialist, ky.changeBrief, ky.briefHistory]
+    () => ({
+      onSave: ky.saveSpecialist,
+      onBrief: ky.changeBrief,
+      onHistory: ky.briefHistory,
+      onAvatar: (id: string) => ky.submit(avatarRequest(id))
+    }),
+    [ky.saveSpecialist, ky.changeBrief, ky.briefHistory, ky.submit]
   );
 
   const subscriptions = useMemo(

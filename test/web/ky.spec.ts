@@ -714,6 +714,36 @@ test("creates a specialist in the Soul tab, edits its brief and reverts it", asy
   await expect(sheet.getByText("Version 3")).toBeVisible();
 });
 
+test("shows each specialist's bloub in the Soul tab, and New avatar asks ky for another", async ({ page }) => {
+  await open(page);
+  const id = `web-${crypto.randomUUID().slice(0, 8)}`;
+  await panel(page).getByRole("tab", { name: "Soul" }).click();
+  await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+  const form = page.getByRole("dialog", { name: "New specialist" });
+  await form.getByRole("textbox", { name: "Id" }).fill(id);
+  await form.getByRole("textbox", { name: "Description" }).fill("Builds, fixes and ships changes.");
+  await form.getByRole("textbox", { name: "Brief" }).fill("Ship small changes.");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toBeHidden();
+
+  // Without a saved one, the row shows the bloub rolled from its id.
+  const row = panel(page).getByRole("button", { name: new RegExp(`^@${id}`) });
+  await expect(row.getByRole("img", { name: `@${id}` })).toBeVisible();
+
+  const bolt = { name: "Bolt", body: { w: 112, h: 104, corner: 32, color: "#ff7a3d" }, eyes: { count: 1, size: 26 }, top: { kind: "antenna", color: "#2b7fff" }, cheeks: false, feet: true };
+  await send(page, `tool avatar ${JSON.stringify({ action: "set", for: id, spec: bolt })}`);
+  await expect(page.getByText(`Saved as @${id}'s avatar.`)).toBeVisible();
+  await expect(row.getByRole("img", { name: `@${id}` }).locator(`[fill="#ff7a3d"]`)).not.toHaveCount(0);
+  await page.screenshot({ path: "test-results/web/specialist-avatar.png" });
+
+  await row.click();
+  const sheet = page.getByRole("dialog", { name: `@${id}` });
+  await sheet.getByRole("button", { name: "More" }).click();
+  await sheet.getByRole("menuitem", { name: "New avatar" }).click();
+  await expect(sheet).toBeHidden();
+  await expect(chat(page).getByText(new RegExp(`^Design a new avatar for @${id}`)).first()).toBeVisible();
+});
+
 // Crons are UTC and rows show them in the browser's time: India's half-hour offset shows the conversion.
 test.describe("automations in Activity", () => {
   test.use({ timezoneId: "Asia/Kolkata", locale: "en-US" });
