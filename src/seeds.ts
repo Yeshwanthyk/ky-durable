@@ -1,4 +1,5 @@
 import { ROOT_SESSION } from "agents/harness/pi";
+import { AVATAR_TOOL, EXAMPLES } from "./avatar-spec";
 import type { Automations } from "./automations/contract";
 import type { Setup } from "./setup";
 import type { Skills, Specialists } from "./skills/contract";
@@ -7,7 +8,8 @@ import type { Skills, Specialists } from "./skills/contract";
  * What a new ky starts with, once, on its first start: starter skills, one
  * example specialist and starter automations. Everything that acts on its
  * own is off: the skills are archived and the automations paused, so the
- * owner turns on what they want from Skills and Activity.
+ * owner turns on what they want from Skills and Activity. make-avatar is
+ * the exception: on, and added to a ky that predates it.
  */
 
 const SKILLS = [
@@ -38,6 +40,36 @@ const SKILLS = [
     ].join("\n")
   }
 ] as const;
+
+/**
+ * How to make a bloub avatar, on from the start: it runs only when asked. A ky from before it gets it
+ * on its next start; once there, the owner's edits and archiving stand.
+ */
+const MAKE_AVATAR = {
+  name: "make-avatar",
+  description: "Design a cute animated avatar (a bloub) for ky or a specialist, show options, and save the one the user picks.",
+  body: [
+    "When asked to make, change or pick an avatar (for ky, or for a specialist):",
+    "",
+    "1. Ask who it is for and what it should feel like, unless the user said. One question, not a form.",
+    `2. Design three different bloubs and show them together: ${AVATAR_TOOL} preview with specs. If the user wants random ones, ${AVATAR_TOOL} roll.`,
+    "3. Ask which one, or what to change (colour, eyes, what sits on top, rounder or squarer). Preview again until they like one.",
+    `4. Save it: ${AVATAR_TOOL} set, for "ky" or the specialist's id. Never save one the user hasn't picked.`,
+    "",
+    "A bloub is parts, never SVG: body { w, h: 80 to 124; corner: 0 square to half the side round; color }, eyes { count: 1 or 2; size },",
+    "top { kind: none, antenna, leaf, ears, sprout or tuft; color }, cheeks and feet (true or false), and an optional name.",
+    "",
+    "What makes one cute:",
+    "- One saturated body colour. A pale one (cream, butter) reads soft; keep strong colours for the accent on top.",
+    "- Big eyes: one eye at 24 to 30 is bold and funny; two eyes at 12 to 17 are sweet. Small eyes look sleepy.",
+    "- Round it: a corner of a third of the side or more. Square bodies stay friendly with cheeks and feet.",
+    "- A contrasting top colour: yellow on red, pink on teal, green on blue. Ears take the body's colour.",
+    "- Make the three options differ in shape and eyes, not just colour.",
+    "",
+    "Good ones, to learn from:",
+    ...Object.values(EXAMPLES).map((spec) => JSON.stringify(spec))
+  ].join("\n")
+};
 
 const SPECIALIST = {
   id: "editor",
@@ -73,6 +105,8 @@ const AUTOMATIONS = [
 
 /** Seed a new ky; does nothing after its first start. */
 export async function seed(setup: Setup, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
+  if (!skills.get(MAKE_AVATAR.name)) skills.apply({ action: "create", ...MAKE_AVATAR }, "ky");
+
   if (!setup.firstStart()) return;
 
   for (const skill of SKILLS) {

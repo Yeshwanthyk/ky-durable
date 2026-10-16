@@ -241,6 +241,28 @@ test("streams the answer to a message", async ({ page }) => {
   await expect(page.getByText("echo: hello from the browser")).toBeVisible();
 });
 
+test("previews bloubs in the chat, saves one as ky's avatar, and it answers a poke", async ({ page }) => {
+  await open(page);
+  const pip = { name: "Pip", body: { w: 108, h: 108, corner: 54, color: "#3d8bff" }, eyes: { count: 2, size: 15 }, top: { kind: "leaf", color: "#3cc46a" }, cheeks: true, feet: true };
+  const tok = { name: "Tok", body: { w: 104, h: 112, corner: 18, color: "#a78bfa" }, eyes: { count: 1, size: 22 }, top: { kind: "antenna", color: "#ffd166" }, cheeks: false, feet: true };
+  await send(page, `tool avatar ${JSON.stringify({ action: "preview", specs: [pip, tok] })}`);
+  await expect(page.getByRole("img", { name: "Pip" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Tok" })).toBeVisible();
+  await page.screenshot({ path: "test-results/web/bloubs-preview.png" });
+
+  await send(page, `tool avatar ${JSON.stringify({ action: "set", for: "ky", spec: pip })}`);
+  await expect(page.getByText("Saved as ky's avatar.")).toBeVisible();
+  const avatar = page.getByRole("img", { name: "Pip" }).first();
+  await avatar.hover();
+  await avatar.click();
+  await expect(avatar.locator(`path[fill="#ff5d8f"]`)).not.toHaveCount(0);
+  await page.screenshot({ path: "test-results/web/bloubs-saved.png" });
+
+  // Shared stack: put ky back as it was.
+  await send(page, `tool avatar ${JSON.stringify({ action: "clear", for: "ky" })}`);
+  await expect(page.getByText("ky looks as before again.")).toBeVisible();
+});
+
 test("steers a running turn with a message sent while it works", async ({ page }) => {
   await open(page);
   await send(page, "gate");

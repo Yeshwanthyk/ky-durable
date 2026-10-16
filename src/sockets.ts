@@ -34,6 +34,7 @@ import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
+import type { Avatars } from "./avatars";
 import type { Memory, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
@@ -163,6 +164,7 @@ export class PiSessionSockets {
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
+  readonly #avatars: Avatars;
   readonly #specialists: Specialists;
   readonly #group: GroupDesk;
   readonly #groups: GroupChats;
@@ -190,6 +192,7 @@ export class PiSessionSockets {
     chats: ChatList,
     skills: Skills,
     soul: Soul,
+    avatars: Avatars,
     specialists: Specialists,
     group: GroupDesk,
     groups: GroupChats,
@@ -216,6 +219,7 @@ export class PiSessionSockets {
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
+    this.#avatars = avatars;
     this.#specialists = specialists;
     this.#group = group;
     this.#groups = groups;
@@ -244,6 +248,11 @@ export class PiSessionSockets {
     });
     soul.onChange(() => {
       const message = this.#soulMessage();
+
+      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+    });
+    avatars.onChange(() => {
+      const message = this.#avatarsMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
@@ -329,6 +338,10 @@ export class PiSessionSockets {
 
   #soulMessage(): PiServerMessage {
     return { type: "soul", soul: this.#soul.view() };
+  }
+
+  #avatarsMessage(): PiServerMessage {
+    return { type: "avatars", avatars: this.#avatars.all() };
   }
 
   #memoryMessage(): PiServerMessage {
@@ -482,6 +495,7 @@ export class PiSessionSockets {
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
     send(connection, this.#specialistsMessage());
+    send(connection, this.#avatarsMessage());
     send(connection, this.#memoryMessage());
     send(connection, await this.#automationsMessage());
     await this.#watch(connection, session);

@@ -9,6 +9,8 @@ import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { Access, bypassed } from "./access";
+import { KY_AVATAR } from "./avatar-spec";
+import { Avatars, avatarTools } from "./avatars";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
@@ -134,6 +136,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly soul = new Soul(this.ctx.storage.sql);
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage.sql);
+  /** The bloubs ky and the specialists wear. */
+  readonly avatars = new Avatars(this.ctx.storage.sql);
   /** Which specialists are in which chats, and their seats there. */
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
@@ -275,6 +279,7 @@ export class PiAgent extends DurableObject<Env> {
       const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations });
       this.registry.install(specialists.extension);
       this.registry.install(specialists.manage);
+      this.registry.install(avatarTools(this.avatars, () => [KY_AVATAR, ...this.specialists.list().map((row) => row.id)]));
 
       this.#spawn = spawn;
       this.registry.install(subagents);
@@ -329,6 +334,7 @@ export class PiAgent extends DurableObject<Env> {
     this.chats,
     this.skills,
     this.soul,
+    this.avatars,
     this.specialists,
     this.group,
     this.groups,

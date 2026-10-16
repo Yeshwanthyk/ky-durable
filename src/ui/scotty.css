@@ -539,6 +539,26 @@ kbd {
   outline-offset: -1px;
 }
 
+/* Bloubs an avatar call showed sit under its row too, numbered so the user can pick one. */
+.bloub-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 8px 22px;
+}
+
+.bloub-options figure {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  margin: 0;
+}
+
+.bloub-options figcaption {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .tool-body pre {
   margin: 0;
   padding: 10px 12px;

@@ -2,6 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import type { PiSessionId } from "agents/harness/pi";
 import type { Static } from "typebox";
+import type { AvatarsView } from "./avatar-spec";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
 import type { ChatRow } from "./chats";
@@ -165,6 +166,8 @@ export type PiServerMessage =
   | { readonly type: "skills"; readonly skills: readonly SkillRow[] }
   /** SOUL.md, ky's persona; sent on connect and on change. */
   | { readonly type: "soul"; readonly soul: SoulView }
+  /** The bloubs ky and the specialists wear, by "ky" or specialist id; sent on connect and on change. */
+  | { readonly type: "avatars"; readonly avatars: AvatarsView }
   /** The specialists and their briefs; sent on connect and on change. */
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }

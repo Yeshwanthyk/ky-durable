@@ -10,6 +10,8 @@ import { SKILL_TABLES } from "./skills/contract";
 
 /** ky's own tables, outside any domain, by the file that makes each. */
 const CORE_TABLES = [
+  // avatars.ts
+  "ky_avatars",
   // chats.ts
   "ky_chats",
   "ky_main_chat",

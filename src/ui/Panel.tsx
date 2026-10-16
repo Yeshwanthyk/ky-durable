@@ -34,6 +34,7 @@ import { Changes } from "./Changes";
 import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
+import { KY_AVATAR } from "../avatar-spec";
 import { Icon, Spinner, type IconName } from "./Icon";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
@@ -134,7 +135,7 @@ export function Panel({
         <Icon name="x" size={16} />
       </button>
       <header className="profile">
-        <BotAvatar name={name} variantId={variantId} active={active} size={72} />
+        <BotAvatar name={name} variantId={variantId} owner={KY_AVATAR} active={active} size={72} />
         <h2 className="profile-name">{name}</h2>
         <p className="profile-status" role="status">
           <span className="status-dot" data-connected={status.connected} />
