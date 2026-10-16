@@ -20,7 +20,9 @@ export const DREAMING_TABLES = {
   /** Where the last finished dream read up to: one row. */
   dreamMark: "ky_dream",
   /** Every version of SOUL.md and of each specialist's brief, told apart by `key`. */
-  soulVersions: "ky_soul_versions"
+  soulVersions: "ky_soul_versions",
+  /** One row per change a dream made, with what it replaced, so the user can undo it. */
+  dreamLedger: "ky_dream_ledger"
 } as const;
 
 // Tool names.
@@ -134,6 +136,28 @@ const CheckInsNowSchema = Type.Object({
 });
 
 export type CheckInsNow = Static<typeof CheckInsNowSchema>;
+
+// The dream's ledger.
+
+/** A change a dream made: to a skill (`before` its prior version's id, null for a create) or a forget (`before` the summary's words). */
+export const DreamLedgerRow = Type.Object({
+  id: Type.Number(),
+  /** The dream's session, or stale-<date> for ky's own pass over unused skills. */
+  run: Type.String(),
+  kind: Type.Union([Type.Literal("skill"), Type.Literal("memory")]),
+  action: Type.String(),
+  /** The skill's name, or the forgotten summary's block. */
+  target: Type.String(),
+  before: Type.Union([Type.Number(), Type.String(), Type.Null()]),
+  reason: Type.Union([Type.String(), Type.Null()]),
+  absorbed_into: Type.Union([Type.String(), Type.Null()]),
+  at: Type.Number(),
+  undone_at: Type.Union([Type.Number(), Type.Null()])
+});
+
+export type DreamLedgerRow = Static<typeof DreamLedgerRow>;
+
+export type { DreamLedger } from "./ledger";
 
 export type { Compressor, Memory } from "./memory";
 

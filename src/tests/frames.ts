@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { DreamLedgerRow } from "../dreaming/contract";
 import type { PiServerMessage } from "../protocol";
 import { ServerFrameSchema } from "../server-frames.ts";
 
@@ -39,4 +40,11 @@ const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Type.String
 /** The version ids a `skill-history` command's result lists, newest first. */
 export function decodeSkillVersions(result: JsonValue): number[] {
   return Value.Check(Versions, result) ? result.map((each) => each.id) : [];
+}
+
+/** A dream-ledger answer's rows; empty when it is not one. */
+export function decodeDreamLedger(value: JsonValue): DreamLedgerRow[] {
+  const rows = Type.Array(DreamLedgerRow);
+
+  return Value.Check(rows, value) ? value : [];
 }

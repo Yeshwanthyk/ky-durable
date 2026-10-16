@@ -127,6 +127,10 @@ export const ClientMessageSchema = Type.Union([
   message("memory-zoom", { block: Text }),
   /** Drops a block's summary and those above it, for the agent to rebuild. */
   message("memory-forget", { block: Text }),
+  /** Answers with the latest dream's changes, as DreamLedgerRows, oldest first. */
+  message("dream-ledger", {}),
+  /** Puts back one change of a dream by its ledger id, as the user. */
+  message("dream-undo", { entry: Type.Number() }),
   /** Create an automation as the user, or change one by its id; the result is `{ refused }` when it cannot be saved. */
   message("automation-save", { automation: Type.Optional(Text), draft: AutomationDraftSchema }),
   /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */

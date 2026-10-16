@@ -194,9 +194,13 @@ function* rows(cursor: Iterable<Record<string, SqlStorageValue>>): Generator<Mem
   }
 }
 
+/** A forget about to happen: the summary's block, its words, and the conversation that asked. */
+export type MemoryForget = { readonly block: string; readonly text: string; readonly conversation: string | null };
+
 export class Memory {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<() => void>();
+  readonly #forgets = new Set<(forget: MemoryForget) => void>();
   readonly #compressor: Compressor;
   /** The running `compress`, while one runs. */
   #compressing: Promise<void> | undefined;
@@ -216,6 +220,13 @@ export class Memory {
     this.#listeners.add(listener);
 
     return () => this.#listeners.delete(listener);
+  }
+
+  /** Called just before a forget drops its summaries; a watcher that throws refuses the forget. */
+  onForget(watcher: (forget: MemoryForget) => void): () => void {
+    this.#forgets.add(watcher);
+
+    return () => this.#forgets.delete(watcher);
   }
 
   #changed(): void {
@@ -502,8 +513,13 @@ export class Memory {
     return { matches, total, regex };
   }
 
-  forget(id: string): string {
+  /** Drop the summary at `id` and every one built on it; `conversation` is who asked, for the dream's ledger. */
+  forget(id: string, conversation: string | null = null): string {
     const [lo, hi] = parseBlock(id);
+    // The smallest summary dropped is the one asked for; those above it are rebuilt from the same notes.
+    const summary = summaryOf(this.#sql.exec("SELECT text FROM memo_tree WHERE lo <= ? AND hi >= ? ORDER BY hi - lo LIMIT 1", lo, hi).toArray()[0]);
+
+    if (summary !== undefined) for (const watcher of this.#forgets) watcher({ block: id, text: summary, conversation });
 
     // The summary and every summary built on top of it.
     const gone = this.#sql
@@ -614,7 +630,7 @@ export function memoryExtension(
         description: "Drop a wrong summary. The log is untouched; the summary is rewritten in the background.",
         parameters: Type.Object({ block: Type.String() }),
         replay: "safe",
-        execute: async ({ block }) => text(memory.forget(block))
+        execute: async ({ block }, api) => text(memory.forget(block, String(api.conversationId)))
       })
     ]
   });
