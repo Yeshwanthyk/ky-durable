@@ -1,5 +1,6 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
+import { decodeOr } from "../core/decode";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,
@@ -18,7 +19,8 @@ import type { Memory } from "./memory";
  * Anticipations: what ky expects to matter soon, so the right context is ready before the user reaches for
  * it. A row is an open loop the user committed to, a date ahead, a question likely next, or a condition worth
  * watching; each cites the chat messages or memories it rests on, and the store refuses one that cites
- * nothing or something that is not there. Facts go to memory (OptMem); only what is still open lives here.
+ * nothing, something that is not there, or a message from anywhere but a chat (a dream's prompt, a subagent's
+ * or a task's output). Facts go to memory (OptMem); only what is still open lives here.
  * When a loop closes as done, memory gets one note with the outcome, so it keeps the history.
  *
  * Who calls what (docs/research/proactivity/dreaming-proactivity.md):
@@ -108,13 +110,19 @@ function checkWindow(window: Window): Window {
 /** `pattern` as a LIKE pattern that matches it anywhere, its wildcards escaped. */
 const like = (term: string) => `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 
+/** A user's or ky's message in pi's entries: the conversation it is in. */
+const MessageRow = Type.Object({ conversation_id: Type.Number() });
+
 export class Anticipations {
   readonly #sql: SqlStorage;
   readonly #memory: Memory;
+  /** The main chat or a side chat: the only conversations whose messages are evidence. */
+  readonly #chat: (session: string) => boolean;
 
-  constructor(sql: SqlStorage, memory: Memory) {
+  constructor(sql: SqlStorage, memory: Memory, chat: (session: string) => boolean) {
     this.#sql = sql;
     this.#memory = memory;
+    this.#chat = chat;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_anticipations (
       id INTEGER PRIMARY KEY,
       created_at INTEGER NOT NULL,
@@ -173,13 +181,13 @@ export class Anticipations {
     return row;
   }
 
-  /** Refuse a machine's add while OPEN_CAP rows are live, and a dream's once it added RUN_CAP this run. */
+  /** Refuse a machine's add while OPEN_CAP rows are live, and a dream's once it added RUN_CAP this run. Damaged rows count for neither. */
   #checkRoom(by: Creator, now: number): void {
-    if (by !== "user" && this.#count(`SELECT COUNT(*) AS n FROM ky_anticipations WHERE ${LIVE}`) >= OPEN_CAP) {
+    if (by !== "user" && this.open().length >= OPEN_CAP) {
       throw new Error(`${OPEN_CAP} are open already: close or absorb one first.`);
     }
 
-    if (by === "dream" && this.#count("SELECT COUNT(*) AS n FROM ky_anticipations WHERE created_by = 'dream' AND created_at > ?", now - RUN_MS) >= RUN_CAP) {
+    if (by === "dream" && this.#rows("SELECT * FROM ky_anticipations WHERE created_by = 'dream' AND created_at > ?", now - RUN_MS).length >= RUN_CAP) {
       throw new Error(`A dream adds at most ${RUN_CAP}; this one has.`);
     }
   }
@@ -193,27 +201,36 @@ export class Anticipations {
       throw new Error("No evidence: cite the chat messages (#rowid) or memories (#id) it rests on.");
     }
 
+    const found = messages.map((id) => ({ id, conversation: this.#messageIn(id) }));
+
     const missing = [
-      ...messages.flatMap((id) => (this.#message(id) ? [] : [`message #${id}`])),
+      ...found.flatMap(({ id, conversation }) => (conversation === undefined ? [`message #${id}`] : [])),
       ...memories.flatMap((id) => (this.#count("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", id) > 0 ? [] : [`memory #${id}`]))
     ];
 
     if (missing.length > 0) throw new Error(`No such ${missing.join(", ")}: cite only what is there.`);
+    const elsewhere = found.flatMap(({ id, conversation }) => (conversation !== undefined && !this.#chat(conversation) ? [`#${id}`] : []));
+
+    if (elsewhere.length > 0) {
+      throw new Error(`Message ${elsewhere.join(", ")} is not from a chat (a dream, a subagent or a task said it): cite what the user and ky said in a chat.`);
+    }
 
     return { messages, memories };
   }
 
   /**
-   * Whether `id` is a user's or ky's message: chat search's rowids (src/history.ts) are pi's entry ids, read
-   * from pi's entries so a message chat search has not indexed yet counts too.
+   * The conversation of `id` when it is a user's or ky's message, else undefined: chat search's rowids
+   * (src/history.ts) are pi's entry ids, read from pi's entries so a message chat search has not indexed yet
+   * counts too.
    */
-  #message(id: number): boolean {
-    return (
-      this.#count(
-        "SELECT COUNT(*) AS n FROM pi_entries WHERE id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')",
-        id
-      ) > 0
-    );
+  #messageIn(id: number): string | undefined {
+    const row = this.#sql
+      .exec("SELECT conversation_id FROM pi_entries WHERE id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')", id)
+      .toArray()[0];
+
+    const message = decodeOr(MessageRow, row, undefined);
+
+    return message === undefined ? undefined : String(message.conversation_id);
   }
 
   /** The user's latest message in `conversation`, as a message id to cite; undefined before the first. */
@@ -548,7 +565,7 @@ export function anticipateTool(anticipations: Anticipations, brief: Brief, actor
   return defineTool({
     name: ANTICIPATE,
     description:
-      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on; from the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours. brief (the dream only) puts one line in today's brief: text, and id (an open anticipation, which becomes surfaced) or messages or memories it rests on, and chip: an ask the user can send with a tap.",
+      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on. Nothing that only a page, file, tool output or a notice brought up. From the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours. brief (the dream only) puts one line in today's brief: text, and id (an open anticipation, which becomes surfaced) or messages or memories it rests on, and chip: an ask the user can send with a tap.",
     parameters: AnticipateInput,
     replay: "unsafe",
     execute: async (args, api) => {

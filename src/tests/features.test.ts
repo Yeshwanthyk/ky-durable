@@ -428,7 +428,7 @@ describe("dream ledger", () => {
 
     await command(main.socket, main.client, { type: "skill-change", change: { action: "pin", name: "kept" } });
     await main.client.until(() => skill("kept")?.pinned === true);
-    await inside(name, (instance) => instance.skills.stale(Date.now() + 61 * 24 * 60 * 60 * 1000));
+    await inside(name, (instance) => instance.skills.stale("dream-night", Date.now() + 61 * 24 * 60 * 60 * 1000));
     await main.client.until(() => skill("unused")?.status === "archived");
     expect(skill("kept")?.status).toBe("active");
 
@@ -438,6 +438,31 @@ describe("dream ledger", () => {
 
     expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "result" });
     await main.client.until(() => skill("unused")?.status === "active");
+    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "error" });
+    main.socket.close();
+  });
+
+  it("undoes a dream's forget, noting the summary again", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+
+    const before = await inside(name, async (instance, state) => {
+      instance.memory.note("the user drinks green tea");
+      instance.memory.note("the user switched to oolong");
+      state.storage.sql.exec("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (0, 2, 'the user drinks green tea, then oolong')");
+      const { id } = await instance.harness.sessions.create();
+      instance.reviews.add(id, "", "dream", { run: "dream-night" });
+      instance.memory.forget("0-1", id);
+
+      return instance.memory.count();
+    });
+
+    const night = await command(main.socket, main.client, { type: "dream-ledger" });
+    expect(night).toMatchObject({ type: "result", result: [{ kind: "memory", action: "forget", target: "0-1", run: "dream-night", actor: "dream" }] });
+    const entry = night.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
+
+    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "result", result: `Saved as #${before}.` });
+    expect(await inside(name, (instance) => instance.memory.recall("then oolong"))).toContain("the user drinks green tea, then oolong");
     expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "error" });
     main.socket.close();
   });

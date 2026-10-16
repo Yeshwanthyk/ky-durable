@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a dream made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -70,7 +70,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   time, when it leaves the night's reading to the next. It also books check-ins (below).
 - Anticipations: what ky expects to matter soon, in `ky_anticipations` (`src/dreaming/anticipations.ts`): an open
   loop the user committed to, a date ahead, a question likely next, or something to watch, each citing the chat
-  messages or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional
+  messages (from a chat, never a dream's, a subagent's or a task's) or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional
   window. The `anticipate` tool (on memory's extension, so specialists cannot call it) adds, closes, extends, absorbs,
   pins (the user only) and lists them, all open or by words (`match`) or the hours ahead (`due`): the dream as `dream`, at most 5 a run and only while fewer than 20 are open, changing only machine-made,
   unpinned rows; an episode reflection as `episode`, under the same 20; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.

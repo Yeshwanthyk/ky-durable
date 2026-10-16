@@ -4,12 +4,14 @@ import { Value } from "typebox/value";
 import { decode } from "../core/decode";
 import { must } from "../core/must";
 import {
+  isMachine,
   PinAction,
   type ReviewHost,
   type ReviewKind,
   REVIEW_ALLOWED,
   ReviewRow,
   reviewFork,
+  ReviewRunRow,
   runInFeed,
   type SkillAction,
   SkillAction as SkillActionSchema,
@@ -161,33 +163,34 @@ export const CHANGES: Readonly<Record<SkillAction, Change>> = {
 };
 
 /**
- * Why a dream may not make `change` to `was`, or undefined when it may. The guards are in code, after
- * Hermes's curator: a pinned skill is left as it is, a dream archives only what ky made and only as a merge
- * into an active skill (staleness is `stale`'s, not the model's). One change per skill a run is the ledger's
- * (src/dreaming/ledger.ts), which sees each write first.
+ * Why a background run (a dream, a review: `isMachine`) may not turn `was` into `next`, or undefined when it
+ * may. The guards are in code, after Hermes's curator: a pinned skill is left as it is, and whatever moves an
+ * active skill to archived, an archive or a revert to an archived version, archives only what ky made and only
+ * as a merge into another active skill (staleness is `stale`'s, not the model's). One change per skill a run is the ledger's (src/dreaming/ledger.ts), which sees each write first.
  */
-function dreamRefusal(change: SkillChange & { action: SkillAction }, was: SkillRow | undefined, skills: Skills): string | undefined {
-  if (!was) return undefined;
+function machineRefusal(actor: string, was: SkillRow | undefined, next: Content, absorbedInto: string | undefined, skills: Skills): string | undefined {
+  if (!isMachine(actor) || was === undefined) return undefined;
 
-  if (was.pinned) return `${was.name} is pinned; a dream leaves it as it is.`;
+  if (was.pinned) return `${was.name} is pinned; ky's background runs leave it as it is.`;
 
-  if (change.action !== "archive") return undefined;
+  return was.status === "active" && next.status === "archived" ? archiveRefusal(was, absorbedInto, skills) : undefined;
+}
 
-  if (was.created_by === "user") return `${was.name} is the user's own skill; a dream may not archive it.`;
-  const into = change.absorbed_into === undefined ? undefined : skills.get(change.absorbed_into);
+/** Why a background run may not archive an active skill: the user's own, or not a merge into another active one. */
+function archiveRefusal(was: SkillRow, absorbedInto: string | undefined, skills: Skills): string | undefined {
+  if (was.created_by === "user") return `${was.name} is the user's own skill; a background run may not archive it.`;
+  const into = absorbedInto === undefined ? undefined : skills.get(absorbedInto);
 
-  if (into?.status !== "active" || into.name === was.name) {
-    return `A dream archives a skill only as a merge: give absorbed_into, the active skill that now covers ${was.name}. Skills nobody uses are archived by ky itself.`;
-  }
+  if (into?.status === "active" && into.name !== was.name) return undefined;
 
-  return undefined;
+  return `That archives ${was.name}, and a background run archives a skill only as a merge: give absorbed_into, the active skill that now covers it. Skills nobody uses are archived by ky itself.`;
 }
 
 /** The skill library in the Durable Object's SQLite, with every version kept. */
 export class Skills {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<() => void>();
-  readonly #writes = new Set<(write: SkillWrite) => void>();
+  readonly #writes = new Set<(write: SkillWrite) => ((version: number) => void) | undefined>();
   /** A turn with at least this many tool calls is reviewed. */
   reviewAfter = REVIEW_AFTER;
 
@@ -231,8 +234,11 @@ export class Skills {
     }
   }
 
-  /** Called just before each change is written; a watcher that throws refuses the change. */
-  onWrite(watcher: (write: SkillWrite) => void): () => void {
+  /**
+   * Called just before each change is written; a watcher that throws refuses the change. One that returns a
+   * function hears the id of the version the change made, once it is written.
+   */
+  onWrite(watcher: (write: SkillWrite) => ((version: number) => void) | undefined): () => void {
     this.#writes.add(watcher);
 
     return () => this.#writes.delete(watcher);
@@ -300,33 +306,34 @@ export class Skills {
     checkName(change.name);
     const action = change.action;
     const was = this.get(change.name);
-    const refusal = actor === "dream" ? dreamRefusal({ ...change, action }, was, this) : undefined;
+    const next = CHANGES[action](change, was, this);
+    const refusal = machineRefusal(actor, was, next, change.absorbed_into, this);
 
     if (refusal !== undefined) throw new Error(refusal);
-    const write = { name: change.name, action, actor, conversation, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
+    const write = { name: change.name, action, actor, conversation, run: null, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
 
-    return this.#save(write, CHANGES[action](change, was, this));
+    return this.#save(write, next);
   }
 
-  /** Pin or unpin a skill: the user's call, from the panel or by asking ky; a review or a dream may not. */
+  /** Pin or unpin a skill: the user's call, from the panel or by asking ky; a background run may not. */
   #pin(name: string, pinned: boolean, actor: string): string {
-    if (actor !== "user" && actor !== "agent") throw new Error("Only the user pins or unpins a skill.");
+    if (isMachine(actor)) throw new Error("Only the user pins or unpins a skill.");
 
     if (!this.get(name)) throw new Error(`No skill named ${name}.`);
     this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET pinned = ? WHERE name = ?`, pinned ? 1 : 0, name);
 
     for (const listener of this.#listeners) listener();
 
-    return pinned ? `Pinned ${name}: a dream leaves it as it is.` : `Unpinned ${name}.`;
+    return pinned ? `Pinned ${name}: ky's dreams and reviews leave it as it is.` : `Unpinned ${name}.`;
   }
 
   /**
    * Archive every skill ky made that nobody has opened in 60 days and that is older than 14, leaving
    * pinned ones and the user's. A skill opened before ky kept when (uses but no last_used_at) is left too:
    * its last use is unknown, and so is one the user changed lately, such as by undoing its archive. The
-   * dream runs it first; each archive is a version like any other, by "dream".
+   * dream runs it first, as part of its `run`; each archive is a version like any other, by "dream".
    */
-  stale(now = Date.now()): string[] {
+  stale(run: string, now = Date.now()): string[] {
     const touched = new Map(
       rows(
         this.#sql.exec(`SELECT name, MAX(created_at) AS at FROM ${SKILL_TABLES.skillVersions} WHERE actor = 'user' GROUP BY name`),
@@ -344,7 +351,7 @@ export class Skills {
     });
 
     for (const skill of stale) {
-      const write = { name: skill.name, action: "archive" as const, actor: "dream", conversation: null, absorbed_into: null, reason: "Not used in 60 days" };
+      const write = { name: skill.name, action: "archive" as const, actor: "dream", conversation: null, run, absorbed_into: null, reason: "Not used in 60 days" };
       this.#save(write, { ...skill, status: "archived" });
     }
 
@@ -355,8 +362,7 @@ export class Skills {
     const { name, action, actor, conversation } = write;
     checkText(description, body);
     const before = rows(this.#sql.exec(`SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name), VersionId, "a skill version's id")[0];
-
-    for (const watcher of this.#writes) watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) });
+    const landed = [...this.#writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) }));
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -390,6 +396,8 @@ export class Skills {
       "a new skill version's id"
     );
 
+    for (const each of landed) each?.(id);
+
     for (const listener of this.#listeners) listener();
 
     return `${action === "create" ? "Created" : `Saved ${action} of`} ${name} (version ${id}).`;
@@ -414,7 +422,8 @@ export class Reviews {
     )`);
     addColumns(sql, SKILL_TABLES.skillReviews, [
       ["kind", "TEXT NOT NULL DEFAULT 'review'"],
-      ["upto", "INTEGER"]
+      ["upto", "INTEGER"],
+      ["run", "TEXT"]
     ]);
   }
 
@@ -427,17 +436,27 @@ export class Reviews {
   }
 
   /**
-   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
-   * was made at, so the next one of its kind knows where this one read to.
+   * The run `conversation`'s changes belong to, for the dream's ledger: a dream's token, which its stale pass
+   * shares, or the conversation itself (a review's, or a dream's from before tokens were kept).
    */
-  add(conversation: string, parent: string, kind: ReviewKind = "review", upto: number | null = null): void {
+  run(conversation: string): string {
+    return rows(this.#sql.exec(`SELECT run FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRunRow, "a skill review's run")[0]?.run ?? conversation;
+  }
+
+  /**
+   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
+   * was made at, so the next one of its kind knows where this one read to. `run` is a dream's token, which its stale
+   * pass used too.
+   */
+  add(conversation: string, parent: string, kind: ReviewKind = "review", mark: { readonly upto?: number; readonly run?: string } = {}): void {
     this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto, run) VALUES (?, ?, ?, ?, ?, ?)`,
       conversation,
       parent,
       Date.now(),
       kind,
-      upto
+      mark.upto ?? null,
+      mark.run ?? null
     );
   }
 
@@ -579,7 +598,7 @@ export function skillsExtension(
           "create (name, description, body); edit (name; description and/or body replace them); " +
           "patch (name, old, new: replace one exact passage of the body); archive (name; absorbed_into: the skill that now covers it, when merging); restore (name); " +
           "revert (name, version: back to that version's content, from skill_view history); " +
-          "pin and unpin (name), only when the user asks: a pinned skill is never changed by the nightly dream. reason: why, in a few words. " +
+          "pin and unpin (name), only when the user asks: a pinned skill is never changed by the nightly dream or a skill review. reason: why, in a few words. " +
           `Names are lowercase-with-hyphens, by class of task. The description is one line under ${DESCRIPTION_CHARS} characters saying when to use it.`,
         parameters: SkillChange,
         replay: "unsafe",

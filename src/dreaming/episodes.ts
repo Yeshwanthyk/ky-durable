@@ -123,7 +123,7 @@ export function episodeExtension({ sql, reviews, host, chat, busyAfter }: Episod
 
       if (latest === undefined || !fresh.some((entry) => entry.kind === "pi.user")) return;
       const fork = await reviewFork(host, conversation, latest.id);
-      reviews.add(String(fork.id), session, "episode", Number(latest.id));
+      reviews.add(String(fork.id), session, "episode", { upto: Number(latest.id) });
       const id = crypto.randomUUID();
       const answer = await runInFeed(host, fork, { id, worker: "episodes", title: "Episode reflection", content: prompt(Date.now(), linesOf(fresh)) });
 
