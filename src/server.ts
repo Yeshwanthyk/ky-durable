@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
+import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -223,8 +223,11 @@ export class PiAgent extends DurableObject<Env> {
   };
   /** When the user was last here; the dream waits until they are away. */
   readonly presence = new Presence(this.ctx.storage.sql);
+  /** What the user will need soon; a done one becomes a memory. */
+  readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory);
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
+    anticipations: this.anticipations,
     presence: this.presence,
     later: (at) => this.automations.dreamAt(at),
     memory: this.memory,
@@ -251,7 +254,7 @@ export class PiAgent extends DurableObject<Env> {
       const chat = (session: string) => this.isChat(session);
 
       // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
-      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, history: this.history, reviews: this.reviews, chat });
+      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, anticipations: this.anticipations, history: this.history, reviews: this.reviews, chat });
 
       const skilling: SkillsWiring = {
         skills: this.skills,

@@ -164,8 +164,8 @@ const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memo
 /** The tools each kind may call; both are offered every tool, so the rest are blocked. */
 export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = Object.freeze({
   review: REVIEW_TOOLS,
-  // automation books check-ins (src/automations/automations.ts), and only them.
-  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "automation"]
+  // automation books check-ins (src/automations/automations.ts), and only them; anticipate keeps what is open (src/dreaming/anticipations.ts).
+  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"]
 });
 
 // Specialists.
