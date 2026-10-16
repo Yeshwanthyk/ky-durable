@@ -42,7 +42,8 @@ const ADDED = [
   ["finished_at", "INTEGER"],
   ["turns", "INTEGER"],
   ["cost_usd", "REAL"],
-  ["agent", "TEXT"]
+  ["agent", "TEXT"],
+  ["chat", "TEXT"]
 ] as const;
 
 /** When a status change moves the task's working stretch: it starts working again, or it ends. */
@@ -177,13 +178,14 @@ export class TaskFeed {
       summary?: string;
       source?: string;
       agent?: Agent;
+      chat?: string | null;
     }
   ): TaskRow {
     const now = Date.now();
     this.#sql.exec(
       `INSERT OR IGNORE INTO ky_tasks
-        (id, kind, source, worker, title, status, summary, session, agent, created_at, updated_at, started_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, kind, source, worker, title, status, summary, session, agent, chat, created_at, updated_at, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       task.id,
       task.kind,
       task.source ?? "chat",
@@ -193,6 +195,7 @@ export class TaskFeed {
       task.summary ?? "",
       task.session,
       task.agent ?? null,
+      task.chat ?? null,
       now,
       now,
       task.status === "working" ? now : null

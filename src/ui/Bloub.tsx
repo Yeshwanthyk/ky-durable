@@ -8,7 +8,7 @@ import { useFrames, useReducedMotion } from "./use-frames";
 /**
  * A bloub drawn from its spec (avatar-spec.ts): a rounded body, one or two eyes, a mouth, and a part
  * on top, all from a fixed set, so a model's spec can only pick and size them. It breathes and blinks
- * at rest, follows the pointer with its eyes, hops with happy eyes under the pointer, squishes and
+ * at rest, follows the pointer with its eyes (or looks where it is told), hops with happy eyes under the pointer, squishes and
  * sends a heart when clicked, gets dizzy when poked five times quickly, leans in with dots while it
  * works, and droops with a sweat drop when its last answer failed. How it moves is bloub-motion.ts.
  */
@@ -76,10 +76,21 @@ function usePointerGaze(svgRef: RefObject<SVGSVGElement | null>, motion: RefObje
 }
 
 /** The bloub's motion, stepped each frame while it animates, or settled on its mood while still. */
-function useBloubMotion({ name, mood, hovered, animated, svgRef }: { name: string; mood: Mood; hovered: boolean; animated: boolean; svgRef: RefObject<SVGSVGElement | null> }): Motion {
+function useBloubMotion({ name, mood, hovered, animated, svgRef, gaze, cheer }: MotionProps & { hovered: boolean; animated: boolean; svgRef: RefObject<SVGSVGElement | null> }): Motion {
   const motion = useRef<Motion | null>(null);
   motion.current ??= newMotion(mood, name);
   const now = motion.current;
+  now.gaze = gaze ?? null;
+  const cheered = useRef(cheer);
+
+  // A new cheer squishes it and sends a heart, as a click does.
+  useEffect(() => {
+    if (cheer === cheered.current) return;
+
+    cheered.current = cheer;
+
+    if (animated) poke(now);
+  }, [animated, cheer, now]);
   const [, setFrame] = useState(0);
   const pose = poseOf(now, mood, hovered);
 
@@ -108,11 +119,23 @@ const handlersFor = (motion: Motion, setHovered: (hovered: boolean) => void) => 
   style: { willChange: "transform" }
 });
 
-export function Bloub({ spec, name, mood = "idle", still = false, size = 40, className }: { spec: BloubSpec; name: string; mood?: Mood; still?: boolean; size?: number; className?: string }) {
+/** What drives its motion: its mood, where it is told to look, and a count that cheers it each time it grows. */
+type MotionProps = { name: string; mood: Mood; gaze?: readonly [number, number] | null; cheer?: number };
+
+export function Bloub({
+  spec,
+  name,
+  mood = "idle",
+  gaze,
+  cheer,
+  still = false,
+  size = 40,
+  className
+}: Partial<MotionProps> & { spec: BloubSpec; name: string; still?: boolean; size?: number; className?: string }) {
   const animated = !useReducedMotion() && !still;
   const svgRef = useRef<SVGSVGElement>(null);
   const [hovered, setHovered] = useState(false);
-  const motion = useBloubMotion({ name, mood, hovered, animated, svgRef });
+  const motion = useBloubMotion({ name, mood, gaze, cheer, hovered, animated, svgRef });
   const id = useId().replaceAll(":", "");
   const label = mood === "working" ? `${name} is working` : name;
 

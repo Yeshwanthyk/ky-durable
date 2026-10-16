@@ -5,7 +5,7 @@ import { forThem, parseRoute, plan, recentOf, ROUTER_PROMPT, routerInput } from 
 import type { PiClientMessage, PiServerMessage } from "../protocol";
 import type { SpecialistRow } from "../skills/contract";
 import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../transcript";
-import { connect, follow, type Follower, inside, snapshotView, until } from "./drive";
+import { connect, follow, type Follower, inside, snapshotView, taskChats, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** @-mentions and group chats: who answers a user's message, and the specialists' own replies in the chat. */
@@ -166,6 +166,8 @@ describe("specialists in chat", () => {
     expect(await roles(name)).toEqual(["user", "specialist"]);
     expect(await kyRuns(name)).toBe(0);
     expect(await routings(name)).toBe(0);
+    // Its reply is a task for this chat, so the chat's topbar can show it working.
+    expect(await taskChats(name)).toContainEqual({ worker: "@eng", chat: "1" });
 
     // ky's next run reads past both passive entries and answers only its own message.
     await submit(socket, client, "thanks ky");

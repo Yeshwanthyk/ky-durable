@@ -378,6 +378,47 @@
   width: max-content;
 }
 
+/* ky, then the crew: the specialists working for this chat, huddled up against it. */
+.who-faces {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.crew {
+  display: flex;
+  align-items: center;
+  margin-left: -4px;
+}
+
+/* Each face slides in from behind the one before it. */
+.crew-face {
+  display: flex;
+  margin-left: -7px;
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.6);
+  }
+}
+
+.crew-face:first-child {
+  margin-left: 0;
+}
+
+.crew-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--working) 14%, transparent);
+  color: var(--working);
+  font-size: calc(10.5px * var(--text-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .who-text {
   min-width: 0;
   display: flex;
@@ -474,6 +515,12 @@
     transform: none;
     filter: none;
     transition-duration: 150ms;
+  }
+
+  .crew-face {
+    @starting-style {
+      transform: none;
+    }
   }
 }
 

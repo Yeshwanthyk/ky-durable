@@ -486,7 +486,7 @@ export class GroupDesk {
     }, this.#deps.context);
 
     for (const { id, seat, feedId } of started) {
-      this.#deps.feed.create({ id: feedId, kind: "cloud", worker: `@${id}`, title: summarize(text).slice(0, 60), status: "working", session: String(seat) });
+      this.#deps.feed.create({ id: feedId, kind: "cloud", worker: `@${id}`, title: summarize(text).slice(0, 60), status: "working", session: String(seat), chat });
     }
   }
 
