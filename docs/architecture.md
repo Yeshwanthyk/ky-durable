@@ -49,8 +49,8 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
   skill tools. Writes apply at once and every one is kept as a version, so `revert` undoes it. Memory holds facts;
-  skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert and archive
-  (`src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
+  skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert, archive and
+  pin, and marks each the user's ("yours") or ky's (`created_by`, `src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
 - Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
@@ -67,7 +67,9 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   someone else (a mail's summary, a peer's question, a report) is labelled `notice`, never `user`, by its
   submission's request id. While the user sent a message in the last 2 hours (`ky_presence`,
   `src/dreaming/presence.ts`; a connecting tab does not count) it books one look for 2 hours after, until 08:00 their
-  time, when it leaves the night's reading to the next. It also books check-ins (below).
+  time, when it leaves the night's reading to the next. It also books check-ins (below). Activity's "Last night"
+  (`src/ui/LastNight.tsx`) lists the latest dream's ledger rows with their reasons, each with Undo; an undo the
+  ledger refuses (the skill changed or was pinned since) shows its reason on the row.
 - Anticipations: what ky expects to matter soon, in `ky_anticipations` (`src/dreaming/anticipations.ts`): an open
   loop the user committed to, a date ahead, a question likely next, or something to watch, each citing the chat
   messages (from a chat, never a dream's, a subagent's or a task's) or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional

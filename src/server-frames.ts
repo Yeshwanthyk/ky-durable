@@ -18,6 +18,7 @@ import type {
   ChatGptState,
   ChatRow,
   ClientMessage,
+  DreamLedgerRow,
   FileRow,
   MachineInfo,
   MemoryItem,
@@ -152,6 +153,22 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]), accepted: Rate, dismissed: Rate, expired: Rate })
 );
 
+/** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
+const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
+  Type.Array(
+    Type.Object({
+      id: Type.Number(),
+      kind: Type.Union([Type.Literal("skill"), Type.Literal("memory")]),
+      action: Text,
+      target: Text,
+      absorbed_into: Type.Union([Text, Type.Null()]),
+      reason: Type.Union([Text, Type.Null()]),
+      at: Type.Number(),
+      undone_at: Type.Union([Type.Number(), Type.Null()])
+    })
+  )
+);
+
 /** What the server answers each ask with, by the ask's message type. */
 export const ANSWERS = {
   withdraw: Type.Boolean(),
@@ -193,7 +210,9 @@ export const ANSWERS = {
   "set-proactivity": Proactivity,
   "brief-act": Type.Null(),
   "brief-pin": Type.Null(),
-  "brief-dismiss": Type.Null()
+  "brief-dismiss": Type.Null(),
+  "dream-ledger": Ledger,
+  "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 
 /** A message type the page asks with: one whose answer it waits for. */

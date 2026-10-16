@@ -789,6 +789,57 @@ test("shows today's brief above the chat once, a chip fills the composer, and di
   await expect(panel(page).getByRole("list", { name: "Proactivity rates" }).getByText(/^\d+ of \d+, last 7 days$/)).toBeVisible();
 });
 
+test("lists last night's dream in Activity with its reasons, undoes a change, says why another can't be, and pins a skill", async ({ page }) => {
+  await signIn(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  const [groceries, run] = [`weekly-groceries-${tag}`, `grocery-run-${tag}`];
+  const seeded = await page.request.post(`/test/dream-night?tag=${tag}`);
+  expect(seeded.ok()).toBe(true);
+
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const night = panel(page).getByRole("region", { name: "Last night" });
+  const merge = night.getByRole("listitem", { name: `Merged ${run} into ${groceries}` });
+  await expect(merge.getByText(`Same steps as ${groceries}`)).toBeVisible();
+  await expect(night.getByRole("listitem", { name: `Edited ${groceries}` }).getByText("You order tea every Friday")).toBeVisible();
+  await expect(night.getByRole("listitem", { name: `Made tea-order-${tag}` })).toBeVisible();
+  await expect(night.getByText(`“the user drinks green tea, then oolong (${tag})”`)).toBeVisible();
+  await night.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/last-night.png` : undefined });
+
+  await merge.getByRole("button", { name: `Undo: Merged ${run} into ${groceries}` }).click();
+  await expect(merge.getByText("Undone")).toBeVisible();
+  await expect(merge.getByRole("button", { name: /^Undo/ })).toHaveCount(0);
+
+  // The skill changed since the dream edited it, so undoing that edit would lose the newer word: refused, with why.
+  await send(page, `tool skill_manage ${JSON.stringify({ action: "patch", name: groceries, old: "Open the list", new: "Open the shared list" })}`);
+  await expect(page.getByText(`tool said: Saved patch of ${groceries}`)).toBeVisible();
+  const edit = night.getByRole("listitem", { name: `Edited ${groceries}` });
+  await edit.getByRole("button", { name: `Undo: Edited ${groceries}` }).click();
+  await expect(edit.getByRole("status")).toContainText(`${groceries} changed after this patch`);
+  await expect(edit.getByRole("button", { name: `Undo: Edited ${groceries}` })).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/last-night-undone.png` : undefined });
+
+  // The merged skill is back, as ky wrote it; pinning one keeps after a reload.
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  const skillRow = (name: string) => panel(page).getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect(skillRow(run)).toContainText("ky's");
+  await skillRow(groceries).click();
+  const skill = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name: new RegExp(`^${groceries}`) }) });
+  await skill.getByRole("button", { name: "Pin", exact: true }).click();
+  await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
+  await expect(skill.getByRole("button", { name: "Unpin" })).toHaveAttribute("aria-pressed", "true");
+  await expect(skill.getByText("Written by ky · used 0 times")).toContainText("pinned, so ky's dreams and reviews leave it as it is");
+  // The row opens with a transition: shoot it open.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/skill-pinned.png` : undefined });
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");
