@@ -381,7 +381,7 @@ export class PiAgent extends DurableObject<Env> {
 
     const installed = this.registry.snapshot().extension("executor");
 
-    if (config) this.registry.install(executorExtension(config));
+    if (config) this.registry.install(executorExtension(config, (url) => this.executor.retarget(url)));
     else if (installed) this.registry.uninstall(installed);
   }
 

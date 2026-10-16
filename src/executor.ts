@@ -21,9 +21,11 @@ import type { Vault } from "./vault";
  * `execute` runs a JavaScript program over the apps (`tools.<app>.<tool>()`),
  * and `resume` continues a program that paused for an approval.
  *
- * The connection uses a personal access token on the organization's URL in
- * browser elicitation mode, so an approval arrives as a link the user opens,
- * and the agent calls `resume` after.
+ * The connection uses a personal access token, so ky never needs a browser
+ * sign-in. On Executor's default MCP URL (`https://mcp.executor.sh/mcp`) a
+ * tool that needs approval pauses in model elicitation mode: the agent asks
+ * the user in the chat and answers with `resume`. A URL with
+ * `?elicitation_mode=browser` sends an approval link instead.
  */
 
 /** Where Executor is and the token it takes, as the user connects it in Settings; kept in the Vault. */
@@ -192,9 +194,14 @@ const GUIDE = `Executor connects the user's accounts and apps (calendar, email, 
 
 - executor_skills: read what apps are available and the instructions they ship. Start here when you do not know what is connected.
 - executor_execute: run a short JavaScript program. Inside it, \`await tools.search({ query: "..." })\` returns callable paths and TypeScript signatures, and app tools are async functions like \`await tools.vercel.listProjects({})\`. Join and filter results in the program and return only what you need. There is no fetch, no filesystem and no imports. Limits: 100 tool calls, 5 minutes, 64 KB of output.
-- If a result carries an approvalUrl, give the user that link, wait for them to say they decided, then call executor_resume with the requestId. Never re-run a program to get past a refusal: earlier calls may already have taken effect.`;
+- When a call pauses for an approval or for input, it carries a requestId. Ask the user in the chat, quoting what Executor wants to do or know. Once they answer, call executor_resume with the requestId and their answer in the fields the paused result names. If the result carries an approvalUrl instead, give the user that link, wait for them to say they decided, and then call executor_resume with the requestId.
+- executor_connection: show or change the URL ky reaches Executor at, keeping the token. Use it when the user asks to change how approvals arrive. Without \`?elicitation_mode=browser\` they are asked in the chat, and with it they come as approval links.
+- Never resume without the user's answer. Never re-run a program to get past a refusal, because earlier calls may already have taken effect.`;
 
-export function executorExtension(config: ExecutorConfig): Extension {
+/** How the agent changes where ky reaches Executor, on the same origin and with the token already connected. */
+export type ExecutorRetarget = (url: string) => Promise<{ refused?: string }>;
+
+export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRetarget): Extension {
   const executor = new ExecutorClient(config);
 
   return defineExtension({
@@ -226,15 +233,40 @@ export function executorExtension(config: ExecutorConfig): Extension {
       defineTool({
         name: "executor_resume",
         description:
-          "Continue an Executor program that paused for an approval or for input, after the user decided.",
+          "Continue an Executor program that paused for an approval or for input, after the user answered in the chat or decided at the approval link. Pass the requestId and the answer fields the paused result names.",
         parameters: Type.Object(
           { requestId: Type.String() },
           { additionalProperties: true }
         ),
         replay: "unsafe",
         execute: async (args, _api, context) => executor.call("resume", args, context.abortSignal)
-      })
+      }),
+      ...(retarget ? [connectionTool(config.url, retarget)] : [])
     ]
+  });
+}
+
+/**
+ * The agent's way to edit the connection from the chat, as when the user wants
+ * approvals asked in the chat rather than at a browser link. It changes only
+ * the path and query: a new origin would send the token to another host, so
+ * that stays in Settings.
+ */
+function connectionTool(current: string, retarget: ExecutorRetarget) {
+  return defineTool({
+    name: "executor_connection",
+    description: `Show or change the URL ky reaches Executor at (now ${current}), keeping the connected token. Only the path and query can change, on the same origin. Drop \`?elicitation_mode=browser\` to have approvals asked in the chat; add it to get approval links. ky tests the new URL before keeping it. Change it only when the user asks.`,
+    parameters: Type.Object({ url: Type.Optional(Type.String({ description: "The new URL. Leave out to only show the current one." })) }),
+    replay: "safe",
+    execute: async (args) => {
+      if (args.url === undefined) return { content: [{ type: "text", text: `Executor is connected at ${current}.` }] };
+
+      const { refused } = await retarget(args.url);
+
+      return refused
+        ? { content: [{ type: "text", text: `Not changed: ${refused}` }], isError: true }
+        : { content: [{ type: "text", text: `Executor is now connected at ${args.url.trim()}. Its tools reconnect there on their next call.` }] };
+    }
   });
 }
 
@@ -245,7 +277,7 @@ function checkUrl(url: string): string | undefined {
   try {
     parsed = new URL(url);
   } catch {
-    return "That isn't a URL. Paste Executor's MCP address, like https://v2.executor.sh/org/<org>/mcp.";
+    return "That isn't a URL. Paste Executor's MCP address, like https://mcp.executor.sh/mcp.";
   }
 
   if (parsed.protocol === "https:" || (parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
@@ -253,6 +285,15 @@ function checkUrl(url: string): string | undefined {
   }
 
   return "Executor's address must start with https://.";
+}
+
+/** Whether two URLs share an origin; undefined when `next` is no URL, which connect then refuses. */
+function sameOrigin(current: string, next: string): boolean | undefined {
+  try {
+    return new URL(current).origin === new URL(next).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Why a test connection failed, in words that hold no secret. */
@@ -302,9 +343,13 @@ export class ExecutorLink {
     return { url: url ? String(url) : null };
   }
 
-  /** Sign in to Executor at `url` with `token` and list its tools; keep it only if that works, else `{ refused }`. */
+  /**
+   * Sign in to Executor at `url` with `token` and list its tools; keep it only if that works, else `{ refused }`.
+   * An empty token keeps the one already connected, so Settings can change the URL alone.
+   */
   async connect(url: string, token: string): Promise<{ refused?: string }> {
-    const connection = { url: url.trim(), token: token.trim() };
+    const kept = token.trim() === "" ? (await this.#vault().executor(this.#id))?.token : undefined;
+    const connection = { url: url.trim(), token: kept ?? token.trim() };
 
     if (connection.token === "") return { refused: "Paste an Executor personal access token." };
     const bad = checkUrl(connection.url);
@@ -327,6 +372,19 @@ export class ExecutorLink {
     await this.#changed();
 
     return {};
+  }
+
+  /** Change the URL on the same origin, keeping the connected token; anything else is `{ refused }`. */
+  async retarget(url: string): Promise<{ refused?: string }> {
+    const connection = await this.#vault().executor(this.#id);
+
+    if (!connection) return { refused: "Executor is not connected. Connect it in Settings › Tools › Executor." };
+
+    if (sameOrigin(connection.url, url.trim()) === false) {
+      return { refused: `ky only changes the path and query here, on ${new URL(connection.url).origin}. Change the host in Settings › Tools › Executor.` };
+    }
+
+    return this.connect(url, "");
   }
 
   /** Forget the connection: the agent loses Executor's tools. */

@@ -24,32 +24,61 @@ export function Executor() {
   return (
     <section className="group" id="settings-executor">
       <h3 className="group-label">Executor</h3>
-      {view?.url ? (
-        <div className="card">
-          <div className="row">
-            <span className="row-tile">
-              <Icon name="plug" size={15} />
-            </span>
-            <span className="row-text">
-              <span className="row-label">Connected</span>
-              <span className="row-sub">{view.url}</span>
-            </span>
-            <button type="button" className="pill pressable" onClick={actions.onRemove}>
-              Remove
-            </button>
-            <span className="status-dot" data-connected />
-          </div>
-        </div>
-      ) : (
-        <ConnectExecutor onConnect={actions.onConnect} />
-      )}
+      {view?.url ? <ConnectedExecutor url={view.url} actions={actions} /> : <ConnectExecutor onConnect={actions.onConnect} />}
       <p className="group-note">Gives ky your apps' tools, like email and calendar. The token stays in ky's Vault.</p>
     </section>
   );
 }
 
-function ConnectExecutor({ onConnect }: { onConnect: ExecutorActions["onConnect"] }) {
-  const [url, setUrl] = useState("");
+/** The connected Executor, which Edit turns into a form for its URL, keeping the token unless a new one is pasted. */
+function ConnectedExecutor({ url, actions }: { url: string; actions: ExecutorActions }) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    const edit = async (next: string, token: string) => {
+      const reason = await actions.onConnect(next, token);
+
+      if (reason === undefined) setEditing(false);
+
+      return reason;
+    };
+
+    return <ConnectExecutor edit={{ url, cancel: () => setEditing(false) }} onConnect={edit} />;
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <span className="row-tile">
+          <Icon name="plug" size={15} />
+        </span>
+        <span className="row-text">
+          <span className="row-label">Connected</span>
+          <span className="row-sub">{url}</span>
+        </span>
+        <button type="button" className="pill pressable" onClick={() => setEditing(true)}>
+          Edit
+        </button>
+        <button type="button" className="pill pressable" onClick={actions.onRemove}>
+          Remove
+        </button>
+        <span className="status-dot" data-connected />
+      </div>
+    </div>
+  );
+}
+
+/** What the form starts from: a new connection, or the connected URL to edit, where an empty token keeps the current one. */
+type FormStart = { label: string; url: string; tokenHint: string; tokenRequired: boolean; cancel?: () => void };
+
+const startFrom = (edit?: { url: string; cancel: () => void }): FormStart =>
+  edit
+    ? { label: "Edit Executor", url: edit.url, tokenHint: "Keep the current token", tokenRequired: false, cancel: edit.cancel }
+    : { label: "Connect Executor", url: "", tokenHint: "Paste it here", tokenRequired: true };
+
+function ConnectExecutor({ edit, onConnect }: { edit?: { url: string; cancel: () => void }; onConnect: ExecutorActions["onConnect"] }) {
+  const start = startFrom(edit);
+  const [url, setUrl] = useState(start.url);
   const [token, setToken] = useState("");
   const [testing, setTesting] = useState(false);
   const [refused, setRefused] = useState<string>();
@@ -65,7 +94,7 @@ function ConnectExecutor({ onConnect }: { onConnect: ExecutorActions["onConnect"
   };
 
   return (
-    <form className="automation-form key-form" aria-label="Connect Executor" onSubmit={save}>
+    <form className="automation-form key-form" aria-label={start.label} onSubmit={save}>
       <div className="card">
         <label className="row">
           <span className="row-label">URL</span>
@@ -75,7 +104,7 @@ function ConnectExecutor({ onConnect }: { onConnect: ExecutorActions["onConnect"
             type="url"
             autoComplete="off"
             spellCheck={false}
-            placeholder="https://…/mcp"
+            placeholder="https://mcp.executor.sh/mcp"
             value={url}
             onChange={(event) => setUrl(event.target.value)}
           />
@@ -88,18 +117,29 @@ function ConnectExecutor({ onConnect }: { onConnect: ExecutorActions["onConnect"
             type="password"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Paste it here"
+            placeholder={start.tokenHint}
             value={token}
             onChange={(event) => setToken(event.target.value)}
           />
         </label>
         <Problem text={refused} />
-        <div className="card-foot">
-          <button type="submit" className="pill primary pressable" disabled={testing || !filled(url, token)}>
-            {testing ? "Testing…" : "Test and connect"}
-          </button>
-        </div>
+        <FormFoot testing={testing} ready={filled(url, start.tokenRequired ? token : url)} cancel={start.cancel} />
       </div>
     </form>
+  );
+}
+
+function FormFoot({ testing, ready, cancel }: { testing: boolean; ready: boolean; cancel: (() => void) | undefined }) {
+  return (
+    <div className="card-foot">
+      {cancel && (
+        <button type="button" className="pill pressable" onClick={cancel}>
+          Cancel
+        </button>
+      )}
+      <button type="submit" className="pill primary pressable" disabled={testing || !ready}>
+        {testing ? "Testing…" : "Test and connect"}
+      </button>
+    </div>
   );
 }
