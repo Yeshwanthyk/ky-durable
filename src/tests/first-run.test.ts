@@ -42,6 +42,52 @@ describe("Settings › Executor", () => {
     socket.close();
   });
 
+  it("edits the URL and keeps the connected token when none is given", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name);
+    const client = follow(socket);
+    const result = (id: string) => client.frames.find((frame) => frame.type === "result" && frame.id === id);
+    const edited = `${EXECUTOR_URL}?elicitation_mode=browser`;
+
+    // One at a time: an edit reads the token the connect before it kept.
+    for (const [id, url, token] of [
+      ["blank", EXECUTOR_URL, " "],
+      ["good", EXECUTOR_URL, EXECUTOR_TOKEN],
+      ["edit", edited, ""],
+      ["wrong", EXECUTOR_URL, "not-the-token"]
+    ] as const) {
+      socket.send(JSON.stringify({ type: "set-executor", id, url, token }));
+      await client.until(() => result(id) !== undefined);
+    }
+
+    expect(result("blank")).toMatchObject({ result: { refused: "Paste an Executor personal access token." } });
+    expect(result("edit")).toMatchObject({ result: {} });
+    expect(result("wrong")).toMatchObject({ result: { refused: "Executor refused that token." } });
+    await client.until(() => client.frames.findLast((frame) => frame.type === "executor")?.executor.url === edited);
+    expect((await prompt(name, "tool executor_execute {\"code\":\"return 1\"}")).text).toBe("tool said: ran 1");
+    socket.close();
+  });
+
+  it("lets the agent change the URL on the same origin, keeping the token, and never move it to another host", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name);
+    const client = follow(socket);
+    const browser = `${EXECUTOR_URL}?elicitation_mode=browser`;
+    socket.send(JSON.stringify({ type: "set-executor", id: "good", url: browser, token: EXECUTOR_TOKEN }));
+    await client.until(() => client.frames.findLast((frame) => frame.type === "executor")?.executor.url === browser);
+
+    expect((await prompt(name, "tool executor_connection {}")).text).toBe(`tool said: Executor is connected at ${browser}.`);
+    expect((await prompt(name, "tool executor_connection {\"url\":\"https://elsewhere.test/mcp\"}")).text).toContain(
+      "Not changed: ky only changes the path and query here, on https://executor.test."
+    );
+    expect((await prompt(name, `tool executor_connection {"url":"${EXECUTOR_URL}"}`)).text).toBe(
+      `tool said: Executor is now connected at ${EXECUTOR_URL}. Its tools reconnect there on their next call.`
+    );
+    await client.until(() => client.frames.findLast((frame) => frame.type === "executor")?.executor.url === EXECUTOR_URL);
+    expect((await prompt(name, "tool executor_execute {\"code\":\"return 1\"}")).text).toBe("tool said: ran 1");
+    socket.close();
+  });
+
   it("keeps the connection across a restart", async () => {
     const name = crypto.randomUUID();
     const socket = await connect(name);

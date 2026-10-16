@@ -229,6 +229,17 @@ test("walks a new ky through setup from the main chat's first-run cards", async 
   await expect(panel(page).getByRole("alert")).toHaveText("Executor refused that token.");
   await connectExecutor(page);
   await expect(cards.getByRole("button", { name: /Connect Executor/ })).toHaveAttribute("data-done", "true");
+
+  // Edit changes the URL and keeps the token when it is left blank; Edit again puts it back.
+  for (const url of [`${EXECUTOR.url}?elicitation_mode=browser`, EXECUTOR.url]) {
+    await panel(page).locator("#settings-executor").getByRole("button", { name: "Edit" }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit Executor" });
+    await expect(edit.getByLabel("Executor token")).toHaveValue("");
+    await edit.getByLabel("Executor URL").fill(url);
+    await edit.getByRole("button", { name: "Test and connect" }).click();
+    await expect(panel(page).getByText(url, { exact: true })).toBeVisible();
+  }
+
   await expect(chat(page).getByRole("button", { name: "What's connected" })).toBeVisible();
 
   await cards.getByRole("button", { name: /Tell ky who you are/ }).click();

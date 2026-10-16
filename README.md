@@ -98,8 +98,11 @@ Anthropic with it.
 a computer of yours: run it on port 8317, and share that port when `ky runner add` asks. It shows in Settings as
 "Claude via VibeProxy on <machine>" while that computer is online.
 
-**Executor.** Connect Executor in Settings › Tools › Executor with its URL and a token, and ky gets
-your connected apps as tools.
+**Executor.** Connect Executor in Settings › Tools › Executor with its URL (`https://mcp.executor.sh/mcp`)
+and a personal access token from executor.sh › Account settings › Tokens, and ky gets your connected apps as
+tools. Because it uses a token, there is no browser sign-in. When a tool needs approval, ky asks you in the chat.
+To get an approval link instead, add `?elicitation_mode=browser` to the URL. Edit changes the URL without
+re-entering the token.
 
 ## Keep it up to date
 
