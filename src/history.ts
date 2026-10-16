@@ -49,6 +49,11 @@ const PLACED_SLACK = 5_000;
 /** A request id the browser or the harness made up for a message the user sent: a bare UUID. ky's own relays name theirs (mail:, peer-escalate:, subagent-report:). */
 const OWN_REQUEST = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Whether a submission's request id is one the browser or the harness made up for a message the user sent, not one of ky's relays. */
+export function isOwnRequest(requestId: string | undefined): boolean {
+  return requestId !== undefined && OWN_REQUEST.test(requestId);
+}
+
 /**
  * Who a message is from: the user, ky, or a notice, a user entry ky posted for someone else (a mail's
  * summary, a peer's question, a subagent's report, an automation's warning), never the user's own words.
@@ -420,11 +425,6 @@ function roleOf(row: EntryRow, own: ReadonlySet<number>): Role {
   if (row.kind !== "pi.user") return "ky";
 
   return own.has(row.id) ? "user" : "notice";
-}
-
-/** Whether a submission's request id is one the browser or the harness made up for a message the user sent: a bare UUID. */
-export function isOwnRequest(requestId: string | undefined): boolean {
-  return requestId !== undefined && OWN_REQUEST.test(requestId);
 }
 
 /**

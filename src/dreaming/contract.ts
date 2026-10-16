@@ -195,8 +195,14 @@ export function briefRow(row: Row): { lines: BriefLine[]; expires_at: number } |
   return stored === undefined || lines === undefined ? undefined : { lines, expires_at: stored.expires_at };
 }
 
-/** A line as the card shows it: its key (day#n), and whether the user pinned it. */
-const BriefCardLineSchema = Type.Object({ key: Type.String(), text: Type.String(), chip: Type.Union([Type.String(), Type.Null()]), pinned: Type.Boolean() });
+/** A line as the card shows it: its key (day#n), where it came from (like "anticipation #12 · chat 14 Oct"), and whether the user pinned it. */
+const BriefCardLineSchema = Type.Object({
+  key: Type.String(),
+  text: Type.String(),
+  source: Type.String(),
+  chip: Type.Union([Type.String(), Type.Null()]),
+  pinned: Type.Boolean()
+});
 
 export type BriefCardLine = Static<typeof BriefCardLineSchema>;
 
@@ -205,18 +211,23 @@ const BriefViewSchema = Type.Object({ day: Type.String(), expires_at: Type.Numbe
 
 export type BriefView = Static<typeof BriefViewSchema>;
 
-/** What became of a surfaced thing; ignored is a boundary line the user went past. */
+/**
+ * What became of a surfaced thing; ignored is a boundary line the user went past, and cleared a line the user
+ * swept away with the rest of the card (Dismiss all): milder than dismissed, it is neither a dismissal in the
+ * rates nor something the dream is told to avoid.
+ */
 const SurfacedOutcomeSchema = Type.Union([
   Type.Literal("acted"),
   Type.Literal("pinned"),
   Type.Literal("dismissed"),
+  Type.Literal("cleared"),
   Type.Literal("ignored"),
   Type.Literal("expired")
 ]);
 
 export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
 
-export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "ignored", "expired"];
+export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "cleared", "ignored", "expired"];
 
 /** One outcome's count, null for the shown ones that have none yet. */
 const OutcomeCountRow = Type.Object({ outcome: Type.Union([SurfacedOutcomeSchema, Type.Null()]), n: Type.Integer() });
@@ -232,9 +243,9 @@ export type Rate = Static<typeof RateSchema>;
 /** Settings › Proactivity: the level, and how the last week's brief and the last month's anticipations went. */
 const ProactivityViewSchema = Type.Object({
   level: ProactivityLevelSchema,
-  /** Brief lines acted on or pinned, of those shown, the last 7 days. */
+  /** Brief lines acted on or pinned, of those shown and settled (handled, or past their midnight), the last 7 days. */
   accepted: RateSchema,
-  /** Brief lines dismissed, of those shown, the last 7 days. */
+  /** Brief lines dismissed one by one, of those shown and settled, the last 7 days. */
   dismissed: RateSchema,
   /** Anticipations that expired unseen, of those made, the last 30 days. */
   expired: RateSchema

@@ -295,8 +295,9 @@ describe("what an episode reflection may do with anticipations", () => {
 
     const add = (messages: number[]) => anticipateFrom(name, pass!.conversation, { action: "add", kind: "open_loop", text: "Call", messages });
 
-    // Before the stretch (the last pass read it), a notice, and another chat's message: refused.
-    for (const id of [before, notice, elsewhere]) expect(await add([id])).toContain(`Message #${id} is not the user's own words in the stretch you read`);
+    // Before the stretch (the last pass read it) and another chat's message: refused; a notice is refused as one, for every actor.
+    for (const id of [before, elsewhere]) expect(await add([id])).toContain(`Message #${id} is not the user's own words in the stretch you read`);
+    expect(await add([notice])).toContain(`Message #${notice} is a notice ky relayed`);
     expect(await add([mine])).toMatch(/Saved as #\d+/);
 
     // The store refuses an episode's add without the stretch it read.

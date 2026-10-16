@@ -747,45 +747,74 @@ test("tells the chat what a mail to ky says, and sends ky's mail to someone new 
   await expect(panel(page).getByRole("button", { name: `Stop allowing ${to}` })).toBeHidden();
 });
 
-test("shows today's brief above the chat once, a chip fills the composer, and dismiss is recorded with Settings › Proactivity's rates", async ({ page }) => {
-  await signIn(page);
+test("shows today's brief above the chat with each line's source, a chip goes ahead of the draft, and what is unhandled comes back", async ({ page }) => {
+  await open(page);
   const tag = crypto.randomUUID().slice(0, 6);
-  const lines = [`Dentist at 3 (${tag}) | Move my 3pm dentist`, `Rent is due today (${tag})`];
+  await send(page, `I'll reply to Sam about the Lisbon dates (${tag}) by Friday`);
+  await expect(chat(page).getByText(`I'll reply to Sam about the Lisbon dates (${tag}) by Friday`)).toBeVisible();
+
+  // The dream's line and two events', written while the page is open: the card arrives without a reload.
+  const lines = [`dream: Reply to Sam about Lisbon (${tag}) | Draft my reply to Sam`, `Dentist at 3 (${tag}) | Move my 3pm dentist`, `Rent is due today (${tag})`];
   const seeded = await page.request.post(`/test/brief?${lines.map((line) => `line=${encodeURIComponent(line)}`).join("&")}`);
   expect(seeded.ok()).toBe(true);
-  const [dentist, rent] = Value.Parse(Type.Array(Type.String()), await seeded.json());
+  const [sam, dentist, rent] = Value.Parse(Type.Array(Type.String()), await seeded.json());
 
-  await open(page);
   const card = page.getByRole("region", { name: "Today's brief" });
-  await expect(card.getByText(`Dentist at 3 (${tag})`)).toBeVisible();
-  await expect(card.getByText(`Rent is due today (${tag})`)).toBeVisible();
+  const line = (text: string) => card.getByRole("listitem").filter({ hasText: text });
+  await expect(line(`Reply to Sam about Lisbon (${tag})`).getByText(/^from: anticipation #\d+ · chat \d{1,2} [A-Z][a-z]{2}$/)).toBeVisible();
+  await expect(line(`Dentist at 3 (${tag})`).getByText("from: event")).toBeVisible();
+  await expect(line(`Rent is due today (${tag})`)).toBeVisible();
   await page.screenshot({ path: SHOTS ? `${SHOTS}/brief.png` : undefined });
-
-  // It is not a chat message: nothing in the chat, and its chip only fills the composer.
-  await expect(chat(page).getByRole("article").filter({ hasText: `Rent is due today (${tag})` })).toHaveCount(0);
-  await card.getByRole("button", { name: "Move my 3pm dentist" }).click();
-  await expect(composer(page)).toHaveValue("Move my 3pm dentist");
-  await card.getByRole("button", { name: `Dismiss: Rent is due today (${tag})` }).click();
-  await expect(card.getByText(`Rent is due today (${tag})`)).toBeHidden();
 
   const outcomes = async () => {
     const rows = Value.Parse(Type.Array(Type.Object({ item: Type.String(), outcome: Type.Union([Type.String(), Type.Null()]) })), await (await page.request.get("/test/surfaced")).json());
 
-    return rows.filter((row) => row.item === dentist || row.item === rent).map((row) => [row.item, row.outcome]);
+    return [sam, dentist, rent].map((key) => {
+      const row = rows.find((each) => each.item === key);
+
+      return row === undefined ? "not shown" : row.outcome;
+    });
   };
 
-  await expect.poll(outcomes).toEqual([
-    [dentist, "acted"],
-    [rent, "dismissed"]
-  ]);
+  // On screen is shown; nothing handled yet.
+  await expect.poll(outcomes).toEqual([null, null, null]);
+  // It is not a chat message.
+  await expect(chat(page).getByRole("article").filter({ hasText: `Rent is due today (${tag})` })).toHaveCount(0);
 
-  // Shown once: the next hello of the day brings no card.
+  await card.getByRole("button", { name: `Pin: Reply to Sam about Lisbon (${tag})` }).click();
+  await expect(card.getByRole("img", { name: `Pinned: Reply to Sam about Lisbon (${tag})` })).toBeVisible();
+
+  // A chip goes ahead of what the user was writing, and counts as acted only once sent.
+  await composer(page).fill("Also ask about the hotel");
+  await card.getByRole("button", { name: "Move my 3pm dentist" }).click();
+  await expect(composer(page)).toHaveValue("Move my 3pm dentist\n\nAlso ask about the hotel");
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/brief-chip-draft.png` : undefined });
+  await expect.poll(outcomes).toEqual(["pinned", null, null]);
+  await composer(page).press("Enter");
+  await expect.poll(outcomes).toEqual(["pinned", "acted", null]);
+
+  // The next hello brings back what is still unhandled, and the pinned line.
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
-  await expect(card).toBeHidden();
+  await expect(line(`Rent is due today (${tag})`)).toBeVisible();
+  await expect(card.getByRole("img", { name: `Pinned: Reply to Sam about Lisbon (${tag})` })).toBeVisible();
+  await expect(line(`Dentist at 3 (${tag})`)).toHaveCount(0);
+
+  await card.getByRole("button", { name: `Dismiss: Rent is due today (${tag})` }).click();
+  await expect(line(`Rent is due today (${tag})`)).toHaveCount(0);
+  await expect.poll(outcomes).toEqual(["pinned", "acted", "dismissed"]);
 
   await settings(page, "Proactivity");
-  await expect(panel(page).getByRole("radio", { name: /^Brief only/ })).toHaveAttribute("aria-checked", "true");
+  const levels = panel(page).getByRole("radiogroup", { name: "Proactivity" });
+  const brief = levels.getByRole("radio", { name: /^Brief only/ });
+  await expect(brief).toHaveAttribute("aria-checked", "true");
+  // Arrow keys move the choice, as in any radio group.
+  await brief.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(levels.getByRole("radio", { name: /^Brief and boundary lines/ })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("ArrowUp");
+  await expect(brief).toHaveAttribute("aria-checked", "true");
+  await expect(brief).toBeFocused();
   await expect(panel(page).getByRole("list", { name: "Proactivity rates" }).getByText(/^\d+ of \d+, last 7 days$/)).toBeVisible();
 });
 

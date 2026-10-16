@@ -195,7 +195,7 @@ export type PiServerMessage =
   /** The specialists and their briefs; sent on connect and on change. */
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
-  /** Today's brief: the lines this browser has not shown yet, and the pinned ones; sent on connect when there are any. */
+  /** Today's brief: the lines with no outcome yet, and the pinned ones; sent on connect when there are any, and to every page when a line is written or the level changes (empty clears the card). */
   | { readonly type: "brief"; readonly brief: BriefView }
   /** The active, paused and archived automations, newest first; sent on connect and on change. */
   | { readonly type: "automations"; readonly automations: readonly AutomationInfo[]; readonly checkIns: boolean }

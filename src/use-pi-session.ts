@@ -71,7 +71,7 @@ type State = SessionView & {
   readonly automations: readonly AutomationInfo[];
   /** Whether the nightly dream books check-ins. */
   readonly checkIns: boolean;
-  /** Today's brief as the card shows it; null when there is none to show. Never cached: it shows once. */
+  /** Today's brief as the card shows it; null when there is none to show. Never cached: the server sends it on each hello. */
   readonly brief: BriefView | null;
   /** Model choices; null until the server sends them. */
   readonly settings: SettingsView | null;
@@ -149,16 +149,9 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     avatars: ({ avatars }) => replace({ avatars }),
     memory: ({ memory }) => replace({ memory }),
     automations: ({ automations, checkIns }) => replace({ automations, checkIns }),
-    brief: ({ brief }) => setState((current) => ({ ...current, brief: mergeBrief(current.brief, brief) }))
+    // The server sends the whole card each time: it replaces this one, and an empty one clears it.
+    brief: ({ brief }) => replace({ brief: brief.lines.length === 0 ? null : brief })
   };
-}
-
-/** A brief frame on the card: another day's replaces it, the same day's lines join it by key. */
-function mergeBrief(current: BriefView | null, next: BriefView): BriefView {
-  if (current === null || current.day !== next.day) return next;
-  const incoming = new Map(next.lines.map((line) => [line.key, line]));
-
-  return { ...next, lines: [...current.lines.map((line) => incoming.get(line.key) ?? line), ...next.lines.filter((line) => !current.lines.some((each) => each.key === line.key))] };
 }
 
 /** The fields of an ask of `Type`, all but its type and the id the page gives it. */
@@ -542,7 +535,7 @@ export function usePiSession(session: string) {
 
   const { changeAutomation, setCheckIns } = useAutomationActions(send);
 
-  const briefActions = useBriefActions(ask, setState);
+  const { actions: briefActions, problem: briefProblem } = useBriefActions(ask, setState);
 
   const open = state.status === "open";
 
@@ -578,6 +571,7 @@ export function usePiSession(session: string) {
     proactivityActions,
     ledgerActions,
     briefActions,
+    briefProblem,
     newChat,
     archiveChat,
     renameChat,
@@ -682,42 +676,70 @@ function useAutomationActions(send: (message: ClientMessage) => void) {
   return { changeAutomation, setCheckIns };
 }
 
+type SetState = (update: (current: State) => State) => void;
+
 /**
- * The brief card's taps: the card changes at once, and the server records the outcome; one it refuses shows
- * as the page's error, like any refused ask.
+ * Put back on the card the lines `keys` as they were in `before`, in their places, after the server refused the
+ * change to them or could not be reached; lines changed since in other ways are left as they are now.
  */
-function useBriefActions(ask: AskFn, setState: (update: (current: State) => State) => void) {
-  return useMemo(() => {
-    const change = (update: (brief: BriefView) => BriefView | null) =>
+function revertBrief(setState: SetState, before: BriefView | null, keys: ReadonlySet<string>) {
+  setState((current) => {
+    if (before === null || (current.brief !== null && current.brief.day !== before.day)) return current;
+    const order = new Map(before.lines.map((line, index) => [line.key, index]));
+    const others = (current.brief?.lines ?? []).filter((line) => !keys.has(line.key));
+    const back = before.lines.filter((line) => keys.has(line.key));
+    const lines = [...others, ...back].sort((a, b) => (order.get(a.key) ?? order.size) - (order.get(b.key) ?? order.size));
+
+    return { ...current, brief: { ...(current.brief ?? before), lines } };
+  });
+}
+
+/**
+ * The brief card's taps: the card changes at once, and the server records the outcome; one it refuses, or that
+ * cannot reach it, puts the card back as it was and says why in `problem`, which the card shows.
+ */
+function useBriefActions(ask: AskFn, setState: SetState) {
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const actions = useMemo(() => {
+    /** Change the lines `keys` at once; undo that if the server does not take `asked`. */
+    const change = (keys: readonly string[], update: (brief: BriefView) => BriefView, asked: () => Promise<null>) => {
+      let before: BriefView | null = null;
+      setProblem(null);
       setState((current) => {
+        before = current.brief;
         const brief = current.brief === null ? null : update(current.brief);
 
         return { ...current, brief: brief === null || brief.lines.length === 0 ? null : brief };
       });
+      asked().catch((error: Error) => {
+        revertBrief(setState, before, new Set(keys));
+        setProblem(error.message);
+      });
+    };
 
-    const without = (key: string) => (brief: BriefView) => ({ ...brief, lines: brief.lines.filter((line) => line.key !== key) });
-    const settle = () => undefined;
+    const without = (keys: readonly string[]) => (brief: BriefView) => ({ ...brief, lines: brief.lines.filter((line) => !keys.includes(line.key)) });
 
     return {
-      /** The line's chip went into the composer: it is done with. */
-      onAct: (key: string) => {
-        change(without(key));
-        ask("brief-act", { key }).catch(settle);
+      /** The card was on screen with these lines. Nothing changes on the card, and a failure only waits for the next hello. */
+      onSeen: (keys: readonly string[]) => {
+        ask("brief-seen", { keys: [...keys] }).catch(() => undefined);
       },
-      onPin: (key: string) => {
-        change((brief) => ({ ...brief, lines: brief.lines.map((line) => (line.key === key ? { ...line, pinned: true } : line)) }));
-        ask("brief-pin", { key }).catch(settle);
-      },
-      onDismiss: (key: string) => {
-        change(without(key));
-        ask("brief-dismiss", { key }).catch(settle);
-      },
-      onDismissAll: () => {
-        change(() => null);
-        ask("brief-dismiss", {}).catch(settle);
-      }
+      /** The user sent the ask a line's chip put in the composer: it is done with. */
+      onAct: (key: string) => change([key], without([key]), () => ask("brief-act", { key })),
+      onPin: (key: string) =>
+        change(
+          [key],
+          (brief) => ({ ...brief, lines: brief.lines.map((line) => (line.key === key ? { ...line, pinned: true } : line)) }),
+          () => ask("brief-pin", { key })
+        ),
+      onDismiss: (key: string) => change([key], without([key]), () => ask("brief-dismiss", { key })),
+      /** Dismiss all: the lines the card shows, pinned ones aside, are cleared; the pinned ones stay. */
+      onClear: (keys: readonly string[]) => change(keys, without(keys), () => ask("brief-clear", { keys: [...keys] }))
     };
   }, [ask, setState]);
+
+  return { actions, problem };
 }
 
 /** Settings › Subscriptions' actions, answered over the socket. */

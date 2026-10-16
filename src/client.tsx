@@ -145,8 +145,8 @@ type Parts = {
   setTheme: (theme: Theme) => void;
 };
 
-/** What the page can do to the draft from outside the composer. */
-type DraftHandle = { readonly setPrompt: (prompt: string) => void };
+/** What the page can do to the draft from outside the composer: put a suggested ask in it, from `key` if a brief line's. */
+type DraftHandle = { readonly pick: (prompt: string, key?: string) => void };
 
 type DraftDockProps = {
   handle: RefObject<DraftHandle | null>;
@@ -171,6 +171,8 @@ type DraftDockProps = {
   onWithdraw: (operationId: string) => Promise<boolean>;
   /** The composer has taken in these returned messages. */
   onReturned: (operationIds: ReadonlySet<string>) => void;
+  /** The user sent a message holding the ask of the brief line `key`'s chip. */
+  onActed: (key: string) => void;
 };
 
 /**
@@ -207,18 +209,23 @@ function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, 
 }
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned, onActed }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
-  useImperativeHandle(handle, () => ({ setPrompt: draft.setPrompt }), [draft.setPrompt]);
+  useImperativeHandle(handle, () => ({ pick: draft.pick }), [draft.pick]);
   useReloadOnDeploy(updated, draft);
   useTakeReturned(returned, draft.restore, onReturned);
 
   const submit = () => {
+    const picked = draft.picked;
     const input = canSend(connected, draft.reading, cantSee) ? draft.take() : null;
 
-    if (input !== null) onSend(input);
+    if (input === null) return;
+    onSend(input);
+
+    // A brief chip's ask went out: that line was acted on.
+    for (const key of picked) onActed(key);
   };
 
   const { onEdit, onDelete } = useQueueActions(onWithdraw, draft.restore);
@@ -340,7 +347,7 @@ function Stage(parts: Parts) {
   );
 
   const kept = useSame(view.setUp, shallow);
-  const onPick = useCallback((prompt: string) => composer.current?.setPrompt(prompt), []);
+  const onPick = useCallback((prompt: string, key?: string) => composer.current?.pick(prompt, key), []);
 
   const onGo = useStableCallback((target: FirstRunTarget) =>
     target === "soul" ? ky.submit(SOUL_INTERVIEW) : panel.openSection(target)
@@ -381,7 +388,7 @@ function Stage(parts: Parts) {
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
-        <BriefCard brief={ky.brief} actions={ky.briefActions} onPick={onPick} />
+        <BriefCard brief={ky.brief} actions={ky.briefActions} problem={ky.briefProblem} onPick={onPick} />
         <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} />
         <DraftDock
           handle={composer}
@@ -400,6 +407,7 @@ function Stage(parts: Parts) {
           onSteer={ky.steerNow}
           onWithdraw={ky.withdraw}
           onReturned={ky.takeReturned}
+          onActed={ky.briefActions.onAct}
         />
       </div>
     </section>

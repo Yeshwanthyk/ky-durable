@@ -131,7 +131,7 @@ describe("delivering an automation's report", () => {
     expect((await deliveries(name)).map((row) => row.state)).toEqual(["brief"]);
     expect(await inside(name, (instance) => instance.chats.mainUpdatedAt())).toBeGreaterThan(before);
 
-    const card = await inside(name, (instance) => instance.brief.show());
+    const card = await inside(name, (instance) => instance.brief.view());
     expect(card?.lines).toHaveLength(1);
     expect(card?.lines[0]?.text).toMatch(/^automation "Daily digest": echo: digest the news/);
     expect(card?.lines[0]?.chip).toContain(REPORT);

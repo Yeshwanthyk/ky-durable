@@ -135,12 +135,16 @@ export const ClientMessageSchema = Type.Union([
   message("automation-save", { automation: Type.Optional(Text), draft: AutomationDraftSchema }),
   /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
   message("automation", { automation: Text, action: AutomationActionSchema }),
-  /** The user tapped a brief line's chip, which put its ask in the composer: by the line's key. */
+  /** The brief card was on the user's screen with these lines: each is recorded as shown, once. */
+  message("brief-seen", { keys: Type.Array(Text, { maxItems: 20 }) }),
+  /** The user sent the ask a brief line's chip put in the composer: by the line's key. */
   message("brief-act", { key: Text }),
   /** Keep a brief line on the card for the day, and its anticipation for good. */
   message("brief-pin", { key: Text }),
-  /** Drop a brief line, closing its anticipation as dismissed; without a key, the whole card. */
-  message("brief-dismiss", { key: Type.Optional(Text) }),
+  /** Drop a brief line, closing a machine's unpinned anticipation as dismissed. */
+  message("brief-dismiss", { key: Text }),
+  /** Dismiss all: clear the lines the card showed, pinned ones aside; closes nothing. */
+  message("brief-clear", { keys: Type.Array(Text, { maxItems: 20 }) }),
   /** Answers with Settings › Proactivity: the level and its rates. */
   message("proactivity", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */

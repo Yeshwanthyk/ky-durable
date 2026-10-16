@@ -643,12 +643,20 @@ export class PiAgent extends ProductionAgent {
     await this.dreaming.run();
   }
 
-  /** Put lines in today's brief, as events while the user was away do; each line's chip, when it has one, after a " | ". */
+  /**
+   * Put lines in today's brief, as events while the user was away do; each line's chip, when it has one, after a
+   * " | ". A line starting "dream: " is the dream's instead: an open anticipation citing the user's newest message.
+   */
   seedBrief(lines: readonly string[]): string[] {
     return lines.map((line, index) => {
-      const [text = "", chip] = line.split(" | ");
+      const dreamt = line.startsWith("dream: ");
+      const [text = "", chip] = (dreamt ? line.slice("dream: ".length) : line).split(" | ");
 
-      return this.brief.append({ text, chip }, { loop: "event", ref: `test:${Date.now()}:${index}` });
+      if (!dreamt) return this.brief.append({ text, chip }, { loop: "event", ref: `test:${Date.now()}:${index}` });
+      const message = Number(this.ctx.storage.sql.exec("SELECT max(id) AS id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user'").one().id);
+      const { id } = this.anticipations.add({ kind: "open_loop", text, evidence: { messages: [message], memories: [] } }, "dream");
+
+      return this.brief.append({ text, chip }, { loop: "dream", ref: `anticipation:${id}` });
     });
   }
 
@@ -750,7 +758,7 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  // Each line= is a brief line for today, "text | chip"; answers with their keys.
+  // Each line= is a brief line for today, "text | chip", or "dream: text | chip" for the dream's; answers with their keys.
   ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
   ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
   // A dream's night of changes, each name ending in tag=; answers with its ledger rows.

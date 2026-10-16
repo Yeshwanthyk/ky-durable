@@ -17,6 +17,10 @@ export type Draft = {
   readonly take: () => UserInput | null;
   /** Puts a message taken back from the queue into the composer, ahead of anything typed since. */
   readonly restore: (input: UserInput) => void;
+  /** Puts a suggested ask in the composer: alone when it is empty, else ahead of what is there. `key` names where it came from. */
+  readonly pick: (text: string, key?: string) => void;
+  /** The keys of the asks picked into this draft since it was last sent or emptied (a brief line's, say). */
+  readonly picked: readonly string[];
 };
 
 /** Plain text, or the images followed by the text. */
@@ -31,7 +35,8 @@ function input(text: string, images: readonly PendingImage[]): UserInput {
 
 // What the composer holds before it is sent: the text and the images attached to it.
 export function useDraft(): Draft {
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setText] = useState("");
+  const [picked, setPicked] = useState<readonly string[]>([]);
   const [images, setImages] = useState<readonly PendingImage[]>([]);
   const [reading, setReading] = useState(0);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -51,6 +56,21 @@ export function useDraft(): Draft {
     }
   };
 
+  // Emptying the composer lets go of what was picked into it.
+  const setPrompt = (next: string) => {
+    setText(next);
+
+    if (next.trim() === "") setPicked([]);
+  };
+
+  const ahead = (text: string) => setText((current) => (current.trim() ? `${text}\n\n${current}` : text));
+
+  const pick = (text: string, key?: string) => {
+    ahead(text);
+
+    if (key !== undefined) setPicked((current) => (current.includes(key) ? current : [...current, key]));
+  };
+
   const removeImage = (id: string) => {
     setImages((current) => current.filter((image) => image.id !== id));
     setImageError(null);
@@ -60,7 +80,8 @@ export function useDraft(): Draft {
     const text = prompt.trim();
 
     if (!text && images.length === 0) return null;
-    setPrompt("");
+    setText("");
+    setPicked([]);
     setImages([]);
     setImageError(null);
 
@@ -70,11 +91,11 @@ export function useDraft(): Draft {
   const restore = (back: UserInput) => {
     const text = outgoingText(back);
     const returned = imagesOf(back).map((image, index) => ({ ...image, id: crypto.randomUUID(), name: `Image ${index + 1}` }));
-    setPrompt((current) => (current.trim() ? `${text}\n\n${current}` : text));
+    ahead(text);
     setImages((current) => [...returned, ...current].slice(0, MAX_IMAGES));
   };
 
-  return { prompt, setPrompt, images, reading, imageError, addImages, removeImage, take, restore };
+  return { prompt, setPrompt, images, reading, imageError, addImages, removeImage, take, restore, pick, picked };
 }
 
 // A new deploy is live: reload, unless that would throw away a draft.

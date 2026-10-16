@@ -2401,7 +2401,7 @@ const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; v
   },
   { to: { kind: "peers" }, icon: "nodes", label: "Peers", value: () => "Other people's kys" },
   { to: { kind: "mail" }, icon: "mail", label: "Mail", value: () => "ky's own address" },
-  { to: { kind: "proactivity" }, icon: "sun", label: "Proactivity", value: () => "What ky says unasked" },
+  { to: { kind: "proactivity" }, icon: "sparkle", label: "Proactivity", value: () => "What ky says unasked" },
   { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
   { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
   { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
