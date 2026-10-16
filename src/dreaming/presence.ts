@@ -1,8 +1,8 @@
 import { countOf } from "./contract";
 
 /**
- * When the user was last here: a browser connected, or they sent a chat a
- * message. The dream waits until they have been away a while
+ * When the user was last here: they sent a chat a message. A browser that
+ * connects does not count, since an open tab reconnects at night by itself. The dream waits until they have been away a while
  * (src/dreaming/dreaming.ts), so it never tends the library mid-conversation.
  */
 export class Presence {

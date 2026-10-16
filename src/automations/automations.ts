@@ -127,6 +127,9 @@ const GATE_ERRORS = 3;
 /** The most of a gate's answer put before a run's prompt. */
 const GATE_FOUND_MAX = 8_000;
 
+/** A dream booked this soon, or overdue, is firing or about to: booking the dream again leaves it be. */
+const DREAM_DUE_MS = 5 * 60_000;
+
 /** What a gate returns when there is nothing to do, once spaces are taken out. */
 const NOTHING: ReadonlySet<string> = new Set(["", "null", "undefined", "false", "0", "[]", "{}", '""']);
 
@@ -272,8 +275,9 @@ export class Automations {
   /** The user's time zone, from where their browser connects; check-ins are booked for their morning, and the dream for their night. */
   async setZone(zone: string): Promise<void> {
     if (zone === this.checkIns().zone) return;
+    // Booked first: a booking that fails leaves the old zone, so the next connect tries again.
+    await this.#bookDream(zone);
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
-    await this.#bookDream();
   }
 
   /** Whether the pi session is a check-in's run at work. */
@@ -457,14 +461,18 @@ export class Automations {
     await this.scheduler.set(new Date(at), "peers");
   }
 
-  /** One dream at `at`, epoch ms, besides the nightly one: the dream's own, when the user was here. */
+  /** One dream at `at`, epoch ms, besides the nightly one: the dream's own, when the user was here. It replaces any such look already booked, so they never pile up. */
   async dreamAt(at: number): Promise<void> {
+    for (const old of await this.scheduler.list()) {
+      if (old.callback === "dream" && old.type !== "cron") await this.scheduler.cancel(old.id);
+    }
+
     await this.scheduler.set(new Date(at), "dream");
   }
 
   /** On start: book the nightly dream, and any active automation whose booking is missing. */
   async recover(): Promise<void> {
-    await this.#bookDream();
+    await this.#bookDream(this.checkIns().zone);
 
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
@@ -472,13 +480,18 @@ export class Automations {
     }
   }
 
-  /** Book the nightly dream at the user's zone, dropping one booked at another cron, so ky never dreams twice a night. */
-  async #bookDream(): Promise<void> {
-    const cron = this.#deps.dream.cron(this.checkIns().zone);
+  /**
+   * Book the nightly dream in `zone`, dropping one booked at another cron, so ky never dreams twice a night.
+   * A start the dream's own fire woke (or one just before it) leaves the booking alone, so a daylight-saving
+   * change never cancels tonight's dream as it fires; the next start books it again.
+   */
+  async #bookDream(zone: string | null): Promise<void> {
+    const cron = this.#deps.dream.cron(zone);
+    const stale = (await this.scheduler.list()).filter((old) => old.callback === "dream" && old.type === "cron" && old.cron !== cron);
 
-    for (const old of await this.scheduler.list()) {
-      if (old.callback === "dream" && old.type === "cron" && old.cron !== cron) await this.scheduler.cancel(old.id);
-    }
+    if (stale.some((old) => old.time * 1000 < Date.now() + DREAM_DUE_MS)) return;
+
+    for (const old of stale) await this.scheduler.cancel(old.id);
 
     await this.scheduler.set(cron, "dream", undefined, { idempotent: true });
   }

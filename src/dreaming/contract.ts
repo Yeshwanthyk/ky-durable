@@ -117,8 +117,11 @@ export {
 
 // Dreaming.
 
-/** The point the last dream read up to: the memory count and the time. */
-const MarkSchema = Type.Object({ memories: Type.Integer({ minimum: 0 }), at: Type.Number({ minimum: 0 }) });
+/**
+ * The point the last dream read up to: the memory count, the time, and pi's commit sequence of the last
+ * chat message it read (absent or 0 before one was kept, when what was said is read by time).
+ */
+const MarkSchema = Type.Object({ memories: Type.Integer({ minimum: 0 }), at: Type.Number({ minimum: 0 }), said: Type.Optional(Type.Integer({ minimum: 0 })) });
 
 export type Mark = Static<typeof MarkSchema>;
 
