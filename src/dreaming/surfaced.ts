@@ -1,8 +1,8 @@
 import { outcomeCount, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
 
 /**
- * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line
- * today; a boundary line later), with its outcome. A line is shown with no outcome; the user acts on it (taps
+ * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line,
+ * or an automation's report put in a chat between turns), with its outcome. A line is shown with no outcome; the user acts on it (taps
  * its chip), pins or dismisses it; whatever is still unhandled when it expires (the brief's midnight) becomes
  * expired, lazily, on the next read. A pinned one may still be acted on or dismissed; every other outcome is final.
  *
@@ -10,8 +10,12 @@ import { outcomeCount, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from
  * lowers itself from 3 to 2 after two weeks in a row with acceptance (acted or pinned, of shown) below 25%.
  */
 
-/** What is surfaced: a brief line. */
-export type SurfacedKind = "brief";
+/**
+ * What is surfaced: a brief line, or an event: an automation's report put in a chat between turns
+ * (src/automations/delivery.ts). One the user was away for is a brief line from loop "event" instead, and
+ * takes its outcome on the card; one in a chat has no outcome to tap yet, so it expires after a day.
+ */
+export type SurfacedKind = "brief" | "event";
 
 /** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
 export type Shown = {

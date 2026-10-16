@@ -1,5 +1,5 @@
 import type { Extension } from "@earendil-works/pi-durable";
-import type { Automations, TaskFeed } from "../automations/contract";
+import type { Automations, Delivery, TaskFeed } from "../automations/contract";
 import type { Models } from "../models";
 import type { ReviewHost } from "./contract";
 import { type Reviews, type Skills, skillsExtension } from "./skills";
@@ -22,6 +22,8 @@ export type SkillsWiring = {
   readonly background: ReviewHost;
   /** The main chat or a side chat. */
   readonly chat: (session: string) => boolean;
+  /** How an automation run's report reaches the user (src/automations/delivery.ts). */
+  readonly deliver: (item: Delivery) => Promise<void>;
 };
 
 /** The skill tools, with the reviews of busy turns. */
@@ -34,7 +36,7 @@ export type MainTools = { readonly soul: Extension; readonly memory: Extension; 
 
 /** Specialists, subagents and their progress steps; `spawn` starts a subagent from outside a tool call. */
 export function delegationTools(
-  { specialists: store, feed, models, automations, chat }: SkillsWiring,
+  { specialists: store, feed, models, automations, chat, deliver }: SkillsWiring,
   { soul, memory, machines, automations: automationTool }: MainTools
 ) {
   const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId));
@@ -50,7 +52,8 @@ export function delegationTools(
       // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
       remove: [soul, automationTool, specialists.manage],
       model: (own) => models.worker(own)
-    }
+    },
+    deliver
   );
 
   return { specialists, subagents: subagents.extension, spawn: subagents.spawn, progress: subagentProgressExtension(feed) };

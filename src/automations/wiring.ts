@@ -5,6 +5,8 @@ import { automationExtension, type Automations, checkInGuardExtension } from "./
 /** The domain's classes, for server.ts to make: the contract carries only their types. */
 export { Automations } from "./automations";
 
+export { Deliveries, deliveryExtension } from "./delivery";
+
 export { TaskFeed } from "./tasks";
 
 /** What the automations domain's tools are made from, on the agent (src/server.ts). */

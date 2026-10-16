@@ -19,7 +19,8 @@ export const AUTOMATION_TABLES = Object.freeze({
   automations: "ky_automations",
   checkIns: "ky_check_ins",
   tasks: "ky_tasks",
-  taskSteps: "ky_task_steps"
+  taskSteps: "ky_task_steps",
+  deliveries: "ky_deliveries"
 } as const);
 
 /** The automation tool, and the extensions that carry it and the check-in guard. */
@@ -184,6 +185,22 @@ const StoredTask = Type.Object({
 export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent"> & { steps: readonly TaskStep[]; agent: Agent | null }>;
 
 export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "session">>;
+
+/**
+ * Something an automation tells a chat: a run's report, or the notice that it paused. `id` is its one identity,
+ * the request id pi takes it by, so however often it is handed over it is delivered once; `content` is what
+ * the chat's agent is given; `line` is the one line today's brief shows instead while the user is away;
+ * `ref` is what it rests on, like task:a-1f2e-1760600000, one brief line a ref.
+ */
+export const DeliverySchema = Type.Object({ id: Type.String(), session: Type.String(), content: Type.String(), line: Type.String(), ref: Type.String() });
+
+export type Delivery = Readonly<Static<typeof DeliverySchema>>;
+
+/** A row naming a chat, as `ky_deliveries` lists the ones with something waiting. */
+export const SessionRow = Type.Object({ session: Type.String() });
+
+/** What an automation's gate last found, as a hash, and the task it started; null for nothing. */
+export const GateFoundRow = Type.Object({ gate_found: Nullable(Type.String()), gate_found_by: Nullable(Type.String()) });
 
 /** A `PRAGMA table_info` row: only the column name is read. */
 export const ColumnInfo = Type.Object({ name: Type.String() });
