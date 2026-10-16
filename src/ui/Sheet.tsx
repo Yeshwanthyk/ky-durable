@@ -25,6 +25,8 @@ export function Sheet({
     <dialog
       ref={dialog}
       className={`soul-sheet ${className}`.trim()}
+      // Dark in both themes, so the theme tokens inside it (Markdown's ink, list markers, code) take their dark values.
+      data-mode="dark"
       aria-label={label}
       onClose={onClose}
       // A click on the backdrop lands on the dialog itself, not on its content.
