@@ -269,6 +269,8 @@ export class Vault extends ProductionVault {
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `executor CODE` runs CODE on Executor.
  * - `tool NAME JSON` calls any tool with those arguments.
+ * - An episode reflection keeps the user's first "I'll ..." message as an
+ *   open loop, or answers [SILENT].
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
  * - After a tool result it answers `tool said: <result>`; anything else is
@@ -420,7 +422,19 @@ function reply(last: WireMessage | undefined): Reply {
   // The wire does not say whether a tool failed; its result is its text either way.
   if (last?.role === "tool") return { text: `tool said: ${wireText(last.content)}` };
 
-  return answer(last?.role === "user" ? wireText(last.content) : "");
+  const prompt = last?.role === "user" ? wireText(last.content) : "";
+
+  return prompt.startsWith("[episode]") ? episode(prompt) : answer(prompt);
+}
+
+/**
+ * An episode reflection (src/dreaming/episodes.ts) keeps the first promise the user made ("I'll ..."), citing its
+ * message, and answers [SILENT] when there is none.
+ */
+function episode(prompt: string): Reply {
+  const promise = /^#(\d+) user: (I'll .+)$/m.exec(prompt);
+
+  return promise ? call("anticipate", { action: "add", kind: "open_loop", text: promise[2]!, messages: [Number(promise[1])] }) : { text: "[SILENT]" };
 }
 
 /** The prompts that call a tool: each pattern, and the call its match makes. */

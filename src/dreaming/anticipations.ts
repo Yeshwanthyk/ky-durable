@@ -492,8 +492,9 @@ function handlers(anticipations: Anticipations): Readonly<Record<Call["args"]["a
 }
 
 /**
- * The `anticipate` tool, for the dream (as `dream`) and the main chat and side chats (as `user`); memory's
- * extension carries it (src/dreaming/memory.ts), so a specialist, which may not write memory, may not call it.
+ * The `anticipate` tool, for the dream (as `dream`), an episode reflection (as `episode`), and the main chat and
+ * side chats (as `user`); `actor` says which a session is. Memory's extension carries it (src/dreaming/memory.ts),
+ * so a specialist, which may not write memory, may not call it.
  */
 export function anticipateTool(anticipations: Anticipations, actor: (session: string) => Actor) {
   const actions = handlers(anticipations);

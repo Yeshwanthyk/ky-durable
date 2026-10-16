@@ -185,7 +185,9 @@ describe("routing a task to a sandbox", () => {
     const web = await inside(name, (instance) => instance.createSandbox({ name: "web", repos: ["me/web"] }));
     const run = (args: { prompt: string; machine?: string; repo?: string }) => prompt(name, `tool machine ${JSON.stringify({ action: "run", ...args })}`);
     // The feed lists the newest task first.
-    const latest = async () => (await tasks(name))[0]?.worker;
+    // Machine runs only: the chat's own background passes (an episode reflection after six prompts) show in the feed too.
+    const runs = async () => (await tasks(name)).filter((task) => task.kind === "machine");
+    const latest = async () => (await runs())[0]?.worker;
 
     // Listed with the cloud machine, as sandboxes, before any wakes.
     expect(await inside(name, (instance) => instance.machines.machines().map((machine) => [machine.name, machine.sandbox?.id ?? null]))).toEqual([
@@ -207,7 +209,7 @@ describe("routing a task to a sandbox", () => {
     await run({ prompt: "fix the app", repo: "me/app" });
     expect(await latest()).toBe(CLOUD);
     await inside(name, (instance) => instance.changeSandbox(CLOUD, { repos: [] }));
-    expect(await tasks(name)).toHaveLength(3);
+    expect(await runs()).toHaveLength(3);
 
     expect((await run({ prompt: "fix the site", machine: CLOUD, repo: "me/web" })).text).toContain(
       `me/web is the sandbox web's, not ${CLOUD}'s: run it on web, or leave machine out.`
@@ -215,7 +217,7 @@ describe("routing a task to a sandbox", () => {
     expect((await run({ prompt: "fix the api", machine: "web", repo: "me/api" })).text).toContain("me/api is no sandbox's, and web works only on its repos (me/web)");
     // The cloud machine owns no repo, so it takes any other.
     await run({ prompt: "fix the api", machine: CLOUD, repo: "me/api" });
-    expect(await tasks(name)).toHaveLength(4);
+    expect(await runs()).toHaveLength(4);
 
     // A computer may work on the repo too, when it is named.
     const mac = await runner(name, "mac", FACTS);

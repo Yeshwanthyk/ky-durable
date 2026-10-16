@@ -6,7 +6,7 @@
  */
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type Extension, type Tx } from "@earendil-works/pi-durable";
+import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type EntryId, type Extension, type Tx } from "@earendil-works/pi-durable";
 import Type, { type Static } from "typebox";
 import { summarize, type TaskFeed } from "../automations/contract";
 import { parseOr } from "../core/decode";
@@ -151,8 +151,11 @@ export const SkillVersion = Type.Object({
 
 export type SkillVersion = Static<typeof SkillVersion>;
 
-/** What runs in the background over the library: a review of one turn, or a nightly dream (src/dreaming/dreaming.ts). */
-const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream")]);
+/**
+ * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), or an episode
+ * reflection that keeps what a chat left open (src/dreaming/episodes.ts).
+ */
+const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream"), Type.Literal("episode")]);
 
 export type ReviewKind = Static<typeof ReviewKind>;
 
@@ -161,11 +164,13 @@ export const ReviewRow = Type.Object({ kind: ReviewKind });
 
 const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memory_zoom"] as const;
 
-/** The tools each kind may call; both are offered every tool, so the rest are blocked. */
+/** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = Object.freeze({
   review: REVIEW_TOOLS,
   // automation books check-ins (src/automations/automations.ts), and only them; anticipate keeps what is open (src/dreaming/anticipations.ts).
-  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"]
+  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"],
+  // An episode only keeps what is open, checking memory first; it writes no memory and no skill.
+  episode: ["anticipate", "memory_recall"]
 });
 
 // Specialists.
@@ -321,6 +326,17 @@ export type ReviewHost = {
   /** The background purpose's model, which a review's fork runs on. */
   readonly model: () => AgentChange;
 };
+
+/**
+ * Fork `conversation` at `at` for a review, a dream or an episode: the fork keeps the parent's agent and, since it
+ * remembers, the parent's memory section, but runs on the background model.
+ */
+export async function reviewFork(host: ReviewHost, conversation: Conversation, at: EntryId): Promise<Conversation> {
+  const fork = await conversation.fork(at, { ownership: { kind: "ownerless" } }, host.context);
+  await fork.configure(host.model(), host.context);
+
+  return fork;
+}
 
 /** A background task as it shows in Activity. */
 type BackgroundTask = { readonly id: string; readonly worker: string; readonly title: string; readonly content: string };

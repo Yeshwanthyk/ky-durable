@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BACKGROUND } from "../background";
 import { History } from "../history";
 import { DREAM_MEMORY_TOOLS, DREAMING_TABLES, MEMORY_WRITE_TOOLS, SOUL_EDIT } from "../dreaming/contract";
 import { DREAM_NOTES } from "../dreaming/dreaming";
@@ -15,8 +16,21 @@ const never = () => Promise.reject(new Error("no summaries in this test"));
 
 describe("dreaming's contract", () => {
   it("allowlists only tools the domain registers", async () => {
-    const names = await inside(crypto.randomUUID(), (instance) => {
-      const { soul, memory } = dreamingTools({ soul: instance.soul, memory: instance.memory, anticipations: instance.anticipations, history: instance.history, reviews: instance.reviews, chat: () => true });
+    const names = await inside(crypto.randomUUID(), (instance, state) => {
+      // No turn runs here, so episode reflections never start: their host only has to be there.
+      const background = { conversation: () => Promise.reject(new Error("no episodes in this test")), feed: instance.feed, later: () => undefined, context: BACKGROUND, model: () => ({}) };
+
+      const { soul, memory } = dreamingTools({
+        soul: instance.soul,
+        memory: instance.memory,
+        anticipations: instance.anticipations,
+        history: instance.history,
+        reviews: instance.reviews,
+        chat: () => true,
+        sql: state.storage.sql,
+        background,
+        busyAfter: () => 5
+      });
 
       return [...(soul.tools ?? []), ...(memory.tools ?? [])].map((tool) => tool.name);
     });

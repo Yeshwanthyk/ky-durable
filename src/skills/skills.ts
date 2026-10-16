@@ -9,6 +9,7 @@ import {
   type ReviewKind,
   REVIEW_ALLOWED,
   ReviewRow,
+  reviewFork,
   runInFeed,
   type SkillAction,
   SkillAction as SkillActionSchema,
@@ -47,11 +48,15 @@ const BODY_CHARS = 20_000;
 /** A turn with at least this many tool calls is reviewed for skills. */
 const REVIEW_AFTER = 5;
 
-/** The tools each kind may call; both are offered every tool, so the rest are blocked. */
+/** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
   review: new Set(REVIEW_ALLOWED.review),
-  dream: new Set(REVIEW_ALLOWED.dream)
+  dream: new Set(REVIEW_ALLOWED.dream),
+  episode: new Set(REVIEW_ALLOWED.episode)
 };
+
+/** What a blocked call calls each kind. */
+const KIND_NAMES: Record<ReviewKind, string> = { review: "skill review", dream: "dream", episode: "episode reflection" };
 
 /** A skill not opened in this long, and older than STALE_MIN_AGE_MS, is archived by `stale`. */
 const STALE_UNUSED_MS = 60 * 24 * 60 * 60 * 1000;
@@ -71,6 +76,8 @@ const VersionId = Type.Object({ id: Type.Number() });
 const Touched = Type.Object({ name: Type.String(), at: Type.Number() });
 
 const Inserted = Type.Object({ id: Type.Number() });
+
+const Reached = Type.Object({ upto: Type.Union([Type.Number(), Type.Null()]) });
 
 /** Add the columns a table was first made without; returns the ones it added. */
 function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): string[] {
@@ -390,9 +397,10 @@ export class Skills {
 }
 
 /**
- * The background conversations that tend the library: forks of a turn,
- * asked to update it, and nightly dreams. They remember, like the chats
- * they serve, but may call only the tools their kind allows.
+ * The background conversations: forks of a turn, asked to update the library,
+ * nightly dreams, and episode reflections, forks that keep what a chat left
+ * open. They remember, like the chats they serve, but may call only the tools
+ * their kind allows.
  */
 export class Reviews {
   readonly #sql: SqlStorage;
@@ -404,7 +412,10 @@ export class Reviews {
       parent TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, SKILL_TABLES.skillReviews, [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
+    addColumns(sql, SKILL_TABLES.skillReviews, [
+      ["kind", "TEXT NOT NULL DEFAULT 'review'"],
+      ["upto", "INTEGER"]
+    ]);
   }
 
   kind(conversation: string): ReviewKind | undefined {
@@ -415,15 +426,30 @@ export class Reviews {
     return this.kind(conversation) !== undefined;
   }
 
-  /** `parent` is the chat a review forked; a dream has none, and records "". */
-  add(conversation: string, parent: string, kind: ReviewKind = "review"): void {
+  /**
+   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
+   * was made at, so the next one of its kind knows where this one read to.
+   */
+  add(conversation: string, parent: string, kind: ReviewKind = "review", upto: number | null = null): void {
     this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto) VALUES (?, ?, ?, ?, ?)`,
       conversation,
       parent,
       Date.now(),
-      kind
+      kind,
+      upto
     );
+  }
+
+  /** The newest entry of `parent` a fork of `kind` was made at; 0 before the first. */
+  reached(parent: string, kind: ReviewKind): number {
+    const row = rows(
+      this.#sql.exec(`SELECT max(upto) AS upto FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ?`, parent, kind),
+      Reached,
+      "where a review read to"
+    )[0];
+
+    return row?.upto ?? 0;
   }
 }
 
@@ -474,10 +500,7 @@ export function skillsExtension(
       const latest = (await conversation.entries({}, 1, undefined, context)).items[0];
 
       if (!latest) return;
-      // The fork keeps the parent's agent and, since it remembers, the parent's memory section,
-      // but runs on the background model.
-      const fork = await conversation.fork(latest.id, { ownership: { kind: "ownerless" } }, context);
-      await fork.configure(host.model(), context);
+      const fork = await reviewFork(host, conversation, latest.id);
       reviews.add(String(fork.id), session);
       await runInFeed(host, fork, { id: crypto.randomUUID(), worker: "skills", title: "Skill review", content: REVIEW });
     } catch (error) {
@@ -512,14 +535,14 @@ export function skillsExtension(
           return undefined;
         }
       }),
-      // A review or a dream is offered every tool; it may only call the ones its kind allows.
+      // A review, a dream or an episode is offered every tool; it may only call the ones its kind allows.
       hook(ToolTask, {
         beforeTool: (call, api) => {
           const kind = reviews.kind(String(api.conversationId));
 
           if (kind === undefined || ALLOWED[kind].has(call.name)) return undefined;
 
-          return { block: `A ${kind === "dream" ? "dream" : "skill review"} may only call ${[...ALLOWED[kind]].join(", ")}.` };
+          return { block: `A ${KIND_NAMES[kind]} may only call ${[...ALLOWED[kind]].join(", ")}.` };
         }
       })
     ],

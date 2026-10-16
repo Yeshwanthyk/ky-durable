@@ -100,7 +100,7 @@ const VERSIONS = 100;
 const TASKS = 50;
 
 /** The skills and the reviews that produce them; neither belongs in the digest of tasks. */
-const OWN_WORKERS = ["skills", "dreaming"];
+const OWN_WORKERS = ["skills", "dreaming", "episodes"];
 
 /** Step 8, while the user has check-ins on. */
 const CHECK_IN_STEP = `
