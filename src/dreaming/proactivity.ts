@@ -3,8 +3,8 @@ import { PROACTIVITY_LEVELS, type ProactivityLevel, type ProactivityView } from 
 import type { Surfaced } from "./surfaced";
 
 /**
- * How proactive ky is, set in Settings › Proactivity: off (nothing unasked: no brief card, and the dream
- * writes none), brief (the morning brief; the default), or boundary (the brief, and a line at a task's
+ * How proactive ky is, set in Settings › Proactivity: off (no brief card, the dream writes none, and the card's
+ * taps are refused; check-ins are their own setting, in Settings › Automations), brief (the morning brief; the default), or boundary (the brief, and a line at a task's
  * boundary when one helps). Its page shows how it is going, from what ky surfaced and its anticipations.
  */
 
@@ -46,8 +46,9 @@ export class Proactivity {
 
     return {
       level: this.level(),
-      accepted: { count: week.acted + week.pinned, of: week.shown },
-      dismissed: { count: week.dismissed, of: week.shown },
+      // Of the settled lines: one still open before its midnight has not had its chance yet.
+      accepted: { count: week.acted + week.pinned, of: week.settled },
+      dismissed: { count: week.dismissed, of: week.settled },
       expired: { count: made.expired, of: made.all }
     };
   }

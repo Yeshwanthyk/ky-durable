@@ -83,13 +83,18 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
   with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
   Turn-start recall will read them with `match`; no panel shows them yet.
-- The morning brief: up to 3 lines for the user's day in `ky_brief` (`src/dreaming/brief.ts`), one row per local
-  day, gone at their midnight. The dream writes them with the `anticipate` tool's brief action from what is `due`
-  and open (a line from an anticipation marks it surfaced); events may `append` lines too. The first browser hello
-  of the day gets a `brief` frame, shown as a card above the chat, not a chat message. Each line shown, and its
-  outcome (acted, pinned, dismissed, or expired at midnight), is a `ky_surfaced` row (`src/dreaming/surfaced.ts`);
-  the dream's digest reads last week's counts and dismissed lines, and the cap drops to 2 after two weeks in a row
-  under 25% acted or pinned. Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off.
+- The morning brief: up to 3 lines a day for the user's day in `ky_brief` (`src/dreaming/brief.ts`), one row per
+  local day, gone at their midnight (`src/dreaming/local-day.ts`, found by search so daylight saving at midnight holds).
+  The dream writes them with the `anticipate` tool's brief action from what is `due` and open; events may `append`
+  lines too, within the same cap. A notice ky relayed is never evidence (`isOwnRequest` in `src/history.ts`). A
+  quiet night dreams only when something is due or pinned in the day, with a brief-only prompt. Every hello that
+  day gets the unhandled lines as a `brief` frame, and open pages get it again when a line is written; the card
+  sits above the chat, not in it, each line naming its source. A line is shown, a `ky_surfaced` row
+  (`src/dreaming/surfaced.ts`) and its anticipation surfaced, when the page reports it on screen (`brief-seen`).
+  Outcomes are acted (the chip's message sent), pinned, dismissed, cleared (Dismiss all, not counted as dismissed
+  and not shown to the dream as such), or expired at midnight. The dream's digest reads last week's counts and
+  dismissed lines, and the cap drops to 2 after two weeks in a row under 25% of settled lines acted or pinned.
+  Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off: an empty brief, taps refused.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its

@@ -109,7 +109,7 @@ export const ServerFrameSchema = Type.Union([
       Type.Object({
         day: Text,
         expires_at: Type.Number(),
-        lines: Type.Array(Type.Object({ key: Text, text: Text, chip: Type.Union([Text, Type.Null()]), pinned: Type.Boolean() }))
+        lines: Type.Array(Type.Object({ key: Text, text: Text, source: Text, chip: Type.Union([Text, Type.Null()]), pinned: Type.Boolean() }))
       })
     )
   }),
@@ -191,9 +191,11 @@ export const ANSWERS = {
   "mail-disallow": Refusable,
   proactivity: Proactivity,
   "set-proactivity": Proactivity,
+  "brief-seen": Type.Null(),
   "brief-act": Type.Null(),
   "brief-pin": Type.Null(),
-  "brief-dismiss": Type.Null()
+  "brief-dismiss": Type.Null(),
+  "brief-clear": Type.Null()
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 
 /** A message type the page asks with: one whose answer it waits for. */

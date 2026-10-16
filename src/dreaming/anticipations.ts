@@ -1,6 +1,7 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
+import { isOwnRequest } from "../history";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,
@@ -29,8 +30,8 @@ import type { Memory } from "./memory";
  * - the main chat, for the user ("remind me", "that's done"), through the same tool, as `user`;
  * - turn-start recall: `match` the message's words (the tool's list `about` uses it today);
  * - the morning brief (src/dreaming/brief.ts): the dream's digest lists `due` for the day ahead, and the tool's
- *   `brief` action puts a row in it and marks it `surface`d; the card's pin is `pin`, and its dismiss `close`s
- *   the row as dismissed for the user;
+ *   `brief` action puts a row in it, which is `surface`d once the user's screen shows the line; the card's pin is
+ *   `pin`, and its dismiss `close`s a machine's unpinned row as dismissed for the user;
  * - Settings › Proactivity: `madeSince`, for how many expired unseen;
  * - the panel, later: `open`, `pin`/`unpin` (the tool's, for the user, today), and `close` as dismissed.
  *
@@ -110,8 +111,17 @@ function checkWindow(window: Window): Window {
 /** `pattern` as a LIKE pattern that matches it anywhere, its wildcards escaped. */
 const like = (term: string) => `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 
-/** A user's or ky's message in pi's entries: the conversation it is in. */
-const MessageRow = Type.Object({ conversation_id: Type.Number() });
+/** A user's or ky's message in pi's entries: the conversation it is in, and whose it is. */
+const MessageRow = Type.Object({ conversation_id: Type.Number(), kind: Type.String() });
+
+/** The submission that placed a user entry: its request id, which tells the user's own message from a notice. */
+const PlacedRow = Type.Object({ request: Type.Union([Type.String(), Type.Null()]) });
+
+/** Where a cited message is: its chat, and whether it is a notice ky relayed rather than the user's words; empty when there is no such message. */
+type MessagePlace = { readonly conversation?: string; readonly notice?: boolean };
+
+/** How far apart, in pi's ids, a user entry and the submission that placed it may be (as src/history.ts reads them). */
+const PLACED_SLACK = 5_000;
 
 export class Anticipations {
   readonly #sql: SqlStorage;
@@ -201,7 +211,7 @@ export class Anticipations {
       throw new Error("No evidence: cite the chat messages (#rowid) or memories (#id) it rests on.");
     }
 
-    const found = messages.map((id) => ({ id, conversation: this.#messageIn(id) }));
+    const found = messages.map((id) => ({ id, ...this.#messageIn(id) }));
 
     const missing = [
       ...found.flatMap(({ id, conversation }) => (conversation === undefined ? [`message #${id}`] : [])),
@@ -215,22 +225,45 @@ export class Anticipations {
       throw new Error(`Message ${elsewhere.join(", ")} is not from a chat (a dream, a subagent or a task said it): cite what the user and ky said in a chat.`);
     }
 
+    const notices = found.flatMap(({ id, notice }) => (notice === true ? [`#${id}`] : []));
+
+    if (notices.length > 0) {
+      throw new Error(`Message ${notices.join(", ")} is a notice ky relayed (mail, a peer, a report), not the user's words: cite what the user and ky said.`);
+    }
+
     return { messages, memories };
   }
 
   /**
-   * The conversation of `id` when it is a user's or ky's message, else undefined: chat search's rowids
-   * (src/history.ts) are pi's entry ids, read from pi's entries so a message chat search has not indexed yet
-   * counts too.
+   * The conversation of `id` when it is a user's or ky's message, and whether it is a notice: a user entry ky
+   * posted for someone else (a relayed mail, a peer's question, a report), told apart as chat search tells it, by
+   * the request id of the submission that placed it. Chat search's rowids (src/history.ts) are pi's entry ids,
+   * read from pi's entries so a message chat search has not indexed yet counts too.
    */
-  #messageIn(id: number): string | undefined {
+  #messageIn(id: number): MessagePlace {
     const row = this.#sql
-      .exec("SELECT conversation_id FROM pi_entries WHERE id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')", id)
+      .exec(
+        "SELECT conversation_id, json_extract(record, '$.kind') AS kind FROM pi_entries WHERE id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')",
+        id
+      )
       .toArray()[0];
 
     const message = decodeOr(MessageRow, row, undefined);
 
-    return message === undefined ? undefined : String(message.conversation_id);
+    if (message === undefined) return {};
+
+    if (message.kind !== "pi.user") return { conversation: String(message.conversation_id), notice: false };
+
+    const placed = this.#sql
+      .exec(
+        "SELECT json_extract(record, '$.requestId') AS request FROM pi_submissions WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') = ? LIMIT 1",
+        id - PLACED_SLACK,
+        id + PLACED_SLACK,
+        id
+      )
+      .toArray()[0];
+
+    return { conversation: String(message.conversation_id), notice: !isOwnRequest(decodeOr(PlacedRow, placed, undefined)?.request ?? undefined) };
   }
 
   /** The user's latest message in `conversation`, as a message id to cite; undefined before the first. */
@@ -547,9 +580,8 @@ function handlers(anticipations: Anticipations, brief: Brief): Readonly<Record<C
       const ref = row === undefined ? evidenceRef(anticipations.checkEvidence({ messages: args.messages ?? [], memories: args.memories ?? [] })) : `anticipation:${row.id}`;
       const key = brief.append({ text: need(args.text, "text"), chip: args.chip }, { loop: "dream", ref }, now);
 
-      if (row?.status === "open") anticipations.surface(row.id, now);
-
-      return `In the brief as ${key}${row === undefined ? "" : `; #${row.id} is surfaced`}.`;
+      // Its anticipation becomes surfaced when the user's screen shows the line (Brief.seen), not now.
+      return `In the brief as ${key}.`;
     }
   };
 }
@@ -565,7 +597,7 @@ export function anticipateTool(anticipations: Anticipations, brief: Brief, actor
   return defineTool({
     name: ANTICIPATE,
     description:
-      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on. Nothing that only a page, file, tool output or a notice brought up. From the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours. brief (the dream only) puts one line in today's brief: text, and id (an open anticipation, which becomes surfaced) or messages or memories it rests on, and chip: an ask the user can send with a tap.",
+      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on. Nothing that only a page, file, tool output or a notice brought up. From the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours. brief (the dream only) puts one line in today's brief: text, and id (an open anticipation, surfaced once the user sees it) or messages or memories it rests on, and chip: an ask the user can send with a tap.",
     parameters: AnticipateInput,
     replay: "unsafe",
     execute: async (args, api) => {

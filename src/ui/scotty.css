@@ -2047,6 +2047,19 @@ button.live:hover .live-steps {
   text-wrap: pretty;
 }
 
+/* Where the line came from: an anticipation, a chat, a memory. */
+.brief-source {
+  margin: -4px 0 0;
+  font-size: calc(11.5px * var(--text-scale));
+  color: var(--muted);
+}
+
+.brief-problem {
+  margin: 4px 0 2px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink);
+}
+
 .brief-chip {
   max-width: 100%;
   min-height: 28px;

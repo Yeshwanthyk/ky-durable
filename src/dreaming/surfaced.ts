@@ -3,11 +3,14 @@ import { outcomeCount, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from
 /**
  * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line
  * today; a boundary line later), with its outcome. A line is shown with no outcome; the user acts on it (taps
- * its chip), pins or dismisses it; whatever is still unhandled when it expires (the brief's midnight) becomes
- * expired, lazily, on the next read. A pinned one may still be acted on or dismissed; every other outcome is final.
+ * its chip), pins or dismisses it, or clears it with the rest of the card; whatever is still unhandled when it
+ * expires (the brief's midnight) becomes expired, lazily, on the next read. A pinned one may still be acted on or
+ * dismissed; every other outcome is final. Shown means the user's screen showed it, not that a socket was sent it.
  *
  * The counts feed the dream ("What you surfaced last week") and Settings › Proactivity, and the brief's cap
- * lowers itself from 3 to 2 after two weeks in a row with acceptance (acted or pinned, of shown) below 25%.
+ * lowers itself from 3 to 2 after two weeks in a row with acceptance below 25%. Acceptance is acted or pinned
+ * of the settled ones: a line still open before its midnight has not had its chance yet, so it counts in neither.
+ * Cleared counts as settled and not accepted, like expired, and never as dismissed.
  */
 
 /** What is surfaced: a brief line. */
@@ -25,8 +28,8 @@ export type Shown = {
   readonly expiresAt: number;
 };
 
-/** A week's shown things by outcome, `open` for the ones with none yet. */
-export type Week = Readonly<Record<SurfacedOutcome | "open", number>> & { readonly shown: number };
+/** A week's shown things by outcome, `open` for the ones with none yet; `settled` is shown less open. */
+export type Week = Readonly<Record<SurfacedOutcome | "open", number>> & { readonly shown: number; readonly settled: number };
 
 const WEEK_MS = 7 * 86_400_000;
 
@@ -82,7 +85,7 @@ export class Surfaced {
 
   /**
    * Record what the user did with a shown item. Refused when it was never shown, and once its outcome is final:
-   * only an unhandled one, or a pinned one becoming acted or dismissed, takes a new one.
+   * only an unhandled one, or a pinned one becoming acted or dismissed, takes a new one; only an unhandled one is cleared.
    */
   outcome(kind: SurfacedKind, item: string, outcome: SurfacedOutcome, now = Date.now()): void {
     this.expire(now);
@@ -102,7 +105,7 @@ export class Surfaced {
 
   /** What became of the `kind` shown in [`from`, `to`). */
   week(kind: SurfacedKind, from: number, to: number): Week {
-    const counts: Record<SurfacedOutcome | "open", number> = { acted: 0, pinned: 0, dismissed: 0, ignored: 0, expired: 0, open: 0 };
+    const counts: Record<SurfacedOutcome | "open", number> = { acted: 0, pinned: 0, dismissed: 0, cleared: 0, ignored: 0, expired: 0, open: 0 };
 
     for (const raw of this.#sql.exec("SELECT outcome, COUNT(*) AS n FROM ky_surfaced WHERE kind = ? AND shown_at >= ? AND shown_at < ? GROUP BY outcome", kind, from, to).toArray()) {
       const row = outcomeCount(raw);
@@ -110,7 +113,9 @@ export class Surfaced {
       if (row !== undefined) counts[row.outcome ?? "open"] += row.n;
     }
 
-    return { ...counts, shown: Object.values(counts).reduce((sum, n) => sum + n, 0) };
+    const shown = Object.values(counts).reduce((sum, n) => sum + n, 0);
+
+    return { ...counts, shown, settled: shown - counts.open };
   }
 
   /** The week before `now`: what became of what was shown, after expiring what is due. */
@@ -136,7 +141,7 @@ export class Surfaced {
     const weak = (from: number) => {
       const week = this.week("brief", from, from + WEEK_MS);
 
-      return week.shown > 0 && (week.acted + week.pinned) / week.shown < WEAK_ACCEPTANCE;
+      return week.settled > 0 && (week.acted + week.pinned) / week.settled < WEAK_ACCEPTANCE;
     };
 
     return weak(now - WEEK_MS) && weak(now - 2 * WEEK_MS) ? WEAK_CAP : BRIEF_CAP;
