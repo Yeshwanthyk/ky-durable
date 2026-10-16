@@ -9,6 +9,7 @@ import type {
   SpecialistView,
 } from "../protocol";
 import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
+import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
@@ -36,6 +37,8 @@ export type SpecialistActions = {
   onSave: (id: string, draft: SpecialistDraft, create: boolean) => Promise<string | undefined>;
   onBrief: (id: string, change: SoulChange) => void;
   onHistory: (id: string) => Promise<readonly SoulVersion[]>;
+  /** Asks ky in chat to design a new bloub for the specialist, with the avatar tool. */
+  onAvatar: (id: string) => void;
 };
 
 const SOUL_NOTE =
@@ -173,6 +176,10 @@ function SpecialistList({
             setBrief(null);
             setEditing(open.id);
           }}
+          onAvatar={() => {
+            setBrief(null);
+            actions.onAvatar(open.id);
+          }}
         />
       ) : null}
       {editing !== null ? (
@@ -188,7 +195,7 @@ function SpecialistList({
   );
 }
 
-// Each specialist's id, description and brief version; or, with none, what they are.
+// Each specialist's bloub, id, description and brief version; or, with none, what they are.
 function SpecialistRows({ specialists, onOpen }: { specialists: readonly SpecialistView[]; onOpen: (id: string) => void }) {
   if (specialists.length === 0) {
     return <p className="group-empty">Standing bots with their own brief, like @engineer or @researcher. Ask one in chat with @id.</p>;
@@ -199,8 +206,8 @@ function SpecialistRows({ specialists, onOpen }: { specialists: readonly Special
       {specialists.map((each) => (
         <li key={each.id}>
           <button type="button" className="row specialist-row" onClick={() => onOpen(each.id)}>
-            <span className="row-tile">
-              <Icon name="fingerprint" size={15} />
+            <span className="row-tile row-avatar">
+              <BotAvatar name={`@${each.id}`} identity={each.id} owner={each.id} still size={28} />
             </span>
             <span className="row-text">
               <span className="row-label">@{each.id}</span>
@@ -227,6 +234,7 @@ function SoulSheet({
   onChange,
   onHistory,
   onDetails,
+  onAvatar,
 }: {
   label: string;
   note: string;
@@ -239,6 +247,8 @@ function SoulSheet({
   onHistory: () => Promise<readonly SoulVersion[]>;
   /** Opens a specialist's settings, from the menu. */
   onDetails?: () => void;
+  /** Asks ky for a specialist's new avatar, from the menu. */
+  onAvatar?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [versions, setVersions] = useState<readonly SoulVersion[] | null>(null);
@@ -262,7 +272,7 @@ function SoulSheet({
       dialog={dialog}
       label={label}
       onClose={onClose}
-      tools={<SoulTools label={label} mode={mode} onMode={onMode} onDetails={onDetails} />}
+      tools={<SoulTools label={label} mode={mode} onMode={onMode} onDetails={onDetails} onAvatar={onAvatar} />}
     >
       {mode === "edit" ? (
         <SoulForm
@@ -301,17 +311,19 @@ function SoulSheet({
   );
 }
 
-// The sheet's pencil, and its menu: history, and a specialist's settings.
+// The sheet's pencil, and its menu: history, and a specialist's settings and avatar.
 function SoulTools({
   label,
   mode,
   onMode,
   onDetails,
+  onAvatar,
 }: {
   label: string;
   mode: Mode;
   onMode: (mode: Mode) => void;
   onDetails?: () => void;
+  onAvatar?: () => void;
 }) {
   const [menu, setMenu] = useState(false);
   const history = mode === "history";
@@ -345,6 +357,11 @@ function SoulTools({
           {onDetails ? (
             <button type="button" role="menuitem" onClick={onDetails}>
               Description, model and machine
+            </button>
+          ) : null}
+          {onAvatar ? (
+            <button type="button" role="menuitem" onClick={onAvatar}>
+              New avatar
             </button>
           ) : null}
         </div>

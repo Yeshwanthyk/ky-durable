@@ -3872,3 +3872,9 @@
     animation: none;
   }
 }
+
+/* A specialist's tile is its bloub, which brings its own colour. */
+.row-avatar {
+  background: none;
+  overflow: visible;
+}
