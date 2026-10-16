@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Memory, Presence, Soul } from "./dreaming/contract";
+import type { DreamLedger, Memory, Presence, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -173,6 +173,7 @@ export class PiSessionSockets {
   readonly #group: GroupDesk;
   readonly #groups: GroupChats;
   readonly #memory: Memory;
+  readonly #ledger: DreamLedger;
   readonly #automations: Automations;
   readonly #presence: Presence;
   readonly #setup: Setup;
@@ -203,6 +204,7 @@ export class PiSessionSockets {
     group: GroupDesk,
     groups: GroupChats,
     memory: Memory,
+    ledger: DreamLedger,
     automations: Automations,
     presence: Presence,
     setup: Setup,
@@ -232,6 +234,7 @@ export class PiSessionSockets {
     this.#group = group;
     this.#groups = groups;
     this.#memory = memory;
+    this.#ledger = ledger;
     this.#automations = automations;
     this.#presence = presence;
     this.#setup = setup;
@@ -914,6 +917,8 @@ export class PiSessionSockets {
     "memory-search": (message) => this.#memory.search(message.query),
     "memory-zoom": (message) => this.#memory.children(message.block),
     "memory-forget": (message) => this.#memory.forget(message.block),
+    "dream-ledger": () => this.#ledger.lastNight(),
+    "dream-undo": (message) => this.#ledger.undo(message.entry),
     "automation-save": (message) => this.#saveAutomation(message),
     automation: (message) => this.#automationActions[message.action](message.automation),
     "set-check-ins": async (message) => {

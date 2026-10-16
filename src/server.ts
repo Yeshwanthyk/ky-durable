@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { dreamCron, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
+import { dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Soul } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -156,6 +156,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
+  /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
+  readonly ledger = new DreamLedger(this.ctx.storage.sql, { skills: this.skills, memory: this.memory, reviews: this.reviews });
   readonly chats = new ChatList(this.ctx.storage.sql);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
@@ -361,6 +363,7 @@ export class PiAgent extends DurableObject<Env> {
     this.group,
     this.groups,
     this.memory,
+    this.ledger,
     this.automations,
     this.presence,
     this.setup,

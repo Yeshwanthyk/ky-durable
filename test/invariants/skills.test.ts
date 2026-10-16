@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ProviderInfo, SpecialistView } from "../../src/protocol";
 import {
+  PinAction,
   REVIEW_ALLOWED,
   SkillAction,
   SkillChange,
@@ -31,12 +32,17 @@ const literals = (union: { readonly anyOf: ReadonlyArray<{ readonly const: strin
 
 describe("each tool's actions", () => {
   it.each([
-    ["skill_manage", SkillAction, SkillChange.properties.action, CHANGES],
     ["specialist", SpecialistAction, SpecialistInput.properties.action, MANAGE],
     ["subagent", SubagentAction, SubagentInput.properties.action, ACTIONS]
   ] as const)("gives every %s action a handler, and the tool takes only those", (_tool, union, input, handlers) => {
     expect(input).toBe(union);
     expect(Object.keys(handlers).sort()).toEqual(literals(union));
+  });
+
+  it("gives every skill_manage change a handler, and takes those plus pin and unpin, which write no version", () => {
+    expect(SkillChange.properties.action.anyOf).toEqual([SkillAction, PinAction]);
+    expect(Object.keys(CHANGES).sort()).toEqual(literals(SkillAction));
+    expect(literals(PinAction)).toEqual(["pin", "unpin"]);
   });
 });
 

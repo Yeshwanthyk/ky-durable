@@ -23,7 +23,7 @@ import {
 import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../machines/contract";
 import { taskLogRows } from "../automations/contract";
-import { decodeNewChat, decodeSkillVersions } from "./frames";
+import { decodeDreamLedger, decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
 import { ANTHROPIC_KEY } from "../../test/fakes/vendors";
@@ -412,6 +412,32 @@ describe("skills panel", () => {
     expect(
       await command(main.socket, main.client, { type: "skill-change", change: { action: "archive", name: "no-such-skill" } })
     ).toMatchObject({ type: "error" });
+    main.socket.close();
+  });
+});
+
+describe("dream ledger", () => {
+  it("pins a skill for the user, lists last night's changes, and undoes one", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const skill = (skillName: string) => latest(main.client, "skills")?.skills.find((each) => each.name === skillName);
+    await inside(name, (instance) => {
+      for (const each of ["kept", "unused"]) instance.skills.apply({ action: "create", name: each, description: each, body: "Steps." }, "agent");
+    });
+
+    await command(main.socket, main.client, { type: "skill-change", change: { action: "pin", name: "kept" } });
+    await main.client.until(() => skill("kept")?.pinned === true);
+    await inside(name, (instance) => instance.skills.stale(Date.now() + 61 * 24 * 60 * 60 * 1000));
+    await main.client.until(() => skill("unused")?.status === "archived");
+    expect(skill("kept")?.status).toBe("active");
+
+    const night = await command(main.socket, main.client, { type: "dream-ledger" });
+    expect(night).toMatchObject({ type: "result", result: [{ kind: "skill", action: "archive", target: "unused", undone_at: null }] });
+    const entry = night.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
+
+    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "result" });
+    await main.client.until(() => skill("unused")?.status === "active");
+    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "error" });
     main.socket.close();
   });
 });
