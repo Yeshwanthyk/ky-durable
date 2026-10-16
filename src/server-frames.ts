@@ -113,6 +113,7 @@ export const ServerFrameSchema = Type.Union([
       })
     )
   }),
+  Type.Object({ type: Type.Literal("recalled"), session: Text, recalls: Type.Array(Type.Object({ entry: Type.Number(), lines: Texts })) }),
   Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation), checkIns: Type.Boolean() }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("setup"), setup: Setup }),

@@ -90,6 +90,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   outcome (acted, pinned, dismissed, or expired at midnight), is a `ky_surfaced` row (`src/dreaming/surfaced.ts`);
   the dream's digest reads last week's counts and dismissed lines, and the cap drops to 2 after two weeks in a row
   under 25% acted or pinned. Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off.
+- Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
+  looks up the user's latest message, when it is their own and not an ack, in open anticipations, memory notes, chat
+  search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)
+  to the request's copy of that message only. The transcript and system prompt never hold it. A block is made once
+  per message and stored as a `ky_surfaced` row (kind recall, loop L2); every later request re-appends each stored
+  block to its own message, so the cached prefix never changes. The anticipations it shows become surfaced, and a
+  `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
+  "Recalled N" under the message. Proactivity off makes none.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its

@@ -15,6 +15,9 @@ import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
 /** Opens the running turn's steps as a timeline; a thread with nowhere to show them has none. */
 export const OpenStepsContext = createContext<(() => void) | null>(null);
 
+/** What turn-start recall gave the model for each of the chat's user messages, by message id. */
+export const RecalledContext = createContext<Readonly<Record<string, readonly string[]>>>({});
+
 // The last few turns stay open; older ones fold behind one button, as in pecan.
 const openTurns = 3;
 
@@ -92,6 +95,28 @@ function UserMessage({
       ) : null}
       {text ? <UserBubble text={text} /> : null}
     </>
+  );
+}
+
+// What ky looked up before answering the message: "Recalled N" under it, and the lines when tapped.
+function Recalled({ lines }: { lines: readonly string[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="recalled">
+      <button type="button" className="recalled-chip" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Icon name="search" size={12} />
+        <span>Recalled {lines.length}</span>
+        <Icon name="chevronRight" size={12} className="chevron" />
+      </button>
+      <Reveal open={open}>
+        <ul className="recalled-lines" aria-label="Recalled context">
+          {lines.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      </Reveal>
+    </div>
   );
 }
 
@@ -210,12 +235,14 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
   const errors = log.filter((item) => item.kind === "notice" && item.tone === "error");
   const steps = log.filter((item) => item.kind === "tool").length;
   const openSteps = useContext(OpenStepsContext);
+  const recalled = useContext(RecalledContext)[turn.id];
 
   // One layout for live and finished, so the work log and the answer keep their elements when the
   // turn ends: the log folds away behind "Worked" and the answer stays put.
   return (
     <article className="turn" data-arrived={arrived} data-sending={turn.id.startsWith(SENDING) || undefined}>
       <UserMessage text={turn.user} images={turn.images} from={turn.from} task={turn.task} />
+      {recalled && recalled.length > 0 && turn.from === null ? <Recalled lines={recalled} /> : null}
       <div className="assistant">
         {live && mode === "booting" ? null : (
           <>

@@ -429,13 +429,18 @@ export class Memory {
     return cut === line ? saved : `${saved} It was ${bytes(line)} bytes, so it was cut to ${ENTRY_BYTES}.`;
   }
 
+  /** Every memory, oldest first. */
+  #all(): Generator<MemoryRow> {
+    return rows(this.#sql.exec("SELECT id, date, text FROM memo_log ORDER BY id"));
+  }
+
   recall(pattern: string): string {
     const regex = regexOf(pattern);
     const hits: string[] = [];
     let size = 0;
     let matched = 0;
 
-    for (const m of rows(this.#sql.exec("SELECT id, date, text FROM memo_log ORDER BY id"))) {
+    for (const m of this.#all()) {
       const line = lineOf(m);
 
       if (!regex.test(line)) continue;
@@ -453,6 +458,30 @@ export class Memory {
       : `${matched} match${matched === 1 ? "" : "es"}.`;
 
     return `${hits.join("\n")}\n${tail}`;
+  }
+
+  /**
+   * For turn-start recall (src/dreaming/recall.ts): the memories that hold the most of `terms`, each read as
+   * memory_recall reads a regex, case-insensitive; the newest first among equals.
+   */
+  relevant(terms: readonly string[], limit: number): MemoryRow[] {
+    if (terms.length === 0) return [];
+    const patterns = terms.map((term) => regexOf(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const scored: Array<{ readonly memory: MemoryRow; readonly score: number }> = [];
+    // SQL narrows the log to the memories holding a term (LIKE ignores ASCII case, as the regexes do), so only those are decoded.
+    const holding = terms.map(() => "text LIKE ? ESCAPE '\\'").join(" OR ");
+    const like = terms.map((term) => `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
+
+    for (const memory of rows(this.#sql.exec(`SELECT id, date, text FROM memo_log WHERE ${holding}`, ...like))) {
+      const score = patterns.filter((pattern) => pattern.test(memory.text)).length;
+
+      if (score > 0) scored.push({ memory, score });
+    }
+
+    return scored
+      .sort((a, b) => b.score - a.score || b.memory.id - a.memory.id)
+      .slice(0, limit)
+      .map((each) => each.memory);
   }
 
   zoom(id: string): string {

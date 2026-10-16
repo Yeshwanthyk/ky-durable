@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
 import { Icon } from "./Icon";
-import { OpenStepsContext, Thread } from "./Thread";
+import { OpenStepsContext, RecalledContext, Thread } from "./Thread";
 import { Timeline, TimelineSheet } from "./Timeline";
 import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
 
 type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools">;
+
+const NONE_RECALLED: Readonly<Record<string, readonly string[]>> = {};
 
 const isEmpty = ({ messages, live, running }: ThreadView) => messages.length === 0 && !live && !running;
 
@@ -16,11 +18,14 @@ export function ChatThread({
   chat,
   session,
   welcome,
+  recalled = NONE_RECALLED,
 }: {
   /** Which chat this is: another one starts its thread afresh, with earlier turns folded again. */
   chat: string;
   session: ThreadView;
   welcome: ReactNode;
+  /** What turn-start recall gave the model for each user message, by message id. */
+  recalled?: Readonly<Record<string, readonly string[]>>;
 }) {
   const { messages, live, running, tools } = session;
   const threadRef = useRef<HTMLElement>(null);
@@ -35,7 +40,9 @@ export function ChatThread({
     <main ref={threadRef} className="thread" data-scroll>
       <div ref={innerRef} className="thread-inner">
         <OpenStepsContext.Provider value={openSteps}>
-          {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
+          <RecalledContext.Provider value={recalled}>
+            {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
+          </RecalledContext.Provider>
         </OpenStepsContext.Provider>
       </div>
       <div className="thread-end">

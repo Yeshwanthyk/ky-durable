@@ -337,6 +337,8 @@ export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
   /** Every request to Workers AI and the api-key vendors, as the wire carried it. */
   readonly calls: AiCall[];
+  /** Each request's user messages' text, as the wire carried them (a turn-start recall block included), in order. */
+  readonly asked: string[][];
   /** Every mail Email Service was asked to send; one to an address with "bounce" in it is refused. */
   readonly mailSent: EmailMessageBuilder[];
 };
@@ -388,6 +390,13 @@ const BACKGROUND: Array<[string, (asked: string) => Reply]> = [
   ["You summarize", title],
   ["You write the memory of ky", compress]
 ];
+
+/** A turn-start recall block (src/dreaming/recall.ts) at the end of a user message: the fakes answer what the user said. */
+const RECALLED = /\n\n<recalled>\n[\s\S]*<\/recalled>$/;
+
+/** `messages` with any recall block taken off the user's messages. */
+const unrecalled = (messages: readonly WireMessage[]): WireMessage[] =>
+  messages.map((message) => (message.role === "user" && RECALLED.test(wireText(message.content)) ? { ...message, content: wireText(message.content).replace(RECALLED, "") } : message));
 
 function script(messages: readonly WireMessage[]): Reply {
   const system = wireText(messages.find((message) => message.role === "system")?.content);
@@ -522,6 +531,14 @@ export class PiAgent extends ProductionAgent {
     const storage = this.ctx.storage;
     const executorFake = new FakeExecutor(EXECUTOR_TOKEN);
     const calls: AiCall[] = [];
+    const asked: string[][] = [];
+
+    // The fakes record what each request asked, and answer as if no block were there.
+    const answering = (messages: readonly WireMessage[]) => {
+      asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
+
+      return script(unrecalled(messages));
+    };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
       defineTool({
@@ -571,8 +588,8 @@ export class PiAgent extends ProductionAgent {
       (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
     return {
-      ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
-      fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go"))),
+      ai: fakeAI(chatCompletions(answering, calls, refusing("workers-ai"))),
+      fetch: vendors(answering, calls, chatCompletions(answering, calls, refusing("opencode-go"))),
       vibeProxy: {
         port: VIBEPROXY_TEST_PORT,
         key: VIBEPROXY_KEY,
@@ -606,6 +623,7 @@ export class PiAgent extends ProductionAgent {
       mail: this.ctx.id.name?.startsWith(NO_MAIL) === true ? undefined : mail,
       executorFake,
       calls,
+      asked,
       mailSent
     };
   }

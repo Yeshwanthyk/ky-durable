@@ -1,8 +1,8 @@
-import { outcomeCount, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
+import { outcomeCount, shownItem, type ShownItem, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
 
 /**
- * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line
- * today; a boundary line later), with its outcome. A line is shown with no outcome; the user acts on it (taps
+ * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line,
+ * a turn-start recall block; a boundary line later), with its outcome. A line is shown with no outcome; the user acts on it (taps
  * its chip), pins or dismisses it; whatever is still unhandled when it expires (the brief's midnight) becomes
  * expired, lazily, on the next read. A pinned one may still be acted on or dismissed; every other outcome is final.
  *
@@ -10,8 +10,8 @@ import { outcomeCount, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from
  * lowers itself from 3 to 2 after two weeks in a row with acceptance (acted or pinned, of shown) below 25%.
  */
 
-/** What is surfaced: a brief line. */
-export type SurfacedKind = "brief";
+/** What is surfaced: a brief line, or the context recalled for a user's message (src/dreaming/recall.ts). */
+export type SurfacedKind = "brief" | "recall";
 
 /** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
 export type Shown = {
@@ -95,6 +95,25 @@ export class Surfaced {
     this.#sql.exec("UPDATE ky_surfaced SET outcome = ?, outcome_at = ? WHERE kind = ? AND item = ?", outcome, now, kind, item);
   }
 
+  /**
+   * The `kind` shown since `from` whose item starts with `prefix`, newest first, at most `limit`: a chat's recall
+   * blocks, by their `session#entry` items.
+   */
+  items(kind: SurfacedKind, prefix: string, from: number, limit: number): ShownItem[] {
+    return this.#sql
+      .exec(
+        "SELECT item, text FROM ky_surfaced WHERE kind = ? AND item >= ? AND item < ? AND shown_at >= ? ORDER BY shown_at DESC, id DESC LIMIT ?",
+        kind,
+        prefix,
+        // Every item with the prefix sorts before the prefix with its last character's successor.
+        `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`,
+        from,
+        limit
+      )
+      .toArray()
+      .flatMap((row) => shownItem(row) ?? []);
+  }
+
   /** Shown items still unhandled when they expired: expired, at their expiry. How many. */
   expire(now = Date.now()): number {
     return this.#sql.exec("UPDATE ky_surfaced SET outcome = 'expired', outcome_at = expires_at WHERE outcome IS NULL AND expires_at <= ? RETURNING id", now).toArray().length;
@@ -102,7 +121,7 @@ export class Surfaced {
 
   /** What became of the `kind` shown in [`from`, `to`). */
   week(kind: SurfacedKind, from: number, to: number): Week {
-    const counts: Record<SurfacedOutcome | "open", number> = { acted: 0, pinned: 0, dismissed: 0, ignored: 0, expired: 0, open: 0 };
+    const counts: Record<SurfacedOutcome | "open", number> = { acted: 0, pinned: 0, dismissed: 0, ignored: 0, expired: 0, missed: 0, open: 0 };
 
     for (const raw of this.#sql.exec("SELECT outcome, COUNT(*) AS n FROM ky_surfaced WHERE kind = ? AND shown_at >= ? AND shown_at < ? GROUP BY outcome", kind, from, to).toArray()) {
       const row = outcomeCount(raw);

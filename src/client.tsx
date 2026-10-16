@@ -381,7 +381,7 @@ function Stage(parts: Parts) {
 
       <div className="chat chat-surface">
         <BriefCard brief={ky.brief} actions={ky.briefActions} onPick={onPick} />
-        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} />
+        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} />
         <DraftDock
           handle={composer}
           run={run}

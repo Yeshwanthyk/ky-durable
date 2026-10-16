@@ -205,18 +205,45 @@ const BriefViewSchema = Type.Object({ day: Type.String(), expires_at: Type.Numbe
 
 export type BriefView = Static<typeof BriefViewSchema>;
 
-/** What became of a surfaced thing; ignored is a boundary line the user went past. */
+/**
+ * What became of a surfaced thing; ignored is a boundary line the user went past; missed is a recall block after
+ * which the model still searched memory or the chats itself in the same turn.
+ */
 const SurfacedOutcomeSchema = Type.Union([
   Type.Literal("acted"),
   Type.Literal("pinned"),
   Type.Literal("dismissed"),
   Type.Literal("ignored"),
-  Type.Literal("expired")
+  Type.Literal("expired"),
+  Type.Literal("missed")
 ]);
 
 export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
 
-export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "ignored", "expired"];
+export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "ignored", "expired", "missed"];
+
+/** A shown thing's key and text, as a chat's recall blocks are read back. */
+const ShownItemRow = Type.Object({ item: Type.String(), text: Type.String() });
+
+export type ShownItem = Static<typeof ShownItemRow>;
+
+/** A shown item's row, or undefined when it is damaged: callers skip it. */
+export const shownItem = (row: Row): ShownItem | undefined => decodeOr(ShownItemRow, row, undefined);
+
+/** A pi entry's id and its message's timestamp, as recall reads a chat's user messages. */
+const EntryAtRow = Type.Object({ id: Type.Integer(), at: Type.Number() });
+
+/** An entry's id and timestamp, or undefined when the row has none (not a message): callers skip it. */
+export const entryAt = (row: Row): Static<typeof EntryAtRow> | undefined => decodeOr(EntryAtRow, row, undefined);
+
+/** The request id of the submission that placed an entry. */
+const PlacedRow = Type.Object({ request: Type.String() });
+
+/** A submission's request id, or undefined when it has none. */
+export const placedBy = (row: Row): string | undefined => decodeOr(PlacedRow, row, undefined)?.request;
+
+/** The context recalled for a user's message, by its pi entry id: the lines its chip shows (src/dreaming/recall.ts). */
+export type Recalled = { readonly entry: number; readonly lines: readonly string[] };
 
 /** One outcome's count, null for the shown ones that have none yet. */
 const OutcomeCountRow = Type.Object({ outcome: Type.Union([SurfacedOutcomeSchema, Type.Null()]), n: Type.Integer() });
@@ -320,5 +347,7 @@ export type { Presence } from "./presence";
 export type { Brief } from "./brief";
 
 export type { Proactivity } from "./proactivity";
+
+export type { Recall } from "./recall";
 
 export type { Soul } from "./soul";
