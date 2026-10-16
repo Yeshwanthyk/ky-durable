@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -63,6 +63,16 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   on the stale summary, is told to note at most 15, and pays the compressions its notes make due. It shows in Activity as
   "Dreaming", and skips the night when nothing happened. While the user was here in the last 2 hours (`ky_presence`,
   `src/dreaming/presence.ts`) it waits and looks again 2 hours later. It also books check-ins (below).
+- Anticipations: what ky expects to matter soon, in `ky_anticipations` (`src/dreaming/anticipations.ts`): an open
+  loop the user committed to, a date ahead, a question likely next, or something to watch, each citing the chat
+  messages or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional
+  window. The `anticipate` tool (on memory's extension, so specialists cannot call it) adds, closes, extends, absorbs,
+  pins (the user only) and lists them, all open or by words (`match`) or the hours ahead (`due`): the dream as `dream`, at most 5 a run and only while fewer than 20 are open, changing only machine-made,
+  unpinned rows; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.
+  Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
+  with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
+  Turn-start recall and the morning brief will read them with `match` and `due` and mark what they show surfaced;
+  no panel shows them yet.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its

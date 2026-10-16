@@ -1,9 +1,9 @@
 import Type, { type Static } from "typebox";
-import { decodeOr } from "../core/decode";
+import { decodeOr, parseOr } from "../core/decode";
 
 /**
  * The dreaming domain's contract: the shapes, tool names, frozen table names and row decoders of
- * memory (OptMem), SOUL.md and its versioned files, and the nightly dream's mark. A leaf: it imports
+ * memory (OptMem), SOUL.md and its versioned files, the nightly dream's mark, and anticipations. A leaf: it imports
  * nothing else from the folder, so the files here use it without a cycle. Outside src/dreaming/,
  * import this for types and names, and ./wiring for the classes that run.
  */
@@ -22,7 +22,9 @@ export const DREAMING_TABLES = {
   /** When the user was last here, so the dream waits until they are away: one row. */
   presence: "ky_presence",
   /** Every version of SOUL.md and of each specialist's brief, told apart by `key`. */
-  soulVersions: "ky_soul_versions"
+  soulVersions: "ky_soul_versions",
+  /** What ky expects to matter soon: open loops, dates ahead, likely asks, watches; each cites its evidence. */
+  anticipations: "ky_anticipations"
 } as const;
 
 // Tool names.
@@ -39,11 +41,13 @@ export const CHAT_SEARCH = "chat_search";
 
 export const SOUL_EDIT = "soul_edit";
 
+export const ANTICIPATE = "anticipate";
+
 /** The memory tools that change it; what a specialist may never call. */
-export const MEMORY_WRITE_TOOLS = [MEMORY_NOTE, MEMORY_FORGET] as const;
+export const MEMORY_WRITE_TOOLS = [MEMORY_NOTE, MEMORY_FORGET, ANTICIPATE] as const;
 
 /** The memory extension's tools a dream may call, in the order its prompt lists them. */
-export const DREAM_MEMORY_TOOLS = [MEMORY_RECALL, MEMORY_ZOOM, MEMORY_NOTE, MEMORY_FORGET, CHAT_SEARCH] as const;
+export const DREAM_MEMORY_TOOLS = [MEMORY_RECALL, MEMORY_ZOOM, MEMORY_NOTE, MEMORY_FORGET, CHAT_SEARCH, ANTICIPATE] as const;
 
 // Memory.
 
@@ -100,6 +104,58 @@ export const summaryOf = (row: Row): string | undefined => decodeOr(SummaryRow, 
 
 /** A block's oldest and newest dates; empty when they can't be read. */
 export const datesOf = (row: Row): Static<typeof DatesRow> => decodeOr(DatesRow, row, { from: "", to: "" });
+
+// Anticipations.
+
+/** Who made a row: the nightly dream, an episode review, or the user (through the chat). Only machine-made rows are the dream's to change. */
+const CreatorSchema = Type.Union([Type.Literal("dream"), Type.Literal("episode"), Type.Literal("user")]);
+
+export type Creator = Static<typeof CreatorSchema>;
+
+/** A commitment or thread; a date; a question likely next; a condition worth a gate. */
+const AnticipationKindSchema = Type.Union([Type.Literal("open_loop"), Type.Literal("upcoming"), Type.Literal("predicted_ask"), Type.Literal("watch")]);
+
+export type AnticipationKind = Static<typeof AnticipationKindSchema>;
+
+export const ANTICIPATION_KINDS: readonly AnticipationKind[] = ["open_loop", "upcoming", "predicted_ask", "watch"];
+
+const StatusSchema = Type.Union([Type.Literal("open"), Type.Literal("surfaced"), Type.Literal("done"), Type.Literal("dismissed"), Type.Literal("expired")]);
+
+export type AnticipationStatus = Static<typeof StatusSchema>;
+
+/** What a row rests on: `ky_history` rowids (chat messages) and `memo_log` ids. */
+const EvidenceSchema = Type.Object({ messages: Type.Array(Type.Integer()), memories: Type.Array(Type.Integer()) });
+
+export type Evidence = Static<typeof EvidenceSchema>;
+
+/** A row of ky_anticipations as stored: evidence as JSON text, pinned as 0 or 1, times in epoch ms. */
+const AnticipationStoredSchema = Type.Object({
+  id: Type.Integer(),
+  created_at: Type.Number(),
+  created_by: CreatorSchema,
+  kind: AnticipationKindSchema,
+  text: Type.String(),
+  evidence: Type.String(),
+  prepared: Type.Union([Type.String(), Type.Null()]),
+  window_from: Type.Union([Type.Number(), Type.Null()]),
+  window_to: Type.Union([Type.Number(), Type.Null()]),
+  status: StatusSchema,
+  pinned: Type.Integer(),
+  absorbed_into: Type.Union([Type.Integer(), Type.Null()]),
+  closed_at: Type.Union([Type.Number(), Type.Null()])
+});
+
+export type Anticipation = Omit<Static<typeof AnticipationStoredSchema>, "evidence" | "pinned"> & { readonly evidence: Evidence; readonly pinned: boolean };
+
+/** A stored row, or undefined when a restore left it damaged (evidence included): callers skip it. */
+export function anticipationRow(row: Row): Anticipation | undefined {
+  const stored = decodeOr(AnticipationStoredSchema, row, undefined);
+
+  if (stored === undefined) return undefined;
+  const evidence = parseOr(EvidenceSchema, stored.evidence, undefined);
+
+  return evidence === undefined ? undefined : { ...stored, evidence, pinned: stored.pinned !== 0 };
+}
 
 // SOUL.md.
 
