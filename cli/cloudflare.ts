@@ -1,6 +1,6 @@
 /**
  * The Cloudflare API, with the user's own login: CLOUDFLARE_API_TOKEN, else the
- * token `ky login` saved (cli/login.ts), else `wrangler auth token`. The CLI
+ * token `ky login` saved (cli/login.ts), else `cf auth login`'s, else `wrangler auth token`. The CLI
  * writes a token only when the user runs `ky login`; it never deploys one.
  *
  * Every call is a @distilled.cloud/cloudflare operation, run here so the rest
@@ -8,6 +8,7 @@
  * API, as it does wrangler; the tests point it at test/fakes/cloudflare.ts.
  */
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fromApiToken } from "@distilled.cloud/cloudflare/Credentials";
 import { CloudflareError as ApiError, CloudflareRateLimited } from "@distilled.cloud/cloudflare/Errors";
@@ -31,9 +32,10 @@ import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { parseOr } from "../src/core/decode.ts";
 
 /** Where the token came from, so a refusal can say which login to fix. */
-export type Login = "CLOUDFLARE_API_TOKEN" | "ky login" | "wrangler login" | "a pasted token";
+export type Login = "CLOUDFLARE_API_TOKEN" | "ky login" | "cf login" | "wrangler login" | "a pasted token";
 
 /** A failed call: Cloudflare's own error, with its tag (`NoSuchBucket`, `Forbidden`, …). */
 class CloudflareError extends Error {
@@ -130,7 +132,7 @@ export class Cloudflare {
 
 /**
  * The user's Cloudflare login for this run: CLOUDFLARE_API_TOKEN, else the token `ky login` saved,
- * else wrangler's. A blank one, such as `$(cat missing)`'s, is unset.
+ * else cf's, else wrangler's. A blank one, such as `$(cat missing)`'s, is unset.
  */
 export async function login(saved: () => Promise<string | undefined>): Promise<Cloudflare> {
   const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
@@ -139,10 +141,41 @@ export async function login(saved: () => Promise<string | undefined>): Promise<C
   const kept = await saved();
 
   if (kept) return new Cloudflare(kept, "ky login");
+  const cf = await cfToken();
+
+  if (cf) return new Cloudflare(cf, "cf login");
   const wrangler = await wranglerToken();
 
   if (wrangler) return new Cloudflare(wrangler, "wrangler login");
-  throw new Error("Not signed in to Cloudflare: run `ky login`");
+  throw new Error("Not signed in to Cloudflare: run `cf auth login` or `ky login`");
+}
+
+/** What `cf auth whoami` prints when it isn't a terminal; the rest is ignored. */
+const CfWhoami = Type.Object({ authenticated: Type.Boolean(), authSource: Type.Optional(Type.String()) });
+
+/** Where cf's OAuth login says it keeps its token, and the token's shape there. */
+const CF_SOURCE = /^OAuth token from (.+\.json)$/;
+
+const CfConfig = Type.Object({ oauth_token: Type.String({ minLength: 1 }) });
+
+/**
+ * cf's OAuth login: `cf auth whoami` refreshes its token when it's expired and names the file it read,
+ * which holds the fresh one. Undefined when cf is missing, signed out, or keeps its token elsewhere.
+ */
+async function cfToken(): Promise<string | undefined> {
+  try {
+    // Without a blank CLOUDFLARE_API_TOKEN, which cf would take as its login.
+    const { CLOUDFLARE_API_TOKEN: _blank, ...env } = process.env;
+    const { stdout } = await promisify(execFile)("cf", ["auth", "whoami"], { timeout: 30_000, env });
+    const whoami = parseOr(CfWhoami, stdout, undefined);
+    const file = whoami?.authenticated ? CF_SOURCE.exec(whoami.authSource ?? "")?.[1] : undefined;
+
+    if (!file) return undefined;
+
+    return parseOr(CfConfig, await readFile(file, "utf8"), undefined)?.oauth_token;
+  } catch {
+    return undefined;
+  }
 }
 
 /** wrangler's own login, refreshed by wrangler; undefined when wrangler is missing or signed out. */
@@ -265,6 +298,8 @@ export function lacks(login: Login, missing: string[]): string {
   const fix = `create a token with all a deploy needs at ${tokenPage()}, then run \`ky login\``;
 
   if (login === "wrangler login") return `wrangler's login can't manage Access (it lacks ${missing.join(", ")}): ${fix}`;
+
+  if (login === "cf login") return `cf's login lacks ${missing.join(", ")}: run \`cf auth login\` again, or ${fix}`;
 
   return `The token from ${login} lacks ${missing.join(", ")}. Add ${missing.length > 1 ? "them" : "it"} to the token at ${TOKENS_PAGE}, or ${fix}`;
 }
