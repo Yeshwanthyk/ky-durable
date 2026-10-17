@@ -140,6 +140,8 @@ const SessionRow = Schema.Object({ session: Schema.String() });
 
 const PairingRow = Schema.Object({ pairing: Schema.Union([Schema.String(), Schema.Null()]) });
 
+const TurnsEndedRow = Schema.Object({ turns_ended: Schema.Number() });
+
 const KindRow = Schema.Object({ name: Schema.String(), kind: Schema.Union([Schema.String(), Schema.Null()]) });
 
 /** Each row of a query, as `schema` says: only the hub writes these tables, so a row that isn't is a bug. */
@@ -324,6 +326,9 @@ export class MachineHub {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN hello TEXT");
       sql.exec("ALTER TABLE ky_machines ADD COLUMN reason TEXT");
     }
+
+    // How many turns of its tasks have closed: a sandbox snapshots its disk to R2 when this passes the count it last saved at.
+    if (!known.some((column) => column.name === "turns_ended")) sql.exec("ALTER TABLE ky_machines ADD COLUMN turns_ended INTEGER NOT NULL DEFAULT 0");
 
     // The latest turn the hub asked the runner to stop: a result that isn't ok for it, or an earlier one, is a stop, not a failure.
     const turns = rows(sql.exec("PRAGMA table_info(ky_machine_turns)"), ColumnRow, "a column of ky_machine_turns");
@@ -927,6 +932,11 @@ export class MachineHub {
     return this.#feed.open("machine", machine).length > 0 || this.#pending(machine).length > 0;
   }
 
+  /** How many turns of `machine`'s tasks have closed, ever: 0 for a machine ky doesn't list. */
+  turnsEnded(machine: string): number {
+    return rows(this.#sql.exec("SELECT turns_ended FROM ky_machines WHERE name = ?", machine), TurnsEndedRow, "a machine's turns ended")[0]?.turns_ended ?? 0;
+  }
+
   /** Whether `machine` is paired, and `pairing` is its live pairing: a runner's socket is the machine's only then. */
   pairedAs(machine: string, pairing: string | undefined): boolean {
     return pairing !== undefined && this.#pairing(machine) === pairing;
@@ -1046,6 +1056,7 @@ export class MachineHub {
     const turns = this.#turns(id);
     const from = turns.closed;
     this.#setTurns(id, { closed: turn });
+    this.#sql.exec("UPDATE ky_machines SET turns_ended = turns_ended + 1 WHERE name = ?", task.worker);
 
     // A turn sent after this one is still to run, with the same token and login.
     if (turn === turns.turn) {

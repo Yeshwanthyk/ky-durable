@@ -84,6 +84,8 @@ async function play(ops: readonly Op[]): Promise<void> {
 
       switch (op) {
         case "newTask": {
+          // One task open at a time: the sandbox is busy, or idle and free to sleep.
+          if (open.length > 0) break;
           const task = `rs-task-${crypto.randomUUID()}`;
 
           await inside("me", (agent) => agent.machines.start(name, "restart safety", "work", task, "none", "automation:none", "claude"));
@@ -176,14 +178,24 @@ async function play(ops: readonly Op[]): Promise<void> {
   }
 }
 
-const OPS: readonly Op["op"][] = ["newTask", "turnEnd", "tick", "crash", "uploadFailOnce", "saveCutOnce", "idleElapsed", "sleep", "wake"];
-
-/** The work a turn needs weighs more, so most runs finish turns and tick. */
+/**
+ * Weighted so most runs finish turns, tick, and sleep with a save cut off: a sleep cut off between a
+ * turn's end and the next tick is the one way a disk gets ahead of every upload.
+ */
 const anOp = fc.oneof(
-  { weight: 3, arbitrary: fc.constant<Op>({ op: "newTask" }) },
-  { weight: 3, arbitrary: fc.constant<Op>({ op: "turnEnd" }) },
-  { weight: 4, arbitrary: fc.constant<Op>({ op: "tick" }) },
-  ...OPS.filter((op) => !["newTask", "turnEnd", "tick"].includes(op)).map((op) => ({ weight: 1, arbitrary: fc.constant({ op } as Op) }))
+  ...(
+    [
+      ["newTask", 3],
+      ["turnEnd", 3],
+      ["tick", 3],
+      ["sleep", 2],
+      ["saveCutOnce", 2],
+      ["uploadFailOnce", 1],
+      ["crash", 1],
+      ["idleElapsed", 1],
+      ["wake", 1]
+    ] as const
+  ).map(([op, weight]) => ({ weight, arbitrary: fc.constant<Op>({ op }) }))
 );
 
 const sequence = (...names: Op["op"][]): Op[] => names.map((op) => ({ op }) as Op);
@@ -191,7 +203,7 @@ const sequence = (...names: Op["op"][]): Op[] => names.map((op) => ({ op }) as O
 describe("a sandbox's restart safety", () => {
   it("keeps every finished turn in R2, and never destroys newer work, over generated operations", { timeout: 600_000 }, async () => {
     await fc.assert(
-      fc.asyncProperty(fc.array(anOp, { minLength: 1, maxLength: 20 }), (ops) => play(ops)),
+      fc.asyncProperty(fc.array(anOp, { minLength: 8, maxLength: 30, size: "max" }), (ops) => play(ops)),
       { numRuns: 100, verbose: 1 }
     );
   });
@@ -203,6 +215,29 @@ describe("a sandbox's restart safety", () => {
 
   it("saves a stopped runner's newer disk before it starts afresh", async () => {
     await play(sequence("newTask", "tick", "turnEnd", "saveCutOnce", "sleep", "newTask", "tick"));
+  });
+
+  // fast-check's counterexample with #up destroying a stopped runner unsaved: a sleep cut off right after a turn ended.
+  it("keeps a turn whose sleep was cut off, as the next task starts the container afresh", async () => {
+    await play(
+      sequence(
+        "uploadFailOnce",
+        "newTask",
+        "tick",
+        "turnEnd",
+        "sleep",
+        "newTask",
+        "tick",
+        "uploadFailOnce",
+        "sleep",
+        "turnEnd",
+        "crash",
+        "saveCutOnce",
+        "saveCutOnce",
+        "uploadFailOnce",
+        "turnEnd"
+      )
+    );
   });
 
   it("tries a cut-off snapshot again at the next tick", async () => {

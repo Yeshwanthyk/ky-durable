@@ -9,6 +9,8 @@
  *   POST /save     stop the runner (its socket closes, it takes no more runs), then answer with a
  *                  tar.gz of what must outlive the container: Claude Code's sessions, the runner's
  *                  state (each Codex task's home, the handled seqs) and the work trees
+ *   GET  /snapshot the same tar.gz while the runner keeps running, after a turn ends: the container
+ *                  may then die at any time and lose at most the open turn; 409 unless it runs
  *
  * Its settings are the variables `ky runner run` reads with no runner.json (cli/runner/settings.ts),
  * and:
@@ -40,16 +42,17 @@ const EXCLUDED = ["node_modules", ".ky/bin", ".ky/runner-status.json"];
 
 type State = "waiting" | "running" | "stopped";
 
-function run(command: string, args: string[], cwd?: string): Promise<void> {
+/** Run `command`; it fails unless it exits with one of `ok`. */
+function run(command: string, args: string[], ok: readonly number[] = [0]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
 
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk;
     });
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited ${code}: ${stderr.trim()}`))));
+    child.on("close", (code) => (code !== null && ok.includes(code) ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited ${code}: ${stderr.trim()}`))));
   });
 }
 
@@ -83,6 +86,8 @@ export async function cloudCommand(context: Context): Promise<number> {
   const settings = withEnv(undefined, env, system);
   const version = compiled() ? (await context.release()).version : checkoutVersion();
   const saved = [path.join(system.home, ".claude", "projects"), system.state, settings.workdir];
+  // And each Codex task's login, in its home under the state dir: ky sends one with every run.
+  const excluded = [...EXCLUDED, path.join(path.relative(system.home, system.state), "codex", "*", "auth.json")];
   const stop = new AbortController();
   let state: State = "waiting";
   let runner: Promise<void> | undefined;
@@ -107,18 +112,14 @@ export async function cloudCommand(context: Context): Promise<number> {
     answer(response, 204);
   };
 
-  const save = async (response: ServerResponse) => {
-    if (state === "running") {
-      stop.abort();
-      await runner;
-    }
-
-    state = "stopped";
+  /** Answer with a tar.gz of what must outlive the container. */
+  const archived = async (response: ServerResponse) => {
     const scratch = await mkdtemp(path.join(tmpdir(), "ky-save-"));
     const archive = path.join(scratch, "save.tar.gz");
 
     try {
-      await run("tar", ["-czf", archive, ...EXCLUDED.map((excluded) => `--exclude=${excluded}`), "-C", system.home, ...kept(system.home, saved)]);
+      // 1: a file changed as tar read it, as a task still running writes; the archive is whole, and has its last finished turn.
+      await run("tar", ["-czf", archive, "--warning=no-file-changed", ...excluded.map((each) => `--exclude=${each}`), "-C", system.home, ...kept(system.home, saved)], [0, 1]);
       response.writeHead(200, { "content-type": "application/gzip", "content-length": String((await stat(archive)).size) });
       await pipeline(createReadStream(archive), response);
     } finally {
@@ -126,11 +127,31 @@ export async function cloudCommand(context: Context): Promise<number> {
     }
   };
 
+  const save = async (response: ServerResponse) => {
+    if (state === "running") {
+      stop.abort();
+      await runner;
+    }
+
+    state = "stopped";
+    await archived(response);
+  };
+
+  const snapshot = (response: ServerResponse) => (state === "running" ? archived(response) : Promise.resolve(answer(response, 409, `the runner is ${state}`)));
+
   const server = createServer((request, response) => {
     const route = `${request.method} ${request.url}`;
 
     const handled =
-      route === "GET /ping" ? Promise.resolve(answer(response, 200, state)) : route === "PUT /restore" ? restore(request, response) : route === "POST /save" ? save(response) : Promise.resolve(answer(response, 404));
+      route === "GET /ping"
+        ? Promise.resolve(answer(response, 200, state))
+        : route === "PUT /restore"
+          ? restore(request, response)
+          : route === "POST /save"
+            ? save(response)
+            : route === "GET /snapshot"
+              ? snapshot(response)
+              : Promise.resolve(answer(response, 404));
 
     handled.catch((error: Error) => {
       console.error(`${route} failed`, error);

@@ -514,13 +514,16 @@ export class PiAgent extends DurableObject<Env> {
     return sandbox !== undefined && sandbox.deletedAt === null && this.machines.busy(sandbox.name);
   }
 
-  /** What the sandbox `id`'s alarm needs: the name it pairs as, its idle minutes, whether it has work; null once deleted. */
+  /**
+   * What the sandbox `id`'s alarm needs: the name it pairs as, its idle minutes, whether it has work,
+   * how many of its turns have ended (it snapshots its disk when that passes its last save); null once deleted.
+   */
   sandboxNow(id: string): SandboxNow {
     const sandbox = this.sandboxes.get(id);
 
     if (!sandbox || sandbox.deletedAt !== null) return null;
 
-    return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name) };
+    return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name), turnsEnded: this.machines.turnsEnded(sandbox.name) };
   }
 
   /** Whether `name` is a live sandbox's, which no runner may pair as or unpair. */

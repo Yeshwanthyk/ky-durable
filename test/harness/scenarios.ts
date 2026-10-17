@@ -1165,14 +1165,14 @@ export const SCENARIOS: Scenario[] = [
       const { host } = await cloudMachine(context, 3_000);
       const task = await startTask(context, CLOUD, "[sh] echo first > first.txt");
       await status(context, task, "done", 60_000);
-      sendTo(context, task, "[sh] echo written-in-turn-2 > marker.txt");
-      await until("the second turn to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      sendTo(context, task, "[sh] echo written-in-turn-2 > marker.txt && echo wrote-it");
+      await until("the second turn to finish", () => context.main.heard("sh exited 0: wrote-it"), 30_000);
       // Two cut off: the sleep's, and its retry's, so the task below lands while the runner is still stopped.
       host.cutSaves(2);
       await until("a save to be cut off", () => host.cutOff() >= 1, 30_000);
       check(host.running(), "the container still runs after its save was cut off");
       sendTo(context, task, "[sh] cat marker.txt");
-      await until("the third turn to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 3, 60_000);
+      await until("the third turn to finish", () => context.main.heard("sh exited 0: written-in-turn-2") || context.main.heard("No such file"), 60_000);
       check(context.main.heard("sh exited 0: written-in-turn-2"), "the new container had the file the second turn wrote");
       check(host.starts() === 2, `a new container started for the task, got ${host.starts()} starts`);
     }

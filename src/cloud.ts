@@ -20,7 +20,9 @@ import { saveKey } from "./sandboxes";
  *   it sleeps.
  * - Sleeping saves what must outlive the container to R2 (Claude Code's sessions, each Codex task's
  *   home, the runner's handled seqs, the work trees); the next start restores it before the runner
- *   dials ky, so a follow-up resumes its session.
+ *   dials ky, so a follow-up resumes its session. The alarm also snapshots the running container to
+ *   R2 once a turn has ended since the last save, so a crash, eviction or rollout loses at most the
+ *   open turn.
  * - git reaches github.com only through github.internal, which this routes to the Worker's
  *   GithubProxy (src/github.ts) with `{ machine: <its id> }` in its props: it holds the token, lets
  *   the sandbox reach only its repos (the agent's `reposFor`), and lets pushes reach `ky/*` only. `ky github` reaches the PR and deploy tools there too
@@ -74,6 +76,9 @@ const ID_KEY = "id";
 
 const IDLE_KEY = "idleSince";
 
+/** How many of the sandbox's turns had ended when R2 last took its disk: a snapshot's, a sleep's or a retire's. */
+const SNAPSHOT_KEY = "snapshot";
+
 /** Set while its deleted sandbox saves its disk and stops; a kept disk isn't started from meanwhile. */
 const RETIRING_KEY = "retiring";
 
@@ -104,7 +109,7 @@ function containerBox(ctx: DurableObjectState): CloudBox | undefined {
 }
 
 /** What the agent says of a sandbox at each alarm; null once it is deleted. */
-export type SandboxNow = { readonly name: string; readonly idleMinutes: number | null; readonly busy: boolean } | null;
+export type SandboxNow = { readonly name: string; readonly idleMinutes: number | null; readonly busy: boolean; readonly turnsEnded: number } | null;
 
 /** KY_CLOUD_IDLE_MINUTES as milliseconds: a positive number of minutes, such as 1 for a live test; else IDLE_MINUTES. */
 export function idleTimeout(minutes: string | undefined): number {
@@ -166,6 +171,8 @@ export class CloudMachine extends DurableObject<Env> {
 
       tickMs = timing.tickMs;
       busy = sandbox?.busy ?? false;
+      // Busy or idle: the turn that just ended closed its task, so an idle sandbox may have the newest work.
+      await this.#snapshotIfDue(box, id, sandbox.turnsEnded);
 
       if (sandbox?.busy) {
         await this.ctx.storage.delete(IDLE_KEY);
@@ -200,7 +207,11 @@ export class CloudMachine extends DurableObject<Env> {
     const id = await this.#id();
 
     if (!box || !(await box.running()) || (await this.#agent().cloudBusy(id))) return false;
+    // Read before the save stops the runner: no turn ends after it.
+    const ended = (await this.#agent().sandboxNow(id))?.turnsEnded ?? 0;
+
     await this.#save(box, id);
+    await this.ctx.storage.put(SNAPSHOT_KEY, ended);
     await box.destroy();
     await this.ctx.storage.delete(IDLE_KEY);
 
@@ -229,7 +240,10 @@ export class CloudMachine extends DurableObject<Env> {
       throw error;
     }
 
-    if (await this.#agent().sandboxNow(id)) {
+    const live = await this.#agent().sandboxNow(id);
+
+    if (live) {
+      await this.ctx.storage.put(SNAPSHOT_KEY, live.turnsEnded);
       await this.ctx.storage.delete(RETIRING_KEY);
 
       return;
@@ -269,12 +283,34 @@ export class CloudMachine extends DurableObject<Env> {
     const ping = await box.fetch("/ping").catch(() => undefined);
 
     if (ping?.ok && (await ping.text()).trim() === "waiting") return;
-    const saved = await box.fetch("/save", { method: "POST" });
+    await this.#put(id, await box.fetch("/save", { method: "POST" }));
+  }
 
-    if (!saved.ok || !saved.body) throw new Error(`The sandbox ${id} didn't save its files: ${saved.status} ${await saved.text()}`);
-    const length = Number(saved.headers.get("content-length"));
+  /**
+   * Snapshot the running container's disk to R2 if `turnsEnded` passed the count of the last save.
+   * The count moves only once R2 has the disk; a failed snapshot is tried again at the next tick.
+   */
+  async #snapshotIfDue(box: CloudBox, id: string, turnsEnded: number): Promise<void> {
+    if (turnsEnded <= ((await this.ctx.storage.get<number>(SNAPSHOT_KEY)) ?? 0) || !(await box.running())) return;
 
-    await this.env.FILES.put(saveKey(id), Number.isInteger(length) && length > 0 ? saved.body.pipeThrough(new FixedLengthStream(length)) : await saved.arrayBuffer());
+    try {
+      const ping = await box.fetch("/ping");
+
+      // Waiting for its files, it has nothing newer; stopped, a save took it, or #up will.
+      if (!ping.ok || (await ping.text()).trim() !== "running") return;
+      await this.#put(id, await box.fetch("/snapshot"));
+      await this.ctx.storage.put(SNAPSHOT_KEY, turnsEnded);
+    } catch (error) {
+      console.warn(`the sandbox ${id}'s snapshot failed; trying again at the next tick`, error);
+    }
+  }
+
+  /** Put the runner's tar.gz answer to R2, at the sandbox `id`'s key. */
+  async #put(id: string, answer: Response): Promise<void> {
+    if (!answer.ok || !answer.body) throw new Error(`The sandbox ${id} didn't save its files: ${answer.status} ${await answer.text()}`);
+    const length = Number(answer.headers.get("content-length"));
+
+    await this.env.FILES.put(saveKey(id), Number.isInteger(length) && length > 0 ? answer.body.pipeThrough(new FixedLengthStream(length)) : await answer.arrayBuffer());
   }
 
   /** Start the container as `name` if it isn't running, and give it its files if it waits for them. */
@@ -297,7 +333,8 @@ export class CloudMachine extends DurableObject<Env> {
     const listening = Date.now() - began;
 
     if (state === "stopped") {
-      // Stopped by a save whose upload failed: start afresh.
+      // Stopped by a save whose upload failed: its disk may be newer than R2's, so save it, then start afresh.
+      await this.#save(box, id);
       await box.destroy();
 
       return this.#up(box, id, name);
