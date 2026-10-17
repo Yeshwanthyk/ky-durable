@@ -1,5 +1,5 @@
 import Type, { type Static } from "typebox";
-import { decodeOr, parseOr } from "../core/decode";
+import { decodeOr, parseOr } from "../core/decode.ts";
 
 /**
  * The dreaming domain's contract: the shapes, tool names, frozen table names and row decoders of
@@ -343,7 +343,7 @@ export {
   Versioned,
   versionLine,
   versionOf
-} from "./versioned";
+} from "./versioned.ts";
 
 // Dreaming.
 

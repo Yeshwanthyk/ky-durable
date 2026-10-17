@@ -4,8 +4,8 @@
  * without loading the rest of the dreaming domain.
  */
 import Type, { type Static } from "typebox";
-import { decodeOr } from "../core/decode";
-import { must } from "../core/must";
+import { decodeOr } from "../core/decode.ts";
+import { must } from "../core/must.ts";
 
 /** A row as `sql.exec` returns it, or none: what the decoders below check. */
 type Row = Readonly<Record<string, SqlStorageValue>> | undefined;
