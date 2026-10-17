@@ -587,7 +587,7 @@ describe("ky runner cloud", () => {
     expect(output()).toContain("KY_RUNNER_TOKEN");
   });
 
-  it("restores the last save before it runs, and saves sessions and work trees but not node_modules", async () => {
+  it("restores the last save before it runs, snapshots and saves sessions and work trees but not node_modules or Codex logins", async () => {
     const { home, port, output } = await cloud({ KY_RUNNER_TOKEN: TOKEN, KY_GITHUB_PROXY: "http://proxy.test/api/git/" });
     const at = (route: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${route}`, init);
     const ping = async () => (await at("/ping")).text();
@@ -607,7 +607,11 @@ describe("ky runner cloud", () => {
     await mkdir(path.join(last, "ky-work", "app", "node_modules", "dep"), { recursive: true });
     await writeFile(path.join(last, "ky-work", "app", "README.md"), "# app\n");
     await writeFile(path.join(last, "ky-work", "app", "node_modules", "dep", "index.js"), "");
-    execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", "ky-work"]);
+    // A Codex task's home, with the login ky sent its last run: ky sends one with every run.
+    await mkdir(path.join(last, ".ky", "codex", "m-1"), { recursive: true });
+    await writeFile(path.join(last, ".ky", "codex", "m-1", "config.toml"), "");
+    await writeFile(path.join(last, ".ky", "codex", "m-1", "auth.json"), "{}");
+    execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", ".ky", "ky-work"]);
 
     expect((await at("/restore", { method: "PUT", body: await readFile(path.join(last, "save.tar.gz")) })).status).toBe(204);
     expect(await ping()).toBe("running");
@@ -618,15 +622,32 @@ describe("ky runner cloud", () => {
       "https://github.com/"
     );
 
+    const entries = async (answer: Response, name: string) => {
+      await writeFile(path.join(last, name), Buffer.from(await answer.arrayBuffer()));
+
+      return execFileSync("tar", ["-tzf", path.join(last, name)], { encoding: "utf8" }).split("\n");
+    };
+
+    // A snapshot is the same archive, and the runner keeps running.
+    const snapshot = await at("/snapshot");
+    expect(snapshot.status).toBe(200);
+    const snapshotted = await entries(snapshot, "snapshot.tar.gz");
+    expect(await ping()).toBe("running");
+
     const save = await at("/save", { method: "POST" });
     expect(save.status).toBe(200);
     expect(await ping()).toBe("stopped");
-    await writeFile(path.join(last, "next.tar.gz"), Buffer.from(await save.arrayBuffer()));
-    const listed = execFileSync("tar", ["-tzf", path.join(last, "next.tar.gz")], { encoding: "utf8" }).split("\n");
+    const listed = await entries(save, "next.tar.gz");
 
-    expect(listed).toContain(".claude/projects/fake/s-1.jsonl");
-    expect(listed).toContain("ky-work/app/README.md");
-    expect(listed.some((entry) => entry.includes("node_modules"))).toBe(false);
+    for (const archive of [snapshotted, listed]) {
+      expect(archive).toContain(".claude/projects/fake/s-1.jsonl");
+      expect(archive).toContain("ky-work/app/README.md");
+      expect(archive).toContain(".ky/codex/m-1/config.toml");
+      expect(archive.some((entry) => entry.includes("node_modules") || entry.endsWith("auth.json"))).toBe(false);
+    }
+
+    // A stopped runner takes no snapshot: only a save, or a new container.
+    expect((await at("/snapshot")).status).toBe(409);
   });
 });
 
