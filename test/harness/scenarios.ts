@@ -397,8 +397,13 @@ export const SCENARIOS: Scenario[] = [
     async run(context) {
       const before = new Set(rowsOf(context, "dreaming").map((row) => row.id));
       const note = `the harness dreamed at ${Date.now()}`;
+      const seen = context.main.frames.length;
       context.main.send({ type: "submit", input: `tool memory_note ${JSON.stringify({ text: note })}` });
       await until("the memory to be saved", () => context.main.heard("Saved as #"));
+      // The turn's reply is saved after the tool's result: dreaming before it ends, the next dream finds the reply new.
+      await until("the turn to end", () =>
+        context.main.frames.slice(seen).some((frame) => frame.type === "events" && frame.events.some((event) => event.type === "run_end"))
+      );
       await testRoute(context, "/test/dream");
       let dream: TaskRow | undefined;
 
@@ -489,7 +494,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "remove-machine",
     expect: "pass",
-    about: "removing a machine ends its task, and its runner exits saying to pair again; its token is refused after",
+    about: "removing a machine ends its task, and its runner exits saying to pair again; started again with the old token, it waits saying to pair again",
     async run(context) {
       const { machine: gone } = await context.machine("gone");
       const task = await startTask(context, "gone", "[delay=30000] a long job");
@@ -502,11 +507,11 @@ export const SCENARIOS: Scenario[] = [
       await status(context, task, "failed");
       check((await removeMachine(context, "gone")) === 404, "a second remove finds no machine");
 
-      // A runner started again with the old token exits the same way.
+      // A runner started again with the old token is refused, and waits to try again rather than exit (#109).
       const again = gone.launch(context.url);
       context.runner = again;
-      await until("the relaunched runner to exit", () => again.exitCode() !== null);
-      check(again.exitCode() === 1 && again.output().includes("Pair again"), `the old token is refused, got ${again.output()}`);
+      await until("the relaunched runner to say its token was refused", () => again.output().includes("Pair again"));
+      check(again.exitCode() === null, `the refused runner keeps running, got exit ${again.exitCode()}`);
     }
   },
   {
@@ -580,9 +585,9 @@ export const SCENARIOS: Scenario[] = [
     }
   },
   {
-    name: "outdated-runner-exits",
+    name: "outdated-runner-waits",
     expect: "pass",
-    about: "a runner told goodbye by a ky of another protocol exits 1 and says to update it",
+    about: "a runner told goodbye by a ky of another protocol stays up, logs the goodbye, and says to update it",
     async run(context) {
       const proxy = await startProxy(context.url);
       context.cleanup.push(() => proxy.close());
@@ -591,10 +596,9 @@ export const SCENARIOS: Scenario[] = [
       const runner = newer.launch(proxy.url);
       context.runner = runner;
 
-      await until("the runner to exit", () => runner.exitCode() !== null);
-      check(runner.exitCode() === 1, `exited 1, got ${runner.exitCode()}`);
-      check(runner.output().includes(`ky said goodbye: ky speaks runner protocol ${PROTOCOL + 1}.`), "logged the goodbye");
-      check(runner.output().includes("Update it."), `logged to update it, got ${runner.output()}`);
+      await until("the runner to say it is outdated", () => runner.output().includes("ky upgrade"));
+      check(runner.exitCode() === null, `the outdated runner keeps running, got exit ${runner.exitCode()}`);
+      check(runner.output().includes(`ky said goodbye: ky speaks runner protocol ${PROTOCOL + 1}.`), `logged the goodbye, got ${runner.output()}`);
     }
   },
   {
@@ -769,6 +773,8 @@ export const SCENARIOS: Scenario[] = [
       const { machine: mac } = await context.machine("codexstop");
       const task = await startCodex(context, "codexstop", "[delay=30000] a long job");
       await status(context, task, "working");
+      // Working means the runner acked the task, not that codex is running yet: wait for its turn.
+      await until("codex to start the turn", () => mac.codex().some((event) => event.event === "turn" && event.task === task));
       await context.main.command({ type: "stop-task", task });
       await status(context, task, "stopped");
       check(mac.codex().some((event) => event.event === "sigint" && event.task === task), "codex got SIGINT");
@@ -889,6 +895,8 @@ export const SCENARIOS: Scenario[] = [
       const { machine: mac } = await context.machine("stop");
       const task = await startTask(context, "stop", "[delay=30000] a long job");
       await status(context, task, "working");
+      // Working means the runner acked the task, not that claude is running yet: wait for its turn.
+      await until("claude to start the turn", () => mac.claude().some((event) => event.event === "turn" && event.task === task));
       await context.main.command({ type: "stop-task", task });
       await status(context, task, "stopped");
       check(mac.claude().some((event) => event.event === "sigint" && event.task === task), "claude got SIGINT");

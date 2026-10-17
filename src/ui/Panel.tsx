@@ -1618,7 +1618,16 @@ function TaskState({ task }: { task: TaskRow }) {
 function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number; onClose: () => void; onOpen: (session: string) => void }) {
   const session = task.kind === "cloud" ? task.session : null;
 
-  return <TaskTimeline task={task} now={now} onClose={onClose} onOpenChat={session === null ? undefined : () => onOpen(session)} />;
+  // Opening the chat closes the sheet: left open, the modal covers the chat it opened.
+  const openChat =
+    session === null
+      ? undefined
+      : () => {
+          onClose();
+          onOpen(session);
+        };
+
+  return <TaskTimeline task={task} now={now} onClose={onClose} onOpenChat={openChat} />;
 }
 
 /** Stop a working task, or cancel a queued one. */

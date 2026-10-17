@@ -263,7 +263,8 @@ test("previews bloubs in the chat, saves one as ky's avatar, and it answers a po
 
   await send(page, `tool avatar ${JSON.stringify({ action: "set", for: "ky", spec: pip })}`);
   await expect(page.getByText("Saved as ky's avatar.")).toBeVisible();
-  const avatar = page.getByRole("img", { name: "Pip" }).first();
+  // ky's avatar in the panel, not the preview of it up the chat.
+  const avatar = panel(page).getByRole("img", { name: "ky", exact: true });
   await avatar.hover();
   await avatar.click();
   await expect(avatar.locator(`path[fill="#ff5d8f"]`)).not.toHaveCount(0);
@@ -564,6 +565,11 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText(/\d+ models/);
     await expect(key).toHaveValue("");
     await expect(providers.getByRole("alert")).toBeHidden();
+    // Earlier tests leave the main agent picked, not on the default, so pick a Claude model here.
+    await settings(page, "Models", "Main agent");
+    const claude = panel(page).getByRole("radiogroup", { name: "Main agent model" }).getByRole("radio", { name: /Anthropic/ }).first();
+    await claude.click();
+    await expect(claude).toHaveAttribute("aria-checked", "true");
     await settings(page, "Models");
     await expect(main).toContainText("· Anthropic");
   } finally {
@@ -572,6 +578,7 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
     await settings(page, "Models");
     await expect(main).toContainText("Glm 5.3 Flash · Workers AI");
+    await pick(page, "Main agent", /^Glm 5.3 Flash/);
   }
 });
 
@@ -647,7 +654,8 @@ for (const [width, name] of [
 
     // The note stays on one line, and the input gets a line of its own.
     expect(note?.height).toBeLessThan(20);
-    expect(input?.width).toBeGreaterThan(180);
+    expect(input!.y).toBeGreaterThanOrEqual(note!.y + note!.height);
+    expect(input?.width).toBeGreaterThan(160);
     await expect(subscriptions.getByText("Sign in with a code")).toBeVisible();
   });
 }
@@ -1180,7 +1188,9 @@ test("shows a subagent's work in Activity and opens its chat", async ({ page }) 
   const task = panel(page).getByRole("button", { name: /browserhelper/ }).first();
   await expect(task).toBeVisible();
 
+  // The task opens its steps; its chat opens from there.
   await task.click();
+  await page.getByRole("dialog").getByRole("button", { name: "Open chat" }).click();
   await expect(page.getByRole("button", { name: "Back to the main chat" })).toBeVisible();
   // In the chat: Activity's summary of the task says the same once it ends.
   await expect(chat(page).getByText("echo: say hi from the subagent")).toBeVisible();
@@ -1278,7 +1288,7 @@ test("shows what a machine task is doing, then how long it took and what it cost
   await expect(card).toContainText("1 turn · $0.01");
   await expect(card).not.toContainText("Running pnpm build");
   await card.click();
-  await expect(panel(page).getByRole("list", { name: "Recent steps" })).toContainText("Running pnpm build");
+  await expect(page.getByRole("list", { name: "Steps" })).toContainText("pnpm build");
 });
 
 test("shows a task without its markdown, and its machine and time each on one line", async ({ page }) => {
@@ -1295,10 +1305,11 @@ test("shows a task without its markdown, and its machine and time each on one li
     expect((await token.boundingBox())?.height).toBeLessThan(24);
   }
 
+  // Opened, its steps read the agent's words without their markdown too.
   await card.click();
-  const item = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name }) });
-  await expect(item.getByText("web", { exact: true })).toBeVisible();
-  await expect(item).not.toContainText("*");
+  const steps = page.getByRole("list", { name: "Steps" });
+  await expect(steps).toContainText(`working on: Lint the web app ${id}`);
+  await expect(steps).not.toContainText("*");
 });
 
 test("stops a machine task from Activity", async ({ page }) => {
