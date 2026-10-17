@@ -5,16 +5,19 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "../../cli/commands.ts";
 import { ky } from "../../cli/ky.ts";
 import { restartRunner } from "../../cli/runner/commands.ts";
 import { github } from "../../cli/runner/github.ts";
+import { HandledSeqs } from "../../cli/runner/handled.ts";
+import { FIRST_OUTPUT_WITHIN_MS, Runner, type ProcessEvents } from "../../cli/runner/runner.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
 import { stableKy } from "../../cli/runner/system.ts";
 import { tasks } from "../../cli/runner/tasks.ts";
-import type { MachineFacts } from "../../src/machines/contract.ts";
+import type { MachineFacts, RunnerReport } from "../../src/machines/contract.ts";
+import { decodeReport } from "../../src/machines/runner-protocol.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
@@ -646,5 +649,93 @@ describe("a task's agent", () => {
     expect(alive(toolPid)).toBe(false);
     expect(exited).toBe(true);
     expect(logged.join("\n")).toMatch(/did not exit within 0.3s of its interrupt; killing its process group/);
+  });
+});
+
+/** What the runner did to an agent that never writes, and how to make it speak or exit. */
+class SilentAgent {
+  interrupted = false;
+  events: ProcessEvents | undefined;
+}
+
+describe("a started agent that writes nothing", () => {
+  const FACTS: MachineFacts = {
+    os: "darwin",
+    chrome: false,
+    repos: [],
+    agents: { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } },
+    ports: [],
+    kind: "computer"
+  };
+
+  /** A runner whose claude never writes, and what it reported. */
+  async function silentRunner(stderr: string) {
+    const dir = await mkdtemp(path.join(tmpdir(), "ky-silent-"));
+    const sent: RunnerReport[] = [];
+    const agent = new SilentAgent();
+
+    const runner = new Runner(
+      (_agent, _task, _launch, events) => {
+        agent.events = events;
+
+        return { write: () => {}, end: () => {}, interrupt: () => (agent.interrupted = true), renew: () => {}, pid: 4242, stderr: () => stderr };
+      },
+      () => {},
+      new HandledSeqs(path.join(dir, "handled.json"), "test"),
+      "test",
+      () => FACTS,
+      () => Promise.reject(new Error("no ports"))
+    );
+
+    const link = {
+      send: (text: string) => {
+        const decoded = decodeReport(text);
+
+        if (decoded.kind === "report") sent.push(decoded.report);
+
+        return true;
+      },
+      buffered: () => 0
+    };
+
+    runner.open(link);
+    runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-1", turn: 1, prompt: "go", session: null, agent: "claude", taskToken: "t" }));
+
+    return { agent, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
+  }
+
+  beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => vi.useRealTimers());
+
+  it("is interrupted, and its turn fails naming its pid and stderr, once the first-output wait is over", async () => {
+    const { agent, results, done } = await silentRunner("waiting on a lock\n");
+
+    vi.advanceTimersByTime(FIRST_OUTPUT_WITHIN_MS - 1);
+    expect(results()).toEqual([]);
+    vi.advanceTimersByTime(1);
+
+    expect(agent.interrupted).toBe(true);
+    expect(results()).toMatchObject([{ task: "m-1", ok: false }]);
+    expect(results()[0]?.type === "result" && results()[0]?.text).toMatch(/claude started \(pid 4242\) but wrote nothing in 60s.*stderr: waiting on a lock/);
+    await done();
+  });
+
+  it("is left alone once it writes a line", async () => {
+    const { agent, results, done } = await silentRunner("");
+    agent.events!.line("{}");
+
+    vi.advanceTimersByTime(FIRST_OUTPUT_WITHIN_MS * 2);
+    expect(agent.interrupted).toBe(false);
+    expect(results()).toEqual([]);
+    await done();
+  });
+
+  it("fails naming the signal that killed it", async () => {
+    const { agent, results, done } = await silentRunner("");
+    agent.events!.exit(null, "", "SIGKILL");
+
+    expect(results()[0]).toMatchObject({ ok: false, text: "claude was killed by SIGKILL." });
+    await done();
   });
 });

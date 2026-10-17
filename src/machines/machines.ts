@@ -906,9 +906,7 @@ export class MachineHub {
       case "hello":
         return this.#onHello(machine, report.active, report.facts);
       case "ack":
-        this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, report.seq);
-
-        return;
+        return this.#onAck(machine, report.seq);
       case "session":
         if (this.#closed(report.task, report.turn)) return;
         this.#feed.update(report.task, { session: report.session, status: "working" });
@@ -921,6 +919,20 @@ export class MachineHub {
       default:
         report satisfies never;
     }
+  }
+
+  /**
+   * The runner took command `seq`: it leaves the inbox. A run it took is working from now on, as
+   * the runner starts its agent at once; one that then never speaks fails by the runner's watchdog.
+   */
+  #onAck(machine: string, seq: number): void {
+    const command = this.#pending(machine).find((each) => each.seq === seq);
+    this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, seq);
+
+    if (command?.type !== "run" || this.#closed(command.task, command.turn)) return;
+    const task = this.#feed.get(command.task);
+
+    if (task?.status === "queued") this.#feed.update(command.task, { status: "working" });
   }
 
   /** A step a task took: a tool starting, or with a state, the same call done. */

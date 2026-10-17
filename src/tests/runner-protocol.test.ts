@@ -69,6 +69,12 @@ class FakeClaude implements AgentProcess {
 
   renew(): void {}
 
+  readonly pid = undefined;
+
+  stderr(): string {
+    return "";
+  }
+
   session(id: string): void {
     this.#emit({ type: "system", subtype: "init", session_id: id });
   }
@@ -134,6 +140,12 @@ class FakeCodex implements AgentProcess {
 
   renew(codex: CodexCreds): void {
     this.renewed.push(codex);
+  }
+
+  readonly pid = undefined;
+
+  stderr(): string {
+    return "";
   }
 
   /** Start its turn in `thread`. */
@@ -598,6 +610,14 @@ describe("runner protocol", () => {
     expect(said[0]).toContain("Stopped. Dropped 1 queued message.");
   });
 
+  // M6: a run the runner took is started, not still queued, before its agent says anything.
+  it("shows a run as working once its runner acks it, before the agent says anything", async () => {
+    const { object, mac } = await online();
+    const id = await start(object);
+    await mac.claude(0);
+    await until("the task to be working", async () => (await status(object, id)) === "working");
+  });
+
   // The stale keepalive the fixes surfaced: a hello sent before the run arrived must not end that run.
   it("keeps a run that a keepalive hello raced", async () => {
     const { object, mac } = await online();
@@ -607,7 +627,7 @@ describe("runner protocol", () => {
     const claude = await mac.claude(0);
     mac.wire!.release();
     await settle();
-    expect(await status(object, id)).toBe("queued");
+    expect(await status(object, id)).toBe("working");
 
     claude.session("s1");
     claude.answer("built");
