@@ -83,13 +83,13 @@ describe("skills", () => {
     socket.close();
   });
 
-  it("lets a review and a dream call only tools ky registers", async () => {
+  it("lets a review, a dream and an episode reflection call only tools ky registers", async () => {
     const name = crypto.randomUUID();
     await prompt(name, "hello");
-    // A review and a dream are offered every tool the main chat is.
+    // Each is offered every tool the main chat is.
     const registered = await inside(name, (instance) => Object.keys(instance.boundary.calls.at(-1)?.tools ?? {}));
 
-    for (const kind of ["review", "dream"] as const) expect(registered).toEqual(expect.arrayContaining([...REVIEW_ALLOWED[kind]]));
+    for (const kind of ["review", "dream", "episode"] as const) expect(registered).toEqual(expect.arrayContaining([...REVIEW_ALLOWED[kind]]));
   });
 
   it("lists active skills in the system prompt, and drops archived ones", async () => {
@@ -191,8 +191,11 @@ describe("dreaming", () => {
 
     expect(rebooked).toMatchObject([{ type: "cron", cron: "0 4 * * *" }]);
 
+    // What was said is something that happened: the first dream reads "hello", the next finds nothing new.
     await inside(name, (instance) => instance.dreaming.run());
-    expect(await dreams(name)).toEqual([]);
+    expect(await dreams(name)).toHaveLength(1);
+    await inside(name, (instance) => instance.dreaming.run());
+    expect(await dreams(name)).toHaveLength(1);
   });
 
   it("reads what happened since the last dream in a fresh conversation that wakes with memory", async () => {
@@ -208,8 +211,8 @@ describe("dreaming", () => {
 
     const [dream] = await dreams(name);
     expect(dream).toMatchObject({ kind: "cloud", title: "Dreaming", status: "done" });
-    // The fake AI binding echoes the dream's instructions and its digest.
-    expect(dream!.summary).toMatch(/^echo: \[dream\]/);
+    // The scripted dream (src/tests/stack.ts) finds nothing asked of it in the digest and answers so.
+    expect(dream!.summary).toBe("Dreamt.");
 
     const asked = await inside(name, (instance) => instance.boundary.calls.slice(before).map((call) => call.system));
     expect(asked.some((system) => system.includes("the user likes green tea"))).toBe(true);

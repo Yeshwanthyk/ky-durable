@@ -1,26 +1,31 @@
 import type { Models } from "../models";
 import type { Reviews } from "../skills/contract";
 import { automationExtension, type Automations, checkInGuardExtension } from "./automations";
+import type { Deliveries } from "./delivery";
 
 /** The domain's classes, for server.ts to make: the contract carries only their types. */
 export { Automations } from "./automations";
+
+export { Deliveries, deliveryExtension } from "./delivery";
 
 export { TaskFeed } from "./tasks";
 
 /** What the automations domain's tools are made from, on the agent (src/server.ts). */
 export type AutomationsWiring = {
   readonly automations: Automations;
+  readonly deliveries: Deliveries;
   readonly models: Models;
   readonly reviews: Reviews;
 };
 
 /** The automation tool, and the guard that keeps a check-in to its tools. */
-export function automationTools({ automations, models, reviews }: AutomationsWiring) {
+export function automationTools({ automations, deliveries, models, reviews }: AutomationsWiring) {
   return {
     automations: automationExtension(
       automations,
       () => models.resolve("worker").choice,
-      (session) => reviews.kind(session) === "dream"
+      (session) => reviews.kind(session) === "dream",
+      (session) => deliveries.held(session)
     ),
     checkInGuard: checkInGuardExtension(automations)
   };

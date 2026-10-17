@@ -1,5 +1,6 @@
 import { type JsonValue, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { DreamLedgerRow } from "../dreaming/contract";
 import type { TaskTokens } from "../machines/contract";
 import { Access } from "../access";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
@@ -269,6 +270,14 @@ export class Vault extends ProductionVault {
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `executor CODE` runs CODE on Executor.
  * - `tool NAME JSON` calls any tool with those arguments.
+ * - An episode reflection keeps the user's first "I'll ..." message as an
+ *   open loop, or answers [SILENT].
+ * - A dream calls, one by one, each `dream> tool NAME JSON` a user's or a
+ *   notice's line of its digest holds; `$ID` in the JSON is that line's
+ *   rowid. Then it answers "Dreamt."
+ * - A relayed mail whose subject is `tool NAME JSON` asks ky's turn for that call,
+ *   which ky says it is trying before it calls.
+ * - A prompt containing `model-refuses` gets a 400, which no retry or stand-in mends.
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
  * - After a tool result it answers `tool said: <result>`; anything else is
@@ -335,6 +344,8 @@ export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
   /** Every request to Workers AI and the api-key vendors, as the wire carried it. */
   readonly calls: AiCall[];
+  /** Each request's user messages' text, as the wire carried them (a turn-start recall block included), in order. */
+  readonly asked: string[][];
   /** Every mail Email Service was asked to send; one to an address with "bounce" in it is refused. */
   readonly mailSent: EmailMessageBuilder[];
 };
@@ -387,6 +398,13 @@ const BACKGROUND: Array<[string, (asked: string) => Reply]> = [
   ["You write the memory of ky", compress]
 ];
 
+/** A turn-start recall block (src/dreaming/recall.ts) at the end of a user message: the fakes answer what the user said. */
+const RECALLED = /\n\n<recalled>\n[\s\S]*<\/recalled>$/;
+
+/** `messages` with any recall block taken off the user's messages. */
+const unrecalled = (messages: readonly WireMessage[]): WireMessage[] =>
+  messages.map((message) => (message.role === "user" && RECALLED.test(wireText(message.content)) ? { ...message, content: wireText(message.content).replace(RECALLED, "") } : message));
+
 function script(messages: readonly WireMessage[]): Reply {
   const system = wireText(messages.find((message) => message.role === "system")?.content);
   const background = BACKGROUND.find(([start]) => system.startsWith(start));
@@ -415,12 +433,70 @@ function script(messages: readonly WireMessage[]): Reply {
   return reply(last);
 }
 
+/** A line of a dream's digest (src/history.ts since) that the user said or ky relayed: its rowid, who, and the text. */
+const DIGEST_LINE = /^#(\d+) \S+ .*?, (user|notice): (.*)$/gm;
+
+/** The JSON object starting at `start` in `text`, braces balanced outside its strings; undefined when it is cut off. */
+function objectAt(text: string, start: number): string | undefined {
+  let depth = 0;
+  let quoted = false;
+
+  for (let at = start; at < text.length; at++) {
+    const char = text[at];
+
+    if (quoted) {
+      if (char === "\\") at++;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) return text.slice(start, at + 1);
+  }
+
+  return undefined;
+}
+
+/**
+ * A dream (src/dreaming/dreaming.ts) calls the tools its digest asks for: each `dream> tool NAME {json}` in a line the
+ * user said or ky relayed, in the digest's order, one a round, then answers "Dreamt.". In the JSON, `$ID` is that
+ * line's rowid. Undefined for any other turn.
+ */
+function dreamt(messages: readonly WireMessage[]): Reply | undefined {
+  const at = messages.findLastIndex((message) => message.role === "user");
+  const prompt = at < 0 ? "" : wireText(messages[at]!.content);
+
+  if (!prompt.startsWith("[dream]")) return undefined;
+  const lines = [...prompt.matchAll(DIGEST_LINE)];
+
+  const calls = lines.flatMap(([, id, , text]) =>
+    [...text!.matchAll(/dream> tool (\S+) /g)].flatMap((found) => {
+      const json = objectAt(text!, found.index + found[0].length);
+
+      // SAFETY: the tests write a JSON object after the tool name, as for `tool NAME JSON`.
+      return json === undefined ? [] : [call(found[1]!, JSON.parse(json.replaceAll("$ID", id!)) as Record<string, JsonValue>)];
+    })
+  );
+
+  return calls[messages.slice(at + 1).filter((message) => message.role === "tool").length] ?? { text: "Dreamt." };
+}
+
 /** The answer to a turn's last message: the user's input, or a tool's result. */
 function reply(last: WireMessage | undefined): Reply {
   // The wire does not say whether a tool failed; its result is its text either way.
   if (last?.role === "tool") return { text: `tool said: ${wireText(last.content)}` };
 
-  return answer(last?.role === "user" ? wireText(last.content) : "");
+  const prompt = last?.role === "user" ? wireText(last.content) : "";
+
+  return prompt.startsWith("[episode]") ? episode(prompt) : answer(prompt);
+}
+
+/**
+ * An episode reflection (src/dreaming/episodes.ts) keeps the first promise the user made ("I'll ..."), citing its
+ * message, and answers [SILENT] when there is none.
+ */
+function episode(prompt: string): Reply {
+  const promise = /^#(\d+) user: (I'll .+)$/m.exec(prompt);
+
+  return promise ? call("anticipate", { action: "add", kind: "open_loop", text: promise[2]!, messages: [Number(promise[1])] }) : { text: "[SILENT]" };
 }
 
 /** The prompts that call a tool: each pattern, and the call its match makes. */
@@ -429,21 +505,36 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
   [/^spawn (\S+) (.+)$/s, (match) => call("subagent", { action: "spawn", name: match[1]!, message: match[2]! })],
   [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
   [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
-  // SAFETY: the tests write a JSON object after the tool name; a bad one fails the turn loudly.
+  // SAFETY: the tests write a JSON object after the tool name, here and below; a bad one fails the turn loudly.
   [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
   [/^gate$/, () => call("gate", {})],
   [/^gate-unsafe$/, () => call("gate_unsafe", {})]
 ];
 
+/** Prompts answered as the part of them the model is asked about, and what the model says first when it calls a tool for one. */
+const FORWARDS: Array<[RegExp, string?]> = [
+  // A check-in's run is answered by what it says to look at.
+  [/^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/],
+  // A mail ky relays into the chat (src/mail.ts arrived) whose summary is a `tool` line: the chat's model says so, then tries it.
+  [/^\[mail [^\n]*\]\n\nMail says: (tool \S+ \{.*\})$/m, "Trying what the mail asks."],
+  // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
+  [/^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/]
+];
+
+/** `reply`, with `say` written before it when it is a tool call. */
+const narrated = (reply: Reply, say: string | undefined): Reply => (say !== undefined && "tool" in reply ? { ...reply, say } : reply);
+
 /** The answer to a user's prompt: the tool call it asks for, or an echo. */
 function answer(prompt: string): Reply {
-  const checkIn = /^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/.exec(prompt);
+  const forward = FORWARDS.map(([pattern, say]) => ({ match: pattern.exec(prompt), say })).find(({ match }) => match !== null);
 
-  if (checkIn) return answer(checkIn[1]!);
+  if (forward) return narrated(answer(forward.match![1]!), forward.say);
 
   const said = /^reply: (.+)$/s.exec(prompt);
 
   if (said) return { text: said[1]! };
+
+  if (prompt.includes("model-refuses")) return { status: 400, error: "The fake model refuses this prompt." };
 
   // A triage reads a mail (src/mail.ts mailTriage): a newsletter needs nobody; a `tool` line in it is tried, as a mail
   // that talks the model round would; anything else is summed up by its subject.
@@ -456,11 +547,6 @@ function answer(prompt: string): Reply {
 
     return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
   }
-
-  // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
-  const peer = /^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/.exec(prompt);
-
-  if (peer) return answer(peer[1]!);
 
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
@@ -508,6 +594,14 @@ export class PiAgent extends ProductionAgent {
     const storage = this.ctx.storage;
     const executorFake = new FakeExecutor(EXECUTOR_TOKEN);
     const calls: AiCall[] = [];
+    const asked: string[][] = [];
+
+    // The fakes record what each request asked, and answer as if no block were there.
+    const answering = (messages: readonly WireMessage[]) => {
+      asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
+
+      return dreamt(messages) ?? script(unrecalled(messages));
+    };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
       defineTool({
@@ -557,8 +651,8 @@ export class PiAgent extends ProductionAgent {
       (await storage.get<boolean>(downKey(provider))) === true ? REFUSALS[provider] : undefined;
 
     return {
-      ai: fakeAI(chatCompletions(script, calls, refusing("workers-ai"))),
-      fetch: vendors(script, calls, chatCompletions(script, calls, refusing("opencode-go"))),
+      ai: fakeAI(chatCompletions(answering, calls, refusing("workers-ai"))),
+      fetch: vendors(answering, calls, chatCompletions(answering, calls, refusing("opencode-go"))),
       vibeProxy: {
         port: VIBEPROXY_TEST_PORT,
         key: VIBEPROXY_KEY,
@@ -592,6 +686,7 @@ export class PiAgent extends ProductionAgent {
       mail: this.ctx.id.name?.startsWith(NO_MAIL) === true ? undefined : mail,
       executorFake,
       calls,
+      asked,
       mailSent
     };
   }
@@ -623,9 +718,78 @@ export class PiAgent extends ProductionAgent {
     await this.ctx.storage.put(downKey(id), !up);
   }
 
-  /** Dream now, as the nightly fire does, and wait for it to finish. */
+  /** Dream now, as the nightly fire does once the user has been away a while, and wait for it to finish. */
   async dream(): Promise<void> {
+    this.presence.seen(Date.now() - 3 * 3_600_000);
     await this.dreaming.run();
+  }
+
+  /**
+   * Put lines in today's brief, as events while the user was away do; each line's chip, when it has one, after a
+   * " | ". A line starting "dream: " is the dream's instead: an open anticipation citing the user's newest message.
+   */
+  seedBrief(lines: readonly string[]): string[] {
+    return lines.map((line, index) => {
+      const dreamt = line.startsWith("dream: ");
+      const [text = "", chip] = (dreamt ? line.slice("dream: ".length) : line).split(" | ");
+
+      if (!dreamt) return this.brief.append({ text, chip }, { loop: "event", ref: `test:${Date.now()}:${index}` });
+      const message = Number(this.ctx.storage.sql.exec("SELECT max(id) AS id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user'").one().id);
+      const { id } = this.anticipations.add({ kind: "open_loop", text, evidence: { messages: [message], memories: [] } }, "dream");
+
+      return this.brief.append({ text, chip }, { loop: "dream", ref: `anticipation:${id}` });
+    });
+  }
+
+  /**
+   * A night's dream, as Activity › Last night lists it, through the real skill library, memory and ledger: two
+   * skills the agent wrote, then a dream that forgets a memory summary, edits one skill, merges the other into
+   * it and makes a third. Each name ends in `tag`. Answers with the dream's ledger rows.
+   */
+  async seedDreamNight(tag: string): Promise<DreamLedgerRow[]> {
+    const [groceries, run, tea] = [`weekly-groceries-${tag}`, `grocery-run-${tag}`, `tea-order-${tag}`];
+
+    for (const name of [groceries, run]) {
+      this.skills.apply({ action: "create", name, description: `Ordering groceries (${tag})`, body: "1. Open the list.\n2. Order oat milk." }, "agent");
+    }
+
+    const from = this.memory.count();
+    this.memory.note(`the user drinks green tea (${tag})`);
+    this.memory.note(`the user switched to oolong (${tag})`);
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (?, ?, ?)", from, from + 2, `the user drinks green tea, then oolong (${tag})`);
+
+    const { id } = await this.harness.sessions.create();
+    this.reviews.add(id, "", "dream", { run: `dream-${tag}` });
+    this.memory.forget(`${from}-${from + 1}`, id);
+    this.skills.apply({ action: "patch", name: groceries, old: "oat milk", new: "oat milk, and tea on Fridays", reason: "You order tea every Friday" }, "dream", id);
+    this.skills.apply({ action: "archive", name: run, absorbed_into: groceries, reason: `Same steps as ${groceries}` }, "dream", id);
+    this.skills.apply({ action: "create", name: tea, description: "Ordering tea", body: "1. Order oolong.", reason: "You asked for tea three times" }, "dream", id);
+
+    return this.ledger.lastNight().filter((row) => row.run === `dream-${tag}`);
+  }
+
+  /**
+   * The user's messages holding `text`, oldest first, the first moved to the day before: a check done by hand on two
+   * days, as a proposal cites. Answers with their ids.
+   */
+  askedYesterday(text: string): number[] {
+    const sql = this.ctx.storage.sql;
+
+    const ids = sql
+      .exec("SELECT id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user' AND instr(record, ?) > 0 ORDER BY id", text)
+      .toArray()
+      .map((row) => Number(row.id));
+
+    if (ids[0] !== undefined) {
+      sql.exec("UPDATE pi_entries SET record = json_set(record, '$.model[0].timestamp', json_extract(record, '$.model[0].timestamp') - ?) WHERE id = ?", 86_400_000, ids[0]);
+    }
+
+    return ids;
+  }
+
+  /** What ky surfaced, and what became of each, oldest first. */
+  surfacedRows(): Array<Record<string, SqlStorageValue>> {
+    return this.ctx.storage.sql.exec("SELECT kind, loop, ref, item, text, outcome FROM ky_surfaced ORDER BY id").toArray();
   }
 
   /** Review turns with at least this many tool calls; in memory, so a restart puts back the default. */
@@ -694,6 +858,13 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
+  // Each line= is a brief line for today, "text | chip", or "dream: text | chip" for the dream's; answers with their keys.
+  ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
+  // The user's messages holding text=, the oldest moved back a day; answers with their ids.
+  ["POST /test/asked-yesterday", async (me, url) => Response.json(await me.askedYesterday(url.searchParams.get("text") ?? ""))],
+  ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
+  // A dream's night of changes, each name ending in tag=; answers with its ledger rows.
+  ["POST /test/dream-night", async (me, url) => Response.json(await me.seedDreamNight(url.searchParams.get("tag") ?? "seed"))],
   // n is the tool calls a turn needs to be reviewed for skills; 5 is ky's default.
   [
     "POST /test/review-after",

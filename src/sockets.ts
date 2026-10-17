@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Memory, Soul } from "./dreaming/contract";
+import type { Brief, DreamLedger, Memory, Presence, Proactivity, Proposals, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -173,7 +173,16 @@ export class PiSessionSockets {
   readonly #group: GroupDesk;
   readonly #groups: GroupChats;
   readonly #memory: Memory;
+  readonly #ledger: DreamLedger;
   readonly #automations: Automations;
+  readonly #presence: Presence;
+  /** The day's brief; #brief is a specialist's. */
+  readonly #morning: Brief;
+  readonly #proactivity: Proactivity;
+  /** Activity › Suggested: automations the dream proposed. */
+  readonly #proposals: Proposals;
+  /** Turn-start recall, for the chips under the user's messages. */
+  readonly #recall: Recall;
   readonly #setup: Setup;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
@@ -202,7 +211,13 @@ export class PiSessionSockets {
     group: GroupDesk,
     groups: GroupChats,
     memory: Memory,
+    ledger: DreamLedger,
     automations: Automations,
+    presence: Presence,
+    brief: Brief,
+    proactivity: Proactivity,
+    proposals: Proposals,
+    recall: Recall,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
@@ -230,7 +245,13 @@ export class PiSessionSockets {
     this.#group = group;
     this.#groups = groups;
     this.#memory = memory;
+    this.#ledger = ledger;
     this.#automations = automations;
+    this.#presence = presence;
+    this.#morning = brief;
+    this.#proactivity = proactivity;
+    this.#proposals = proposals;
+    this.#recall = recall;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
@@ -267,11 +288,17 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+    // A block made for a message shows as a chip under it, in the browsers following that chat.
+    recall.onShown((session, recalled) => {
+      for (const socket of this.#getWebSockets(sessionTag(session))) send(socket, { type: "recalled", session, recalls: [recalled] });
+    });
     memory.onChange(() => {
       const message = this.#memoryMessage();
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+    // A line the dream or an event writes reaches the pages already open.
+    brief.onChange(() => this.#broadcastBrief());
     automations.onChange(() => {
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
@@ -419,6 +446,13 @@ export class PiSessionSockets {
     return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp() } };
   }
 
+  /** Send today's brief to every UI socket, empty lines included: an empty one clears the card. */
+  #broadcastBrief(): void {
+    const message: PiServerMessage = { type: "brief", brief: this.#morning.view() };
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+  }
+
   /** Send the task feed to every UI socket. */
   broadcastTasks(): void {
     const message = this.#tasksMessage();
@@ -485,13 +519,25 @@ export class PiSessionSockets {
     // Cloudflare places the browser's connection in a time zone; check-ins are booked for the user's morning.
     const zone = ctx.request.cf?.timezone;
 
-    if (Guard.IsString(zone) && zone) this.#automations.setZone(zone);
+    // A booking that fails must not keep the page from opening; the next connect tries again.
+    if (Guard.IsString(zone) && zone) {
+      try {
+        await this.#automations.setZone(zone);
+      } catch (error) {
+        console.warn("booking the dream in the user's zone failed", error);
+      }
+    }
+
     send(connection, {
       type: "hello",
       session,
       version: this.#version,
       tools: this.#tools()
     });
+    // As a card and never a chat message, on every hello until each line has an outcome; shown is what the page reports.
+    const brief = this.#morning.view();
+
+    if (brief.lines.length > 0) send(connection, { type: "brief", brief });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
@@ -512,6 +558,9 @@ export class PiSessionSockets {
     const stream = await this.#harness.session(session).events();
     this.#watches.set(socket, stream);
     send(socket, { type: "events", session, events: [stream.snapshot] });
+    const recalls = this.#recall.shown(session);
+
+    if (recalls.length > 0) send(socket, { type: "recalled", session, recalls });
     stream.start(async (events) => {
       if (socket.readyState !== OPEN) {
         void this.#unwatch(socket);
@@ -705,6 +754,8 @@ export class PiSessionSockets {
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
+      // Only a message the user sends counts as being here: a tab that reconnects in the night does not.
+      this.#presence.seen();
       const all = this.#specialists.list();
       const text = textOf(message.input);
       const unknown = all.length === 0 ? undefined : mentions(text).find((id) => !this.#specialists.has(id));
@@ -916,8 +967,51 @@ export class PiSessionSockets {
     "memory-search": (message) => this.#memory.search(message.query),
     "memory-zoom": (message) => this.#memory.children(message.block),
     "memory-forget": (message) => this.#memory.forget(message.block),
+    "dream-ledger": () => this.#ledger.lastNight(),
+    "dream-undo": (message) => this.#ledger.undo(message.entry),
     "automation-save": (message) => this.#saveAutomation(message),
     automation: (message) => this.#automationActions[message.action](message.automation),
+    "brief-seen": (message) => {
+      this.#morning.seen(message.keys);
+
+      return null;
+    },
+    "brief-act": (message) => {
+      this.#morning.act(message.key);
+
+      return null;
+    },
+    "brief-pin": (message) => {
+      this.#morning.pin(message.key);
+
+      return null;
+    },
+    "brief-dismiss": (message) => {
+      this.#morning.dismiss(message.key);
+
+      return null;
+    },
+    "brief-clear": (message) => {
+      this.#morning.clear(message.keys);
+
+      return null;
+    },
+    proposals: () => this.#proposals.view(),
+    "proposal-seen": (message) => {
+      this.#proposals.seen(message.ids);
+
+      return null;
+    },
+    "proposal-accept": (message) => this.#proposals.accept(message.proposal),
+    "proposal-dismiss": (message) => this.#proposals.dismiss(message.proposal),
+    proactivity: () => this.#proactivity.view(),
+    "set-proactivity": (message) => {
+      const view = this.#proactivity.set(message.level);
+      // Off clears every open page's card; back on brings today's lines back.
+      this.#broadcastBrief();
+
+      return view;
+    },
     "set-check-ins": async (message) => {
       await this.#automations.setCheckIns(message.on);
 

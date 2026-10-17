@@ -6,6 +6,7 @@ import type { SettingsView, TaskRow } from "./protocol";
 import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext } from "./ui/Automations";
+import { BriefCard } from "./ui/BriefCard";
 import { SendTaskContext } from "./ui/change-review";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
@@ -16,6 +17,9 @@ import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { MailContext } from "./ui/Mail";
+import { ProactivityContext } from "./ui/Proactivity";
+import { LedgerContext } from "./ui/LastNight";
+import { SuggestedContext } from "./ui/Suggested";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
@@ -144,8 +148,8 @@ type Parts = {
   setTheme: (theme: Theme) => void;
 };
 
-/** What the page can do to the draft from outside the composer. */
-type DraftHandle = { readonly setPrompt: (prompt: string) => void };
+/** What the page can do to the draft from outside the composer: put a suggested ask in it, from `key` if a brief line's. */
+type DraftHandle = { readonly pick: (prompt: string, key?: string) => void };
 
 type DraftDockProps = {
   handle: RefObject<DraftHandle | null>;
@@ -170,6 +174,8 @@ type DraftDockProps = {
   onWithdraw: (operationId: string) => Promise<boolean>;
   /** The composer has taken in these returned messages. */
   onReturned: (operationIds: ReadonlySet<string>) => void;
+  /** The user sent a message holding the ask of the brief line `key`'s chip. */
+  onActed: (key: string) => void;
 };
 
 /**
@@ -206,18 +212,23 @@ function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, 
 }
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned, onActed }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
-  useImperativeHandle(handle, () => ({ setPrompt: draft.setPrompt }), [draft.setPrompt]);
+  useImperativeHandle(handle, () => ({ pick: draft.pick }), [draft.pick]);
   useReloadOnDeploy(updated, draft);
   useTakeReturned(returned, draft.restore, onReturned);
 
   const submit = () => {
+    const picked = draft.picked;
     const input = canSend(connected, draft.reading, cantSee) ? draft.take() : null;
 
-    if (input !== null) onSend(input);
+    if (input === null) return;
+    onSend(input);
+
+    // A brief chip's ask went out: that line was acted on.
+    for (const key of picked) onActed(key);
   };
 
   const { onEdit, onDelete } = useQueueActions(onWithdraw, draft.restore);
@@ -349,7 +360,7 @@ function Stage(parts: Parts) {
   );
 
   const kept = useSame(view.setUp, shallow);
-  const onPick = useCallback((prompt: string) => composer.current?.setPrompt(prompt), []);
+  const onPick = useCallback((prompt: string, key?: string) => composer.current?.pick(prompt, key), []);
 
   const onGo = useStableCallback((target: FirstRunTarget) =>
     target === "soul" ? ky.submit(SOUL_INTERVIEW) : panel.openSection(target)
@@ -390,7 +401,8 @@ function Stage(parts: Parts) {
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
-        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} />
+        <BriefCard brief={ky.brief} actions={ky.briefActions} problem={ky.briefProblem} onPick={onPick} />
+        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} />
         <DraftDock
           handle={composer}
           run={run}
@@ -408,6 +420,7 @@ function Stage(parts: Parts) {
           onSteer={ky.steerNow}
           onWithdraw={ky.withdraw}
           onReturned={ky.takeReturned}
+          onActed={ky.briefActions.onAct}
         />
       </div>
     </section>
@@ -468,6 +481,9 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
         <ExecutorContext.Provider value={executor}>
           <PeerContext.Provider value={ky.peerActions}>
           <MailContext.Provider value={ky.mailActions}>
+          <ProactivityContext.Provider value={ky.proactivityActions}>
+          <LedgerContext.Provider value={ky.ledgerActions}>
+          <SuggestedContext.Provider value={ky.suggestedActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -510,6 +526,9 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </SuggestedContext.Provider>
+          </LedgerContext.Provider>
+          </ProactivityContext.Provider>
           </MailContext.Provider>
           </PeerContext.Provider>
         </ExecutorContext.Provider>

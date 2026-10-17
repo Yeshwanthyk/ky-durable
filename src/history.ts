@@ -1,4 +1,6 @@
 import { ROOT_SESSION } from "agents/harness/pi";
+import Type from "typebox";
+import { decodeOr } from "./core/decode";
 
 /**
  * Chat search: a full-text index over every message of the main chat and the
@@ -16,6 +18,15 @@ const MATCHES = 8;
 /** A neighbor's text when `around` shows the messages next to a match. */
 
 const NEIGHBOR_CHARS = 600;
+/** A user's message in `since`, so one long message leaves room for the rest of the day. */
+
+const SINCE_CHARS = 1_000;
+/** ky's message or a notice in `since`: enough to say what it was about, so the user's words get the room. */
+
+const BRIEF_CHARS = 200;
+/** How far back `since` reads: older messages are left to chat_search. */
+
+const SINCE_WINDOW_MS = 7 * 86_400_000;
 /** The whole answer's cap, so a search never floods the context. */
 
 const OUTPUT_CHARS = 12_000;
@@ -28,12 +39,82 @@ const BATCH = 500;
  */
 
 const LOOKBACK = 256;
+/**
+ * How far apart, in pi's ids, a user entry and the submission that placed it may be: a direct submission is
+ * made just after its entry, a queued one before it, while the run it waited behind wrote its own entries.
+ */
+
+const PLACED_SLACK = 5_000;
+
+/** A request id the browser or the harness made up for a message the user sent: a bare UUID. ky's own relays name theirs (mail:, peer-escalate:, subagent-report:). */
+const OWN_REQUEST = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether a submission's request id is one the browser or the harness made up for a message the user sent, not one of ky's relays. */
+export function isOwnRequest(requestId: string | undefined): boolean {
+  return requestId !== undefined && OWN_REQUEST.test(requestId);
+}
+
+/**
+ * Who a message is from: the user, ky, or a notice, a user entry ky posted for someone else (a mail's
+ * summary, a peer's question, a subagent's report, an automation's warning), never the user's own words.
+ */
+type Role = "user" | "ky" | "notice";
+
+/** Where a reader of `since` stopped: pi's commit sequence, or before there was one, a time. */
+export type SaidMark = { readonly seq: number; readonly at: number };
+
+/** What `since` shows, and where the next reader starts. */
+export type Said = {
+  /** One line a message, oldest first. */
+  readonly lines: string[];
+  /** Messages it leaves to chat_search: ky's and notices that did not fit, and any older than a week. */
+  readonly dropped: number;
+  /** Messages after the last user's line that fit, which the next reader starts from. */
+  readonly waiting: number;
+  /** The commit sequence to start the next reader after. */
+  readonly through: number;
+};
 
 type EntryRow = { id: number; conversation_id: number; kind: string | null; at: number; text: string | null };
+
+/** A column of `PRAGMA table_info`. */
+const ColumnRow = Type.Object({ name: Type.String() });
+
+/** Whether the index was built telling notices from the user's words. */
+const RolesRow = Type.Object({ roles: Type.Number() });
+
+/** A submission that placed a user entry, as pi keeps it; a damaged one counts as not the user's. */
+const PlacedRow = Type.Object({ entry: Type.Number(), request: Type.Union([Type.String(), Type.Null()]) });
+
+type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
 type Hit = { rowid: number; conversation: string; role: string; at: number; snippet: string };
 
 type Line = { rowid: number; role: string; at: number; text: string };
+
+const CountRow = Type.Object({ n: Type.Number() });
+
+/** A message as `since` reads it; a row a restore damaged is skipped. */
+const SaidRow = Type.Object({
+  rowid: Type.Number(),
+  conversation: Type.String(),
+  role: Type.String(),
+  at: Type.Number(),
+  seq: Type.Number(),
+  text: Type.String()
+});
+
+/**
+ * The index with each message's commit sequence, which pi keeps and the index does not: a message's entry id
+ * is its rowid. One whose entry is gone has no sequence, and reads as damaged.
+ */
+const SAID_FROM = `(SELECT h.rowid AS rowid, h.conversation AS conversation, h.role AS role, h.at AS at, h.text AS text, e.commit_seq AS seq
+  FROM ky_history AS h LEFT JOIN pi_entries AS e ON e.id = h.rowid)`;
+
+const SeqRow = Type.Object({ seq: Type.Union([Type.Number(), Type.Null()]) });
+
+/** A chat's newest user entry; null before the first. */
+const NewestRow = Type.Object({ id: Type.Union([Type.Number(), Type.Null()]) });
 
 export class History {
   readonly #sql: SqlStorage;
@@ -48,20 +129,36 @@ export class History {
     this.#sql = sql;
     this.#isChat = isChat;
     this.#name = name;
-    sql.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ky_history USING fts5(
-      text, conversation UNINDEXED, role UNINDEXED, at UNINDEXED, tokenize = 'unicode61')`);
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_history_mark (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      last INTEGER NOT NULL)`);
+      last INTEGER NOT NULL,
+      roles INTEGER NOT NULL DEFAULT 0)`);
+    sql.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ky_history USING fts5(
+      text, conversation UNINDEXED, role UNINDEXED, at UNINDEXED, tokenize = 'unicode61')`);
+
+    if (!sql.exec("PRAGMA table_info(ky_history_mark)").toArray().some((column) => decodeOr(ColumnRow, column, undefined)?.name === "roles")) {
+      sql.exec("ALTER TABLE ky_history_mark ADD COLUMN roles INTEGER NOT NULL DEFAULT 0");
+    }
+
+    const mark = decodeOr(RolesRow, sql.exec("SELECT roles FROM ky_history_mark WHERE id = 1").toArray()[0], undefined);
+
+    // An index built before notices were told apart labelled every relay the user's: empty it, and the next
+    // search builds it again from the chats.
+    if (mark !== undefined && mark.roles === 0) {
+      sql.exec("DELETE FROM ky_history");
+      sql.exec("DELETE FROM ky_history_mark");
+    }
   }
 
   /**
    * The best matches for `query`, each with `around` messages before and after
    * it. The user's latest message in `caller`, the chat searching, is left out:
-   * it is the question, and ky has it already.
+   * it is the question, and ky has it already. `batches` caps the catch-up first: turn-start recall reads at most
+   * a few, so the first turn after a deploy that emptied the index is not held up rebuilding it, and finds
+   * only what is indexed so far.
    */
-  search(query: string, around = 0, caller = ""): string {
-    this.#catchUp();
+  search(query: string, around = 0, caller = "", batches = Number.POSITIVE_INFINITY): string {
+    this.#catchUp(batches);
 
     const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
 
@@ -151,6 +248,75 @@ export class History {
     );
   }
 
+  /**
+   * The chat messages committed after `from`, oldest first, one line each, within the last week. The user's
+   * lines come first: as many as fit `chars`, each up to SINCE_CHARS; ky's and notices, each cut to
+   * BRIEF_CHARS, fill what room is left among them. Messages after the last user's line that fit wait for
+   * the next reader, who starts after `through`. A mark with no sequence yet reads by time.
+   */
+  since(from: SaidMark, chars: number, now = Date.now()): Said {
+    this.#catchUp();
+
+    const [after, bound] = from.seq > 0 ? ["seq > ?", from.seq] : ["at > ?", from.at];
+    const oldest = now - SINCE_WINDOW_MS;
+
+    const old = decodeOr(CountRow, this.#sql.exec(`SELECT count(*) AS n FROM ${SAID_FROM} WHERE ${after} AND at <= ?`, bound, oldest).one(), { n: 0 }).n;
+
+    const rows = this.#sql.exec(
+      `SELECT rowid, conversation, role, at, seq, substr(text, 1, ?) AS text FROM ${SAID_FROM} WHERE ${after} AND at > ? ORDER BY seq, rowid`,
+      SINCE_CHARS + 1,
+      bound,
+      oldest
+    );
+
+    const said = this.#saidLines(rows);
+    const { end, stopAt, shown } = fit(said, chars);
+
+    return {
+      lines: shown.map((each) => each.line),
+      dropped: old + end - shown.length,
+      waiting: said.length - end,
+      through: stopAt === undefined ? Math.max(from.seq, this.#newestSeq()) : this.#stopBefore(stopAt, from.seq)
+    };
+  }
+
+  /** Each message as the dream reads it: the user's up to SINCE_CHARS, the rest to BRIEF_CHARS. A damaged one is left out, with a warning. */
+  #saidLines(rows: Iterable<unknown>): SaidLine[] {
+    const said: SaidLine[] = [];
+    let damaged = 0;
+
+    for (const raw of rows) {
+      const row = decodeOr(SaidRow, raw, undefined);
+
+      if (row === undefined) {
+        damaged++;
+        continue;
+      }
+
+      const user = row.role === "user";
+      const line = `#${row.rowid} ${day(row.at)} ${this.#chatName(row.conversation)}, ${row.role}: ${cut(flat(row.text), user ? SINCE_CHARS : BRIEF_CHARS)}`;
+      said.push({ seq: row.seq, user, line });
+    }
+
+    if (damaged > 0) console.warn(`chat search: ${damaged} damaged messages left out of what the dream reads`);
+
+    return said;
+  }
+
+  /**
+   * The sequence to stop at before a message of sequence `seq` that did not fit. A commit can hold more than one
+   * message, so those of `seq` that were shown are read again; unless that would read nothing new, when the rest
+   * of `seq` is left to chat_search instead.
+   */
+  #stopBefore(seq: number, from: number): number {
+    return seq - 1 > from ? seq - 1 : seq;
+  }
+
+  /** The newest indexed message's commit sequence; 0 with none. */
+  #newestSeq(): number {
+    return decodeOr(SeqRow, this.#sql.exec(`SELECT max(seq) AS seq FROM ${SAID_FROM}`).one(), { seq: null }).seq ?? 0;
+  }
+
   #chatName(conversation: string): string {
     return conversation === ROOT_SESSION ? "main chat" : `chat "${this.#name(conversation)}"`;
   }
@@ -162,19 +328,24 @@ export class History {
     this.#catchUp();
   }
 
-  /** Copy the chat messages pi committed since the last search. */
-  #catchUp(): void {
+  /** Copy the chat messages pi committed since the last search, at most `batches` batches of them. */
+  #catchUp(batches = Number.POSITIVE_INFINITY): void {
     let last = this.#sql.exec<{ last: number }>("SELECT last FROM ky_history_mark").toArray()[0]?.last ?? 0;
     let from = Math.max(0, last - LOOKBACK);
 
-    for (let rows = this.#entries(from); rows.length > 0; rows = this.#entries(from)) {
-      for (const row of rows) this.#index(row);
+    for (let read = 0; read < batches; read++) {
+      const rows = this.#entries(from);
+
+      if (rows.length === 0) break;
+      const own = this.#own(rows);
+
+      for (const row of rows) this.#index(row, own);
 
       from = rows.at(-1)!.id;
       last = Math.max(last, from);
     }
 
-    this.#sql.exec("INSERT OR REPLACE INTO ky_history_mark (id, last) VALUES (1, ?)", last);
+    this.#sql.exec("INSERT OR REPLACE INTO ky_history_mark (id, last, roles) VALUES (1, ?, 1)", last);
   }
 
   /** The next batch of pi's entries after `from`, as text; null text for anything but a user's or ky's message. */
@@ -198,8 +369,16 @@ export class History {
       .toArray();
   }
 
+  /** Of these entries, the user entries the user sent; every other user entry is a notice. */
+  #own(rows: readonly EntryRow[]): ReadonlySet<number> {
+    return ownMessages(
+      this.#sql,
+      rows.flatMap((row) => (row.kind === "pi.user" ? [row.id] : []))
+    );
+  }
+
   /** Index one entry, if it is a chat's message with text, and is not indexed yet. */
-  #index(row: EntryRow): void {
+  #index(row: EntryRow, own: ReadonlySet<number>): void {
     const conversation = String(row.conversation_id);
     const text = (row.text ?? "").slice(0, MESSAGE_CHARS);
 
@@ -210,10 +389,98 @@ export class History {
       row.id,
       text,
       conversation,
-      row.kind === "pi.user" ? "user" : "ky",
+      roleOf(row, own),
       row.at
     );
   }
+}
+
+/**
+ * What of `said` fits `chars`: the user's lines, oldest first, up to the first that does not fit (`end`, at
+ * commit `stopAt`), where this reading ends; then ky's and notices before `end` while room is left.
+ */
+function fit(said: readonly SaidLine[], chars: number) {
+  let used = 0;
+  let end = said.length;
+  let stopAt: number | undefined;
+
+  for (const [index, each] of said.entries()) {
+    if (!each.user) continue;
+
+    if (used + each.line.length + 1 > chars) {
+      end = index;
+      stopAt = each.seq;
+      break;
+    }
+
+    used += each.line.length + 1;
+  }
+
+  const shown = said.slice(0, end).filter((each) => {
+    if (each.user) return true;
+
+    if (used + each.line.length + 1 > chars) return false;
+    used += each.line.length + 1;
+
+    return true;
+  });
+
+  return { end, stopAt, shown };
+}
+
+/** A user entry is the user's own only if they sent it; anything else ky wrote. */
+function roleOf(row: EntryRow, own: ReadonlySet<number>): Role {
+  if (row.kind !== "pi.user") return "ky";
+
+  return own.has(row.id) ? "user" : "notice";
+}
+
+/**
+ * Of the user entries `users` (pi's entry ids), the ones the user sent: placed by a submission whose request id the
+ * browser or the harness made up, a bare UUID. Every other user entry is a notice ky posted for someone else (a mail's
+ * summary, a peer's question, a subagent's report), never the user's own words. Chat search labels by it, and an
+ * episode reflection (src/dreaming/episodes.ts) counts only these as the user's turns.
+ */
+export function ownMessages(sql: SqlStorage, users: readonly number[]): ReadonlySet<number> {
+  if (users.length === 0) return new Set();
+
+  const low = Math.min(...users);
+  const high = Math.max(...users);
+  const wanted = new Set(users);
+
+  const placed = sql.exec(
+    `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
+     WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') BETWEEN ? AND ?`,
+    low - PLACED_SLACK,
+    high + PLACED_SLACK,
+    low,
+    high
+  );
+
+  const own = new Set<number>();
+
+  for (const raw of placed) {
+    const row = decodeOr(PlacedRow, raw, undefined);
+
+    if (row !== undefined && wanted.has(row.entry) && isOwnRequest(row.request ?? undefined)) own.add(row.entry);
+  }
+
+  return own;
+}
+
+/**
+ * Whether the chat's newest user entry is one the user sent. A turn runs for its newest user entry, so this tells
+ * a turn the user started from one a notice started (a relayed mail, a peer's question, a report), whose model must
+ * not act as the user.
+ */
+export function startedByUser(sql: SqlStorage, conversation: string): boolean {
+  const newest = decodeOr(
+    NewestRow,
+    sql.exec("SELECT max(id) AS id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'", Number(conversation)).one(),
+    { id: null }
+  ).id;
+
+  return newest !== null && ownMessages(sql, [newest]).has(newest);
 }
 
 const day = (at: number) => (at > 0 ? new Date(at).toISOString().slice(0, 10) : "----------");

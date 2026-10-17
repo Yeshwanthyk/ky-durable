@@ -36,8 +36,12 @@ import {
   ColumnInfo,
   type CheckIns,
   CountRow,
+  draftProblem,
+  type Delivery,
   EXTENSIONS,
   type LastRun,
+  GateFoundRow,
+  type HeldReport,
   StoredCheckIns,
   type TaskFeed,
   type TaskRow,
@@ -58,8 +62,12 @@ import { isLive } from "./tasks";
  * A gate keeps a frequent automation cheap: a short Executor program run
  * before each fire, with no model. When it returns nothing (null, false, an
  * empty list) the slot is skipped and only the row's last check says so;
- * when it returns something, that is put before the run's prompt. A gate that
- * fails three fires in a row pauses its automation and the chat is told.
+ * when it returns something, that is put before the run's prompt. When it
+ * returns what it did the last fire it found something (the same unread mail
+ * again), the slot is skipped too: the row keeps a hash of that text. A gate
+ * that fails three fires in a row pauses its automation and the chat is told.
+ * What a run or a pause tells its chat goes through delivery
+ * (src/automations/delivery.ts): between turns, or to the brief.
  *
  * The Scheduler delivers a fire at least once, so a run is keyed by its slot
  * (the fire's due time): task `a-<id>-<slot>`. A slot runs once, a fire is
@@ -82,8 +90,8 @@ export type AutomationRuntime = {
   readonly wake: () => Promise<void>;
   /** Abort what a pi conversation is doing. */
   readonly abort: (session: string) => Promise<void>;
-  /** Say something to a chat, as a steer; `requestId` keeps a retry from saying it twice. */
-  readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** Tell a chat something, between its turns or in the brief (src/automations/delivery.ts); once per id. */
+  readonly deliver: (item: Delivery) => Promise<void>;
 };
 
 /** What an Executor program answered: its text, and whether it failed. */
@@ -97,8 +105,8 @@ export type AutomationDeps = {
   readonly runtime: AutomationRuntime;
   /** Run a gate's program on the user's Executor. */
   readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
-  /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire. */
-  readonly dream: { readonly cron: string; readonly run: () => void };
+  /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire, at its cron in the user's zone. */
+  readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
 };
@@ -127,8 +135,29 @@ const GATE_ERRORS = 3;
 /** The most of a gate's answer put before a run's prompt. */
 const GATE_FOUND_MAX = 8_000;
 
+/** A dream booked this soon, or overdue, is firing or about to: booking the dream again leaves it be. */
+const DREAM_DUE_MS = 5 * 60_000;
+
 /** What a gate returns when there is nothing to do, once spaces are taken out. */
 const NOTHING: ReadonlySet<string> = new Set(["", "null", "undefined", "false", "0", "[]", "{}", '""']);
+
+/** What a fire's gate found the last fire's gate found too, as the row's note says it. */
+const SAME_NOTE = "same: found what the last fire found, so this one did not run";
+
+/** What a fire may run with: what goes before its prompt, and the hash of what its gate found, if it found something. */
+type Admission = { readonly prefix: string; readonly found?: string };
+
+/** What a gate last found, as a hash, and the run (task id) it started. */
+type Found = { readonly hash: string; readonly task: string };
+
+const encoder = new TextEncoder();
+
+/** A gate's found text as the row keeps it: its SHA-256, in hex. */
+async function digest(text: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
+
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 /** What a gate came to: something found, nothing, or why it failed. */
 type GateCheck =
@@ -207,6 +236,8 @@ export class Automations {
       gate_checked_at INTEGER,
       gate_note TEXT,
       gate_errors INTEGER NOT NULL DEFAULT 0,
+      gate_found TEXT,
+      gate_found_by TEXT,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
@@ -216,7 +247,9 @@ export class Automations {
       ["gate", "TEXT"],
       ["gate_checked_at", "INTEGER"],
       ["gate_note", "TEXT"],
-      ["gate_errors", "INTEGER NOT NULL DEFAULT 0"]
+      ["gate_errors", "INTEGER NOT NULL DEFAULT 0"],
+      ["gate_found", "TEXT"],
+      ["gate_found_by", "TEXT"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -269,9 +302,11 @@ export class Automations {
     this.#emit();
   }
 
-  /** The user's time zone, from where their browser connects; check-ins are booked for their morning. */
-  setZone(zone: string): void {
+  /** The user's time zone, from where their browser connects; check-ins are booked for their morning, and the dream for their night. */
+  async setZone(zone: string): Promise<void> {
     if (zone === this.checkIns().zone) return;
+    // Booked first: a booking that fails leaves the old zone, so the next connect tries again.
+    await this.#bookDream(zone);
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
   }
 
@@ -336,8 +371,11 @@ export class Automations {
 
     if (why) return why;
 
-    // A new gate starts with no checks and no failures.
-    if (checked.gate !== row.gate) this.#set(id, { gate_checked_at: null, gate_note: null, gate_errors: 0 });
+    // A new gate starts with no checks, no failures, and nothing found before.
+    if (checked.gate !== row.gate) {
+      this.#set(id, { gate_checked_at: null, gate_note: null, gate_errors: 0 });
+      this.#found(id, null);
+    }
 
     return this.get(id) ?? refused(`No automation ${id}.`);
   }
@@ -456,20 +494,39 @@ export class Automations {
     await this.scheduler.set(new Date(at), "peers");
   }
 
-  /** On start: book the nightly dream, and any active automation whose booking is missing. */
-  async recover(): Promise<void> {
+  /** One dream at `at`, epoch ms, besides the nightly one: the dream's own, when the user was here. It replaces any such look already booked, so they never pile up. */
+  async dreamAt(at: number): Promise<void> {
     for (const old of await this.scheduler.list()) {
-      if (old.callback === "dream" && (old.type !== "cron" || old.cron !== this.#deps.dream.cron)) {
-        await this.scheduler.cancel(old.id);
-      }
+      if (old.callback === "dream" && old.type !== "cron") await this.scheduler.cancel(old.id);
     }
 
-    await this.scheduler.set(this.#deps.dream.cron, "dream", undefined, { idempotent: true });
+    await this.scheduler.set(new Date(at), "dream");
+  }
+
+  /** On start: book the nightly dream, and any active automation whose booking is missing. */
+  async recover(): Promise<void> {
+    await this.#bookDream(this.checkIns().zone);
 
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
       await this.#keepBooking(row.id, await this.#book(row.id, row));
     }
+  }
+
+  /**
+   * Book the nightly dream in `zone`, dropping one booked at another cron, so ky never dreams twice a night.
+   * A start the dream's own fire woke (or one just before it) leaves the booking alone, so a daylight-saving
+   * change never cancels tonight's dream as it fires; the next start books it again.
+   */
+  async #bookDream(zone: string | null): Promise<void> {
+    const cron = this.#deps.dream.cron(zone);
+    const stale = (await this.scheduler.list()).filter((old) => old.callback === "dream" && old.type === "cron" && old.cron !== cron);
+
+    if (stale.some((old) => old.time * 1000 < Date.now() + DREAM_DUE_MS)) return;
+
+    for (const old of stale) await this.scheduler.cancel(old.id);
+
+    await this.scheduler.set(cron, "dream", undefined, { idempotent: true });
   }
 
   /**
@@ -490,15 +547,18 @@ export class Automations {
     // Delivered again after its run started, it starts nothing; a one-off still ends done.
     if (!this.#ran(task)) {
       // Run now is the user asking: it runs whatever the gate says.
-      const found = await this.#admit(row, task, fire.slot !== undefined);
+      const admitted = await this.#admit(row, task, fire.slot !== undefined);
 
-      if (found === null) {
+      if (admitted === null) {
         if (row.at !== null) await this.#done(row.id, schedule.id);
 
         return;
       }
 
-      await this.#start({ ...row, prompt: found === "" ? row.prompt : `${found}${row.prompt}` }, slot, task);
+      await this.#start({ ...row, prompt: `${admitted.prefix}${row.prompt}` }, slot, task);
+
+      // Only once its run started: a fire that failed to start is tried again, and must not be skipped as a repeat.
+      if (admitted.found !== undefined) this.#found(row.id, { hash: admitted.found, task });
     }
 
     if (row.at !== null) await this.#done(row.id, schedule.id);
@@ -506,30 +566,66 @@ export class Automations {
 
   /**
    * Check the fire's gate: what to put before the prompt ("" without a gate),
-   * or null to skip the slot. The check is noted on the row, and the
+   * or null to skip the slot: it found nothing, or what the last fire found
+   * (a repeat, no model run). The check is noted on the row, and the
    * GATE_ERRORS-th failure in a row pauses the automation and tells its chat.
    */
-  async #admit(row: AutomationRow, task: string, forced: boolean): Promise<string | null> {
-    if (row.gate === null) return "";
+  async #admit(row: AutomationRow, task: string, forced: boolean): Promise<Admission | null> {
+    if (row.gate === null) return { prefix: "" };
     const check = await this.checkGate(row.gate);
-    const failed = check.kind === "error";
-    const errors = failed ? row.gate_errors + 1 : 0;
+
+    if (check.kind === "found") return this.#admitFound(row.id, task, check.text, forced);
+    const errors = check.kind === "error" ? row.gate_errors + 1 : 0;
     this.#set(row.id, { gate_checked_at: Date.now(), gate_note: noteOf(check), gate_errors: errors });
 
-    if (check.kind === "found") return `Gate found:\n${check.text.slice(0, GATE_FOUND_MAX)}\n\n`;
+    // Found, then nothing, then the same again is new: the last fire found nothing.
+    if (check.kind === "nothing") this.#found(row.id, null);
 
-    if (forced) return "";
+    if (forced) return { prefix: "" };
 
-    if (failed && errors >= GATE_ERRORS) {
-      await this.#halt(must(this.get(row.id), `Automation ${row.id} is gone.`), "paused");
-      await this.#deps.runtime.tell(
-        this.#reportTo(row.chat),
-        `[automation "${row.title}" paused] Its gate failed ${errors} fires in a row; the last said: ${check.text}. Fix the gate (automation update) and resume it.`,
-        `gate-paused:${task}`
-      );
-    }
+    if (check.kind === "error" && errors >= GATE_ERRORS) await this.#gatePaused(row, task, errors, check.text);
 
     return null;
+  }
+
+  /**
+   * The gate found `text`: run with it, unless an earlier slot's fire found the same and the user did not ask to
+   * run now. The same slot delivered again (the Scheduler may) is no repeat: its run starts once by its task id,
+   * and neither is a finding whose run failed, which nobody was told about.
+   */
+  async #admitFound(id: string, task: string, text: string, forced: boolean): Promise<Admission | null> {
+    const found = await digest(text);
+    const last = this.#lastFound(id);
+    const failed = last !== undefined && this.#deps.feed.get(last.task)?.status === "failed";
+    const repeat = !forced && last !== undefined && !failed && last.hash === found && last.task !== task;
+    this.#set(id, { gate_checked_at: Date.now(), gate_note: repeat ? SAME_NOTE : noteOf({ kind: "found", text }), gate_errors: 0 });
+
+    return repeat ? null : { prefix: `Gate found:\n${text.slice(0, GATE_FOUND_MAX)}\n\n`, found };
+  }
+
+  /** The gate failed GATE_ERRORS fires in a row: pause the automation and tell its chat. */
+  async #gatePaused(row: AutomationRow, task: string, errors: number, said: string): Promise<void> {
+    await this.#halt(must(this.get(row.id), `Automation ${row.id} is gone.`), "paused");
+    await this.#deps.runtime.deliver({
+      id: `gate-paused:${task}`,
+      session: this.#reportTo(row.chat),
+      content: `[automation "${row.title}" paused] Its gate failed ${errors} fires in a row; the last said: ${said}. Fix the gate (automation update) and resume it.`,
+      line: `automation "${row.title}" paused: its gate failed ${errors} fires in a row.`,
+      ref: `automation:${row.id}`,
+      label: `automation "${row.title}"`
+    });
+  }
+
+  /** The hash of what the automation's gate last found and the run it started; undefined when its last check found nothing. */
+  #lastFound(id: string): Found | undefined {
+    const row = decodeOr(GateFoundRow, this.#sql.exec("SELECT gate_found, gate_found_by FROM ky_automations WHERE id = ?", id).toArray()[0], undefined);
+
+    return row?.gate_found && row.gate_found_by ? { hash: row.gate_found, task: row.gate_found_by } : undefined;
+  }
+
+  /** Keep `found` as what the gate last found, or null for nothing. */
+  #found(id: string, found: Found | null): void {
+    this.#sql.exec("UPDATE ky_automations SET gate_found = ?, gate_found_by = ? WHERE id = ?", found?.hash ?? null, found?.task ?? null, id);
   }
 
   /** Run a gate's program once, as a fire does, and say what it came to. A tool's create and update test it this way. */
@@ -620,7 +716,8 @@ export class Automations {
           model: this.#modelOf(row),
           feedId: task,
           label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
-          checkIn
+          checkIn,
+          deliver: true
         });
       });
     } catch (error) {
@@ -705,12 +802,7 @@ export class Automations {
 
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): Result<AutomationDraft> {
-    const problem =
-      wordsProblem(draft) ??
-      timingProblem(draft) ??
-      this.#machineProblem(draft.machine) ??
-      this.#chatProblem(draft.chat) ??
-      gateProblem(draft.gate);
+    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
 
     if (problem !== undefined) return refused(problem);
 
@@ -870,16 +962,6 @@ export class Automations {
   }
 }
 
-/** A title and a prompt are needed: the list shows one, and a run knows only the other. */
-function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
-  return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
-}
-
-/** A gate is a program body; blank means no gate, and is saved as null by the tool and the UI. */
-function gateProblem(gate: string | null): string | undefined {
-  return gate !== null && gate.trim() === "" ? "A gate is an Executor program; leave it out for none." : undefined;
-}
-
 /** A gate check as the row keeps it, in a line. */
 function noteOf(check: GateCheck): string {
   if (check.kind === "nothing") return "nothing";
@@ -899,15 +981,6 @@ function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<reado
   for (const [name, type] of columns) {
     if (!have.includes(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
-}
-
-/** What is wrong with when it runs, if anything. */
-function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
-  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
-
-  if (draft.at !== null && !Number.isFinite(draft.at)) return "at must be an ISO time, like 2026-10-06T09:00:00Z.";
-
-  return undefined;
 }
 
 /** A new cron replaces a one-off's time, and a new time replaces the cron. */
@@ -1034,14 +1107,25 @@ type Call = {
   readonly caller: string;
   /** The caller is a dream: it may create check-ins and list, nothing more. */
   readonly dream: boolean;
+  /** The reports that went to the brief instead of the caller's chat (src/automations/delivery.ts). */
+  readonly held: () => readonly HeldReport[];
 };
 
-async function dispatch(automations: Automations, { action, args, fallback, caller, dream }: Call): Promise<string> {
+/** The reports the brief holds for this chat, in full, so a chip's "Tell me about the … report" can be answered. */
+function reports(held: readonly HeldReport[]): string {
+  if (held.length === 0) return "No report went to the brief instead of this chat.";
+
+  return held.map((report) => `${new Date(report.at).toISOString()} ${report.line}\n${report.content}`).join("\n\n");
+}
+
+async function dispatch(automations: Automations, { action, args, fallback, caller, dream, held }: Call): Promise<string> {
   if (action === "create") return create(automations, args, fallback, caller, dream);
 
   if (action === "list") return list(automations, args.all ?? false);
 
   if (dream) return "A dream may only create check-ins and list automations.";
+
+  if (action === "reports") return reports(held());
 
   if (!args.id) return `${action} needs an id.`;
 
@@ -1063,7 +1147,9 @@ export function automationExtension(
   automations: Automations,
   worker: () => ModelChoice,
   /** Whether a pi session is a dream's. */
-  dreaming: (session: string) => boolean
+  dreaming: (session: string) => boolean,
+  /** The reports that went to the brief instead of a chat (src/automations/delivery.ts). */
+  held: (session: string) => readonly HeldReport[]
 ): Extension {
   return defineExtension({
     name: EXTENSIONS.automations,
@@ -1078,6 +1164,7 @@ export function automationExtension(
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
+          "reports: the full text of the reports that went to the user's brief instead of this chat while they were away, newest first; read it when they ask about one. " +
           "Pause or archive your own once they are no longer needed. " +
           "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
           "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +
@@ -1094,7 +1181,8 @@ export function automationExtension(
               args,
               fallback: worker(),
               caller: String(api.conversationId),
-              dream: dreaming(String(api.conversationId))
+              dream: dreaming(String(api.conversationId)),
+              held: () => held(String(api.conversationId))
             })
           )
       })

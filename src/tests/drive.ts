@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
-import { runInDurableObject, SELF } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
-import type { PiServerMessage } from "../protocol";
+import type { PiClientMessage, PiServerMessage } from "../protocol";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import {
   decodeObjectFrame,
@@ -17,7 +17,8 @@ import {
 import { ASSERTION } from "../access";
 import { FakeAccess } from "./fake-access";
 import { decodeServerFrame } from "./frames";
-import { agents, EXECUTOR_TOKEN, EXECUTOR_URL, type PiAgent } from "./stack";
+import { readMail } from "../mail";
+import { agents, EXECUTOR_TOKEN, EXECUTOR_URL, MAIL_ADDRESS, type PiAgent } from "./stack";
 
 /**
  * Drives ky's real Worker the way its clients do: the browser's WebSocket
@@ -129,7 +130,7 @@ export function follow(socket: WebSocket): Follower {
   socket.addEventListener("message", (event) => {
     if (event.data instanceof ArrayBuffer) return;
 
-    const message = decodeServerFrame(event.data);
+    const message = decodeServerFrame(String(event.data));
 
     if (message === undefined) return;
     frames.push(message);
@@ -314,4 +315,74 @@ export async function runner(name: string, machine = "mac", facts: MachineFacts 
   };
 
   return { socket, commands, next, run, send };
+}
+
+/** A browser that said hello, on the main chat or the chat `?session=` names: its frames, and a way to send a message and wait for its result. */
+export async function browser(name: string, query = "") {
+  const socket = await connect(name, query);
+  const client = follow(socket);
+  await client.until(() => client.frames.some((frame) => frame.type === "events"));
+
+  const send = async (message: PiClientMessage): Promise<PiServerMessage | undefined> => {
+    const id = crypto.randomUUID();
+    socket.send(JSON.stringify({ ...message, id }));
+    await client.until(() => client.frames.some((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id));
+
+    return client.frames.find((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id);
+  };
+
+  /** Send `text` as the user does from the composer, a bare-UUID request, and wait for ky's answer to end the turn. */
+  const say = async (text: string): Promise<void> => {
+    const asked = (view: PiSessionView) => view.messages.findLastIndex((message) => message.role === "user" && message.parts.some((part) => part.type === "text" && part.text === text));
+
+    const answered = () => {
+      const view = client.view();
+      const at = asked(view);
+
+      return at >= 0 && !view.running && view.messages.slice(at + 1).some((message) => message.role === "assistant");
+    };
+
+    const before = asked(client.view());
+    const done = await send({ type: "submit", input: text });
+
+    if (done?.type === "error") throw new Error(done.message);
+    await client.until(() => asked(client.view()) > before && answered());
+  };
+
+  /** The latest frame of `type` the page was sent. */
+  const latest = <Type extends PiServerMessage["type"]>(type: Type) => client.frames.findLast((frame): frame is Extract<PiServerMessage, { type: Type }> => frame.type === type);
+
+  return { frames: client.frames, view: client.view, send, say, latest, until: client.until, close: () => socket.close() };
+}
+
+export type Tab = Awaited<ReturnType<typeof browser>>;
+
+/**
+ * The night's dream fires, as its alarm does (Automations.dreamAt books it), the user away for three hours; resolves
+ * once Activity shows the dream ended.
+ */
+export async function dreamTonight(name: string): Promise<void> {
+  const ended = () => inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "dreaming" && task.finished_at !== null).length);
+  const before = await ended();
+
+  await inside(name, (instance) => {
+    instance.presence.seen(Date.now() - 3 * 3_600_000);
+
+    return instance.automations.dreamAt(Date.now());
+  });
+  await runDurableObjectAlarm(agent(name));
+  await until(async () => (await ended()) > before, "the dream to end", 20_000);
+}
+
+/** The automation `id`'s schedule fires now, as its alarm does. */
+export async function fire(name: string, id: string): Promise<void> {
+  await inside(name, (instance) => instance.automations.scheduler.set(new Date(), "automation", { id }));
+  await runDurableObjectAlarm(agent(name));
+}
+
+/** A mail to ky's address from `from`, handed to the agent as the Worker's email handler hands it over. */
+export async function mail(name: string, { from, subject, body }: { from: string; subject: string; body: string }): Promise<void> {
+  const raw = [`From: ${from}`, `To: ${MAIL_ADDRESS}`, `Subject: ${subject}`, `Message-ID: <${crypto.randomUUID()}@sender.test>`, "Content-Type: text/plain; charset=utf-8", "", body].join("\r\n");
+
+  await agent(name).mailReceived(await readMail(raw, { from, to: MAIL_ADDRESS }));
 }

@@ -3,7 +3,7 @@ import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
 import type { BrowserWorker } from "@cloudflare/playwright";
-import { createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
+import { ConversationBusy, createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -15,7 +15,7 @@ import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { ChatList, chatActivityExtension } from "./chats";
-import { Automations, automationTools, TaskFeed } from "./automations/wiring";
+import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { DREAM_CRON, Dreaming, dreamingTools, Memory, Soul } from "./dreaming/wiring";
+import { Anticipations, Brief, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Proposals, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -156,6 +156,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage.sql);
+  /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
+  readonly ledger = new DreamLedger(this.ctx.storage.sql, { skills: this.skills, memory: this.memory, reviews: this.reviews });
   readonly chats = new ChatList(this.ctx.storage.sql);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
@@ -197,17 +199,14 @@ export class PiAgent extends DurableObject<Env> {
       abort: async (session) => {
         await this.harness.session(session).abort();
       },
-      tell: async (session, content, requestId) => {
-        const conversation = await this.harness.conversation(session);
-        await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
-      }
+      deliver: (item): Promise<void> => this.deliveries.deliver(item)
     },
     gate: async (code, signal) => {
       const config = await this.executor.config();
 
       return config ? executeOnce(config, code, signal) : { text: "Executor is not connected.", error: true };
     },
-    dream: { cron: DREAM_CRON, run: () => this.ctx.waitUntil(this.dreaming.run()) },
+    dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     peers: () => this.sweepPeers()
   });
   readonly registry = createRegistry();
@@ -219,7 +218,67 @@ export class PiAgent extends DurableObject<Env> {
     context: BACKGROUND,
     model: () => agentModel(this.models.resolve("background").choice)
   };
+  /** When the user was last here; the dream waits until they are away. */
+  readonly presence = new Presence(this.ctx.storage.sql);
+  /** What the user will need soon; a done one becomes a memory. */
+  readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory, (session) => this.isChat(session));
+  /** What ky put in front of the user unasked, and what they did with it. */
+  readonly surfaced = new Surfaced(this.ctx.storage.sql);
+  /** How proactive ky is, from Settings › Proactivity. */
+  readonly proactivity = new Proactivity(this.ctx.storage.sql, this.surfaced, this.anticipations);
+  /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
+  readonly recall = new Recall({
+    sql: this.ctx.storage.sql,
+    memory: this.memory,
+    history: this.history,
+    anticipations: this.anticipations,
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    skills: () => this.skills.list(),
+    chat: (session) => this.isChat(session)
+  });
+  /** The day's brief: the card above the chat on the user's first visit of the day. */
+  readonly brief = new Brief(this.ctx.storage.sql, {
+    zone: () => this.automations.checkIns().zone,
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    anticipations: this.anticipations
+  });
+  /** Automations the dream suggests from a check the user kept doing by hand, until the user accepts or dismisses each. */
+  readonly proposals = new Proposals({
+    sql: this.ctx.storage.sql,
+    anticipations: this.anticipations,
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    automations: this.automations
+  });
+  /** How an automation's report reaches the user: in its chat between turns, or in the brief while they are away. */
+  readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
+    presence: this.presence,
+    proactivity: this.proactivity,
+    brief: this.brief,
+    surfaced: this.surfaced,
+    chats: this.chats,
+    submit: async (session, content, requestId) => {
+      const conversation = await this.harness.conversation(session);
+
+      try {
+        await conversation.submit({ type: "input", content, whenBusy: "reject", requestId }, BACKGROUND);
+      } catch (error) {
+        if (error instanceof ConversationBusy) return false;
+        throw error;
+      }
+
+      return true;
+    },
+    idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND),
+    later: (work) => this.ctx.waitUntil(work)
+  });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
+    history: this.history,
+    anticipations: this.anticipations,
+    presence: this.presence,
+    later: (at) => this.automations.dreamAt(at),
     memory: this.memory,
     skills: this.skills,
     reviews: this.reviews,
@@ -235,7 +294,10 @@ export class PiAgent extends DurableObject<Env> {
       waiting: (await this.automations.list(false))
         .filter((each) => each.created_by === "dream" && each.status === "active")
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
-    })
+    }),
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    proposals: this.proposals
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -244,7 +306,21 @@ export class PiAgent extends DurableObject<Env> {
       const chat = (session: string) => this.isChat(session);
 
       // Each domain makes its tools in its folder's wiring.ts; they are installed here, in this order.
-      const { soul, memory } = dreamingTools({ soul: this.soul, memory: this.memory, history: this.history, reviews: this.reviews, chat });
+      const { soul, memory, episodes, recall } = dreamingTools({
+        soul: this.soul,
+        memory: this.memory,
+        anticipations: this.anticipations,
+        brief: this.brief,
+        proposals: this.proposals,
+        recall: this.recall,
+        history: this.history,
+        reviews: this.reviews,
+        chat,
+        sql: this.ctx.storage.sql,
+        background: this.#background,
+        busyAfter: () => this.skills.reviewAfter,
+        proactivity: this.proactivity
+      });
 
       const skilling: SkillsWiring = {
         skills: this.skills,
@@ -254,7 +330,8 @@ export class PiAgent extends DurableObject<Env> {
         models: this.models,
         automations: this.automations,
         background: this.#background,
-        chat
+        chat,
+        deliver: (item) => this.deliveries.deliver(item)
       };
 
       // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
@@ -284,9 +361,11 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(skillTools(skilling));
 
       const { machines } = machineTools({ machines: this.machines, feed: this.feed });
-      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, deliveries: this.deliveries, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
+      this.registry.install(recall);
+      this.registry.install(episodes);
       this.registry.install(machines);
       this.registry.install(automations);
 
@@ -305,6 +384,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(progress);
       this.registry.install(checkInGuard);
       this.registry.install(chatActivityExtension(this.chats));
+      this.registry.install(deliveryExtension(this.deliveries));
       this.registry.install(peer);
       this.registry.install(mail);
 
@@ -356,7 +436,13 @@ export class PiAgent extends DurableObject<Env> {
     this.group,
     this.groups,
     this.memory,
+    this.ledger,
     this.automations,
+    this.presence,
+    this.brief,
+    this.proactivity,
+    this.proposals,
+    this.recall,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
@@ -555,6 +641,8 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(this.machines.sweepTokens());
     await this.applyMain();
     await this.automations.recover();
+    // Reports a restart left waiting for their chat's turn to end.
+    this.deliveries.recover();
 
     if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.

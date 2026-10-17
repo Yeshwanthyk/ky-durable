@@ -5,12 +5,15 @@ import {
   agent,
   call,
   connect,
+  browser,
   connectExecutor,
+  dreamTonight,
   FACTS,
   follow,
   type Follower,
   gateStarted,
   inside,
+  type Tab,
   prompt,
   runner,
   said,
@@ -24,7 +27,7 @@ import { CONTEXT_WINDOW } from "../models";
 import { PROTOCOL } from "../machines/contract";
 import { taskLogRows } from "../automations/contract";
 import { BACKGROUND_SOURCE } from "../skills/contract";
-import { decodeNewChat, decodeSkillVersions } from "./frames";
+import { decodeDreamLedger, decodeNewChat, decodeSkillVersions } from "./frames";
 import { FakeAccess } from "./fake-access";
 import { BARE, GLM, GPT_OSS, KIMI } from "./stack";
 import { ANTHROPIC_KEY } from "../../test/fakes/vendors";
@@ -414,6 +417,61 @@ describe("skills panel", () => {
       await command(main.socket, main.client, { type: "skill-change", change: { action: "archive", name: "no-such-skill" } })
     ).toMatchObject({ type: "error" });
     main.socket.close();
+  });
+});
+
+describe("dream ledger", () => {
+  /** The night's dream acts on `directive`, a line the user sends (src/tests/stack.ts); last night's list and the undo of its first entry. */
+  async function dreamt(name: string, page: Tab, directive: string) {
+    await page.say(`Tonight: ${directive}`);
+    await dreamTonight(name);
+    const night = await page.send({ type: "dream-ledger" });
+    const entry = night?.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
+
+    return { night, undo: () => page.send({ type: "dream-undo", entry }) };
+  }
+
+  it("lists the night's skill merge, and undoes it once", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    const skill = (skillName: string) => page.latest("skills")?.skills.find((each) => each.name === skillName);
+
+    for (const each of ["kept", "unused"]) await page.say(`tool skill_manage ${JSON.stringify({ action: "create", name: each, description: each, body: "Steps." })}`);
+
+    const { night, undo } = await dreamt(name, page, 'dream> tool skill_manage {"action":"archive","name":"unused","absorbed_into":"kept"}');
+    await page.until(() => skill("unused")?.status === "archived");
+    expect(night).toMatchObject({ type: "result", result: [{ kind: "skill", action: "archive", target: "unused", undone_at: null }] });
+
+    expect(await undo()).toMatchObject({ type: "result" });
+    await page.until(() => skill("unused")?.status === "active");
+    expect(await undo()).toMatchObject({ type: "error" });
+    page.close();
+  });
+
+  it("undoes the night's forget, noting the summary again", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    await page.say('tool memory_note {"text":"the user drinks green tea"}');
+    await page.say('tool memory_note {"text":"the user switched to oolong"}');
+    // Seed: the summary the background wrote over both.
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (0, 2, 'the user drinks green tea, then oolong')");
+    });
+
+    const search = async () => {
+      const found = await page.send({ type: "memory-search", query: "then oolong" });
+
+      return found?.type === "result" ? JSON.stringify(found.result) : "";
+    };
+
+    const { night, undo } = await dreamt(name, page, 'dream> tool memory_forget {"block":"0-1"}');
+    expect(night).toMatchObject({ type: "result", result: [{ kind: "memory", action: "forget", target: "0-1", actor: "dream" }] });
+
+    const undone = await undo();
+    expect(undone?.type === "result" ? undone.result : undefined).toMatch(/^Saved as #\d+\.$/);
+    expect(await search()).toContain("the user drinks green tea, then oolong");
+    expect(await undo()).toMatchObject({ type: "error" });
+    page.close();
   });
 });
 

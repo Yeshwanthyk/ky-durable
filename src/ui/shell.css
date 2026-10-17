@@ -2551,6 +2551,19 @@
   gap: 6px;
 }
 
+/* A pinned skill's pin, then whose it is, quiet at the row's right edge before the chevron. */
+.skill-pin {
+  flex: none;
+  color: var(--muted);
+}
+
+.skill-origin {
+  flex: none;
+  font-size: calc(11.5px * var(--text-scale));
+  color: var(--quiet);
+  white-space: nowrap;
+}
+
 /* ---------- Soul ----------
    After Muse: tall grainy cards under the group's Edit, then the specialists' card of rows; SOUL.md opens in a dark sheet. */
 
@@ -3625,6 +3638,88 @@
 
 .automation-text.danger {
   color: var(--danger);
+}
+
+/* ---------- Last night ----------
+   The latest dream's changes: each its reason under it, wrapping to two lines, and Undo at the right edge. */
+
+.ledger-change .feed-button {
+  align-items: center;
+  padding-right: 6px;
+}
+
+.ledger-change .feed-glyph {
+  align-self: flex-start;
+}
+
+/* The whole change reads: a merge names both skills. */
+.ledger-change .feed-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.ledger-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* What a suggestion would run, its prompt and any gate, folded under its schedule until opened, so Accept is never blind. */
+.suggested-spec {
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.suggested-spec > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.suggested-spec > pre {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.suggested-spec-label {
+  display: block;
+  margin-top: 6px;
+  color: var(--quiet);
+}
+
+.ledger-refusal {
+  margin-top: 2px;
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.4;
+  color: var(--danger);
+  text-wrap: pretty;
+}
+
+.ledger-undone {
+  flex: none;
+  padding: 0 10px;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--quiet);
+}
+
+/* Undone: the change steps back, as a paused automation does. */
+.ledger-change[data-undone] :is(.feed-glyph, .feed-title, .ledger-reason) {
+  opacity: 0.5;
+}
+
+.ledger-change[data-undone] .feed-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--quiet);
 }
 
 @media (hover: hover) and (pointer: fine) {

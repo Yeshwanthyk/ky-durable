@@ -4,18 +4,26 @@ import { Value } from "typebox/value";
 import { decode } from "../core/decode";
 import { must } from "../core/must";
 import {
+  isMachine,
+  PinAction,
   type ReviewHost,
   type ReviewKind,
   REVIEW_ALLOWED,
   ReviewRow,
+  reviewFork,
+  ReviewRunRow,
   runInFeed,
   type SkillAction,
   SkillAction as SkillActionSchema,
   SkillChange,
-  SkillRow,
+  type SkillOrigin,
+  type SkillRow,
   type SkillStatus,
+  SkillStored,
   SkillVersion,
   SkillViewInput,
+  type SkillWrite,
+  skillOf,
   SKILL_TABLES,
   TOOLS
 } from "./contract";
@@ -42,26 +50,51 @@ const BODY_CHARS = 20_000;
 /** A turn with at least this many tool calls is reviewed for skills. */
 const REVIEW_AFTER = 5;
 
-/** The tools each kind may call; both are offered every tool, so the rest are blocked. */
+/** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
   review: new Set(REVIEW_ALLOWED.review),
-  dream: new Set(REVIEW_ALLOWED.dream)
+  dream: new Set(REVIEW_ALLOWED.dream),
+  episode: new Set(REVIEW_ALLOWED.episode)
 };
+
+/** What a blocked call calls each kind. */
+const KIND_NAMES: Record<ReviewKind, string> = { review: "A skill review", dream: "A dream", episode: "An episode reflection" };
+
+/** A skill not opened in this long, and older than STALE_MIN_AGE_MS, is archived by `stale`. */
+const STALE_UNUSED_MS = 60 * 24 * 60 * 60 * 1000;
+
+const STALE_MIN_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Who made a skill, from the actor of its create; ky's starter skills and anything unknown count as the user's. */
+const originOf = (actor: string): SkillOrigin => (actor === "agent" || actor === "review" || actor === "dream" ? actor : "user");
 
 /** What a version holds. */
 type Content = { readonly description: string; readonly body: string; readonly status: SkillStatus };
 
 const ColumnRow = Type.Object({ name: Type.String() });
 
+const VersionId = Type.Object({ id: Type.Number() });
+
+const Touched = Type.Object({ name: Type.String(), at: Type.Number() });
+
 const Inserted = Type.Object({ id: Type.Number() });
 
-/** Add the columns a table was first made without. */
-function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): void {
+const Reached = Type.Object({ upto: Type.Number(), created_at: Type.Number() });
+
+const Forked = Type.Object({ parent: Type.String(), upto: Type.Number() });
+
+/** Add the columns a table was first made without; returns the ones it added. */
+function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): string[] {
   const have = rows(sql.exec(`PRAGMA table_info(${table})`), ColumnRow, `a column of ${table}`);
+  const added: string[] = [];
 
   for (const [name, type] of columns) {
-    if (!have.some((column) => column.name === name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    if (have.some((column) => column.name === name)) continue;
+    sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    added.push(name);
   }
+
+  return added;
 }
 
 /** The body with one exact passage replaced; the passage must appear exactly once. */
@@ -131,10 +164,35 @@ export const CHANGES: Readonly<Record<SkillAction, Change>> = {
   }
 };
 
+/**
+ * Why a background run (a dream, a review: `isMachine`) may not turn `was` into `next`, or undefined when it
+ * may. The guards are in code, after Hermes's curator: a pinned skill is left as it is, and whatever moves an
+ * active skill to archived, an archive or a revert to an archived version, archives only what ky made and only
+ * as a merge into another active skill (staleness is `stale`'s, not the model's). One change per skill a run is the ledger's (src/dreaming/ledger.ts), which sees each write first.
+ */
+function machineRefusal(actor: string, was: SkillRow | undefined, next: Content, absorbedInto: string | undefined, skills: Skills): string | undefined {
+  if (!isMachine(actor) || was === undefined) return undefined;
+
+  if (was.pinned) return `${was.name} is pinned; ky's background runs leave it as it is.`;
+
+  return was.status === "active" && next.status === "archived" ? archiveRefusal(was, absorbedInto, skills) : undefined;
+}
+
+/** Why a background run may not archive an active skill: the user's own, or not a merge into another active one. */
+function archiveRefusal(was: SkillRow, absorbedInto: string | undefined, skills: Skills): string | undefined {
+  if (was.created_by === "user") return `${was.name} is the user's own skill; a background run may not archive it.`;
+  const into = absorbedInto === undefined ? undefined : skills.get(absorbedInto);
+
+  if (into?.status === "active" && into.name !== was.name) return undefined;
+
+  return `That archives ${was.name}, and a background run archives a skill only as a merge: give absorbed_into, the active skill that now covers it. Skills nobody uses are archived by ky itself.`;
+}
+
 /** The skill library in the Durable Object's SQLite, with every version kept. */
 export class Skills {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<() => void>();
+  readonly #writes = new Set<(write: SkillWrite) => ((version: number) => void) | undefined>();
   /** A turn with at least this many tool calls is reviewed. */
   reviewAfter = REVIEW_AFTER;
 
@@ -159,8 +217,33 @@ export class Skills {
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, SKILL_TABLES.skills, [["last_used_at", "INTEGER"]]);
+
+    const added = addColumns(sql, SKILL_TABLES.skills, [
+      ["last_used_at", "INTEGER"],
+      ["pinned", "INTEGER NOT NULL DEFAULT 0"],
+      ["created_by", "TEXT NOT NULL DEFAULT 'user'"]
+    ]);
+
     addColumns(sql, SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]);
+
+    // Skills from before provenance was kept: who made each is its first version's actor, and the user's when unknown.
+    if (added.includes("created_by")) {
+      sql.exec(
+        `UPDATE ${SKILL_TABLES.skills} SET created_by = COALESCE((SELECT actor FROM ${SKILL_TABLES.skillVersions} v
+           WHERE v.name = ${SKILL_TABLES.skills}.name ORDER BY v.id LIMIT 1), 'user')`
+      );
+      sql.exec(`UPDATE ${SKILL_TABLES.skills} SET created_by = 'user' WHERE created_by NOT IN ('agent', 'review', 'dream')`);
+    }
+  }
+
+  /**
+   * Called just before each change is written; a watcher that throws refuses the change. One that returns a
+   * function hears the id of the version the change made, once it is written.
+   */
+  onWrite(watcher: (write: SkillWrite) => ((version: number) => void) | undefined): () => void {
+    this.#writes.add(watcher);
+
+    return () => this.#writes.delete(watcher);
   }
 
   onChange(listener: () => void): () => void {
@@ -169,17 +252,21 @@ export class Skills {
     return () => this.#listeners.delete(listener);
   }
 
+  #skills(query: string, ...bindings: SqlStorageValue[]): SkillRow[] {
+    return rows(this.#sql.exec(query, ...bindings), SkillStored, "a stored skill").map(skillOf);
+  }
+
   get(name: string): SkillRow | undefined {
-    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} WHERE name = ?`, name), SkillRow, "a stored skill")[0];
+    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE name = ?`, name)[0];
   }
 
   list(status: SkillStatus = "active"): SkillRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} WHERE status = ? ORDER BY name`, status), SkillRow, "a stored skill");
+    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE status = ? ORDER BY name`, status);
   }
 
   /** Every skill, active ones first, for the panel. */
   all(): SkillRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skills} ORDER BY status = 'archived', name`), SkillRow, "a stored skill");
+    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} ORDER BY status = 'archived', name`);
   }
 
   history(name: string): SkillVersion[] {
@@ -215,23 +302,72 @@ export class Skills {
   /** Apply one change and record the result as a new version; returns what happened. An action ky doesn't know is refused. */
   apply(change: SkillChange, actor: string, conversation: string | null = null): string {
     // The tool's input is checked against its schema, but the panel's change comes off a socket.
+    if (Value.Check(PinAction, change.action)) return this.#pin(change.name, change.action === "pin", actor);
+
     if (!Value.Check(SkillActionSchema, change.action)) throw new Error(`There is no skill action "${String(change.action)}".`);
     checkName(change.name);
+    const action = change.action;
+    const was = this.get(change.name);
+    const next = CHANGES[action](change, was, this);
+    const refusal = machineRefusal(actor, was, next, change.absorbed_into, this);
 
-    return this.#save(change.name, change.action, actor, conversation, CHANGES[change.action](change, this.get(change.name), this));
+    if (refusal !== undefined) throw new Error(refusal);
+    const write = { name: change.name, action, actor, conversation, run: null, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
+
+    return this.#save(write, next);
   }
 
-  #save(
-    name: string,
-    action: string,
-    actor: string,
-    conversation: string | null,
-    { description, body, status }: Content
-  ): string {
+  /** Pin or unpin a skill: the user's call, from the panel or by asking ky; a background run may not. */
+  #pin(name: string, pinned: boolean, actor: string): string {
+    if (isMachine(actor)) throw new Error("Only the user pins or unpins a skill.");
+
+    if (!this.get(name)) throw new Error(`No skill named ${name}.`);
+    this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET pinned = ? WHERE name = ?`, pinned ? 1 : 0, name);
+
+    for (const listener of this.#listeners) listener();
+
+    return pinned ? `Pinned ${name}: ky's dreams and reviews leave it as it is.` : `Unpinned ${name}.`;
+  }
+
+  /**
+   * Archive every skill ky made that nobody has opened in 60 days and that is older than 14, leaving
+   * pinned ones and the user's. A skill opened before ky kept when (uses but no last_used_at) is left too:
+   * its last use is unknown, and so is one the user changed lately, such as by undoing its archive. The
+   * dream runs it first, as part of its `run`; each archive is a version like any other, by "dream".
+   */
+  stale(run: string, now = Date.now()): string[] {
+    const touched = new Map(
+      rows(
+        this.#sql.exec(`SELECT name, MAX(created_at) AS at FROM ${SKILL_TABLES.skillVersions} WHERE actor = 'user' GROUP BY name`),
+        Touched,
+        "a skill's last change by the user"
+      ).map((row) => [row.name, row.at])
+    );
+
+    const stale = this.list().filter((skill) => {
+      if (skill.pinned || skill.created_by === "user" || skill.created_at > now - STALE_MIN_AGE_MS) return false;
+
+      if (skill.last_used_at === null && skill.uses > 0) return false;
+
+      return Math.max(skill.last_used_at ?? skill.created_at, touched.get(skill.name) ?? 0) <= now - STALE_UNUSED_MS;
+    });
+
+    for (const skill of stale) {
+      const write = { name: skill.name, action: "archive" as const, actor: "dream", conversation: null, run, absorbed_into: null, reason: "Not used in 60 days" };
+      this.#save(write, { ...skill, status: "archived" });
+    }
+
+    return stale.map((skill) => skill.name);
+  }
+
+  #save(write: Omit<SkillWrite, "before">, { description, body, status }: Content): string {
+    const { name, action, actor, conversation } = write;
     checkText(description, body);
+    const before = rows(this.#sql.exec(`SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name), VersionId, "a skill version's id")[0];
+    const landed = [...this.#writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) }));
     const now = Date.now();
     this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
          status = excluded.status, updated_at = excluded.updated_at`,
       name,
@@ -239,7 +375,8 @@ export class Skills {
       body,
       status,
       now,
-      now
+      now,
+      originOf(actor)
     );
 
     const { id } = decode(
@@ -261,6 +398,8 @@ export class Skills {
       "a new skill version's id"
     );
 
+    for (const each of landed) each?.(id);
+
     for (const listener of this.#listeners) listener();
 
     return `${action === "create" ? "Created" : `Saved ${action} of`} ${name} (version ${id}).`;
@@ -268,9 +407,10 @@ export class Skills {
 }
 
 /**
- * The background conversations that tend the library: forks of a turn,
- * asked to update it, and nightly dreams. They remember, like the chats
- * they serve, but may call only the tools their kind allows.
+ * The background conversations: forks of a turn, asked to update the library,
+ * nightly dreams, and episode reflections, forks that keep what a chat left
+ * open. They remember, like the chats they serve, but may call only the tools
+ * their kind allows.
  */
 export class Reviews {
   readonly #sql: SqlStorage;
@@ -282,7 +422,13 @@ export class Reviews {
       parent TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
-    addColumns(sql, SKILL_TABLES.skillReviews, [["kind", "TEXT NOT NULL DEFAULT 'review'"]]);
+    addColumns(sql, SKILL_TABLES.skillReviews, [
+      ["kind", "TEXT NOT NULL DEFAULT 'review'"],
+      ["upto", "INTEGER"],
+      ["run", "TEXT"]
+    ]);
+    // reached and window read a chat's rows of one kind on every turn's end.
+    sql.exec(`CREATE INDEX IF NOT EXISTS skill_reviews_by_parent ON ${SKILL_TABLES.skillReviews} (parent, kind)`);
   }
 
   kind(conversation: string): ReviewKind | undefined {
@@ -293,15 +439,71 @@ export class Reviews {
     return this.kind(conversation) !== undefined;
   }
 
-  /** `parent` is the chat a review forked; a dream has none, and records "". */
-  add(conversation: string, parent: string, kind: ReviewKind = "review"): void {
+  /**
+   * The run `conversation`'s changes belong to, for the dream's ledger: a dream's token, which its stale pass
+   * shares, or the conversation itself (a review's, or a dream's from before tokens were kept).
+   */
+  run(conversation: string): string {
+    return rows(this.#sql.exec(`SELECT run FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRunRow, "a skill review's run")[0]?.run ?? conversation;
+  }
+
+  /**
+   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
+   * was made at, so the next one of its kind knows where this one read to. `run` is a dream's token, which its stale
+   * pass used too. `at` is when it ran, now unless said: a mark that ran nothing records 0.
+   */
+  add(conversation: string, parent: string, kind: ReviewKind = "review", mark: { readonly upto?: number; readonly run?: string; readonly at?: number } = {}): void {
     this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto, run) VALUES (?, ?, ?, ?, ?, ?)`,
       conversation,
       parent,
-      Date.now(),
-      kind
+      mark.at ?? Date.now(),
+      kind,
+      mark.upto ?? null,
+      mark.run ?? null
     );
+  }
+
+  /** The newest entry of `parent` a fork of `kind` was made at, and when that fork ran; undefined before the first. */
+  reached(parent: string, kind: ReviewKind): { readonly upto: number; readonly at: number } | undefined {
+    const row = rows(
+      this.#sql.exec(
+        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ? AND upto IS NOT NULL ORDER BY upto DESC LIMIT 1`,
+        parent,
+        kind
+      ),
+      Reached,
+      "where a review read to"
+    )[0];
+
+    return row === undefined ? undefined : { upto: row.upto, at: row.created_at };
+  }
+
+  /**
+   * What the fork `conversation` read of its parent: the parent, and its entries after the one the fork before it of
+   * the same kind was made at, up to its own. Undefined for a fork that recorded no entry, or for no fork.
+   */
+  window(conversation: string): { readonly parent: string; readonly after: number; readonly upto: number } | undefined {
+    const row = rows(
+      this.#sql.exec(`SELECT parent, upto FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ? AND upto IS NOT NULL`, conversation),
+      Forked,
+      "what a review read"
+    )[0];
+
+    if (row === undefined) return undefined;
+
+    const before = rows(
+      this.#sql.exec(
+        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = (SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?) AND upto < ? ORDER BY upto DESC LIMIT 1`,
+        row.parent,
+        conversation,
+        row.upto
+      ),
+      Reached,
+      "where the review before read to"
+    )[0];
+
+    return { parent: row.parent, after: before?.upto ?? 0, upto: row.upto };
   }
 }
 
@@ -352,10 +554,7 @@ export function skillsExtension(
       const latest = (await conversation.entries({}, 1, undefined, context)).items[0];
 
       if (!latest) return;
-      // The fork keeps the parent's agent and, since it remembers, the parent's memory section,
-      // but runs on the background model.
-      const fork = await conversation.fork(latest.id, { ownership: { kind: "ownerless" } }, context);
-      await fork.configure(host.model(), context);
+      const fork = await reviewFork(host, conversation, latest.id);
       reviews.add(String(fork.id), session);
       await runInFeed(host, fork, { id: crypto.randomUUID(), worker: "skills", title: "Skill review", content: REVIEW });
     } catch (error) {
@@ -390,14 +589,14 @@ export function skillsExtension(
           return undefined;
         }
       }),
-      // A review or a dream is offered every tool; it may only call the ones its kind allows.
+      // A review, a dream or an episode is offered every tool; it may only call the ones its kind allows.
       hook(ToolTask, {
         beforeTool: (call, api) => {
           const kind = reviews.kind(String(api.conversationId));
 
           if (kind === undefined || ALLOWED[kind].has(call.name)) return undefined;
 
-          return { block: `A ${kind === "dream" ? "dream" : "skill review"} may only call ${[...ALLOWED[kind]].join(", ")}.` };
+          return { block: `${KIND_NAMES[kind]} may only call ${[...ALLOWED[kind]].join(", ")}.` };
         }
       })
     ],
@@ -432,8 +631,9 @@ export function skillsExtension(
         description:
           "Change the skill library; every change is kept as a version. Actions: " +
           "create (name, description, body); edit (name; description and/or body replace them); " +
-          "patch (name, old, new: replace one exact passage of the body); archive (name); restore (name); " +
-          "revert (name, version: back to that version's content, from skill_view history). " +
+          "patch (name, old, new: replace one exact passage of the body); archive (name; absorbed_into: the skill that now covers it, when merging); restore (name); " +
+          "revert (name, version: back to that version's content, from skill_view history); " +
+          "pin and unpin (name), only when the user asks: a pinned skill is never changed by the nightly dream or a skill review. reason: why, in a few words. " +
           `Names are lowercase-with-hyphens, by class of task. The description is one line under ${DESCRIPTION_CHARS} characters saying when to use it.`,
         parameters: SkillChange,
         replay: "unsafe",

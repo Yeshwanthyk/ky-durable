@@ -6,7 +6,7 @@
  */
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type Extension, type Tx } from "@earendil-works/pi-durable";
+import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type EntryId, type Extension, type Tx } from "@earendil-works/pi-durable";
 import Type, { type Static } from "typebox";
 import { summarize, type TaskFeed } from "../automations/contract";
 import { parseOr } from "../core/decode";
@@ -53,6 +53,22 @@ export const SkillAction = Type.Union([
 
 export type SkillAction = Static<typeof SkillAction>;
 
+/** Pinning keeps a skill from ky's background runs (a dream, a review): no archive, merge or patch. Not a version: it changes no content. */
+export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
+
+/**
+ * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
+ * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
+ * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
+ * a new ky's first start laying down its starter skills (src/seeds.ts), before anything is the user's.
+ */
+export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
+
+/** Who made a skill. A dream may archive only what ky made (agent, review or dream); ky's starter skills count as the user's. */
+const SkillOrigin = Type.Union([Type.Literal("agent"), Type.Literal("review"), Type.Literal("dream"), Type.Literal("user")]);
+
+export type SkillOrigin = Static<typeof SkillOrigin>;
+
 const SkillStatus = Type.Union([Type.Literal("active"), Type.Literal("archived")]);
 
 export type SkillStatus = Static<typeof SkillStatus>;
@@ -66,11 +82,15 @@ const EDITS = {
 
 /** One change to the library, skill_manage's input; which fields it needs depends on the action. */
 export const SkillChange = Type.Object({
-  action: SkillAction,
+  action: Type.Union([SkillAction, PinAction]),
   name: Type.String(),
   description: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
-  ...EDITS
+  ...EDITS,
+  /** On an archive that is a merge: the active skill that now covers this one. A dream must give it. */
+  absorbed_into: Type.Optional(Type.String()),
+  /** Why, in a few words; a dream's shows in Activity's Last night. */
+  reason: Type.Optional(Type.String())
 });
 
 export type SkillChange = Static<typeof SkillChange>;
@@ -81,8 +101,8 @@ export const SkillViewInput = Type.Object({
   history: Type.Optional(Type.Boolean())
 });
 
-/** A row of ky_skills. */
-export const SkillRow = Type.Object({
+/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. */
+export const SkillStored = Type.Object({
   name: Type.String(),
   description: Type.String(),
   body: Type.String(),
@@ -91,10 +111,37 @@ export const SkillRow = Type.Object({
   /** When skill_view last opened it; null if never. */
   last_used_at: Type.Union([Type.Number(), Type.Null()]),
   created_at: Type.Number(),
-  updated_at: Type.Number()
+  updated_at: Type.Number(),
+  pinned: Type.Number(),
+  created_by: SkillOrigin
 });
 
-export type SkillRow = Static<typeof SkillRow>;
+export type SkillRow = Omit<Static<typeof SkillStored>, "pinned"> & {
+  /** The user pinned it: a dream leaves it as it is. */
+  readonly pinned: boolean;
+};
+
+/** A stored skill, its pin as a boolean. */
+export function skillOf({ pinned, ...row }: Static<typeof SkillStored>): SkillRow {
+  return { ...row, pinned: pinned !== 0 };
+}
+
+/**
+ * A change about to be written, as Skills tells its watchers (the dream's ledger, src/dreaming/ledger.ts):
+ * `before` is the skill's newest version until now, null for a create.
+ */
+export type SkillWrite = {
+  readonly name: string;
+  readonly action: SkillAction;
+  readonly actor: string;
+  /** The conversation that made it; null for the user's and for ky's staleness pass. */
+  readonly conversation: string | null;
+  /** The run it belongs to when it has no conversation: ky's staleness pass gives the dream's that runs it. */
+  readonly run: string | null;
+  readonly before: number | null;
+  readonly absorbed_into: string | null;
+  readonly reason: string | null;
+};
 
 /** A row of ky_skill_versions. */
 export const SkillVersion = Type.Object({
@@ -113,21 +160,29 @@ export const SkillVersion = Type.Object({
 
 export type SkillVersion = Static<typeof SkillVersion>;
 
-/** What runs in the background over the library: a review of one turn, or a nightly dream (src/dreaming/dreaming.ts). */
-const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream")]);
+/**
+ * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), or an episode
+ * reflection that keeps what a chat left open (src/dreaming/episodes.ts).
+ */
+const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream"), Type.Literal("episode")]);
 
 export type ReviewKind = Static<typeof ReviewKind>;
 
 /** A row of ky_skill_reviews, as `kind` reads it. */
 export const ReviewRow = Type.Object({ kind: ReviewKind });
 
+/** A row of ky_skill_reviews, as `run` reads it: a dream's run token, null for a review, whose run is its conversation. */
+export const ReviewRunRow = Type.Object({ run: Type.Union([Type.String(), Type.Null()]) });
+
 const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memory_zoom"] as const;
 
-/** The tools each kind may call; both are offered every tool, so the rest are blocked. */
+/** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = Object.freeze({
   review: REVIEW_TOOLS,
-  // automation books check-ins (src/automations/automations.ts), and only them.
-  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "automation"]
+  // automation books check-ins (src/automations/automations.ts), and only them; anticipate keeps what is open (src/dreaming/anticipations.ts).
+  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"],
+  // An episode only keeps what is open, checking memory first; it writes no memory and no skill.
+  episode: ["anticipate", "memory_recall"]
 });
 
 // Specialists.
@@ -284,32 +339,38 @@ export type ReviewHost = {
   readonly model: () => AgentChange;
 };
 
+/**
+ * Fork `conversation` at `at` for a review, a dream or an episode: the fork keeps the parent's agent and, since it
+ * remembers, the parent's memory section, but runs on the background model.
+ */
+export async function reviewFork(host: ReviewHost, conversation: Conversation, at: EntryId): Promise<Conversation> {
+  const fork = await conversation.fork(at, { ownership: { kind: "ownerless" } }, host.context);
+  await fork.configure(host.model(), host.context);
+
+  return fork;
+}
+
 /** A background task as it shows in Activity. */
 type BackgroundTask = { readonly id: string; readonly worker: string; readonly title: string; readonly content: string };
 
 /** The source of a task `runInFeed` runs: only this object's memory waits on it, so a restart cuts it off. */
 export const BACKGROUND_SOURCE = "background";
 
-/**
- * Show a task in Activity, send its one message to the conversation, and
- * report the answer. Returns the answer, or undefined when the task failed.
- */
-export async function runInFeed(
-  host: ReviewHost,
-  conversation: Conversation,
-  { id, worker, title, content }: BackgroundTask
-): Promise<string | undefined> {
-  const { context, feed } = host;
-  feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
+/** How a background task's one message ended: its answer, or how Activity shows that it got none. */
+export type BackgroundOutcome =
+  | { readonly status: "done"; readonly answer: string }
+  | { readonly status: "stopped" | "failed"; readonly summary: string };
+
+/** Send a background task's one message to `conversation` and wait for the answer, showing nothing; never throws. */
+export async function askInBackground(host: ReviewHost, conversation: Conversation, { id, worker, title, content }: BackgroundTask): Promise<BackgroundOutcome> {
+  const { context } = host;
 
   try {
     const submission = await conversation.submit({ type: "input", content, requestId: `${worker}:${id}` }, context);
     const settled = await submission.wait(context);
 
     if (settled.status === "unanswered") {
-      feed.update(id, settled.reason === "aborted" ? { status: "stopped", summary: "Stopped" } : { status: "failed", summary: `Failed: ${settled.reason}` });
-
-      return undefined;
+      return settled.reason === "aborted" ? { status: "stopped", summary: "Stopped" } : { status: "failed", summary: `Failed: ${settled.reason}` };
     }
 
     const answer =
@@ -321,14 +382,37 @@ export async function runInFeed(
           )
         : undefined;
 
-    const said = textOf(answer);
-    feed.update(id, { status: "done", summary: summarize(said) || "Done" });
-
-    return said;
+    return { status: "done", answer: textOf(answer) };
   } catch (error) {
     console.warn(`${title} failed`, error);
-    feed.update(id, { status: "failed", summary: summarize(String(error)) });
 
-    return undefined;
+    return { status: "failed", summary: summarize(String(error)) };
   }
+}
+
+/** A background task's card in Activity, working until it ends. */
+function startCard(host: ReviewHost, conversation: Conversation, { id, worker, title }: Omit<BackgroundTask, "content">): void {
+  host.feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
+}
+
+function endCard(host: ReviewHost, id: string, outcome: BackgroundOutcome): void {
+  host.feed.update(id, outcome.status === "done" ? { status: "done", summary: summarize(outcome.answer) || "Done" } : outcome);
+}
+
+/** A background task that already ended, shown in Activity as `runInFeed` leaves one. */
+export function showEnded(host: ReviewHost, conversation: Conversation, task: Omit<BackgroundTask, "content">, outcome: BackgroundOutcome): void {
+  startCard(host, conversation, task);
+  endCard(host, task.id, outcome);
+}
+
+/**
+ * Show a task in Activity, send its one message to the conversation, and
+ * report the answer. Returns the answer, or undefined when the task failed.
+ */
+export async function runInFeed(host: ReviewHost, conversation: Conversation, task: BackgroundTask): Promise<string | undefined> {
+  startCard(host, conversation, task);
+  const outcome = await askInBackground(host, conversation, task);
+  endCard(host, task.id, outcome);
+
+  return outcome.status === "done" ? outcome.answer : undefined;
 }

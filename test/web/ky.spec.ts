@@ -747,6 +747,186 @@ test("tells the chat what a mail to ky says, and sends ky's mail to someone new 
   await expect(panel(page).getByRole("button", { name: `Stop allowing ${to}` })).toBeHidden();
 });
 
+test("shows today's brief above the chat with each line's source, a chip goes ahead of the draft, and what is unhandled comes back", async ({ page }) => {
+  await open(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  await send(page, `I'll reply to Sam about the Lisbon dates (${tag}) by Friday`);
+  await expect(chat(page).getByText(`I'll reply to Sam about the Lisbon dates (${tag}) by Friday`)).toBeVisible();
+
+  // The dream's line and two events', written while the page is open: the card arrives without a reload.
+  const lines = [`dream: Reply to Sam about Lisbon (${tag}) | Draft my reply to Sam`, `Dentist at 3 (${tag}) | Move my 3pm dentist`, `Rent is due today (${tag})`];
+  const seeded = await page.request.post(`/test/brief?${lines.map((line) => `line=${encodeURIComponent(line)}`).join("&")}`);
+  expect(seeded.ok()).toBe(true);
+  const [sam, dentist, rent] = Value.Parse(Type.Array(Type.String()), await seeded.json());
+
+  const card = page.getByRole("region", { name: "Today's brief" });
+  const line = (text: string) => card.getByRole("listitem").filter({ hasText: text });
+  await expect(line(`Reply to Sam about Lisbon (${tag})`).getByText(/^from: anticipation #\d+ · chat \d{1,2} [A-Z][a-z]{2}$/)).toBeVisible();
+  await expect(line(`Dentist at 3 (${tag})`).getByText("from: event")).toBeVisible();
+  await expect(line(`Rent is due today (${tag})`)).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/brief.png` : undefined });
+
+  const outcomes = async () => {
+    const rows = Value.Parse(Type.Array(Type.Object({ item: Type.String(), outcome: Type.Union([Type.String(), Type.Null()]) })), await (await page.request.get("/test/surfaced")).json());
+
+    return [sam, dentist, rent].map((key) => {
+      const row = rows.find((each) => each.item === key);
+
+      return row === undefined ? "not shown" : row.outcome;
+    });
+  };
+
+  // On screen is shown; nothing handled yet.
+  await expect.poll(outcomes).toEqual([null, null, null]);
+  // It is not a chat message.
+  await expect(chat(page).getByRole("article").filter({ hasText: `Rent is due today (${tag})` })).toHaveCount(0);
+
+  await card.getByRole("button", { name: `Pin: Reply to Sam about Lisbon (${tag})` }).click();
+  await expect(card.getByRole("img", { name: `Pinned: Reply to Sam about Lisbon (${tag})` })).toBeVisible();
+
+  // A chip goes ahead of what the user was writing, and counts as acted only once sent.
+  await composer(page).fill("Also ask about the hotel");
+  await card.getByRole("button", { name: "Move my 3pm dentist" }).click();
+  await expect(composer(page)).toHaveValue("Move my 3pm dentist\n\nAlso ask about the hotel");
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/brief-chip-draft.png` : undefined });
+  await expect.poll(outcomes).toEqual(["pinned", null, null]);
+  await composer(page).press("Enter");
+  await expect.poll(outcomes).toEqual(["pinned", "acted", null]);
+
+  // The next hello brings back what is still unhandled, and the pinned line.
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await expect(line(`Rent is due today (${tag})`)).toBeVisible();
+  await expect(card.getByRole("img", { name: `Pinned: Reply to Sam about Lisbon (${tag})` })).toBeVisible();
+  await expect(line(`Dentist at 3 (${tag})`)).toHaveCount(0);
+
+  await card.getByRole("button", { name: `Dismiss: Rent is due today (${tag})` }).click();
+  await expect(line(`Rent is due today (${tag})`)).toHaveCount(0);
+  await expect.poll(outcomes).toEqual(["pinned", "acted", "dismissed"]);
+
+  await settings(page, "Proactivity");
+  const levels = panel(page).getByRole("radiogroup", { name: "Proactivity" });
+  const brief = levels.getByRole("radio", { name: /^Brief only/ });
+  await expect(brief).toHaveAttribute("aria-checked", "true");
+  // Arrow keys move the choice, as in any radio group.
+  await brief.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(levels.getByRole("radio", { name: /^Brief and boundary lines/ })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("ArrowUp");
+  await expect(brief).toHaveAttribute("aria-checked", "true");
+  await expect(brief).toBeFocused();
+  await expect(panel(page).getByRole("list", { name: "Proactivity rates" }).getByText(/^\d+ of \d+, last 7 days$/)).toBeVisible();
+});
+
+test("lists last night's dream in Activity with its reasons, undoes a change, says why another can't be, and pins a skill", async ({ page }) => {
+  await signIn(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  const [groceries, run] = [`weekly-groceries-${tag}`, `grocery-run-${tag}`];
+  const seeded = await page.request.post(`/test/dream-night?tag=${tag}`);
+  expect(seeded.ok()).toBe(true);
+
+  await open(page);
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const night = panel(page).getByRole("region", { name: "Last night" });
+  const merge = night.getByRole("listitem", { name: `Merged ${run} into ${groceries}` });
+  await expect(merge.getByText(`Same steps as ${groceries}`)).toBeVisible();
+  await expect(night.getByRole("listitem", { name: `Edited ${groceries}` }).getByText("You order tea every Friday")).toBeVisible();
+  await expect(night.getByRole("listitem", { name: `Made tea-order-${tag}` })).toBeVisible();
+  await expect(night.getByText(`“the user drinks green tea, then oolong (${tag})”`)).toBeVisible();
+  await night.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/last-night.png` : undefined });
+
+  await merge.getByRole("button", { name: `Undo: Merged ${run} into ${groceries}` }).click();
+  await expect(merge.getByText("Undone")).toBeVisible();
+  await expect(merge.getByRole("button", { name: /^Undo/ })).toHaveCount(0);
+
+  // The skill changed since the dream edited it, so undoing that edit would lose the newer word: refused, with why.
+  await send(page, `tool skill_manage ${JSON.stringify({ action: "patch", name: groceries, old: "Open the list", new: "Open the shared list" })}`);
+  await expect(page.getByText(`tool said: Saved patch of ${groceries}`)).toBeVisible();
+  const edit = night.getByRole("listitem", { name: `Edited ${groceries}` });
+  await edit.getByRole("button", { name: `Undo: Edited ${groceries}` }).click();
+  await expect(edit.getByRole("status")).toContainText(`${groceries} changed after this patch`);
+  await expect(edit.getByRole("button", { name: `Undo: Edited ${groceries}` })).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/last-night-undone.png` : undefined });
+
+  // The merged skill is back, as ky wrote it; pinning one keeps after a reload.
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  const skillRow = (name: string) => panel(page).getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect(skillRow(run)).toContainText("ky's");
+  await skillRow(groceries).click();
+  const skill = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name: new RegExp(`^${groceries}`) }) });
+  await skill.getByRole("button", { name: "Pin", exact: true }).click();
+  await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
+  await expect(skill.getByRole("button", { name: "Unpin" })).toHaveAttribute("aria-pressed", "true");
+  await expect(skill.getByText("Written by ky · used 0 times")).toContainText("pinned, so ky's dreams and reviews leave it as it is");
+  // The row opens with a transition: shoot it open.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/skill-pinned.png` : undefined });
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
+});
+
+test("shows what ky recalled for a message under it, and the recalled lines on a tap", async ({ page }) => {
+  await open(page);
+  const tag = `zq${crypto.randomUUID().slice(0, 6)}`;
+  const said = chat(page).getByText(/^tool said: /);
+  const before = await said.count();
+  await send(page, `tool memory_note {"text":"the user keeps ${tag} tea in the blue tin"}`);
+  await expect(said).toHaveCount(before + 1);
+
+  await send(page, `where is my ${tag} tea`);
+  await expect(page.getByText(`echo: where is my ${tag} tea`)).toBeVisible();
+
+  // The chip sits under the user's message; the answer and the transcript never hold the block.
+  const chip = chat(page).getByRole("button", { name: /^Recalled \d+/ }).last();
+  await expect(chip).toBeVisible();
+  await expect(chat(page).getByText("<recalled>")).toHaveCount(0);
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  await expect(chat(page).getByRole("list", { name: "Recalled context" }).last().getByText(new RegExp(`^memory #\\d+ .*${tag} tea in the blue tin`))).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/recalled.png` : undefined, animations: "disabled" });
+});
+
+test("suggests an automation the dream saw the user do by hand, says why, and accepting makes it the user's own", async ({ page }) => {
+  await open(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  const ask = `is CI green on main (${tag})?`;
+  await send(page, ask);
+  await expect(page.getByText(`echo: ${ask}`)).toBeVisible();
+  await send(page, `${ask} again`);
+  await expect(page.getByText(`echo: ${ask} again`)).toBeVisible();
+  const asked = await page.request.post(`/test/asked-yesterday?text=${encodeURIComponent(ask)}`);
+  expect(asked.ok()).toBe(true);
+  const messages = Value.Parse(Type.Array(Type.Integer()), await asked.json());
+
+  // The night's dream proposes from the user's two asks, on two days.
+  const title = `Check CI on main ${tag}`;
+  const draft = { action: "propose", key: `check-ci-${tag}`, title, why: "You asked whether CI on main was green on two days", cron: "0 9 * * *", prompt: `Say whether CI on main is green (${tag})`, messages };
+  await send(page, `Tonight: dream> tool anticipate ${JSON.stringify(draft)}`);
+  await expect(page.getByText(/^echo: Tonight: /)).toBeVisible();
+  expect((await page.request.post("/test/dream")).ok()).toBe(true);
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const suggested = panel(page).getByRole("region", { name: "Suggested" }).getByRole("listitem", { name: title });
+  await expect(suggested.getByText("You asked whether CI on main was green on two days")).toBeVisible();
+  await suggested.getByText("What it runs").click();
+  await expect(suggested.getByLabel("Prompt")).toHaveText(`Say whether CI on main is green (${tag})`);
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/suggested.png` : undefined });
+
+  await suggested.getByRole("button", { name: `Accept: ${title}` }).click();
+  await expect(suggested).toBeHidden();
+  // The automation is the user's: listed with no "by ky" or "check-in".
+  const automation = panel(page).getByRole("listitem", { name: title });
+  await expect(automation).toContainText("Daily");
+  await expect(automation).not.toContainText("by ky");
+  await expect(automation).not.toContainText("check-in");
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");

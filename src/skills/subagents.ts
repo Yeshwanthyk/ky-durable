@@ -21,7 +21,7 @@ import {
 import { agentModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
-import { summarize, type TaskFeed } from "../automations/contract";
+import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import { endStep, startStep } from "../step-labels";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
@@ -33,6 +33,8 @@ import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, 
  * object, so it remembers earlier messages. Each message is delivered by a
  * background reporter task that posts the answer back to the main agent as
  * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
+ * An automation's run is the exception: its report is handed to delivery (src/automations/delivery.ts),
+ * which puts it in the chat only between turns, or in the brief while the user is away.
  */
 
 /** How a subagent's message ended, for its row in the task feed. */
@@ -88,6 +90,8 @@ type ReporterInput = {
   specialist?: string;
   /** A check-in's run: it reports only what it found new, and a failure stays in Activity. */
   checkIn?: boolean;
+  /** An automation's run: its report is delivered between turns, or to the brief (src/automations/delivery.ts), not steered in. */
+  deliver?: boolean;
 };
 
 /** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
@@ -98,6 +102,7 @@ export type SpawnRequest = {
   feedId?: string;
   label?: string;
   checkIn?: boolean;
+  deliver?: boolean;
 };
 
 /** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
@@ -118,7 +123,8 @@ export type SpecialistDeps = {
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
+/** `line` is the report in a line, for the brief; checkpoints from before it have none. */
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string };
 
 /** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
@@ -129,6 +135,12 @@ function failureOf(input: ReporterInput, reason: string): string | undefined {
 
   return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
 }
+
+/** What a reporter's lines call it: its label, like automation "Inbox", or the subagent's name. */
+const labelOf = (input: ReporterInput) => input.label ?? `subagent ${input.name}`;
+
+/** A report in one line, for the brief while the user is away. */
+const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${said}`;
 
 /** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */
 function answeredOf(input: ReporterInput, text: string) {
@@ -161,7 +173,9 @@ export function subagentExtension(
   model: () => ModelChoice,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
-  specialists?: SpecialistDeps
+  specialists?: SpecialistDeps,
+  /** How an automation's report reaches the user (src/automations/delivery.ts). */
+  handOver?: (item: Delivery) => Promise<void>
 ): SubagentTools {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
     name: "ky.subagent-reporter",
@@ -204,8 +218,8 @@ export function subagentExtension(
         let report = "";
 
         await runtime.commit(async (tx) => {
-          const next = (report?: string) =>
-            ({ status: "running", checkpoint: { phase: "report", report } }) as const;
+          const next = (report?: string, line?: string) =>
+            ({ status: "running", checkpoint: { phase: "report", report, line } }) as const;
 
           if (settled.status === "unanswered") {
             if (settled.reason === "aborted") {
@@ -216,7 +230,7 @@ export function subagentExtension(
 
             outcome = { status: "failed", summary: `Failed: ${settled.reason}` };
 
-            return next(failureOf(reporter.input, settled.reason));
+            return next(failureOf(reporter.input, settled.reason), lineOf(reporter.input, `failed: ${settled.reason}`));
           }
 
           if (settled.type !== "input") return next();
@@ -236,16 +250,27 @@ export function subagentExtension(
           outcome = { status: "done", summary: read.summary };
           report = read.report;
 
-          return next(read.message);
+          return next(read.message, lineOf(reporter.input, read.summary));
         }, context);
         feed.update(feedId, outcome);
 
         if (report) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
-        const report = reporter.state.checkpoint.report;
+        const { report, line } = reporter.state.checkpoint;
+        const feedId = reporter.input.feedId ?? String(reporter.id);
 
-        if (report !== undefined && wanted(reporter.input.feedId ?? String(reporter.id))) {
+        if (report !== undefined && wanted(feedId) && reporter.input.deliver && handOver) {
+          // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
+          await handOver({
+            id: `subagent-report:${reporter.id}`,
+            session: String(runtime.conversationId),
+            content: report,
+            line: line ?? lineOf(reporter.input, summarize(report)),
+            ref: `task:${feedId}`,
+            label: labelOf(reporter.input)
+          });
+        } else if (report !== undefined && wanted(feedId)) {
           const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
           await main.submit(
             {
@@ -324,9 +349,9 @@ export function subagentExtension(
 
   const desk: Desk = { feed, specialists, model, register, deliver };
 
-  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn }) => {
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
     const conversationId = await register(tx, owner, name);
-    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn }, model);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered }, model);
 
     return conversationId;
   };

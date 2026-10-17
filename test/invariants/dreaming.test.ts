@@ -2,11 +2,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  anticipationRow,
   columnName,
   countOf,
   datesOf,
   DREAM_MEMORY_TOOLS,
   DREAMING_TABLES,
+  ledgerRow,
   markOf,
   MEMORY_WRITE_TOOLS,
   memoryRow,
@@ -19,9 +21,9 @@ import {
 /**
  * Dreaming's storage and tools: memory (OptMem), SOUL.md and the nightly dream's mark.
  *
- * Its tables hold no JSON columns, only plain cells, so what a restore can damage is a cell's type:
- * each row decoder below turns a damaged row into its default (or skips it) instead of throwing deep
- * inside a read. That every allowlisted tool name is one the domain registers, and that the tables
+ * Its tables hold plain cells, and one JSON column (an anticipation's evidence), so what a restore can
+ * damage is a cell's type or that JSON: each row decoder below turns a damaged row into its default (or
+ * skips it) instead of throwing deep inside a read. That every allowlisted tool name is one the domain registers, and that the tables
  * exist after a start and survive a second one, need a Durable Object: src/tests/dreaming.test.ts.
  */
 
@@ -45,6 +47,36 @@ describe("a damaged row decodes to its default", () => {
 
   it.each(damaged)("a memory from %o is skipped", (row) => {
     expect(memoryRow(row)).toBeUndefined();
+  });
+
+  it.each(damaged)("an anticipation from %o is skipped", (row) => {
+    expect(anticipationRow(row)).toBeUndefined();
+  });
+
+  const anticipation = {
+    id: 1, created_at: 1, created_by: "dream", kind: "open_loop", text: "Reply to Sam", evidence: '{"messages":[4],"memories":[0]}',
+    prepared: null, window_from: null, window_to: null, status: "open", pinned: 1, absorbed_into: null, closed_at: null
+  };
+
+  it("an anticipation with damaged evidence, an unknown status or creator is skipped, and a whole one decodes", () => {
+    expect(anticipationRow({ ...anticipation, evidence: "[4" })).toBeUndefined();
+    expect(anticipationRow({ ...anticipation, evidence: '{"messages":["4"],"memories":[]}' })).toBeUndefined();
+    expect(anticipationRow({ ...anticipation, status: "snoozed" })).toBeUndefined();
+    expect(anticipationRow({ ...anticipation, created_by: "agent" })).toBeUndefined();
+    expect(anticipationRow(anticipation)).toEqual({ ...anticipation, evidence: { messages: [4], memories: [0] }, pinned: true });
+  });
+
+  it.each(damaged)("a dream ledger row from %o is skipped", (row) => {
+    expect(ledgerRow(row)).toBeUndefined();
+  });
+
+  it("a ledger row of an unknown kind or with a damaged cell is skipped, and a whole one decodes, with or without the later columns' values", () => {
+    const row = { id: 3, run: "dream-1", actor: "dream", kind: "skill", action: "patch", target: "tea", before: 4, reason: null, absorbed_into: null, after: 5, at: 1, undone_at: null };
+    expect(ledgerRow({ ...row, kind: "soul" })).toBeUndefined();
+    expect(ledgerRow({ ...row, at: "yesterday" })).toBeUndefined();
+    expect(ledgerRow({ ...row, after: "5" })).toBeUndefined();
+    expect(ledgerRow(row)).toEqual(row);
+    expect(ledgerRow({ ...row, actor: null, after: null, kind: "memory", before: "a summary" })).toEqual({ ...row, actor: null, after: null, kind: "memory", before: "a summary" });
   });
 
   it.each(damaged)("a SOUL.md version from %o is skipped", (row) => {

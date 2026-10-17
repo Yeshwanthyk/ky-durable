@@ -19,7 +19,8 @@ export const AUTOMATION_TABLES = Object.freeze({
   automations: "ky_automations",
   checkIns: "ky_check_ins",
   tasks: "ky_tasks",
-  taskSteps: "ky_task_steps"
+  taskSteps: "ky_task_steps",
+  deliveries: "ky_deliveries"
 } as const);
 
 /** The automation tool, and the extensions that carry it and the check-in guard. */
@@ -95,6 +96,33 @@ export const AutomationDraftSchema = Type.Object({
 });
 
 export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate">;
+
+/** A title and a prompt are needed: the list shows one, and a run knows only the other. */
+function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
+  return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
+}
+
+/** What is wrong with when it runs, if anything. */
+function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
+  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
+
+  if (draft.at !== null && !Number.isFinite(draft.at)) return "at must be an ISO time, like 2026-10-06T09:00:00Z.";
+
+  return undefined;
+}
+
+/** A gate is a program body; blank means no gate, and is saved as null by the tool and the UI. */
+function gateProblem(gate: string | null): string | undefined {
+  return gate !== null && gate.trim() === "" ? "A gate is an Executor program; leave it out for none." : undefined;
+}
+
+/**
+ * What is wrong with what a draft is and does, before anything else is checked (its model, machine and chat, and
+ * a cron's syntax, which booking checks): the automation tool's and the UI's saves, and a dream's proposal, alike.
+ */
+export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "cron" | "at" | "gate">): string | undefined {
+  return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);
+}
 
 /** The `ky_check_ins` row: whether the user turned check-ins off, and their time zone. */
 export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()) });
@@ -187,6 +215,32 @@ export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent"
 
 export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "session">>;
 
+/**
+ * Something an automation tells a chat: a run's report, or the notice that it paused. `id` is its one identity,
+ * the request id pi takes it by, so however often it is handed over it is delivered once; `content` is what
+ * the chat's agent is given; `line` is the one line today's brief shows instead while the user is away;
+ * `ref` is what it rests on, like task:a-1f2e-1760600000, one brief line a ref; `label` names it for the brief
+ * line's chip, like automation "Inbox", which asks "Tell me about the automation "Inbox" report".
+ */
+export const DeliverySchema = Type.Object({ id: Type.String(), session: Type.String(), content: Type.String(), line: Type.String(), ref: Type.String() });
+
+/** A delivery as its row keeps it, waiting for its chat. */
+export type QueuedDelivery = Readonly<Static<typeof DeliverySchema>>;
+
+export type Delivery = QueuedDelivery & { readonly label?: string };
+
+/** A report that went to the brief instead of its chat, for the automation tool's reports action to read in full. */
+export type HeldReport = { readonly line: string; readonly content: string; readonly at: number };
+
+/** A held report's row. */
+export const HeldReportRow = Type.Object({ line: Type.String(), content: Type.String(), created_at: Type.Number() });
+
+/** A row naming a chat, as `ky_deliveries` lists the ones with something waiting. */
+export const SessionRow = Type.Object({ session: Type.String() });
+
+/** What an automation's gate last found, as a hash, and the task it started; null for nothing. */
+export const GateFoundRow = Type.Object({ gate_found: Nullable(Type.String()), gate_found_by: Nullable(Type.String()) });
+
 /** A `PRAGMA table_info` row: only the column name is read. */
 export const ColumnInfo = Type.Object({ name: Type.String() });
 
@@ -226,8 +280,8 @@ export type AutomationAction = ByIdAction;
 
 export const AutomationActionSchema = Type.Unsafe<AutomationAction>(Type.Union(BY_ID_ACTIONS.map((action) => Type.Literal(action))));
 
-/** Every action the tool takes: the ones that make, change or list automations, and the by-id ones. */
-export const TOOL_ACTIONS = ["create", "update", "list", ...BY_ID_ACTIONS] as const;
+/** Every action the tool takes: the ones that make, change or list automations, reads the reports the brief holds, and the by-id ones. */
+export const TOOL_ACTIONS = ["create", "update", "list", "reports", ...BY_ID_ACTIONS] as const;
 
 export type ToolAction = (typeof TOOL_ACTIONS)[number];
 

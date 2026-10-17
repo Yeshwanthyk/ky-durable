@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat or sent to the brief, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -49,17 +49,68 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
   skill tools. Writes apply at once and every one is kept as a version, so `revert` undoes it. Memory holds facts;
-  skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert and archive
-  (`src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
+  skills hold how to do a kind of task. The panel's Skills tab lists them, with edit, history, revert, archive and
+  pin, and marks each the user's ("yours") or ky's (`created_by`, `src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
-- Dreaming: once a night (04:00 UTC, booked on the automations Scheduler), ky reads what happened since the last
-  dream (new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with memory, and
+- Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
+  and again when the zone changes), ky reads what happened since the last dream (what was said in the main chat
+  and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with
+  memory, notes what the user said that memory lacks, and
   tends the skills: creates one for a task that keeps coming up, merges overlaps, archives ones unused for 60 days,
   and fixes ones a later correction contradicts (`src/dreaming/dreaming.ts`). It may call only the skill tools and memory's;
   it keeps to OptMem's rules, so it never edits the log: it corrects a memory with a new note plus `memory_forget`
-  on the stale summary, is told to note at most five, and pays the compressions its notes make due. It shows in Activity as
-  "Dreaming", and skips the night when nothing happened. It also books check-ins (below).
+  on the stale summary, is told to note at most 15, and pays the compressions its notes make due. It shows in Activity as
+  "Dreaming", and skips the night when nothing happened. What was said comes from chat search (`src/history.ts`
+  `since`), oldest first: the user's messages get the room, ky's and notices are cut short, and what does not fit
+  waits for the next night, which starts after the last one read by pi's commit sequence. A user entry ky posted for
+  someone else (a mail's summary, a peer's question, a report) is labelled `notice`, never `user`, by its
+  submission's request id. While the user sent a message in the last 2 hours (`ky_presence`,
+  `src/dreaming/presence.ts`; a connecting tab does not count) it books one look for 2 hours after, until 08:00 their
+  time, when it leaves the night's reading to the next. It also books check-ins (below). Activity's "Last night"
+  (`src/ui/LastNight.tsx`) lists the latest dream's ledger rows with their reasons, each with Undo; an undo the
+  ledger refuses (the skill changed or was pinned since) shows its reason on the row.
+- Anticipations: what ky expects to matter soon, in `ky_anticipations` (`src/dreaming/anticipations.ts`): an open
+  loop the user committed to, a date ahead, a question likely next, or something to watch, each citing the chat
+  messages (from a chat, never a dream's, a subagent's or a task's) or memories it rests on (refused without), with up to 1,500 characters of prepared context and an optional
+  window. The `anticipate` tool (on memory's extension, so specialists cannot call it) adds, closes, extends, absorbs,
+  pins (the user only) and lists them, all open or by words (`match`) or the hours ahead (`due`): the dream as `dream`, at most 5 a run and only while fewer than 20 are open, changing only machine-made,
+  unpinned rows; an episode reflection as `episode`, under the same 20, only adding (at most 3 a pass, each citing the user's
+  own messages from the stretch of the chat it read) and listing; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.
+  Episode reflections (`src/dreaming/episodes.ts`) keep them between dreams: after a main-chat or side-chat turn at
+  least 30 minutes after the chat's last pass, busy enough for a skill review with 2 of the user's own messages since,
+  or once 6 of them came, ky forks the chat when it is idle and asks the fork, on the background model, what is still
+  open, with the messages since the last pass and their ids. A user entry is the user's own only when its submission's
+  request id is a bare UUID (`src/history.ts` `ownMessages`); a relay is a `notice:` line and never a turn.
+  The fork may call only `anticipate` and `memory_recall`, is told to answer [SILENT] when nothing is open, and shows in
+  Activity as "Episode reflection" only when it kept something or failed: a silent pass leaves no card. Its review row
+  (`ky_skill_reviews`, kind `episode`, indexed by parent and kind) records the chat entry it forked at, so the count of
+  messages since the last pass, the cooldown, and the stretch its evidence must come from need no state of their own;
+  a chat's first turn writes a mark row (`episode-seed:<chat>`, at 0) just before itself, so history from before
+  episodes gets no pass.
+  Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
+  with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
+  Turn-start recall will read them with `match`; no panel shows them yet.
+- The morning brief: up to 3 lines a day for the user's day in `ky_brief` (`src/dreaming/brief.ts`), one row per
+  local day, gone at their midnight (`src/dreaming/local-day.ts`, found by search so daylight saving at midnight holds).
+  The dream writes them with the `anticipate` tool's brief action from what is `due` and open; events may `append`
+  lines too, within the same cap. A notice ky relayed is never evidence (`isOwnRequest` in `src/history.ts`). A
+  quiet night dreams only when something is due or pinned in the day, with a brief-only prompt. Every hello that
+  day gets the unhandled lines as a `brief` frame, and open pages get it again when a line is written; the card
+  sits above the chat, not in it, each line naming its source. A line is shown, a `ky_surfaced` row
+  (`src/dreaming/surfaced.ts`) and its anticipation surfaced, when the page reports it on screen (`brief-seen`).
+  Outcomes are acted (the chip's message sent), pinned, dismissed, cleared (Dismiss all, not counted as dismissed
+  and not shown to the dream as such), or expired at midnight. The dream's digest reads last week's counts and
+  dismissed lines, and the cap drops to 2 after two weeks in a row under 25% of settled lines acted or pinned.
+  Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off: an empty brief, taps refused.
+- Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
+  looks up the user's latest message, when it is their own and not an ack, in open anticipations, memory notes, chat
+  search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)
+  to the request's copy of that message only. The transcript and system prompt never hold it. A block is made once
+  per message and stored as a `ky_surfaced` row (kind recall, loop L2); every later request re-appends each stored
+  block to its own message, so the cached prefix never changes. The anticipations it shows become surfaced, and a
+  `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
+  "Recalled N" under the message. Proactivity off makes none.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
@@ -90,6 +141,11 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   in while working and droops when its answer failed; with reduced motion it stays still.
 - Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
+  A cloud run's report, and the notice that a failing gate paused an automation, go through `Deliveries`
+  (`src/automations/delivery.ts`): into the chat only between turns (at once when idle, at the turn's end when
+  busy, never steered into a run), or, at Settings › Proactivity boundary with the user away 10 minutes, into
+  today's brief as an event line. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
+  that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
   ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection). A run
   is told to search in general terms and to answer `NOTHING_NEW` when it found nothing worth saying; then, or when it
