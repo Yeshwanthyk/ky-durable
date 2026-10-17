@@ -11,7 +11,8 @@ import type { Surfaced } from "./surfaced";
  * it on every hello that day, and to every open page when a line is written), never as a chat message, so it
  * starts no run. One row per local day; each line cites where it came from (an anticipation, or the message or
  * memory it rests on), which the card shows, and may carry a chip: an ask the user can send. It goes at the
- * user's midnight.
+ * user's midnight, all but its event lines the user has not handled (an automation's report from while they were
+ * away), which the next day's brief starts with: a report the user asked for is never lost.
  *
  * Who writes it: the nightly dream, through the `anticipate` tool's brief action, and events while the user is
  * away, through `append` with loop "event"; together at most Surfaced.briefCap lines a day (3, or 2 after two
@@ -67,6 +68,9 @@ const keyOf = (day: string, index: number) => `${day}#${index}`;
 /** A message's time, from pi's entry. */
 const StampRow = Type.Object({ at: Type.Number() });
 
+/** A past brief's day, read with its row. */
+const DayRow = Type.Object({ day: Type.String() });
+
 const shortDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 export class Brief {
@@ -99,13 +103,42 @@ export class Brief {
     this.#listeners.add(listener);
   }
 
-  /** Today's local day, its midnight, and its lines, whether or not the row's own midnight passed. */
+  /**
+   * Today's local day, its midnight, and its lines, whether or not the row's own midnight passed. A day with no row
+   * yet starts with the event lines the last brief carried that the user never handled.
+   */
   #today(now: number) {
     const zone = this.#zone();
     const day = localDay(zone, now);
+    const expiresAt = nextMidnight(zone, now);
     const row = briefRow(this.#sql.exec("SELECT lines, expires_at FROM ky_brief WHERE day = ?", day).toArray()[0]);
 
-    return { day, expiresAt: nextMidnight(zone, now), lines: row?.lines ?? [] };
+    return { day, expiresAt, lines: row?.lines ?? this.#carry(day, expiresAt, now) };
+  }
+
+  /**
+   * The event lines of the last brief before `day` with no outcome (never shown, shown and left, or expired at its
+   * midnight), up to the cap, written as `day`'s row so their keys hold. The old line's showing still counts as
+   * expired; the carried one is shown afresh.
+   */
+  #carry(day: string, expiresAt: number, now: number): BriefLine[] {
+    const raw = this.#sql.exec("SELECT day, lines, expires_at FROM ky_brief WHERE day < ? ORDER BY day DESC LIMIT 1", day).toArray()[0];
+    const last = decodeOr(DayRow, raw, undefined)?.day;
+
+    if (last === undefined) return [];
+
+    const unhandled = (index: number) => {
+      const outcome = this.#surfaced.outcomeOf("brief", keyOf(last, index));
+
+      return outcome === undefined || outcome === null || outcome === "expired";
+    };
+
+    const lines = (briefRow(raw)?.lines ?? []).filter((line, index) => line.source.loop === "event" && unhandled(index)).slice(0, this.#surfaced.briefCap(now));
+
+    if (lines.length === 0) return [];
+    this.#sql.exec("INSERT INTO ky_brief (day, lines, created_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT (day) DO NOTHING", day, JSON.stringify(lines), now, expiresAt);
+
+    return lines;
   }
 
   /**

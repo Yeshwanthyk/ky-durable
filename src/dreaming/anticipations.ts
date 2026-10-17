@@ -1,7 +1,7 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { isOwnRequest, ownMessages } from "../history";
+import { ownMessages } from "../history";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,
@@ -29,7 +29,8 @@ import type { Proposals } from "./proposals";
  * - the nightly dream (src/dreaming/dreaming.ts): `expire` at its start, `open` for its digest, and through
  *   the `anticipate` tool `add`, `close`, `extend` and `absorb` on its own rows;
  * - the main chat, for the user ("remind me", "that's done"), through the same tool, as `user`;
- * - turn-start recall: `match` the message's words (the tool's list `about` uses it today);
+ * - turn-start recall (src/dreaming/recall.ts): `recallable` for the message's words, and `recalled` for the rows its
+ *   block shows, which only the model reads, so they stay open; the tool's list `about` uses `match`;
  * - the morning brief (src/dreaming/brief.ts): the dream's digest lists `due` for the day ahead, and the tool's
  *   `brief` action puts a row in it, which is `surface`d once the user's screen shows the line; the card's pin is
  *   `pin`, and its dismiss `close`s a machine's unpinned row as dismissed for the user;
@@ -56,6 +57,9 @@ const RUN_MS = 12 * 3_600_000;
 const TEXT_BYTES = 280;
 
 const PREPARED_CHARS = 1_500;
+
+/** A row recall brought in by its window alone is left out of the next block for this long. */
+const RECALL_AGAIN_MS = 86_400_000;
 
 /** Words `match` reads, at most, and the shortest it reads. */
 const MATCH_TERMS = 12;
@@ -121,17 +125,14 @@ function checkWindow(window: Window): Window {
 /** `pattern` as a LIKE pattern that matches it anywhere, its wildcards escaped. */
 const like = (term: string) => `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 
-/** A user's or ky's message in pi's entries: the conversation it is in, and whose it is. */
-const MessageRow = Type.Object({ conversation_id: Type.Number(), kind: Type.String() });
+/** A user's or ky's message in pi's entries: its id, the conversation it is in, and whose it is. */
+const MessageRow = Type.Object({ id: Type.Number(), conversation_id: Type.Number(), kind: Type.String() });
 
-/** The submission that placed a user entry: its request id, which tells the user's own message from a notice. */
-const PlacedRow = Type.Object({ request: Type.Union([Type.String(), Type.Null()]) });
+/** Where a cited message is: its chat, and whether it is a notice ky relayed rather than the user's words. */
+type MessagePlace = { readonly conversation: string; readonly notice: boolean };
 
-/** Where a cited message is: its chat, and whether it is a notice ky relayed rather than the user's words; empty when there is no such message. */
-type MessagePlace = { readonly conversation?: string; readonly notice?: boolean };
-
-/** How far apart, in pi's ids, a user entry and the submission that placed it may be (as src/history.ts reads them). */
-const PLACED_SLACK = 5_000;
+/** A `PRAGMA table_info` row: only the column name is read. */
+const ColumnRow = Type.Object({ name: Type.String() });
 
 export class Anticipations {
   readonly #sql: SqlStorage;
@@ -156,7 +157,12 @@ export class Anticipations {
       status TEXT NOT NULL DEFAULT 'open',
       pinned INTEGER NOT NULL DEFAULT 0,
       absorbed_into INTEGER,
-      closed_at INTEGER)`);
+      closed_at INTEGER,
+      recalled_at INTEGER)`);
+
+    if (!sql.exec("PRAGMA table_info(ky_anticipations)").toArray().some((column) => decodeOr(ColumnRow, column, undefined)?.name === "recalled_at")) {
+      sql.exec("ALTER TABLE ky_anticipations ADD COLUMN recalled_at INTEGER");
+    }
   }
 
   #rows(query: string, ...bindings: SqlStorageValue[]): Anticipation[] {
@@ -220,7 +226,8 @@ export class Anticipations {
 
     if (evidence.messages.length === 0) throw new Error("Cite the user's own messages (#id) it rests on.");
     const own = ownMessages(this.#sql, evidence.messages);
-    const outside = evidence.messages.filter((id) => id <= pass.after || id > pass.upto || !own.has(id) || this.#messageIn(id).conversation !== pass.parent);
+    const places = this.#placesOf(evidence.messages);
+    const outside = evidence.messages.filter((id) => id <= pass.after || id > pass.upto || !own.has(id) || places.get(id)?.conversation !== pass.parent);
 
     if (outside.length > 0) {
       throw new Error(`Message ${outside.map((id) => `#${id}`).join(", ")} is not the user's own words in the stretch you read: cite only the user's lines above.`);
@@ -247,21 +254,26 @@ export class Anticipations {
       throw new Error("No evidence: cite the chat messages (#rowid) or memories (#id) it rests on.");
     }
 
-    const found = messages.map((id) => ({ id, ...this.#messageIn(id) }));
+    const places = this.#placesOf(messages);
 
     const missing = [
-      ...found.flatMap(({ id, conversation }) => (conversation === undefined ? [`message #${id}`] : [])),
+      ...messages.flatMap((id) => (places.has(id) ? [] : [`message #${id}`])),
       ...memories.flatMap((id) => (this.#count("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", id) > 0 ? [] : [`memory #${id}`]))
     ];
 
     if (missing.length > 0) throw new Error(`No such ${missing.join(", ")}: cite only what is there.`);
-    const elsewhere = found.flatMap(({ id, conversation }) => (conversation !== undefined && !this.#chat(conversation) ? [`#${id}`] : []));
+
+    const elsewhere = messages.flatMap((id) => {
+      const place = places.get(id);
+
+      return place !== undefined && !this.#chat(place.conversation) ? [`#${id}`] : [];
+    });
 
     if (elsewhere.length > 0) {
       throw new Error(`Message ${elsewhere.join(", ")} is not from a chat (a dream, a subagent or a task said it): cite what the user and ky said in a chat.`);
     }
 
-    const notices = found.flatMap(({ id, notice }) => (notice === true ? [`#${id}`] : []));
+    const notices = messages.flatMap((id) => (places.get(id)?.notice === true ? [`#${id}`] : []));
 
     if (notices.length > 0) {
       throw new Error(`Message ${notices.join(", ")} is a notice ky relayed (mail, a peer, a report), not the user's words: cite what the user and ky said.`);
@@ -271,35 +283,24 @@ export class Anticipations {
   }
 
   /**
-   * The conversation of `id` when it is a user's or ky's message, and whether it is a notice: a user entry ky
-   * posted for someone else (a relayed mail, a peer's question, a report), told apart as chat search tells it, by
-   * the request id of the submission that placed it. Chat search's rowids (src/history.ts) are pi's entry ids,
-   * read from pi's entries so a message chat search has not indexed yet counts too.
+   * Where each of `ids` is that is a user's or ky's message: its conversation, and whether it is a notice, a user
+   * entry ky posted for someone else (a relayed mail, a peer's question, a report), told apart as chat search
+   * tells it (src/history.ts ownMessages). Chat search's rowids are pi's entry ids, read from pi's entries so a
+   * message chat search has not indexed yet counts too. An id that is no such message has no place.
    */
-  #messageIn(id: number): MessagePlace {
-    const row = this.#sql
+  #placesOf(ids: readonly number[]): ReadonlyMap<number, MessagePlace> {
+    const messages = this.#sql
       .exec(
-        "SELECT conversation_id, json_extract(record, '$.kind') AS kind FROM pi_entries WHERE id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')",
-        id
+        `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind FROM pi_entries
+         WHERE id IN (SELECT value FROM json_each(?)) AND json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')`,
+        JSON.stringify(ids)
       )
-      .toArray()[0];
+      .toArray()
+      .flatMap((row) => decodeOr(MessageRow, row, undefined) ?? []);
 
-    const message = decodeOr(MessageRow, row, undefined);
+    const own = ownMessages(this.#sql, messages.flatMap((message) => (message.kind === "pi.user" ? [message.id] : [])));
 
-    if (message === undefined) return {};
-
-    if (message.kind !== "pi.user") return { conversation: String(message.conversation_id), notice: false };
-
-    const placed = this.#sql
-      .exec(
-        "SELECT json_extract(record, '$.requestId') AS request FROM pi_submissions WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') = ? LIMIT 1",
-        id - PLACED_SLACK,
-        id + PLACED_SLACK,
-        id
-      )
-      .toArray()[0];
-
-    return { conversation: String(message.conversation_id), notice: !isOwnRequest(decodeOr(PlacedRow, placed, undefined)?.request ?? undefined) };
+    return new Map(messages.map((message) => [message.id, { conversation: String(message.conversation_id), notice: message.kind === "pi.user" && !own.has(message.id) }]));
   }
 
   /** The user's latest message in `conversation`, as a message id to cite; undefined before the first. */
@@ -323,24 +324,44 @@ export class Anticipations {
   }
 
   /**
-   * For turn-start recall: open rows whose text or prepared context holds one of `terms` (case-insensitive), or
-   * whose window covers `now`; the ones in their window first, then the newest. SQL only.
+   * Open rows whose text or prepared context holds one of `terms` (case-insensitive), or whose window covers
+   * `now`; the ones in their window first, then the newest. SQL only.
    */
   match(terms: readonly string[], now: number, limit = 5): Anticipation[] {
+    return this.#match(terms, now, limit, Number.MAX_SAFE_INTEGER);
+  }
+
+  /**
+   * For turn-start recall: as `match`, but a row its window alone brings in only when no block recalled it in the
+   * last RECALL_AGAIN_MS, so it rides along on one message a day rather than on every one.
+   */
+  recallable(terms: readonly string[], now: number, limit = 5): Anticipation[] {
+    return this.#match(terms, now, limit, now - RECALL_AGAIN_MS);
+  }
+
+  /** Rows matched by `terms`, or by their window when last recalled before `recalledBefore`. */
+  #match(terms: readonly string[], now: number, limit: number, recalledBefore: number): Anticipation[] {
     const words = [...new Set(terms.flatMap((term) => (term.trim().length >= TERM_CHARS ? [term.trim().toLowerCase()] : [])))].slice(0, MATCH_TERMS);
     const keyword = words.map(() => "text LIKE ? ESCAPE '\\' OR prepared LIKE ? ESCAPE '\\'");
 
     return this.#rows(
       `SELECT * FROM ky_anticipations
-       WHERE ${LIVE} AND ((window_from <= ? AND window_to >= ?)${keyword.map((each) => ` OR ${each}`).join("")})
+       WHERE ${LIVE} AND ((window_from <= ? AND window_to >= ? AND (recalled_at IS NULL OR recalled_at < ?))${keyword.map((each) => ` OR ${each}`).join("")})
        ORDER BY (window_from <= ? AND window_to >= ?) DESC, id DESC LIMIT ?`,
       now,
       now,
+      recalledBefore,
       ...words.flatMap((word) => [like(word), like(word)]),
       now,
       now,
       limit
     );
+  }
+
+  /** A recall block showed `ids` to the model: noted, so one in its window alone is not recalled again today. Not surfaced: the user has not seen it. */
+  recalled(ids: readonly number[], now = Date.now()): void {
+    if (ids.length === 0) return;
+    this.#sql.exec("UPDATE ky_anticipations SET recalled_at = ? WHERE id IN (SELECT value FROM json_each(?))", now, JSON.stringify(ids));
   }
 
   /** For the morning brief: open upcoming rows whose window meets [`now`, `until`], soonest first. */

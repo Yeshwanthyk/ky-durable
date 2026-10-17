@@ -589,12 +589,14 @@ export class Automations {
 
   /**
    * The gate found `text`: run with it, unless an earlier slot's fire found the same and the user did not ask to
-   * run now. The same slot delivered again (the Scheduler may) is no repeat: its run starts once by its task id.
+   * run now. The same slot delivered again (the Scheduler may) is no repeat: its run starts once by its task id,
+   * and neither is a finding whose run failed, which nobody was told about.
    */
   async #admitFound(id: string, task: string, text: string, forced: boolean): Promise<Admission | null> {
     const found = await digest(text);
     const last = this.#lastFound(id);
-    const repeat = !forced && last !== undefined && last.hash === found && last.task !== task;
+    const failed = last !== undefined && this.#deps.feed.get(last.task)?.status === "failed";
+    const repeat = !forced && last !== undefined && !failed && last.hash === found && last.task !== task;
     this.#set(id, { gate_checked_at: Date.now(), gate_note: repeat ? SAME_NOTE : noteOf({ kind: "found", text }), gate_errors: 0 });
 
     return repeat ? null : { prefix: `Gate found:\n${text.slice(0, GATE_FOUND_MAX)}\n\n`, found };
