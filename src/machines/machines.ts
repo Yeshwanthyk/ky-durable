@@ -13,9 +13,23 @@ import type { Static, TSchema } from "typebox";
 import Schema from "typebox";
 import { decode, decodeOr, parseOr } from "../core/decode";
 import { must } from "../core/must";
-import { type Agent, AGENT_NAMES, FactsSchema, ISSUED_TTL_MS, type MachineFacts, type RunCreds, type RunnerCommand, type TaskReport } from "./runner-protocol";
+import {
+  type Agent,
+  AGENT_NAMES,
+  FactsSchema,
+  ISSUED_TTL_MS,
+  type MachineFacts,
+  OUTDATED,
+  PROTOCOL,
+  REPLACED,
+  REVOKED,
+  type RunCreds,
+  type RunnerCommand,
+  type TaskReport
+} from "./runner-protocol";
 import {
   type CloudHook,
+  HelloRowSchema,
   InboxRowSchema,
   LoginRowSchema,
   MACHINE_ACTIONS,
@@ -30,7 +44,6 @@ import {
   type Queued,
   QueuedSchema,
   ReportRowSchema,
-  runnerTag,
   type SessionCreds,
   type TaskOutcome,
   type TaskTokens,
@@ -79,6 +92,25 @@ import { summarize, type TaskFeed, type TaskRow } from "../automations/contract"
  */
 
 const OPEN = 1;
+
+/** A runner says hello every 30s: one silent for two of them, and some slack, is offline though its socket looks open. */
+const ONLINE_WITHIN_MS = 75_000;
+
+/** Why a runner's socket closed, for a close that says more than offline; none for a lost or plainly closed connection. */
+function closedReason(code: number | undefined): string | null {
+  switch (code) {
+    case OUTDATED:
+      return "Its runner speaks another runner protocol than ky. Get the newer ky on it, then run ky upgrade.";
+    case REVOKED:
+      return "It was removed from ky, or its token is not ky's. Pair it again.";
+    case REPLACED:
+      return "Another runner connected with its name. Give each machine its own name.";
+    case 1008:
+      return "ky closed its runner's connection on a report it could not read. Update ky on it.";
+    default:
+      return null;
+  }
+}
 
 const MACHINE_STATES: readonly MachineState[] = ["on", "paused", "off"];
 
@@ -215,6 +247,8 @@ export class MachineHub {
   /** The cloud machine, once the deploy says it has one. */
   cloud: CloudHook | undefined;
   #wanted: (task: string) => boolean = () => true;
+  /** Book a look at the machines at `at`, epoch ms, when one may go offline by staying silent; the Scheduler runs `recheck`. */
+  recheckAt: (at: number) => void = () => {};
 
   constructor(
     sql: SqlStorage,
@@ -283,6 +317,13 @@ export class MachineHub {
     if (!known.some((column) => column.name === "pairing")) sql.exec("ALTER TABLE ky_machines ADD COLUMN pairing TEXT");
 
     if (!known.some((column) => column.name === "login")) sql.exec("ALTER TABLE ky_machines ADD COLUMN login TEXT NOT NULL DEFAULT 'own'");
+
+    // `hello`: the connection id of the runner socket that last said hello, the only one it is online on.
+    // `reason`: why it last went offline, when ky knows; cleared by the next hello.
+    if (!known.some((column) => column.name === "hello")) {
+      sql.exec("ALTER TABLE ky_machines ADD COLUMN hello TEXT");
+      sql.exec("ALTER TABLE ky_machines ADD COLUMN reason TEXT");
+    }
 
     // The latest turn the hub asked the runner to stop: a result that isn't ok for it, or an earlier one, is a stop, not a failure.
     const turns = rows(sql.exec("PRAGMA table_info(ky_machine_turns)"), ColumnRow, "a column of ky_machine_turns");
@@ -359,15 +400,42 @@ export class MachineHub {
     this.#wanted = wanted;
   }
 
+  /** Online: the socket that said hello is open, and it said so within ONLINE_WITHIN_MS. */
   online(machine: string): boolean {
-    return this.#sockets(runnerTag(machine)).some((socket) => socket.readyState === OPEN);
+    const row = rows(this.#sql.exec("SELECT seen_at, hello FROM ky_machines WHERE name = ?", machine), HelloRowSchema, "a machine's hello")[0];
+
+    return row !== undefined && Date.now() - row.seen_at <= ONLINE_WITHIN_MS && this.#greeted(row.hello).length > 0;
+  }
+
+  /** The open socket that said hello as `connection`; agents tags each socket with its connection id. */
+  #greeted(connection: string | null): WebSocket[] {
+    return connection === null ? [] : this.#sockets(connection).filter((socket) => socket.readyState === OPEN);
+  }
+
+  /** Tell the watchers if a machine whose socket still looks open has gone silent, so it shows offline. */
+  recheck(): void {
+    const silent = rows(this.#sql.exec("SELECT seen_at, hello FROM ky_machines WHERE seen_at < ?", Date.now() - ONLINE_WITHIN_MS), HelloRowSchema, "a machine's hello");
+
+    if (silent.some((row) => this.#greeted(row.hello).length > 0)) for (const watcher of this.#watchers) watcher();
+  }
+
+  /** ky turned away the machine's runner, which speaks runner protocol `protocol`: say which side is behind, and what to do. */
+  refused(machine: string, protocol: number): void {
+    const reason =
+      protocol < PROTOCOL
+        ? `Its runner is older than ky: it speaks runner protocol ${protocol}, ky ${PROTOCOL}. Get the newer ky on it, then run ky upgrade.`
+        : `Its runner is newer than ky: it speaks runner protocol ${protocol}, ky ${PROTOCOL}. Deploy ky, or wait for its deploy to finish.`;
+
+    this.#sql.exec("UPDATE ky_machines SET reason = ? WHERE name = ?", reason, machine);
+
+    for (const watcher of this.#watchers) watcher();
   }
 
   /** The machines: the sandboxes first, the default one first, then the user's computers, each by name. */
   machines(): MachineInfo[] {
     const sandboxes = new Map(this.#sandboxes.live().map((sandbox, at) => [sandbox.name, { sandbox, at }]));
 
-    return rows(this.#sql.exec("SELECT name, seen_at, state, note, facts, login FROM ky_machines ORDER BY name"), MachineRowSchema, "a machine")
+    return rows(this.#sql.exec("SELECT name, seen_at, state, note, facts, login, hello, reason FROM ky_machines ORDER BY name"), MachineRowSchema, "a machine")
       .sort((a, b) => (sandboxes.get(a.name)?.at ?? Infinity) - (sandboxes.get(b.name)?.at ?? Infinity))
       .map((row) => {
         const online = this.online(row.name);
@@ -377,6 +445,7 @@ export class MachineHub {
           name: row.name,
           online,
           seenAt: row.seen_at,
+          reason: online ? null : row.reason,
           active: this.#feed.open("machine", row.name).length,
           state: decodeOr(MachineStateSchema, row.state, "on"),
           note: row.note,
@@ -427,9 +496,9 @@ export class MachineHub {
     return must(this.machine(name), `No machine ${name}.`);
   }
 
-  /** A runner left. Only a machine whose runner said hello has a row to update. */
-  seen(machine: string): void {
-    this.#sql.exec("UPDATE ky_machines SET seen_at = ? WHERE name = ?", Date.now(), machine);
+  /** A runner left, its socket closed with `code`. Only a machine whose runner said hello has a row to update; a refusal's reason stays. */
+  seen(machine: string, code?: number): void {
+    this.#sql.exec("UPDATE ky_machines SET seen_at = ?, reason = COALESCE(reason, ?) WHERE name = ?", Date.now(), closedReason(code), machine);
   }
 
   /**
@@ -562,9 +631,10 @@ export class MachineHub {
   }
 
   #send(machine: string, commands: readonly RunnerCommand[]): void {
-    for (const socket of this.#sockets(runnerTag(machine))) {
-      if (socket.readyState !== OPEN) continue;
+    const hello = rows(this.#sql.exec("SELECT seen_at, hello FROM ky_machines WHERE name = ?", machine), HelloRowSchema, "a machine's hello")[0];
 
+    // Only the socket that said hello: one that hasn't yet may be a runner ky will turn away.
+    for (const socket of this.#greeted(hello?.hello ?? null)) {
       for (const command of commands) {
         try {
           socket.send(JSON.stringify(command));
@@ -866,10 +936,11 @@ export class MachineHub {
     return rows(this.#sql.exec("SELECT pairing FROM ky_machines WHERE name = ?", machine), PairingRow, "a machine's pairing")[0]?.pairing ?? null;
   }
 
-  /** A runner said hello, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
-  async #onHello(machine: string, active: readonly string[], facts: MachineFacts): Promise<void> {
+  /** A runner said hello on `connection`, running the tasks in `active`: end the ones it lost, then resend what it has not acked. */
+  async #onHello(machine: string, connection: string, active: readonly string[], facts: MachineFacts): Promise<void> {
     // Only pairing makes a machine; the socket checked the pairing before this hello came.
-    this.#sql.exec("UPDATE ky_machines SET seen_at = ?, facts = ? WHERE name = ?", Date.now(), JSON.stringify(facts), machine);
+    this.#sql.exec("UPDATE ky_machines SET seen_at = ?, facts = ?, hello = ?, reason = NULL WHERE name = ?", Date.now(), JSON.stringify(facts), connection, machine);
+    this.recheckAt(Date.now() + ONLINE_WITHIN_MS + 1_000);
 
     // An open task the runner is not running is over, unless one of its runs is still unacked:
     // the socket is in order, so every run the runner had seen when it said hello was acked first.
@@ -901,10 +972,10 @@ export class MachineHub {
   }
 
   /** What a runner said about its tasks and itself: each type of TASK_REPORT_TYPES has its case. */
-  async onReport(machine: string, report: TaskReport): Promise<void> {
+  async onReport(machine: string, report: TaskReport, connection: string): Promise<void> {
     switch (report.type) {
       case "hello":
-        return this.#onHello(machine, report.active, report.facts);
+        return this.#onHello(machine, connection, report.active, report.facts);
       case "ack":
         return this.#onAck(machine, report.seq);
       case "session":
@@ -1072,7 +1143,9 @@ function upness(machine: MachineInfo): string {
 
   if (machine.cloud === "waking") return "waking for its tasks";
 
-  return machine.online ? "online" : "offline";
+  if (machine.online) return "online";
+
+  return machine.reason ? `offline: ${machine.reason}` : "offline";
 }
 
 /** What a machine is, as it last said: its OS, its browser, its agents. */

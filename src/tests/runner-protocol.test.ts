@@ -493,11 +493,13 @@ describe("runner protocol: the Quint counterexamples", () => {
 
   // CE6 seqReorder: started offline, then a follow-up sent before the hello lands.
   it("reorder: turns reach Claude Code in the order they were sent", async () => {
-    const { object, mac } = fixture();
+    // The hello passes, as commands go only to a runner that said it; then its acks are held.
+    const { object, mac } = await online();
+    const wire = mac.wire!;
+    wire.mode = "hold";
     const id = await start(object);
-    const wire = await mac.connect("hold");
-    await sendTask(object, id, "second");
     await mac.claude(0);
+    await sendTask(object, id, "second");
     wire.release();
     await settle();
 

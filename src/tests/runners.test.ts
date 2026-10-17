@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ASSERTION } from "../access";
-import { decodeObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/contract";
+import { decodeObjectFrame, type ObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import type { Vault as TestVault } from "./stack";
 import { call, connect, connectRunner, FACTS, inside, machineToken, pair, pairing, pairingCode, prompt, runner, said, until } from "./drive";
@@ -23,11 +23,11 @@ const named = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`
 
 const HELLO = JSON.stringify({ type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: FACTS });
 
-type Heard = { socket: WebSocket; frames: unknown[]; closed: Promise<number> };
+type Heard = { socket: WebSocket; frames: ObjectFrame[]; closed: Promise<number> };
 
 /** What the object says on a runner socket, and the code it closes with. */
 function hear(socket: WebSocket): Heard {
-  const frames: unknown[] = [];
+  const frames: ObjectFrame[] = [];
   const closed = new Promise<number>((resolve) => socket.addEventListener("close", (event) => resolve(event.code)));
   socket.addEventListener("message", (event) => {
     const frame = decodeObjectFrame(String(event.data));
@@ -411,5 +411,37 @@ describe("task tokens", () => {
     expect(stored).toContain(sent.task);
     expect(stored).not.toContain(sent.taskToken);
     again.socket.close();
+  });
+});
+
+describe("a machine's runner is online", () => {
+  it("only on the socket that said hello: a run waits for the hello", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connectRunner(name, "mac");
+    const heard = hear(socket);
+    await prompt(name, "machine before the hello");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(await inside(name, (instance) => instance.machines.online("mac"))).toBe(false);
+    expect(heard.frames.filter((frame) => "seq" in frame)).toEqual([]);
+
+    socket.send(HELLO);
+    await until(async () => heard.frames.some((frame) => "seq" in frame), "the run after the hello");
+    socket.close();
+  });
+
+  it("until it is silent past two hellos, though its socket stays open; the Scheduler looks again then", async () => {
+    const name = crypto.randomUUID();
+    const mac = await runner(name);
+    await until(() => inside(name, (instance) => instance.machines.online("mac")), "mac online");
+
+    expect(await inside(name, async (instance) => (await instance.automations.scheduler.list()).some((schedule) => schedule.callback === "machines"))).toBe(true);
+
+    await inside(name, (_instance, state) => state.storage.sql.exec("UPDATE ky_machines SET seen_at = ? WHERE name = 'mac'", Date.now() - 76_000));
+    expect(await inside(name, (instance) => instance.machines.machine("mac"))).toMatchObject({ online: false, reason: null });
+
+    mac.socket.send(HELLO);
+    await until(() => inside(name, (instance) => instance.machines.online("mac")), "mac online again");
+    mac.socket.close();
   });
 });

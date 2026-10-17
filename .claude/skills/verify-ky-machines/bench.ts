@@ -6,7 +6,7 @@
  *
  *   node --experimental-strip-types --no-warnings .claude/skills/verify-ky-machines/bench.ts [probe...|all] [--runs N] [--quick]
  *
- * Probes: latency, restart, skew, hang, offline, halfopen, cloud. `--quick` skips halfopen (70s).
+ * Probes: latency, restart, skew, hang, offline, halfopen, cloud. `--quick` skips halfopen (85s).
  * Results: test-results/machines-bench/results.json, runner and fake-claude logs beside it.
  * It never touches the deployed Worker, ~/.ky or ~/.claude. `live.sh` is the read-only live check.
  */
@@ -74,6 +74,34 @@ function machineRow(name: string): Record<string, unknown> | undefined {
   const latest = main.frames.findLast((frame) => frame.type === "tasks");
 
   return latest?.type === "tasks" ? (latest.machines.find((each) => each.name === name) as unknown as Record<string, unknown>) : undefined;
+}
+
+/** A paired machine whose socket says hello in runner protocol `protocol`, straight to the stack: how it is turned away, and its row after. */
+async function helloIn(name: string, protocol: number) {
+  const mac = machine(name, out);
+  const pairedMac = await mac.pair(url, await pairingCode(url));
+
+  if (pairedMac.code !== 0) throw new Error(`did not pair: ${pairedMac.output}`);
+  const token = readFileSync(mac.tokenFile, "utf8").trim();
+  const socket = new Socket(`${url.replace(/^http/, "ws")}${RUNNER_PATH}${name}`, { headers: { Authorization: `Bearer ${token}` } });
+  let closedBy: number | undefined;
+  let goodbye = "";
+  let sawOnline = false;
+  const openedAt = Date.now();
+  const watch = setInterval(() => (sawOnline ||= online(name)), 10);
+  socket.on("message", (data) => {
+    const frame = decodeObjectFrame(String(data));
+
+    if (frame?.type === "goodbye") goodbye = frame.reason;
+  });
+  socket.on("close", (code) => (closedBy = code));
+  socket.on("open", () => setTimeout(() => socket.send(JSON.stringify({ type: "hello", protocol, active: [] })), 300));
+  await until("the socket to close", () => closedBy !== undefined, 15_000);
+  clearInterval(watch);
+  const goodbyeMs = Date.now() - openedAt;
+  await sleep(500);
+
+  return { closedBy, goodbye, sawOnline, goodbyeMs, row: machineRow(name) };
 }
 
 async function paired(name: string, proxy: Proxy, env: Record<string, string> = {}): Promise<{ mac: Machine; runner: Runner }> {
@@ -237,34 +265,16 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
     const { runner } = await paired("bench-skew-worker", proxy);
     await until("the runner to exit", () => runner.exitCode() !== null, 30_000);
     const exitMs = Date.now() - launchedAt;
-    await sleep(500);
-    const workerAheadRow = machineRow("bench-skew-worker");
+    // The proxy answered for the Worker, which never saw the runner: what the Worker shows is checked with a runner it is ahead of.
+    const behind = await helloIn("bench-skew-worker-ui", PROTOCOL - 1);
+    const workerAheadRow = behind.row;
 
     // Runner ahead: a socket that says hello with a newer protocol, straight to the stack.
-    const ahead = machine("bench-skew-runner", out);
-    const pairedAhead = await ahead.pair(url, await pairingCode(url));
-
-    if (pairedAhead.code !== 0) throw new Error(`did not pair: ${pairedAhead.output}`);
-    const token = readFileSync(ahead.tokenFile, "utf8").trim();
-    const socket = new Socket(`${url.replace(/^http/, "ws")}${RUNNER_PATH}bench-skew-runner`, { headers: { Authorization: `Bearer ${token}` } });
-    let closedBy: number | undefined;
-    let goodbye = "";
-    let sawOnline = false;
-    const openedAt = Date.now();
-    const watch = setInterval(() => (sawOnline ||= online("bench-skew-runner")), 10);
-    socket.on("message", (data) => {
-      const frame = decodeObjectFrame(String(data));
-
-      if (frame?.type === "goodbye") goodbye = frame.reason;
-    });
-    socket.on("close", (code) => (closedBy = code));
-    socket.on("open", () => setTimeout(() => socket.send(JSON.stringify({ type: "hello", protocol: PROTOCOL + 1, active: [] })), 300));
-    await until("the socket to close", () => closedBy !== undefined, 15_000);
-    clearInterval(watch);
-    const goodbyeMs = Date.now() - openedAt;
-    await sleep(500);
-    const runnerAheadRow = machineRow("bench-skew-runner");
-    const reasonShown = (row: Record<string, unknown> | undefined) => row !== undefined && Object.keys(row).some((key) => /reason|why|error/i.test(key));
+    const ahead = await helloIn("bench-skew-runner", PROTOCOL + 1);
+    const { closedBy, goodbye, sawOnline, goodbyeMs } = ahead;
+    const runnerAheadRow = ahead.row;
+    // M2: the machine says why it is offline, in words, not only that it is.
+    const reasonOf = (row: Record<string, unknown> | undefined) => (typeof row?.reason === "string" ? row.reason : "");
 
     return {
       probe: "skew",
@@ -277,10 +287,10 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
         "runner ahead: goodbye": goodbye
       },
       verdicts: [
-        { invariant: "worker ahead: the user sees the machine is outdated, not just offline", holds: reasonShown(workerAheadRow), detail: `machine row keys: ${Object.keys(workerAheadRow ?? {}).join(",")}` },
+        { invariant: "worker ahead: the user sees the machine is outdated, not just offline", holds: reasonOf(workerAheadRow).length > 0, detail: reasonOf(workerAheadRow) || "no reason" },
         { invariant: "runner ahead: refused with OUTDATED and a reason", holds: closedBy === OUTDATED && goodbye.length > 0, detail: `${closedBy} ${goodbye}` },
         { invariant: "runner ahead: never listed online before its hello is accepted", holds: !sawOnline, detail: sawOnline ? "listed online between connect and goodbye" : "never listed online" },
-        { invariant: "runner ahead: the user sees why", holds: reasonShown(runnerAheadRow), detail: `machine row keys: ${Object.keys(runnerAheadRow ?? {}).join(",")}` }
+        { invariant: "runner ahead: the user sees why", holds: reasonOf(runnerAheadRow).length > 0, detail: reasonOf(runnerAheadRow) || "no reason" }
       ]
     };
   },
@@ -355,7 +365,8 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
 
   /** A half-open socket: the runner's frames stop arriving (sleep, a dead NAT), the socket never closes. */
   async halfopen() {
-    const silenceMs = option("--silence", 70_000);
+    // The hub calls a runner offline 75s after its last hello (ONLINE_WITHIN_MS): look a little past that.
+    const silenceMs = option("--silence", 85_000);
     const { proxy } = await fresh("bench-halfopen");
     proxy.hold();
     const heldAt = Date.now();
@@ -366,7 +377,7 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
       probe: "halfopen",
       timings: { "silence ms": Date.now() - heldAt, "silence→UI offline ms": offlineAt ? offlineAt - heldAt : `still online after ${silenceMs / 1000}s` },
       verdicts: [
-        { invariant: "a runner silent for 2 keepalives (60s) is shown offline", holds: offlineAt !== undefined, detail: offlineAt ? `${offlineAt - heldAt} ms` : "still online" }
+        { invariant: "a runner silent past 2 keepalives (75s) is shown offline", holds: offlineAt !== undefined, detail: offlineAt ? `${offlineAt - heldAt} ms` : "still online" }
       ]
     };
   },

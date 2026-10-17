@@ -97,9 +97,6 @@
     "typescript(no-base-to-string)": 3,
     "typescript(no-unsafe-assignment)": 4
   },
-  "src/tests/drive.ts": {
-    "typescript(no-unsafe-argument)": 1
-  },
   "src/tests/executor.test.ts": {
     "typescript(no-unsafe-assignment)": 3
   },

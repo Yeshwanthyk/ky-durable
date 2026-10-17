@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { DreamLedgerRow } from "../dreaming/contract";
+import { DreamLedgerRow } from "../dreaming/contract.ts";
 import type { PiServerMessage } from "../protocol";
 import { ServerFrameSchema } from "../server-frames.ts";
 

@@ -458,6 +458,7 @@ export class PiAgent extends DurableObject<Env> {
     super(ctx, env);
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
+    this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();

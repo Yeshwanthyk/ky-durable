@@ -282,12 +282,16 @@ export type FakeRunner = {
 export async function runner(name: string, machine = "mac", facts: MachineFacts = FACTS): Promise<FakeRunner> {
   const socket = await connectRunner(name, machine);
   const commands: RunnerCommand[] = [];
+  const seen = new Set<number>();
 
   socket.addEventListener("message", (event) => {
     // The object also sends the Agents SDK's handshake on this socket; decoding skips it.
     const frame = decodeObjectFrame(String(event.data));
 
-    if (frame !== undefined && "seq" in frame) commands.push(frame);
+    // A command sent again before its ack arrived, as the hello's delivery can, is skipped as the runner does.
+    if (frame === undefined || !("seq" in frame) || seen.has(frame.seq)) return;
+    seen.add(frame.seq);
+    commands.push(frame);
   });
 
   const send: FakeRunner["send"] = (report) => socket.send(JSON.stringify(report));

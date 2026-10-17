@@ -103,8 +103,13 @@ export const MachineRowSchema = Type.Object({
   state: Text,
   note: Text,
   facts: Type.Union([Text, Type.Null()]),
-  login: Text
+  login: Text,
+  hello: Type.Union([Text, Type.Null()]),
+  reason: Type.Union([Text, Type.Null()])
 });
+
+/** A machine row's runner socket and why it went offline, for `online` and `#send`. */
+export const HelloRowSchema = Type.Object({ seen_at: Type.Number(), hello: Type.Union([Text, Type.Null()]) });
 
 /** A row of ky_machine_inbox: its seq, and the queued command as JSON. */
 export const InboxRowSchema = Type.Object({ seq: Count, payload: Text });
