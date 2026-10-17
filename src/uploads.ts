@@ -62,9 +62,11 @@ async function* partsOf(body: ReadableStream<Uint8Array>, within: <T>(step: Prom
 export async function putInParts(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, withinMs = SAVE_WITHIN_MS): Promise<void> {
   const upload = await bucket.createMultipartUpload(key, { httpMetadata: { contentType: "application/gzip" } });
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const late = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(`The save to ${key} took longer than ${withinMs / 1000}s`)), withinMs);
   });
+
   const within = <T>(step: Promise<T>) => Promise.race([step, late]);
 
   try {
@@ -75,7 +77,7 @@ export async function putInParts(bucket: R2Bucket, key: string, body: ReadableSt
     if (parts.length === 0) throw new Error(`The save to ${key} was empty`);
     await within(upload.complete(parts));
   } catch (error) {
-    await upload.abort().catch((reason: unknown) => console.warn(`the save to ${key} failed, and so did aborting its upload`, reason));
+    await upload.abort().catch((reason: Error) => console.warn(`the save to ${key} failed, and so did aborting its upload`, reason));
 
     throw error;
   } finally {

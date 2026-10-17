@@ -336,7 +336,7 @@ function largeTreeHash(): string {
   for (const [name, size] of LARGE_TREE) {
     const content = Buffer.alloc(size);
 
-    for (let at = 0; at < size; at += 32) createHash("sha256").update(name + at).digest().copy(content, at);
+    for (let at = 0; at < size; at += 32) content.set(createHash("sha256").update(name + at).digest().subarray(0, Math.min(32, size - at)), at);
     tree.update(name).update(content);
   }
 

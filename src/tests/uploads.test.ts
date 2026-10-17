@@ -39,10 +39,14 @@ function arriving(data: Uint8Array, piece = 65_536, failAfter?: number): Readabl
   });
 }
 
+/** R2, and the ids of the multipart uploads begun and aborted through it. */
+type Watched = { readonly bucket: R2Bucket; readonly begun: string[]; readonly aborted: string[] };
+
 /** R2, with each multipart upload it begins and aborts written down. */
-function watched(): { bucket: R2Bucket; begun: string[]; aborted: string[] } {
+function watched(): Watched {
   const begun: string[] = [];
   const aborted: string[] = [];
+  // SAFETY: an object whose prototype is the binding has every R2Bucket method; the one below is replaced.
   const bucket = Object.create(env.FILES) as R2Bucket;
 
   bucket.createMultipartUpload = async (key, options) => {
@@ -123,6 +127,7 @@ describe("a save's upload to R2", () => {
     const disk = [...(await bytes(PART_BYTES + 200_000))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
     await runInDurableObject(machine(id), async (instance: CloudMachine) => {
+      await instance.primed(id, "https://ky.test");
       instance.fake = new FakeBox();
       Object.assign(instance.fake, { up: true, state: "running", disk });
       expect(await instance.sleep()).toBe(true);

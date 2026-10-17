@@ -16,7 +16,7 @@ import { pack, unpack } from "../../cli/runner/save.ts";
 const FOLDERS = [".claude/projects", ".ky", "ky-work"];
 
 /** What the home holds before a restore: what the image brings, and what a save leaves out. */
-const BEFORE: Record<string, string> = { ".ky/bin/ky": "the image's ky", "ky-work/app/node_modules/dep/index.js": "", ".bashrc": "the image's" };
+const BEFORE = { ".ky/bin/ky": "the image's ky", "ky-work/app/node_modules/dep/index.js": "", ".bashrc": "the image's" } satisfies Record<string, string>;
 
 /** Every file under `root` and its content's hash, by its path relative to `root`; a symlink or directory isn't one. */
 async function files(root: string): Promise<Record<string, string>> {
@@ -167,10 +167,12 @@ describe("a save's way through the runner", () => {
             if (flip && archive.length > 0) archive[Math.min(archive.length - 1, Math.floor(flip.at * archive.length))]! ^= flip.xor;
             await write(into, BEFORE);
             const before = await files(into);
+
             const restored = await unpack(arriving(archive), into).then(
               () => true,
               () => false
             );
+
             const after = await files(into);
 
             if (restored && length > 0) {
