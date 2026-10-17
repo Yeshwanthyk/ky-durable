@@ -279,8 +279,9 @@ function kyBranch(branch: string, push: string): string[] {
 async function cloudScript(context: Context, lines: string[], last: string): Promise<void> {
   const task = await startTask(context, CLOUD, `[sh] ${lines.join("; ")}`);
   await status(context, task, "done", 60_000);
-  // The report streams: wait for its last line before checking the earlier ones.
-  await until("the report", () => context.main.heard(last));
+  // The prompt holds `last`'s echo too, and the task can read done before its report reaches the
+  // chat: wait for the report's own header, then its last line, before checking the earlier ones.
+  await until("the report", () => context.main.heard(`[machine ${CLOUD}, task ${task} "`) && context.main.heard(last));
 }
 
 type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer };
@@ -315,7 +316,8 @@ async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
     () => git.close(),
     () => host.close(),
     () => testRoute(context, "/test/cloud-reset"),
-    () => void context.main.send({ type: "remove-subscription", id: crypto.randomUUID(), kind: "github" })
+    // Awaited: sent and left, its removal can land after the next scenario's set-github and take its token.
+    async () => void (await context.main.command({ type: "remove-subscription", kind: "github" }))
   );
   const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }) });
 

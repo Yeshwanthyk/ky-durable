@@ -21,6 +21,14 @@ import { defineConfig } from "vite";
 
 const repo = path.resolve(import.meta.dirname, "../..");
 
+const port = Number(process.env.KY_STACK_PORT ?? 8790);
+
+/**
+ * A scotty session's preview of this port (SCOTTY_HATCH is `https://{port}-<session>.<domain>`):
+ * Vite answers only hosts it knows, and refuses any other with 403 ("Blocked request").
+ */
+const preview = process.env.SCOTTY_HATCH?.replace("{port}", String(port)).replace(/^https?:\/\//, "").split("/")[0];
+
 const state = mkdtempSync(path.join(tmpdir(), "ky-stack-"));
 
 console.log(`ky stack: state in ${state}`);
@@ -39,8 +47,9 @@ export default defineConfig({
   ],
   server: {
     host: "127.0.0.1",
-    port: Number(process.env.KY_STACK_PORT ?? 8790),
-    strictPort: true
+    port,
+    strictPort: true,
+    ...(preview && { allowedHosts: [preview] })
   },
   resolve: {
     dedupe: [
