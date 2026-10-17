@@ -173,18 +173,18 @@ checks it today; "—" means it needs a new probe or a unit test.
 | M6 | Yes, slim *(PR 2)* | No new statuses (§8): the hub marks a run `working` at the runner's ack, which is when it spawns the agent (`machines.ts` `#onAck`), and M7 catches a start that then hangs. Before: statuses are `queued \| working \| done \| failed \| stopped` (`automations/contract.ts:114-119`). `working` only comes from the first `session` report (`machines.ts:912`). The Panel calls open tasks "running" even when they're queued (`Panel.tsx:1149-1156`). |
 | M7 | Yes *(PR 2)* | An agent that writes no line within 60 s (`FIRST_OUTPUT_WITHIN_MS`) is interrupted and its turn fails at once: "claude started (pid N) but wrote nothing in 60s, so it was stopped. stderr: …" (`runner.ts` `#silent`). No mid-run idle check (out of scope, §3). |
 | M8 | Mostly *(PR 2)* | Fixed: a signal exit says "claude was killed by SIGKILL."; a spawn `error` (ENOENT, EACCES) ends the turn with "It could not start: …". Still open: unparseable lines dropped silently, and `step`/`ack` reports made while disconnected are dropped. Before: a signal exit became "exited with null" (`tasks.ts:222`). A spawn `error` only appends to stderr (`tasks.ts:226-228`). Unparseable lines are dropped silently (`claude.ts:113`). `step` and `ack` reports made while disconnected are dropped (`runner.ts:224`). |
-| M9 | No | deploy.yml deploys on every merge and doesn't know which runner was released. |
+| M9 | Yes *(PR 4)* | deploy.yml runs `scripts/release/protocol.sh` before it builds: a commit whose `PROTOCOL` is newer than the newest `v*` tag's fails the deploy ("Release the runner first (push a v* tag), then deploy."). A commit from before `runner-protocol.ts` passes with a notice, so a rollback is never blocked. No override flag (§8). Before: deploy.yml deployed on every merge and didn't know which runner was released. |
 | M10 | No | Strict equality (`runner-protocol.ts:319-327`). |
-| M11 | Partly *(PR 3)* | The Worker now remembers the refusal as the machine's `reason`. The runner still exits 0 so the service won't relaunch it (`run.ts:194-201`). |
+| M11 | Yes, slim *(PR 4)* | An OUTDATED close or a refused token (a bare 401 on a failed connect) no longer exits: the runner logs it, its status says `outdated` or `refused` with the fix, and it tries again every 10 min (`PROBE_MS`, `run.ts` `turnedAway`). No SIGHUP probe (§8). The Worker remembers the refusal as the machine's `reason` *(PR 3)*. Before: the runner exited 0, so the service never relaunched it. |
 | M12 | Yes, except `kill -9` *(PR 1)* | Each agent leads its own process group (`detached`); shutdown interrupts every group, waits up to 6 s, SIGKILLs what's left, **then** exits (`tasks.ts` `settle`, `run.ts` `shutdown`). Reaping on boot was cut (§8), so a `kill -9` of the runner can still orphan. |
 | M13 | Yes *(PR 1)* | The new hello fails each open task once as "Interrupted: the runner restarted", the agent ran once, and with M12 no orphan keeps working on it. The stopping runner reports nothing more, so the hello is what closes the task. Delivery stays at-most-once. |
-| M14 | Partly | State dirs, status files and labels are already split (`system.ts:135-155`). `restartRunner` restarts all instances (`commands.ts:395-408`), and `ky upgrade` restarts runners even when the Worker is already current (`cli/commands.ts:97-100`). |
+| M14 | Mostly *(PR 4)* | `ky upgrade X` restarts only the runners whose `settings.url` is X's (`restartRunner(context, url)`, same origin). Still open: it restarts them even when the Worker was already current, and doesn't wait for X to speak the binary's protocol. State dirs, status files and labels were already split (`system.ts:135-155`). |
 | M15 | No | The status file isn't checked for a live pid or its age. Logs have `HH:MM:SS` in **UTC** only (`run.ts:63-65`), while `ky runner status` and launchd use local time. SIGTERM isn't logged. |
 | M16 | Partly | `waking` is derived and has no deadline in the UI. Container-start failures are `console.warn`ed and retried by the alarm (`src/cloud.ts:187-190, 332-347`), but they never become a machine reason. |
 | M17 | No | Documented hazard only (`handled.ts:16-18`). |
 | M18 | Deferred (§8) | See the invariant. PR 3 closes the pre-hello window it named (online needs the hello), but not the rest. |
 | M19 | No | No reply frame. The `halfopen` probe only models the Worker's view, not a runner sending into a dead peer. |
-| M20 | No | REPLACED and any HTTP 401 are both permanent exits under launchd. |
+| M20 | Partly *(PR 4)* | A bare HTTP 401 now probes slowly instead of exiting. REPLACED and a real 4401 close stay fatal (§8). |
 | M21 | No | No expiry anywhere. |
 
 ---
@@ -243,7 +243,8 @@ between. Total wall time is about 2.5 min. Raw numbers are in `test-results/mach
 | | row → done (fake agent, 200 ms of work) | p50 348 / p95 401 ms |
 | restart | SIGINT → runner exits | 5013 ms *(PR 1; was 4 ms)*: waits for its agent; this one ignores SIGINT, so the 5 s group SIGKILL ends it |
 | | relaunch → online | 319 ms |
-| skew, Worker ahead | launch → runner exits for good | 656 ms (exit 1 in the foreground; under launchd it's 0, so no relaunch) |
+| skew, Worker ahead | launch → runner says `outdated` | 650 ms *(PR 4; was: the runner exits for good at 656 ms)*; still running 4 s later |
+| | ky fixed → online again | 2034 ms, with the bench's 3 s probe (10 min by default) |
 | skew, runner ahead | hello → close 4426 | 331 ms |
 | hang | row → spawn | 52 ms |
 | | status after the watch | `failed` at 70 s *(PR 2; was `queued` at 45 s)*: "claude started (pid N) but wrote nothing in 60s, so it was stopped. Nothing on stderr." |
@@ -265,6 +266,7 @@ latency is not where the problem is. Everything that goes wrong is about **truth
 | HOLDS | first visible output p95 < 2 s (143 ms) | M5 |
 | HOLDS *(PR 1)* | no orphan 6 s after its runner exits (was GAP: pid alive, reparented to launchd) | M12 |
 | HOLDS *(PR 1)* | a task interrupted by a restart fails once, says why, and never runs twice. *The bench used to check "resumes on its own", which M13 rejects; the check now matches M13.* | M13 |
+| HOLDS *(PR 4)* | Worker ahead: the runner stays up, says it is outdated, and comes back once ky is fixed (was GAP with this check: exited 1, never back) | M11 |
 | HOLDS *(PR 3)* | Worker ahead: the user sees *outdated*, not just offline: "Its runner is older than ky: it speaks runner protocol 3, ky 4. Get the newer ky on it, then run ky upgrade." (was GAP: no reason field). *The probe now sends a real protocol-3 hello to the Worker; before, the proxy faked the goodbye and the Worker never saw the runner.* | M2, M11 |
 | HOLDS | runner ahead: refused with 4426 and a reason, but only the runner sees it | M2 (runner side only) |
 | HOLDS *(PR 3)* | runner ahead: never listed online before its hello was accepted. *Was HOLDS\* (untested window); online now needs the hello, and a Worker test covers the window (`runners.test.ts` "only on the socket that said hello").* | M3 |

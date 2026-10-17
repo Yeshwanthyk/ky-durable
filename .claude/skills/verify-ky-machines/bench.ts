@@ -10,7 +10,7 @@
  * Results: test-results/machines-bench/results.json, runner and fake-claude logs beside it.
  * It never touches the deployed Worker, ~/.ky or ~/.claude. `live.sh` is the read-only live check.
  */
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { WebSocket as Socket } from "ws";
 import { decodeObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../../src/machines/contract.ts";
@@ -262,9 +262,19 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
     cleanup.push(() => proxy.close());
     proxy.speak(PROTOCOL + 1);
     const launchedAt = Date.now();
-    const { runner } = await paired("bench-skew-worker", proxy);
-    await until("the runner to exit", () => runner.exitCode() !== null, 30_000);
-    const exitMs = Date.now() - launchedAt;
+    // It tries again every 10 min while ky turns it away; the bench can't wait that long.
+    const { mac, runner } = await paired("bench-skew-worker", proxy, { KY_RUNNER_PROBE_MS: "3000" });
+    const said = () => JSON.parse(readFileSync(path.join(mac.dir, "state", "runner-status.json"), "utf8")) as { state: string; reason?: string };
+    const outdatedAt = await when("the runner to say it is outdated", () => existsSync(path.join(mac.dir, "state", "runner-status.json")) && said().state === "outdated", 30_000);
+    const outdatedMs = outdatedAt ? outdatedAt - launchedAt : undefined;
+    const outdated = outdatedAt ? said() : undefined;
+    // Past the first try again: still running, still turned away.
+    await sleep(4_000);
+    const running = runner.exitCode() === null;
+    // ky is deployed: the next try is accepted.
+    proxy.speak(undefined);
+    const fixedAt = Date.now();
+    const backAt = await when("the runner to come back", () => online("bench-skew-worker"), 15_000);
     // The proxy answered for the Worker, which never saw the runner: what the Worker shows is checked with a runner it is ahead of.
     const behind = await helloIn("bench-skew-worker-ui", PROTOCOL - 1);
     const workerAheadRow = behind.row;
@@ -279,14 +289,16 @@ const PROBE_FNS: Record<(typeof PROBES)[number], () => Promise<Result>> = {
     return {
       probe: "skew",
       timings: {
-        "worker ahead: launch→runner exit ms": exitMs,
-        "worker ahead: runner exit code": runner.exitCode() ?? "running",
+        "worker ahead: launch→runner says outdated ms": outdatedMs ?? "never",
+        "worker ahead: runner after 4s more": running ? "running" : `exited ${runner.exitCode()}`,
+        "worker ahead: ky fixed→online ms": backAt ? backAt - fixedAt : "never",
         "worker ahead: UI says": workerAheadRow?.online ? "online" : "offline",
         "runner ahead: open→close ms": goodbyeMs,
         "runner ahead: close code": closedBy ?? "none",
         "runner ahead: goodbye": goodbye
       },
       verdicts: [
+        { invariant: "worker ahead: the runner stays up, says it is outdated, and comes back once ky is fixed", holds: running && outdated !== undefined && backAt !== undefined, detail: `${running ? "running" : "exited"}; ${outdated?.reason ?? "never said outdated"}; ${backAt ? `online ${backAt - fixedAt} ms after` : "never back"}` },
         { invariant: "worker ahead: the user sees the machine is outdated, not just offline", holds: reasonOf(workerAheadRow).length > 0, detail: reasonOf(workerAheadRow) || "no reason" },
         { invariant: "runner ahead: refused with OUTDATED and a reason", holds: closedBy === OUTDATED && goodbye.length > 0, detail: `${closedBy} ${goodbye}` },
         { invariant: "runner ahead: never listed online before its hello is accepted", holds: !sawOnline, detail: sawOnline ? "listed online between connect and goodbye" : "never listed online" },
