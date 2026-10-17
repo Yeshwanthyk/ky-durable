@@ -333,6 +333,21 @@ describe("the runner on this computer", () => {
     expect(await restartRunner(context(), ours.url)).toBeUndefined();
   });
 
+  it("says it isn't running when its status outlived its process, and how long ago that status was", async () => {
+    const file = path.join(computer.state, "runner-status.json");
+    const status = { state: "online", machine: "mac", url: ours.url, version: "test", pid: process.pid };
+
+    // A pid no process has: the runner was killed, or the computer restarted, after it said online.
+    await writeFile(file, JSON.stringify({ ...status, pid: 999_999, at: Date.now() - 3 * 3600_000 }));
+    expect(await run(["runner", "status"])).toBe(1);
+    expect(printed.join("\n")).toMatch(/not running: it said online at .* \(3 h ago\), but its process 999999 is gone/);
+
+    printed = [];
+    await writeFile(file, JSON.stringify({ ...status, at: Date.now() - 90_000 }));
+    expect(await run(["runner", "status"])).toBe(0);
+    expect(printed.join("\n")).toMatch(/online since .* \(1 min ago\)/);
+  });
+
   it("prints its log", async () => {
     await writeFile(path.join(computer.state, "runner.log"), "12:00:00 connected\n");
     expect(await run(["runner", "logs"])).toBe(0);

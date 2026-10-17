@@ -41,8 +41,12 @@ for status in "$STATE/runner-status.json" "$STATE"/*/runner-status.json; do
   printf '   GET worker manifest                          %s\n' "$code"
   log="$dir/runner.log"
   if [ -f "$log" ]; then
-    printf '   log disconnects (1006) / connects / goodbyes %s / %s / %s   (log has no dates)\n' \
+    printf '   log disconnects (1006) / connects / goodbyes %s / %s / %s\n' \
       "$(grep -c 'disconnected (1006' "$log")" "$(grep -c 'connected to ' "$log")" "$(grep -c 'said goodbye' "$log")"
+    # A runner from before the logs had dates writes only HH:MM:SS (UTC).
+    dated=$(tail -1 "$log" | grep -Eo '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z' || true)
+    printf '   log last line dated                          %s\n' "${dated:-no (HH:MM:SS only, an older runner)}"
+    printf '   log stops (SIGTERM/SIGINT) logged             %s\n' "$(grep -cE 'SIG(TERM|INT): stopping' "$log")"
     printf '   connects with no disconnect before (restarts) %s\n' \
       "$(awk '/connected to /{ if (prev=="c") n++; prev="c" } /disconnected/{prev="d"} END{print n+0}' "$log")"
     printf '   agent exits with null (killed)               %s\n' "$(grep -c ': exit null' "$log")"
