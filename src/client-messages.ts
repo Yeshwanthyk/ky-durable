@@ -145,6 +145,14 @@ export const ClientMessageSchema = Type.Union([
   message("brief-dismiss", { key: Text }),
   /** Dismiss all: clear the lines the card showed, pinned ones aside; closes nothing. */
   message("brief-clear", { keys: Type.Array(Text, { maxItems: 20 }) }),
+  /** Answers with Activity › Suggested: the open automations the dream proposed. */
+  message("proposals", {}),
+  /** Activity › Suggested was on the user's screen with these proposals: each is recorded as shown, once. */
+  message("proposal-seen", { ids: Type.Array(Type.Number(), { maxItems: 20 }) }),
+  /** Accept a proposal: its automation is created as the user's; the result is `{ refused }` when it cannot be. */
+  message("proposal-accept", { proposal: Type.Number() }),
+  /** Dismiss a proposal: the dream never offers its key again; the result is `{ refused }` when it cannot be. */
+  message("proposal-dismiss", { proposal: Type.Number() }),
   /** Answers with Settings › Proactivity: the level and its rates. */
   message("proactivity", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */

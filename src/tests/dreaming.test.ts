@@ -25,6 +25,7 @@ describe("dreaming's contract", () => {
         memory: instance.memory,
         anticipations: instance.anticipations,
         brief: instance.brief,
+        proposals: instance.proposals,
         recall: instance.recall,
         history: instance.history,
         reviews: instance.reviews,

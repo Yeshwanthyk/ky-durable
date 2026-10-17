@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Brief, DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
+import type { Brief, DreamLedger, Memory, Presence, Proactivity, Proposals, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -179,6 +179,8 @@ export class PiSessionSockets {
   /** The day's brief; #brief is a specialist's. */
   readonly #morning: Brief;
   readonly #proactivity: Proactivity;
+  /** Activity › Suggested: automations the dream proposed. */
+  readonly #proposals: Proposals;
   /** Turn-start recall, for the chips under the user's messages. */
   readonly #recall: Recall;
   readonly #setup: Setup;
@@ -214,6 +216,7 @@ export class PiSessionSockets {
     presence: Presence,
     brief: Brief,
     proactivity: Proactivity,
+    proposals: Proposals,
     recall: Recall,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
@@ -247,6 +250,7 @@ export class PiSessionSockets {
     this.#presence = presence;
     this.#morning = brief;
     this.#proactivity = proactivity;
+    this.#proposals = proposals;
     this.#recall = recall;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
@@ -992,6 +996,14 @@ export class PiSessionSockets {
 
       return null;
     },
+    proposals: () => this.#proposals.view(),
+    "proposal-seen": (message) => {
+      this.#proposals.seen(message.ids);
+
+      return null;
+    },
+    "proposal-accept": (message) => this.#proposals.accept(message.proposal),
+    "proposal-dismiss": (message) => this.#proposals.dismiss(message.proposal),
     proactivity: () => this.#proactivity.view(),
     "set-proactivity": (message) => {
       const view = this.#proactivity.set(message.level);

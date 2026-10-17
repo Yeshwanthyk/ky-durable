@@ -16,9 +16,11 @@ import { outcomeCount, shownItem, type ShownItem, summaryOf, SURFACED_OUTCOMES, 
 /**
  * What is surfaced: a brief line, or an event: an automation's report put in a chat between turns
  * (src/automations/delivery.ts). One the user was away for is a brief line from loop "event" instead, and
- * takes its outcome on the card; one in a chat has no outcome to tap yet, so it expires after a day. A recall is the context recalled for a user's message (src/dreaming/recall.ts).
+ * takes its outcome on the card; one in a chat has no outcome to tap yet, so it expires after a day. A recall is the context recalled for a user's message (src/dreaming/recall.ts). A proposal is
+ * an automation the dream suggested in Activity › Suggested (src/dreaming/proposals.ts): it never expires, and is
+ * acted (accepted) or dismissed.
  */
-export type SurfacedKind = "brief" | "event" | "recall";
+export type SurfacedKind = "brief" | "event" | "recall" | "proposal";
 
 /** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
 export type Shown = {

@@ -97,6 +97,33 @@ export const AutomationDraftSchema = Type.Object({
 
 export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate">;
 
+/** A title and a prompt are needed: the list shows one, and a run knows only the other. */
+function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
+  return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
+}
+
+/** What is wrong with when it runs, if anything. */
+function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
+  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
+
+  if (draft.at !== null && !Number.isFinite(draft.at)) return "at must be an ISO time, like 2026-10-06T09:00:00Z.";
+
+  return undefined;
+}
+
+/** A gate is a program body; blank means no gate, and is saved as null by the tool and the UI. */
+function gateProblem(gate: string | null): string | undefined {
+  return gate !== null && gate.trim() === "" ? "A gate is an Executor program; leave it out for none." : undefined;
+}
+
+/**
+ * What is wrong with what a draft is and does, before anything else is checked (its model, machine and chat, and
+ * a cron's syntax, which booking checks): the automation tool's and the UI's saves, and a dream's proposal, alike.
+ */
+export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "cron" | "at" | "gate">): string | undefined {
+  return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);
+}
+
 /** The `ky_check_ins` row: whether the user turned check-ins off, and their time zone. */
 export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()) });
 
