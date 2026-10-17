@@ -10,6 +10,7 @@
  * KY_CLAUDE       the claude executable (default: claude)
  * KY_CODEX        the codex executable (default: codex)
  * KY_STATE_DIR    what must outlive the runner: handled seqs, each Codex task's home, its status (default: ~/.ky)
+ * KY_RUNNER_PROBE_MS  how long it waits to try again while ky turns it away (default: 10 minutes)
  *
  * Each task finds `ky` on its PATH: `ky attach` shares an image or video, and `ky diff` a
  * repository's changes as a reviewable diff. Both send the task's own token, KY_TASK_TOKEN; a task
@@ -29,7 +30,7 @@ import { tasks } from "./tasks.ts";
 
 /** What `ky runner status` and `ky runner add` read of the running runner. */
 export const StatusSchema = Type.Object({
-  state: Type.Union([Type.Literal("online"), Type.Literal("offline"), Type.Literal("stopped")]),
+  state: Type.Union([Type.Literal("online"), Type.Literal("offline"), Type.Literal("outdated"), Type.Literal("refused"), Type.Literal("stopped")]),
   machine: Type.String(),
   url: Type.String(),
   version: Type.String(),
@@ -52,13 +53,18 @@ export type RunOptions = {
   version: string;
   /** The command line that runs this `ky`, for each task's `ky`. */
   ky: string[];
-  /** Run by launchd or systemd: a refusal exits 0, so the service is not started again only to be refused. */
+  /** Run by launchd or systemd: a fatal close (REPLACED, REVOKED) exits 0, so the service is not started again only to be refused. */
   service: boolean;
+  /** How long to wait before trying again while ky turns the runner away, outdated or its token refused (default: PROBE_MS). */
+  probe?: number;
   /** What the runner says it is: one of the user's computers, or ky's cloud machine (`ky runner cloud`). */
   kind?: MachineFacts["kind"];
   /** Stops the runner: its tasks are interrupted, its socket closes and it doesn't reconnect; runRunner then returns. */
   stop?: AbortSignal;
 };
+
+/** Ten minutes: a runner ky turns away stays up and tries again this often, so a deploy or an upgrade brings it back. */
+const PROBE_MS = 10 * 60_000;
 
 function log(...parts: unknown[]) {
   console.log(new Date().toISOString().slice(11, 19), ...parts);
@@ -78,7 +84,7 @@ const SHUTDOWN_MS = 6_000;
 const disconnected = (code: number | undefined, reason: string) => `disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""})`;
 
 /** Runs the runner until ky turns it away, or a signal ends it. */
-export async function runRunner({ settings, token, state, version, ky, service, kind = "computer", stop }: RunOptions): Promise<void> {
+export async function runRunner({ settings, token, state, version, ky, service, kind = "computer", stop, probe = PROBE_MS }: RunOptions): Promise<void> {
   const { url, name: machine, workdir } = settings;
   const claude = process.env.KY_CLAUDE ?? "claude";
   const codex = process.env.KY_CODEX ?? "codex";
@@ -146,12 +152,12 @@ export async function runRunner({ settings, token, state, version, ky, service, 
   };
 
   /** Close codes after which retrying cannot help, and what to log before exiting. */
-  const FATAL = new Map<number | undefined, string>([
+  const FATAL = new Map<number, string>([
     [REPLACED, `another runner connected as ${machine}; exiting. Give each machine its own name.`],
-    // Its goodbye, logged as it came, said which protocol ky speaks.
-    [OUTDATED, "this ky speaks another runner protocol than ky's Worker; exiting. Update it. Get the newer ky, then run ky upgrade, which restarts this runner."],
     [REVOKED, `${machine} was removed from ky, or its token is not ky's; exiting. Pair again: in ky, Settings, Machines, Add a machine.`]
   ]);
+
+  const later = `trying again in ${probe >= 60_000 ? `${Math.round(probe / 60_000)} min` : `${probe / 1000}s`}`;
 
   /**
    * Whether ky turns this runner's token away. A WebSocket says nothing about a refused upgrade,
@@ -168,13 +174,27 @@ export async function runRunner({ settings, token, state, version, ky, service, 
     }
   };
 
-  /** What to log before exiting after a close with `code`, or undefined to retry; a failed connect (no code) asks whether ky refused the token. */
-  const fatal = async (code: number | undefined) => FATAL.get(code === undefined && (await refused()) ? REVOKED : code);
+  /**
+   * Why ky turns this runner away for now, or undefined to retry at once. A deploy of ky or an
+   * upgrade on this machine can end either, so the runner waits and tries again rather than exit:
+   * a runner ahead of ky, or behind it, is not one to stop for good.
+   */
+  const turnedAway = async (code: number | undefined): Promise<{ state: "outdated" | "refused"; why: string } | undefined> => {
+    // Its goodbye, logged as it came, said which protocol ky speaks.
+    if (code === OUTDATED) return { state: "outdated", why: "this ky speaks another runner protocol than ky's Worker. Get the newer ky, then run ky upgrade, or deploy ky" };
+
+    // A failed connect (no code) asks whether ky refused the token; a 4401 close is REVOKED, which is fatal.
+    if (code === undefined && (await refused())) return { state: "refused", why: `ky refused ${machine}'s token. Pair again if it was removed: in ky, Settings, Machines, Add a machine` };
+
+    return undefined;
+  };
 
   let socket: WebSocket | undefined;
   let backoff = 1_000;
 
   const connect = () => {
+    // A retry timed before the runner was stopped.
+    if (stop?.aborted) return;
     // SAFETY: Node's WebSocket (undici) and Bun's take headers as a non-standard option the types leave out.
     const ws = new WebSocket(`${url.replace(/^http/, "ws")}${RUNNER_PATH}${machine}`, { headers: { Authorization: `Bearer ${token}` } } as any);
 
@@ -203,13 +223,23 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       socket = undefined;
       runner.closed(link);
 
-      const exit = await fatal(code);
+      const exit = code === undefined ? undefined : FATAL.get(code);
 
       if (exit) {
         log(exit);
         say("stopped", exit);
         await shutdown();
         process.exit(service ? 0 : 1);
+      }
+
+      const away = await turnedAway(code);
+
+      if (away) {
+        log(`${away.why}; ${later}`);
+        say(away.state, away.why);
+        setTimeout(connect, probe);
+
+        return;
       }
 
       log(`${disconnected(code, reason)}, retrying in ${backoff / 1000}s`);

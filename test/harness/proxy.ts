@@ -29,8 +29,8 @@ export type Proxy = {
   release: () => void;
   /** Drop the runner's frames for which `drop` is true. */
   dropWhen: (drop: (report: RunnerReport) => boolean) => void;
-  /** Answer the runner's hello as an object of protocol `protocol` would: goodbye, then close as outdated. */
-  speak: (protocol: number) => void;
+  /** Answer the runner's hello as an object of protocol `protocol` would: goodbye, then close as outdated; undefined passes hellos to ky again. */
+  speak: (protocol: number | undefined) => void;
   /**
    * Close the runner's connection. Then new ones are accepted, stalled
    * (their handshake waits for `open`) or refused with a 503, as during a

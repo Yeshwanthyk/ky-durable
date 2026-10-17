@@ -134,6 +134,9 @@ async function stayed(state: string, status: Status, sleep: (ms: number) => Prom
   return after?.state === "online" && after.pid === status.pid ? after : undefined;
 }
 
+/** Which states end the wait for a runner to come online: stopped, or turned away by ky, it won't by waiting. */
+const ENDS_WAIT: Record<Status["state"], boolean> = { online: false, offline: false, stopped: true, outdated: true, refused: true };
+
 /** Waits for a runner started after `since` to come online and stay so; the status it ended on. */
 async function online(state: string, since: number, sleep: (ms: number) => Promise<void>): Promise<Status | undefined> {
   let status: Status | undefined;
@@ -142,7 +145,7 @@ async function online(state: string, since: number, sleep: (ms: number) => Promi
     status = await readStatus(state);
     const fresh = status && status.at >= since ? status : undefined;
 
-    if (fresh?.state === "stopped") return fresh;
+    if (fresh && ENDS_WAIT[fresh.state]) return fresh;
     const settled = fresh?.state === "online" ? await stayed(state, fresh, sleep) : undefined;
 
     if (settled) return settled;
@@ -272,14 +275,14 @@ async function runCommand(context: Context): Promise<number> {
   const token = await readToken(system, settings.token);
   const version = compiled() ? (await context.release()).version : checkoutVersion();
 
-  await runRunner({ settings, token, state: system.state, version, ky: system.ky, service: env.KY_RUNNER_SERVICE === "1" });
+  await runRunner({ settings, token, state: system.state, version, ky: system.ky, service: env.KY_RUNNER_SERVICE === "1", ...(env.KY_RUNNER_PROBE_MS && { probe: Number(env.KY_RUNNER_PROBE_MS) }) });
 
   return 0;
 }
 
 const since = (at: number) => `${new Date(at).toLocaleString()}`;
 
-const STATE_WORDS: Record<Status["state"], (text: string) => string> = { online: green, stopped: red, offline: dim };
+const STATE_WORDS: Record<Status["state"], (text: string) => string> = { online: green, stopped: red, outdated: red, refused: red, offline: dim };
 
 /** `online since …`, from the runner's own status; offline when nothing runs it. */
 function stateOf(status: Status | undefined, loaded: boolean | undefined): string {
@@ -391,20 +394,29 @@ async function rmCommand(context: Context): Promise<number> {
   return 0;
 }
 
-/** Restarts this computer's runner services, each that is loaded, so they run this `ky`; what it did, if anything. */
-export async function restartRunner(context: Context): Promise<string | undefined> {
+/**
+ * Restarts this computer's runner services for the ky at `url`, each that is loaded, so they run
+ * this `ky`; what it did, if anything. A runner for another ky is left alone: its Worker may not
+ * speak this `ky`'s runner protocol yet.
+ */
+export async function restartRunner(context: Context, url: string): Promise<string | undefined> {
   const restarted: string[] = [];
 
   for (const system of await runners(context)) {
     const settings = await saved({ ...context, system });
     const manager = service(system);
 
-    if (!settings || !manager || !(await manager.loaded())) continue;
+    if (!settings || !sameKy(settings.url, url) || !manager || !(await manager.loaded())) continue;
     await manager.restart();
     restarted.push(settings.name);
   }
 
   return restarted.length > 0 ? `Restarted the runner for ${restarted.join(" and ")}` : undefined;
+}
+
+/** Whether two addresses are the same ky, whatever their path or trailing slash. */
+function sameKy(one: string, other: string): boolean {
+  return URL.canParse(one) && URL.canParse(other) && new URL(one).origin === new URL(other).origin;
 }
 
 export async function runnerCommand(given: Context, positionals: string[], flags: RunnerFlags): Promise<number> {

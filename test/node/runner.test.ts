@@ -322,7 +322,7 @@ describe("the runner on this computer", () => {
   });
 
   it("is restarted by ky upgrade's restart, and not once it's removed", async () => {
-    expect(await restartRunner(context())).toBe("Restarted the runner for mac");
+    expect(await restartRunner(context(), `${ours.url}/`)).toBe("Restarted the runner for mac");
     expect(computer.ran).toContain("launchctl kickstart -k gui/501/test.ky.runner");
 
     expect(await run(["runner", "rm"])).toBe(0);
@@ -330,7 +330,7 @@ describe("the runner on this computer", () => {
     expect(computer.keychain.size).toBe(0);
     expect(existsSync(settingsFile())).toBe(false);
     expect(existsSync(path.join(computer.launchAgents, "test.ky.runner.plist"))).toBe(false);
-    expect(await restartRunner(context())).toBeUndefined();
+    expect(await restartRunner(context(), ours.url)).toBeUndefined();
   });
 
   it("prints its log", async () => {
@@ -378,8 +378,8 @@ describe("a second runner, for another ky (--as)", () => {
     expect(await readFile(path.join(computer.launchAgents, "test.ky.runner.plist"), "utf8")).toBe(firstAgent);
   });
 
-  it("is listed beside the first, restarted with it, and removed on its own", async () => {
-    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "work", "--yes"])).toBe(0);
+  it("is listed beside the first, restarted only by its own ky's upgrade, and removed on its own", async () => {
+    expect(await run(["runner", "add", theirs.url, "WXYZ-9876", "--as", "work", "--name", "mini", "--yes"])).toBe(0);
     printed = [];
 
     expect(await run(["runner", "ls"])).toBe(0);
@@ -388,8 +388,13 @@ describe("a second runner, for another ky (--as)", () => {
     expect(printed[1]).toContain(theirs.url);
     expect(printed[1]).toContain("--as work");
 
-    expect(await restartRunner(context())).toMatch(/^Restarted the runner for mac and /);
+    // Each ky's upgrade restarts its own runner: the other's Worker may not speak the new protocol yet.
+    expect(await restartRunner(context(), theirs.url)).toBe("Restarted the runner for mini");
     expect(computer.ran).toContain("launchctl kickstart -k gui/501/test.ky.runner.work");
+    expect(computer.ran).not.toContain("launchctl kickstart -k gui/501/test.ky.runner");
+
+    expect(await restartRunner(context(), ours.url)).toBe("Restarted the runner for mac");
+    expect(computer.ran).toContain("launchctl kickstart -k gui/501/test.ky.runner");
 
     expect(await run(["runner", "rm", "--as", "work"])).toBe(0);
     expect(existsSync(mine("runner.json"))).toBe(false);

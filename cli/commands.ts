@@ -8,7 +8,7 @@ import { rm } from "node:fs/promises";
 import type { Unstable_RawConfig } from "wrangler";
 import { type Cloudflare, lacks, missingPermissions, ready } from "./cloudflare.ts";
 import { incomplete, merged, readOverlay } from "./config.ts";
-import { type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
+import { address, type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import { bold, dim, green, type Output, output, red } from "./output.ts";
 import type { Release } from "./release.ts";
 import { restartRunner } from "./runner/commands.ts";
@@ -60,14 +60,14 @@ export async function target(context: Context): Promise<{ target: Target; releas
 }
 
 /** Deploys, then does what follows it, and shows the URL. */
-async function deployTo(out: Output, to: Target, release: Release, then = async () => {}): Promise<number> {
+async function deployTo(out: Output, to: Target, release: Release, then = async (_url: string) => {}): Promise<number> {
   const deployed = await out.steps("Stopped. Run `ky deploy` to finish the deploy.", (say) => {
     say("Checking what's in the account");
 
     return deploy(to, release, say);
   });
 
-  await then();
+  await then(deployed.url);
 
   const live = `${green(`ky ${release.version} is live`)} at ${bold(deployed.url)}`;
 
@@ -96,19 +96,19 @@ export async function upgradeCommand(context: Context): Promise<number> {
   if (!from) throw new Error("There's no ky Worker to upgrade; run `ky deploy`");
 
   if (from === release.version) {
-    await restarted(context, out);
+    await restarted(context, out, await address(to));
     out.outro(`Already on ${release.version}`);
 
     return 0;
   }
 
   // Once it's live: a runner restarted onto a release the Worker doesn't run yet would wait for it.
-  return deployTo(out, to, release, () => restarted(context, out));
+  return deployTo(out, to, release, (url) => restarted(context, out, url));
 }
 
-/** Restarts this computer's runner, so it runs this `ky` too. */
-async function restarted(context: Context, out: Output): Promise<void> {
-  const restart = await restartRunner(context);
+/** Restarts this computer's runner for the ky at `url`, so it runs this `ky` too. */
+async function restarted(context: Context, out: Output, url: string): Promise<void> {
+  const restart = await restartRunner(context, url);
 
   if (restart) out.done(restart);
 }

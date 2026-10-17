@@ -82,6 +82,10 @@ jobs:
           fi
           git checkout --detach "$commit"
           echo "Deploying $(git rev-parse --short HEAD): $(git log -1 --format=%s)" >> "$GITHUB_STEP_SUMMARY"
+      # A Worker ahead of every released runner turns them all away; release the runner first.
+      - name: Check the runner protocol is released
+        if: steps.secrets.outputs.ready == 'true'
+        run: scripts/release/protocol.sh
       - name: Pin the release's image
         if: steps.secrets.outputs.ready == 'true'
         env:
