@@ -411,7 +411,7 @@ export const SCENARIOS: Scenario[] = [
       const rows = rowsOf(context, "dreaming");
       check(dream!.status === "done", `the dream finished, got ${dream!.status}`);
       check(dream!.title === "Dreaming", `the row is titled Dreaming, got ${dream!.title}`);
-      check(dream!.summary.startsWith("echo: [dream]"), `the dream answered, got ${dream!.summary}`);
+      check(dream!.summary === "Dreamt.", `the dream answered, got ${dream!.summary}`);
       await testRoute(context, "/test/dream");
       check(rowsOf(context, "dreaming").length === rows.length, "a dream with nothing new adds no row");
     }

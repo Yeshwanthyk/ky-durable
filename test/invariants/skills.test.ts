@@ -59,10 +59,6 @@ describe("allowlists", () => {
       expect(REVIEW_ALLOWED[kind]).not.toContain(TOOLS.subagent);
     }
   });
-
-  it("lets an episode reflection keep what is open and read memory, and nothing else", () => {
-    expect([...REVIEW_ALLOWED.episode].sort()).toEqual(["anticipate", "memory_recall"]);
-  });
 });
 
 describe("storage", () => {

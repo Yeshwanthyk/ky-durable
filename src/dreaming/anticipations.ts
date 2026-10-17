@@ -49,7 +49,7 @@ const OPEN_CAP = 20;
 export const RUN_CAP = 5;
 
 /** Rows one episode reflection may add: a stretch of a chat leaves a few things open at most. */
-export const EPISODE_CAP = 3;
+const EPISODE_CAP = 3;
 
 /** A dream's run, for RUN_CAP: rows the dream added this long ago or less count against it. */
 const RUN_MS = 12 * 3_600_000;

@@ -211,8 +211,8 @@ describe("dreaming", () => {
 
     const [dream] = await dreams(name);
     expect(dream).toMatchObject({ kind: "cloud", title: "Dreaming", status: "done" });
-    // The fake AI binding echoes the dream's instructions and its digest.
-    expect(dream!.summary).toMatch(/^echo: \[dream\]/);
+    // The scripted dream (src/tests/stack.ts) finds nothing asked of it in the digest and answers so.
+    expect(dream!.summary).toBe("Dreamt.");
 
     const asked = await inside(name, (instance) => instance.boundary.calls.slice(before).map((call) => call.system));
     expect(asked.some((system) => system.includes("the user likes green tea"))).toBe(true);

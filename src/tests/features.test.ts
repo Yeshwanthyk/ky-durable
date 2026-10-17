@@ -5,12 +5,15 @@ import {
   agent,
   call,
   connect,
+  browser,
   connectExecutor,
+  dreamTonight,
   FACTS,
   follow,
   type Follower,
   gateStarted,
   inside,
+  type Tab,
   prompt,
   runner,
   said,
@@ -418,53 +421,57 @@ describe("skills panel", () => {
 });
 
 describe("dream ledger", () => {
-  it("pins a skill for the user, lists last night's changes, and undoes one", async () => {
+  /** The night's dream acts on `directive`, a line the user sends (src/tests/stack.ts); last night's list and the undo of its first entry. */
+  async function dreamt(name: string, page: Tab, directive: string) {
+    await page.say(`Tonight: ${directive}`);
+    await dreamTonight(name);
+    const night = await page.send({ type: "dream-ledger" });
+    const entry = night?.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
+
+    return { night, undo: () => page.send({ type: "dream-undo", entry }) };
+  }
+
+  it("lists the night's skill merge, and undoes it once", async () => {
     const name = crypto.randomUUID();
-    const main = await session(name);
-    const skill = (skillName: string) => latest(main.client, "skills")?.skills.find((each) => each.name === skillName);
-    await inside(name, (instance) => {
-      for (const each of ["kept", "unused"]) instance.skills.apply({ action: "create", name: each, description: each, body: "Steps." }, "agent");
-    });
+    const page = await browser(name);
+    const skill = (skillName: string) => page.latest("skills")?.skills.find((each) => each.name === skillName);
 
-    await command(main.socket, main.client, { type: "skill-change", change: { action: "pin", name: "kept" } });
-    await main.client.until(() => skill("kept")?.pinned === true);
-    await inside(name, (instance) => instance.skills.stale("dream-night", Date.now() + 61 * 24 * 60 * 60 * 1000));
-    await main.client.until(() => skill("unused")?.status === "archived");
-    expect(skill("kept")?.status).toBe("active");
+    for (const each of ["kept", "unused"]) await page.say(`tool skill_manage ${JSON.stringify({ action: "create", name: each, description: each, body: "Steps." })}`);
 
-    const night = await command(main.socket, main.client, { type: "dream-ledger" });
+    const { night, undo } = await dreamt(name, page, 'dream> tool skill_manage {"action":"archive","name":"unused","absorbed_into":"kept"}');
+    await page.until(() => skill("unused")?.status === "archived");
     expect(night).toMatchObject({ type: "result", result: [{ kind: "skill", action: "archive", target: "unused", undone_at: null }] });
-    const entry = night.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
 
-    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "result" });
-    await main.client.until(() => skill("unused")?.status === "active");
-    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "error" });
-    main.socket.close();
+    expect(await undo()).toMatchObject({ type: "result" });
+    await page.until(() => skill("unused")?.status === "active");
+    expect(await undo()).toMatchObject({ type: "error" });
+    page.close();
   });
 
-  it("undoes a dream's forget, noting the summary again", async () => {
+  it("undoes the night's forget, noting the summary again", async () => {
     const name = crypto.randomUUID();
-    const main = await session(name);
-
-    const before = await inside(name, async (instance, state) => {
-      instance.memory.note("the user drinks green tea");
-      instance.memory.note("the user switched to oolong");
+    const page = await browser(name);
+    await page.say('tool memory_note {"text":"the user drinks green tea"}');
+    await page.say('tool memory_note {"text":"the user switched to oolong"}');
+    // Seed: the summary the background wrote over both.
+    await inside(name, (_instance, state) => {
       state.storage.sql.exec("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (0, 2, 'the user drinks green tea, then oolong')");
-      const { id } = await instance.harness.sessions.create();
-      instance.reviews.add(id, "", "dream", { run: "dream-night" });
-      instance.memory.forget("0-1", id);
-
-      return instance.memory.count();
     });
 
-    const night = await command(main.socket, main.client, { type: "dream-ledger" });
-    expect(night).toMatchObject({ type: "result", result: [{ kind: "memory", action: "forget", target: "0-1", run: "dream-night", actor: "dream" }] });
-    const entry = night.type === "result" ? (decodeDreamLedger(night.result)[0]?.id ?? 0) : 0;
+    const search = async () => {
+      const found = await page.send({ type: "memory-search", query: "then oolong" });
 
-    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "result", result: `Saved as #${before}.` });
-    expect(await inside(name, (instance) => instance.memory.recall("then oolong"))).toContain("the user drinks green tea, then oolong");
-    expect(await command(main.socket, main.client, { type: "dream-undo", entry })).toMatchObject({ type: "error" });
-    main.socket.close();
+      return found?.type === "result" ? JSON.stringify(found.result) : "";
+    };
+
+    const { night, undo } = await dreamt(name, page, 'dream> tool memory_forget {"block":"0-1"}');
+    expect(night).toMatchObject({ type: "result", result: [{ kind: "memory", action: "forget", target: "0-1", actor: "dream" }] });
+
+    const undone = await undo();
+    expect(undone?.type === "result" ? undone.result : undefined).toMatch(/^Saved as #\d+\.$/);
+    expect(await search()).toContain("the user drinks green tea, then oolong");
+    expect(await undo()).toMatchObject({ type: "error" });
+    page.close();
   });
 });
 

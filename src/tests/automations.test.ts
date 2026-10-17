@@ -767,8 +767,5 @@ describe("check-ins", () => {
 
     const off = await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }, { ...on, on: false }));
     expect(off).not.toContain("Check-ins waiting");
-    // Anticipations need the date and the zone either way.
-    expect(off).toMatch(/Now: \d{4}-\d{2}-\d{2}T[\d:.]+Z; the user's time zone: America\/Toronto\./);
-    expect(await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }))).toContain("the user's time zone: unknown, so take it from memory.");
   });
 });

@@ -890,6 +890,43 @@ test("shows what ky recalled for a message under it, and the recalled lines on a
   await page.screenshot({ path: SHOTS ? `${SHOTS}/recalled.png` : undefined, animations: "disabled" });
 });
 
+test("suggests an automation the dream saw the user do by hand, says why, and accepting makes it the user's own", async ({ page }) => {
+  await open(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  const ask = `is CI green on main (${tag})?`;
+  await send(page, ask);
+  await expect(page.getByText(`echo: ${ask}`)).toBeVisible();
+  await send(page, `${ask} again`);
+  await expect(page.getByText(`echo: ${ask} again`)).toBeVisible();
+  const asked = await page.request.post(`/test/asked-yesterday?text=${encodeURIComponent(ask)}`);
+  expect(asked.ok()).toBe(true);
+  const messages = Value.Parse(Type.Array(Type.Integer()), await asked.json());
+
+  // The night's dream proposes from the user's two asks, on two days.
+  const title = `Check CI on main ${tag}`;
+  const draft = { action: "propose", key: `check-ci-${tag}`, title, why: "You asked whether CI on main was green on two days", cron: "0 9 * * *", prompt: `Say whether CI on main is green (${tag})`, messages };
+  await send(page, `Tonight: dream> tool anticipate ${JSON.stringify(draft)}`);
+  await expect(page.getByText(/^echo: Tonight: /)).toBeVisible();
+  expect((await page.request.post("/test/dream")).ok()).toBe(true);
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const suggested = panel(page).getByRole("region", { name: "Suggested" }).getByRole("listitem", { name: title });
+  await expect(suggested.getByText("You asked whether CI on main was green on two days")).toBeVisible();
+  await suggested.getByText("What it runs").click();
+  await expect(suggested.getByLabel("Prompt")).toHaveText(`Say whether CI on main is green (${tag})`);
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/suggested.png` : undefined });
+
+  await suggested.getByRole("button", { name: `Accept: ${title}` }).click();
+  await expect(suggested).toBeHidden();
+  // The automation is the user's: listed with no "by ky" or "check-in".
+  const automation = panel(page).getByRole("listitem", { name: title });
+  await expect(automation).toContainText("Daily");
+  await expect(automation).not.toContainText("by ky");
+  await expect(automation).not.toContainText("check-in");
+});
+
 test("opens the command palette with the keyboard and runs a command", async ({ page }) => {
   await open(page);
   await page.keyboard.press("ControlOrMeta+k");

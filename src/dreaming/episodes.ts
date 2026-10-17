@@ -29,7 +29,7 @@ import type { Proactivity } from "./proactivity";
 export const EPISODE_TURNS = 6;
 
 /** A busy turn starts a pass only with this many of the user's own messages since the last: one exchange is rarely a stretch. */
-export const EPISODE_BUSY_TURNS = 2;
+const EPISODE_BUSY_TURNS = 2;
 
 /** A chat gets at most one pass in this long, however busy it is: each is a background model run. */
 export const EPISODE_COOLDOWN_MS = 30 * 60_000;

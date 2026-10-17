@@ -269,10 +269,15 @@ export class Vault extends ProductionVault {
  * - `spawn NAME MESSAGE` spawns a subagent; `machine PROMPT` runs a task on
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `executor CODE` runs CODE on Executor.
- * - `tool NAME JSON` calls any tool with those arguments; `say TEXT` on the line
- *   before it writes TEXT in the same message, before the call.
+ * - `tool NAME JSON` calls any tool with those arguments.
  * - An episode reflection keeps the user's first "I'll ..." message as an
  *   open loop, or answers [SILENT].
+ * - A dream calls, one by one, each `dream> tool NAME JSON` a user's or a
+ *   notice's line of its digest holds; `$ID` in the JSON is that line's
+ *   rowid. Then it answers "Dreamt."
+ * - A relayed mail whose subject is `tool NAME JSON` asks ky's turn for that call,
+ *   which ky says it is trying before it calls.
+ * - A prompt containing `model-refuses` gets a 400, which no retry or stand-in mends.
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
  * - After a tool result it answers `tool said: <result>`; anything else is
@@ -428,6 +433,52 @@ function script(messages: readonly WireMessage[]): Reply {
   return reply(last);
 }
 
+/** A line of a dream's digest (src/history.ts since) that the user said or ky relayed: its rowid, who, and the text. */
+const DIGEST_LINE = /^#(\d+) \S+ .*?, (user|notice): (.*)$/gm;
+
+/** The JSON object starting at `start` in `text`, braces balanced outside its strings; undefined when it is cut off. */
+function objectAt(text: string, start: number): string | undefined {
+  let depth = 0;
+  let quoted = false;
+
+  for (let at = start; at < text.length; at++) {
+    const char = text[at];
+
+    if (quoted) {
+      if (char === "\\") at++;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) return text.slice(start, at + 1);
+  }
+
+  return undefined;
+}
+
+/**
+ * A dream (src/dreaming/dreaming.ts) calls the tools its digest asks for: each `dream> tool NAME {json}` in a line the
+ * user said or ky relayed, in the digest's order, one a round, then answers "Dreamt.". In the JSON, `$ID` is that
+ * line's rowid. Undefined for any other turn.
+ */
+function dreamt(messages: readonly WireMessage[]): Reply | undefined {
+  const at = messages.findLastIndex((message) => message.role === "user");
+  const prompt = at < 0 ? "" : wireText(messages[at]!.content);
+
+  if (!prompt.startsWith("[dream]")) return undefined;
+  const lines = [...prompt.matchAll(DIGEST_LINE)];
+
+  const calls = lines.flatMap(([, id, , text]) =>
+    [...text!.matchAll(/dream> tool (\S+) /g)].flatMap((found) => {
+      const json = objectAt(text!, found.index + found[0].length);
+
+      // SAFETY: the tests write a JSON object after the tool name, as for `tool NAME JSON`.
+      return json === undefined ? [] : [call(found[1]!, JSON.parse(json.replaceAll("$ID", id!)) as Record<string, JsonValue>)];
+    })
+  );
+
+  return calls[messages.slice(at + 1).filter((message) => message.role === "tool").length] ?? { text: "Dreamt." };
+}
+
 /** The answer to a turn's last message: the user's input, or a tool's result. */
 function reply(last: WireMessage | undefined): Reply {
   // The wire does not say whether a tool failed; its result is its text either way.
@@ -455,22 +506,35 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
   [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
   [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
   // SAFETY: the tests write a JSON object after the tool name, here and below; a bad one fails the turn loudly.
-  [/^say ([^\n]+)\ntool (\S+) (\{.*\})$/s, (match) => ({ say: match[1]!, tool: match[2]!, args: JSON.parse(match[3]!) as Record<string, JsonValue> })],
-  // SAFETY: as above, a JSON object follows the tool name.
   [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
   [/^gate$/, () => call("gate", {})],
   [/^gate-unsafe$/, () => call("gate_unsafe", {})]
 ];
 
+/** Prompts answered as the part of them the model is asked about, and what the model says first when it calls a tool for one. */
+const FORWARDS: Array<[RegExp, string?]> = [
+  // A check-in's run is answered by what it says to look at.
+  [/^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/],
+  // A mail ky relays into the chat (src/mail.ts arrived) whose summary is a `tool` line: the chat's model says so, then tries it.
+  [/^\[mail [^\n]*\]\n\nMail says: (tool \S+ \{.*\})$/m, "Trying what the mail asks."],
+  // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
+  [/^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/]
+];
+
+/** `reply`, with `say` written before it when it is a tool call. */
+const narrated = (reply: Reply, say: string | undefined): Reply => (say !== undefined && "tool" in reply ? { ...reply, say } : reply);
+
 /** The answer to a user's prompt: the tool call it asks for, or an echo. */
 function answer(prompt: string): Reply {
-  const checkIn = /^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/.exec(prompt);
+  const forward = FORWARDS.map(([pattern, say]) => ({ match: pattern.exec(prompt), say })).find(({ match }) => match !== null);
 
-  if (checkIn) return answer(checkIn[1]!);
+  if (forward) return narrated(answer(forward.match![1]!), forward.say);
 
   const said = /^reply: (.+)$/s.exec(prompt);
 
   if (said) return { text: said[1]! };
+
+  if (prompt.includes("model-refuses")) return { status: 400, error: "The fake model refuses this prompt." };
 
   // A triage reads a mail (src/mail.ts mailTriage): a newsletter needs nobody; a `tool` line in it is tried, as a mail
   // that talks the model round would; anything else is summed up by its subject.
@@ -483,11 +547,6 @@ function answer(prompt: string): Reply {
 
     return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
   }
-
-  // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
-  const peer = /^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/.exec(prompt);
-
-  if (peer) return answer(peer[1]!);
 
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
@@ -541,7 +600,7 @@ export class PiAgent extends ProductionAgent {
     const answering = (messages: readonly WireMessage[]) => {
       asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
 
-      return script(unrecalled(messages));
+      return dreamt(messages) ?? script(unrecalled(messages));
     };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
@@ -659,8 +718,9 @@ export class PiAgent extends ProductionAgent {
     await this.ctx.storage.put(downKey(id), !up);
   }
 
-  /** Dream now, as the nightly fire does, and wait for it to finish. */
+  /** Dream now, as the nightly fire does once the user has been away a while, and wait for it to finish. */
   async dream(): Promise<void> {
+    this.presence.seen(Date.now() - 3 * 3_600_000);
     await this.dreaming.run();
   }
 
@@ -706,6 +766,25 @@ export class PiAgent extends ProductionAgent {
     this.skills.apply({ action: "create", name: tea, description: "Ordering tea", body: "1. Order oolong.", reason: "You asked for tea three times" }, "dream", id);
 
     return this.ledger.lastNight().filter((row) => row.run === `dream-${tag}`);
+  }
+
+  /**
+   * The user's messages holding `text`, oldest first, the first moved to the day before: a check done by hand on two
+   * days, as a proposal cites. Answers with their ids.
+   */
+  askedYesterday(text: string): number[] {
+    const sql = this.ctx.storage.sql;
+
+    const ids = sql
+      .exec("SELECT id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user' AND instr(record, ?) > 0 ORDER BY id", text)
+      .toArray()
+      .map((row) => Number(row.id));
+
+    if (ids[0] !== undefined) {
+      sql.exec("UPDATE pi_entries SET record = json_set(record, '$.model[0].timestamp', json_extract(record, '$.model[0].timestamp') - ?) WHERE id = ?", 86_400_000, ids[0]);
+    }
+
+    return ids;
   }
 
   /** What ky surfaced, and what became of each, oldest first. */
@@ -781,6 +860,8 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
   ],
   // Each line= is a brief line for today, "text | chip", or "dream: text | chip" for the dream's; answers with their keys.
   ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
+  // The user's messages holding text=, the oldest moved back a day; answers with their ids.
+  ["POST /test/asked-yesterday", async (me, url) => Response.json(await me.askedYesterday(url.searchParams.get("text") ?? ""))],
   ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
   // A dream's night of changes, each name ending in tag=; answers with its ledger rows.
   ["POST /test/dream-night", async (me, url) => Response.json(await me.seedDreamNight(url.searchParams.get("tag") ?? "seed"))],
