@@ -1546,7 +1546,7 @@
     },
     {
       "check": "harness",
-      "name": "outdated-runner-exits",
+      "name": "outdated-runner-waits",
       "outcome": "PASS"
     },
     {

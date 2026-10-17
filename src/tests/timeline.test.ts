@@ -161,6 +161,11 @@ describe("a task's timeline", () => {
     expect(taskTimeline(task("working"), log).map((step) => step.state)).toEqual(["done", "running"]);
     expect(taskTimeline(task("done"), log).map((step) => step.state)).toEqual(["done", "done"]);
   });
+
+  it("shows an agent's words without their markdown, keeping quoted code for mono", () => {
+    const log = [logged(1, { call: null, text: "working on: **Lint** the *web* app with `pnpm lint`" }), logged(2, { text: "Ran `a*b*`" })];
+    expect(taskTimeline(task("done"), log).map((step) => step.title)).toEqual(["working on: Lint the web app with `pnpm lint`", "Ran `a*b*`"]);
+  });
 });
 
 const message = (role: PiMessage["role"], parts: PiMessage["parts"], id: string = crypto.randomUUID()): PiMessage => ({ id, role, parts, timestamp: 0 });
