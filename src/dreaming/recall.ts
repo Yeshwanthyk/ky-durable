@@ -1,5 +1,6 @@
-import type { Message, UserMessage } from "@earendil-works/pi-ai";
+import { type Message, Type, type UserMessage } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
+import { decodeOr } from "../core/decode";
 import { type History, ownMessages } from "../history";
 import type { Anticipations } from "./anticipations";
 import { CHAT_SEARCH, countOf, entryAt, MEMORY_RECALL, type Recalled } from "./contract";
@@ -13,15 +14,20 @@ import type { Surfaced } from "./surfaced";
  * the model starts with it instead of searching for it. Deterministic and SQL only: no model call.
  *
  * The words of the user's latest message (not a notice ky posted, and not a short ack) are looked up in chat
- * search, memory (memory_recall's regex read), open anticipations and the skills' descriptions. What turns up is
+ * search (leaving out notices, and ky's answers to them), memory (memory_recall's regex read), open anticipations
+ * and the skills' descriptions. What turns up is
  * a `<recalled>` block of at most BLOCK_CHARS, one line per hit naming where it is from, appended to the
  * request's copy of that message only: the committed transcript never holds it, and the system prompt stays as
- * it was, so its cache does too. A block is made once per message, when its turn's first request goes out, and
- * kept as a surfaced row (kind recall, loop L2); every later request (a tool round, a retry, the turns after)
- * appends the same block to the same message again, so the conversation's cached prefix holds as well.
+ * it was, so its cache does too. A recalled line never holds a `<`, so none can close the block early. A block is
+ * made once per message, when its turn's first request goes out, and kept as a surfaced row (kind recall, loop
+ * L2), an empty one when nothing turned up; every later request (a tool round, a retry, the turns after) appends
+ * the same block to the same message again, so the conversation's cached prefix holds as well. While Settings ›
+ * Proactivity is off, no block is made and none is carried.
  *
- * Anticipations a block shows become surfaced. When the model still calls memory_recall or chat_search in that
- * turn, the block is recorded as missed: the miss rate is how often recall did not bring what was needed.
+ * Only the model reads a block, so an anticipation it shows is not surfaced (the user has not seen it); it is
+ * marked recalled, which keeps one matched only by its window from riding along more than once a day. When the
+ * model still calls memory_recall or chat_search in that turn, the block, empty or not, is recorded as missed:
+ * the miss rate is how often recall did not bring what was needed.
  */
 
 /** The block's cap, tags included. */
@@ -56,6 +62,9 @@ const CARRIED = 1_000;
 
 /** Messages decided (a block made, or none to make) kept in memory, so a tool round does not decide again. */
 const DECIDED = 1_000;
+
+/** A chat's newest user entries read for the user's own latest: notices placed since are passed over. */
+const RECENT_USERS = 20;
 
 /** A message that asks nothing to look up: an ack, a thanks, a greeting. */
 const TRIVIAL = /^(?:ok(?:ay)?|k|kk|thanks?(?: you)?|thx|ty|cool|nice|great|perfect|yes|yep|yeah|yup|no|nope|sure|done|got it|sounds good|lgtm|lol|hi|hey|hello|go|go ahead|continue)[\s.!?]*$/i;
@@ -97,16 +106,19 @@ export function isTrivial(text: string): boolean {
   return TRIVIAL.test(text.trim()) || termsOf(text).length === 0;
 }
 
+/** `text` with no `<`, so a recalled line can never open or close a tag in the block. */
+const neutral = (text: string) => text.replaceAll("<", "‹");
+
 /** The block for `lines`, as the model reads it. */
 function blockOf(lines: readonly string[]): string {
-  return `<recalled>\nrecalled context, not user input\n${lines.map((line) => `- ${line}`).join("\n")}\n</recalled>`;
+  return `<recalled>\nrecalled context, not user input\n${lines.map((line) => `- ${neutral(line)}`).join("\n")}\n</recalled>`;
 }
 
 /** As many of `lines` as fit the block's cap, each cut to LINE_CHARS, in order. */
 function fit(lines: readonly string[]): string[] {
   const kept: string[] = [];
 
-  for (const line of lines.map((each) => cut(each.replace(/\s+/g, " ").trim(), LINE_CHARS))) {
+  for (const line of lines.map((each) => cut(neutral(each).replace(/\s+/g, " ").trim(), LINE_CHARS))) {
     if (blockOf([...kept, line]).length > BLOCK_CHARS) break;
     kept.push(line);
   }
@@ -143,6 +155,9 @@ const entryOf = (item: string) => Number(item.slice(item.indexOf("#") + 1));
 /** The lines a block holds, and the anticipations among them. */
 type Gathered = { readonly lines: string[]; readonly anticipations: number[] };
 
+/** A chat search hit's role, and the role of the message before it in its chat (null for the first). */
+const HitRoleRow = Type.Object({ id: Type.Integer(), role: Type.String(), before: Type.Union([Type.String(), Type.Null()]) });
+
 export class Recall {
   readonly #wiring: RecallWiring;
   readonly #listeners = new Set<(session: string, recalled: Recalled) => void>();
@@ -160,19 +175,19 @@ export class Recall {
     return () => this.#listeners.delete(listener);
   }
 
-  /** The chat's recent blocks, newest first, for the chips when it opens. */
+  /** The chat's recent blocks, newest first, for the chips when it opens; an empty one has no chip. */
   shown(session: string): Recalled[] {
     return this.#wiring.surfaced
       .items("recall", `${session}#`, 0, REPLAYED)
-      .map((row) => ({ entry: entryOf(row.item), lines: row.text.split("\n") }));
+      .flatMap((row) => (row.text === "" ? [] : [{ entry: entryOf(row.item), lines: row.text.split("\n") }]));
   }
 
   /**
    * The request's messages with each user message's block appended, making the latest one's block first when
-   * it has none yet; undefined when no message carries one, or outside a chat.
+   * it has none yet; undefined when no message carries one, outside a chat, or while proactivity is off.
    */
   request(session: string, messages: readonly Message[], now = Date.now()): { readonly messages: readonly Message[] } | undefined {
-    if (!this.#wiring.chat(session)) return undefined;
+    if (!this.#wiring.chat(session) || this.#wiring.proactivity.level() === "off") return undefined;
     const users = messages.filter(isUser);
     const latest = users.at(-1);
 
@@ -186,18 +201,22 @@ export class Recall {
     return { messages: messages.map((message) => (isUser(message) && blocks.has(message.timestamp) ? withBlock(message, blocks.get(message.timestamp) ?? "") : message)) };
   }
 
-  /** The model searched memory or the chats itself: the block of the turn it is in, if one is open, missed. */
+  /**
+   * The model searched memory or the chats itself: the block of the user's own latest message, empty or not, if it
+   * is still open, missed. A notice placed since does not hide it, and one past its window stays expired.
+   */
   searched(session: string, now = Date.now()): void {
     if (!this.#wiring.chat(session)) return;
-    const entry = this.#latestEntry(session);
+    const entry = this.#latestOwn(session);
 
     if (entry === undefined) return;
     const item = itemOf(session, entry.id);
+    this.#wiring.surfaced.expire(now);
 
     if (this.#wiring.surfaced.outcomeOf("recall", item) === null) this.#wiring.surfaced.outcome("recall", item, "missed", now);
   }
 
-  /** Make the block for `message` if it is the user's latest, their own, and asks something; once per message. */
+  /** Make the block for `message` if it is the user's own latest and asks something; once per message, empty when nothing turns up. */
   #decide(session: string, message: UserMessage, messages: readonly Message[], now: number): void {
     const entry = this.#fresh(session, message);
 
@@ -205,16 +224,14 @@ export class Recall {
     const text = textOf(message);
 
     if (!this.#wanted(session, entry, text)) return;
-    const gathered = this.#gather(session, termsOf(text), messages, now);
-
-    if (gathered.lines.length > 0) this.#show(session, entry, gathered, now);
+    this.#show(session, entry, this.#gather(session, termsOf(text), messages, now), now);
   }
 
-  /** The chat's latest user entry when `message` is it and it is not yet decided; marks it decided. */
+  /** The user's own latest entry in the chat when `message` is it and it is not yet decided; marks it decided. */
   #fresh(session: string, message: UserMessage): number | undefined {
-    const entry = this.#latestEntry(session);
+    const entry = this.#latestOwn(session);
 
-    // A request whose latest user message is not the chat's latest entry (one placed since) waits for its own.
+    // A request whose latest user message is not the user's own latest entry (a notice, or one placed since) waits for its own.
     if (entry === undefined || entry.at !== message.timestamp || this.#decided.has(entry.id)) return undefined;
 
     if (this.#decided.size >= DECIDED) this.#decided.clear();
@@ -223,27 +240,24 @@ export class Recall {
     return entry.id;
   }
 
-  /** Whether the message gets a block: none made yet, proactivity on, the user's own words, and not an ack. */
+  /** Whether the message gets a block: none made yet, and not an ack. */
   #wanted(session: string, entry: number, text: string): boolean {
-    const unmade = this.#wiring.surfaced.outcomeOf("recall", itemOf(session, entry)) === undefined;
-
-    return unmade && this.#wiring.proactivity.level() !== "off" && !isTrivial(text) && this.#own(entry);
+    return this.#wiring.surfaced.outcomeOf("recall", itemOf(session, entry)) === undefined && !isTrivial(text);
   }
 
-  /** Record the block as surfaced, surface the open anticipations it shows, and tell the chips. */
+  /** Record the block as a surfaced row (an empty one too, so a search still counts as a miss), mark its anticipations recalled, and tell the chips. */
   #show(session: string, entry: number, { lines, anticipations }: Gathered, now: number): void {
     this.#wiring.surfaced.shown({ kind: "recall", loop: "L2", ref: `entry:${entry}`, item: itemOf(session, entry), text: lines.join("\n"), expiresAt: now + MISS_WINDOW_MS }, now);
+    this.#wiring.anticipations.recalled(anticipations, now);
 
-    for (const id of anticipations) {
-      if (this.#wiring.anticipations.get(id).status === "open") this.#wiring.anticipations.surface(id, now);
-    }
+    if (lines.length === 0) return;
 
     for (const listener of this.#listeners) listener(session, { entry, lines });
   }
 
   /** What the four sources hold about `terms`, as the block's lines: anticipations, memories, messages, skills. */
   #gather(session: string, terms: readonly string[], messages: readonly Message[], now: number): Gathered {
-    const due = this.#wiring.anticipations.match(terms, now, ANTICIPATIONS);
+    const due = this.#wiring.anticipations.recallable(terms, now, ANTICIPATIONS);
     const ahead = due.map((row) => `anticipation #${row.id} ${row.kind}: ${row.text}`);
     const remembered = this.#wiring.memory.relevant(terms, MEMORIES).map((memory) => `memory #${memory.id} ${memory.date}: ${memory.text}`);
     const lines = fit([...ahead, ...remembered, ...this.#said(session, terms, messages), ...this.#skills(terms)]);
@@ -252,7 +266,10 @@ export class Recall {
     return { lines, anticipations: due.slice(0, lines.length).map((row) => row.id) };
   }
 
-  /** Chat search's best hits for `terms`, leaving out the messages this request already holds. */
+  /**
+   * Chat search's best hits for `terms`, leaving out the messages this request already holds, notices (relayed
+   * words, never the user's), and ky's answers right after a notice, which mostly say it again.
+   */
   #said(session: string, terms: readonly string[], messages: readonly Message[]): string[] {
     const hits = this.#wiring.history
       .search(terms.join(" "), 0, session)
@@ -280,7 +297,29 @@ export class Recall {
         .map((row) => countOf(row))
     );
 
-    return hits.filter((hit) => !held.has(hit.id)).slice(0, MESSAGES).map((hit) => `chat ${hit.line}`);
+    const relayed = this.#relayed(hits.map((hit) => hit.id));
+
+    return hits.filter((hit) => !held.has(hit.id) && !relayed.has(hit.id)).slice(0, MESSAGES).map((hit) => `chat ${hit.line}`);
+  }
+
+  /** Of chat search's rowids `ids`, the notices, and ky's messages that come right after one in their chat. */
+  #relayed(ids: readonly number[]): ReadonlySet<number> {
+    const rows = this.#wiring.sql.exec(
+      `SELECT h.rowid AS id, h.role AS role,
+         (SELECT p.role FROM ky_history AS p WHERE p.conversation = h.conversation AND p.rowid < h.rowid ORDER BY p.rowid DESC LIMIT 1) AS before
+       FROM ky_history AS h WHERE h.rowid IN (SELECT value FROM json_each(?))`,
+      JSON.stringify(ids)
+    );
+
+    const relayed = new Set<number>();
+
+    for (const raw of rows) {
+      const row = decodeOr(HitRoleRow, raw, undefined);
+
+      if (row !== undefined && (row.role === "notice" || (row.role === "ky" && row.before === "notice"))) relayed.add(row.id);
+    }
+
+    return relayed;
   }
 
   /** The skills whose name or description share the most of `terms`. */
@@ -313,28 +352,27 @@ export class Recall {
       const entry = entryAt(row);
       const text = entry === undefined ? undefined : texts.get(entry.id);
 
-      if (entry !== undefined && text !== undefined) blocks.set(entry.at, blockOf(text.split("\n")));
+      if (entry !== undefined && text !== undefined && text !== "") blocks.set(entry.at, blockOf(text.split("\n")));
     }
 
     return blocks;
   }
 
-  /** The chat's latest user entry and its message's timestamp. */
-  #latestEntry(session: string): { readonly id: number; readonly at: number } | undefined {
-    return entryAt(
-      this.#wiring.sql
-        .exec(
-          `SELECT id, json_extract(record, '$.model[0].timestamp') AS at FROM pi_entries
-           WHERE id = (SELECT max(id) FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user')`,
-          Number(session)
-        )
-        .toArray()[0]
-    );
-  }
+  /** The user's own latest entry in the chat, as History tells it (src/history.ts ownMessages), and its message's timestamp. */
+  #latestOwn(session: string): { readonly id: number; readonly at: number } | undefined {
+    const users = this.#wiring.sql
+      .exec(
+        `SELECT id, json_extract(record, '$.model[0].timestamp') AS at FROM pi_entries
+         WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user' ORDER BY id DESC LIMIT ?`,
+        Number(session),
+        RECENT_USERS
+      )
+      .toArray()
+      .flatMap((row) => entryAt(row) ?? []);
 
-  /** Whether the user sent entry `id` themselves, as History tells (src/history.ts ownMessages). */
-  #own(id: number): boolean {
-    return ownMessages(this.#wiring.sql, [id]).has(id);
+    const own = ownMessages(this.#wiring.sql, users.map((user) => user.id));
+
+    return users.find((user) => own.has(user.id));
   }
 }
 

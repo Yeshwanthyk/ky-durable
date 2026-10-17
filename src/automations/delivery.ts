@@ -9,14 +9,15 @@ import { type Delivery, DeliverySchema, SessionRow } from "./contract";
  * that its gate paused it (src/automations/automations.ts). It enters a chat only between turns, never into a
  * run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the user
  * is watching. With Settings › Proactivity at boundary and the user away (no message sent for PRESENT_MS), it
- * goes to today's brief instead, as an event line, and its chat moves up in the sidebar. At off and brief, the
+ * goes to today's brief instead, as an event line whose chip asks ky about the report, and its chat moves up in
+ * the sidebar; a line the user has not handled by midnight is carried into the next day's brief. At off and brief, the
  * user turned nothing on, so reports go to the chat as they always have. When the brief will not take a line (it
  * holds its 3 event lines, or proactivity was turned off since), the report goes to the chat after all: a report
  * the user asked for is never lost.
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
- * so an eviction or a restart keeps it, and it is tried again when the chat's next turn ends, on the next
- * delivery to that chat, and when the object starts. Its id is also its request id with pi, so a submit a crash
+ * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
+ * answer, a stop, a failure), on the next delivery to that chat, and when the object starts. Its id is also its request id with pi, so a submit a crash
  * cut off before its row was marked is taken once when tried again.
  */
 
@@ -48,8 +49,16 @@ function fit(text: string): string {
   return `${cut}…`;
 }
 
-/** The chip sends what the chat would have been given, cut to fit. */
-const chipOf = (content: string) => (content.length <= CHIP_CHARS ? content : `${content.slice(0, CHIP_CHARS - 1)}…`);
+/**
+ * The chip is the user's ask about the report, never the report itself put in their mouth: "Tell me about the
+ * <label> report", the label being what the line says before its first colon, like automation "Inbox".
+ */
+function chipOf(line: string): string {
+  const label = line.split(": ")[0]?.replaceAll(/\s+/g, " ").trim() ?? "";
+  const ask = label === "" || label === line.trim() ? "Tell me about that report" : `Tell me about the ${label} report`;
+
+  return ask.length <= CHIP_CHARS ? ask : `${ask.slice(0, CHIP_CHARS - 1)}…`;
+}
 
 /** What delivery needs from the rest of ky, set up in src/server.ts. */
 export type DeliveryParts = {
@@ -69,6 +78,8 @@ export type DeliveryParts = {
 export class Deliveries {
   readonly #sql: SqlStorage;
   readonly #parts: DeliveryParts;
+  /** Chats a flush found busy, waiting for their run to be over; one wait a chat. */
+  readonly #waiting = new Set<string>();
 
   constructor(sql: SqlStorage, parts: DeliveryParts) {
     this.#sql = sql;
@@ -130,7 +141,7 @@ export class Deliveries {
   /** Today's brief takes the line, and the chat moves up in the sidebar; false when the brief refuses it. */
   #toBrief(item: Delivery, now: number): boolean {
     try {
-      this.#parts.brief.append({ text: fit(item.line), chip: chipOf(item.content) }, { loop: "event", ref: item.ref }, now);
+      this.#parts.brief.append({ text: fit(item.line), chip: chipOf(item.line) }, { loop: "event", ref: item.ref }, now);
     } catch {
       // Full, or proactivity turned off since: the chat gets it instead, as it would at off.
       return false;
@@ -156,6 +167,27 @@ export class Deliveries {
     await this.#flush(session);
   }
 
+  /**
+   * A flush found `session` busy: try again once its run is over, whatever ends it. A turn the user stops or that
+   * fails yields no answer, so the turn's end alone would leave the item waiting for the chat's next turn.
+   */
+  #retry(session: string): void {
+    if (this.#waiting.has(session)) return;
+    this.#waiting.add(session);
+
+    const wait = async () => {
+      try {
+        await this.#parts.idle(session);
+      } finally {
+        this.#waiting.delete(session);
+      }
+
+      await this.#flush(session);
+    };
+
+    this.#parts.later(wait());
+  }
+
   #queued(session: string): Delivery[] {
     return this.#sql
       .exec("SELECT id, session, content, line, ref FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
@@ -165,11 +197,17 @@ export class Deliveries {
 
   /**
    * Put what waits for `session` in it, oldest first, while it is idle: the first starts a run, so the rest wait
-   * for that run's end. Two flushes at once are safe: pi takes a request id once, and a row is marked once.
+   * for that run's end, as does all of it when the chat is busy. Two flushes at once are safe: pi takes a request
+   * id once, and a row is marked once.
    */
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
-      if (!(await this.#parts.submit(session, item.content, item.id))) return;
+      if (!(await this.#parts.submit(session, item.content, item.id))) {
+        this.#retry(session);
+
+        return;
+      }
+
       const now = Date.now();
       this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued'", now, item.id);
       this.#parts.surfaced.shown({ kind: "event", loop: "event", ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);

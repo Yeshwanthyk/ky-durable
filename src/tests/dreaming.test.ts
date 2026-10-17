@@ -31,7 +31,8 @@ describe("dreaming's contract", () => {
         chat: () => true,
         sql: state.storage.sql,
         background,
-        busyAfter: () => 5
+        busyAfter: () => 5,
+        proactivity: instance.proactivity
       });
 
       return [...(soul.tools ?? []), ...(memory.tools ?? [])].map((tool) => tool.name);

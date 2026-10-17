@@ -4,6 +4,7 @@ import { type Actor, anticipateTool, type Anticipations } from "./anticipations"
 import { episodeExtension } from "./episodes";
 import type { Brief } from "./brief";
 import { memoryExtension, type Memory } from "./memory";
+import type { Proactivity } from "./proactivity";
 import { type Recall, recallExtension } from "./recall";
 import { soulExtension, type Soul } from "./soul";
 
@@ -45,10 +46,12 @@ export type DreamingWiring = {
   readonly background: ReviewHost;
   /** Tool calls that make a turn busy enough for a skill review, and so for an episode reflection. */
   readonly busyAfter: () => number;
+  /** Settings › Proactivity: off starts no episode reflection. */
+  readonly proactivity: Proactivity;
 };
 
 /** SOUL.md's tool and sections, memory's, the episode reflections after chat turns and turn-start recall; the agent installs them, soul first. */
-export function dreamingTools({ soul, memory, anticipations, brief, recall, history, reviews, chat, sql, background, busyAfter }: DreamingWiring) {
+export function dreamingTools({ soul, memory, anticipations, brief, recall, history, reviews, chat, sql, background, busyAfter, proactivity }: DreamingWiring) {
   // A dream's and an episode's rows are a machine's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
   const actor = (session: string): Actor => {
     const kind = reviews.kind(session);
@@ -63,7 +66,7 @@ export function dreamingTools({ soul, memory, anticipations, brief, recall, hist
     soul: soulExtension(soul),
     // Reviews, dreams and episodes remember too: a fork keeps the memory its chat showed, and a dream wakes with it.
     memory: memoryExtension(memory, history, (session) => chat(session) || reviews.has(session), anticipate),
-    episodes: episodeExtension({ sql, reviews, host: background, chat, busyAfter }),
+    episodes: episodeExtension({ sql, reviews, host: background, chat, busyAfter, proactivity }),
     recall: recallExtension(recall)
   };
 }

@@ -5,6 +5,7 @@ import { decodeOr } from "../core/decode";
 import { ownMessages } from "../history";
 import { askInBackground, type ReviewHost, type Reviews, reviewFork, showEnded } from "../skills/contract";
 import { ANTICIPATE, countOf, MEMORY_RECALL } from "./contract";
+import type { Proactivity } from "./proactivity";
 
 /**
  * Episode reflection (L1 in docs/research/proactivity/dreaming-proactivity.md): between dreams, a chat's open
@@ -21,7 +22,7 @@ import { ANTICIPATE, countOf, MEMORY_RECALL } from "./contract";
  * message ky relayed into the chat (a mail's summary, a peer's question, a task's report) is a notice: it is never a
  * turn, and the fork reads it as one (src/history.ts ownMessages). The first time a chat's turn ends, its history
  * from before is marked read, so a deploy starts no pass over every old chat. Subagents, reviews, dreams and episodes
- * themselves are not chats, so their turns never start one.
+ * themselves are not chats, so their turns never start one. While Settings › Proactivity is off, no pass starts.
  */
 
 /** A chat with this many of the user's own messages since its last pass gets one, however few tools it used. */
@@ -110,6 +111,8 @@ export type EpisodeParts = {
   readonly chat: (session: string) => boolean;
   /** Tool calls that make a turn busy enough for a skill review (src/skills/skills.ts), and so for a pass. */
   readonly busyAfter: () => number;
+  /** Settings › Proactivity: off starts no pass. */
+  readonly proactivity: Pick<Proactivity, "level">;
 };
 
 /** A row of pi's entries, as `turnsSince` reads it. */
@@ -130,7 +133,7 @@ const answered = (entry: EntryRecord) => {
 };
 
 /** Passes over a chat's turns as they end; installed for every conversation, it acts only on chats. */
-export function episodeExtension({ sql, reviews, host, chat, busyAfter }: EpisodeParts): Extension {
+export function episodeExtension({ sql, reviews, host, chat, busyAfter, proactivity }: EpisodeParts): Extension {
   /** Tool calls in each conversation's current turn. In memory: an eviction only lets a busy turn go unmarked. */
   const calls = new Map<string, number>();
   /** Chats with a pass running, so a quick next turn does not start another. */
@@ -217,7 +220,7 @@ export function episodeExtension({ sql, reviews, host, chat, busyAfter }: Episod
           const busy = (calls.get(session) ?? 0) >= busyAfter();
           calls.delete(session);
 
-          if (chat(session) && !running.has(session) && due(session, busy)) host.later(pass(session));
+          if (chat(session) && proactivity.level() !== "off" && !running.has(session) && due(session, busy)) host.later(pass(session));
 
           return undefined;
         }

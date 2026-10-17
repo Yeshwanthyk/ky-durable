@@ -308,7 +308,8 @@ export class PiAgent extends DurableObject<Env> {
         chat,
         sql: this.ctx.storage.sql,
         background: this.#background,
-        busyAfter: () => this.skills.reviewAfter
+        busyAfter: () => this.skills.reviewAfter,
+        proactivity: this.proactivity
       });
 
       const skilling: SkillsWiring = {
