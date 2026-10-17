@@ -21,16 +21,7 @@ import { type CloudMachine, FakeBox } from "./stack";
  * - P2: R2's markers never shrink, and no destroy throws away a marker R2 lacks (a crash may).
  */
 
-type Op =
-  | { readonly op: "newTask" }
-  | { readonly op: "turnEnd" }
-  | { readonly op: "tick" }
-  | { readonly op: "crash" }
-  | { readonly op: "uploadFailOnce" }
-  | { readonly op: "saveCutOnce" }
-  | { readonly op: "idleElapsed" }
-  | { readonly op: "sleep" }
-  | { readonly op: "wake" };
+type Op = { readonly op: "newTask" | "turnEnd" | "tick" | "crash" | "uploadFailOnce" | "saveCutOnce" | "idleElapsed" | "sleep" | "wake" };
 
 const ORIGIN = "https://ky.test";
 
@@ -54,127 +45,146 @@ const onBox = <T>(id: string, work: (instance: CloudMachine, box: FakeBox) => Pr
     return work(instance, instance.fake);
   });
 
-/** One generated run: a fresh sandbox, the operations, the invariants after each, then the sandbox gone. */
-async function play(ops: readonly Op[]): Promise<void> {
+/** One generated run: its sandbox, the tasks open on it, and the model. */
+type Run = {
+  readonly id: string;
+  readonly name: string;
+  readonly open: string[];
+  /** Every marker R2 must hold by now. */
+  readonly durable: Set<string>;
+  /** The markers each destroy threw away that R2 lacked. */
+  readonly destroyedUnsaved: string[];
+  /** R2's markers after the last operation. */
+  saved: Set<string>;
+  /** The restores already checked. */
+  restores: number;
+  next: number;
+};
+
+/** Give the disk a finished turn's marker, as its runner does while it runs; false if it doesn't run. */
+const writeMarker = (run: Run, marker: string) =>
+  onBox(run.id, (_instance, box) => {
+    if (!box.up || box.state !== "running") return false;
+    box.disk = [...markers(box.disk), marker].join("\n");
+
+    return true;
+  });
+
+/** Its disk's every marker is durable once `work` ends with no upload cut off, if `counts` says so of what it saw. */
+async function durableAfter(run: Run, work: (instance: CloudMachine) => Promise<boolean>, counts: (box: FakeBox) => boolean): Promise<void> {
+  const before = await onBox(run.id, (_instance, box) => ({ counts: counts(box), disk: box.disk, cuts: box.cuts }));
+  const after = await onBox(run.id, async (instance, box) => ({ done: await work(instance), cuts: box.cuts }));
+
+  if (before.counts && after.done && after.cuts === before.cuts) for (const marker of markers(before.disk)) run.durable.add(marker);
+}
+
+const STEPS: Record<Op["op"], (run: Run) => Promise<void>> = {
+  async newTask(run) {
+    // One task open at a time: the sandbox is busy, or idle and free to sleep.
+    if (run.open.length > 0) return;
+    const task = `rs-task-${crypto.randomUUID()}`;
+
+    await inside("me", (agent) => agent.machines.start(run.name, "restart safety", "work", task, "none", "automation:none", "claude"));
+    run.open.push(task);
+  },
+  async turnEnd(run) {
+    const task = run.open[0];
+
+    // A turn ends only on a running runner: it wrote its marker, then reported.
+    if (task === undefined || !(await writeMarker(run, `m${run.next}`))) return;
+    run.next++;
+    run.open.shift();
+    await inside("me", async (agent, state) => {
+      const seqs = state.storage.sql.exec<{ seq: number }>("SELECT seq FROM ky_machine_inbox WHERE machine = ?", run.name).toArray();
+
+      for (const { seq } of seqs) await agent.machines.onReport(run.name, { type: "ack", seq }, "restart-safety");
+      await agent.machines.onReport(run.name, { type: "result", task, turn: 1, ok: true, text: "done", session: null, agent: "claude" }, "restart-safety");
+    });
+  },
+  // A tick that found its runner running and cut no upload leaves its disk's every marker in R2.
+  tick: (run) =>
+    durableAfter(
+      run,
+      async (instance) => {
+        await instance.tick();
+
+        return true;
+      },
+      (box) => box.up && box.state === "running"
+    ),
+  // So does a sleep that saved.
+  sleep: (run) =>
+    durableAfter(
+      run,
+      (instance) => instance.sleep().catch(() => false),
+      () => true
+    ),
+  crash: (run) => onBox(run.id, (_instance, box) => box.crash()),
+  uploadFailOnce: (run) => onBox(run.id, (_instance, box) => void box.cutUploads++),
+  saveCutOnce: (run) => onBox(run.id, (_instance, box) => void box.cutSaves++),
+  idleElapsed: (run) => onBox(run.id, (instance) => instance.idleFor(LONG_IDLE_MS)),
+  wake: (run) => onBox(run.id, (instance) => instance.wake(run.id, ORIGIN))
+};
+
+/** P1 and P2, after an operation `where` says. */
+async function holds(run: Run, where: string): Promise<void> {
+  const now = await r2(run.id);
+  const restored = await onBox(run.id, (_instance, box) => box.restored.slice(run.restores));
+
+  run.restores += restored.length;
+  expect(lacking(now, run.durable), `P1: R2 lacks a durable marker ${where}`).toEqual([]);
+
+  for (const disk of restored) expect(lacking(markers(disk), run.durable), `P1: a restore lacks a durable marker ${where}`).toEqual([]);
+  expect(lacking(now, run.saved), `P2: R2's markers shrank ${where}`).toEqual([]);
+  expect(run.destroyedUnsaved, `P2: a destroy threw away markers R2 lacked ${where}`).toEqual([]);
+  run.saved = now;
+}
+
+/** A fresh sandbox whose CloudMachine ticks only when told, on an in-memory container that reports each destroy's loss. */
+async function begin(): Promise<Run> {
   const created = await call("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: `rs-${crypto.randomUUID().slice(0, 8)}` }) });
 
   if (created.status !== 201) throw new Error(`Not created: ${await created.text()}`);
   const { id, name } = await created.json<Sandbox>();
-  const destroyedUnsaved: string[] = [];
+  const run: Run = { id, name, open: [], durable: new Set(), destroyedUnsaved: [], saved: new Set(), restores: 0, next: 0 };
 
   await onBox(id, async (instance, box) => {
     await instance.hold();
     await instance.primed(id, ORIGIN);
     box.onDestroy = async (disk) => {
-      const lost = lacking(await r2(id), markers(disk));
-
-      if (lost.length > 0) destroyedUnsaved.push(...lost);
+      run.destroyedUnsaved.push(...lacking(await r2(id), markers(disk)));
     };
   });
 
-  const open: string[] = [];
-  const durable = new Set<string>();
-  let saved = new Set<string>();
-  let restores = 0;
-  let next = 0;
+  return run;
+}
+
+/** Close its open tasks, stop its container, and delete the sandbox and its kept disk. */
+async function end(run: Run): Promise<void> {
+  await inside("me", async (agent) => {
+    for (const task of run.open) await agent.machines.onReport(run.name, { type: "result", task, turn: 1, ok: false, text: "test over", session: null, agent: "claude" }, "restart-safety");
+  });
+  await onBox(run.id, async (instance, box) => {
+    box.onDestroy = undefined;
+    box.cutUploads = 0;
+    box.cutSaves = 0;
+    await instance.reset(run.id);
+  });
+  await call(`/api/sandboxes/${run.id}`, { method: "DELETE" });
+  await call(`/api/sandboxes/kept/${run.id}`, { method: "DELETE" });
+}
+
+/** One generated run: a fresh sandbox, the operations, the invariants after each, then the sandbox gone. */
+async function play(ops: readonly Op[]): Promise<void> {
+  const run = await begin();
 
   try {
     for (const [at, { op }] of ops.entries()) {
-      const where = `after op ${at} (${op}) of ${JSON.stringify(ops.map((each) => each.op))}`;
-
-      switch (op) {
-        case "newTask": {
-          // One task open at a time: the sandbox is busy, or idle and free to sleep.
-          if (open.length > 0) break;
-          const task = `rs-task-${crypto.randomUUID()}`;
-
-          await inside("me", (agent) => agent.machines.start(name, "restart safety", "work", task, "none", "automation:none", "claude"));
-          open.push(task);
-          break;
-        }
-
-        case "turnEnd": {
-          const task = open[0];
-          // A turn ends only on a running runner: it wrote its marker, then reported.
-          const marker = `m${next}`;
-          const ran = task !== undefined && (await onBox(id, (_instance, box) => box.up && box.state === "running" && ((box.disk = [...markers(box.disk), marker].join("\n")), true)));
-
-          if (!ran) break;
-          next++;
-          open.shift();
-          await inside("me", async (agent, state) => {
-            const seqs = state.storage.sql.exec<{ seq: number }>("SELECT seq FROM ky_machine_inbox WHERE machine = ?", name).toArray();
-
-            for (const { seq } of seqs) await agent.machines.onReport(name, { type: "ack", seq }, "restart-safety");
-            await agent.machines.onReport(name, { type: "result", task, turn: 1, ok: true, text: "done", session: null, agent: "claude" }, "restart-safety");
-          });
-          break;
-        }
-
-        case "tick": {
-          const before = await onBox(id, (_instance, box) => ({ running: box.up && box.state === "running", disk: box.disk, cuts: box.cuts }));
-          const cuts = await onBox(id, async (instance, box) => {
-            await instance.tick();
-
-            return box.cuts;
-          });
-
-          // A tick that found its runner running and cut no upload leaves its disk's every marker in R2.
-          if (before.running && cuts === before.cuts) for (const marker of markers(before.disk)) durable.add(marker);
-          break;
-        }
-
-        case "crash":
-          await onBox(id, (_instance, box) => box.crash());
-          break;
-        case "uploadFailOnce":
-          await onBox(id, (_instance, box) => void box.cutUploads++);
-          break;
-        case "saveCutOnce":
-          await onBox(id, (_instance, box) => void box.cutSaves++);
-          break;
-        case "idleElapsed":
-          await onBox(id, (instance) => instance.idleFor(LONG_IDLE_MS));
-          break;
-
-        case "sleep": {
-          const before = await onBox(id, (_instance, box) => ({ disk: box.disk, cuts: box.cuts }));
-          const slept = await onBox(id, async (instance, box) => ({ slept: await instance.sleep().catch(() => false), cuts: box.cuts }));
-
-          if (slept.slept && slept.cuts === before.cuts) for (const marker of markers(before.disk)) durable.add(marker);
-          break;
-        }
-
-        case "wake":
-          await onBox(id, (instance) => instance.wake(id, ORIGIN));
-          break;
-        default:
-          op satisfies never;
-      }
-
-      const now = await r2(id);
-      const restored = await onBox(id, (_instance, box) => box.restored.slice(restores));
-
-      restores += restored.length;
-      expect(lacking(now, durable), `P1: R2 lacks a durable marker ${where}`).toEqual([]);
-
-      for (const disk of restored) expect(lacking(markers(disk), durable), `P1: a restore lacks a durable marker ${where}`).toEqual([]);
-      expect(lacking(now, saved), `P2: R2's markers shrank ${where}`).toEqual([]);
-      expect(destroyedUnsaved, `P2: a destroy threw away markers R2 lacked ${where}`).toEqual([]);
-      saved = now;
+      await STEPS[op](run);
+      await holds(run, `after op ${at} (${op}) of ${JSON.stringify(ops.map((each) => each.op))}`);
     }
   } finally {
-    await inside("me", (agent) => {
-      for (const task of open) void agent.machines.onReport(name, { type: "result", task, turn: 1, ok: false, text: "test over", session: null, agent: "claude" }, "restart-safety");
-    });
-    await onBox(id, async (instance, box) => {
-      box.onDestroy = undefined;
-      box.cutUploads = 0;
-      box.cutSaves = 0;
-      await instance.reset(id);
-    });
-    await call(`/api/sandboxes/${id}`, { method: "DELETE" });
-    await call(`/api/sandboxes/kept/${id}`, { method: "DELETE" });
+    await end(run);
   }
 }
 
@@ -198,7 +208,7 @@ const anOp = fc.oneof(
   ).map(([op, weight]) => ({ weight, arbitrary: fc.constant<Op>({ op }) }))
 );
 
-const sequence = (...names: Op["op"][]): Op[] => names.map((op) => ({ op }) as Op);
+const sequence = (...names: Op["op"][]): Op[] => names.map((op) => ({ op }));
 
 describe("a sandbox's restart safety", () => {
   it("keeps every finished turn in R2, and never destroys newer work, over generated operations", { timeout: 600_000 }, async () => {

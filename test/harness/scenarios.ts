@@ -166,6 +166,21 @@ async function testRoute(context: Context, route: string): Promise<void> {
   if (response.status !== 204) throw new Error(`${route} answered ${response.status}`);
 }
 
+/** Whether the task's last claude start resumed its first start's session, in another process. */
+function resumedInNewProcess(machineOf: Machine, task: string): boolean {
+  const starts = machineOf.claude().filter((event) => event.event === "start" && event.task === task);
+  const [first, last] = [starts[0], starts.at(-1)];
+
+  return first !== undefined && last !== undefined && last.resume === first.session && last.pid !== first.pid;
+}
+
+/** Send the task `message` as its next turn, and wait for the turn to run and the task to be done again. */
+async function followUp(context: Context, logs: Machine, task: string, message: string): Promise<void> {
+  sendTo(context, task, message);
+  await until("the follow-up turn", () => turns(logs, task).includes(message), 60_000);
+  await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+}
+
 /** Wait until the cloud machine has snapshotted at least `turns` finished turns to R2. */
 async function snapshotted(context: Context, turns: number, timeoutMs = 30_000): Promise<void> {
   for (const deadline = Date.now() + timeoutMs; ; await sleep(250)) {
@@ -1102,15 +1117,13 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context, 3_000);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
       await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 30_000);
       sendTo(context, task, "now polish it");
       await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
       await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2);
       check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
-      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
       // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
-      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
     }
   },
   {
@@ -1121,20 +1134,17 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
       await snapshotted(context, 1);
       sendTo(context, task, "[delay=30000] keep drafting");
       await until("the second turn to start", () => turns(logs, task).includes("[delay=30000] keep drafting"), 30_000);
       await host.crash();
       await until("the second turn to fail", () => context.main.history(task).some((entry) => entry.startsWith("failed: Interrupted")), 60_000);
-      sendTo(context, task, "now polish it");
-      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
-      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      await followUp(context, logs, task, "now polish it");
       const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
       check(failures.length === 1, `the crashed turn failed once, got ${JSON.stringify(failures)}`);
       check(host.starts() === 2, `a new container started after the crash, got ${host.starts()} starts`);
-      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
-      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+      // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
     }
   },
   {
@@ -1145,16 +1155,13 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
       await snapshotted(context, 1);
       check(host.running(), "the idle container still runs, short of its idle timeout");
       await host.crash();
-      sendTo(context, task, "now polish it");
-      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
-      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      await followUp(context, logs, task, "now polish it");
       check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
-      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
-      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+      // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
     }
   },
   {

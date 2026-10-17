@@ -17,7 +17,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
-import { createServer, request as forward, type Server } from "node:http";
+import { createServer, type IncomingMessage, request as forward, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { portOf } from "./port.ts";
@@ -135,6 +135,45 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     box = { child, home, port };
   };
 
+  /** Whether this request is a save to cut off: it takes one of the cuts asked for. */
+  const cutsThis = (request: IncomingMessage) => {
+    if (request.method !== "POST" || request.url !== "/port/save" || cutting === 0) return false;
+    cutting--;
+
+    return true;
+  };
+
+  /** A request to the runner's port, as `getTcpPort(8080).fetch` is. */
+  const toPort = (request: IncomingMessage, response: ServerResponse) => {
+    if (!box) {
+      if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
+      else response.writeHead(502).end("no container");
+
+      return;
+    }
+
+    const cut = cutsThis(request);
+
+    const upstream = forward(
+      { host: "127.0.0.1", port: box.port, method: request.method, path: request.url?.slice("/port".length), headers: request.headers },
+      (answer) => {
+        response.writeHead(answer.statusCode ?? 502, answer.headers);
+
+        if (!cut) return void answer.pipe(response);
+        cutOff++;
+        answer.destroy();
+        response.destroy();
+      }
+    );
+
+    // Nothing listens yet: the container is still starting, as the real one refuses then.
+    upstream.on("error", (error) => {
+      if (!response.headersSent) response.writeHead(502).end(String(error));
+      else response.destroy();
+    });
+    request.pipe(upstream);
+  };
+
   const server: Server = createServer((request, response) => {
     const route = `${request.method} ${request.url}`;
 
@@ -161,39 +200,7 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       return;
     }
 
-    if (request.url?.startsWith("/port/")) {
-      if (!box) {
-        if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
-        else response.writeHead(502).end("no container");
-
-        return;
-      }
-
-      const cut = route === "POST /port/save" && cutting > 0;
-
-      if (cut) cutting--;
-      const upstream = forward(
-        { host: "127.0.0.1", port: box.port, method: request.method, path: request.url.slice("/port".length), headers: request.headers },
-        (answer) => {
-          response.writeHead(answer.statusCode ?? 502, answer.headers);
-
-          if (!cut) return void answer.pipe(response);
-          cutOff++;
-          answer.destroy();
-          response.destroy();
-        }
-      );
-
-      // Nothing listens yet: the container is still starting, as the real one refuses then.
-      upstream.on("error", (error) => {
-        if (!response.headersSent) response.writeHead(502).end(String(error));
-        else response.destroy();
-      });
-      request.pipe(upstream);
-
-      return;
-    }
-
+    if (request.url?.startsWith("/port/")) return toPort(request, response);
     response.writeHead(404).end();
   });
 
