@@ -88,10 +88,12 @@ export function statusLabel(status: ConnectionStatus): string {
 }
 
 /**
- * The line under the speaker: where we are, else what the background work is
- * doing ("webmac: Editing x.ts"), else how much is working, else the model.
+ * The line under the speaker: who of the chat's crew is answering, else where we are, else what the
+ * background work is doing ("webmac: Editing x.ts"), else how much is working, else the model.
  */
-export function whoSub(where: string | null, background: string | null, working: number, model: string): string {
+export function whoSub(crew: string | null, where: string | null, background: string | null, working: number, model: string): string {
+  if (crew !== null) return crew;
+
   if (where !== null) return where;
 
   if (background !== null) return background;

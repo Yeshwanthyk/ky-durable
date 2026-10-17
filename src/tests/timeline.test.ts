@@ -116,6 +116,7 @@ const task = (status: TaskRow["status"], steps: TaskRow["steps"] = []): TaskRow 
   steps,
   session: null,
   agent: "claude",
+  chat: null,
   created_at: 0,
   updated_at: 0,
   started_at: 0,

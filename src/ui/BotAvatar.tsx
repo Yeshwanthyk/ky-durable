@@ -29,11 +29,15 @@ export interface BotAvatarProps {
   failed?: boolean;
   /** Whose avatar this is, "ky" or a specialist's id: a saved bloub shows instead, and a specialist without one gets one rolled from its id. */
   owner?: string;
+  /** Where a bloub looks, -1 to 1 each way, over the pointer. */
+  gaze?: readonly [number, number] | null;
+  /** A bloub squishes and sends a heart each time this grows. */
+  cheer?: number;
   size?: number;
   className?: string;
 }
 
-export function BotAvatar({ owner, failed = false, ...props }: BotAvatarProps) {
+export function BotAvatar({ owner, failed = false, gaze, cheer, ...props }: BotAvatarProps) {
   const avatars = useContext(AvatarsContext);
 
   const spec = useMemo(
@@ -45,7 +49,7 @@ export function BotAvatar({ owner, failed = false, ...props }: BotAvatarProps) {
 
   const mood: Mood = props.active ? "working" : failed ? "failed" : "idle";
 
-  return <Bloub spec={spec} name={props.name} mood={mood} still={props.still} size={props.size} className={props.className} />;
+  return <Bloub spec={spec} name={props.name} mood={mood} gaze={gaze} cheer={cheer} still={props.still} size={props.size} className={props.className} />;
 }
 
 function BlobAvatar({

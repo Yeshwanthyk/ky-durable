@@ -988,6 +988,45 @@ test("shows each specialist's bloub in the Soul tab, and New avatar asks ky for 
 });
 
 // Crons are UTC and rows show them in the browser's time: India's half-hour offset shows the conversion.
+test("sits the specialists answering a group chat beside ky in the pill, counts them, and leaves ky alone after", async ({ page }) => {
+  await open(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+  const [a, b, c] = ["a", "b", "c"].map((letter) => `crew${letter}-${tag}`);
+  await panel(page).getByRole("tab", { name: "Soul" }).click();
+
+  for (const id of [a, b, c]) {
+    await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+    const form = page.getByRole("dialog", { name: "New specialist" });
+    await form.getByRole("textbox", { name: "Id" }).fill(id!);
+    await form.getByRole("textbox", { name: "Description" }).fill("Helps with sandwiches.");
+    await form.getByRole("textbox", { name: "Brief" }).fill("Answer briefly.");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form).toBeHidden();
+  }
+
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await page.getByRole("button", { name: "Add specialists to this chat" }).click();
+
+  for (const id of [a, b, c]) await page.getByRole("menuitemcheckbox", { name: new RegExp(`^@${id}`) }).click();
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: /^Group chat with/ })).toBeVisible();
+
+  const pill = page.getByRole("button", { name: /^ky: Connected/ });
+  await send(page, `@${a} @${b}\n${a}> gate\n${b}> on it`);
+  await expect(pill).toHaveAccessibleName(new RegExp(`@${a} answering`));
+  await expect(pill.getByText("1/3")).toBeVisible();
+  await page.screenshot({ path: "test-results/web/crew-working.png", clip: (await pill.boundingBox())! });
+  await page.screenshot({ path: "test-results/web/crew-working-full.png" });
+
+  await release(page);
+  await expect(pill).not.toHaveAccessibleName(/answering/);
+  await expect(pill.getByText("/3")).toBeHidden();
+  await page.waitForTimeout(3_000);
+  await page.screenshot({ path: "test-results/web/crew-after.png", clip: (await pill.boundingBox())! });
+});
+
 test.describe("automations in Activity", () => {
   test.use({ timezoneId: "Asia/Kolkata", locale: "en-US" });
 

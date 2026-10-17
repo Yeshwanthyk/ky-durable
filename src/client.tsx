@@ -23,6 +23,8 @@ import { SuggestedContext } from "./ui/Suggested";
 import { PeerContext } from "./ui/Peers";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
+import { useShownCrew } from "./ui/Crew";
+import { crewOf, NO_CREW, sameCrew } from "./ui/crew-of";
 import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
@@ -271,6 +273,15 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
     sameActivity
   );
 
+  // Only ky's own chats have specialists working for them.
+  const crew = useShownCrew(
+    useSame(
+      useMemo(() => (open.talksToMain ? crewOf(ky.tasks, view.session, members) : NO_CREW), [open.talksToMain, ky.tasks, view.session, members]),
+      sameCrew
+    ),
+    view.session
+  );
+
   const who = useMemo(() => ({ talksToMain: open.talksToMain, speaker: open.speaker }), [open.talksToMain, open.speaker]);
   const { openSession } = shell;
   const onOpenDrawer = useStableCallback(shell.showChats);
@@ -295,13 +306,14 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
       variantId={view.variantId}
       running={ky.running}
       status={status}
-      sub={whoSub(open.where, view.background, view.working, view.mainModel)}
+      sub={whoSub(crew.line, open.where, view.background, view.working, view.mainModel)}
       activity={activity}
       drawer={drawer}
       onBack={onBack}
       panel={pill}
       updated={ky.updated}
       group={group}
+      crew={crew}
     />
   );
 }

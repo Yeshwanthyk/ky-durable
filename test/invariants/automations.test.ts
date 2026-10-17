@@ -63,6 +63,7 @@ const task = {
   steps: "[]",
   session: null,
   agent: null,
+  chat: null,
   created_at: 1,
   updated_at: 1,
   started_at: null,

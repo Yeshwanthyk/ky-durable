@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, tasks, until } from "./drive";
+import { connect, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -125,7 +125,9 @@ describe("specialists", () => {
 
     expect((await prompt(name, ask("eng", "fix the build"))).text).toBe("tool said: Asked @eng.");
     await said(name, "[specialist @eng answered: pass on what matters] echo: fix the build");
+    // It works for the main chat, so the chat's topbar can show it.
     expect(await tasks(name)).toContainEqual(expect.objectContaining({ kind: "cloud", worker: "@eng", status: "done" }));
+    expect(await taskChats(name)).toContainEqual({ worker: "@eng", chat: "1" });
 
     const [request] = await requests(name, "You are @eng");
     expect(request).toContain("<brief>\n# @eng\nBe a good eng.\n</brief>");
@@ -150,6 +152,9 @@ describe("specialists", () => {
 
     expect(await inside(name, (instance) => instance.specialists.get("eng")?.session)).toBe(first);
     expect(await home(name, "eng")).toContain("echo: second job");
+    // Each ask works for the chat it came from.
+    expect((await taskChats(name)).map((row) => row.chat)).toEqual(expect.arrayContaining(["1", chat]));
+    expect(await taskChats(name)).toHaveLength(2);
     main.socket.close();
     side.socket.close();
   });
@@ -164,6 +169,8 @@ describe("specialists", () => {
     const rows = await tasks(name);
     expect(rows.map((row) => row.worker)).toEqual(expect.arrayContaining(["@a", "@a → @b"]));
     expect(rows.map((row) => row.worker)).not.toContain("@b → @c");
+    // A consult works for the specialist that asked, not for the chat.
+    expect((await taskChats(name)).find((row) => row.worker === "@a → @b")?.chat).toBeNull();
     // @b's home conversation was never used: the consult had its own.
     expect(await inside(name, (instance) => instance.specialists.get("b")?.session)).toBeNull();
   });
@@ -202,6 +209,7 @@ describe("specialists", () => {
     expect(report).toContain("## Round 1\n\n### @a\necho: A discussion with @b.");
     expect(report).toMatch(/## Round 2\n\n### @a\necho: Round 2\. The others answered:\n\n### @b\necho: A discussion with @a/);
     expect(await tasks(name)).toContainEqual(expect.objectContaining({ worker: "@a, @b", status: "done" }));
+    expect(await taskChats(name)).toContainEqual({ worker: "@a, @b", chat: "1" });
 
     const one = await prompt(name, tool("subagent", { action: "discuss", specialists: ["a"], message: "x" }));
     expect(one.text).toBe("tool said: discuss needs 2 to 4 different specialists.");

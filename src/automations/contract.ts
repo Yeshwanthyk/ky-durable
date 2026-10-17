@@ -194,6 +194,7 @@ const StoredTask = Type.Object({
   steps: Type.String(),
   session: Nullable(Type.String()),
   agent: Nullable(AgentSchema),
+  chat: Nullable(Type.String()),
   created_at: Type.Number(),
   updated_at: Type.Number(),
   started_at: Nullable(Type.Number()),
@@ -205,9 +206,10 @@ const StoredTask = Type.Object({
 /**
  * One piece of delegated work. `source` is why it exists ("chat", `automation:<id>`); `worker` the
  * subagent or machine; `summary` its result once a turn ends; `steps` its last few, the last what it
- * does now; `session` the pi session (cloud) or the agent's own session (machine); `agent` the coding
- * agent a machine task runs as; `started_at`/`finished_at` its latest stretch of work; `turns` and
- * `cost_usd` null until something reports them.
+ * does now; `session` the pi session (cloud) or the agent's own session (machine); `chat` the session
+ * of the chat it works for, if any; `agent` the coding agent a machine task runs as;
+ * `started_at`/`finished_at` its latest stretch of work; `turns` and `cost_usd` null until something
+ * reports them.
  */
 export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent"> & { steps: readonly TaskStep[]; agent: Agent | null }>;
 

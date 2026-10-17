@@ -53,6 +53,8 @@ export type Motion = {
   hearts: number[];
   /** Where the pointer is, as a direction from the avatar's middle, -1 to 1; null while it's off the page. */
   pointer: readonly [number, number] | null;
+  /** Where it was told to look, such as at a neighbour, -1 to 1; it wins over the pointer. */
+  gaze: readonly [number, number] | null;
 };
 
 const ease = (from: number, to: number, k: number) => from + (to - from) * k;
@@ -70,7 +72,7 @@ function phaseOf(seed: string): number {
 export function newMotion(mood: Mood, seed: string): Motion {
   const t = phaseOf(seed);
 
-  return { p: settled(mood), t, blinkAt: t + 1 + Math.random() * 3, pokes: [], dizzyUntil: 0, hearts: [], pointer: null };
+  return { p: settled(mood), t, blinkAt: t + 1 + Math.random() * 3, pokes: [], dizzyUntil: 0, hearts: [], pointer: null, gaze: null };
 }
 
 /** `mood`'s pose, eased all the way: what a still bloub shows. */
@@ -83,7 +85,7 @@ export function poseOf(motion: Motion, mood: Mood, hovered: boolean): Pose {
   return hovered && mood === "idle" ? "hover" : mood;
 }
 
-/** One frame: ease toward `pose`, look, spring back from a click, let hearts fade, and book the next blink. */
+/** One frame: ease toward `pose`, look (where the pose, then `gaze`, then the pointer says), spring back from a click, let hearts fade, and book the next blink. */
 export function advance(motion: Motion, pose: Pose, seconds: number): void {
   const dt = Math.min(0.05, seconds);
   const k = 1 - Math.exp(-dt * 10);
@@ -95,7 +97,7 @@ export function advance(motion: Motion, pose: Pose, seconds: number): void {
 
   p.rate = target.rate;
 
-  const gaze = GAZE[pose] ?? motion.pointer ?? [Math.sin(motion.t * 0.7) * 0.45, Math.sin(motion.t * 0.43 + 1.3) * 0.3];
+  const gaze = GAZE[pose] ?? motion.gaze ?? motion.pointer ?? [Math.sin(motion.t * 0.7) * 0.45, Math.sin(motion.t * 0.43 + 1.3) * 0.3];
   p.gx = ease(p.gx, gaze[0], k);
   p.gy = ease(p.gy, gaze[1], k);
   p.squish = ease(p.squish, 0, 1 - Math.exp(-dt * 6));

@@ -407,15 +407,16 @@ const stop: Act = async (_desk, { name }, api, context) => {
   return `Stopped ${name}.`;
 };
 
-/** A task's row in Activity, named by `title` or, without one, from its message. */
-function show(feed: TaskFeed, id: string, worker: string, title: string | undefined, text: string, session: ConversationId | undefined): void {
+/** A task's row in Activity, named by `title` or, without one, from its message; `chat` is the chat it works for, if any. */
+function show(feed: TaskFeed, id: string, worker: string, title: string | undefined, text: string, session: ConversationId | undefined, chat: ConversationId | null): void {
   feed.create({
     id,
     kind: "cloud",
     worker,
     title: title ?? summarize(text).slice(0, 60),
     status: "working",
-    session: session === undefined ? null : String(session)
+    session: session === undefined ? null : String(session),
+    chat: chat === null ? null : String(chat)
   });
 
   if (title === undefined) feed.name(id, text);
@@ -465,7 +466,7 @@ function message(action: "spawn" | "send"): Act {
     const conversationId =
       registry.agents[name]?.conversationId ?? (await api.snapshot(Subagents, api.conversationId, context))?.agents[name]?.conversationId;
 
-    if (reporterId !== undefined) show(feed, reporterId, name, title, text, conversationId);
+    if (reporterId !== undefined) show(feed, reporterId, name, title, text, conversationId, api.conversationId);
 
     return result;
   };
@@ -519,7 +520,8 @@ const ask: Act = async ({ feed, specialists: deps, deliver }, args, api, context
     await deliver(tx, api.conversationId, { name, conversationId, message: text, followUp: true, feedId, specialist: id }, deps.model(row.model));
   }, context);
 
-  show(feed, feedId, caller === undefined ? name : `@${caller} → ${name}`, title, text, conversationId);
+  // A consult works for the specialist that asked, not for a chat.
+  show(feed, feedId, caller === undefined ? name : `@${caller} → ${name}`, title, text, conversationId, caller === undefined ? api.conversationId : null);
 
   return `Asked ${name}.`;
 };
@@ -556,7 +558,7 @@ const discuss: Act = async ({ feed, specialists: deps }, args, api, context) => 
   );
 
   const who = ids.map((id) => `@${id}`).join(", ");
-  feed.create({ id: feedId, kind: "cloud", worker: who, title: args.title ?? discussionTitle(topic), status: "working", session: null });
+  feed.create({ id: feedId, kind: "cloud", worker: who, title: args.title ?? discussionTitle(topic), status: "working", session: null, chat: String(api.conversationId) });
 
   return `Started a discussion with ${who}.`;
 };
