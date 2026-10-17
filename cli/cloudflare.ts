@@ -173,7 +173,7 @@ export const SCOPES = PERMISSIONS.map(([scope]) => scope).join(", ");
 const MAIL_PERMISSIONS = [
   ["Zone: Read", "zone", "read"],
   ["Zone Settings: Read", "zone_settings", "read"],
-  ["Email Routing Rules: Edit", "email_routing_rules", "edit"]
+  ["Email Routing Rules: Edit", "email_routing_rule", "edit"]
 ];
 
 export const MAIL_SCOPES = MAIL_PERMISSIONS.map(([scope]) => scope).join(", ");
