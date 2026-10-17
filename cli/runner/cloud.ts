@@ -119,7 +119,7 @@ export async function cloudCommand(context: Context): Promise<number> {
 
     try {
       // 1: a file changed as tar read it, as a task still running writes; the archive is whole, and has its last finished turn.
-      await run("tar", ["-czf", archive, "--warning=no-file-changed", ...excluded.map((each) => `--exclude=${each}`), "-C", system.home, ...kept(system.home, saved)], [0, 1]);
+      await run("tar", ["-czf", archive, ...excluded.map((each) => `--exclude=${each}`), "-C", system.home, ...kept(system.home, saved)], [0, 1]);
       response.writeHead(200, { "content-type": "application/gzip", "content-length": String((await stat(archive)).size) });
       await pipeline(createReadStream(archive), response);
     } finally {
