@@ -8,6 +8,12 @@ if [[ "$(pnpm -v 2>/dev/null)" != 10.* ]]; then
   sudo corepack enable --install-directory /usr/local/bin pnpm && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@10
 fi
 
+#    oxlint and knip's parser reserve 6 GiB of address space up front; a 4 GiB container with the
+#    kernel's default overcommit refuses it (ENOMEM, oxlint aborts), so let it reserve.
+if [[ -r /proc/sys/vm/overcommit_memory && "$(cat /proc/sys/vm/overcommit_memory)" != 1 ]]; then
+  sudo -n sysctl -q vm.overcommit_memory=1 || echo "warning: couldn't set vm.overcommit_memory=1; pnpm lint may abort" >&2
+fi
+
 # 2. Dependencies.
 CI=1 pnpm install --frozen-lockfile
 
