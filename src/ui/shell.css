@@ -753,7 +753,7 @@
 
 :root[data-mode="dark"] .segmented > [aria-selected="true"],
 :root[data-mode="dark"] .segmented > [aria-checked="true"] {
-  background: #303030;
+  background: #3a3a3a;
 }
 
 /* Where the control has its pill, the pill is the chosen option's fill and the options sit on it. */
@@ -800,7 +800,7 @@
 }
 
 :root[data-mode="dark"] .segmented-pill {
-  background: #303030;
+  background: #3a3a3a;
 }
 
 .segmented.small {
