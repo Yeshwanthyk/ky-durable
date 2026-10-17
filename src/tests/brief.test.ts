@@ -2,8 +2,8 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { Draft } from "../dreaming/anticipations";
 import { nextMidnight } from "../dreaming/local-day";
-import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, follow, inside, prompt } from "./drive";
+import type { PiServerMessage } from "../protocol";
+import { browser, dreamSession, inside, prompt } from "./drive";
 import type { PiAgent } from "./stack";
 
 /**
@@ -28,18 +28,6 @@ async function seeded(name: string): Promise<number> {
 
 const loop = (message: number, text = "Reply to Sam about the Lisbon dates"): Draft => ({ kind: "open_loop", text, evidence: { messages: [message], memories: [] } });
 
-/** A dream's conversation, as the dream makes one; its prompts' tool calls are the dream's. */
-async function dreamSession(name: string): Promise<(text: string) => Promise<string>> {
-  const session = await inside(name, async (instance) => {
-    const { id } = await instance.harness.sessions.create();
-    instance.reviews.add(id, "", "dream");
-
-    return id;
-  });
-
-  return (text) => inside(name, async (instance) => (await instance.harness.session(session).prompt(text)).text ?? "");
-}
-
 /** What `work` throws, or "ok". */
 const refusal = (work: () => void) => {
   try {
@@ -50,23 +38,6 @@ const refusal = (work: () => void) => {
     return String(error);
   }
 };
-
-/** A browser that said hello: its frames, and a way to send a message and wait for its result. */
-async function browser(name: string) {
-  const socket = await connect(name);
-  const client = follow(socket);
-  await client.until(() => client.frames.some((frame) => frame.type === "events"));
-
-  const send = async (message: PiClientMessage): Promise<PiServerMessage | undefined> => {
-    const id = crypto.randomUUID();
-    socket.send(JSON.stringify({ ...message, id }));
-    await client.until(() => client.frames.some((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id));
-
-    return client.frames.find((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id);
-  };
-
-  return { frames: client.frames, send, until: client.until, close: () => socket.close() };
-}
 
 const briefs = (frames: readonly PiServerMessage[]) => frames.flatMap((frame) => (frame.type === "brief" ? [frame.brief] : []));
 
@@ -441,7 +412,7 @@ describe("the brief's cap", () => {
 });
 
 describe("the dream reading what it surfaced", () => {
-  it("lists last week's counts and dismissed lines and what is due, and asks for the brief; none of it while off", async () => {
+  it("lists what the user dismissed last week and what is due; none of it while off", async () => {
     const name = crypto.randomUUID();
     const message = await seeded(name);
 
@@ -459,22 +430,8 @@ describe("the dream reading what it surfaced", () => {
     });
 
     expect(digest.text).toMatch(new RegExp(`Due in the day ahead:\\n- #${digest.upcoming} upcoming[^\\n]*Dentist this afternoon`));
-    expect(digest.text).toContain("What you surfaced last week:\n- 2 brief lines shown: 1 acted, 0 pinned, 1 dismissed, 0 cleared, 0 expired, 0 open\n- dismissed: Stretch more");
-
-    await inside(name, async (instance) => {
-      instance.presence.seen(Date.now() - 3 * 3_600_000);
-      await instance.dreaming.run();
-    });
-
-    const asked = await inside(name, (_instance, state) =>
-      state.storage.sql
-        .exec<{ text: string }>("SELECT json_extract(record, '$.model[0].content') AS text FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user'")
-        .toArray()
-        .map((row) => String(row.text))
-        .find((text) => text.startsWith("[dream]"))
-    );
-
-    expect(asked).toMatch(/\n\d\. The user's day: [^\n]*anticipate brief it[^\n]*At most 3 lines; prefer the due ones and those with evidence; none is fine/);
+    // The line the user dismissed comes back to the dream, so it writes nothing like it.
+    expect(digest.text).toContain("Stretch more");
 
     const quiet = await inside(name, (instance) => {
       instance.proactivity.set("off");
@@ -483,7 +440,7 @@ describe("the dream reading what it surfaced", () => {
     });
 
     expect(quiet).not.toContain("Due in the day ahead");
-    expect(quiet).not.toContain("What you surfaced last week");
+    expect(quiet).not.toContain("Stretch more");
   });
 });
 

@@ -58,6 +58,7 @@ async function told(name: string, start: string): Promise<string[]> {
 }
 
 const REPORT = '[automation "Daily digest" result';
+
 const CHIP = 'Tell me about the automation "Daily digest" report';
 
 const reports = (name: string) => told(name, REPORT);

@@ -269,7 +269,8 @@ export class Vault extends ProductionVault {
  * - `spawn NAME MESSAGE` spawns a subagent; `machine PROMPT` runs a task on
  *   the machine "mac"; `machine@NAME PROMPT` on another machine.
  * - `executor CODE` runs CODE on Executor.
- * - `tool NAME JSON` calls any tool with those arguments.
+ * - `tool NAME JSON` calls any tool with those arguments; `say TEXT` on the line
+ *   before it writes TEXT in the same message, before the call.
  * - An episode reflection keeps the user's first "I'll ..." message as an
  *   open loop, or answers [SILENT].
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
@@ -453,7 +454,9 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
   [/^spawn (\S+) (.+)$/s, (match) => call("subagent", { action: "spawn", name: match[1]!, message: match[2]! })],
   [/^machine(?:@(\S+))? (.+)$/s, (match) => call("machine", { action: "run", machine: match[1] ?? "mac", prompt: match[2]! })],
   [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
-  // SAFETY: the tests write a JSON object after the tool name; a bad one fails the turn loudly.
+  // SAFETY: the tests write a JSON object after the tool name, here and below; a bad one fails the turn loudly.
+  [/^say ([^\n]+)\ntool (\S+) (\{.*\})$/s, (match) => ({ say: match[1]!, tool: match[2]!, args: JSON.parse(match[3]!) as Record<string, JsonValue> })],
+  // SAFETY: as above, a JSON object follows the tool name.
   [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
   [/^gate$/, () => call("gate", {})],
   [/^gate-unsafe$/, () => call("gate_unsafe", {})]

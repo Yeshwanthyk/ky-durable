@@ -34,7 +34,9 @@ export const DREAMING_TABLES = {
   /** How proactive ky is: off, the brief only, or the brief and boundary lines. One row. */
   proactivity: "ky_proactivity",
   /** Automations a dream suggested from a check the user kept doing by hand, until the user accepts or dismisses each. */
-  proposals: "ky_proposals"
+  proposals: "ky_proposals",
+  /** The memories each dream run noted, against its cap: one row per dream conversation. */
+  dreamNotes: "ky_dream_notes"
 } as const;
 
 // Tool names.

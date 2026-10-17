@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject, SELF } from "cloudflare:test";
 import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
-import type { PiServerMessage } from "../protocol";
+import type { PiClientMessage, PiServerMessage } from "../protocol";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import {
   decodeObjectFrame,
@@ -314,4 +314,46 @@ export async function runner(name: string, machine = "mac", facts: MachineFacts 
   };
 
   return { socket, commands, next, run, send };
+}
+
+/** A dream's conversation, as the dream makes one; its prompts' tool calls are the dream's. */
+export async function dreamSession(name: string): Promise<(text: string) => Promise<string>> {
+  const session = await inside(name, async (instance) => {
+    const { id } = await instance.harness.sessions.create();
+    instance.reviews.add(id, "", "dream");
+
+    return id;
+  });
+
+  return (text) => inside(name, async (instance) => (await instance.harness.session(session).prompt(text)).text ?? "");
+}
+
+/** A browser that said hello: its frames, and a way to send a message and wait for its result. */
+export async function browser(name: string) {
+  const socket = await connect(name);
+  const client = follow(socket);
+  await client.until(() => client.frames.some((frame) => frame.type === "events"));
+
+  const send = async (message: PiClientMessage): Promise<PiServerMessage | undefined> => {
+    const id = crypto.randomUUID();
+    socket.send(JSON.stringify({ ...message, id }));
+    await client.until(() => client.frames.some((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id));
+
+    return client.frames.find((frame) => (frame.type === "result" || frame.type === "error") && frame.id === id);
+  };
+
+  return { frames: client.frames, send, until: client.until, close: () => socket.close() };
+}
+
+/** Relay `content` into the main chat as ky relays a mail's summary or a peer's question, under the relay's own request id, and wait for ky's answer to it. */
+export function relay(name: string, content: string, requestId: string): Promise<void> {
+  return inside(name, async (instance, state) => {
+    await instance.mailDesk.tell(null, content, requestId);
+    await until(
+      async () =>
+        state.storage.sql.exec("SELECT 1 FROM pi_submissions WHERE json_extract(record, '$.requestId') = ? AND json_extract(record, '$.status') = 'done'", requestId).toArray()
+          .length > 0,
+      `ky's answer to ${requestId}`
+    );
+  });
 }

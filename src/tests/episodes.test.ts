@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { EPISODE_CAP } from "../dreaming/anticipations";
 import { isOwnRequest } from "../history";
 import { EPISODE_BUSY_TURNS, EPISODE_COOLDOWN_MS, EPISODE_TURNS } from "../dreaming/episodes";
-import { inside, prompt, until } from "./drive";
+import { browser, inside, prompt, relay, until } from "./drive";
 
 /**
  * Episode reflection (src/dreaming/episodes.ts) on ky's real PiAgent: after a busy turn with EPISODE_BUSY_TURNS of
@@ -59,17 +59,6 @@ const cooledDown = (name: string) =>
     state.storage.sql.exec("UPDATE ky_skill_reviews SET created_at = created_at - ? WHERE kind = 'episode' AND created_at > 0", EPISODE_COOLDOWN_MS + 1);
   });
 
-/** Relay `content` into the main chat as a mail's summary, and wait for ky's answer to it. */
-const relay = (name: string, content: string, requestId: string) =>
-  inside(name, async (instance, state) => {
-    await instance.mailDesk.tell(null, content, requestId);
-    await until(
-      async () =>
-        state.storage.sql.exec("SELECT 1 FROM pi_submissions WHERE json_extract(record, '$.requestId') = ? AND json_extract(record, '$.status') = 'done'", requestId).toArray()
-          .length > 0,
-      `ky's answer to ${requestId}`
-    );
-  });
 
 /** Run the anticipate tool from the fork `fork` with `args`: what it answered. */
 type AnticipateArgs = { readonly action: string; readonly [field: string]: string | number | number[] };
@@ -123,6 +112,25 @@ describe("an episode reflection after a busy turn", () => {
 });
 
 describe("how often a chat gets an episode reflection", () => {
+  it("is never while Settings › Proactivity is off", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => {
+      instance.skills.reviewAfter = 1;
+    });
+    const page = await browser(name);
+    await page.send({ type: "set-proactivity", level: "off" });
+
+    for (const turn of ["hello", "multiply 3", "multiply 4"]) await prompt(name, turn);
+    expect(await passes(name)).toEqual([]);
+
+    // Back on, the same busy turns get their pass.
+    await page.send({ type: "set-proactivity", level: "brief" });
+
+    for (const turn of ["multiply 5", "multiply 6"]) await prompt(name, turn);
+    await settled(name, 1);
+    page.close();
+  });
+
   it(`a busy turn needs ${EPISODE_BUSY_TURNS} of the user's messages since the last pass, and no pass came in the last ${EPISODE_COOLDOWN_MS / 60_000} minutes`, async () => {
     const name = crypto.randomUUID();
     await onePass(name, "hello");

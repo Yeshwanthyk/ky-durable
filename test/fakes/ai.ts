@@ -17,7 +17,8 @@ export type WireMessage = {
 /** What the script answers: text, one tool call, or a failure with its status. */
 export type Reply =
   | { readonly text: string }
-  | { readonly tool: string; readonly args: Record<string, JsonValue> }
+  /** A call to `tool`; `say` is text the model writes before it, as a model narrating a step does. */
+  | { readonly tool: string; readonly args: Record<string, JsonValue>; readonly say?: string }
   | { readonly status: number; readonly error: string };
 
 /** What a request asked, as the wire carries it. */
@@ -123,6 +124,7 @@ function stream(model: string, reply: Exclude<Reply, { status: number }>): Respo
     "text" in reply
       ? (reply.text.match(/[\s\S]{1,3}/g) ?? [""]).map((content) => chunk({ content }))
       : [
+          ...((reply.say ?? "").match(/[\s\S]{1,3}/g) ?? []).map((content) => chunk({ content })),
           chunk({
             tool_calls: [
               {

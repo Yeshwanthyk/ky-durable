@@ -1,6 +1,7 @@
 import type { History } from "../history";
 import type { ReviewHost, Reviews } from "../skills/contract";
 import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
+import { DreamNotes } from "./dreaming";
 import { episodeExtension } from "./episodes";
 import type { Brief } from "./brief";
 import { memoryExtension, type Memory } from "./memory";
@@ -70,7 +71,13 @@ export function dreamingTools({ soul, memory, anticipations, brief, proposals, r
   return {
     soul: soulExtension(soul),
     // Reviews, dreams and episodes remember too: a fork keeps the memory its chat showed, and a dream wakes with it.
-    memory: memoryExtension(memory, history, (session) => chat(session) || reviews.has(session), anticipate),
+    memory: memoryExtension(
+      memory,
+      history,
+      (session) => chat(session) || reviews.has(session),
+      anticipate,
+      new DreamNotes(sql, (session) => reviews.kind(session) === "dream")
+    ),
     episodes: episodeExtension({ sql, reviews, host: background, chat, busyAfter, proactivity }),
     recall: recallExtension(recall)
   };

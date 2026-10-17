@@ -158,7 +158,7 @@ const entryOf = (item: string) => Number(item.slice(item.indexOf("#") + 1));
 /** The lines a block holds, and the anticipations among them. */
 type Gathered = { readonly lines: string[]; readonly anticipations: number[] };
 
-/** A chat search hit's role, and the role of the message before it in its chat (null for the first). */
+/** A chat search hit's role, and the role of the user's or notice's message that started its turn (null for none). */
 const HitRoleRow = Type.Object({ id: Type.Integer(), role: Type.String(), before: Type.Union([Type.String(), Type.Null()]) });
 
 export class Recall {
@@ -272,7 +272,7 @@ export class Recall {
 
   /**
    * Chat search's best hits for `terms`, leaving out the messages this request already holds, notices (relayed
-   * words, never the user's), and ky's answers right after a notice, which mostly say it again.
+   * words, never the user's), and ky's messages in a turn a notice started, which mostly say it again.
    */
   #said(session: string, terms: readonly string[], messages: readonly Message[]): string[] {
     const hits = this.#wiring.history
@@ -306,11 +306,14 @@ export class Recall {
     return hits.filter((hit) => !held.has(hit.id) && !relayed.has(hit.id)).slice(0, MESSAGES).map((hit) => `chat ${hit.line}`);
   }
 
-  /** Of chat search's rowids `ids`, the notices, and ky's messages that come right after one in their chat. */
+  /**
+   * Of chat search's rowids `ids`, the notices, and ky's messages in a turn a notice started: every ky message
+   * after a notice and before the user's next own message in that chat.
+   */
   #relayed(ids: readonly number[]): ReadonlySet<number> {
     const rows = this.#wiring.sql.exec(
       `SELECT h.rowid AS id, h.role AS role,
-         (SELECT p.role FROM ky_history AS p WHERE p.conversation = h.conversation AND p.rowid < h.rowid ORDER BY p.rowid DESC LIMIT 1) AS before
+         (SELECT p.role FROM ky_history AS p WHERE p.conversation = h.conversation AND p.rowid < h.rowid AND p.role <> 'ky' ORDER BY p.rowid DESC LIMIT 1) AS before
        FROM ky_history AS h WHERE h.rowid IN (SELECT value FROM json_each(?))`,
       JSON.stringify(ids)
     );

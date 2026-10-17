@@ -4,13 +4,13 @@ import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
 import type { History, Said } from "../history";
 import { anticipationLine, type Anticipations, RUN_CAP } from "./anticipations";
-import type { Memory } from "./memory";
+import type { Memory, NoteRoom } from "./memory";
 import { offsetMinutes } from "./local-day";
 import type { Presence } from "./presence";
 import type { Proactivity } from "./proactivity";
 import { NIGHT_CAP, type Proposals } from "./proposals";
 import type { Surfaced, Week } from "./surfaced";
-import { type CheckInsNow, DREAM_MEMORY_TOOLS, type Mark, markOf } from "./contract";
+import { type CheckInsNow, countOf, DREAM_MEMORY_TOOLS, type Mark, markOf } from "./contract";
 import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/contract";
 import type { TaskFeed, TaskRow } from "../automations/contract";
 
@@ -84,6 +84,34 @@ function lookAgainAt(last: number, zone: string | null, now: number): number | u
 
 /** Notes a dream may write: transcripts bring more to note than memories alone. */
 export const DREAM_NOTES = 15;
+
+/**
+ * Holds each dream run to DREAM_NOTES memory notes, as memory_note asks before it writes (src/dreaming/memory.ts):
+ * a count per dream conversation in ky_dream_notes, so a restart mid-run does not start it over. Any other
+ * conversation notes freely.
+ */
+export class DreamNotes implements NoteRoom {
+  readonly #sql: SqlStorage;
+  readonly #isDream: (session: string) => boolean;
+
+  constructor(sql: SqlStorage, isDream: (session: string) => boolean) {
+    this.#sql = sql;
+    this.#isDream = isDream;
+    sql.exec("CREATE TABLE IF NOT EXISTS ky_dream_notes (conversation TEXT PRIMARY KEY, notes INTEGER NOT NULL)");
+  }
+
+  check(session: string): void {
+    if (!this.#isDream(session)) return;
+    const noted = countOf(this.#sql.exec("SELECT notes AS n FROM ky_dream_notes WHERE conversation = ?", session).toArray()[0]);
+
+    if (noted >= DREAM_NOTES) throw new Error(`A dream notes at most ${DREAM_NOTES} memories a run; this one has. Note nothing more tonight.`);
+  }
+
+  noted(session: string): void {
+    if (!this.#isDream(session)) return;
+    this.#sql.exec("INSERT INTO ky_dream_notes (conversation, notes) VALUES (?, 1) ON CONFLICT (conversation) DO UPDATE SET notes = notes + 1", session);
+  }
+}
 
 /** Caps on each part of the digest. */
 const SAID_CHARS = 20_000;
