@@ -484,7 +484,7 @@ export class PiSessionSockets {
         onConnect: (connection, ctx) => this.#onConnect(connection, ctx),
         onMessage: (connection, message) =>
           this.#onMessage(connection, message),
-        onClose: (connection) => this.#onClose(connection),
+        onClose: (connection, code) => this.#onClose(connection, code),
         onError: (connection) => this.#unwatch(connection)
       }
     };
@@ -580,12 +580,12 @@ export class PiSessionSockets {
     await watch.stop();
   }
 
-  async #onClose(connection: Connection) {
+  async #onClose(connection: Connection, code?: number) {
     if (connection.tags.includes(REFUSED_TAG)) return;
     const machine = runnerOf(connection.tags);
 
     if (machine) {
-      this.#hub.seen(machine);
+      this.#hub.seen(machine, code);
       this.#pipe.dropped(machine);
       this.broadcastTasks();
       await this.#models.refresh();
@@ -653,6 +653,8 @@ export class PiSessionSockets {
       // A runner of another version: tell it which one ky speaks, so it can say to update it.
       const reason = `ky speaks runner protocol ${PROTOCOL} and this runner speaks ${decoded.protocol}; update ky-runner.`;
       goodbye(connection, { type: "goodbye", reason, expected: PROTOCOL }, OUTDATED, "Outdated ky-runner; update it.");
+      // The user sees which side is behind, not only offline.
+      this.#hub.refused(machine, decoded.protocol);
 
       return;
     }
@@ -673,7 +675,7 @@ export class PiSessionSockets {
     }
 
     if (report.type === "hello") this.#replaceRunner(connection, machine);
-    await this.#hub.onReport(machine, report);
+    await this.#hub.onReport(machine, report, connection.id);
 
     if (report.type !== "hello") return;
     this.broadcastTasks();

@@ -43,10 +43,10 @@ node --experimental-strip-types --no-warnings .claude/skills/verify-ky-machines/
 | `skew` | *Worker ahead*: the proxy rewrites the Worker's goodbye so it looks newer. Times how long until the runner exits, and records its exit code and what the UI says. *Runner ahead*: a raw socket says hello with `PROTOCOL+1`. Records the close code and goodbye, and whether the machine was ever listed online or given a reason. | M2, M3, M10, M11 | ~2 s |
 | `hang` | Uses an agent that answers `auth`/`--version`, then never writes and ignores SIGINT (today's incident). Waits `--hang-watch` ms (default 70000: the runner's 60 s first-output watchdog plus its 5 s SIGKILL), then reads the task status and `runner-status.json`, stops the task, and checks the pid is gone. | M6, M7, M8 | ~75 s |
 | `offline` | Cuts the network (refusing reconnects), sends a task while offline, and restores the network after `--outage` ms (default 5000). Times offline shown, back online, and the queued task done. | M4, M5 | ~8 s |
-| `halfopen` | Holds every frame both ways for `--silence` ms (default 70000) without closing the socket. Checks whether the UI ever shows offline. | M3 | ~70 s |
+| `halfopen` | Holds every frame both ways for `--silence` ms (default 85000) without closing the socket. Checks the UI shows offline once the runner is silent past 75 s. | M3 | ~85 s |
 | `cloud` | Wakes the cloud machine against a local fake container host (`test/fakes/container.ts`). Times row → waking → runner online → done. | M16 | ~2 s |
 
-- `--runs` defaults to 5; the baseline used 10. `--quick` leaves out `halfopen` (70 s) when running `all`. A full `all` run takes about 2.5 min.
+- `--runs` defaults to 5; the baseline used 10. `--quick` leaves out `halfopen` (85 s) when running `all`. A full `all` run takes about 2.5 min.
 - Each probe prints its timings, then one `HOLDS` or `GAP` line per check. A probe that throws prints `ERROR`. Today a GAP is an expected finding, not a failure. The exit code is non-zero only on an `ERROR`, which means the probe itself broke.
 - Once a fix lands, its GAP should become HOLDS. Re-run that probe and update the baseline table in `docs/machine-invariants.md`.
 - **Live cloud is skipped on purpose.** The account behind squarey has no Workers Paid plan, so it can't run Containers (`ky upgrade` reports this). The `cloud` probe only covers the hub's wake logic against a fake host. Run a live wake only when asked, and only on a deployment with Containers enabled.

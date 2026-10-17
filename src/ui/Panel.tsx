@@ -1409,6 +1409,15 @@ function MachineUnpair({ machine }: { machine: MachineInfo }) {
 function MachineRestart({ machine }: { machine: MachineInfo }) {
   if (machine.online || isCloud(machine)) return null;
 
+  // A reason names its own fix, which is never to start it again.
+  if (machine.reason) {
+    return (
+      <div className="machine-restart">
+        <p className="machine-reason">{machine.reason}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="machine-restart">
       <p>

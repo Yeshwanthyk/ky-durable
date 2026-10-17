@@ -269,6 +269,9 @@ describe("the runner's WebSocket", () => {
       ["old", false],
       ["silent", false]
     ]);
+    // The user sees why: its runner is older than ky. A runner that only closed says nothing more.
+    expect(machines.find((machine) => machine.name === "old")?.reason).toMatch(/older than ky.*ky upgrade/);
+    expect(machines.find((machine) => machine.name === "silent")?.reason).toBeNull();
   });
 
   it("leaves `?runner=` alone: the agent's path opens a session socket, not a machine's", async () => {

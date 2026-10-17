@@ -210,12 +210,15 @@ export class Automations {
     automation: (fire: Fire, schedule: Schedule<Fire>) => Promise<void>;
     dream: () => Promise<void>;
     peers: () => Promise<void>;
+    machines: () => Promise<void>;
   }>({
     callbacks: {
       automation: (fire, schedule) => this.#fire(fire, schedule),
       // It only starts the dream, so it never holds up the alarm.
       dream: async () => this.#deps.dream.run(),
-      peers: () => this.#deps.peers()
+      peers: () => this.#deps.peers(),
+      // A runner silent past ONLINE_WITHIN_MS shows offline though its socket looks open.
+      machines: async () => this.#deps.machines.recheck()
     }
   });
 
@@ -487,6 +490,11 @@ export class Automations {
     const status = this.get(source.slice(SOURCE.length))?.status;
 
     return status === "active" || status === "done";
+  }
+
+  /** Book a look at the machines at `at`, epoch ms (MachineHub.recheck). */
+  async recheckMachinesAt(at: number): Promise<void> {
+    await this.scheduler.set(new Date(at), "machines");
   }
 
   /** Book peers' sweep at `at`, epoch ms. */
