@@ -12,12 +12,23 @@ fi
 CI=1 pnpm install --frozen-lockfile
 
 # 3. The local stack (pnpm stack): fresh state each start, sign in with the token ky-stack-token.
+#    KY_SETUP_STACK picks how: unset or 1 starts it and waits (a preview session's Ready: URL);
+#    background starts it without waiting; 0 skips it. pnpm check, pnpm test and pnpm harness
+#    don't need it (the harness starts its own Worker), so sessions that only run them use 0.
+MODE="${KY_SETUP_STACK:-1}"
+if [[ "$MODE" == 0 ]]; then
+  echo "Ready: dependencies installed, no stack (KY_SETUP_STACK=0)"
+  exit 0
+fi
 PORT="${KY_STACK_PORT:-8790}"
 mkdir -p /workspace/.scotty/logs
 if ! curl -fs "localhost:$PORT/manifest.webmanifest" > /dev/null; then
   KY_STACK_PORT="$PORT" setsid nohup pnpm stack --host 0.0.0.0 > /workspace/.scotty/logs/stack.log 2>&1 < /dev/null &
 fi
-
+if [[ "$MODE" == background ]]; then
+  echo "Ready: stack starting in the background on port $PORT (log: /workspace/.scotty/logs/stack.log)"
+  exit 0
+fi
 # 4. Wait for it, then print its public URL.
 until curl -fs "localhost:$PORT/manifest.webmanifest" > /dev/null; do sleep 1; done
 echo "Ready: ${SCOTTY_HATCH/\{port\}/$PORT}"
