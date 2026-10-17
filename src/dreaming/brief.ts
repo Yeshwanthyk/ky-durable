@@ -180,9 +180,9 @@ export class Brief {
    * ones; no lines while proactivity is off, which clears the card.
    */
   view(now = Date.now()): BriefView {
+    // Read before today's lines, which would write the day's row, carrying yesterday's events, while off.
+    if (this.#proactivity.level() === "off") return { day: localDay(this.#zone(), now), expires_at: nextMidnight(this.#zone(), now), lines: [] };
     const today = this.#today(now);
-
-    if (this.#proactivity.level() === "off") return { day: today.day, expires_at: today.expiresAt, lines: [] };
     this.#surfaced.expire(now);
 
     const lines = today.lines.flatMap((line, index): BriefCardLine[] => {

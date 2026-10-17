@@ -144,20 +144,27 @@ export class Proposals {
   /**
    * The user accepted: the automation is created as theirs, through the same path as their own save, and the
    * proposal is accepted. Refused while off, once it is no longer open, or when the save is refused (an
-   * unparseable cron), which leaves it open.
+   * unparseable cron) or fails, which leaves it open.
    */
   async accept(id: number, now = Date.now()): Promise<Decided> {
     const row = this.#decide(id, "accepted", now);
 
     if ("refused" in row) return { refused: row.refused };
+    const reopen = () => this.#parts.sql.exec("UPDATE ky_proposals SET status = 'open', decided_at = NULL WHERE id = ?", id);
+    let saved: Awaited<ReturnType<Automations["create"]>>;
 
-    const saved = await this.#parts.automations.create(
-      { title: row.title, prompt: row.spec.prompt, cron: row.spec.cron, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: row.spec.gate },
-      "user"
-    );
+    try {
+      saved = await this.#parts.automations.create(
+        { title: row.title, prompt: row.spec.prompt, cron: row.spec.cron, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: row.spec.gate },
+        "user"
+      );
+    } catch (error) {
+      reopen();
+      throw error;
+    }
 
     if ("refused" in saved) {
-      this.#parts.sql.exec("UPDATE ky_proposals SET status = 'open', decided_at = NULL WHERE id = ?", id);
+      reopen();
 
       return { refused: saved.refused };
     }

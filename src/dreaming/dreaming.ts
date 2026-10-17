@@ -344,6 +344,7 @@ export class Dreaming {
       this.#skills.stale(run);
       // A day that passed unseen is a miss, not something still open.
       this.#anticipations.expire(Date.now());
+      this.#surfaced.prune(Date.now());
 
       const mark = this.mark();
       // Taken before the digest reads, so whatever lands while it reads comes again next night rather than never.

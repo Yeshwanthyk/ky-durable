@@ -41,6 +41,7 @@ import {
   EXTENSIONS,
   type LastRun,
   GateFoundRow,
+  type HeldReport,
   StoredCheckIns,
   type TaskFeed,
   type TaskRow,
@@ -610,7 +611,8 @@ export class Automations {
       session: this.#reportTo(row.chat),
       content: `[automation "${row.title}" paused] Its gate failed ${errors} fires in a row; the last said: ${said}. Fix the gate (automation update) and resume it.`,
       line: `automation "${row.title}" paused: its gate failed ${errors} fires in a row.`,
-      ref: `automation:${row.id}`
+      ref: `automation:${row.id}`,
+      label: `automation "${row.title}"`
     });
   }
 
@@ -1105,14 +1107,25 @@ type Call = {
   readonly caller: string;
   /** The caller is a dream: it may create check-ins and list, nothing more. */
   readonly dream: boolean;
+  /** The reports that went to the brief instead of the caller's chat (src/automations/delivery.ts). */
+  readonly held: () => readonly HeldReport[];
 };
 
-async function dispatch(automations: Automations, { action, args, fallback, caller, dream }: Call): Promise<string> {
+/** The reports the brief holds for this chat, in full, so a chip's "Tell me about the … report" can be answered. */
+function reports(held: readonly HeldReport[]): string {
+  if (held.length === 0) return "No report went to the brief instead of this chat.";
+
+  return held.map((report) => `${new Date(report.at).toISOString()} ${report.line}\n${report.content}`).join("\n\n");
+}
+
+async function dispatch(automations: Automations, { action, args, fallback, caller, dream, held }: Call): Promise<string> {
   if (action === "create") return create(automations, args, fallback, caller, dream);
 
   if (action === "list") return list(automations, args.all ?? false);
 
   if (dream) return "A dream may only create check-ins and list automations.";
+
+  if (action === "reports") return reports(held());
 
   if (!args.id) return `${action} needs an id.`;
 
@@ -1134,7 +1147,9 @@ export function automationExtension(
   automations: Automations,
   worker: () => ModelChoice,
   /** Whether a pi session is a dream's. */
-  dreaming: (session: string) => boolean
+  dreaming: (session: string) => boolean,
+  /** The reports that went to the brief instead of a chat (src/automations/delivery.ts). */
+  held: (session: string) => readonly HeldReport[]
 ): Extension {
   return defineExtension({
     name: EXTENSIONS.automations,
@@ -1149,6 +1164,7 @@ export function automationExtension(
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
+          "reports: the full text of the reports that went to the user's brief instead of this chat while they were away, newest first; read it when they ask about one. " +
           "Pause or archive your own once they are no longer needed. " +
           "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
           "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +
@@ -1165,7 +1181,8 @@ export function automationExtension(
               args,
               fallback: worker(),
               caller: String(api.conversationId),
-              dream: dreaming(String(api.conversationId))
+              dream: dreaming(String(api.conversationId)),
+              held: () => held(String(api.conversationId))
             })
           )
       })

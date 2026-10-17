@@ -2,15 +2,15 @@ import { defineExtension, type Extension, GenerationTask, hook } from "@earendil
 import type { ChatList } from "../chats";
 import type { Brief, Presence, Proactivity, Surfaced } from "../dreaming/wiring";
 import { decodeOr } from "../core/decode";
-import { type Delivery, DeliverySchema, SessionRow } from "./contract";
+import { type Delivery, DeliverySchema, type HeldReport, HeldReportRow, type QueuedDelivery, SessionRow } from "./contract";
 
 /**
  * How what an automation tells a chat reaches the user: a run's report (src/skills/subagents.ts) or its notice
  * that its gate paused it (src/automations/automations.ts). It enters a chat only between turns, never into a
  * run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the user
  * is watching. With Settings › Proactivity at boundary and the user away (no message sent for PRESENT_MS), it
- * goes to today's brief instead, as an event line whose chip asks ky about the report, and its chat moves up in
- * the sidebar; a line the user has not handled by midnight is carried into the next day's brief. At off and brief, the
+ * goes to today's brief instead, as an event line whose chip asks ky about the report (which ky reads in full with
+ * the automation tool's reports action), and its chat moves up in the sidebar; a line the user has not handled by midnight is carried into the next day's brief. At off and brief, the
  * user turned nothing on, so reports go to the chat as they always have. When the brief will not take a line (it
  * holds its 3 event lines, or proactivity was turned off since), the report goes to the chat after all: a report
  * the user asked for is never lost.
@@ -49,13 +49,20 @@ function fit(text: string): string {
   return `${cut}…`;
 }
 
+/** Reports the automation tool's reports action reads, newest first. */
+const HELD_REPORTS = 3;
+
+/** A held report's cap in that read, so a long one cannot flood the context. */
+const HELD_CHARS = 6_000;
+
 /**
  * The chip is the user's ask about the report, never the report itself put in their mouth: "Tell me about the
- * <label> report", the label being what the line says before its first colon, like automation "Inbox".
+ * <label> report", the label being the one the delivery names, like automation "Inbox"; ky reads the report
+ * itself with the automation tool's reports action.
  */
-function chipOf(line: string): string {
-  const label = line.split(": ")[0]?.replaceAll(/\s+/g, " ").trim() ?? "";
-  const ask = label === "" || label === line.trim() ? "Tell me about that report" : `Tell me about the ${label} report`;
+function chipOf(label: string | undefined): string {
+  const name = label?.replaceAll(/\s+/g, " ").trim() ?? "";
+  const ask = name === "" ? "Tell me about that report" : `Tell me about the ${name} report`;
 
   return ask.length <= CHIP_CHARS ? ask : `${ask.slice(0, CHIP_CHARS - 1)}…`;
 }
@@ -133,6 +140,18 @@ export class Deliveries {
     for (const session of sessions) this.#parts.later(this.#afterRun(session));
   }
 
+  /** The reports that went to the brief instead of `session`, newest first, in full up to HELD_CHARS each. */
+  held(session: string): HeldReport[] {
+    return this.#sql
+      .exec("SELECT line, content, created_at FROM ky_deliveries WHERE session = ? AND state = 'brief' ORDER BY created_at DESC LIMIT ?", session, HELD_REPORTS)
+      .toArray()
+      .flatMap((row) => {
+        const held = decodeOr(HeldReportRow, row, undefined);
+
+        return held === undefined ? [] : [{ line: held.line, content: held.content.length > HELD_CHARS ? `${held.content.slice(0, HELD_CHARS - 1)}…` : held.content, at: held.created_at }];
+      });
+  }
+
   /** Proactivity is at boundary and the user has sent nothing for PRESENT_MS. */
   #away(now: number): boolean {
     return this.#parts.proactivity.level() === "boundary" && now - this.#parts.presence.last() > PRESENT_MS;
@@ -141,7 +160,7 @@ export class Deliveries {
   /** Today's brief takes the line, and the chat moves up in the sidebar; false when the brief refuses it. */
   #toBrief(item: Delivery, now: number): boolean {
     try {
-      this.#parts.brief.append({ text: fit(item.line), chip: chipOf(item.line) }, { loop: "event", ref: item.ref }, now);
+      this.#parts.brief.append({ text: fit(item.line), chip: chipOf(item.label) }, { loop: "event", ref: item.ref }, now);
     } catch {
       // Full, or proactivity turned off since: the chat gets it instead, as it would at off.
       return false;
@@ -188,7 +207,7 @@ export class Deliveries {
     this.#parts.later(wait());
   }
 
-  #queued(session: string): Delivery[] {
+  #queued(session: string): QueuedDelivery[] {
     return this.#sql
       .exec("SELECT id, session, content, line, ref FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
       .toArray()

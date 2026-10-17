@@ -136,8 +136,11 @@ function failureOf(input: ReporterInput, reason: string): string | undefined {
   return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
 }
 
+/** What a reporter's lines call it: its label, like automation "Inbox", or the subagent's name. */
+const labelOf = (input: ReporterInput) => input.label ?? `subagent ${input.name}`;
+
 /** A report in one line, for the brief while the user is away. */
-const lineOf = (input: ReporterInput, said: string) => `${input.label ?? `subagent ${input.name}`}: ${said}`;
+const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${said}`;
 
 /** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */
 function answeredOf(input: ReporterInput, text: string) {
@@ -264,7 +267,8 @@ export function subagentExtension(
             session: String(runtime.conversationId),
             content: report,
             line: line ?? lineOf(reporter.input, summarize(report)),
-            ref: `task:${feedId}`
+            ref: `task:${feedId}`,
+            label: labelOf(reporter.input)
           });
         } else if (report !== undefined && wanted(feedId)) {
           const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");

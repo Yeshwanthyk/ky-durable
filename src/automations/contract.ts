@@ -219,11 +219,21 @@ export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "
  * Something an automation tells a chat: a run's report, or the notice that it paused. `id` is its one identity,
  * the request id pi takes it by, so however often it is handed over it is delivered once; `content` is what
  * the chat's agent is given; `line` is the one line today's brief shows instead while the user is away;
- * `ref` is what it rests on, like task:a-1f2e-1760600000, one brief line a ref.
+ * `ref` is what it rests on, like task:a-1f2e-1760600000, one brief line a ref; `label` names it for the brief
+ * line's chip, like automation "Inbox", which asks "Tell me about the automation "Inbox" report".
  */
 export const DeliverySchema = Type.Object({ id: Type.String(), session: Type.String(), content: Type.String(), line: Type.String(), ref: Type.String() });
 
-export type Delivery = Readonly<Static<typeof DeliverySchema>>;
+/** A delivery as its row keeps it, waiting for its chat. */
+export type QueuedDelivery = Readonly<Static<typeof DeliverySchema>>;
+
+export type Delivery = QueuedDelivery & { readonly label?: string };
+
+/** A report that went to the brief instead of its chat, for the automation tool's reports action to read in full. */
+export type HeldReport = { readonly line: string; readonly content: string; readonly at: number };
+
+/** A held report's row. */
+export const HeldReportRow = Type.Object({ line: Type.String(), content: Type.String(), created_at: Type.Number() });
 
 /** A row naming a chat, as `ky_deliveries` lists the ones with something waiting. */
 export const SessionRow = Type.Object({ session: Type.String() });
@@ -270,8 +280,8 @@ export type AutomationAction = ByIdAction;
 
 export const AutomationActionSchema = Type.Unsafe<AutomationAction>(Type.Union(BY_ID_ACTIONS.map((action) => Type.Literal(action))));
 
-/** Every action the tool takes: the ones that make, change or list automations, and the by-id ones. */
-export const TOOL_ACTIONS = ["create", "update", "list", ...BY_ID_ACTIONS] as const;
+/** Every action the tool takes: the ones that make, change or list automations, reads the reports the brief holds, and the by-id ones. */
+export const TOOL_ACTIONS = ["create", "update", "list", "reports", ...BY_ID_ACTIONS] as const;
 
 export type ToolAction = (typeof TOOL_ACTIONS)[number];
 

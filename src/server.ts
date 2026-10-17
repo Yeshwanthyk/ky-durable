@@ -361,7 +361,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(skillTools(skilling));
 
       const { machines } = machineTools({ machines: this.machines, feed: this.feed });
-      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, deliveries: this.deliveries, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
       this.registry.install(recall);

@@ -69,6 +69,17 @@ export function Suggested({ now }: { now: number }) {
                 <span className="feed-title">{row.title}</span>
                 <span className="ledger-reason">{row.why}</span>
                 <span className="ledger-reason">{cronInWords(row.cron, now)}</span>
+                <details className="suggested-spec">
+                  <summary>What it runs</summary>
+                  <span className="suggested-spec-label">Prompt</span>
+                  <pre aria-label="Prompt">{row.prompt}</pre>
+                  {row.gate === null ? null : (
+                    <>
+                      <span className="suggested-spec-label">Gate</span>
+                      <pre aria-label="Gate">{row.gate}</pre>
+                    </>
+                  )}
+                </details>
                 {refusals[row.id] === undefined ? null : (
                   <span className="ledger-refusal" role="status">
                     {refusals[row.id]}

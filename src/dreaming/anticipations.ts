@@ -1,7 +1,7 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { ownMessages } from "../history";
+import { ownMessages, startedByUser } from "../history";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,
@@ -63,6 +63,9 @@ const RECALL_AGAIN_MS = 86_400_000;
 
 /** Words `match` reads, at most, and the shortest it reads. */
 const MATCH_TERMS = 12;
+
+/** A chat's newest user entries read for the user's own latest: notices placed since are passed over. */
+const RECENT_USERS = 20;
 
 const TERM_CHARS = 3;
 
@@ -303,14 +306,25 @@ export class Anticipations {
     return new Map(messages.map((message) => [message.id, { conversation: String(message.conversation_id), notice: message.kind === "pi.user" && !own.has(message.id) }]));
   }
 
-  /** The user's latest message in `conversation`, as a message id to cite; undefined before the first. */
+  /** The user's own latest message in `conversation`, as a message id to cite; never a notice, and undefined before the first. */
   latestAsk(conversation: string): number | undefined {
-    const id = this.#count(
-      "SELECT max(id) AS n FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'",
-      Number(conversation)
-    );
+    const users = this.#sql
+      .exec(
+        "SELECT id AS n FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user' ORDER BY id DESC LIMIT ?",
+        Number(conversation),
+        RECENT_USERS
+      )
+      .toArray()
+      .map((row) => countOf(row));
 
-    return id > 0 ? id : undefined;
+    const own = ownMessages(this.#sql, users);
+
+    return users.find((id) => own.has(id));
+  }
+
+  /** Whether the turn running in `conversation` was started by the user's own message, not a notice (src/history.ts startedByUser). */
+  startedByUser(conversation: string): boolean {
+    return startedByUser(this.#sql, conversation);
   }
 
 
@@ -566,6 +580,9 @@ const AnticipateInput = Type.Object({
   gate: Type.Optional(Type.String({ description: "For propose: an Executor program that decides whether a run is worth waking for; leave out for none." }))
 });
 
+/** The actions that change anticipations, which a chat's turn takes as the user. */
+const USER_ACTS: ReadonlySet<string> = new Set(["add", "close", "extend", "absorb", "pin", "unpin"]);
+
 type Call = {
   readonly args: Static<typeof AnticipateInput>;
   readonly by: Actor;
@@ -698,6 +715,11 @@ export function anticipateTool(anticipations: Anticipations, dream: DreamOutputs
     execute: async (args, api) => {
       const session = String(api.conversationId);
       const by = actor(session);
+
+      // A turn a notice started (a relayed mail, a peer's question, a report) holds no word of the user's: its model may read, not act as the user.
+      if (by === "user" && USER_ACTS.has(args.action) && !anticipations.startedByUser(session)) {
+        throw new Error("This turn was started by a notice, not the user: ask the user before changing anticipations.");
+      }
 
       return text(actions[args.action]({ args, by, session, now: Date.now(), pass: by === "episode" ? pass(session) : undefined }));
     }

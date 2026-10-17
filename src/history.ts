@@ -113,6 +113,9 @@ const SAID_FROM = `(SELECT h.rowid AS rowid, h.conversation AS conversation, h.r
 
 const SeqRow = Type.Object({ seq: Type.Union([Type.Number(), Type.Null()]) });
 
+/** A chat's newest user entry; null before the first. */
+const NewestRow = Type.Object({ id: Type.Union([Type.Number(), Type.Null()]) });
+
 export class History {
   readonly #sql: SqlStorage;
   readonly #isChat: (session: string) => boolean;
@@ -150,10 +153,12 @@ export class History {
   /**
    * The best matches for `query`, each with `around` messages before and after
    * it. The user's latest message in `caller`, the chat searching, is left out:
-   * it is the question, and ky has it already.
+   * it is the question, and ky has it already. `batches` caps the catch-up first: turn-start recall reads at most
+   * a few, so the first turn after a deploy that emptied the index is not held up rebuilding it, and finds
+   * only what is indexed so far.
    */
-  search(query: string, around = 0, caller = ""): string {
-    this.#catchUp();
+  search(query: string, around = 0, caller = "", batches = Number.POSITIVE_INFINITY): string {
+    this.#catchUp(batches);
 
     const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
 
@@ -323,12 +328,15 @@ export class History {
     this.#catchUp();
   }
 
-  /** Copy the chat messages pi committed since the last search. */
-  #catchUp(): void {
+  /** Copy the chat messages pi committed since the last search, at most `batches` batches of them. */
+  #catchUp(batches = Number.POSITIVE_INFINITY): void {
     let last = this.#sql.exec<{ last: number }>("SELECT last FROM ky_history_mark").toArray()[0]?.last ?? 0;
     let from = Math.max(0, last - LOOKBACK);
 
-    for (let rows = this.#entries(from); rows.length > 0; rows = this.#entries(from)) {
+    for (let read = 0; read < batches; read++) {
+      const rows = this.#entries(from);
+
+      if (rows.length === 0) break;
       const own = this.#own(rows);
 
       for (const row of rows) this.#index(row, own);
@@ -458,6 +466,21 @@ export function ownMessages(sql: SqlStorage, users: readonly number[]): Readonly
   }
 
   return own;
+}
+
+/**
+ * Whether the chat's newest user entry is one the user sent. A turn runs for its newest user entry, so this tells
+ * a turn the user started from one a notice started (a relayed mail, a peer's question, a report), whose model must
+ * not act as the user.
+ */
+export function startedByUser(sql: SqlStorage, conversation: string): boolean {
+  const newest = decodeOr(
+    NewestRow,
+    sql.exec("SELECT max(id) AS id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'", Number(conversation)).one(),
+    { id: null }
+  ).id;
+
+  return newest !== null && ownMessages(sql, [newest]).has(newest);
 }
 
 const day = (at: number) => (at > 0 ? new Date(at).toISOString().slice(0, 10) : "----------");

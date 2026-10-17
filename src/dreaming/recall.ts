@@ -1,7 +1,7 @@
 import { type Message, Type, type UserMessage } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { type History, ownMessages } from "../history";
+import { type History, ownMessages, startedByUser } from "../history";
 import type { Anticipations } from "./anticipations";
 import { CHAT_SEARCH, countOf, entryAt, MEMORY_RECALL, type Recalled } from "./contract";
 import type { Memory } from "./memory";
@@ -62,6 +62,9 @@ const CARRIED = 1_000;
 
 /** Messages decided (a block made, or none to make) kept in memory, so a tool round does not decide again. */
 const DECIDED = 1_000;
+
+/** Batches of new chat messages a block's search indexes first, at most: after a deploy emptied the index, it fills over later turns. */
+const CATCH_UP = 4;
 
 /** A chat's newest user entries read for the user's own latest: notices placed since are passed over. */
 const RECENT_USERS = 20;
@@ -202,11 +205,12 @@ export class Recall {
   }
 
   /**
-   * The model searched memory or the chats itself: the block of the user's own latest message, empty or not, if it
-   * is still open, missed. A notice placed since does not hide it, and one past its window stays expired.
+   * The model searched memory or the chats itself, in a turn the user's own message started: the block of that
+   * message, empty or not, if it is still open, missed. A search in a turn a notice started is no miss, and a
+   * block past its window stays expired.
    */
   searched(session: string, now = Date.now()): void {
-    if (!this.#wiring.chat(session)) return;
+    if (!this.#wiring.chat(session) || !startedByUser(this.#wiring.sql, session)) return;
     const entry = this.#latestOwn(session);
 
     if (entry === undefined) return;
@@ -272,7 +276,7 @@ export class Recall {
    */
   #said(session: string, terms: readonly string[], messages: readonly Message[]): string[] {
     const hits = this.#wiring.history
-      .search(terms.join(" "), 0, session)
+      .search(terms.join(" "), 0, session, CATCH_UP)
       .split("\n")
       .flatMap((line) => {
         const id = /^#(\d+) /.exec(line)?.[1];

@@ -39,6 +39,9 @@ export type Week = Readonly<Record<SurfacedOutcome | "open", number>> & { readon
 
 const WEEK_MS = 7 * 86_400_000;
 
+/** Settled rows are kept this long after their outcome, for the weekly counts, then pruned by the night dream. */
+const KEEP_MS = 60 * 86_400_000;
+
 /** The brief's cap, and the lower one after two weak weeks. */
 const BRIEF_CAP = 3;
 
@@ -64,6 +67,13 @@ export class Surfaced {
       outcome TEXT,
       outcome_at INTEGER,
       UNIQUE (kind, item))`);
+    // expire() runs on most reads: it finds the unhandled rows past their expiry by this.
+    sql.exec("CREATE INDEX IF NOT EXISTS ky_surfaced_open ON ky_surfaced (outcome, expires_at)");
+  }
+
+  /** Drop the rows settled more than KEEP_MS before `now`; an unhandled one stays until it settles. How many. */
+  prune(now = Date.now()): number {
+    return this.#sql.exec("DELETE FROM ky_surfaced WHERE outcome IS NOT NULL AND outcome_at < ? RETURNING id", now - KEEP_MS).toArray().length;
   }
 
   /** `entry` was shown at `now`; a second show of the same item is the first one. */
