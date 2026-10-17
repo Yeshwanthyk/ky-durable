@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { CLOUD, CLOUD_FACTS } from "./cloud-facts";
 import { pairAs } from "./runners";
 import { saveKey } from "./sandboxes";
+import { putInParts } from "./uploads";
 
 /**
  * A sandbox: a container that runs `ky runner cloud`, so tasks run with every personal computer
@@ -305,12 +306,15 @@ export class CloudMachine extends DurableObject<Env> {
     }
   }
 
-  /** Put the runner's tar.gz answer to R2, at the sandbox `id`'s key. */
+  /**
+   * Put the runner's tar.gz answer to R2, at the sandbox `id`'s key, as it streams in: one upload part
+   * in memory at a time, and the last save kept unless all of this one arrives (src/uploads.ts). Its
+   * time is bounded by SAVE_WITHIN_MS, under the alarm's 15 minutes; a runner whose tar fails breaks
+   * its answer off, which fails the upload.
+   */
   async #put(id: string, answer: Response): Promise<void> {
     if (!answer.ok || !answer.body) throw new Error(`The sandbox ${id} didn't save its files: ${answer.status} ${await answer.text()}`);
-    const length = Number(answer.headers.get("content-length"));
-
-    await this.env.FILES.put(saveKey(id), Number.isInteger(length) && length > 0 ? answer.body.pipeThrough(new FixedLengthStream(length)) : await answer.arrayBuffer());
+    await putInParts(this.env.FILES, saveKey(id), answer.body);
   }
 
   /** Start the container as `name` if it isn't running, and give it its files if it waits for them. */
