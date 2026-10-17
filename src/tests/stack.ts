@@ -996,8 +996,12 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  // How many finished turns the cloud machine last snapshotted to R2, once the upload is in: 0 before any.
-  ["GET /test/cloud-snapshot", async (_me, url, env) => Response.json(await cloud(env, sandboxOf(url)).snapshotted())]
+  // How many of the sandbox's turns have ended, and how many had when R2 last took its disk.
+  [
+    "GET /test/cloud-snapshot",
+    async (me, url, env) =>
+      Response.json({ turnsEnded: (await me.sandboxNow(sandboxOf(url)))?.turnsEnded ?? 0, snapshotted: await cloud(env, sandboxOf(url)).snapshotted() })
+  ]
 ]);
 
 /** Access with the team's keys from the fake: every FakeAccess signs with them. */

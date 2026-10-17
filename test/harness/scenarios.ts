@@ -32,6 +32,9 @@ import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 /** The property under test does not hold. */
 export class Violation extends Error {}
 
+/** `GET /test/cloud-snapshot`'s answer. */
+const Snapshotted = Type.Object({ turnsEnded: Type.Number(), snapshotted: Type.Number() });
+
 export type Context = {
   url: string;
   /** A directory for this scenario's machines and logs. */
@@ -181,14 +184,15 @@ async function followUp(context: Context, logs: Machine, task: string, message: 
   await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
 }
 
-/** Wait until the cloud machine has snapshotted at least `turns` finished turns to R2. */
-async function snapshotted(context: Context, turns: number, timeoutMs = 30_000): Promise<void> {
+/** Wait until R2 has the cloud machine's disk as of every turn ended so far, as a snapshot after a turn puts it. */
+async function snapshotted(context: Context, timeoutMs = 30_000): Promise<void> {
   for (const deadline = Date.now() + timeoutMs; ; await sleep(250)) {
     const response = await fetch(`${context.url}/test/cloud-snapshot`, { headers: await signedIn() });
+    const { turnsEnded, snapshotted: saved } = Value.Parse(Snapshotted, await response.json());
 
-    if (response.ok && Number(await response.json()) >= turns) return;
+    if (turnsEnded > 0 && saved >= turnsEnded) return;
 
-    if (Date.now() > deadline) throw new Violation(`the cloud machine never snapshotted ${turns} finished turns to R2`);
+    if (Date.now() > deadline) throw new Violation(`R2 never caught up with the cloud machine: ${saved} of ${turnsEnded} turns ended`);
   }
 }
 
@@ -1134,7 +1138,7 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      await snapshotted(context, 1);
+      await snapshotted(context);
       sendTo(context, task, "[delay=30000] keep drafting");
       await until("the second turn to start", () => turns(logs, task).includes("[delay=30000] keep drafting"), 30_000);
       await host.crash();
@@ -1155,7 +1159,7 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      await snapshotted(context, 1);
+      await snapshotted(context);
       check(host.running(), "the idle container still runs, short of its idle timeout");
       await host.crash();
       await followUp(context, logs, task, "now polish it");
