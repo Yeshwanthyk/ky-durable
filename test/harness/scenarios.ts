@@ -1174,7 +1174,8 @@ export const SCENARIOS: Scenario[] = [
       await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 60_000);
       await followUp(context, logs, task, `[sh] node -e '${largeTreeHashScript("restored")}'`);
       check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
-      check(context.main.heard(`restored ${expected}`), "the new container's tree has the same files, with the same hashes");
+      // The task can read done before its report reaches the chat; a tree that differs never prints this.
+      await until("the new container's tree to have the same files, with the same hashes", () => context.main.heard(`restored ${expected}`), 30_000);
     }
   },
   {

@@ -93,7 +93,7 @@ export async function unpack(archive: AsyncIterable<Uint8Array>, home: string): 
     // Wait for tar either way, so no tar still writes into the scratch folder as it is removed.
     const [piped, { code, stderr }] = await Promise.all([pipeline(body, createGunzip(), child.stdin).then(() => undefined, (error: Error) => error), exited]);
 
-    if (piped) throw new Error(`The save didn't arrive whole: ${piped.message}`);
+    if (piped) throw new Error(`The save didn't arrive whole: ${piped.message} (tar exited ${code}: ${stderr})`);
 
     if (code !== 0) throw new Error(`tar couldn't unpack the save: exited ${code}: ${stderr}`);
     await moveInto(scratch, home);
