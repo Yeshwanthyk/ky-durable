@@ -742,7 +742,7 @@ describe("a started agent that writes nothing", () => {
     runner.open(link);
     runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-1", turn: 1, prompt: "go", session: null, agent: "claude", taskToken: "t" }));
 
-    return { agent, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
+    return { agent, runner, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
   }
 
   beforeEach(() => vi.useFakeTimers());
@@ -777,6 +777,15 @@ describe("a started agent that writes nothing", () => {
     agent.events!.exit(null, "", "SIGKILL");
 
     expect(results()[0]).toMatchObject({ ok: false, text: "claude was killed by SIGKILL." });
+    await done();
+  });
+
+  it("ends its open turn with the stop's text when the runner is told to stop, then reports nothing more", async () => {
+    const { runner, results, done } = await silentRunner("");
+
+    expect(results()).toEqual([]);
+    expect(runner.stopping("Interrupted: the container was stopped.")).toBe(true);
+    expect(results()).toMatchObject([{ task: "m-1", turn: 1, ok: false, text: "Interrupted: the container was stopped." }]);
     await done();
   });
 });

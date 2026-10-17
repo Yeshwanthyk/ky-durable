@@ -278,7 +278,8 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       stopping = true;
       log(`${signal}: stopping, ending each task's agent`);
       say("stopped", signal);
-      const told = runner.stopping(`Interrupted: ${kind === "cloud" ? "the container" : "the runner"} was stopped. Send it a message to resume.`);
+      // A stopped container is gone for good, so say so now; a computer's service relaunches its runner, whose hello says it restarted.
+      const told = kind === "cloud" && runner.stopping("Interrupted: the container was stopped. Send it a message to resume.");
 
       void shutdown()
         .then(() => (told ? sent() : undefined))
