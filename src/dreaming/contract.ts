@@ -32,7 +32,9 @@ export const DREAMING_TABLES = {
   /** Each thing ky put in front of the user unasked (a brief line), and what they did with it. */
   surfaced: "ky_surfaced",
   /** How proactive ky is: off, the brief only, or the brief and boundary lines. One row. */
-  proactivity: "ky_proactivity"
+  proactivity: "ky_proactivity",
+  /** Automations a dream suggested from a check the user kept doing by hand, until the user accepts or dismisses each. */
+  proposals: "ky_proposals"
 } as const;
 
 // Tool names.
@@ -272,6 +274,61 @@ const ProactivityViewSchema = Type.Object({
 
 export type ProactivityView = Static<typeof ProactivityViewSchema>;
 
+// Proposals.
+
+/** Open until the user decides; accepted made the automation, dismissed latches its key forever. */
+const ProposalStatusSchema = Type.Union([Type.Literal("open"), Type.Literal("accepted"), Type.Literal("dismissed")]);
+
+export type ProposalStatus = Static<typeof ProposalStatusSchema>;
+
+/** What a proposal would create: a recurring automation's schedule (UTC cron), its prompt, and an optional gate. */
+const ProposalSpecSchema = Type.Object({ cron: Type.String(), prompt: Type.String(), gate: Type.Union([Type.String(), Type.Null()]) });
+
+export type ProposalSpec = Static<typeof ProposalSpecSchema>;
+
+/** A row of ky_proposals as stored: the spec and evidence as JSON text, times in epoch ms. */
+const ProposalStoredSchema = Type.Object({
+  id: Type.Integer(),
+  dedup_key: Type.String(),
+  title: Type.String(),
+  why: Type.String(),
+  spec: Type.String(),
+  evidence: Type.String(),
+  status: ProposalStatusSchema,
+  created_at: Type.Number(),
+  decided_at: Type.Union([Type.Number(), Type.Null()])
+});
+
+export type Proposal = Omit<Static<typeof ProposalStoredSchema>, "spec" | "evidence"> & { readonly spec: ProposalSpec; readonly evidence: Evidence };
+
+/** A stored row, or undefined when a restore left it damaged (spec or evidence included): callers skip it. */
+export function proposalRow(row: Row): Proposal | undefined {
+  const stored = decodeOr(ProposalStoredSchema, row, undefined);
+  const spec = stored === undefined ? undefined : parseOr(ProposalSpecSchema, stored.spec, undefined);
+  const evidence = stored === undefined ? undefined : parseOr(EvidenceSchema, stored.evidence, undefined);
+
+  return stored === undefined || spec === undefined || evidence === undefined ? undefined : { ...stored, spec, evidence };
+}
+
+/** A key and its status, as the dream's digest lists them so it never offers one twice. */
+const ProposalKeyRow = Type.Object({ dedup_key: Type.String(), status: ProposalStatusSchema });
+
+export const proposalKey = (row: Row): Static<typeof ProposalKeyRow> | undefined => decodeOr(ProposalKeyRow, row, undefined);
+
+/** Activity › Suggested: an open proposal, with the local days of the user's messages it rests on. */
+const ProposalViewSchema = Type.Object({
+  id: Type.Integer(),
+  title: Type.String(),
+  why: Type.String(),
+  cron: Type.String(),
+  prompt: Type.String(),
+  gate: Type.Union([Type.String(), Type.Null()]),
+  days: Type.Array(Type.String()),
+  created_at: Type.Number()
+});
+
+export type ProposalView = Static<typeof ProposalViewSchema>;
+
 // SOUL.md.
 
 export {
@@ -350,6 +407,8 @@ export type { Presence } from "./presence";
 export type { Brief } from "./brief";
 
 export type { Proactivity } from "./proactivity";
+
+export type { Proposals } from "./proposals";
 
 export type { Recall } from "./recall";
 

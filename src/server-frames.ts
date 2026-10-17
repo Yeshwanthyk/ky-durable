@@ -27,6 +27,7 @@ import type {
   PeerInvite,
   PeerView,
   ProactivityView,
+  ProposalView,
   SettingsView,
   SetupView,
   SkillRow,
@@ -154,6 +155,22 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]), accepted: Rate, dismissed: Rate, expired: Rate })
 );
 
+/** Activity › Suggested: the open proposals, checked by the fields the list shows. */
+const Proposals = Type.Unsafe<readonly ProposalView[]>(
+  Type.Array(
+    Type.Object({
+      id: Type.Number(),
+      title: Text,
+      why: Text,
+      cron: Text,
+      prompt: Text,
+      gate: Type.Union([Text, Type.Null()]),
+      days: Texts,
+      created_at: Type.Number()
+    })
+  )
+);
+
 /** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
 const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
   Type.Array(
@@ -214,6 +231,10 @@ export const ANSWERS = {
   "brief-pin": Type.Null(),
   "brief-dismiss": Type.Null(),
   "brief-clear": Type.Null(),
+  proposals: Proposals,
+  "proposal-seen": Type.Null(),
+  "proposal-accept": Refusable,
+  "proposal-dismiss": Refusable,
   "dream-ledger": Ledger,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };

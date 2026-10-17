@@ -36,6 +36,7 @@ import {
   ColumnInfo,
   type CheckIns,
   CountRow,
+  draftProblem,
   type Delivery,
   EXTENSIONS,
   type LastRun,
@@ -797,12 +798,7 @@ export class Automations {
 
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): Result<AutomationDraft> {
-    const problem =
-      wordsProblem(draft) ??
-      timingProblem(draft) ??
-      this.#machineProblem(draft.machine) ??
-      this.#chatProblem(draft.chat) ??
-      gateProblem(draft.gate);
+    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
 
     if (problem !== undefined) return refused(problem);
 
@@ -962,16 +958,6 @@ export class Automations {
   }
 }
 
-/** A title and a prompt are needed: the list shows one, and a run knows only the other. */
-function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
-  return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
-}
-
-/** A gate is a program body; blank means no gate, and is saved as null by the tool and the UI. */
-function gateProblem(gate: string | null): string | undefined {
-  return gate !== null && gate.trim() === "" ? "A gate is an Executor program; leave it out for none." : undefined;
-}
-
 /** A gate check as the row keeps it, in a line. */
 function noteOf(check: GateCheck): string {
   if (check.kind === "nothing") return "nothing";
@@ -991,15 +977,6 @@ function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<reado
   for (const [name, type] of columns) {
     if (!have.includes(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
-}
-
-/** What is wrong with when it runs, if anything. */
-function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
-  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
-
-  if (draft.at !== null && !Number.isFinite(draft.at)) return "at must be an ISO time, like 2026-10-06T09:00:00Z.";
-
-  return undefined;
 }
 
 /** A new cron replaces a one-off's time, and a new time replaces the cron. */

@@ -553,6 +553,20 @@ export function usePiSession(session: string) {
     [ask, open]
   );
 
+  /** Activity › Suggested's: the dream's open proposals, and accepting or dismissing one. New on each connect, as the ledger's. */
+  const suggestedActions = useMemo(
+    () => ({
+      open,
+      onView: () => ask("proposals", {}),
+      onSeen: (ids: readonly number[]) => {
+        ask("proposal-seen", { ids: [...ids] }).catch(() => undefined);
+      },
+      onAccept: (proposal: number) => ask("proposal-accept", { proposal }).then(refusal, why),
+      onDismiss: (proposal: number) => ask("proposal-dismiss", { proposal }).then(refusal, why)
+    }),
+    [ask, open]
+  );
+
   return {
     ...state,
     submit,
@@ -575,6 +589,7 @@ export function usePiSession(session: string) {
     mailActions,
     proactivityActions,
     ledgerActions,
+    suggestedActions,
     briefActions,
     briefProblem,
     newChat,
