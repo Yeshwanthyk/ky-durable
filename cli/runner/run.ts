@@ -67,7 +67,8 @@ export type RunOptions = {
 const PROBE_MS = 10 * 60_000;
 
 function log(...parts: unknown[]) {
-  console.log(new Date().toISOString().slice(11, 19), ...parts);
+  // The full date and time, in UTC: a log read days later, or beside launchd's, says when.
+  console.log(new Date().toISOString(), ...parts);
 }
 
 /** This checkout's commit, the runner's version when `ky` runs from one. */
@@ -270,8 +271,12 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       // A second signal while the agents settle changes nothing: the wait is bounded.
       if (stopping) return;
       stopping = true;
+      log(`${signal}: stopping, ending each task's agent`);
       say("stopped", signal);
-      void shutdown().then(() => process.exit(0));
+      void shutdown().then(() => {
+        log("stopped");
+        process.exit(0);
+      });
     });
   }
 
@@ -292,8 +297,12 @@ export async function runRunner({ settings, token, state, version, ky, service, 
     stop?.addEventListener("abort", () => {
       clearInterval(keepalive);
       socket?.close();
+      log("asked to stop: ending each task's agent");
       say("stopped", "asked to stop");
-      void shutdown().then(resolve);
+      void shutdown().then(() => {
+        log("stopped");
+        resolve();
+      });
     });
   });
 }

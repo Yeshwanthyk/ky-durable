@@ -179,7 +179,7 @@ checks it today; "—" means it needs a new probe or a unit test.
 | M12 | Yes, except `kill -9` *(PR 1)* | Each agent leads its own process group (`detached`); shutdown interrupts every group, waits up to 6 s, SIGKILLs what's left, **then** exits (`tasks.ts` `settle`, `run.ts` `shutdown`). Reaping on boot was cut (§8), so a `kill -9` of the runner can still orphan. |
 | M13 | Yes *(PR 1)* | The new hello fails each open task once as "Interrupted: the runner restarted", the agent ran once, and with M12 no orphan keeps working on it. The stopping runner reports nothing more, so the hello is what closes the task. Delivery stays at-most-once. |
 | M14 | Mostly *(PR 4)* | `ky upgrade X` restarts only the runners whose `settings.url` is X's (`restartRunner(context, url)`, same origin). Still open: it restarts them even when the Worker was already current, and doesn't wait for X to speak the binary's protocol. State dirs, status files and labels were already split (`system.ts:135-155`). |
-| M15 | No | The status file isn't checked for a live pid or its age. Logs have `HH:MM:SS` in **UTC** only (`run.ts:63-65`), while `ky runner status` and launchd use local time. SIGTERM isn't logged. |
+| M15 | Yes *(PR 5)* | `ky runner status` and `ls` check the status's pid (signal 0): a status whose process is gone reads "not running: it said online at … (7 h ago), but its process N is gone", and `status` exits 1. Each time says how long ago it was. Log lines carry the full ISO date and time (UTC, `Z`), and SIGTERM/SIGINT, "asked to stop" and "stopped" are logged. Before: no pid or age check; logs had `HH:MM:SS` in UTC only; SIGTERM wasn't logged. |
 | M16 | Partly | `waking` is derived and has no deadline in the UI. Container-start failures are `console.warn`ed and retried by the alarm (`src/cloud.ts:187-190, 332-347`), but they never become a machine reason. |
 | M17 | No | Documented hazard only (`handled.ts:16-18`). |
 | M18 | Deferred (§8) | See the invariant. PR 3 closes the pre-hello window it named (online needs the hello), but not the rest. |
@@ -272,7 +272,7 @@ latency is not where the problem is. Everything that goes wrong is about **truth
 | HOLDS *(PR 3)* | runner ahead: never listed online before its hello was accepted. *Was HOLDS\* (untested window); online now needs the hello, and a Worker test covers the window (`runners.test.ts` "only on the socket that said hello").* | M3 |
 | HOLDS *(PR 3)* | runner ahead: the user sees why: "Its runner is newer than ky: it speaks runner protocol 5, ky 4. Deploy ky, or wait for its deploy to finish." (was GAP) | M2 |
 | HOLDS *(PR 2)* | a spawned agent shows as started (`working` from the ack; was `queued` after 45 s) | M6 |
-| HOLDS *(PR 2)* | a silent agent fails loudly: `failed` with pid and stderr by 70 s. *The watch moved from 45 s to 70 s: the watchdog is 60 s by §8, plus the 5 s group SIGKILL.* `ky runner status` still says online (PR 5 territory) | M7 |
+| HOLDS *(PR 2)* | a silent agent fails loudly: `failed` with pid and stderr by 70 s. *The watch moved from 45 s to 70 s: the watchdog is 60 s by §8, plus the 5 s group SIGKILL.* `ky runner status` says online, which is true: the runner is up and only its agent hung | M7 |
 | HOLDS | a stop ends a hung agent (while the runner stays up) | M8 |
 | HOLDS | clean cut → offline within 2 s; back within 5 s; a task sent while offline runs when it's back | M4, M5 |
 | HOLDS *(PR 3)* | a runner silent past 2 keepalives (75 s) is shown offline, at 75.6 s (was GAP: still online at 70 s). *The probe's silence moved from 70 s to 85 s to cover the 75 s window, as hang's did for its watchdog.* | M3 |
@@ -290,6 +290,8 @@ latency is not where the problem is. Everything that goes wrong is about **truth
 | restarts (connect with no disconnect before it) | 9 | 8 |
 | agent `exit null` | 6 | 0 |
 | orphaned agents now | none | none |
+
+On 2026-10-17 *(PR 5)*, the live runners are still brew 0.2.7, so their logs have no dates yet (`live.sh` now says so per runner, and counts logged stops). This checkout's `ky runner status`, read-only on the same state, says `online since 10/17/2026, 2:56:45 AM (7 h ago)`. On a copy of that status with a dead pid it says `not running: it said online at … (7 h ago), but its process 999999 is gone` and exits 1, where brew's 0.2.7 says `online since …`.
 
 ---
 

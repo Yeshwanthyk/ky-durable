@@ -280,13 +280,40 @@ async function runCommand(context: Context): Promise<number> {
   return 0;
 }
 
-const since = (at: number) => `${new Date(at).toLocaleString()}`;
+/** When, and how long ago: a status is written only when the state changes, so its age is how long that state has lasted. */
+const since = (at: number) => `${new Date(at).toLocaleString()} (${ago(Date.now() - at)})`;
+
+function ago(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+
+  if (seconds < 60) return `${seconds}s ago`;
+
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+
+  return seconds < 86_400 ? `${Math.floor(seconds / 3600)} h ago` : `${Math.floor(seconds / 86_400)} d ago`;
+}
+
+/** Whether process `pid` runs: signal 0 checks without sending one, and EPERM is another user's that does. */
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
+/** A status its runner left behind: it says it runs, but its process is gone (killed, or the computer restarted). */
+const gone = (status: Status) => status.state !== "stopped" && !running(status.pid);
 
 const STATE_WORDS: Record<Status["state"], (text: string) => string> = { online: green, stopped: red, outdated: red, refused: red, offline: dim };
 
 /** `online since …`, from the runner's own status; offline when nothing runs it. */
 function stateOf(status: Status | undefined, loaded: boolean | undefined): string {
   if (!status) return loaded === false ? "not running" : "never started";
+
+  if (gone(status)) return `${red("not running")}: it said ${status.state} at ${since(status.at)}, but its process ${status.pid} is gone`;
 
   return `${STATE_WORDS[status.state](status.state)} since ${since(status.at)}${status.reason ? dim(` (${status.reason})`) : ""}`;
 }
@@ -344,7 +371,7 @@ async function statusCommand(context: Context, json: boolean): Promise<number> {
 
   for (const line of lines) context.print(line);
 
-  return status?.state === "online" ? 0 : 1;
+  return status?.state === "online" && !gone(status) ? 0 : 1;
 }
 
 /** `ky runner status`'s lines. */

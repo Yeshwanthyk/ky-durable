@@ -67,7 +67,7 @@ export async function fakeSystem(platform: NodeJS.Platform = "darwin"): Promise<
     const as = label.startsWith(`${fake.label}.`) || label.startsWith(`${fake.label}-`) ? label.slice(fake.label.length + 1) : undefined;
     const dir = as ? path.join(fake.state, as) : fake.state;
     mkdirSync(dir, { recursive: true });
-    const status = { state: fake.online, machine: "fake", url: "", version: "test", pid: 4242, at: Date.now(), ...(fake.online === "stopped" && { reason: "removed from ky" }) };
+    const status = { state: fake.online, machine: "fake", url: "", version: "test", pid: process.pid, at: Date.now(), ...(fake.online === "stopped" && { reason: "removed from ky" }) };
     writeFileSync(path.join(dir, "runner-status.json"), JSON.stringify(status));
   };
 
