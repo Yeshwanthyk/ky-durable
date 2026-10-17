@@ -8,7 +8,8 @@
  *   POST /destroy   kill it and throw its HOME away
  *   *    /port/...  a request to the runner's port, as `getTcpPort(8080).fetch` is; after a start
  *                   it refused, a 503 that says so with REFUSED_HEADER, which the stack's box
- *                   throws as Cloudflare's error
+ *                   throws as Cloudflare's error; a save it was told to cut off (`cutSaves`) reaches
+ *                   the runner, which stops, and its answer breaks off after the headers
  *
  * What it changes from the env it is given: KY_URL is the harness's proxy, so a scenario can break
  * the runner's network; KY_GITHUB_PROXY is the stack's github.internal route, which the real
@@ -39,6 +40,10 @@ export type ContainerHost = {
   refuse: (count: number) => void;
   /** The starts refused so far. */
   refused: () => number;
+  /** Cut off the next `count` saves on their way back, as a dropped connection does: the runner is left stopped, its files unsaved. */
+  cutSaves: (count: number) => void;
+  /** The saves cut off so far. */
+  cutOff: () => number;
   close: () => Promise<void>;
 };
 
@@ -71,6 +76,8 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
   let starts = 0;
   let refusing = 0;
   let refused = 0;
+  let cutting = 0;
+  let cutOff = 0;
   /** Whether the last start was refused, so nothing runs and the port says why. */
   let unplaced = false;
 
@@ -162,11 +169,18 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
         return;
       }
 
+      const cut = route === "POST /port/save" && cutting > 0;
+
+      if (cut) cutting--;
       const upstream = forward(
         { host: "127.0.0.1", port: box.port, method: request.method, path: request.url.slice("/port".length), headers: request.headers },
         (answer) => {
           response.writeHead(answer.statusCode ?? 502, answer.headers);
-          answer.pipe(response);
+
+          if (!cut) return void answer.pipe(response);
+          cutOff++;
+          answer.destroy();
+          response.destroy();
         }
       );
 
@@ -195,6 +209,10 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       refusing = count;
     },
     refused: () => refused,
+    cutSaves: (count) => {
+      cutting = count;
+    },
+    cutOff: () => cutOff,
     close: async () => {
       await kill();
       await new Promise((resolve) => server.close(resolve));

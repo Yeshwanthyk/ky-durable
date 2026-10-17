@@ -28,6 +28,9 @@ const UPSTREAM_KEY = "test:github";
 
 const IDLE_KEY = "test:idle-ms";
 
+/** Set by `hold`: the platform's alarms do nothing, and the test ticks. */
+const HELD_KEY = "test:held";
+
 /** The sandbox the fake host's container was last started for: its github.internal is that sandbox's, as production's props say. */
 const CALLER_KEY = "test:github-machine";
 
@@ -72,9 +75,21 @@ function hostBox(host: () => Promise<string | undefined>, startedFor: (id: strin
   };
 }
 
+/** A body that fails partway, as an upload cut off on its way to R2. */
+function cutBody(length: number): Response {
+  const body = new ReadableStream({
+    pull(controller) {
+      controller.error(new Error("The upload was cut off."));
+    }
+  });
+
+  return new Response(body, { headers: { "content-length": String(Math.max(length, 1)) } });
+}
+
 /**
  * A container in memory, for what the fake host can't stage in workerd's tests: whether it is up,
- * what its runner says (`ky runner cloud`'s states), and its disk, as text.
+ * what its runner says (`ky runner cloud`'s states), and its disk, as text. A test may cut off its
+ * uploads, crash it, and watch what each destroy throws away.
  */
 export class FakeBox implements CloudBox {
   up = false;
@@ -86,6 +101,14 @@ export class FakeBox implements CloudBox {
   destroys = 0;
   /** Awaited as a start begins, before the container is up: what lands meanwhile, such as a delete. */
   onStart: (() => Promise<void>) | undefined;
+  /** Awaited as a destroy begins, with the disk it throws away. */
+  onDestroy: ((disk: string) => Promise<void>) | undefined;
+  /** How many of the next uploads, a save's or a snapshot's, are cut off on their way to R2. */
+  cutUploads = 0;
+  /** How many of the next saves are cut off, after the runner stopped. */
+  cutSaves = 0;
+  /** The uploads cut off so far. */
+  cuts = 0;
 
   async running(): Promise<boolean> {
     return this.up;
@@ -97,6 +120,27 @@ export class FakeBox implements CloudBox {
     this.up = true;
     this.state = "waiting";
     this.disk = "";
+  }
+
+  /** The container dies, as a crash or an eviction kills it: its disk is gone. */
+  crash(): void {
+    this.up = false;
+    this.state = "waiting";
+    this.disk = "";
+  }
+
+  #upload(save: boolean): Response {
+    const length = new TextEncoder().encode(this.disk).byteLength;
+
+    if (this.cutUploads > 0 || (save && this.cutSaves > 0)) {
+      if (this.cutUploads > 0) this.cutUploads--;
+      else this.cutSaves--;
+      this.cuts++;
+
+      return cutBody(length);
+    }
+
+    return new Response(this.disk, { headers: { "content-length": String(length) } });
   }
 
   async fetch(path: string, init?: RequestInit): Promise<Response> {
@@ -115,13 +159,20 @@ export class FakeBox implements CloudBox {
     if (path === "/save") {
       this.state = "stopped";
 
-      return new Response(this.disk, { headers: { "content-length": String(new TextEncoder().encode(this.disk).byteLength) } });
+      return this.#upload(true);
+    }
+
+    if (path === "/snapshot") {
+      if (this.state !== "running") return new Response(`the runner is ${this.state}`, { status: 409 });
+
+      return this.#upload(false);
     }
 
     return new Response("Not found", { status: 404 });
   }
 
   async destroy(): Promise<void> {
+    await this.onDestroy?.(this.disk);
     this.destroys++;
     this.up = false;
   }
@@ -152,8 +203,24 @@ export class CloudMachine extends ProductionCloudMachine {
 
   /** Run the alarm once, now, and drop the next one it books: the test says when it comes. */
   async tick(): Promise<void> {
-    await this.alarm();
+    await super.alarm();
     await this.ctx.storage.deleteAlarm();
+  }
+
+  /** From now on only `tick` runs the alarm: a wake, or a retry the platform would fire, does nothing. */
+  async hold(): Promise<void> {
+    await this.ctx.storage.put(HELD_KEY, true);
+  }
+
+  override async alarm(): Promise<void> {
+    if (await this.ctx.storage.get<boolean>(HELD_KEY)) return;
+
+    return super.alarm();
+  }
+
+  /** How many finished turns R2 holds, as the last snapshot, sleep or retire put them there. */
+  async snapshotted(): Promise<number> {
+    return (await this.ctx.storage.get<number>("snapshot")) ?? 0;
   }
 
   /** Idle since `ms` ago, as the alarm counts it. */
@@ -929,6 +996,8 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
+  // How many finished turns the cloud machine last snapshotted to R2, once the upload is in: 0 before any.
+  ["GET /test/cloud-snapshot", async (_me, url, env) => Response.json(await cloud(env, sandboxOf(url)).snapshotted())]
 ]);
 
 /** Access with the team's keys from the fake: every FakeAccess signs with them. */

@@ -166,6 +166,17 @@ async function testRoute(context: Context, route: string): Promise<void> {
   if (response.status !== 204) throw new Error(`${route} answered ${response.status}`);
 }
 
+/** Wait until the cloud machine has snapshotted at least `turns` finished turns to R2. */
+async function snapshotted(context: Context, turns: number, timeoutMs = 30_000): Promise<void> {
+  for (const deadline = Date.now() + timeoutMs; ; await sleep(250)) {
+    const response = await fetch(`${context.url}/test/cloud-snapshot`, { headers: await signedIn() });
+
+    if (response.ok && Number(await response.json()) >= turns) return;
+
+    if (Date.now() > deadline) throw new Violation(`the cloud machine never snapshotted ${turns} finished turns to R2`);
+  }
+}
+
 /** The newest task list's rows for a worker. */
 function rowsOf(context: Context, worker: string): TaskRow[] {
   const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
@@ -1100,6 +1111,70 @@ export const SCENARIOS: Scenario[] = [
       const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
       // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
       check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-crash-mid-task",
+    expect: "pass",
+    about: "the cloud container crashes during a task's second turn: that turn fails once, and a follow-up resumes the session the first turn's snapshot kept",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
+      await snapshotted(context, 1);
+      sendTo(context, task, "[delay=30000] keep drafting");
+      await until("the second turn to start", () => turns(logs, task).includes("[delay=30000] keep drafting"), 30_000);
+      await host.crash();
+      await until("the second turn to fail", () => context.main.history(task).some((entry) => entry.startsWith("failed: Interrupted")), 60_000);
+      sendTo(context, task, "now polish it");
+      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
+      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1, `the crashed turn failed once, got ${JSON.stringify(failures)}`);
+      check(host.starts() === 2, `a new container started after the crash, got ${host.starts()} starts`);
+      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
+      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-crash-while-idle",
+    expect: "pass",
+    about: "the cloud container dies while idle, not yet asleep, as a deploy rollout replaces it: a follow-up resumes the session from the last snapshot",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
+      await snapshotted(context, 1);
+      check(host.running(), "the idle container still runs, short of its idle timeout");
+      await host.crash();
+      sendTo(context, task, "now polish it");
+      await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
+      await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
+      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
+      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-save-fails-then-busy",
+    expect: "pass",
+    about: "a sleep's save is cut off after the runner stopped; a task that comes then gets a new container with the newer files, not the older save",
+    async run(context) {
+      const { host } = await cloudMachine(context, 3_000);
+      const task = await startTask(context, CLOUD, "[sh] echo first > first.txt");
+      await status(context, task, "done", 60_000);
+      sendTo(context, task, "[sh] echo written-in-turn-2 > marker.txt");
+      await until("the second turn to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+      // Two cut off: the sleep's, and its retry's, so the task below lands while the runner is still stopped.
+      host.cutSaves(2);
+      await until("a save to be cut off", () => host.cutOff() >= 1, 30_000);
+      check(host.running(), "the container still runs after its save was cut off");
+      sendTo(context, task, "[sh] cat marker.txt");
+      await until("the third turn to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 3, 60_000);
+      check(context.main.heard("sh exited 0: written-in-turn-2"), "the new container had the file the second turn wrote");
+      check(host.starts() === 2, `a new container started for the task, got ${host.starts()} starts`);
     }
   },
   {
