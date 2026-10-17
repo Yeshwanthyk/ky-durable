@@ -71,6 +71,9 @@ export function checkoutVersion(): string {
   return head.status === 0 ? head.stdout.trim() : "unknown";
 }
 
+/** How long a stopping runner waits for its agents to exit after interrupting them, before it kills them. */
+const SHUTDOWN_MS = 6_000;
+
 /** How a lost socket is logged: the reason tells a malformed report (1008) apart from a flaky network. */
 const disconnected = (code: number | undefined, reason: string) => `disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""})`;
 
@@ -131,6 +134,15 @@ export async function runRunner({ settings, token, state, version, ky, service, 
     } catch (error) {
       log(`could not write the status: ${String(error)}`);
     }
+  };
+
+  /**
+   * End every task's agent before the runner goes: each is interrupted, and its process group
+   * SIGKILLed if it hasn't exited within SHUTDOWN_MS, so none outlives the runner as an orphan.
+   */
+  const shutdown = async () => {
+    runner.shutdown();
+    await work.settle(SHUTDOWN_MS);
   };
 
   /** Close codes after which retrying cannot help, and what to log before exiting. */
@@ -196,7 +208,7 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       if (exit) {
         log(exit);
         say("stopped", exit);
-        runner.shutdown();
+        await shutdown();
         process.exit(service ? 0 : 1);
       }
 
@@ -221,11 +233,15 @@ export async function runRunner({ settings, token, state, version, ky, service, 
   // Keep the socket alive through idle proxies.
   const keepalive = setInterval(() => runner.keepalive(), 30_000);
 
+  let stopping = false;
+
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      runner.shutdown();
+      // A second signal while the agents settle changes nothing: the wait is bounded.
+      if (stopping) return;
+      stopping = true;
       say("stopped", signal);
-      process.exit(0);
+      void shutdown().then(() => process.exit(0));
     });
   }
 
@@ -245,10 +261,9 @@ export async function runRunner({ settings, token, state, version, ky, service, 
   await new Promise<void>((resolve) => {
     stop?.addEventListener("abort", () => {
       clearInterval(keepalive);
-      runner.shutdown();
       socket?.close();
       say("stopped", "asked to stop");
-      resolve();
+      void shutdown().then(resolve);
     });
   });
 }

@@ -13,6 +13,7 @@ import { github } from "../../cli/runner/github.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
 import { stableKy } from "../../cli/runner/system.ts";
+import { tasks } from "../../cli/runner/tasks.ts";
 import type { MachineFacts } from "../../src/machines/contract.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 
@@ -603,5 +604,47 @@ describe("ky runner cloud", () => {
     expect(listed).toContain(".claude/projects/fake/s-1.jsonl");
     expect(listed).toContain("ky-work/app/README.md");
     expect(listed.some((entry) => entry.includes("node_modules"))).toBe(false);
+  });
+});
+
+describe("a task's agent", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "ky-agent-"));
+  });
+
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("is ended with everything it started when the runner settles, even if it ignores the interrupt", async () => {
+    // An agent that ignores SIGINT and starts a tool that ignores it too, then waits on it.
+    const agent = path.join(dir, "stubborn");
+    const tool = path.join(dir, "tool.pid");
+    await writeFile(agent, `#!/bin/sh\ntrap '' INT\nsleep 60 &\necho $! > ${tool}\nwait\n`, { mode: 0o755 });
+    const logged: string[] = [];
+    const work = tasks({ url: "http://ky.test", workdir: path.join(dir, "work"), permissionMode: "default", chrome: false, claude: agent, codex: agent, machineCodexHome: dir, state: dir, ky: ["ky"], log: (line) => logged.push(line) });
+    let exited = false;
+    const child = work.spawnAgent("claude", "m-1", { taskToken: "t", session: null, creds: undefined }, { line: () => {}, exit: () => (exited = true) });
+
+    while (!existsSync(tool) || (await readFile(tool, "utf8")).trim() === "") await new Promise((resolve) => setTimeout(resolve, 20));
+    const toolPid = Number(await readFile(tool, "utf8"));
+    child.interrupt();
+    const started = Date.now();
+    await work.settle(300);
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(alive(toolPid)).toBe(false);
+    expect(exited).toBe(true);
+    expect(logged.join("\n")).toMatch(/did not exit within 0.3s of its interrupt; killing its process group/);
   });
 });
