@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { type Static, Type } from "typebox";
@@ -13,8 +14,12 @@ import { parsed } from "./frames";
  * - `hang` runs until the caller cancels it;
  * - `lose-response` runs, then the response is lost on the way back, as when
  *   a timeout or a dropped connection comes after the program ran;
- * - `answer TEXT` runs and answers TEXT, as a gate's program returns;
- * - `fail TEXT` runs and fails with TEXT;
+ * - `answer JSON` runs and returns JSON (TEXT that isn't JSON returns it as a
+ *   string), in the envelope the real Executor answers with:
+ *   `{ status: "completed", execution: { ok: true, value, toolCalls }, unavailableApps }`;
+ * - `throw TEXT` runs a program that throws TEXT: the envelope with
+ *   `execution: { ok: false, error: TEXT }`;
+ * - `fail TEXT` fails the call itself with TEXT (`isError`);
  * - `approve TEXT` pauses for an approval to do TEXT, as a Gmail send does,
  *   and `ask TEXT` pauses for input;
  * - anything else runs and answers `ran <n>`.
@@ -128,9 +133,12 @@ export class FakeExecutor {
           this.cancelled++;
         }
 
-        const [, command, rest = ""] = /^(answer|fail|approve|ask) ?(.*)$/s.exec(code) ?? [];
+        const [, command, rest = ""] = /^(answer|throw|fail|approve|ask) ?(.*)$/s.exec(code) ?? [];
 
-        if (command === "answer") return { content: [{ type: "text", text: rest }] };
+        // `parsed` is undefined for text that isn't JSON; JSON null stays null.
+        if (command === "answer") return envelope({ ok: true, value: rest.trim() === "null" ? null : (parsed(rest) ?? rest), toolCalls: [] });
+
+        if (command === "throw") return envelope({ ok: false, error: rest, toolCalls: [] });
 
         if (command === "approve" || command === "ask") {
           const requestId = `request-${this.#paused.size + 1}`;
@@ -184,6 +192,14 @@ export class FakeExecutor {
 
     return transport;
   }
+}
+
+/** How a program ran, inside Executor's envelope: what it returned, or what it threw. */
+type Execution = { ok: true; value: JsonValue; toolCalls: [] } | { ok: false; error: string; toolCalls: [] };
+
+/** A program's run as Executor answers it. */
+function envelope(execution: Execution) {
+  return { content: [{ type: "text" as const, text: JSON.stringify({ status: "completed", execution, unavailableApps: [] }) }] };
 }
 
 /** An MCP request, by the fields the fake reads. */
