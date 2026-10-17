@@ -15,6 +15,7 @@ import { type ContainerHost, serveContainer } from "../fakes/container.ts";
 import { type GitServer, serveGit } from "../fakes/git.ts";
 import { serveVibeProxy, type VibeProxyServer } from "./vibeproxy.ts";
 import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
+import { PART_BYTES } from "../../src/uploads.ts";
 
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
@@ -312,6 +313,34 @@ async function cloudScript(context: Context, lines: string[], last: string): Pro
   // The prompt holds `last`'s echo too, and the task can read done before its report reaches the
   // chat: wait for the report's own header, then its last line, before checking the earlier ones.
   await until("the report", () => context.main.heard(`[machine ${CLOUD}, task ${task} "`) && context.main.heard(last));
+}
+
+/** The large work tree's files and sizes: past one R2 upload part, of bytes gzip can't shrink. */
+const LARGE_TREE: ReadonlyArray<readonly [string, number]> = [
+  ["tree/big.bin", PART_BYTES + 3_000_000],
+  ["tree/a/one.bin", 300_000],
+  ["tree/a/two.txt", 1_000]
+];
+
+/** A file's bytes: each 32 the hash of its name and offset. In the shell script below and here, the same. */
+const LARGE_TREE_WRITE = `const c=require("crypto"),f=require("fs");f.mkdirSync("tree/a",{recursive:true});for(const [n,s] of ${JSON.stringify(LARGE_TREE)}){const b=Buffer.alloc(s);for(let i=0;i<s;i+=32)c.createHash("sha256").update(n+i).digest().copy(b,i);f.writeFileSync(n,b)}`;
+
+/** A node script that prints `label` and the hash of the large tree's every name and content. */
+const largeTreeHashScript = (label: string) =>
+  `const c=require("crypto"),f=require("fs"),h=c.createHash("sha256");for(const [n] of ${JSON.stringify(LARGE_TREE)})h.update(n).update(f.readFileSync(n));console.log("${label} "+h.digest("hex"))`;
+
+/** What `largeTreeHashScript` prints of the tree `LARGE_TREE_WRITE` writes. */
+function largeTreeHash(): string {
+  const tree = createHash("sha256");
+
+  for (const [name, size] of LARGE_TREE) {
+    const content = Buffer.alloc(size);
+
+    for (let at = 0; at < size; at += 32) createHash("sha256").update(name + at).digest().copy(content, at);
+    tree.update(name).update(content);
+  }
+
+  return tree.digest("hex");
 }
 
 type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer };
@@ -1130,6 +1159,22 @@ export const SCENARIOS: Scenario[] = [
       check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
       // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
       check(resumedInNewProcess(logs, task), "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-large-work-tree",
+    expect: "pass",
+    about: "a work tree bigger than one of R2's upload parts sleeps to R2 in parts and wakes whole in a new container, every file's hash the same",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context, 3_000);
+      const expected = largeTreeHash();
+      const task = await startTask(context, CLOUD, `[sh] node -e '${LARGE_TREE_WRITE}' && node -e '${largeTreeHashScript("written")}'`);
+      await status(context, task, "done", 60_000);
+      await until("the tree's hash", () => context.main.heard(`written ${expected}`), 30_000);
+      await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 60_000);
+      await followUp(context, logs, task, `[sh] node -e '${largeTreeHashScript("restored")}'`);
+      check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
+      check(context.main.heard(`restored ${expected}`), "the new container's tree has the same files, with the same hashes");
     }
   },
   {
