@@ -11,7 +11,7 @@ import * as Accounts from "@distilled.cloud/cloudflare/accounts";
 import { isCancel, password } from "@clack/prompts";
 import { Cloudflare, lacks, missingPermissions, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
-import { readOverlay } from "./config.ts";
+import { mailAddress, readOverlay } from "./config.ts";
 import { bold, cancelled, green, open, output, terminal } from "./output.ts";
 import type { TokenStore } from "./runner/settings.ts";
 import type { System } from "./runner/system.ts";
@@ -56,13 +56,13 @@ async function tokenFrom(given: string | undefined): Promise<string> {
   return answer.trim();
 }
 
-/** The accounts to check the token on: the one this ky deploys to, else every one the token reaches. */
-async function accountsFor(context: Context, cloudflare: Cloudflare): Promise<string[]> {
+/** The accounts to check the token on, with this ky's mail address: the account it deploys to, else every one the token reaches. */
+async function accountsFor(context: Context, cloudflare: Cloudflare): Promise<{ accounts: string[]; mail?: string }> {
   const overlay = await readOverlay(context.overlay).catch(() => undefined);
 
-  if (overlay?.account_id) return [overlay.account_id];
+  if (overlay?.account_id) return { accounts: [overlay.account_id], mail: mailAddress(overlay) };
 
-  return (await cloudflare.list(Accounts.listAccounts.items({}))).map((account) => account.id);
+  return { accounts: (await cloudflare.list(Accounts.listAccounts.items({}))).map((account) => account.id) };
 }
 
 /** Checks the token can deploy ky, then keeps it. */
@@ -76,8 +76,8 @@ export async function loginCommand(context: Context, given: string | undefined):
   const cloudflare = new Cloudflare(token, "a pasted token");
 
   const missing = await out.waiting("Checking what the token can do", async () => {
-    const accounts = await accountsFor(context, cloudflare);
-    const each = await Promise.all(accounts.map((account) => missingPermissions(cloudflare, account)));
+    const { accounts, mail } = await accountsFor(context, cloudflare);
+    const each = await Promise.all(accounts.map((account) => missingPermissions(cloudflare, account, mail)));
 
     // Enough when one account has everything; else what the first lacks.
     return each.some((lacks) => lacks.length === 0) ? [] : (each[0] ?? ["Account Settings: Read"]);

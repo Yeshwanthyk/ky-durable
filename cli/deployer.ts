@@ -23,7 +23,7 @@ import * as Zones from "@distilled.cloud/cloudflare/zones";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
-import { answeredWithError, type Cloudflare, getService, refused, SCOPES, tokenPage } from "./cloudflare.ts";
+import { answeredWithError, type Cloudflare, getService, MAIL_SCOPES, refused, SCOPES, tokenPage } from "./cloudflare.ts";
 import { emails, mailAddress, writeDeployed } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
 import { copyImage, imageDigest, TARGET } from "./image.ts";
@@ -576,9 +576,6 @@ async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string
     })
   );
 }
-
-/** What a login needs, past a deploy's, to route ky's mail. */
-const MAIL_SCOPES = "Zone: Read and Email Routing Rules: Edit";
 
 /** Where the user turns Email Routing on for a domain. */
 const emailRoutingPage = (accountId: string, domain: string) => `https://dash.cloudflare.com/${accountId}/${domain}/email/routing/overview`;
