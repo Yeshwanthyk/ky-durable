@@ -58,6 +58,7 @@ async function told(name: string, start: string): Promise<string[]> {
 }
 
 const REPORT = '[automation "Daily digest" result';
+const CHIP = 'Tell me about the automation "Daily digest" report';
 
 const reports = (name: string) => told(name, REPORT);
 
@@ -113,7 +114,7 @@ describe("delivering an automation's report", () => {
     expect(row).toMatchObject({ session: ROOT_SESSION, state: "chat" });
     expect(row!.line).toMatch(/^automation "Daily digest": echo: digest the news/);
 
-    const surfaced = await inside(name, (_instance, state) => state.storage.sql.exec<{ ref: string }>("SELECT kind, loop, ref, item, outcome FROM ky_surfaced").toArray());
+    const surfaced = await inside(name, (_instance, state) => state.storage.sql.exec<{ ref: string }>("SELECT kind, loop, ref, item, outcome FROM ky_surfaced WHERE kind = 'event'").toArray());
     expect(surfaced).toHaveLength(1);
     expect(surfaced[0]).toMatchObject({ kind: "event", loop: "event", item: row!.id, outcome: null });
     expect(surfaced[0]!.ref).toMatch(/^task:/);
@@ -134,7 +135,7 @@ describe("delivering an automation's report", () => {
     const card = await inside(name, (instance) => instance.brief.view());
     expect(card?.lines).toHaveLength(1);
     expect(card?.lines[0]?.text).toMatch(/^automation "Daily digest": echo: digest the news/);
-    expect(card?.lines[0]?.chip).toContain(REPORT);
+    expect(card?.lines[0]?.chip).toBe(CHIP);
 
     // Nor does the chat get it later.
     await pause(400);

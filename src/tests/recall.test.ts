@@ -142,16 +142,17 @@ describe("a user's message in a chat", () => {
 });
 
 describe("what a block counts", () => {
-  it("surfaces the anticipations it shows, and writes one surfaced row for the block", async () => {
+  it("shows the anticipations it matches to the model without surfacing them, and writes one surfaced row for the block", async () => {
     const name = crypto.randomUUID();
     await remember(name);
+    await prompt(name, "hello");
     const id = await inside(name, (instance) => instance.anticipations.add({ kind: "open_loop", text: "Reorder oolong before the tin runs out", evidence: { messages: [], memories: [0] } }, "user").id);
 
     await prompt(name, "the oolong tin is nearly empty");
 
     const [asked] = await askedFor(name, "the oolong tin");
     expect(asked).toContain(`- anticipation #${id} open_loop: Reorder oolong before the tin runs out`);
-    expect(await inside(name, (instance) => instance.anticipations.get(id).status)).toBe("surfaced");
+    expect(await inside(name, (instance) => instance.anticipations.get(id).status)).toBe("open");
 
     const rows = await recallRows(name);
     expect(rows).toHaveLength(1);

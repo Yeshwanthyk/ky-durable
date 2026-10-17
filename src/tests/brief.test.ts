@@ -72,7 +72,7 @@ const briefs = (frames: readonly PiServerMessage[]) => frames.flatMap((frame) =>
 
 const outcomes = (_instance: PiAgent, state: DurableObjectState) =>
   state.storage.sql
-    .exec<{ item: string; outcome: string | null }>("SELECT item, outcome FROM ky_surfaced ORDER BY id")
+    .exec<{ item: string; outcome: string | null }>("SELECT item, outcome FROM ky_surfaced WHERE kind = 'brief' ORDER BY id")
     .toArray()
     .map((row) => [row.item, row.outcome]);
 
@@ -323,7 +323,7 @@ describe("the card", () => {
 });
 
 describe("midnight", () => {
-  it("expires what is unhandled at the brief's midnight, and the next day starts empty", async () => {
+  it("expires what is unhandled at the brief's midnight, and carries only that line into the next day", async () => {
     const name = crypto.randomUUID();
     const now = Date.now();
 
@@ -343,7 +343,7 @@ describe("midnight", () => {
 
     expect(result.expires).toBe(result.midnight);
     expect(result.before).toBeNull();
-    expect(result.next).toEqual([]);
+    expect(result.next.map((line) => line.text)).toEqual(["Unhandled"]);
     expect(result.late).toContain("No line");
     expect(result.row).toEqual({ outcome: "expired", outcome_at: result.midnight });
     expect(result.week).toMatchObject({ shown: 2, dismissed: 1, expired: 1, open: 0, settled: 2 });
