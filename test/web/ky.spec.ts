@@ -1140,7 +1140,7 @@ test.describe("automations in Activity", () => {
     const title = `School mail ${crypto.randomUUID().slice(0, 8)}`;
     const create = { action: "create", title, prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer null" };
     await send(page, `tool automation ${JSON.stringify(create)}`);
-    await expect(page.getByText("Gate test: nothing, so a fire now would be skipped.")).toBeVisible();
+    await expect(page.getByText("Gate test: returned nothing (null), so a fire now would be skipped.")).toBeVisible();
 
     await panel(page).getByRole("tab", { name: "Activity" }).click();
     const automation = panel(page).getByRole("listitem", { name: title });

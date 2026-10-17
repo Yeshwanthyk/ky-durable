@@ -557,7 +557,7 @@ describe("automations", () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
     const said = await say(name, automation({ action: "create", title: "School mail", prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer null" }));
-    expect(said).toMatch(/^tool said: Created automation \w+, "School mail" \(cron \*\/15 \* \* \* \* UTC\)\.\nGate test: nothing, so a fire now would be skipped\.$/);
+    expect(said).toMatch(/^tool said: Created automation \w+, "School mail" \(cron \*\/15 \* \* \* \* UTC\)\.\nGate test: returned nothing \(null\), so a fire now would be skipped\.$/);
     const id = /Created automation (\w+),/.exec(said)![1]!;
 
     await fire(name, id);
@@ -567,13 +567,61 @@ describe("automations", () => {
     expect(await reports(name, "School mail")).toEqual([]);
 
     const updated = await say(name, automation({ action: "update", id, gate: "answer [\"Trip form due Friday\"]" }));
-    expect(updated).toBe('tool said: Updated "School mail".\nGate test: found, so a fire now would run with this before its prompt:\n["Trip form due Friday"]');
+    expect(updated).toBe('tool said: Updated "School mail".\nGate test: found 1 item, so a fire now would run with it before its prompt:\n["Trip form due Friday"]');
 
     await fire(name, id);
     await runEnds(name, id);
     await until(async () => (await reports(name, "School mail")).length > 0, "the report");
     expect((await reports(name, "School mail"))[0]).toContain('Gate found:\n["Trip form due Friday"]\n\ntell me what school sent');
     expect(await listed(name, id)).toMatch(/gate: last check \S+, found: \["Trip form due Friday"\]$/);
+  });
+
+  it("a gate that returns an empty list or object skips the fire, and only its value goes before the prompt", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const said = await say(name, automation({ action: "create", title: "School mail", prompt: "tell me what school sent", cron: "*/15 * * * *", gate: "answer []" }));
+    expect(said).toMatch(/\nGate test: returned nothing \(\[\]\), so a fire now would be skipped\.$/);
+    const id = /Created automation (\w+),/.exec(said)![1]!;
+
+    await fire(name, id);
+    expect(await say(name, automation({ action: "update", id, gate: "answer {}" }))).toBe(
+      'tool said: Updated "School mail".\nGate test: returned nothing ({}), so a fire now would be skipped.'
+    );
+    await fire(name, id);
+    await settle();
+    expect(await runs(name, id)).toEqual([]);
+    expect(await listed(name, id)).toMatch(/gate: last check \S+, nothing$/);
+
+    expect(await say(name, automation({ action: "update", id, gate: 'answer {"unread":2}' }))).toBe(
+      'tool said: Updated "School mail".\nGate test: found something, so a fire now would run with it before its prompt:\n{"unread":2}'
+    );
+    await fire(name, id);
+    await runEnds(name, id);
+    await until(async () => (await reports(name, "School mail")).length > 0, "the report");
+    const [report] = await reports(name, "School mail");
+    expect(report).toContain('Gate found:\n{"unread":2}\n\ntell me what school sent');
+    // The run gets what the program returned, not Executor's envelope around it.
+    expect(report).not.toContain("execution");
+  });
+
+  it("a gate whose program fails or asks for approval is a failed check, never a run", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const said = await say(name, automation({ action: "create", title: "School mail", prompt: "check", cron: "*/15 * * * *", gate: "throw gmail is not connected" }));
+    expect(said).toContain("\nGate test failed: gmail is not connected. Fix it with update; three failed fires in a row pause it.");
+    const id = /Created automation (\w+),/.exec(said)![1]!;
+
+    await fire(name, id);
+    await settle();
+    expect(await listed(name, id)).toMatch(/gate: last check \S+, error: gmail is not connected$/);
+
+    expect(await say(name, automation({ action: "update", id, gate: "approve send mail" }))).toContain(
+      "\nGate test failed: it asked for an approval or input; a gate may only read."
+    );
+    await fire(name, id);
+    await settle();
+    expect(await listed(name, id)).toMatch(/gate: last check \S+, error: it asked for an approval/);
+    expect(await runs(name, id)).toEqual([]);
   });
 
   it("run now runs whatever the gate says, and clearing the gate runs every fire", async () => {

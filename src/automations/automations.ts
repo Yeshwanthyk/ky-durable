@@ -11,6 +11,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
+import Type from "typebox";
+import { Value } from "typebox/value";
 import type { ChatList } from "../chats";
 import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
@@ -47,7 +49,7 @@ import {
   type TaskRow,
   type ToolAction
 } from "./contract";
-import { pausedForUser } from "../executor-status";
+import { programOutcome } from "../executor-status";
 import { isLive } from "./tasks";
 
 /**
@@ -60,9 +62,12 @@ import { isLive } from "./tasks";
  * source `automation:<id>`, is the automation's last run.
  *
  * A gate keeps a frequent automation cheap: a short Executor program run
- * before each fire, with no model. When it returns nothing (null, false, an
- * empty list) the slot is skipped and only the row's last check says so;
- * when it returns something, that is put before the run's prompt. When it
+ * before each fire, with no model. What counts is the program's return value
+ * (`execution.value` in Executor's envelope), never the envelope. When it
+ * returns nothing (null, undefined, false, 0, a blank string, an empty list
+ * or object) the slot is skipped and only the row's last check says so;
+ * when it returns something, that is put before the run's prompt. A program
+ * that fails or pauses for an approval is a failed gate, never a find. When it
  * returns what it did the last fire it found something (the same unread mail
  * again), the slot is skipped too: the row keeps a hash of that text. A gate
  * that fails three fires in a row pauses its automation and the chat is told.
@@ -135,11 +140,11 @@ const GATE_ERRORS = 3;
 /** The most of a gate's answer put before a run's prompt. */
 const GATE_FOUND_MAX = 8_000;
 
+/** The most of a gate's answer a create or update's gate test shows. */
+const GATE_PREVIEW_MAX = 500;
+
 /** A dream booked this soon, or overdue, is firing or about to: booking the dream again leaves it be. */
 const DREAM_DUE_MS = 5 * 60_000;
-
-/** What a gate returns when there is nothing to do, once spaces are taken out. */
-const NOTHING: ReadonlySet<string> = new Set(["", "null", "undefined", "false", "0", "[]", "{}", '""']);
 
 /** What a fire's gate found the last fire's gate found too, as the row's note says it. */
 const SAME_NOTE = "same: found what the last fire found, so this one did not run";
@@ -159,10 +164,10 @@ async function digest(text: string): Promise<string> {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** What a gate came to: something found, nothing, or why it failed. */
+/** What a gate came to: something found (and how many items, for a list), nothing (as it returned it), or why it failed. */
 type GateCheck =
-  | { readonly kind: "found"; readonly text: string }
-  | { readonly kind: "nothing" }
+  | { readonly kind: "found"; readonly text: string; readonly items?: number }
+  | { readonly kind: "nothing"; readonly returned: string }
   | { readonly kind: "error"; readonly text: string };
 
 /** A fire: the automation, and the slot run-now picks; a scheduled fire's slot is its due time. */
@@ -650,13 +655,19 @@ export class Automations {
     if (signal.aborted) return { kind: "error", text: `timed out after ${GATE_TIMEOUT_MS / 1000}s` };
 
     if (answer.error) return { kind: "error", text: answer.text.trim() || "Executor gave no reason" };
+    const outcome = programOutcome(answer.text);
 
     // A gate runs unattended, so nobody is there to approve or answer.
-    if (pausedForUser(answer.text)) return { kind: "error", text: "it asked for an approval or input; a gate may only read" };
+    if (outcome.kind === "paused") return { kind: "error", text: "it asked for an approval or input; a gate may only read" };
 
-    const text = answer.text.trim();
+    if (outcome.kind === "failed") return { kind: "error", text: outcome.text };
 
-    return NOTHING.has(text.replaceAll(/\s/g, "")) ? { kind: "nothing" } : { kind: "found", text };
+    const { value } = outcome;
+
+    if (value === undefined || Value.Check(Nothing, value)) return { kind: "nothing", returned: JSON.stringify(value) ?? "undefined" };
+    const items = decodeOr(Type.Array(Type.Unknown()), value, undefined)?.length;
+
+    return items === undefined ? { kind: "found", text: foundText(value) } : { kind: "found", text: foundText(value), items };
   }
 
   async #start(row: AutomationRow, slot: number, task: string): Promise<void> {
@@ -970,6 +981,22 @@ export class Automations {
   }
 }
 
+/** What a gate returns when there is nothing to do; undefined, which JSON has no form for, is nothing too. */
+const Nothing = Type.Union([
+  Type.Null(),
+  Type.Literal(false),
+  Type.Literal(0),
+  Type.String({ pattern: "^\\s*$" }),
+  Type.Array(Type.Unknown(), { maxItems: 0 }),
+  Type.Object({}, { maxProperties: 0 })
+]);
+
+/** What a gate found as text for the prompt: a string as it is, anything else as JSON. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a gate returns whatever its program does.
+function foundText(value: unknown): string {
+  return decodeOr(Type.String(), value, undefined)?.trim() ?? JSON.stringify(value);
+}
+
 /** A gate check as the row keeps it, in a line. */
 function noteOf(check: GateCheck): string {
   if (check.kind === "nothing") return "nothing";
@@ -1061,11 +1088,13 @@ async function gateTest(automations: Automations, gate: string | null): Promise<
   if (gate === null) return "";
   const check = await automations.checkGate(gate);
 
-  if (check.kind === "nothing") return "\nGate test: nothing, so a fire now would be skipped.";
+  if (check.kind === "nothing") return `\nGate test: returned nothing (${check.returned}), so a fire now would be skipped.`;
 
   if (check.kind === "error") return `\nGate test failed: ${check.text}. Fix it with update; three failed fires in a row pause it.`;
+  const found = check.items === undefined ? "found something" : `found ${check.items} item${check.items === 1 ? "" : "s"}`;
+  const preview = check.text.length > GATE_PREVIEW_MAX ? `${check.text.slice(0, GATE_PREVIEW_MAX)}… (${check.text.length} characters in all)` : check.text;
 
-  return `\nGate test: found, so a fire now would run with this before its prompt:\n${check.text.slice(0, GATE_FOUND_MAX)}`;
+  return `\nGate test: ${found}, so a fire now would run with it before its prompt:\n${preview}`;
 }
 
 function scheduleOf(row: Pick<AutomationRow, "cron" | "at">): string {
