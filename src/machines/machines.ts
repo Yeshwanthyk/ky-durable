@@ -436,6 +436,31 @@ export class MachineHub {
     for (const watcher of this.#watchers) watcher();
   }
 
+  /**
+   * Why the sandbox `machine` is unwell while its runner may still be online, as its CloudMachine saw:
+   * its saves keep failing. Null clears it, once a save works; a hello clears it too.
+   */
+  trouble(machine: string, reason: string | null): void {
+    this.#sql.exec("UPDATE ky_machines SET reason = ? WHERE name = ?", reason, machine);
+
+    for (const watcher of this.#watchers) watcher();
+  }
+
+  /**
+   * The sandbox `machine` didn't start by its deadline: each waiting task fails once with `text`, which
+   * the machine shows until its next hello, and what waited for it is dropped, so nothing starts it
+   * again until new work comes. A runner of it online since has its tasks, and is left be.
+   */
+  async startFailed(machine: string, text: string): Promise<void> {
+    if (this.online(machine)) return;
+    this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ?", machine);
+    this.#sql.exec("UPDATE ky_machines SET reason = ? WHERE name = ?", text, machine);
+
+    for (const task of this.#feed.open("machine", machine)) await this.#finish(task.id, "failed", text, this.#turns(task.id).turn);
+
+    for (const watcher of this.#watchers) watcher();
+  }
+
   /** The machines: the sandboxes first, the default one first, then the user's computers, each by name. */
   machines(): MachineInfo[] {
     const sandboxes = new Map(this.#sandboxes.live().map((sandbox, at) => [sandbox.name, { sandbox, at }]));
@@ -450,7 +475,8 @@ export class MachineHub {
           name: row.name,
           online,
           seenAt: row.seen_at,
-          reason: online ? null : row.reason,
+          // A sandbox's CloudMachine may know of trouble while its runner is online.
+          reason: online && !sandbox ? null : row.reason,
           active: this.#feed.open("machine", row.name).length,
           state: decodeOr(MachineStateSchema, row.state, "on"),
           note: row.note,
@@ -1150,11 +1176,14 @@ function agentsOf(facts: MachineFacts): string[] {
 
 /** Whether a machine is up: the cloud machine asleep, waking or online; a computer online or offline. */
 function upness(machine: MachineInfo): string {
-  if (machine.cloud === "asleep") return "asleep (wakes for a task in a minute or two)";
+  // A sandbox's reason may come while it is up: its saves keep failing.
+  const why = machine.reason ? `; ${machine.reason}` : "";
 
-  if (machine.cloud === "waking") return "waking for its tasks";
+  if (machine.cloud === "asleep") return `asleep (wakes for a task in a minute or two)${why}`;
 
-  if (machine.online) return "online";
+  if (machine.cloud === "waking") return `waking for its tasks${why}`;
+
+  if (machine.online) return `online${why}`;
 
   return machine.reason ? `offline: ${machine.reason}` : "offline";
 }

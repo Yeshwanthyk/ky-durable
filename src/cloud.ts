@@ -54,6 +54,16 @@ const TICK_MS = 60_000;
  */
 const RETRY_MS = 5_000;
 
+/**
+ * How long starts may keep failing while work waits before its tasks fail, saying why, and the
+ * sandbox stops starting until new work comes. Each retry waits twice the last, from RETRY_MS to
+ * the tick.
+ */
+const START_DEADLINE_MS = 10 * 60_000;
+
+/** How many saves or snapshots in a row may fail before the machine says its files aren't saving. */
+const SAVE_FAILURES_BEFORE_REASON = 5;
+
 /** How long the container runs with no task open before it sleeps, unless KY_CLOUD_IDLE_MINUTES says. */
 const IDLE_MINUTES = 10;
 
@@ -78,6 +88,14 @@ const IDLE_KEY = "idleSince";
 
 /** How many of the sandbox's turns had ended when R2 last took its disk: a snapshot's, a sleep's or a retire's. */
 const SNAPSHOT_KEY = "snapshot";
+
+/** How many saves and snapshots in a row have failed; gone after one that worked. */
+const SAVE_FAILURES_KEY = "saveFailures";
+
+/** Failed starts while work waits, since the last good one or wake: the first's time, how many, and the last error. */
+const START_FAILURES_KEY = "startFailures";
+
+type StartFailures = { readonly since: number; readonly attempts: number; readonly error: string };
 
 /** Set while its deleted sandbox saves its disk and stops; a kept disk isn't started from meanwhile. */
 const RETIRING_KEY = "retiring";
@@ -118,6 +136,12 @@ export function idleTimeout(minutes: string | undefined): number {
   return (minutes?.trim() && Number.isFinite(parsed) && parsed > 0 ? parsed : IDLE_MINUTES) * 60_000;
 }
 
+/** An error as the machine's reason shows it: its message, on one line. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- whatever a start or a save threw.
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).replaceAll(/\s+/g, " ").trim().slice(0, 300);
+}
+
 export class CloudMachine extends DurableObject<Env> {
   /** The container, or undefined on a deploy without one. */
   box(): CloudBox | undefined {
@@ -125,11 +149,16 @@ export class CloudMachine extends DurableObject<Env> {
   }
 
   /**
-   * How often the alarm comes while the container runs, and how long it stays up idle: the sandbox's
-   * `idleMinutes`, else the deploy's. Tests shorten them.
+   * How often the alarm comes while the container runs, how long it stays up idle (the sandbox's
+   * `idleMinutes`, else the deploy's), and how long starts may fail while work waits. Tests shorten them.
    */
-  async timing(idleMinutes: number | null): Promise<{ tickMs: number; idleMs: number }> {
-    return { tickMs: TICK_MS, idleMs: idleMinutes ? idleMinutes * 60_000 : idleTimeout(this.env.KY_CLOUD_IDLE_MINUTES) };
+  async timing(idleMinutes: number | null): Promise<{ tickMs: number; idleMs: number; startDeadlineMs: number }> {
+    return { tickMs: TICK_MS, idleMs: idleMinutes ? idleMinutes * 60_000 : idleTimeout(this.env.KY_CLOUD_IDLE_MINUTES), startDeadlineMs: START_DEADLINE_MS };
+  }
+
+  /** Now, in epoch ms, as the alarm and the wakes book by it; tests move it ahead. */
+  clock(): number {
+    return Date.now();
   }
 
   #agent() {
@@ -142,15 +171,17 @@ export class CloudMachine extends DurableObject<Env> {
 
   /**
    * A command waits for the sandbox `id`, this one: start it, if it isn't running, at the next alarm,
-   * now. `origin` is ky's address, which the runner dials; the last one given is kept.
+   * now. `origin` is ky's address, which the runner dials; the last one given is kept. New work
+   * starts the count of failed starts afresh, so it gets its own deadline.
    */
   async wake(id: string, origin?: string): Promise<void> {
     await this.ctx.storage.put(ID_KEY, id);
+    await this.ctx.storage.delete(START_FAILURES_KEY);
 
     if (origin) await this.ctx.storage.put(ORIGIN_KEY, origin);
     const at = await this.ctx.storage.getAlarm();
 
-    if (at === null || at > Date.now()) await this.ctx.storage.setAlarm(Date.now());
+    if (at === null || at > this.clock()) await this.ctx.storage.setAlarm(this.clock());
   }
 
   /** Keep the container up while a task is open, and put it to sleep once none has been for its idle timeout. */
@@ -159,7 +190,7 @@ export class CloudMachine extends DurableObject<Env> {
 
     if (!box) return;
     const id = await this.#id();
-    let { tickMs } = await this.timing(null);
+    let { tickMs, startDeadlineMs } = await this.timing(null);
     let busy = false;
 
     try {
@@ -169,31 +200,107 @@ export class CloudMachine extends DurableObject<Env> {
       if (!sandbox) return await this.retire();
       const timing = await this.timing(sandbox?.idleMinutes ?? null);
 
-      tickMs = timing.tickMs;
-      busy = sandbox?.busy ?? false;
+      ({ tickMs, startDeadlineMs } = timing);
+      busy = sandbox.busy;
       // Busy or idle: the turn that just ended closed its task, so an idle sandbox may have the newest work.
-      await this.#snapshotIfDue(box, id, sandbox.turnsEnded);
+      await this.#snapshot(box, id, sandbox.turnsEnded);
 
-      if (sandbox?.busy) {
+      if (sandbox.busy) {
         await this.ctx.storage.delete(IDLE_KEY);
         await this.#up(box, id, sandbox.name);
-        await this.ctx.storage.setAlarm(Date.now() + tickMs);
+        await this.ctx.storage.delete(START_FAILURES_KEY);
+        await this.ctx.storage.setAlarm(this.clock() + tickMs);
 
         return;
       }
 
       if (!(await box.running())) return;
       const { idleMs } = timing;
-      const idleSince = (await this.ctx.storage.get<number>(IDLE_KEY)) ?? Date.now();
+      const idleSince = (await this.ctx.storage.get<number>(IDLE_KEY)) ?? this.clock();
 
       await this.ctx.storage.put(IDLE_KEY, idleSince);
 
-      if (Date.now() - idleSince >= idleMs && (await this.sleep())) return;
+      if (this.clock() - idleSince >= idleMs && (await this.sleep())) return;
       await box.fetch("/ping");
-      await this.ctx.storage.setAlarm(Date.now() + tickMs);
+      await this.ctx.storage.setAlarm(this.clock() + tickMs);
     } catch (error) {
       console.warn(`the sandbox ${id}'s alarm failed; trying again`, error);
-      await this.ctx.storage.setAlarm(Date.now() + (busy ? Math.min(RETRY_MS, tickMs) : tickMs));
+
+      // Idle, the container runs on, and the next tick tries its save again.
+      if (!busy) return await this.ctx.storage.setAlarm(this.clock() + tickMs);
+      await this.#startFailed(id, errorText(error), tickMs, startDeadlineMs);
+    }
+  }
+
+  /**
+   * A start failed while work waits: try again after twice the last wait, from RETRY_MS up to the
+   * tick, each start minting a token. Past the deadline the waiting tasks fail once with the last
+   * error, which the machine shows, and no start comes until a wake brings new work; the tick goes
+   * on, so a container that still runs keeps trying to save its disk, and sleeps once it has.
+   */
+  async #startFailed(id: string, error: string, tickMs: number, startDeadlineMs: number): Promise<void> {
+    const now = this.clock();
+    const last = await this.ctx.storage.get<StartFailures>(START_FAILURES_KEY);
+    const failures: StartFailures = { since: last?.since ?? now, attempts: (last?.attempts ?? 0) + 1, error };
+
+    if (now - failures.since < startDeadlineMs) {
+      await this.ctx.storage.put(START_FAILURES_KEY, failures);
+      await this.ctx.storage.setAlarm(now + Math.min(RETRY_MS * 2 ** (failures.attempts - 1), tickMs));
+
+      return;
+    }
+
+    console.warn(`the sandbox ${id} didn't start in ${failures.attempts} tries over ${Math.round((now - failures.since) / 1000)}s; failing its waiting tasks`);
+    await this.#agent().sandboxStartFailed(id, `The sandbox didn't start: ${failures.error}`);
+    await this.ctx.storage.delete(START_FAILURES_KEY);
+    await this.ctx.storage.setAlarm(now + tickMs);
+  }
+
+  /**
+   * Count a save or a snapshot: `error` says why when it failed. From SAVE_FAILURES_BEFORE_REASON in a row the
+   * machine says its files aren't saving; the next one that works clears that, and the count.
+   */
+  async #saveWent(id: string, error?: string): Promise<void> {
+    const failed = (await this.ctx.storage.get<number>(SAVE_FAILURES_KEY)) ?? 0;
+
+    if (error === undefined) {
+      if (failed === 0) return;
+      await this.ctx.storage.delete(SAVE_FAILURES_KEY);
+
+      if (failed >= SAVE_FAILURES_BEFORE_REASON) await this.#agent().sandboxTrouble(id, null);
+
+      return;
+    }
+
+    await this.ctx.storage.put(SAVE_FAILURES_KEY, failed + 1);
+
+    if (failed + 1 >= SAVE_FAILURES_BEFORE_REASON) await this.#agent().sandboxTrouble(id, `The sandbox couldn't save its files: ${error}`);
+  }
+
+  /** #save, counted: a failed one throws on. */
+  async #counted(box: CloudBox, id: string): Promise<void> {
+    try {
+      await this.#save(box, id);
+    } catch (error) {
+      await this.#saveWent(id, errorText(error));
+
+      throw error;
+    }
+
+    await this.#saveWent(id);
+  }
+
+  /** #snapshotIfDue, counted when it uploaded or failed; a failed snapshot is tried again at the next tick. */
+  async #snapshot(box: CloudBox, id: string, turnsEnded: number): Promise<void> {
+    const before = await this.ctx.storage.get<number>(SNAPSHOT_KEY);
+
+    try {
+      await this.#snapshotIfDue(box, id, turnsEnded);
+
+      if ((await this.ctx.storage.get<number>(SNAPSHOT_KEY)) !== before) await this.#saveWent(id);
+    } catch (error) {
+      console.warn(`the sandbox ${id}'s snapshot failed; trying again at the next tick`, error);
+      await this.#saveWent(id, errorText(error));
     }
   }
 
@@ -210,12 +317,12 @@ export class CloudMachine extends DurableObject<Env> {
     // Read before the save stops the runner: no turn ends after it.
     const ended = (await this.#agent().sandboxNow(id))?.turnsEnded ?? 0;
 
-    await this.#save(box, id);
+    await this.#counted(box, id);
     await this.ctx.storage.put(SNAPSHOT_KEY, ended);
     await box.destroy();
     await this.ctx.storage.delete(IDLE_KEY);
 
-    if (await this.#agent().cloudBusy(id)) await this.ctx.storage.setAlarm(Date.now());
+    if (await this.#agent().cloudBusy(id)) await this.ctx.storage.setAlarm(this.clock());
 
     return true;
   }
@@ -233,9 +340,9 @@ export class CloudMachine extends DurableObject<Env> {
     await this.ctx.storage.put(RETIRING_KEY, true);
 
     try {
-      if (box && (await box.running())) await this.#save(box, id);
+      if (box && (await box.running())) await this.#counted(box, id);
     } catch (error) {
-      await this.ctx.storage.setAlarm(Date.now() + RETRY_MS);
+      await this.ctx.storage.setAlarm(this.clock() + RETRY_MS);
 
       throw error;
     }
@@ -288,21 +395,16 @@ export class CloudMachine extends DurableObject<Env> {
 
   /**
    * Snapshot the running container's disk to R2 if `turnsEnded` passed the count of the last save.
-   * The count moves only once R2 has the disk; a failed snapshot is tried again at the next tick.
+   * The count moves only once R2 has the disk; a failed snapshot throws.
    */
   async #snapshotIfDue(box: CloudBox, id: string, turnsEnded: number): Promise<void> {
     if (turnsEnded <= ((await this.ctx.storage.get<number>(SNAPSHOT_KEY)) ?? 0) || !(await box.running())) return;
+    const ping = await box.fetch("/ping");
 
-    try {
-      const ping = await box.fetch("/ping");
-
-      // Waiting for its files, it has nothing newer; stopped, a save took it, or #up will.
-      if (!ping.ok || (await ping.text()).trim() !== "running") return;
-      await this.#put(id, await box.fetch("/snapshot"));
-      await this.ctx.storage.put(SNAPSHOT_KEY, turnsEnded);
-    } catch (error) {
-      console.warn(`the sandbox ${id}'s snapshot failed; trying again at the next tick`, error);
-    }
+    // Waiting for its files, it has nothing newer; stopped, a save took it, or #up will.
+    if (!ping.ok || (await ping.text()).trim() !== "running") return;
+    await this.#put(id, await box.fetch("/snapshot"));
+    await this.ctx.storage.put(SNAPSHOT_KEY, turnsEnded);
   }
 
   /** Put the runner's tar.gz answer to R2, at the sandbox `id`'s key. */
@@ -313,8 +415,12 @@ export class CloudMachine extends DurableObject<Env> {
     await this.env.FILES.put(saveKey(id), Number.isInteger(length) && length > 0 ? answer.body.pipeThrough(new FixedLengthStream(length)) : await answer.arrayBuffer());
   }
 
-  /** Start the container as `name` if it isn't running, and give it its files if it waits for them. */
-  async #up(box: CloudBox, id: string, name: string): Promise<void> {
+  /**
+   * Start the container as `name` if it isn't running, and give it its files if it waits for them.
+   * A stopped runner is saved, then started afresh, `restarts` times at most: one start per call.
+   * One whose save fails is never destroyed; the start fails, and the alarm counts it.
+   */
+  async #up(box: CloudBox, id: string, name: string, restarts = 1): Promise<void> {
     const began = Date.now();
     const starting = !(await box.running());
 
@@ -333,11 +439,12 @@ export class CloudMachine extends DurableObject<Env> {
     const listening = Date.now() - began;
 
     if (state === "stopped") {
+      if (restarts === 0) throw new Error(`The sandbox ${id}'s runner was stopped again as it started`);
       // Stopped by a save whose upload failed: its disk may be newer than R2's, so save it, then start afresh.
-      await this.#save(box, id);
+      await this.#counted(box, id);
       await box.destroy();
 
-      return this.#up(box, id, name);
+      return this.#up(box, id, name, restarts - 1);
     }
 
     if (state !== "waiting") return;

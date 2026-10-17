@@ -197,6 +197,25 @@ export class Runner {
   }
 
   /**
+   * The process was told to stop, as a container the platform stops is: while the socket is open,
+   * end each task's open turns with `text`, so ky fails them saying so, not at the next hello as a
+   * restart. False when no socket takes the reports; the next hello ends them then.
+   */
+  stopping(text: string): boolean {
+    const link = this.#link;
+
+    if (!link) return false;
+
+    for (const [task, run] of this.#runs) {
+      const latest = run.next.at(-1)?.turn ?? (run.ended ? undefined : run.turn);
+
+      if (latest !== undefined) link.send(JSON.stringify({ type: "result", task, turn: latest, ok: false, text, session: run.session, agent: run.agent } satisfies RunnerReport));
+    }
+
+    return true;
+  }
+
+  /**
    * The process is exiting: end every session, and report nothing more, so the next hello, which
    * lists none of them, tells the object they were interrupted. Queued turns never start.
    */

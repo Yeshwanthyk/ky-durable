@@ -526,6 +526,20 @@ export class PiAgent extends DurableObject<Env> {
     return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name), turnsEnded: this.machines.turnsEnded(sandbox.name) };
   }
 
+  /** Why the sandbox `id` is unwell, as its CloudMachine saw (its saves keep failing); null once that is over. */
+  sandboxTrouble(id: string, reason: string | null): void {
+    const sandbox = this.sandboxes.get(id);
+
+    if (sandbox) this.machines.trouble(sandbox.name, reason);
+  }
+
+  /** The sandbox `id` didn't start by its deadline, as `text` says: its waiting tasks fail with that. */
+  async sandboxStartFailed(id: string, text: string): Promise<void> {
+    const sandbox = this.sandboxes.get(id);
+
+    if (sandbox) await this.machines.startFailed(sandbox.name, text);
+  }
+
   /** Whether `name` is a live sandbox's, which no runner may pair as or unpair. */
   isSandbox(name: string): boolean {
     return this.sandboxes.named(name) !== undefined;

@@ -356,7 +356,11 @@ async function cloudMachine(context: Context, idleMs?: number, startDeadlineMs?:
     // Awaited: sent and left, its removal can land after the next scenario's set-github and take its token.
     async () => void (await context.main.command({ type: "remove-subscription", kind: "github" }))
   );
-  const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }),
+
+  const query = new URLSearchParams({
+    url: host.url,
+    github: git.url,
+    ...(idleMs !== undefined && { idle: String(idleMs) }),
     ...(startDeadlineMs !== undefined && { startDeadline: String(startDeadlineMs) })
   });
 

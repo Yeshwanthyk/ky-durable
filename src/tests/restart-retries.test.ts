@@ -19,7 +19,8 @@ import { type CloudMachine, FakeBox } from "./stack";
  * - P3b: once starts have failed START_DEADLINE_MS while work waits, the waiting tasks fail once
  *   with "The sandbox didn't start", the machine says so, and no start comes until the next wake.
  * - P3c: after SAVE_FAILURES_BEFORE_REASON failed saves or snapshots in a row the machine says it
- *   couldn't save its files; a save that works clears that, and the count.
+ *   couldn't save its files (or, past the start deadline, that it didn't start for it); a save that
+ *   works clears that, and the count.
  * - P3d: a good start clears the count of failed starts; no destroy throws away a disk R2 lacks.
  */
 
@@ -31,6 +32,9 @@ const TICK_MS = 60_000;
 const START_DEADLINE_MS = 10 * 60_000;
 
 const SAVE_FAILURES_BEFORE_REASON = 5;
+
+/** A reason that says the files aren't saving: the save's own, or a start that failed for it at the deadline. */
+const SAVES_FAIL = /(couldn't|didn't) save its files/;
 
 type Op = { readonly op: "newTask" | "turnEnd" | "fire" | "fireMany" | "startFails" | "saveFails" | "heal" | "wake" | "idle" };
 
@@ -80,6 +84,7 @@ const reasonOf = (run: Run) => inside("me", (agent) => agent.machines.machine(ru
 /** One alarm the platform fires, and what the model learns of it: a good start, or one more failure. */
 async function fire(run: Run): Promise<void> {
   const busy = run.open.length > 0;
+
   const { fired, now, wokeAt, up } = await onBox(run.id, async (instance, box) => {
     const went = await instance.fire();
 
@@ -118,6 +123,7 @@ const STEPS: Record<Op["op"], (run: Run) => Promise<void>> = {
   },
   async turnEnd(run) {
     const task = run.open[0];
+
     const wrote = await onBox(run.id, (_instance, box) => {
       if (!box.up || box.state !== "running") return false;
       box.disk = [...box.disk.split("\n").filter(Boolean), `m${run.next}`].join("\n");
@@ -173,6 +179,7 @@ async function holds(run: Run, where: string): Promise<void> {
     uploads: [...box.uploads],
     failures: await instance.failures()
   }));
+
   // A good start ends its segment just after it: the next start begins the next one.
   const resets = [0, ...seen.wokeAt, ...run.goodStarts.map((at) => at + 0.5)];
 
@@ -185,10 +192,10 @@ async function holds(run: Run, where: string): Promise<void> {
   const reason = await reasonOf(run);
   const trailing = seen.uploads.length - 1 - seen.uploads.findLastIndex((ok) => ok);
 
-  if (trailing >= SAVE_FAILURES_BEFORE_REASON) expect(reason ?? "", `P3c: the machine says its saves fail ${where}`).toContain("couldn't save its files");
+  if (trailing >= SAVE_FAILURES_BEFORE_REASON) expect(reason ?? "", `P3c: the machine says its saves fail ${where}`).toMatch(SAVES_FAIL);
 
   if (seen.uploads.at(-1) === true) {
-    expect(reason ?? "", `P3c: a save that works clears its reason ${where}`).not.toContain("couldn't save its files");
+    expect(reason ?? "", `P3c: a save that works clears its reason ${where}`).not.toMatch(SAVES_FAIL);
     expect(seen.failures.saves, `P3c: a save that works clears the count ${where}`).toBe(0);
   }
 
