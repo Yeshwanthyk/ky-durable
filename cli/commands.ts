@@ -7,7 +7,7 @@
 import { rm } from "node:fs/promises";
 import type { Unstable_RawConfig } from "wrangler";
 import { type Cloudflare, lacks, missingPermissions, ready } from "./cloudflare.ts";
-import { incomplete, merged, readOverlay } from "./config.ts";
+import { incomplete, mailAddress, merged, readOverlay } from "./config.ts";
 import { address, type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import { bold, dim, green, type Output, output, red } from "./output.ts";
 import type { Release } from "./release.ts";
@@ -54,7 +54,7 @@ export async function target(context: Context): Promise<{ target: Target; releas
   const cloudflare = await context.login();
 
   // Before anything changes: a login that can't do all of it would stop halfway.
-  await ready(cloudflare, String(overlay.account_id));
+  await ready(cloudflare, String(overlay.account_id), mailAddress(overlay));
 
   return { target: { cloudflare, config: merged(release, overlay), settings: context.overlay }, release };
 }
@@ -152,7 +152,7 @@ async function doctor(context: Context): Promise<Check[]> {
     return [config, { name: "Cloudflare login", ok: false, detail: error instanceof Error ? error.message : String(error), next: "ky login" }];
   }
 
-  const missing = await missingPermissions(cloudflare, String(overlay.account_id));
+  const missing = await missingPermissions(cloudflare, String(overlay.account_id), mailAddress(overlay));
 
   if (missing.length > 0) return [config, { name: "Cloudflare login", ok: false, detail: lacks(cloudflare.login, missing), next: "ky login" }];
 

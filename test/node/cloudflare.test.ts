@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { login } from "../../cli/cloudflare.ts";
 
 /**
- * The run's Cloudflare login: CLOUDFLARE_API_TOKEN, else wrangler's. A fake
- * `wrangler` on PATH says which token it would have used.
+ * The run's Cloudflare login: CLOUDFLARE_API_TOKEN, else the token `ky login` kept, else cf's, else
+ * wrangler's. A fake `wrangler` on PATH says which token it would have used; a fake `cf` is signed out
+ * unless the test writes its config.
  */
 
 let bin: string;
@@ -21,6 +22,12 @@ beforeEach(async () => {
   // `wrangler auth token` prints the env's token when it isn't empty, as wrangler does (a blank one counts), else its own login's.
   await writeFile(path.join(bin, "wrangler"), '#!/bin/sh\nif [ -n "$CLOUDFLARE_API_TOKEN" ]; then echo "env:$CLOUDFLARE_API_TOKEN"; else echo wrangler-token; fi\n');
   await chmod(path.join(bin, "wrangler"), 0o755);
+  // `cf auth whoami` names the file its OAuth token is in, when there is one.
+  await writeFile(
+    path.join(bin, "cf"),
+    `#!/bin/sh\nif [ -f "${bin}/cf.json" ]; then echo '{"authenticated":true,"authSource":"OAuth token from ${bin}/cf.json"}'; else echo '{"authenticated":false}'; fi\n`
+  );
+  await chmod(path.join(bin, "cf"), 0o755);
   process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
 });
 
@@ -85,6 +92,29 @@ describe("the Cloudflare login", () => {
     } finally {
       keptToken = undefined;
     }
+  });
+
+  it("is cf's, from the file `cf auth whoami` names, ahead of wrangler's and behind the token `ky login` kept", async () => {
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    await writeFile(path.join(bin, "cf.json"), JSON.stringify({ oauth_token: "cf-token", refresh_token: "r", expiration_time: "2099-01-01T00:00:00Z" }));
+
+    expect((await login(kept)).login).toBe("cf login");
+    expect(await authorization()).toBe("Bearer cf-token");
+
+    keptToken = "token-from-ky-login";
+
+    try {
+      expect((await login(kept)).login).toBe("ky login");
+    } finally {
+      keptToken = undefined;
+    }
+  });
+
+  it("is wrangler's when cf's file has no OAuth token", async () => {
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    await writeFile(path.join(bin, "cf.json"), JSON.stringify({ api_token: "old" }));
+
+    expect((await login(kept)).login).toBe("wrangler login");
   });
 
   it("is CLOUDFLARE_API_TOKEN's when it is set, without the space around it", async () => {

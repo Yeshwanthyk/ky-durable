@@ -19,13 +19,16 @@ brew install yeshwanthyk/ky/ky
 ky init
 ```
 
-`ky init` signs in to Cloudflare (`CLOUDFLARE_API_TOKEN`, the token `ky login` kept, or your `wrangler login`), asks which
+`ky init` signs in to Cloudflare (`CLOUDFLARE_API_TOKEN`, the token `ky login` kept, your `cf auth login`, or your
+`wrangler login`), asks which
 account, what to call the Worker and your email, and deploys ky behind Cloudflare Access so only you get in. If
 Zero Trust is off, it shows where to turn it on (the free plan is enough) and waits; if the account has no
 workers.dev subdomain, it asks for one. Then it opens ky.
 
-`wrangler login` can't manage Access, so for `ky deploy` and `ky upgrade` run `ky login` once: it opens the page
-that makes a token with everything a deploy needs, checks the token you paste has it, and keeps it (in the Keychain
+`cf auth login` (Cloudflare's [cf CLI](https://blog.cloudflare.com/cloudflare-cf-cli-launch/), `npm i -g cf`) grants
+everything a deploy needs, mail and the cloud machine included, and ky reads its token fresh each run. `wrangler login`
+can't manage Access, so without cf run `ky login` once for `ky deploy` and `ky upgrade`: it opens the page that makes a
+token with everything a deploy needs, checks the token you paste has it, and keeps it (in the Keychain
 on macOS, else `~/.config/ky/cloudflare-token`). `ky logout` forgets it.
 
 Without Homebrew, on macOS or Linux (arm64 or x64):
