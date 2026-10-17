@@ -9,7 +9,8 @@
  *   *    /port/...  a request to the runner's port, as `getTcpPort(8080).fetch` is; after a start
  *                   it refused, a 503 that says so with REFUSED_HEADER, which the stack's box
  *                   throws as Cloudflare's error; a save it was told to cut off (`cutSaves`) reaches
- *                   the runner, which stops, and its answer breaks off after the headers
+ *                   the runner, which stops, and its answer breaks off after the headers; while
+ *                   saves fail (`failSaves`), a save is a 500 that never reaches the runner
  *
  * What it changes from the env it is given: KY_URL is the harness's proxy, so a scenario can break
  * the runner's network; KY_GITHUB_PROXY is the stack's github.internal route, which the real
@@ -44,6 +45,12 @@ export type ContainerHost = {
   cutSaves: (count: number) => void;
   /** The saves cut off so far. */
   cutOff: () => number;
+  /** From now on, while `on`, answer every save with a 500 before it reaches the runner, which keeps running. */
+  failSaves: (on: boolean) => void;
+  /** The saves answered 500 so far. */
+  failedSaves: () => number;
+  /** Send the runner SIGTERM, as the platform does to stop a container, and wait for it to exit. */
+  terminate: () => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -78,6 +85,8 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
   let refused = 0;
   let cutting = 0;
   let cutOff = 0;
+  let failing = false;
+  let failedSaves = 0;
   /** Whether the last start was refused, so nothing runs and the port says why. */
   let unplaced = false;
 
@@ -152,6 +161,13 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       return;
     }
 
+    if (failing && request.method === "POST" && request.url === "/port/save") {
+      failedSaves++;
+      response.writeHead(500).end("the save failed");
+
+      return;
+    }
+
     const cut = cutsThis(request);
 
     const upstream = forward(
@@ -220,6 +236,19 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       cutting = count;
     },
     cutOff: () => cutOff,
+    failSaves: (on) => {
+      failing = on;
+    },
+    failedSaves: () => failedSaves,
+    terminate: async () => {
+      const child = box?.child;
+
+      if (!child || child.exitCode !== null || child.signalCode !== null) return;
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+
+      child.kill("SIGTERM");
+      await exited;
+    },
     close: async () => {
       await kill();
       await new Promise((resolve) => server.close(resolve));

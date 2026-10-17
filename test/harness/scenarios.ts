@@ -94,6 +94,13 @@ async function started(context: Context, name: string, input: string, from: Clie
   return id!;
 }
 
+/** Why the task list says the machine is unwell, if it does. */
+function reasonOf(context: Context, name: string): string | null {
+  const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
+
+  return (latest?.type === "tasks" && latest.machines.find((each) => each.name === name)?.reason) || null;
+}
+
 /** Whether the task list shows the machine online. */
 export function online(context: Context, name: string): boolean {
   const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
@@ -319,10 +326,10 @@ type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer 
 /**
  * The cloud machine for one scenario: its container on a fake host whose runner dials ky through a
  * proxy the scenario can break, git on a fake github.com, and GitHub set up in Settings with me/app.
- * It sleeps once idle `idleMs`, if given. The container starts when a task is sent to it; when the
+ * It sleeps once idle `idleMs`, and gives up on failing starts after `startDeadlineMs`, if given. The container starts when a task is sent to it; when the
  * scenario ends it is reset: stopped, and its save forgotten.
  */
-async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
+async function cloudMachine(context: Context, idleMs?: number, startDeadlineMs?: number): Promise<Cloud> {
   const logs = machine(CLOUD, context.dir);
   const proxy = await startProxy(context.url);
   const git = await serveGit(GITHUB_TOKEN);
@@ -349,7 +356,9 @@ async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
     // Awaited: sent and left, its removal can land after the next scenario's set-github and take its token.
     async () => void (await context.main.command({ type: "remove-subscription", kind: "github" }))
   );
-  const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }) });
+  const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }),
+    ...(startDeadlineMs !== undefined && { startDeadline: String(startDeadlineMs) })
+  });
 
   await testRoute(context, `/test/cloud-host?${query}`);
   const saved = JSON.stringify((await context.main.command({ type: "set-github", token: GITHUB_TOKEN, repos: ["me/app"] })).result);
@@ -1188,6 +1197,56 @@ export const SCENARIOS: Scenario[] = [
       await until("the third turn to finish", () => context.main.heard("sh exited 0: written-in-turn-2") || context.main.heard("No such file"), 60_000);
       check(context.main.heard("sh exited 0: written-in-turn-2"), "the new container had the file the second turn wrote");
       check(host.starts() === 2, `a new container started for the task, got ${host.starts()} starts`);
+    }
+  },
+  {
+    name: "cloud-start-keeps-failing",
+    expect: "pass",
+    about: "a sandbox whose every start is refused fails its waiting task once, at its start deadline, says why, and stops starting",
+    async run(context) {
+      const { host } = await cloudMachine(context, undefined, 12_000);
+      host.refuse(Infinity);
+      const task = await startTask(context, CLOUD, "[sh] echo never");
+      await status(context, task, "failed", 40_000);
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1 && failures[0]!.includes("didn't start"), `the task failed once with the start's reason, got ${JSON.stringify(failures)}`);
+      await until("the machine to say why", () => reasonOf(context, CLOUD)?.includes("didn't start") ?? false, 10_000);
+      const refused = host.refused();
+      // A start every 2s test tick within the 12s deadline, and one at it.
+      check(refused >= 2 && refused <= 8 && host.starts() === 0, `a bounded number of starts, got ${refused} refused and ${host.starts()} started`);
+      await sleep(6_000);
+      check(host.refused() === refused, `no start after it gave up, got ${host.refused()} refused`);
+    }
+  },
+  {
+    name: "cloud-save-keeps-failing",
+    expect: "pass",
+    about: "a sandbox whose saves keep failing says it couldn't save its files after five, keeps its container, and clears that once a save works",
+    async run(context) {
+      const { host } = await cloudMachine(context, 3_000);
+      const task = await startTask(context, CLOUD, "[sh] echo kept > kept.txt");
+      await status(context, task, "done", 60_000);
+      host.failSaves(true);
+      await until("the machine to say its saves fail", () => reasonOf(context, CLOUD)?.includes("couldn't save its files") ?? false, 60_000);
+      check(host.failedSaves() >= 5, `five saves failed first, got ${host.failedSaves()}`);
+      check(host.running() && host.starts() === 1, `its container still runs, never destroyed, got ${host.starts()} starts`);
+      host.failSaves(false);
+      await until("the cloud machine to sleep", () => !host.running(), 30_000);
+      await until("the reason to clear", () => reasonOf(context, CLOUD) === null, 10_000);
+    }
+  },
+  {
+    name: "cloud-sigterm-report",
+    expect: "pass",
+    about: "the cloud runner gets SIGTERM mid-task, as a container the platform stops does: the task fails saying the container was stopped",
+    async run(context) {
+      const { host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "[delay=30000] long work");
+      await status(context, task, "working", 60_000);
+      await host.terminate();
+      await until("the task to fail", () => context.main.history(task).some((entry) => entry.startsWith("failed")), 30_000);
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1 && failures[0]!.includes("container was stopped"), `the task failed saying the container was stopped, got ${JSON.stringify(failures)}`);
     }
   },
   {

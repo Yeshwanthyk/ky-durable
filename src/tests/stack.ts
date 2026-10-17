@@ -37,6 +37,14 @@ const CALLER_KEY = "test:github-machine";
 /** The test alarm's tick: a start that failed is tried again soon. */
 const TEST_TICK_MS = 2_000;
 
+/** Set by the harness: the tick, and how long starts may fail while work waits, in ms; else the tests' and production's. */
+const TICK_KEY = "test:tick-ms";
+
+const START_DEADLINE_KEY = "test:start-deadline-ms";
+
+/** Cloudflare's error for a start it refused (src/cloud.ts's NO_INSTANCE). */
+const NO_INSTANCE = "There is no container instance that can be provided";
+
 /** The fake host's mark on a start it refused (test/fakes/container.ts, which runs in node, not here). */
 const REFUSED_HEADER = "x-fake-refused";
 
@@ -109,15 +117,32 @@ export class FakeBox implements CloudBox {
   cutSaves = 0;
   /** The uploads cut off so far. */
   cuts = 0;
+  /** Starts are refused, as when Cloudflare has no instance to give: nothing comes up, and its port says so. */
+  refusing = false;
+  /** Every save and snapshot answers 500; a save stops the runner first, as the runner's own does. */
+  failSaves = false;
+  /** Each upload asked for, a save's or a snapshot's: whether it reached R2 whole. */
+  uploads: boolean[] = [];
+  /** The machine token each start was handed, in order. */
+  tokens: string[] = [];
+  /** When each start came, by `clock`. */
+  startedAt: number[] = [];
+  /** The time the starts are stamped with: the CloudMachine's clock, once a test sets it. */
+  clock: () => number = () => Date.now();
+  /** Whether the last start was refused. */
+  #unplaced = false;
 
   async running(): Promise<boolean> {
     return this.up;
   }
 
-  async start(): Promise<void> {
+  async start(env?: Record<string, string>): Promise<void> {
     this.starts++;
+    this.tokens.push(env?.KY_RUNNER_TOKEN ?? "");
+    this.startedAt.push(this.clock());
     await this.onStart?.();
-    this.up = true;
+    this.#unplaced = this.refusing;
+    this.up = !this.refusing;
     this.state = "waiting";
     this.disk = "";
   }
@@ -130,6 +155,13 @@ export class FakeBox implements CloudBox {
   }
 
   #upload(save: boolean): Response {
+    if (this.failSaves) {
+      this.uploads.push(false);
+
+      return new Response("the save failed", { status: 500 });
+    }
+
+    this.uploads.push(this.cutUploads === 0 && !(save && this.cutSaves > 0));
     const length = new TextEncoder().encode(this.disk).byteLength;
 
     if (this.cutUploads > 0 || (save && this.cutSaves > 0)) {
@@ -144,7 +176,7 @@ export class FakeBox implements CloudBox {
   }
 
   async fetch(path: string, init?: RequestInit): Promise<Response> {
-    if (!this.up) throw new Error("No container runs.");
+    if (!this.up) throw new Error(this.#unplaced ? NO_INSTANCE : "No container runs.");
 
     if (path === "/ping") return new Response(this.state);
 
@@ -199,12 +231,59 @@ export class CloudMachine extends ProductionCloudMachine {
   async primed(id: string, origin: string): Promise<void> {
     await this.wake(id, origin);
     await this.ctx.storage.deleteAlarm();
+    this.due = null;
+  }
+
+  /** How far the test moved the clock ahead of the real one. */
+  ahead = 0;
+  /** When the alarm `tick` dropped was booked for, by the clock; null with none booked. */
+  due: number | null = null;
+  /** The clock's time of each wake: new work, which starts the count of failed starts afresh. */
+  wokeAt: number[] = [];
+
+  override clock(): number {
+    return Date.now() + this.ahead;
+  }
+
+  override async wake(id: string, origin?: string): Promise<void> {
+    await super.wake(id, origin);
+    this.wokeAt.push(this.clock());
+
+    if (!(await this.ctx.storage.get<boolean>(HELD_KEY))) return;
+    // Held: no platform alarm comes, but `fire` runs the one the wake booked.
+    await this.ctx.storage.deleteAlarm();
+    this.due = Math.min(this.due ?? Infinity, this.clock());
   }
 
   /** Run the alarm once, now, and drop the next one it books: the test says when it comes. */
   async tick(): Promise<void> {
     await super.alarm();
+    this.due = await this.ctx.storage.getAlarm();
     await this.ctx.storage.deleteAlarm();
+  }
+
+  /** The platform fires the alarm `tick` dropped, at its time: the clock moves there first. False with none booked. */
+  async fire(): Promise<boolean> {
+    if (this.due === null) return false;
+    this.ahead += Math.max(0, this.due - this.clock());
+    this.due = null;
+    await this.tick();
+
+    return true;
+  }
+
+  /** Its consecutive failed saves, and failed starts since the last good one or wake. */
+  async failures(): Promise<{ saves: number; starts: number }> {
+    const starts = await this.ctx.storage.get<{ attempts: number }>("startFailures");
+
+    return { saves: (await this.ctx.storage.get<number>("saveFailures")) ?? 0, starts: starts?.attempts ?? 0 };
+  }
+
+  /** Tick every `tickMs`, and give up on failing starts after `startDeadlineMs`, from now on. */
+  async retime(tickMs: number, startDeadlineMs?: number): Promise<void> {
+    await this.ctx.storage.put(TICK_KEY, tickMs);
+
+    if (startDeadlineMs !== undefined) await this.ctx.storage.put(START_DEADLINE_KEY, startDeadlineMs);
   }
 
   /** From now on only `tick` runs the alarm: a wake, or a retry the platform would fire, does nothing. */
@@ -225,21 +304,34 @@ export class CloudMachine extends ProductionCloudMachine {
 
   /** Idle since `ms` ago, as the alarm counts it. */
   async idleFor(ms: number): Promise<void> {
-    await this.ctx.storage.put("idleSince", Date.now() - ms);
+    await this.ctx.storage.put("idleSince", this.clock() - ms);
   }
 
-  override async timing(idleMinutes: number | null): Promise<{ tickMs: number; idleMs: number }> {
-    return { tickMs: TEST_TICK_MS, idleMs: (await this.ctx.storage.get<number>(IDLE_KEY)) ?? (await super.timing(idleMinutes)).idleMs };
+  override async timing(idleMinutes: number | null): Promise<{ tickMs: number; idleMs: number; startDeadlineMs: number }> {
+    const production = await super.timing(idleMinutes);
+    const { storage } = this.ctx;
+
+    return {
+      tickMs: (await storage.get<number>(TICK_KEY)) ?? TEST_TICK_MS,
+      idleMs: (await storage.get<number>(IDLE_KEY)) ?? production.idleMs,
+      startDeadlineMs: (await storage.get<number>(START_DEADLINE_KEY)) ?? production.startDeadlineMs
+    };
   }
 
-  /** Use the fake container host at `host`, the fake github.com at `github`, and sleep after `idleMs` idle. */
-  async configure(host: string, github: string | null, idleMs: number | null): Promise<void> {
+  /**
+   * Use the fake container host at `host`, the fake github.com at `github`, sleep after `idleMs` idle,
+   * and give up on failing starts after `startDeadlineMs`.
+   */
+  async configure(host: string, github: string | null, idleMs: number | null, startDeadlineMs: number | null = null): Promise<void> {
     await this.ctx.storage.put(HOST_KEY, host);
 
     if (github) await this.ctx.storage.put(UPSTREAM_KEY, github);
 
     if (idleMs === null) await this.ctx.storage.delete(IDLE_KEY);
     else await this.ctx.storage.put(IDLE_KEY, idleMs);
+
+    if (startDeadlineMs === null) await this.ctx.storage.delete(START_DEADLINE_KEY);
+    else await this.ctx.storage.put(START_DEADLINE_KEY, startDeadlineMs);
   }
 
   /** Where the stack's github.internal route sends git: the fake github.com. */
@@ -975,13 +1067,13 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  // The cloud machine's fake container host (url), fake github.com (github) and idle time in ms (idle).
+  // The cloud machine's fake container host (url), fake github.com (github), idle time in ms (idle) and start deadline in ms (startDeadline).
   [
     "POST /test/cloud-host",
     async (_me, url, env) => {
       const { searchParams } = url;
 
-      await cloud(env, sandboxOf(url)).configure(searchParams.get("url") ?? "", searchParams.get("github"), searchParams.has("idle") ? Number(searchParams.get("idle")) : null);
+      await cloud(env, sandboxOf(url)).configure(searchParams.get("url") ?? "", searchParams.get("github"), searchParams.has("idle") ? Number(searchParams.get("idle")) : null, searchParams.has("startDeadline") ? Number(searchParams.get("startDeadline")) : null);
 
       return new Response(null, { status: 204 });
     }
