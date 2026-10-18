@@ -26,11 +26,11 @@
  *   resume   a follow-up to the task wakes it again, and the task answers from its first turn:
  *            the new container restored the Claude session that the sleep saved to R2 (a sleep
  *            whose save failed starts the next container empty, and the follow-up can't answer)
- *   crash    a turn writes a note to the home and ends; the next turn waits past two ticks and a
+ *   crash    a turn writes a note to ~/ky-work, the working folder a save keeps, and ends; the next turn waits past two ticks and a
  *            save, which the alarm's snapshot after a turn takes while it waits, then stops the
  *            container as the platform does (SIGTERM to the runner, PID 1). That turn ends with the
  *            stop's text, not as a restart; a third turn wakes a new container and reads the note,
- *            which only the snapshot had: no sleep saved the home after the note was written
+ *            which only the snapshot had: no sleep saved the folder after the note was written
  */
 import type { CloudState, MachineInfo } from "../src/protocol.ts";
 import { decodeNewChat } from "../src/tests/frames.ts";
@@ -268,11 +268,11 @@ async function resume(task: string): Promise<void> {
 }
 
 async function crash(task: string): Promise<void> {
-  const wrote = await followUp(task, `Run \`echo ${note} > ~/ky-live-note\` in the shell, then reply with exactly: written`);
+  const wrote = await followUp(task, `Run \`echo ${note} > ~/ky-work/ky-live-note\` in the shell, then reply with exactly: written`);
 
   if (wrote.status !== "done") fail(`the note's turn ended ${wrote.status}: ${wrote.summary}`);
 
-  // Sent at once, so the machine stays busy and no sleep saves the home: only the snapshot after the note's turn has it.
+  // Sent at once, so the machine stays busy and no sleep saves the folder: only the snapshot after the note's turn has it.
   const stopped = await followUp(
     task,
     `Run these commands in the shell, one per tool call, each in the foreground and never in the background, waiting for each to finish before the next: ${waitCommands(waits(SNAPSHOT_S))}, then \`kill -TERM 1\`. Then reply with exactly: stopped`
@@ -284,7 +284,7 @@ async function crash(task: string): Promise<void> {
   await when("the stopped container to leave running", () => state() !== "running", 2 * TICK_MS + SAVE_MS).catch(() =>
     fail(`still running ${seconds(2 * TICK_MS + SAVE_MS)} after the runner was stopped`)
   );
-  const read = await followUp(task, "Run `cat ~/ky-live-note` in the shell and reply with only what it printed.", "crash");
+  const read = await followUp(task, "Run `cat ~/ky-work/ky-live-note` in the shell and reply with only what it printed.", "crash");
 
   if (read.status !== "done") fail(`the read's turn ended ${read.status}: ${read.summary}`);
 
