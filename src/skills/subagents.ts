@@ -267,8 +267,7 @@ export function subagentExtension(
             session: String(runtime.conversationId),
             content: report,
             line: line ?? lineOf(reporter.input, summarize(report)),
-            ref: `task:${feedId}`,
-            label: labelOf(reporter.input)
+            ref: `task:${feedId}`
           });
         } else if (report !== undefined && wanted(feedId)) {
           const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");

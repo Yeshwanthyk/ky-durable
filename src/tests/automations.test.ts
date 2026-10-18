@@ -699,6 +699,29 @@ describe("automations", () => {
     expect(await reports(name, "Daily digest", chat)).toHaveLength(1);
     expect(await runs(name, id)).toHaveLength(2);
   });
+
+  it("reports while the user is away at boundary: an archived side chat comes back for it, and a deleted one's go to main", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => {
+      instance.proactivity.set("boundary");
+      instance.presence.seen(Date.now() - 2 * 3_600_000);
+    });
+    const chat = await inside(name, (instance) => instance.newChat());
+    const id = await create(name, {}, chat);
+
+    await inside(name, (instance) => instance.chats.archive(chat, true));
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await reports(name, "Daily digest", chat)).length > 0, "the archived side chat's report");
+    expect(await inside(name, (instance) => instance.chats.list().find((row) => row.session === chat)?.archived_at ?? null)).toBeNull();
+
+    // The side chat is gone: the next run reports to main.
+    await inside(name, (_instance, state) => state.storage.sql.exec("DELETE FROM ky_chats WHERE session = ?", chat));
+    await pause(1_100);
+    await runNow(name, id);
+    await until(async () => (await reports(name, "Daily digest", ROOT_SESSION)).length > 0, "the main chat's report");
+    expect(await reports(name, "Daily digest", chat)).toHaveLength(1);
+  });
 });
 
 /**
