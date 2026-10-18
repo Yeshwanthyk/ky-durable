@@ -119,6 +119,16 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Proactivity changes. A look reads that again after each await: turned off mid-look it posts and books nothing, and
   a watch whose anticipation closed while its gate was checked or while it was booked is not kept. A watch the user
   deletes dismisses its anticipation (`AutomationDeps.unwatched`), so no look books it again.
+- Pushes (`src/push.ts`): every post Delivery puts in a chat is also a Web Push to each device the user turned
+  notifications on for in Settings › Proactivity (`ky_push_devices`, one row an endpoint, sent over the socket).
+  The one hook is Delivery's flush: the flush that marks an item delivered hands it to `Pushes.notify` under
+  `waitUntil`, which never throws, tries each device once and drops one the push service answers 404 or 410 for.
+  The payload is encrypted per RFC 8291 (aes128gcm) and signed with VAPID (RFC 8292), both with WebCrypto and no
+  library; the VAPID P-256 key is made by the Vault on first need and never leaves it. At most the right-away
+  number (6 until changed, `ky_proactivity`) push a local day, counted in `ky_push_sent` by one atomic statement,
+  and only when a device took the push; past it a post still lands, quietly. `public/sw.js` shows the
+  notification and, on a click, focuses or opens ky at the post's chat. Backups skip `ky_push*`: a device turns
+  notifications on again.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
   looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)

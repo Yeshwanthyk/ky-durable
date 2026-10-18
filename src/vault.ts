@@ -1,9 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
+import Type from "typebox";
+import { decode, parseAs } from "./core/decode";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
 import type { ExecutorConnection } from "./executor";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
+import { base64url, fromBase64url, vapidToken } from "./push";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
 
@@ -26,6 +29,10 @@ import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
  *   to the `claude` CLI; the Vault never calls Anthropic with it. ChatGPT's
  *   is signed in with a device code the Vault's alarm polls for, and
  *   refreshed here; its refresh token never leaves the Vault.
+ *
+ * - ky's VAPID key pair signs its Web Push (src/push.ts): made the first
+ *   time it is needed, kept with the HMAC key, and never handed out; only
+ *   its public half and the tokens it signs leave the Vault.
  *
  * models.ts keeps the api-key providers' keys here. fallow follows no call
  * through a stub, the Worker's and the agent's included, so
@@ -69,6 +76,15 @@ type Stored = { readonly value: string; readonly generation: number };
 
 const encoder = new TextEncoder();
 
+/** A row of ky_vault_keys, as the VAPID key is read. */
+const KeyRow = Type.Object({ key: Type.String() });
+
+/** The VAPID private key as kept: a P-256 JWK. */
+const VapidJwk = Type.Object({ kty: Type.Literal("EC"), crv: Type.Literal("P-256"), x: Type.String(), y: Type.String(), d: Type.String() });
+
+/** The VAPID key pair: the private key to sign with, and the public one as browsers take it, base64url. */
+type Vapid = { readonly signer: CryptoKey; readonly publicKey: string };
+
 function hex(bytes: ArrayBuffer | Uint8Array): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -85,6 +101,8 @@ export class Vault extends DurableObject<Env> {
   readonly #issuing = new Map<string, Promise<string>>();
   /** The HMAC key reissued tokens are derived with, once read or made. */
   #key: Promise<CryptoKey> | undefined;
+  /** The VAPID key pair, once read or made. */
+  #vapid: Promise<Vapid> | undefined;
   /** The clock for updated_at and token expiry; tests move it. */
   now = (): number => Date.now();
   /** OpenAI, as ChatGPT's sign-in and refresh reach it; tests answer instead. */
@@ -354,6 +372,21 @@ export class Vault extends DurableObject<Env> {
     return {};
   }
 
+  /** ky's VAPID public key, base64url, which a browser subscribes to its pushes with. */
+  async vapidKey(): Promise<string> {
+    this.#vapid ??= this.#vapidKeys();
+
+    return (await this.#vapid).publicKey;
+  }
+
+  /** The Authorization header of a push to the push service at `audience` (RFC 8292), naming `subject` as ky's contact. */
+  async vapidAuth(audience: string, subject: string): Promise<string> {
+    this.#vapid ??= this.#vapidKeys();
+    const { signer, publicKey } = await this.#vapid;
+
+    return `vapid t=${await vapidToken(signer, audience, subject, this.now())}, k=${publicKey}`;
+  }
+
   /** A new token for `subject`, replacing its last one of this kind; without `ttlMs` it never expires. */
   async mint(kind: TokenKind, subject: string, ttlMs?: number): Promise<string> {
     if (ttlMs !== undefined && !(Number.isFinite(ttlMs) && ttlMs > 0)) {
@@ -494,6 +527,17 @@ export class Vault extends DurableObject<Env> {
     const bytes = Uint8Array.from(key.match(/../g)!, (pair) => Number.parseInt(pair, 16));
 
     return crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  }
+
+  /** The VAPID key pair, made the first time it is needed; of two made at once, the first stored wins. */
+  async #vapidKeys(): Promise<Vapid> {
+    const made = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+    this.#sql.exec("INSERT OR IGNORE INTO ky_vault_keys (name, key) VALUES ('vapid', ?)", JSON.stringify(await crypto.subtle.exportKey("jwk", made.privateKey)));
+    const { key } = decode(KeyRow, this.#sql.exec("SELECT key FROM ky_vault_keys WHERE name = 'vapid'").one(), "The VAPID key's row");
+    const jwk = parseAs(VapidJwk, key, "The VAPID key");
+    const signer = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+
+    return { signer, publicKey: base64url(Uint8Array.of(4, ...fromBase64url(jwk.x), ...fromBase64url(jwk.y))) };
   }
 
   async #refresh(

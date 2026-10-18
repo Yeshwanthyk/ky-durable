@@ -15,6 +15,9 @@ export { dreamCron, Dreaming } from "./dreaming";
 
 export { DreamLedger } from "./ledger";
 
+/** The user's local day, which Web Push counts its right-away posts by (src/push.ts). */
+export { localNow } from "./local-day";
+
 export { Looks } from "./looks";
 
 export { Memory } from "./memory";

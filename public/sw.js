@@ -5,6 +5,9 @@
 // the network is gone, where the view cache paints the last chat. Access's own
 // pages (its login redirect, and /cdn-cgi/access/ on ky's address) are never
 // cached: only the app's page is.
+//
+// It also shows what ky posts unasked as notifications (src/push.ts), and a
+// click on one opens its chat, in a ky window already open when there is one.
 
 const ASSETS = "ky-assets-v1";
 
@@ -83,3 +86,27 @@ async function prune() {
     if (!Number.isNaN(fetched) && fetched < oldest) await cache.delete(request);
   }
 }
+
+self.addEventListener("push", (event) => {
+  // src/push.ts sends lines: the title, the chat's address, then the text.
+  const [title = "ky", url = "/", ...text] = (event.data?.text() ?? "").split("\n");
+
+  event.waitUntil(self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window" });
+      const open = windows.find((each) => new URL(each.url).origin === self.location.origin);
+
+      if (!open) return self.clients.openWindow(url);
+      await open.focus();
+
+      return open.navigate(url);
+    })()
+  );
+});

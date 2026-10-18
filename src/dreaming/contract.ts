@@ -206,8 +206,11 @@ export const LOOK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 /** Look times a user may set, at most. */
 export const LOOK_TIMES = 4;
 
-/** Settings › Proactivity: the level, and the look times, earliest first. */
-const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema, looks: Type.Array(Type.String()) });
+/** Posts a day that may push to the user's devices, at most, as Settings › Proactivity sets it. */
+export const RIGHT_AWAY_MOST = 24;
+
+/** Settings › Proactivity: the level, the look times, earliest first, and how many posts a day push right away. */
+const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema, looks: Type.Array(Type.String()), rightAway: Type.Integer() });
 
 export type ProactivityView = Static<typeof ProactivityViewSchema>;
 

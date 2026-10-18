@@ -34,6 +34,7 @@ import { ASK_TTL_MS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
+import { Pushes } from "./push";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
@@ -243,9 +244,19 @@ export class PiAgent extends DurableObject<Env> {
     chat: (session) => this.isChat(session),
     delivered: (requestId) => this.deliveries.delivered(requestId)
   });
+  /** What ky posts unasked, as notifications on the user's devices. */
+  readonly pushes = new Pushes(this.ctx.storage.sql, {
+    vault: () => this.env.Vault.getByName("owner"),
+    zone: () => this.automations.checkIns().zone,
+    most: () => this.proactivity.rightAway(),
+    // A side chat by its name; the main chat, and one not named yet, as ky.
+    title: (session) => this.chats.list().find((chat) => chat.session === session)?.title || "ky",
+    origin: () => this.setup.origin()
+  });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
     surfaced: this.surfaced,
+    notify: (session, text) => this.pushes.notify(session, text),
     submit: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session);
 
@@ -452,6 +463,7 @@ export class PiAgent extends DurableObject<Env> {
     this.automations,
     this.presence,
     this.proactivity,
+    this.pushes,
     this.recall,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),

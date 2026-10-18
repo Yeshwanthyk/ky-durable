@@ -807,6 +807,27 @@ test("sets when ky looks over the day in Settings › Proactivity, and hides the
   await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["08:00", "13:00", "18:00"]);
 });
 
+test("sets how many posts a day notify right away in Settings › Proactivity, next to this device's notifications switch", async ({ page }) => {
+  await open(page);
+  await settings(page, "Proactivity");
+  const section = panel(page).locator("#settings-proactivity");
+  // This device's switch: the stack's page runs no service worker, so it can't subscribe here.
+  await expect(section.getByRole("switch", { name: /Notifications on this device/ })).toBeVisible();
+  const rightAway = section.getByLabel(/Right away, a day/);
+  await expect(rightAway).toHaveValue("6");
+
+  await rightAway.fill("3");
+  await page.reload();
+  await settings(page, "Proactivity");
+  await expect(rightAway).toHaveValue("3");
+
+  // Back to the default for the tests after.
+  await rightAway.fill("6");
+  await page.reload();
+  await settings(page, "Proactivity");
+  await expect(rightAway).toHaveValue("6");
+});
+
 test("lists last night's dream in Activity with its reasons, undoes a change, says why another can't be, and pins a skill", async ({ page }) => {
   await signIn(page);
   const tag = crypto.randomUUID().slice(0, 6);

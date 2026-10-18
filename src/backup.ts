@@ -57,6 +57,7 @@ import type { SecretStatus } from "./vault";
 const SKIPPED: ReadonlyArray<readonly [string, string]> = [
   ["ky_machine*", "machine pairings and their runs: each machine pairs again with the new deploy"],
   ["ky_providers", "model providers: their keys are in the Vault; a provider comes back when its key is added"],
+  ["ky_push*", "devices' notifications: their key is the Vault's, so each device turns notifications on again"],
   ["ky_history*", "chat search: rebuilt from the chats on restore"],
   ["cf_agents_jobs", "scheduled runs: automations and dreams are booked again on start"],
   ["computer_execution_runtime", "the workspace's sandboxes: started fresh"],
