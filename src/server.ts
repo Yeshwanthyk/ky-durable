@@ -21,7 +21,7 @@ import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed }
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
-import { History, startedBy } from "./history";
+import { History, turnPlacedBy } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -403,7 +403,7 @@ export class PiAgent extends DurableObject<Env> {
         chats: this.chats,
         latest: (session) => this.history.latest(session),
         deliver: (item) => this.deliveries.deliver(item),
-        startedBy: (session) => startedBy(this.ctx.storage.sql, session),
+        turn: (session) => turnPlacedBy(this.ctx.storage.sql, session),
         chat
       });
 

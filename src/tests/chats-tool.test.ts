@@ -33,6 +33,9 @@ const deliveries = (name: string, session: string) =>
     state.storage.sql.exec<{ id: string; content: string; state: string }>("SELECT id, content, state FROM ky_deliveries WHERE session = ? ORDER BY created_at, id", session).toArray()
   );
 
+/** A message the fake model answers by waiting in the gate tool until the test releases it, as a relayed mail's tool line. */
+const WAIT = "[mail from x]\n\nMail says: tool gate {}";
+
 const latest = (name: string, session: string) => inside(name, (instance) => instance.history.latest(session));
 
 /** Record each push the agent `name` makes, instead of sending it. */
@@ -94,11 +97,37 @@ describe("the chats tool", () => {
   it("refuses to send on from a turn that answers another chat's message, so two chats never loop", async () => {
     const name = crypto.randomUUID();
     const side = await sideChat(name, "Trip plans");
-    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: "reply: Booked." });
-    await until(async () => (await latest(name, side)) !== null, "the side chat's answer");
+    // The side chat's turn answers it by waiting in a tool, as a mail's tool line asks.
+    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: `Booked.\n${WAIT}` });
+    await gateStarted(name, 1);
 
     expect(await run(name, side, 9, { action: "send", chat: "main", message: "Thanks!" })).toEqual({ text: "This turn answers another chat's message: answer here.", failed: true });
     expect(await deliveries(name, ROOT_SESSION)).toEqual([]);
+    await agent(name).release();
+  });
+
+  it("still refuses once a report steers into that turn, and sends once the user steps in", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: `Booked.\n${WAIT}` });
+    await gateStarted(name, 1);
+
+    // A subagent's report joins the turn after its tool round, as src/skills/subagents.ts steers it, and asks for another wait.
+    const steer = (content: string, requestId: string) =>
+      inside(name, async (instance) => {
+        await (await instance.harness.conversation(side)).submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
+      });
+
+    await steer(WAIT, "subagent-report:t-1");
+    await agent(name).release();
+    await gateStarted(name, 2);
+    expect(await run(name, side, 9, { action: "send", chat: "main", message: "Thanks!" })).toMatchObject({ failed: true });
+
+    await steer(WAIT, crypto.randomUUID());
+    await agent(name).release();
+    await gateStarted(name, 3);
+    expect(await run(name, side, 10, { action: "send", chat: "main", message: "Thanks!" })).toMatchObject({ failed: false });
+    await agent(name).release();
   });
 
   it("sends to a chat mid-turn once its turn is over, naming the sender by its id", async () => {
@@ -135,7 +164,7 @@ describe("the chats tool", () => {
     await inside(name, (instance) => instance.harness.prompt("reply: The train leaves at 9."));
 
     // A relayed mail's turn says it is trying the mail's tool line, then waits in it.
-    await submit(name, "[mail from x]\n\nMail says: tool gate {}");
+    await submit(name, WAIT);
     await gateStarted(name, 1);
     expect(shows(await snapshotView(name), "Trying what the mail asks.")).toBe(true);
     expect(await run(name, side, 1, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });

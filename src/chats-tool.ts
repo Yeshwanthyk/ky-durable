@@ -3,6 +3,7 @@ import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Delivery } from "./automations/contract";
 import type { ChatList, ChatRow } from "./chats";
+import { isOwnRequest } from "./history";
 
 /**
  * chats: a chat's agent sees the user's other chats, the main one and the side chats not archived, and works
@@ -24,8 +25,8 @@ type ChatsParts = {
   /** ky's latest message with text in a chat; null before the first (History.latest). */
   readonly latest: (session: string) => string | null;
   readonly deliver: (item: Delivery) => Promise<void>;
-  /** The request id that started the chat's running turn (src/history.ts startedBy). */
-  readonly startedBy: (session: string) => string | undefined;
+  /** The request ids that placed the user entries of the chat's running turn, oldest first (src/history.ts turnPlacedBy). */
+  readonly turn: (session: string) => ReadonlyArray<string | undefined>;
   /** The main chat or a side chat, as against a subagent or a seat. */
   readonly chat: (session: string) => boolean;
 };
@@ -58,13 +59,23 @@ function last(parts: ChatsParts, to: Listed): Reply {
 }
 
 /**
+ * Whether the running turn answers another chat's message: one is in it, and the user has not written since.
+ * A report from a background subagent that starts a turn of its own after that one is over is not caught.
+ */
+function answersChat(turn: ReadonlyArray<string | undefined>): boolean {
+  const sent = turn.findLastIndex((request) => request?.startsWith(SENT) === true);
+
+  return sent !== -1 && !turn.slice(sent + 1).some(isOwnRequest);
+}
+
+/**
  * Hand `to` the message as a chat delivery, keyed by the tool call's task, so however often the call runs it goes
  * in once. A turn that answers another chat's message sends nothing on, so two chats never talk in a loop.
  */
 async function send(parts: ChatsParts, to: Listed, from: string, task: number, text = ""): Promise<Reply> {
   const message = text.trim();
 
-  if (parts.startedBy(from)?.startsWith(SENT) === true) return reply("This turn answers another chat's message: answer here.", true);
+  if (answersChat(parts.turn(from))) return reply("This turn answers another chat's message: answer here.", true);
 
   if (to.session === from) return reply("That is this chat: answer here instead.", true);
 
