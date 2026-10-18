@@ -7,8 +7,8 @@ import { spawn } from "node:child_process";
 import { lstat, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
+import { finished, pipeline } from "node:stream/promises";
+import { createGunzip, createGzip } from "node:zlib";
 
 /** Why tar ended: its exit code, and its error output for a message. */
 function ended(child: ReturnType<typeof spawn>): Promise<{ code: number | null; stderr: string }> {
@@ -25,24 +25,28 @@ function ended(child: ReturnType<typeof spawn>): Promise<{ code: number | null; 
 }
 
 /**
- * A tar.gz of `folders`, relative to `home`, without `excluded`, as tar writes it. The stream fails
- * if tar does, so whoever reads it never takes a cut archive for a whole one. Exit 1 is accepted:
- * a file changed as tar read it, as a task still running writes; the archive is whole.
+ * A tar.gz of `folders`, relative to `home`, without `excluded`: tar writes the tar, Node gzips it, so
+ * the save is the same bytes under GNU tar and bsdtar (whose own `-z` pads its gzip with zeros to a
+ * 10 KiB block). The stream fails if tar or gzip does, so whoever reads it never takes a cut archive
+ * for a whole one. Exit 1 is accepted: a file changed as tar read it, as a task still running writes;
+ * the archive is whole.
  */
 export function pack(home: string, folders: readonly string[], excluded: readonly string[]): Readable {
-  const args = ["-cz", ...excluded.map((each) => `--exclude=${each}`), "-C", home, ...folders];
+  const args = ["-c", ...excluded.map((each) => `--exclude=${each}`), "-C", home, ...folders];
   const out = new PassThrough();
   const child = spawn("tar", args, { stdio: ["ignore", "pipe", "pipe"] });
+  const gzip = createGzip();
 
-  child.stdout.pipe(out, { end: false });
-  // tar's output has all reached `out` by its close, which comes after its stdout's end.
-  ended(child).then(
-    ({ code, stderr }) => (code === 0 || code === 1 ? out.end() : out.destroy(new Error(`tar ${args.join(" ")} exited ${code}: ${stderr}`))),
+  child.stdout.pipe(gzip).pipe(out, { end: false });
+  // All of gzip's output has reached `out` by its end, which comes after tar's stdout ends.
+  Promise.all([ended(child), finished(gzip)]).then(
+    ([{ code, stderr }]) => (code === 0 || code === 1 ? out.end() : out.destroy(new Error(`tar ${args.join(" ")} exited ${code}: ${stderr}`))),
     (error: Error) => out.destroy(error)
   );
   // A reader gone: tar has no one to write to.
   out.on("close", () => {
     if (child.exitCode === null) child.kill();
+    gzip.destroy();
   });
 
   return out;
