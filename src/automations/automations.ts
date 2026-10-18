@@ -119,7 +119,12 @@ export type AutomationDeps = {
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
+  /** The user deleted the watch for this anticipation: it is dismissed, so no look books it again. */
+  readonly unwatched: (anticipation: number) => void;
 };
+
+/** A check-in's run, or a watch's: read only, and saying nothing when nothing is new. */
+const isCheckIn = (row: AutomationRow) => row.created_by === "dream" || row.watch !== null;
 
 /** A look's booking: its local HH:MM. */
 const LookFire = Type.Object({ time: Type.String() });
@@ -301,9 +306,9 @@ export class Automations {
     return Promise.all(rows.map((row) => this.#view(row)));
   }
 
-  /** The looks' watches (src/dreaming/looks.ts): each automation booked for a watch anticipation, and its id. */
-  watches(): Array<{ readonly id: string; readonly watch: number }> {
-    return this.#rows("SELECT * FROM ky_automations WHERE watch IS NOT NULL").flatMap((row) => (row.watch === null ? [] : [{ id: row.id, watch: row.watch }]));
+  /** The looks' watches (src/dreaming/looks.ts): each automation booked for a watch anticipation, its id and status. */
+  watches(): Array<{ readonly id: string; readonly watch: number; readonly status: AutomationStatus }> {
+    return this.#rows("SELECT * FROM ky_automations WHERE watch IS NOT NULL").flatMap(({ id, watch, status }) => (watch === null ? [] : [{ id, watch, status }]));
   }
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
@@ -338,13 +343,15 @@ export class Automations {
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
   }
 
-  /** Whether the pi session is a check-in's run at work. */
+  /** Whether the pi session is a check-in's or a watch's run at work. */
   checkInRun(session: string): boolean {
     const task = this.#deps.feed.working(session);
 
     if (!task?.source.startsWith(SOURCE)) return false;
 
-    return this.get(task.source.slice(SOURCE.length))?.created_by === "dream";
+    const row = this.get(task.source.slice(SOURCE.length));
+
+    return row !== undefined && isCheckIn(row);
   }
 
   /** A new active automation, booked; or why it was refused. `watch` is the watch anticipation a look books it for. */
@@ -475,16 +482,29 @@ export class Automations {
     return `Resumed "${row.title}".`;
   }
 
-  /** Gone for good: no more fires, the run in progress stops, and the row is removed. Its past runs stay in Activity. */
+  /**
+   * Gone for good: no more fires, the run in progress stops, and the row is removed. Its past runs stay in Activity.
+   * A watch the user deletes dismisses its anticipation, so no look books it again.
+   */
   async delete(id: string): Promise<string> {
     const row = this.get(id);
 
     if (!row) return `No automation ${id}.`;
+    await this.retire(id);
+
+    if (row.watch !== null) this.#deps.unwatched(row.watch);
+
+    return `Deleted "${row.title}".`;
+  }
+
+  /** Gone for good as delete has it, but by ky: a look's watch (src/dreaming/looks.ts), its anticipation left as it is. */
+  async retire(id: string): Promise<void> {
+    const row = this.get(id);
+
+    if (!row) return;
     await this.#halt(row, "archived");
     this.#sql.exec("DELETE FROM ky_automations WHERE id = ?", id);
     this.#emit();
-
-    return `Deleted "${row.title}".`;
   }
 
   /** Back to paused, so resuming it is a separate choice. */
@@ -767,7 +787,7 @@ export class Automations {
 
         if (runs[row.id]?.task === task) return;
         runs[row.id] = { slot, task };
-        const checkIn = row.created_by === "dream";
+        const checkIn = isCheckIn(row);
         await runtime.spawn(tx, conversationOf(chat), {
           name: workerOf(row.id),
           message: checkIn ? `${CHECK_IN}${row.prompt}` : row.prompt,

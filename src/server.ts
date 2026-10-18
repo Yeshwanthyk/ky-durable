@@ -209,7 +209,10 @@ export class PiAgent extends DurableObject<Env> {
     },
     dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
-    peers: () => this.sweepPeers()
+    peers: () => this.sweepPeers(),
+    unwatched: (id) => {
+      if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
+    }
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */

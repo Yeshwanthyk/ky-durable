@@ -23,9 +23,10 @@ import type { Surfaced } from "./surfaced";
  *
  * A row on an open watch anticipation may carry a gate and a prompt: a watch, booked after the look as ky's own gated
  * automation every 15 minutes that reports to the main chat (src/automations/automations.ts), so a fire runs only when
- * the gate's answer changed. At most WATCHES are live and NEW_WATCHES come from one look. Each is deleted once its
- * anticipation is no longer an open watch, at the next look and whenever an anticipation closes, and all of them when
- * Proactivity is turned off.
+ * the gate's answer changed, and runs as a check-in does: read only, and saying nothing when nothing is new. At most
+ * WATCHES are active and NEW_WATCHES come from one look; an anticipation has one, whatever its status. Each is deleted
+ * once its anticipation is no longer an open watch, at the next look and whenever an anticipation closes, and all of
+ * them when Proactivity is turned off; one the user deletes dismisses its anticipation (src/server.ts).
  */
 
 /** What was said lately that a look reads. */
@@ -161,6 +162,8 @@ export class Looks {
 
     // Each a millisecond apart, so they are posted in decide's order.
     for (const [index, row] of decide(rows, { now, next, known, said }).entries()) {
+      // Turned off while the look ran, or while an earlier post waited for the chat: nothing more is said.
+      if (this.#parts.proactivity.level() === "off") return;
       const message = row.message ?? "";
       await this.#parts.deliver({ id: `${prefix}:${row.ref}`, session: ROOT_SESSION, content: message, line: message, ref: row.ref, kind: "look" }, now + index);
     }
@@ -168,10 +171,10 @@ export class Looks {
 
   /** Delete each watch whose anticipation is no longer an open watch, or every one while Proactivity is off. */
   async retire(): Promise<void> {
-    const open = this.#parts.proactivity.level() === "off" ? new Set<number>() : new Set(this.#openWatches().map((row) => row.id));
+    const open = new Set(this.#openWatches().map((row) => row.id));
 
     for (const each of this.#parts.automations.watches()) {
-      if (!open.has(each.watch)) await this.#parts.automations.delete(each.id);
+      if (!open.has(each.watch)) await this.#parts.automations.retire(each.id);
     }
   }
 
@@ -179,25 +182,38 @@ export class Looks {
   async #watch(rows: readonly LookRow[]): Promise<void> {
     await this.retire();
     const { automations } = this.#parts;
-    const open = new Map(this.#openWatches().map((row) => [`anticipation:${row.id}`, row]));
-    const watched = new Set(automations.watches().map((each) => `anticipation:${each.watch}`));
+    const watches = automations.watches();
+    const watchable = new Set(this.#openWatches().map((row) => `anticipation:${row.id}`));
+    const watched = new Set(watches.map((each) => `anticipation:${each.watch}`));
+    const live = watches.filter((each) => each.status === "active").length;
 
-    for (const row of newWatches(rows, new Set(open.keys()), watched)) {
-      const anticipation = open.get(row.ref);
-
+    for (const row of newWatches(rows, watchable, watched, live)) {
       // A gate that fails now would fail its fires too, and pause its automation.
-      if (anticipation === undefined || (await automations.checkGate(row.gate)).kind === "error") continue;
+      const failed = (await automations.checkGate(row.gate)).kind === "error";
+      // Read after the check: closed, or Proactivity off, while it ran books none.
+      const anticipation = this.#openWatch(row.ref);
+
+      if (failed || anticipation === undefined) continue;
       const title = `Watch: ${anticipation.text.slice(0, WATCH_TITLE_CHARS)}`;
       const draft = { title, prompt: row.prompt, cron: WATCH_CRON, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: row.gate };
       const made = await automations.create(draft, "ky", anticipation.id);
 
       if (isRefusal(made)) console.warn("watch not booked", made.refused);
+      // Closed, or Proactivity off, while it was booked: its retire came too early to see it. No await between the two.
+      else if (this.#openWatch(row.ref) === undefined) await automations.retire(made.id);
     }
   }
 
-  /** The open anticipations of kind watch. */
+  /** The open anticipations of kind watch; none while Proactivity is off, so nothing is watched then. */
   #openWatches(): Anticipation[] {
+    if (this.#parts.proactivity.level() === "off") return [];
+
     return this.#parts.anticipations.open().filter((row) => row.kind === "watch");
+  }
+
+  /** The open watch anticipation `ref` names, if it is one. */
+  #openWatch(ref: string): Anticipation | undefined {
+    return this.#openWatches().find((row) => `anticipation:${row.id}` === ref);
   }
 
   /** Whether `ref` names a memory there is: memory:<id> of a note in the log. */

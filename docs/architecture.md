@@ -111,10 +111,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   A row on an open watch anticipation may also carry a gate and a prompt: a watch, for what must be checked more
   often than the looks. After the look, code (not the model) books each as ky's own gated automation, `*/15 * * * *`,
   reporting to the main chat, with `ky_automations.watch` holding the anticipation's id, so its fires post only when
-  the gate's answer changed, through the usual report path. `newWatches` in `decide.ts` keeps at most 2 new a look and 5
-  live; a gate that fails its first check is not booked. `Looks.retire` deletes each watch whose anticipation is no
-  longer an open watch, and every one while Proactivity is off: at each look, when an anticipation closes
-  (`Anticipations.onClose`) and when Proactivity changes.
+  the gate's answer changed, through the usual report path. A watch's run is a check-in's (read-only tools, the
+  `[check-in]` preamble, nothing posted when nothing is new). `newWatches` in `decide.ts` keeps at most 2 new a look and
+  5 active (a paused or archived one still keeps its anticipation from a second); a gate that fails its first check is
+  not booked. While Proactivity is off there are no open watches, so `Looks.retire` deletes each watch whose
+  anticipation is no longer an open watch: at each look, when an anticipation closes (`Anticipations.onClose`) and when
+  Proactivity changes. A look reads that again after each await: turned off mid-look it posts and books nothing, and
+  a watch whose anticipation closed while its gate was checked or while it was booked is not kept. A watch the user
+  deletes dismisses its anticipation (`AutomationDeps.unwatched`), so no look books it again.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
   looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)
