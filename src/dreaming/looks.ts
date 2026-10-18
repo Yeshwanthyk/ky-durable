@@ -1,10 +1,11 @@
 import { ROOT_SESSION } from "agents/harness/pi";
-import type { Delivery } from "../automations/contract";
+import type { Automations, Delivery } from "../automations/contract";
+import { isRefusal } from "../core/refusal";
 import { type History, wroteSince } from "../history";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
-import { countOf } from "./contract";
-import { decide, type LookRow, lookRows, SAID_QUIET_MS } from "./decide";
+import { type Anticipation, countOf } from "./contract";
+import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS } from "./decide";
 import { MEMORIES_DISAGREE } from "./dreaming";
 import { localCron, localNow } from "./local-day";
 import type { Proactivity } from "./proactivity";
@@ -19,6 +20,12 @@ import type { Surfaced } from "./surfaced";
  * posted in the main chat as ky's own message, as written, through Delivery (src/automations/delivery.ts), which
  * waits for the chat to be idle and starts no turn. Each post is a surfaced row of kind look: what later looks
  * know was said. It shows in Activity like a dream, and its rows are its answer there.
+ *
+ * A row on an open watch anticipation may carry a gate and a prompt: a watch, booked after the look as ky's own gated
+ * automation every 15 minutes that reports to the main chat (src/automations/automations.ts), so a fire runs only when
+ * the gate's answer changed. At most WATCHES are live and NEW_WATCHES come from one look. Each is deleted once its
+ * anticipation is no longer an open watch, at the next look and whenever an anticipation closes, and all of them when
+ * Proactivity is turned off.
  */
 
 /** What was said lately that a look reads. */
@@ -28,6 +35,12 @@ const SAID_CHARS = 12_000;
 
 /** Posts of earlier looks a look is shown, at most. */
 const SHOWN_POSTS = 20;
+
+/** How often a watch checks. */
+const WATCH_CRON = "*/15 * * * *";
+
+/** The most of a watch anticipation's text its automation's title keeps. */
+const WATCH_TITLE_CHARS = 60;
 
 const LOOK_PROMPT = `[look] You are ky taking a look over the user's day, a background run at one of their look times. Nobody reads your answer but the Activity panel; what you decide to say, ky posts in the main chat as written.
 
@@ -44,6 +57,7 @@ Answer with only a JSON array, one row for each needed thing you weighed:
 - prepare: something the user will need ready before by: message holds it drafted in full.
 - skip: nothing worth saying now; no message.
 - message: the whole message as ky would say it in the chat: natural and short, no preamble, no ref or #id.
+- gate and prompt, only on the row of an open watch anticipation not watched already, and only when it must be checked more often than the looks (a PR's CI, a delivery, a reply to a mail, a price): ky then checks it every 15 minutes until the anticipation closes. gate is a read-only Executor program body, as executor_execute takes, that returns the state watched (the CI's status, the tracking line), or null when there is none yet; a check runs only when that differs from the last. prompt is what a run, knowing only it and what the gate returned, tells the user. No gate, no watch.
 
 For example:
 - A cold, wet morning, and a memory that Kai, the user's son, walks to school: tell, "Cold and wet this morning, 4°C until noon. Kai: warm jacket."
@@ -74,6 +88,8 @@ type LookParts = {
   /** The user's time zone; null while unknown, when looks run in UTC. */
   readonly zone: () => string | null;
   readonly deliver: (item: Delivery, now: number) => Promise<void>;
+  /** Where watches are booked. */
+  readonly automations: Automations;
 };
 
 export class Looks {
@@ -107,7 +123,9 @@ export class Looks {
       const answer = await this.#ask(time, now, next);
 
       if (answer === undefined) return;
-      await this.#post(`look:${local.date}:${time}`, lookRows(answer), open, next === undefined ? null : now + next.ahead * 60_000);
+      const rows = lookRows(answer);
+      await this.#post(`look:${local.date}:${time}`, rows, open, next === undefined ? null : now + next.ahead * 60_000);
+      await this.#watch(rows);
     } catch (error) {
       console.warn("look failed", error);
     } finally {
@@ -124,7 +142,8 @@ export class Looks {
       `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
       ...section("Open anticipations, oldest first:", anticipations.open().map((row) => anticipationLine(row, now))),
       ...section('What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):', history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines),
-      ...section("Said already, by the looks of the last two days:", surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS).map((post) => `- ${post.text}`))
+      ...section("Said already, by the looks of the last two days:", surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS).map((post) => `- ${post.text}`)),
+      ...section("Watched already, every 15 minutes:", this.#parts.automations.watches().map((each) => `- #${each.watch}`))
     ].join("\n");
 
     const run = `look-${crypto.randomUUID()}`;
@@ -145,6 +164,40 @@ export class Looks {
       const message = row.message ?? "";
       await this.#parts.deliver({ id: `${prefix}:${row.ref}`, session: ROOT_SESSION, content: message, line: message, ref: row.ref, kind: "look" }, now + index);
     }
+  }
+
+  /** Delete each watch whose anticipation is no longer an open watch, or every one while Proactivity is off. */
+  async retire(): Promise<void> {
+    const open = this.#parts.proactivity.level() === "off" ? new Set<number>() : new Set(this.#openWatches().map((row) => row.id));
+
+    for (const each of this.#parts.automations.watches()) {
+      if (!open.has(each.watch)) await this.#parts.automations.delete(each.id);
+    }
+  }
+
+  /** Retire what no longer needs watching, then book the watches newWatches picks of `rows` whose gate runs. */
+  async #watch(rows: readonly LookRow[]): Promise<void> {
+    await this.retire();
+    const { automations } = this.#parts;
+    const open = new Map(this.#openWatches().map((row) => [`anticipation:${row.id}`, row]));
+    const watched = new Set(automations.watches().map((each) => `anticipation:${each.watch}`));
+
+    for (const row of newWatches(rows, new Set(open.keys()), watched)) {
+      const anticipation = open.get(row.ref);
+
+      // A gate that fails now would fail its fires too, and pause its automation.
+      if (anticipation === undefined || (await automations.checkGate(row.gate)).kind === "error") continue;
+      const title = `Watch: ${anticipation.text.slice(0, WATCH_TITLE_CHARS)}`;
+      const draft = { title, prompt: row.prompt, cron: WATCH_CRON, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: row.gate };
+      const made = await automations.create(draft, "ky", anticipation.id);
+
+      if (isRefusal(made)) console.warn("watch not booked", made.refused);
+    }
+  }
+
+  /** The open anticipations of kind watch. */
+  #openWatches(): Anticipation[] {
+    return this.#parts.anticipations.open().filter((row) => row.kind === "watch");
   }
 
   /** Whether `ref` names a memory there is: memory:<id> of a note in the log. */

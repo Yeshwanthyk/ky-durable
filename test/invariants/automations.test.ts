@@ -45,6 +45,7 @@ const automation = {
   gate_checked_at: null,
   gate_note: null,
   gate_errors: 0,
+  watch: null,
   created_by: "user",
   status: "active",
   schedule_id: null,

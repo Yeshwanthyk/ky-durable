@@ -108,6 +108,13 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   would be too late.
   Each goes to the main chat through Delivery as ky's own message, as written (a `ky.look` entry written between
   turns, starting none), once by `look:<date>:<time>:<ref>`, and is a `ky_surfaced` row of kind look.
+  A row on an open watch anticipation may also carry a gate and a prompt: a watch, for what must be checked more
+  often than the looks. After the look, code (not the model) books each as ky's own gated automation, `*/15 * * * *`,
+  reporting to the main chat, with `ky_automations.watch` holding the anticipation's id, so its fires post only when
+  the gate's answer changed, through the usual report path. `newWatches` in `decide.ts` keeps at most 2 new a look and 5
+  live; a gate that fails its first check is not booked. `Looks.retire` deletes each watch whose anticipation is no
+  longer an open watch, and every one while Proactivity is off: at each look, when an anticipation closes
+  (`Anticipations.onClose`) and when Proactivity changes.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
   looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)

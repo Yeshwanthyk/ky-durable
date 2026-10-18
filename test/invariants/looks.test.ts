@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { decide, LOOK_POSTS, type LookContext, type LookRow, lookRows, SAID_QUIET_MS, type SaidRef } from "../../src/dreaming/decide";
+import { decide, LOOK_POSTS, type LookContext, type LookRow, lookRows, NEW_WATCHES, newWatches, SAID_QUIET_MS, type SaidRef, WATCHES } from "../../src/dreaming/decide";
 
 /**
  * What a look posts (src/dreaming/decide.ts), over generated rows and pasts. Whatever the rows say:
@@ -13,7 +13,9 @@ import { decide, LOOK_POSTS, type LookContext, type LookRow, lookRows, SAID_QUIE
  *   those rules picks;
  * - posting is idempotent: the same rows, with what was just posted marked said now, say none of it again unless
  *   the user replied;
- * - a look's answer reads back as its rows, fenced or not, and rows that are not rows are dropped.
+ * - a look's answer reads back as its rows, fenced or not, and rows that are not rows are dropped;
+ * - the watches a look books are rows with a gate and a prompt on a watch anticipation not watched yet, one per ref,
+ *   at most NEW_WATCHES, never past WATCHES live, and as many as that allows.
  */
 
 const NOW = 1_800_000_000_000;
@@ -177,5 +179,46 @@ describe("what a look posts", () => {
     );
     expect(lookRows("NOTHING")).toEqual([]);
     expect(lookRows("[not json]")).toEqual([]);
+  });
+});
+
+/** A row that may ask for a watch: a gate and a prompt, blank or missing too. */
+const aWatchRow: fc.Arbitrary<LookRow> = fc.record(
+  {
+    ref: fc.constantFrom(...REFS),
+    needed: fc.constant("n"),
+    current: fc.constant("c"),
+    action: fc.constantFrom("tell" as const, "skip" as const),
+    gate: fc.constantFrom("", " ", 'answer "pending"', "answer null"),
+    prompt: fc.constantFrom("", "\n", "Say how CI went.")
+  },
+  { requiredKeys: ["ref", "needed", "current", "action"] }
+);
+
+const anticipations: readonly string[] = REFS.filter(isAnticipation);
+
+/** Watched refs: some anticipations, or more than WATCHES of made-up ones. */
+const aWatched = fc.oneof(
+  fc.subarray([...anticipations]),
+  fc.integer({ min: 0, max: WATCHES + 1 }).map((n) => Array.from({ length: n }, (_, index) => `anticipation:${100 + index}`))
+);
+
+describe("the watches a look books", () => {
+  it("are rows with a gate and a prompt on a watch not watched yet, one per ref, two a look, five at most, and as many as that allows", () => {
+    fc.assert(
+      fc.property(fc.array(aWatchRow, { maxLength: 10 }), fc.subarray([...anticipations]), aWatched, (rows, watchable, watchedRefs) => {
+        const watched = new Set(watchedRefs);
+        const booked = newWatches(rows, new Set(watchable), watched);
+        const wanted = rows.filter((row) => row.gate?.trim() && row.prompt?.trim() && watchable.includes(row.ref) && !watched.has(row.ref));
+        const refs = [...new Set(wanted.map((row) => row.ref))];
+
+        expect(booked.map((row) => row.ref)).toEqual(refs.slice(0, Math.max(0, Math.min(NEW_WATCHES, WATCHES - watched.size))));
+
+        for (const row of booked) expect(rows).toContain(row);
+        expect(booked.length).toBeLessThanOrEqual(NEW_WATCHES);
+        expect(watched.size + booked.length).toBeLessThanOrEqual(Math.max(WATCHES, watched.size));
+      }),
+      { numRuns: 500 }
+    );
   });
 });

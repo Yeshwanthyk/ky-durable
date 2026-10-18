@@ -17,10 +17,16 @@ const LookRowSchema = Type.Object({
   current: Type.String(),
   action: Type.Union([Type.Literal("tell"), Type.Literal("prepare"), Type.Literal("skip")]),
   by: Type.Optional(Type.String()),
-  message: Type.Optional(Type.String())
+  message: Type.Optional(Type.String()),
+  gate: Type.Optional(Type.String()),
+  prompt: Type.Optional(Type.String())
 });
 
+/** A row's `gate` and `prompt` ask for a watch on its watch anticipation: the gate's read-only Executor program, and what a fire tells the user. */
 export type LookRow = Static<typeof LookRowSchema>;
+
+/** A row that asks for a watch, with both. */
+export type WatchRow = LookRow & { readonly gate: string; readonly prompt: string };
 
 /** A ref a look posted before: when, whether the user wrote in the main chat since, and whether its anticipation is still open. */
 export type SaidRef = { readonly at: number; readonly replied: boolean; readonly open: boolean };
@@ -68,6 +74,24 @@ export function decide(rows: readonly LookRow[], context: LookContext): LookRow[
   const ordered = [...wanted.filter((row) => row.action === "prepare"), ...wanted.filter((row) => row.action === "tell")];
 
   return ordered.filter((row, index) => ordered.findIndex((other) => other.ref === row.ref) === index).slice(0, LOOK_POSTS);
+}
+
+/** Watches live at once, at most, and new from one look. */
+export const WATCHES = 5;
+
+export const NEW_WATCHES = 2;
+
+const isWatch = (row: LookRow): row is WatchRow => (row.gate ?? "").trim() !== "" && (row.prompt ?? "").trim() !== "";
+
+/**
+ * The watches a look books, in its rows' order: a row with a gate and a prompt on a ref in `watchable` (an open watch
+ * anticipation) that is not `watched` already, one per ref, at most NEW_WATCHES and only while fewer than WATCHES are
+ * live. The rest wait for a later look.
+ */
+export function newWatches(rows: readonly LookRow[], watchable: ReadonlySet<string>, watched: ReadonlySet<string>): WatchRow[] {
+  const wanted = rows.filter(isWatch).filter((row) => watchable.has(row.ref) && !watched.has(row.ref));
+
+  return wanted.filter((row, index) => wanted.findIndex((other) => other.ref === row.ref) === index).slice(0, Math.max(0, Math.min(NEW_WATCHES, WATCHES - watched.size)));
 }
 
 const Rows = Type.Array(Type.Unknown());

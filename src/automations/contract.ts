@@ -66,6 +66,7 @@ const StoredAutomation = Type.Object({
   gate_checked_at: Nullable(Type.Number()),
   gate_note: Nullable(Type.String()),
   gate_errors: Type.Number(),
+  watch: Nullable(Type.Integer()),
   created_by: AuthorSchema,
   status: AutomationStatusSchema,
   schedule_id: Nullable(Type.String()),
@@ -79,7 +80,8 @@ const StoredAutomation = Type.Object({
  * `chat` is the main chat or a side chat's session; `schedule_id` is its Scheduler booking while active.
  * `gate` is an Executor program each fire runs first, with no model: the run starts only when it returns
  * something (null runs every fire); `gate_checked_at` and `gate_note` say when the last check ran and what
- * it came to, and `gate_errors` counts fires in a row whose gate failed (three pause it).
+ * it came to, and `gate_errors` counts fires in a row whose gate failed (three pause it). `watch` is the watch
+ * anticipation a look booked it for (src/dreaming/looks.ts), which retires it when that closes; null for any other.
  */
 export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model"> & { model: ModelChoice | null }>;
 

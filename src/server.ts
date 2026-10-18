@@ -307,7 +307,8 @@ export class PiAgent extends DurableObject<Env> {
     surfaced: this.surfaced,
     proactivity: this.proactivity,
     zone: () => this.automations.checkIns().zone,
-    deliver: (item, now) => this.deliveries.deliver(item, now)
+    deliver: (item, now) => this.deliveries.deliver(item, now),
+    automations: this.automations
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -466,6 +467,9 @@ export class PiAgent extends DurableObject<Env> {
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
     this.proactivity.onChange(() => this.ctx.waitUntil(this.automations.bookLooks()));
+    // A closed watch anticipation, or Proactivity off, retires its watch.
+    this.proactivity.onChange(() => this.ctx.waitUntil(this.looks.retire()));
+    this.anticipations.onClose(() => this.ctx.waitUntil(this.looks.retire()));
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();

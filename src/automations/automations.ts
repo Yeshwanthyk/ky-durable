@@ -83,6 +83,10 @@ import { isLive } from "./tasks";
  * search and read the web, answers NOTHING_NEW when it found nothing worth
  * saying, and only then stays out of the chat. Two may be booked a day, six
  * may wait at once, and the user can turn them off.
+ *
+ * Watches are ky's own gated automations a look books for a watch
+ * anticipation (src/dreaming/looks.ts): `watch` holds its id, and the look's
+ * side deletes the automation once that closes.
  */
 
 /** What runs need from pi, set up in server.ts. */
@@ -254,6 +258,7 @@ export class Automations {
       gate_errors INTEGER NOT NULL DEFAULT 0,
       gate_found TEXT,
       gate_found_by TEXT,
+      watch INTEGER,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
@@ -265,7 +270,8 @@ export class Automations {
       ["gate_note", "TEXT"],
       ["gate_errors", "INTEGER NOT NULL DEFAULT 0"],
       ["gate_found", "TEXT"],
-      ["gate_found_by", "TEXT"]
+      ["gate_found_by", "TEXT"],
+      ["watch", "INTEGER"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -293,6 +299,11 @@ export class Automations {
     );
 
     return Promise.all(rows.map((row) => this.#view(row)));
+  }
+
+  /** The looks' watches (src/dreaming/looks.ts): each automation booked for a watch anticipation, and its id. */
+  watches(): Array<{ readonly id: string; readonly watch: number }> {
+    return this.#rows("SELECT * FROM ky_automations WHERE watch IS NOT NULL").flatMap((row) => (row.watch === null ? [] : [{ id: row.id, watch: row.watch }]));
   }
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
@@ -336,8 +347,8 @@ export class Automations {
     return this.get(task.source.slice(SOURCE.length))?.created_by === "dream";
   }
 
-  /** A new active automation, booked; or why it was refused. */
-  async create(draft: AutomationDraft, author: AutomationAuthor): Promise<Result<AutomationRow>> {
+  /** A new active automation, booked; or why it was refused. `watch` is the watch anticipation a look books it for. */
+  async create(draft: AutomationDraft, author: AutomationAuthor, watch: number | null = null): Promise<Result<AutomationRow>> {
     const problem = author === "dream" ? this.#checkInProblem(draft) : undefined;
 
     if (problem !== undefined) return refused(problem);
@@ -351,8 +362,8 @@ export class Automations {
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, gate, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, at, model, machine, chat, gate, watch, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -362,6 +373,7 @@ export class Automations {
       checked.machine,
       checked.chat,
       checked.gate,
+      watch,
       author,
       booked.id,
       now,
@@ -972,7 +984,7 @@ export class Automations {
    */
   #set(
     id: string,
-    patch: Partial<Omit<AutomationRow, "id" | "created_by" | "created_at" | "updated_at">>,
+    patch: Partial<Omit<AutomationRow, "id" | "watch" | "created_by" | "created_at" | "updated_at">>,
     when?: readonly AutomationStatus[]
   ): boolean {
     const current = this.get(id);

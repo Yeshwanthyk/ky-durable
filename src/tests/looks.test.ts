@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { localCron } from "../dreaming/local-day";
-import { browser, inside, type Tab, until } from "./drive";
+import { browser, connectExecutor, inside, type Tab, until } from "./drive";
 
 /**
  * ky's looks over the day (src/dreaming/looks.ts) on its real Worker: booked at the user's look times while
@@ -34,7 +34,7 @@ const kySaid = (page: Tab) =>
     .messages.filter((message) => message.role === "assistant")
     .map((message) => message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""));
 
-const look = (row: Record<string, string>) => `look> ${JSON.stringify(row)}`;
+const look = (row: Readonly<Record<string, string>>) => `look> ${JSON.stringify(row)}`;
 
 describe("the looks' bookings", () => {
   it("are one a look time while Proactivity is on, booked again when the times, the zone or on and off change", async () => {
@@ -117,6 +117,59 @@ describe("a look", () => {
 
     await inside(name, (instance) => instance.looks.run("08:00"));
     expect(await inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "looks"))).toEqual([]);
+    page.close();
+  });
+});
+
+describe("a look's watches", () => {
+  it("are gated automations every 15 minutes, two a look and five at once, deleted when their anticipation closes or Proactivity goes off", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    await connectExecutor(name);
+
+    for (const pr of [1, 2, 3, 4, 5, 6]) await page.say(`tool anticipate {"action":"add","kind":"watch","text":"CI on PR ${pr}"}`);
+    await page.say('tool anticipate {"action":"add","kind":"open_loop","text":"Call the bank"}');
+    const ids = await inside(name, (instance) => instance.anticipations.open().map((row) => row.id));
+    const [first = 0, second = 0, ...rest] = ids;
+    const gate = 'answer "pending"';
+    const watchRow = (id: number, extra: Readonly<Record<string, string>>) => look({ ref: `anticipation:${id}`, needed: "CI", current: "pending", action: "skip", ...extra });
+
+    // The first has no gate and the last is no watch: neither is watched. The rest are, two a look, five at most.
+    await page.say(
+      [
+        watchRow(first, { prompt: "Say how CI went." }),
+        ...[second, ...rest].map((id) => watchRow(id, { gate, prompt: `Say how CI on #${id} went.` }))
+      ].join(" ")
+    );
+    await page.until(() => !page.view().running);
+
+    const watches = () =>
+      inside(name, (_instance, state) =>
+        state.storage.sql
+          .exec<{ watch: number; title: string; prompt: string; cron: string; chat: string; gate: string; created_by: string; status: string }>(
+            "SELECT watch, title, prompt, cron, chat, gate, created_by, status FROM ky_automations WHERE watch IS NOT NULL ORDER BY watch"
+          )
+          .toArray()
+      );
+
+    await inside(name, (instance) => instance.looks.run("08:00"));
+    expect(await watches()).toEqual(
+      [second, rest[0]].map((id) => ({ watch: id, title: `Watch: CI on PR ${ids.indexOf(id ?? 0) + 1}`, prompt: `Say how CI on #${id} went.`, cron: "*/15 * * * *", chat: ROOT_SESSION, gate, created_by: "ky", status: "active" }))
+    );
+
+    await inside(name, (instance) => instance.looks.run("13:00"));
+    expect((await watches()).map((row) => row.watch)).toEqual([second, ...rest.slice(0, 3)]);
+    await inside(name, (instance) => instance.looks.run("18:00"));
+    await inside(name, (instance) => instance.looks.run("19:00"));
+    expect((await watches()).map((row) => row.watch)).toEqual([second, ...rest.slice(0, 4)]);
+
+    // Closing the anticipation deletes its watch at once, not at the next look.
+    await page.say(`tool anticipate {"action":"close","id":${second},"outcome":"dismissed"}`);
+    await until(async () => !(await watches()).some((row) => row.watch === second), "the closed anticipation's watch deleted");
+    expect((await watches()).map((row) => row.watch)).toEqual(rest.slice(0, 4));
+
+    expect(await page.send({ type: "set-proactivity", level: "off" })).toMatchObject({ type: "result" });
+    await until(async () => (await watches()).length === 0, "every watch deleted while Proactivity is off");
     page.close();
   });
 });
