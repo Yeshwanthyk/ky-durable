@@ -3,7 +3,7 @@
   "description": "Personal durable agent",
   "private": true,
   "type": "module",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "scripts": {
     "start": "vite dev",
     "build": "vite build",
