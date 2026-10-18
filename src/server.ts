@@ -25,6 +25,8 @@ import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
+import { publicSiteRoute, siteRoute } from "./site-routes";
+import { siteExtension } from "./sites";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
@@ -393,9 +395,11 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(machines);
       this.registry.install(automations);
 
-      // Cards are for a chat with the user: the tool refuses elsewhere, and subagents and seats go without it.
+      // Cards and sites are for a chat with the user: the tools refuse elsewhere; seats go without both, subagents without cards.
       const ui = uiExtension(chat);
       this.registry.install(ui);
+      const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
+      this.registry.install(site);
 
       const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui });
       this.registry.install(specialists.extension);
@@ -407,7 +411,7 @@ export class PiAgent extends DurableObject<Env> {
 
       // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
       const mail = mailExtension(this.mailDesk, chat);
-      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui]);
+      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui, site]);
       this.registry.install(seat);
       this.registry.install(progress);
       this.registry.install(checkInGuard);
@@ -966,9 +970,9 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
-/** What Access lets through signed out: the routes that take their own tokens, then the public files. */
+/** What Access lets through signed out: the routes that take their own tokens, the public sites, then the public files. */
 function signedOut(request: Request, env: Env, url: URL): Promise<Response> {
-  return tokenRoute(request, env, url) ?? peerRoute(request, env, url) ?? env.ASSETS.fetch(request);
+  return tokenRoute(request, env, url) ?? peerRoute(request, env, url) ?? publicSiteRoute(request, env, url) ?? env.ASSETS.fetch(request);
 }
 
 /**
@@ -988,7 +992,7 @@ export function worker(access: Access) {
 
       if (refused) return refused;
 
-      const owner = ownerRoute(request, env, url) ?? sandboxRoute(request, env, url) ?? backupRoute(request, env, url);
+      const owner = ownerRoute(request, env, url) ?? sandboxRoute(request, env, url) ?? backupRoute(request, env, url) ?? siteRoute(request, env, url);
 
       if (owner) return owner;
 
