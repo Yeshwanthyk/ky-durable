@@ -16,7 +16,6 @@ import type {
   ChatGptCode,
   ChatGptState,
   ChatRow,
-  CheckIns,
   ClientMessage,
   DreamLedgerRow,
   FileRow,
@@ -35,7 +34,8 @@ import type {
   SpecialistView,
   SubscriptionView,
   TaskLogStep,
-  TaskRow
+  TaskRow,
+  ZoneView
 } from "./protocol";
 
 const Text = Type.String();
@@ -142,8 +142,10 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer() })
 );
 
-/** Settings › Proactivity's time zone: the check-ins, the zone in them, and whether the user pinned it. */
-const Zone = Type.Unsafe<CheckIns>(Type.Object({ on: Type.Boolean(), zone: Type.Union([Text, Type.Null()]), pinned: Type.Boolean() }));
+/** Settings › Proactivity's time zone: the zone kept, whether the user pinned it, and the asking connection's. */
+const Zone = Type.Unsafe<ZoneView>(
+  Type.Object({ on: Type.Boolean(), zone: Type.Union([Text, Type.Null()]), pinned: Type.Boolean(), detected: Type.Union([Text, Type.Null()]) })
+);
 
 /** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
 const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(

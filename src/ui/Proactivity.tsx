@@ -1,6 +1,6 @@
 import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { RIGHT_AWAY_MOST } from "../dreaming/contract";
-import type { CheckIns, ProactivityLevel, ProactivityView } from "../protocol";
+import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Icon } from "./Icon";
 
 type ProactivityActions = {
@@ -8,8 +8,8 @@ type ProactivityActions = {
   readonly onSet: (level: ProactivityLevel) => Promise<ProactivityView>;
   readonly onLooks: (looks: readonly string[]) => Promise<ProactivityView>;
   readonly onRightAway: (most: number) => Promise<ProactivityView>;
-  readonly onZone: () => Promise<CheckIns>;
-  readonly onSetZone: (zone: string | null) => Promise<CheckIns>;
+  readonly onZone: () => Promise<ZoneView>;
+  readonly onSetZone: (zone: string | null) => Promise<ZoneView>;
   readonly onPushKey: () => Promise<string>;
   readonly onSubscribe: (device: PushDevice) => Promise<null>;
   readonly onUnsubscribe: (endpoint: string) => Promise<null>;
@@ -135,26 +135,57 @@ function Looks({ view, onChange }: { readonly view: ProactivityView; readonly on
 /** The select's value for following where the browser connects. */
 const AUTOMATIC = "";
 
-/** The time now in `zone`, as the user reads a clock. */
-const timeIn = (zone: string) => new Intl.DateTimeFormat(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date());
+/** Every zone this browser knows, for the select; none where it can't list them. */
+const ZONES: readonly string[] = Intl.supportedValuesOf?.("timeZone") ?? [];
+
+/** The time now in `zone`, as the user reads a clock; null where this browser doesn't know the zone. */
+function timeIn(zone: string): string | null {
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date());
+  } catch {
+    return null;
+  }
+}
+
+/** The time in `zone` now, kept current. */
+function LocalTime({ zone }: { readonly zone: string }) {
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    const clock = setInterval(() => tick((n) => n + 1), 30_000);
+
+    return () => clearInterval(clock);
+  }, []);
+
+  const time = timeIn(zone);
+
+  return <>{time === null ? zone : `It's ${time} there.`}</>;
+}
 
 /** The user's time zone, followed from where they connect or pinned, and the time there now. */
 function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
   const actions = useContext(ProactivityContext);
-  const [view, setView] = useState<CheckIns | null>(null);
-  const [, tick] = useState(0);
+  const [view, setView] = useState<ZoneView | null>(null);
 
   useEffect(() => {
-    actions.onZone().then(setView, onFail);
-    const clock = setInterval(() => tick((n) => n + 1), 30_000);
+    // Asked again on coming back, as another device may have pinned it meanwhile.
+    const ask = () => {
+      if (document.visibilityState === "visible") actions.onZone().then(setView, onFail);
+    };
 
-    return () => clearInterval(clock);
+    ask();
+    window.addEventListener("focus", ask);
+    document.addEventListener("visibilitychange", ask);
+
+    return () => {
+      window.removeEventListener("focus", ask);
+      document.removeEventListener("visibilitychange", ask);
+    };
   }, [actions, onFail]);
 
   if (view === null) return null;
-  const zones = Intl.supportedValuesOf("timeZone");
   const pinned = view.pinned ? view.zone : null;
-  const automatic = view.pinned ? "Automatic" : `Automatic (${view.zone ?? "not known yet"})`;
+  const detected = view.detected ?? (view.pinned ? null : view.zone);
 
   return (
     <>
@@ -163,12 +194,12 @@ function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
         <div className="row">
           <label className="choice-text" htmlFor="time-zone">
             <span>Time zone</span>
-            <span className="row-sub">{view.zone === null ? "Looks and the dream follow it." : `It's ${timeIn(view.zone)} there.`}</span>
+            <span className="row-sub">{view.zone === null ? "Looks and the dream follow it." : <LocalTime zone={view.zone} />}</span>
           </label>
           <select id="time-zone" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
-            <option value={AUTOMATIC}>{automatic}</option>
-            {pinned !== null && !zones.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
-            {zones.map((zone) => (
+            <option value={AUTOMATIC}>{`Automatic (${detected ?? "not known yet"})`}</option>
+            {pinned !== null && !ZONES.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
+            {ZONES.map((zone) => (
               <option key={zone} value={zone}>
                 {zone}
               </option>

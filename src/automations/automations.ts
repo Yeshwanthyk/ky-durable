@@ -343,36 +343,58 @@ export class Automations {
     const now = this.checkIns();
 
     if (now.pinned || zone === now.zone) return;
-    await this.#storeZone(zone, false);
+    // A pin that lands first keeps its zone.
+    this.#sql.exec(
+      "INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone WHERE ky_check_ins.zone_pinned = 0",
+      zone
+    );
+    await this.#bookZone();
   }
 
-  /** Pin the user's time zone, which later connects leave alone; null goes back to where their browser connects. */
-  async pinZone(zone: string | null): Promise<void> {
-    if (zone === null) {
+  /** Pin the user's time zone, an IANA name, which later connects leave alone. */
+  async pinZone(zone: string): Promise<void> {
+    const name = ianaZone(zone);
+
+    if (name === undefined) throw new Error(`${zone} isn't a time zone, like Europe/Berlin.`);
+    this.#keepZone(name, true);
+    await this.#bookZone();
+  }
+
+  /** Follow where the user's browser connects again, from `detected`, the asking connection's zone, when it has one. */
+  async unpinZone(detected: string | null): Promise<void> {
+    if (detected === null) {
       this.#sql.exec("UPDATE ky_check_ins SET zone_pinned = 0 WHERE id = 1");
 
       return;
     }
 
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: zone });
-    } catch {
-      throw new Error(`${zone} isn't a time zone, like Europe/Berlin.`);
-    }
-
-    await this.#storeZone(zone, true);
+    this.#keepZone(detected, false);
+    await this.#bookZone();
   }
 
-  /** Book the dream and the looks in `zone`, then keep it. */
-  async #storeZone(zone: string, pinned: boolean): Promise<void> {
-    // Booked first: a booking that fails leaves the old zone, so the next connect tries again.
-    await this.#bookDream(zone);
-    await this.#bookLooks(zone);
+  #keepZone(zone: string, pinned: boolean): void {
     this.#sql.exec(
       "INSERT INTO ky_check_ins (id, off, zone, zone_pinned) VALUES (1, 0, ?, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone, zone_pinned = excluded.zone_pinned",
       zone,
       pinned ? 1 : 0
     );
+  }
+
+  /**
+   * Book the dream and the looks in the zone kept, again if another write changed it meanwhile. The zone is kept
+   * first: a booking that fails is booked again when the object next starts (recover).
+   */
+  async #bookZone(): Promise<void> {
+    let zone = this.checkIns().zone;
+
+    for (;;) {
+      await this.#bookDream(zone);
+      await this.#bookLooks(zone);
+      const now = this.checkIns().zone;
+
+      if (now === zone) return;
+      zone = now;
+    }
   }
 
   /** Whether the pi session is a check-in's or a watch's run at work. */
@@ -1106,6 +1128,17 @@ function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<reado
 
   for (const [name, type] of columns) {
     if (!have.includes(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
+
+/** `zone` as Intl spells its IANA name; undefined for none, or for an offset like +05:30. */
+function ianaZone(zone: string): string | undefined {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+
+    return /^[+-]/.test(name) ? undefined : name;
+  } catch {
+    return undefined;
   }
 }
 

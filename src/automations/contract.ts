@@ -132,6 +132,9 @@ export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(T
 /** Whether check-ins are on, and the user's time zone: pinned in Settings, or as their browser's connection last placed it. */
 export type CheckIns = { readonly on: boolean; readonly zone: string | null; readonly pinned: boolean };
 
+/** Settings › Proactivity's time zone: the check-ins, and the zone the asking browser's connection is placed in, if known. */
+export type ZoneView = CheckIns & { readonly detected: string | null };
+
 /** A `SELECT COUNT(*) AS n` row. */
 export const CountRow = Type.Object({ n: Type.Number() });
 
