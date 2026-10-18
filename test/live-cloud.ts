@@ -26,6 +26,11 @@
  *   resume   a follow-up to the task wakes it again, and the task answers from its first turn:
  *            the new container restored the Claude session that the sleep saved to R2 (a sleep
  *            whose save failed starts the next container empty, and the follow-up can't answer)
+ *   crash    a turn writes a note to the home and ends; the next turn waits past two ticks and a
+ *            save, which the alarm's snapshot after a turn takes while it waits, then stops the
+ *            container as the platform does (SIGTERM to the runner, PID 1). That turn ends with the
+ *            stop's text, not as a restart; a third turn wakes a new container and reads the note,
+ *            which only the snapshot had: no sleep saved the home after the note was written
  */
 import type { CloudState, MachineInfo } from "../src/protocol.ts";
 import { decodeNewChat } from "../src/tests/frames.ts";
@@ -61,11 +66,26 @@ const HOLD_S = Math.ceil(IDLE_MS / 1000) + 90;
  * The hold's waits, in seconds, each well under Claude Code's two-minute command timeout, even two
  * run together: a longer one it moves to the background, and the turn ends while it waits.
  */
-const WAITS = Array.from({ length: Math.ceil(HOLD_S / 45) }, (_, at) => Math.min(45, HOLD_S - at * 45));
+const WAITS = waits(HOLD_S);
+
+/** How long the crash's turn waits before it stops the container: the snapshot's tick, a tick of slack, and its save. */
+const SNAPSHOT_S = Math.ceil((2 * TICK_MS + SAVE_MS) / 1000);
+
+/** `total` seconds of waits, each at most 45. */
+function waits(total: number): number[] {
+  return Array.from({ length: Math.ceil(total / 45) }, (_, at) => Math.min(45, total - at * 45));
+}
+
+/** The shell commands that wait `each` seconds in turn. Node, not `sleep`: Claude Code refuses a bare sleep in the shell. */
+function waitCommands(each: readonly number[]): string {
+  return each.map((seconds) => `\`node -e "setTimeout(() => console.log('waited ${seconds}s'), ${seconds * 1000})"\``).join(", then ");
+}
 
 const CLOUD = "cloud";
 
 const word = `ky-${crypto.randomUUID().slice(0, 8)}`;
+
+const note = `ky-${crypto.randomUUID().slice(0, 8)}`;
 
 const main = await connect(url, "", signedIn);
 
@@ -120,8 +140,7 @@ const live = (task: string) => ["queued", "working"].includes(row(task).status);
 /** The task id a side chat's submit starts on the cloud machine. */
 async function startTask(side: Client): Promise<string> {
   const known = new Set(main.frames.flatMap((frame) => (frame.type === "tasks" ? frame.tasks.map((each) => each.id) : [])));
-  // Node, not `sleep`: Claude Code refuses a bare sleep in the shell.
-  const commands = WAITS.map((seconds) => `\`node -e "setTimeout(() => console.log('waited ${seconds}s'), ${seconds * 1000})"\``).join(", then ");
+  const commands = waitCommands(WAITS);
   const prompt = `This is ky's live cloud test. Remember the code word ${word}. Run these ${WAITS.length} commands in the shell, one per tool call, each in the foreground and never in the background, waiting for each to finish before the next: ${commands}. Then reply with exactly: waited`;
 
   await side.command({
@@ -222,23 +241,56 @@ async function sleep(ended: number): Promise<void> {
   pass("sleep", `asleep ${seconds(after)} after the task ended (idle timeout ${seconds(IDLE_MS)}), its files saved to R2`);
 }
 
-async function resume(task: string): Promise<void> {
+/** Send `message` to `task`, and its new turn's row and replies once that turn ends; `name` is the step that wakes the machine, if it sleeps. */
+async function followUp(task: string, message: string, name?: string) {
   const sent = Date.now();
   // A turn's start, by ky's clock: the follow-up's is a new one. Not a count of "done" rows, which a
   // first turn has two of once its summary is rewritten.
   const first = row(task).started_at;
 
-  await main.command({ type: "send-task", task, message: "What was the code word I gave you? Reply with only the code word." });
-  await wake(task, sent, "resume");
-  await when("the follow-up to finish", () => row(task).started_at !== first && !live(task), 10 * MINUTE);
-  const { status, summary, started_at, steps } = row(task);
+  await main.command({ type: "send-task", task, message });
+
+  if (name) await wake(task, sent, name);
+  await when("the follow-up to finish", () => row(task).started_at !== first && !live(task), 15 * MINUTE);
+  const ended = row(task);
+
+  // Its reply as Claude wrote it: the summary may be rewritten in other words.
+  return { ...ended, answered: ended.steps.filter((step) => step.at >= (ended.started_at ?? 0)).map((step) => step.text) };
+}
+
+async function resume(task: string): Promise<void> {
+  const { status, summary, answered } = await followUp(task, "What was the code word I gave you? Reply with only the code word.", "resume");
 
   if (status !== "done") fail(`the follow-up ended ${status}: ${summary}`);
-  // Its reply as Claude wrote it: the summary may be rewritten in other words.
-  const answered = steps.filter((step) => step.at >= (started_at ?? 0)).map((step) => step.text);
 
   if (!answered.some((text) => text.includes(word))) fail(`the follow-up answered "${answered.join(" / ")}", not ${word}: the new container didn't resume the session`);
   pass("resume", `the follow-up answered ${word} from the first turn's session, restored from R2`);
+}
+
+async function crash(task: string): Promise<void> {
+  const wrote = await followUp(task, `Run \`echo ${note} > ~/ky-live-note\` in the shell, then reply with exactly: written`);
+
+  if (wrote.status !== "done") fail(`the note's turn ended ${wrote.status}: ${wrote.summary}`);
+
+  // Sent at once, so the machine stays busy and no sleep saves the home: only the snapshot after the note's turn has it.
+  const stopped = await followUp(
+    task,
+    `Run these commands in the shell, one per tool call, each in the foreground and never in the background, waiting for each to finish before the next: ${waitCommands(waits(SNAPSHOT_S))}, then \`kill -TERM 1\`. Then reply with exactly: stopped`
+  );
+
+  if (stopped.status === "done" || ![stopped.summary, ...stopped.answered].some((text) => text.includes("the container was stopped")))
+    fail(`the stopped turn ended ${stopped.status}: "${stopped.summary}", not with the stop's text`);
+  // The read goes to a new container, not one ky still thinks runs.
+  await when("the stopped container to leave running", () => state() !== "running", 2 * TICK_MS + SAVE_MS).catch(() =>
+    fail(`still running ${seconds(2 * TICK_MS + SAVE_MS)} after the runner was stopped`)
+  );
+  const read = await followUp(task, "Run `cat ~/ky-live-note` in the shell and reply with only what it printed.", "crash");
+
+  if (read.status !== "done") fail(`the read's turn ended ${read.status}: ${read.summary}`);
+
+  if (!read.answered.some((text) => text.includes(note)))
+    fail(`the new container read "${read.answered.join(" / ")}", not ${note}: the snapshot after the note's turn didn't reach R2`);
+  pass("crash", `a stopped turn said so, and the new container read ${note} from the snapshot after a turn`);
 }
 
 let code = 0;
@@ -258,6 +310,7 @@ try {
 
     await sleep(ended);
     await resume(task);
+    await crash(task);
   } finally {
     side.close();
   }
@@ -268,7 +321,7 @@ try {
   clearInterval(watcher);
 
   if (session) await main.command({ type: "archive-chat", session, archived: true }).catch(() => undefined);
-  console.log(`\nThe cloud machine (idle timeout ${idleMinutes} min, code word ${word}):\n${timeline.join("\n")}`);
+  console.log(`\nThe cloud machine (idle timeout ${idleMinutes} min, code word ${word}, note ${note}):\n${timeline.join("\n")}`);
   main.close();
 }
 
