@@ -10,7 +10,7 @@ import { type Cloudflare, lacks, missingPermissions, ready } from "./cloudflare.
 import { incomplete, mailAddress, merged, readOverlay } from "./config.ts";
 import { address, type Check, deploy, deployedRelease, inspect, leftovers, type Target, teardown } from "./deployer.ts";
 import { bold, dim, green, type Output, output, red } from "./output.ts";
-import type { Release } from "./release.ts";
+import { type Release, runs } from "./release.ts";
 import { restartRunner } from "./runner/commands.ts";
 import type { System } from "./runner/system.ts";
 
@@ -95,7 +95,7 @@ export async function upgradeCommand(context: Context): Promise<number> {
 
   if (!from) throw new Error("There's no ky Worker to upgrade; run `ky deploy`");
 
-  if (from === release.version) {
+  if (runs(from, release)) {
     await restarted(context, out, await address(to));
     out.outro(`Already on ${release.version}`);
 

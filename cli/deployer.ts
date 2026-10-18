@@ -27,7 +27,7 @@ import { answeredWithError, type Cloudflare, getService, MAIL_SCOPES, refused, S
 import { emails, mailAddress, writeDeployed } from "./config.ts";
 import { BYPASS } from "../src/access.ts";
 import { copyImage, imageDigest, TARGET } from "./image.ts";
-import { type Release, releaseImage } from "./release.ts";
+import { type Release, releaseImage, runs } from "./release.ts";
 
 /** The tag every Worker and Access app the CLI makes carries, and the one that names a Worker's release. */
 const TAG = "ky";
@@ -502,7 +502,14 @@ async function cloudApp(cloudflare: Cloudflare, name: Names) {
 
   if (!namespaceId) return undefined;
 
-  return (await cloudflare.run(Containers.listContainerApplications({ accountId: name.account }))).find((app) => app.durableObjects?.namespaceId === namespaceId);
+  return namespaceApp(cloudflare, name.account, namespaceId);
+}
+
+/** The container app on a namespace, read by itself: the account's list can lag it, and name the image a finished rollout replaced. */
+async function namespaceApp(cloudflare: Cloudflare, accountId: string, namespaceId: string) {
+  const listed = (await cloudflare.run(Containers.listContainerApplications({ accountId }))).find((app) => app.durableObjects?.namespaceId === namespaceId);
+
+  return listed && (await cloudflare.run(Containers.getContainerApplication({ accountId, applicationId: listed.id })));
 }
 
 /** A short-lived login to the account's registry, to push the image with. */
@@ -534,7 +541,7 @@ async function ensureCloudApp(cloudflare: Cloudflare, name: Names, image: string
 
   if (!namespaceId) throw new Error(`Cloudflare made no ${CLOUD_CLASS} namespace for ${name.script}`);
   const configuration = { image, instanceType: CLOUD_INSTANCE };
-  const app = (await cloudflare.run(Containers.listContainerApplications({ accountId }))).find((each) => each.durableObjects?.namespaceId === namespaceId);
+  const app = await namespaceApp(cloudflare, accountId, namespaceId);
 
   if (!app) {
     say("Setting up the cloud machine");
@@ -818,6 +825,13 @@ async function cloudCheck(cloudflare: Cloudflare, name: Names, release: Release)
   return { name: "Cloud machine", ok: true, detail: name.cloud };
 }
 
+/** Whether the Worker runs this ky's release: its version, or the commit the release was built from. */
+function releaseCheck(deployed: string | undefined, release: Release): Check {
+  if (!runs(deployed, release)) return { name: "Release", ok: false, detail: `${deployed ?? "unknown"}, this ky is ${release.version}`, next: "ky upgrade" };
+
+  return { name: "Release", ok: true, detail: deployed === release.version ? release.version : `${release.version}, built from ${deployed}`, next: "ky upgrade" };
+}
+
 /** Whether the Worker runs this ky's release and its migrations; a Worker past them is newer than this ky. */
 function releaseChecks(deployed: string | undefined, release: Release, applied: string | undefined): Check[] {
   const migrations = release.config.migrations ?? [];
@@ -827,12 +841,7 @@ function releaseChecks(deployed: string | undefined, release: Release, applied: 
     return [{ name: "Release", ok: false, detail: `${deployed ?? "unknown"} ran migration ${applied}: this ky (${release.version}) is older than the Worker`, next: NEWER }];
 
   return [
-    {
-      name: "Release",
-      ok: deployed === release.version,
-      detail: deployed === release.version ? release.version : `${deployed ?? "unknown"}, this ky is ${release.version}`,
-      next: "ky upgrade"
-    },
+    releaseCheck(deployed, release),
     { name: "Migrations", ok: applied === latest, detail: `${applied ?? "none"}${applied === latest ? "" : `, this release has ${latest}`}`, next: "ky deploy" }
   ];
 }

@@ -57,7 +57,7 @@ await cp(BUILT, path.join(CHECKOUT, "worker"), { recursive: true, filter: (file)
 await cp(CLIENT, path.join(CHECKOUT, "assets"), { recursive: true, filter: (file) => !ignored.has(path.relative(CLIENT, file)) });
 
 // Last, as it pins every file above.
-const manifest = { version, bundle: bundleOf(await releaseFiles(CHECKOUT)), config: { ...config, main: built.main }, ...cloud };
+const manifest = { version, commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim(), bundle: bundleOf(await releaseFiles(CHECKOUT)), config: { ...config, main: built.main }, ...cloud };
 
 await writeFile(path.join(CHECKOUT, "release.json"), JSON.stringify(manifest, null, 2));
 

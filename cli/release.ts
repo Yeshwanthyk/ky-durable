@@ -5,7 +5,7 @@
  * `ky` reads the one `pnpm compile` left in dist/release.
  *
  * On disk and in the pack the layout is the same:
- *   release.json   { version, bundle, config, image? | imageFrom? }
+ *   release.json   { version, commit?, bundle, config, image? | imageFrom? }
  *   worker/…       the Worker's modules, the config's `main` among them
  *   assets/…       the web app
  *   SKILL.md       `ky skill`
@@ -18,7 +18,7 @@ import type { Unstable_RawConfig } from "wrangler";
 
 /**
  * release.json. `version` is the release's (`v<version>` is its tag), or the commit it was built
- * from. `bundle` pins the rest of the release: bundleOf every other file. `config` is wrangler.jsonc
+ * from. `commit` is that commit, whole; a release from before it has none. `bundle` pins the rest of the release: bundleOf every other file. `config` is wrangler.jsonc
  * as built: generic, no owner overlay, its `main` the built entry module.
  *
  * The cloud machine's image, `ghcr.io/…@sha256:…`, is `image` in a checkout's build, from
@@ -27,7 +27,7 @@ import type { Unstable_RawConfig } from "wrangler";
  * published beside it, which names the image (releaseImage). A release with neither deploys no
  * cloud machine.
  */
-type Manifest = { version: string; bundle: string; config: Unstable_RawConfig; image?: string; imageFrom?: string };
+type Manifest = { version: string; commit?: string; bundle: string; config: Unstable_RawConfig; image?: string; imageFrom?: string };
 
 export type Release = Manifest & {
   /** Module name (`index.js`, `assets/models-….js`) to content. */
@@ -151,4 +151,15 @@ export async function releaseImage(release: Manifest): Promise<string | undefine
   }
 
   return published.image;
+}
+
+/**
+ * Whether a Worker labelled `deployed` runs this release: its version, or the commit it was built
+ * from. A deploy from a checkout labels the Worker with the short commit; a release's binary is
+ * labelled with its version, and is the same release when it was built from that commit.
+ */
+export function runs(deployed: string | undefined, release: Release): boolean {
+  if (deployed === undefined) return false;
+
+  return deployed === release.version || (/^[0-9a-f]{7,}$/.test(deployed) && release.commit?.startsWith(deployed) === true);
 }
