@@ -97,9 +97,16 @@ describe("a look", () => {
     expect(rows[0]?.item).toMatch(new RegExp(`^look:\\d{4}-\\d{2}-\\d{2}:08:00:${ref}$`));
     expect(looks).toBe(1);
 
-    // The next look weighs the same row: its anticipation is still open, so it is not said again.
+    // The next look weighs the same row: the user has not written since and its anticipation is still open, so it is
+    // not said again.
     await inside(name, (instance) => instance.looks.run("13:00"));
     expect(kySaid(page).filter((text) => text === said)).toHaveLength(1);
+
+    // The model reads the post as a notice in a user message, never as an assistant message of its own.
+    await page.say("Thanks, calling now.");
+    await page.until(() => !page.view().running);
+    const asked = await inside(name, (instance) => instance.boundary.asked.find((users) => users.at(-1) === "Thanks, calling now."));
+    expect(asked?.at(-2)).toBe(`[ky posted to the user, unasked] ${said}`);
     page.close();
   });
 

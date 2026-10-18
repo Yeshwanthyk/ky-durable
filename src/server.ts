@@ -20,7 +20,7 @@ import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
-import { kySays, LOOK_POST } from "./transcript";
+import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
@@ -261,7 +261,7 @@ export class PiAgent extends DurableObject<Env> {
       const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
 
       if (busy) return false;
-      await conversation.submit({ type: "write", entry: { kind: LOOK_POST, model: [kySays([{ type: "text", text }], Date.now())] }, requestId }, BACKGROUND);
+      await conversation.submit({ type: "write", entry: lookPost(text, Date.now()), requestId }, BACKGROUND);
 
       return true;
     },

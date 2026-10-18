@@ -7,7 +7,7 @@ import type {
   TextContent,
   UserMessage
 } from "@earendil-works/pi-ai";
-import type { EntryRecord } from "@earendil-works/pi-durable";
+import type { EntryDraft, EntryRecord } from "@earendil-works/pi-durable";
 
 /**
  * This app's display model for a transcript. The harness returns pi's own
@@ -39,8 +39,21 @@ export const TO_SPECIALISTS = "ky.to-specialists";
 /** A specialist's own reply in a chat, posted as a passive entry: ky does not pass it on, and it starts nothing. */
 export const SPECIALIST_REPLY = "ky.specialist-reply";
 
-/** A look's message in the main chat (src/dreaming/looks.ts): ky's own, posted as a passive entry, so it starts no run. */
+/**
+ * A look's message in the main chat (src/dreaming/looks.ts), posted as a passive entry, so it starts no run. The user
+ * sees it as ky's own message; the model reads it as a notice in a user message (lookPost), so a post never makes two
+ * assistant messages in a row, nor ends a request in one when it lands mid-run.
+ */
 export const LOOK_POST = "ky.look";
+
+type LookPostData = { readonly text: string };
+
+/** The entry a look posts `text` as. */
+export function lookPost(text: string, timestamp: number): EntryDraft {
+  const data: LookPostData = { text };
+
+  return { kind: LOOK_POST, data, model: [{ role: "user", content: `[ky posted to the user, unasked] ${text}`, timestamp }] };
+}
 
 /** An assistant message saying `content` that no model wrote: a look's post, or a block streamed alone. */
 export function kySays(content: AssistantMessage["content"], timestamp: number): AssistantMessage {
@@ -184,6 +197,11 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
   }
 
   if (entry.kind === "pi.system" || message === undefined) return undefined;
+
+  if (entry.kind === LOOK_POST) {
+    // SAFETY: only Delivery's post (src/server.ts) writes this kind, with LookPostData.
+    return projectMessage(kySays([{ type: "text", text: (entry.data as LookPostData).text }], message.timestamp), String(entry.id));
+  }
 
   if (entry.kind === TO_SPECIALISTS) {
     const projected = projectMessage(message, String(entry.id));

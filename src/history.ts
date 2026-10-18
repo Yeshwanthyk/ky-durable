@@ -357,7 +357,8 @@ export class History {
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
            coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at,
            CASE
-             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant', '${LOOK_POST}') THEN NULL
+             WHEN json_extract(record, '$.kind') = '${LOOK_POST}' THEN json_extract(record, '$.data.text')
+             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
              WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
              ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
                    FROM json_each(record, '$.model[0].content') AS part

@@ -20,8 +20,8 @@ import type { Surfaced } from "./surfaced";
  * a `<recalled>` block of at most BLOCK_CHARS, one line per hit naming where it is from, appended to the
  * request's copy of that message only: the committed transcript never holds it, and the system prompt stays as
  * it was, so its cache does too. A recalled line never holds a `<`, so none can close the block early. A block is
- * made once per message, when its turn's first request goes out, and kept as a surfaced row (kind recall, loop
- * L2), an empty one when nothing turned up; every later request (a tool round, a retry, the turns after) appends
+ * made once per message, when its turn's first request goes out, and kept as a surfaced row (kind recall), an
+ * empty one when nothing turned up; every later request (a tool round, a retry, the turns after) appends
  * the same block to the same message again, so the conversation's cached prefix holds as well. While Settings ›
  * Proactivity is off, no block is made and none is carried.
  *
@@ -255,7 +255,7 @@ export class Recall {
 
   /** Record the block as a surfaced row (an empty one too, so a search still counts as a miss), mark its anticipations recalled, and tell the chips. */
   #show(session: string, entry: number, { lines, anticipations }: Gathered, now: number): void {
-    this.#wiring.surfaced.shown({ kind: "recall", loop: "L2", ref: `entry:${entry}`, item: itemOf(session, entry), text: lines.join("\n"), expiresAt: now + MISS_WINDOW_MS }, now);
+    this.#wiring.surfaced.shown({ kind: "recall", ref: `entry:${entry}`, item: itemOf(session, entry), text: lines.join("\n"), expiresAt: now + MISS_WINDOW_MS }, now);
     this.#wiring.anticipations.recalled(anticipations, now);
 
     if (lines.length === 0) return;

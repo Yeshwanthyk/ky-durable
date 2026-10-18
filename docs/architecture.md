@@ -102,15 +102,17 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Activity like a dream, and may only read: memory_recall, memory_zoom, chat_search, anticipate (list only) and the
   check-in tools. Its digest holds the open anticipations, the last day of the chats and what looks said lately; it
   weighs what is needed against what is current and answers with rows (ref, needed, current, tell, prepare or skip,
-  by, message). A pure `decide` (`src/dreaming/decide.ts`) keeps at most 3: a known ref, said once until the user
-  wrote since, its anticipation closed and 48 hours passed, a prepare only when the next look would be too late.
+  by, message). A pure `decide` (`src/dreaming/decide.ts`) keeps at most 3: a known ref, said again only once the user
+  wrote since, or once nothing holds it open (its anticipation closed, or a memory) and 48 hours passed, and a
+  prepare only at the last look that leaves time before it: when the next look, today's or else tomorrow's first,
+  would be too late.
   Each goes to the main chat through Delivery as ky's own message, as written (a `ky.look` entry written between
   turns, starting none), once by `look:<date>:<time>:<ref>`, and is a `ky_surfaced` row of kind look.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
   looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)
   to the request's copy of that message only. The transcript and system prompt never hold it. A block is made once
-  per message and stored as a `ky_surfaced` row (kind recall, loop L2); every later request re-appends each stored
+  per message and stored as a `ky_surfaced` row (kind recall); every later request re-appends each stored
   block to its own message, so the cached prefix never changes. The anticipations it shows become surfaced, and a
   `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
   "Recalled N" under the message. Proactivity off makes none.

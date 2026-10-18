@@ -4,7 +4,7 @@ import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } fr
 
 /**
  * What ky put in front of the user unasked, and what became of it: one row per thing shown, with its outcome.
- * A thing is shown with no outcome; the user may act on it or dismiss it, and whatever is still unhandled when it
+ * A thing is shown with no outcome; a recall block may be marked missed, and whatever is still unhandled when it
  * expires becomes expired, lazily, on the next read. Every outcome is final. The night dream prunes the settled rows.
  */
 
@@ -17,10 +17,9 @@ import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } fr
  */
 export type SurfacedKind = "event" | "look" | "recall";
 
-/** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
+/** A thing as it is shown: what it is, what it rests on, its key and text, when it goes. */
 export type Shown = {
   readonly kind: SurfacedKind;
-  readonly loop: string;
   /** What it rests on, like anticipation:12. */
   readonly ref: string;
   /** Which one it is, like a report's delivery id. */
@@ -40,6 +39,7 @@ export class Surfaced {
 
   constructor(sql: SqlStorage) {
     this.#sql = sql;
+    // loop named what made a row; nothing reads it, so a row now repeats its kind there.
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_surfaced (
       id INTEGER PRIMARY KEY,
       kind TEXT NOT NULL,
@@ -66,7 +66,7 @@ export class Surfaced {
     this.#sql.exec(
       "INSERT INTO ky_surfaced (kind, loop, ref, item, text, shown_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (kind, item) DO NOTHING",
       entry.kind,
-      entry.loop,
+      entry.kind,
       entry.ref,
       entry.item,
       entry.text,

@@ -102,13 +102,12 @@ export class Looks {
     try {
       const now = Date.now();
       const local = localNow(this.#parts.zone(), now);
-      const later = this.#parts.proactivity.looks().map(minutesOf).find((minutes) => minutes > local.minutes);
+      const next = nextLook(this.#parts.proactivity.looks().map(minutesOf), local.minutes);
       const open = new Set(this.#parts.anticipations.open().map((row) => `anticipation:${row.id}`));
-      const answer = await this.#ask(time, now, later);
+      const answer = await this.#ask(time, now, next);
 
       if (answer === undefined) return;
-      const next = later === undefined ? null : now + (later - local.minutes) * 60_000;
-      await this.#post(`look:${local.date}:${time}`, lookRows(answer), open, next);
+      await this.#post(`look:${local.date}:${time}`, lookRows(answer), open, next === undefined ? null : now + next.ahead * 60_000);
     } catch (error) {
       console.warn("look failed", error);
     } finally {
@@ -117,12 +116,12 @@ export class Looks {
   }
 
   /** Run the look in a conversation of its own, shown in Activity: its answer, or undefined when it failed. */
-  async #ask(time: string, now: number, later: number | undefined): Promise<string | undefined> {
+  async #ask(time: string, now: number, next: NextLook | undefined): Promise<string | undefined> {
     const { history, anticipations, reviews, host, surfaced } = this.#parts;
     const zone = this.#parts.zone();
 
     const digest = [
-      `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; ${later === undefined ? "the last today" : `the next is at ${clock(later)}`}.`,
+      `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
       ...section("Open anticipations, oldest first:", anticipations.open().map((row) => anticipationLine(row, now))),
       ...section('What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):', history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines),
       ...section("Said already, by the looks of the last two days:", surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS).map((post) => `- ${post.text}`))
@@ -154,6 +153,24 @@ export class Looks {
 
     return id !== undefined && countOf(this.#sql.exec("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", Number(id)).toArray()[0]) > 0;
   }
+}
+
+const MINUTES_A_DAY = 24 * 60;
+
+/** The next look: its local minute of the day, whether that is tomorrow, and how many minutes ahead of now it is. */
+type NextLook = { readonly at: number; readonly tomorrow: boolean; readonly ahead: number };
+
+/**
+ * The look after the one at `minutes` (local): later today, else tomorrow's first; undefined when there are no look
+ * times. So a prepare waits for no look that comes too late, and goes at the last one that leaves time.
+ */
+function nextLook(times: readonly number[], minutes: number): NextLook | undefined {
+  const at = times.find((each) => each > minutes) ?? times[0];
+
+  if (at === undefined) return undefined;
+  const tomorrow = at <= minutes;
+
+  return { at, tomorrow, ahead: tomorrow ? MINUTES_A_DAY - minutes + at : at - minutes };
 }
 
 /** A digest section: its heading and lines, or "(none)". */

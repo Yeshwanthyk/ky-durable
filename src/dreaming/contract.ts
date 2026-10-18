@@ -173,14 +173,15 @@ export const ProactivityLevelSchema = Type.Union([Type.Literal("off"), Type.Lite
 export type ProactivityLevel = Static<typeof ProactivityLevelSchema>;
 
 /**
- * What became of a surfaced thing: the user acted on it or dismissed it, it expired unhandled, or, for a recall
- * block, it was missed: the model still searched memory or the chats itself in the same turn.
+ * What became of a surfaced thing: it expired, or, for a recall block, it was missed: the model still searched memory
+ * or the chats itself in the same turn. An older ky's brief and suggestions also stored acted and dismissed, never
+ * read now.
  */
-const SurfacedOutcomeSchema = Type.Union([Type.Literal("acted"), Type.Literal("dismissed"), Type.Literal("expired"), Type.Literal("missed")]);
+const SurfacedOutcomeSchema = Type.Union([Type.Literal("expired"), Type.Literal("missed")]);
 
 export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
 
-export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "dismissed", "expired", "missed"];
+export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["expired", "missed"];
 
 /** A shown thing's key and text, as a chat's recall blocks are read back. */
 const ShownItemRow = Type.Object({ item: Type.String(), text: Type.String() });

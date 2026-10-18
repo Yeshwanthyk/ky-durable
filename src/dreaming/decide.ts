@@ -27,7 +27,7 @@ export type SaidRef = { readonly at: number; readonly replied: boolean; readonly
 
 export type LookContext = {
   readonly now: number;
-  /** The next look today, epoch ms; null when this is the day's last. */
+  /** The next look, epoch ms: later today, else tomorrow's first; null when there are no look times. */
   readonly next: number | null;
   /** The refs that are there: open anticipations and memories. */
   readonly known: ReadonlySet<string>;
@@ -41,10 +41,13 @@ export const LOOK_POSTS = 3;
 /** A ref posted is not posted again for at least this long. */
 export const SAID_QUIET_MS = 48 * 3_600_000;
 
-/** Whether a ref said before may be said again: the user replied since, its anticipation is closed, and SAID_QUIET_MS passed. */
-const sayAgain = (said: SaidRef, now: number) => said.replied && !said.open && now - said.at >= SAID_QUIET_MS;
+/**
+ * Whether a ref said before may be said again: the user replied since, or nothing holds it open (its anticipation is
+ * closed, or it is a memory) and SAID_QUIET_MS passed.
+ */
+const sayAgain = (said: SaidRef, now: number) => said.replied || (!said.open && now - said.at >= SAID_QUIET_MS);
 
-/** A prepare is due now when its time is ahead and the next look today would come too late for it, or there is none. */
+/** A prepare is due now when its time is ahead and the next look would come too late for it, or there is none. */
 function due(row: LookRow, { now, next }: LookContext): boolean {
   const by = Date.parse(row.by ?? "");
 
