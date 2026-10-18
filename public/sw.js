@@ -96,17 +96,18 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+  const url = new URL(event.notification.data?.url ?? "/", self.location.origin);
 
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window" });
       const open = windows.find((each) => new URL(each.url).origin === self.location.origin);
 
-      if (!open) return self.clients.openWindow(url);
-      await open.focus();
+      if (!open) return self.clients.openWindow(url.href);
+      // An open ky switches to the chat itself (src/ui/use-session-route.ts), without a reload.
+      open.postMessage({ type: "open-chat", search: url.search });
 
-      return open.navigate(url);
+      return open.focus();
     })()
   );
 });

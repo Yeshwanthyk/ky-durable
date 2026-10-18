@@ -4,10 +4,9 @@ import { isRefusal } from "../core/refusal";
 import { type History, wroteSince } from "../history";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
-import { type Anticipation, countOf } from "./contract";
+import { type Anticipation, countOf, localCron, localNow } from "./contract";
 import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS } from "./decide";
 import { MEMORIES_DISAGREE } from "./dreaming";
-import { localCron, localNow } from "./local-day";
 import type { Proactivity } from "./proactivity";
 import type { Surfaced } from "./surfaced";
 

@@ -1,6 +1,6 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { localCron } from "../dreaming/local-day";
+import { localCron } from "../dreaming/contract";
 import { browser, connectExecutor, fire, inside, type Tab, until } from "./drive";
 
 /**

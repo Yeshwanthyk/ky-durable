@@ -1,8 +1,7 @@
-import { ROOT_SESSION } from "agents/harness/pi";
 import Type from "typebox";
 import type { Fetch } from "./chatgpt";
 import { decode } from "./core/decode";
-import { localNow } from "./dreaming/wiring";
+import { localNow } from "./dreaming/contract";
 
 /**
  * Web Push: what ky posts in a chat unasked (src/automations/delivery.ts) also shows as a notification on each
@@ -12,7 +11,8 @@ import { localNow } from "./dreaming/wiring";
  *
  * At most the user's right-away number of posts a local day push, 6 until they change it; past that a post still
  * lands in its chat, quietly. A push counts once a device took it. A device the push service no longer knows (404
- * or 410) is dropped. A push is tried once: a failure is logged, and never fails or holds up the post.
+ * or 410), or that subscribed with another VAPID key (403), is dropped. A push is tried once: a failure is logged,
+ * and never fails or holds up the post.
  */
 
 /** A device's subscription: its push service's endpoint and its keys, base64url, as PushSubscription.toJSON gives them. */
@@ -48,6 +48,12 @@ const VAPID_SECONDS = 12 * 3600;
 
 /** The record size the one record of a push declares. */
 const RECORD_SIZE = 4096;
+
+/** Of a push service's error, at most this much is logged. */
+const LOGGED_CHARS = 200;
+
+/** What a push service answers for a device it won't push to again: unknown (404), gone (410), or keyed to another VAPID key (403). */
+const GONE = new Set([403, 404, 410]);
 
 const encoder = new TextEncoder();
 
@@ -147,8 +153,7 @@ export class Pushes {
       endpoint TEXT PRIMARY KEY,
       p256dh TEXT NOT NULL,
       auth TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      ok_at INTEGER)`);
+      created_at INTEGER NOT NULL)`);
     // The posts pushed on the user's local day; only today's row is kept.
     sql.exec("CREATE TABLE IF NOT EXISTS ky_push_sent (day TEXT PRIMARY KEY, sent INTEGER NOT NULL)");
   }
@@ -185,12 +190,14 @@ export class Pushes {
 
       if (!this.#take(day)) return;
       const title = this.#parts.title(session);
-      const line = text.replaceAll(/\s+/g, " ").trim();
-      const body = line.length > BODY_CHARS ? `${line.slice(0, BODY_CHARS - 1)}…` : line;
-      const url = session === ROOT_SESSION ? "/" : `/?session=${encodeURIComponent(session)}`;
+      // By code point, so an emoji is never cut in half.
+      const chars = Array.from(text.replaceAll(/\s+/g, " ").trim());
+      const body = chars.length > BODY_CHARS ? `${chars.slice(0, BODY_CHARS - 1).join("")}…` : chars.join("");
+      // The main chat's link too, as public/sw.js and the page read it (src/ui/use-session-route.ts).
+      const url = `/?session=${encodeURIComponent(session)}`;
       // Lines, as public/sw.js reads them: the title and the chat's address, each one line, then the text.
       const payload = encoder.encode(`${title}\n${url}\n${body}`);
-      const took = await Promise.all(devices.map((device) => this.#send(device, payload, now)));
+      const took = await Promise.all(devices.map((device) => this.#send(device, payload)));
 
       // Nothing took it: it doesn't count.
       if (!took.includes(true)) this.#sql.exec("UPDATE ky_push_sent SET sent = sent - 1 WHERE day = ?", day);
@@ -221,7 +228,7 @@ export class Pushes {
   }
 
   /** Push `payload` to `device`: whether it took it. */
-  async #send(device: PushDevice, payload: Uint8Array, now: number): Promise<boolean> {
+  async #send(device: PushDevice, payload: Uint8Array): Promise<boolean> {
     try {
       const origin = this.#parts.origin();
 
@@ -237,15 +244,11 @@ export class Pushes {
         body
       });
 
-      if (response.ok) {
-        this.#sql.exec("UPDATE ky_push_devices SET ok_at = ? WHERE endpoint = ?", now, device.endpoint);
+      if (response.ok) return true;
 
-        return true;
-      }
-
-      // The device unsubscribed, or its subscription expired.
-      if (response.status === 404 || response.status === 410) this.unsubscribe(device.endpoint);
-      else console.warn("push", response.status, await response.text());
+      // The device unsubscribed, or its subscription expired, or it was made with a VAPID key ky no longer has.
+      if (GONE.has(response.status)) this.unsubscribe(device.endpoint);
+      else console.warn("push", response.status, (await response.text()).slice(0, LOGGED_CHARS));
     } catch (error) {
       console.warn("push", error);
     }

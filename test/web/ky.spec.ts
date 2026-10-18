@@ -828,6 +828,26 @@ test("sets how many posts a day notify right away in Settings › Proactivity, n
   await expect(rightAway).toHaveValue("6");
 });
 
+test("switches to a tapped notification's chat without reloading the page", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const side = new URL(page.url()).search;
+
+  // What public/sw.js posts an open ky when a notification is tapped.
+  const tap = (search: string) =>
+    page.evaluate((query) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "open-chat", search: query } })), search);
+
+  // A reload would lose this mark.
+  await page.evaluate(() => Object.assign(window, { notReloaded: true }));
+  await tap("?session=1");
+  await expect(page).toHaveURL(/\/$/);
+  await tap(side);
+  await expect(page).toHaveURL(new RegExp(`\\${side}$`));
+  await expect(page.getByRole("heading", { name: "A side chat" })).toBeVisible();
+  expect(await page.evaluate(() => "notReloaded" in window)).toBe(true);
+});
+
 test("lists last night's dream in Activity with its reasons, undoes a change, says why another can't be, and pins a skill", async ({ page }) => {
   await signIn(page);
   const tag = crypto.randomUUID().slice(0, 6);

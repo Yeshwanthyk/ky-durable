@@ -158,7 +158,7 @@ describe("pushes", () => {
 
     // Three posts in the chat, two pushes: the third went past the day's two.
     expect(sent).toHaveLength(2);
-    expect(await open(sent[0]!.body, keys, auth)).toBe("ky\n/\nKai's school is closed tomorrow.");
+    expect(await open(sent[0]!.body, keys, auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nKai's school is closed tomorrow.`);
     expect(sent[0]!.headers.get("content-encoding")).toBe("aes128gcm");
     expect(sent[0]!.headers.get("authorization")).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]{87}$/);
 
@@ -166,22 +166,29 @@ describe("pushes", () => {
     await inside(name, (instance) => instance.automations.setZone("Pacific/Auckland"));
     await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "Still the 18th there.", Date.parse("2026-10-18T10:30:00Z")));
     await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "A new day there.", Date.parse("2026-10-18T11:30:00Z")));
-    expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual(["ky\n/\nA new day there."]);
+    expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual([`ky\n/?session=${ROOT_SESSION}\nA new day there.`]);
+
+    // A long post is cut to 120 characters, never through the middle of one.
+    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "🙂".repeat(200), Date.parse("2026-10-18T12:00:00Z")));
+    const cut = (await open(sent[3]!.body, keys, auth)).split("\n")[2] ?? "";
+    expect(Array.from(cut)).toEqual([...Array.from({ length: 119 }, () => "🙂"), "…"]);
     page.close();
   });
 
-  it("drop a device its push service no longer knows, and a push no device took doesn't count", async () => {
+  it("drop a device its push service no longer knows or that has another VAPID key, and a push no device took doesn't count", async () => {
     const name = crypto.randomUUID();
     const page = await browser(name);
     const gone = await aDevice("https://push.test/gone");
+    const stale = await aDevice("https://push.test/stale");
     const kept = await aDevice("https://push.test/kept");
-    const sent = await pushService(name, (endpoint) => (endpoint.endsWith("gone") ? 410 : 503));
+    const answers = new Map([["https://push.test/gone", 410], ["https://push.test/stale", 403]]);
+    const sent = await pushService(name, (endpoint) => answers.get(endpoint) ?? 503);
 
-    for (const { device } of [gone, kept]) expect(await page.send({ type: "push-subscribe", ...device })).toMatchObject({ type: "result" });
+    for (const { device } of [gone, stale, kept]) expect(await page.send({ type: "push-subscribe", ...device })).toMatchObject({ type: "result" });
     expect(await page.send({ type: "set-right-away", most: 1 })).toMatchObject({ type: "result" });
 
     await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "First."));
-    expect(sent.map((each) => each.endpoint).toSorted()).toEqual(["https://push.test/gone", "https://push.test/kept"]);
+    expect(sent.map((each) => each.endpoint).toSorted()).toEqual(["https://push.test/gone", "https://push.test/kept", "https://push.test/stale"]);
 
     const devices = () => inside(name, (_instance, state) => state.storage.sql.exec("SELECT endpoint FROM ky_push_devices").toArray().map((row) => row.endpoint));
     expect(await devices()).toEqual(["https://push.test/kept"]);
@@ -193,7 +200,7 @@ describe("pushes", () => {
       await instance.pushes.notify(ROOT_SESSION, "Third.");
     });
     expect(took).toHaveLength(1);
-    expect(await open(took[0]!.body, kept.keys, kept.auth)).toBe("ky\n/\nSecond.");
+    expect(await open(took[0]!.body, kept.keys, kept.auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nSecond.`);
 
     // Unsubscribed, the device gets nothing.
     expect(await page.send({ type: "push-unsubscribe", endpoint: kept.device.endpoint })).toMatchObject({ type: "result" });

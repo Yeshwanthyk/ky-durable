@@ -148,13 +148,41 @@ async function worker(): Promise<ServiceWorkerRegistration> {
   return registration;
 }
 
+/** ky's VAPID public key's bytes, from its base64url. */
+const keyBytes = (key: string) => Uint8Array.from(atob(key.replaceAll("-", "+").replaceAll("_", "/")), (char) => char.charCodeAt(0));
+
+/** Subscribe this device with ky's VAPID `key`, once notifications are allowed. */
+async function subscribeWith(key: string): Promise<PushDevice> {
+  return deviceOf(await (await worker()).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) }));
+}
+
 /** Ask to show notifications, and subscribe this device with ky's VAPID `key`. */
 async function subscribe(key: string): Promise<PushDevice> {
   // First, while the click still counts as the user's: Safari asks only then.
   if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked for ky in this browser's settings.");
-  const applicationServerKey = Uint8Array.from(atob(key.replaceAll("-", "+").replaceAll("_", "/")), (char) => char.charCodeAt(0));
 
-  return deviceOf(await (await worker()).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }));
+  return subscribeWith(key);
+}
+
+/** Whether `made` was subscribed with ky's VAPID `key`. */
+function madeWith(made: PushSubscription, key: string): boolean {
+  const was = made.options.applicationServerKey;
+
+  return was !== null && new Uint8Array(was).join() === keyBytes(key).join();
+}
+
+/**
+ * Whether this device gets ky's pushes, making sure ky knows it: a subscription made with another VAPID key (a new
+ * Vault) is made again with `key`, and either way ky is told of it, as it may have lost its row (a restore).
+ */
+async function resume(key: string, remember: (device: PushDevice) => Promise<null>): Promise<boolean> {
+  const made = await subscription();
+
+  if (made === null || Notification.permission !== "granted") return false;
+  const device = madeWith(made, key) ? deviceOf(made) : await made.unsubscribe().then(() => subscribeWith(key));
+  await remember(device);
+
+  return true;
 }
 
 /** A subscription as ky keeps it; ky refuses one without its keys. */
@@ -191,8 +219,13 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
   useEffect(() => {
     if (!can) return;
     // The key is fetched ahead, so a click goes straight to asking.
-    actions.onPushKey().then(setKey, (error: Error) => setProblem(error.message));
-    subscription().then((made) => setOn(made !== null && Notification.permission === "granted"), () => setOn(false));
+    actions
+      .onPushKey()
+      .then(async (current) => {
+        setKey(current);
+        setOn(await resume(current, actions.onSubscribe));
+      })
+      .catch((error: Error) => setProblem(error.message));
   }, [actions, can]);
 
   const toggle = () => {
