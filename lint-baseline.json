@@ -262,7 +262,6 @@
   },
   "test/harness/scenarios.ts": {
     "typescript(no-base-to-string)": 1,
-    "typescript(no-meaningless-void-operator)": 1,
     "typescript(no-unsafe-argument)": 1,
     "typescript(no-unsafe-assignment)": 20,
     "typescript(no-unsafe-call)": 25,

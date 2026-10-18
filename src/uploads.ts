@@ -20,10 +20,10 @@ export const PART_BYTES = 8 * 1024 * 1024;
  * wall time (developers.cloudflare.com/durable-objects/platform/limits/); a save still going after
  * this is aborted, so it fails as an error the alarm handles rather than the platform cutting it off.
  */
-export const SAVE_WITHIN_MS = 10 * 60_000;
+const SAVE_WITHIN_MS = 10 * 60_000;
 
 /** The parts of `body`: each PART_BYTES long, the last whatever is left. */
-async function* partsOf(body: ReadableStream<Uint8Array>, within: <T>(step: Promise<T>) => Promise<T>): AsyncGenerator<Uint8Array> {
+async function* partsOf(body: ReadableStream<unknown>, within: <T>(step: Promise<T>) => Promise<T>): AsyncGenerator<Uint8Array> {
   const reader = body.getReader();
   let part = new Uint8Array(PART_BYTES);
   let filled = 0;
@@ -33,6 +33,8 @@ async function* partsOf(body: ReadableStream<Uint8Array>, within: <T>(step: Prom
       const { done, value } = await within(reader.read());
 
       if (done) break;
+
+      if (!(value instanceof Uint8Array)) throw new Error("A save's body gave something other than bytes");
 
       for (let at = 0; at < value.byteLength; ) {
         const taken = Math.min(PART_BYTES - filled, value.byteLength - at);
@@ -59,7 +61,7 @@ async function* partsOf(body: ReadableStream<Uint8Array>, within: <T>(step: Prom
  * Put `body` to `bucket` at `key` in parts, over what's there only once all of it is in. A body
  * that fails, an empty body, or one that takes longer than `withinMs`, throws, and R2 keeps its last save.
  */
-export async function putInParts(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, withinMs = SAVE_WITHIN_MS): Promise<void> {
+export async function putInParts(bucket: R2Bucket, key: string, body: ReadableStream<unknown>, withinMs = SAVE_WITHIN_MS): Promise<void> {
   const upload = await bucket.createMultipartUpload(key, { httpMetadata: { contentType: "application/gzip" } });
   let timer: ReturnType<typeof setTimeout> | undefined;
 
