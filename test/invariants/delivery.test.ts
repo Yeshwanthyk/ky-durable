@@ -7,15 +7,19 @@ import { Deliveries } from "../../src/automations/delivery";
  * An automation's report reaches its chat (src/automations/delivery.ts), run over generated operations on a real
  * SQLite: reports handed over (ids repeat, as a retried run hands its report over again), chats going busy and
  * idle, turns ending, the object restarting, and a crash between pi taking a report and its row being marked.
- * The chats are a fake pi that takes a request id once and starts a run with each report it takes. Old rows a
+ * Some items are a look's messages, posted as ky's own. The chats are a fake pi that takes a request id once and
+ * starts a run with each report it takes, and none with a look's message. Old rows a
  * past ky sent to the brief are there from the start. Once every chat has gone idle and the object has started
  * again:
  *
- * - every report handed over is in its chat once, with what its first hand-over said, in hand-over order;
+ * - every report and look message handed over is in its chat once, with what its first hand-over said, in hand-over order;
  * - a report an older ky sent to the brief is never put in a chat, and no row is left queued.
  */
 
 const SESSIONS = ["0", "s1", "s2"] as const;
+
+/** Ids of a look's messages, handed over with kind look. */
+const LOOKS = ["l1", "l2"] as const;
 
 /** Ids a past ky sent to the brief, as rows in state 'brief'. */
 const BRIEFED = ["b1", "b2"] as const;
@@ -28,7 +32,7 @@ type Op =
 const session = fc.constantFrom(...SESSIONS);
 
 const anOp: fc.Arbitrary<Op> = fc.oneof(
-  { weight: 4, arbitrary: fc.record({ op: fc.constant("deliver" as const), id: fc.constantFrom("r1", "r2", "r3", "r4", ...BRIEFED), session, content: fc.string({ maxLength: 8 }) }) },
+  { weight: 4, arbitrary: fc.record({ op: fc.constant("deliver" as const), id: fc.constantFrom("r1", "r2", "r3", "r4", ...LOOKS, ...BRIEFED), session, content: fc.string({ maxLength: 8 }) }) },
   { weight: 2, arbitrary: fc.record({ op: fc.constantFrom("busy" as const, "idle" as const, "turnEnd" as const), session }) },
   { weight: 1, arbitrary: fc.record({ op: fc.constantFrom("restart" as const, "crashNext" as const) }) }
 );
@@ -47,7 +51,7 @@ function storage(db: DatabaseSync): Storage {
   return { exec, databaseSize: 0 } as Storage;
 }
 
-/** pi's chats: a request id is taken once, a taken report starts a run, and a busy chat takes nothing. */
+/** pi's chats: a request id is taken once, a taken report starts a run (a look's message none), and a busy chat takes nothing. */
 class Chats {
   readonly busy = new Set<string>();
   readonly posted: { id: string; session: string; content: string }[] = [];
@@ -58,7 +62,7 @@ class Chats {
   /** Bumped by a restart: an older object's waits never end and its submits fail. */
   life = 0;
 
-  submit(life: number, session: string, content: string, id: string): boolean {
+  submit(life: number, session: string, content: string, id: string, starts = true): boolean {
     if (life !== this.life) throw new Error("This object was restarted.");
 
     if (this.busy.has(session)) return false;
@@ -66,7 +70,8 @@ class Chats {
     if (!this.#taken.has(id)) {
       this.#taken.add(id);
       this.posted.push({ id, session, content });
-      this.busy.add(session);
+
+      if (starts) this.busy.add(session);
     }
 
     if (this.crashNext) {
@@ -141,7 +146,8 @@ class World {
 
   async #deliver({ id, session, content }: { id: string; session: string; content: string }): Promise<void> {
     if (!this.handed.has(id)) this.handed.set(id, { session, content });
-    await this.#deliveries.deliver({ id, session, content, line: content, ref: `task:${id}` }, this.#now++).catch(() => undefined);
+    const kind = LOOKS.some((look) => look === id) ? "look" : "event";
+    await this.#deliveries.deliver({ id, session, content, line: content, ref: `task:${id}`, kind }, this.#now++).catch(() => undefined);
   }
 
   #open(): Deliveries {
@@ -151,6 +157,7 @@ class World {
     return new Deliveries(storage(this.db), {
       surfaced: { shown: () => undefined },
       submit: async (at, content, id) => this.chats.submit(life, at, content, id),
+      post: async (at, text, id) => this.chats.submit(life, at, text, id, false),
       idle: (at) => this.chats.idle(life, at),
       later: (work) => void work.catch(() => undefined)
     });

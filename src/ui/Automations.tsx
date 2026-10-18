@@ -82,7 +82,7 @@ function plainTime([, minute = "", hour = "", weekday = ""]: string[], now: numb
 }
 
 /** A cron in words, in the browser's time, when it is a plain hourly, daily or weekly time; else as written, in UTC. */
-export function cronInWords(cron: string, now = Date.now()): string {
+function cronInWords(cron: string, now = Date.now()): string {
   const parts = PLAIN_CRON.exec(cron);
 
   return (parts && plainTime([...parts], now)) ?? `${cron} UTC`;

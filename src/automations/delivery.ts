@@ -1,13 +1,15 @@
 import { defineExtension, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
 import type { Surfaced } from "../dreaming/wiring";
 import { decodeOr } from "../core/decode";
-import { type Delivery, DeliverySchema, SessionRow } from "./contract";
+import { ColumnInfo, type Delivery, DeliverySchema, SessionRow } from "./contract";
 
 /**
- * How what an automation tells a chat reaches the user: a run's report (src/skills/subagents.ts) or its notice
- * that its gate paused it (src/automations/automations.ts). It always goes to that chat, in full, whether or not
- * the user is around. It enters only between turns, never into a run: an idle chat takes it at once, and a busy
- * one when its turn is over, so it never steers the work the user is watching.
+ * How what ky tells a chat unasked reaches the user: an automation run's report (src/skills/subagents.ts), its
+ * notice that its gate paused it (src/automations/automations.ts), or a look's message (src/dreaming/looks.ts).
+ * It always goes to that chat, in full, whether or not the user is around. It enters only between turns, never
+ * into a run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the
+ * user is watching. An event is given to the chat's agent, which answers it; a look's message is posted as ky's
+ * own, as written, and starts nothing.
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
  * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
@@ -16,13 +18,13 @@ import { type Delivery, DeliverySchema, SessionRow } from "./contract";
  * brief instead) were delivered there; they only keep their id known until they age out.
  */
 
-/** A line in a chat counts as unhandled for a day, then as expired, as a brief line does at midnight. */
+/** A line in a chat counts as unhandled for a day, then as expired. */
 const EVENT_EXPIRY_MS = 86_400_000;
 
 /** Rows kept after their delivery, so a late second hand-over is still known. */
 const KEEP_MS = 30 * 86_400_000;
 
-/** The limit on an event line, as on a brief line (src/dreaming/brief.ts). */
+/** The limit on an event line's text, as what ky surfaced keeps it. */
 const LINE_BYTES = 280;
 
 const encoder = new TextEncoder();
@@ -44,6 +46,8 @@ export type DeliveryParts = {
   readonly surfaced: Pick<Surfaced, "shown">;
   /** Put `content` in the chat by `requestId`: true once pi took it, false (writing nothing) while a run is going. */
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
+  /** Post `text` in the chat as ky's own message by `requestId`, starting nothing: true once pi took it, false (writing nothing) while a run is going. */
+  readonly post: (session: string, text: string, requestId: string) => Promise<boolean>;
   /** Resolve once the chat has no run going. */
   readonly idle: (session: string) => Promise<void>;
   /** Work that outlives the call, as ctx.waitUntil. */
@@ -68,6 +72,11 @@ export class Deliveries {
       state TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       delivered_at INTEGER)`);
+
+    // Looks came after events: a table from before has every row an event.
+    if (!sql.exec("PRAGMA table_info(ky_deliveries)").toArray().some((column) => decodeOr(ColumnInfo, column, undefined)?.name === "kind")) {
+      sql.exec("ALTER TABLE ky_deliveries ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'");
+    }
   }
 
   /** Deliver `item` by the rules above, once however often it is handed over. */
@@ -76,17 +85,23 @@ export class Deliveries {
 
     if (!known) {
       this.#sql.exec(
-        "INSERT INTO ky_deliveries (id, session, content, line, ref, state, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)",
+        "INSERT INTO ky_deliveries (id, session, content, line, ref, kind, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
         item.id,
         item.session,
         item.content,
         item.line,
         item.ref,
+        item.kind ?? "event",
         now
       );
     }
 
     await this.#flush(item.session);
+  }
+
+  /** Whether pi's request `requestId` is an event handed to this: a report, whose turn recalls as a user's message does (src/dreaming/recall.ts). */
+  delivered(requestId: string): boolean {
+    return this.#sql.exec("SELECT 1 FROM ky_deliveries WHERE id = ? AND kind = 'event'", requestId).toArray().length > 0;
   }
 
   /** A turn in `session` is ending: once it is over, what waits for that chat goes in. */
@@ -135,19 +150,22 @@ export class Deliveries {
 
   #queued(session: string): Delivery[] {
     return this.#sql
-      .exec("SELECT id, session, content, line, ref FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
+      .exec("SELECT id, session, content, line, ref, kind FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
       .toArray()
       .flatMap((row) => decodeOr(DeliverySchema, row, undefined) ?? []);
   }
 
   /**
-   * Put what waits for `session` in it, oldest first, while it is idle: the first starts a run, so the rest wait
-   * for that run's end, as does all of it when the chat is busy. Two flushes at once are safe: pi takes a request
-   * id once, and a row is marked once.
+   * Put what waits for `session` in it, oldest first, while it is idle: an event starts a run, so what follows
+   * waits for that run's end, as does all of it when the chat is busy; a look's message starts none. Two flushes
+   * at once are safe: pi takes a request id once, and a row is marked once.
    */
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
-      if (!(await this.#parts.submit(session, item.content, item.id))) {
+      const kind = item.kind ?? "event";
+      const put = kind === "look" ? this.#parts.post : this.#parts.submit;
+
+      if (!(await put(session, item.content, item.id))) {
         this.#retry(session);
 
         return;
@@ -155,7 +173,7 @@ export class Deliveries {
 
       const now = Date.now();
       this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued'", now, item.id);
-      this.#parts.surfaced.shown({ kind: "event", loop: "event", ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
+      this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
     }
   }
 }

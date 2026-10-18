@@ -11,7 +11,7 @@ import type { MachineFacts, MachineLogin, MachineState } from "./machines/contra
 import type { SettingsView } from "./settings";
 import type { SetupView } from "./setup";
 import type { SkillRow, SpecialistView } from "./skills/contract";
-import type { BriefView, MemoryView, Recalled, SoulView } from "./dreaming/contract";
+import type { MemoryView, Recalled, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
 
 /** A machine's OS as people say it; `os` is Node's `process.platform`. */
@@ -200,8 +200,6 @@ export type PiServerMessage =
   /** The specialists and their briefs; sent on connect and on change. */
   | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
   | { readonly type: "memory"; readonly memory: MemoryView }
-  /** Today's brief: the lines with no outcome yet, and the pinned ones; sent on connect when there are any, and to every page when a line is written or the level changes (empty clears the card). */
-  | { readonly type: "brief"; readonly brief: BriefView }
   /** Context turn-start recall gave the model for the user's messages in `session`, by entry id; on watch, and as each is made. */
   | { readonly type: "recalled"; readonly session: string; readonly recalls: readonly Recalled[] }
   /** The active, paused and archived automations, newest first; sent on connect and on change. */
@@ -233,7 +231,7 @@ export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
 
-export type { BriefCardLine, BriefView, DreamLedgerRow, ProactivityLevel, ProactivityView, ProposalView, Rate, Recalled } from "./dreaming/contract";
+export type { DreamLedgerRow, ProactivityLevel, ProactivityView, Recalled } from "./dreaming/contract";
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 

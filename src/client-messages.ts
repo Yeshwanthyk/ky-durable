@@ -135,28 +135,12 @@ export const ClientMessageSchema = Type.Union([
   message("automation-save", { automation: Type.Optional(Text), draft: AutomationDraftSchema }),
   /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
   message("automation", { automation: Text, action: AutomationActionSchema }),
-  /** The brief card was on the user's screen with these lines: each is recorded as shown, once. */
-  message("brief-seen", { keys: Type.Array(Text, { maxItems: 20 }) }),
-  /** The user sent the ask a brief line's chip put in the composer: by the line's key. */
-  message("brief-act", { key: Text }),
-  /** Keep a brief line on the card for the day, and its anticipation for good. */
-  message("brief-pin", { key: Text }),
-  /** Drop a brief line, closing a machine's unpinned anticipation as dismissed. */
-  message("brief-dismiss", { key: Text }),
-  /** Dismiss all: clear the lines the card showed, pinned ones aside; closes nothing. */
-  message("brief-clear", { keys: Type.Array(Text, { maxItems: 20 }) }),
-  /** Answers with Activity › Suggested: the open automations the dream proposed. */
-  message("proposals", {}),
-  /** Activity › Suggested was on the user's screen with these proposals: each is recorded as shown, once. */
-  message("proposal-seen", { ids: Type.Array(Type.Number(), { maxItems: 20 }) }),
-  /** Accept a proposal: its automation is created as the user's; the result is `{ refused }` when it cannot be. */
-  message("proposal-accept", { proposal: Type.Number() }),
-  /** Dismiss a proposal: the dream never offers its key again; the result is `{ refused }` when it cannot be. */
-  message("proposal-dismiss", { proposal: Type.Number() }),
-  /** Answers with Settings › Proactivity: the level and its rates. */
+  /** Answers with Settings › Proactivity: the level and the look times. */
   message("proactivity", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */
   message("set-proactivity", { level: ProactivityLevelSchema }),
+  /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */
+  message("set-looks", { looks: Texts }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Choose the model, and its thinking level, for one purpose. */

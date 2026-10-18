@@ -8,7 +8,7 @@ import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type EntryId, type Extension, type Tx } from "@earendil-works/pi-durable";
 import Type, { type Static } from "typebox";
-import { summarize, type TaskFeed } from "../automations/contract";
+import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contract";
 import { parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { agentModel } from "../models";
@@ -161,10 +161,11 @@ export const SkillVersion = Type.Object({
 export type SkillVersion = Static<typeof SkillVersion>;
 
 /**
- * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), or an episode
- * reflection that keeps what a chat left open (src/dreaming/episodes.ts).
+ * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), an episode
+ * reflection that keeps what a chat left open (src/dreaming/episodes.ts), or a look over the user's day
+ * (src/dreaming/looks.ts).
  */
-const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream"), Type.Literal("episode")]);
+const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream"), Type.Literal("episode"), Type.Literal("look")]);
 
 export type ReviewKind = Static<typeof ReviewKind>;
 
@@ -182,7 +183,9 @@ export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = O
   // automation books check-ins (src/automations/automations.ts), and only them; anticipate keeps what is open (src/dreaming/anticipations.ts).
   dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"],
   // An episode only keeps what is open, checking memory first; it writes no memory and no skill.
-  episode: ["anticipate", "memory_recall"]
+  episode: ["anticipate", "memory_recall"],
+  // A look only reads: memory, the chats, what is open (anticipate's list alone), and a check-in's web and browser.
+  look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", ...CHECK_IN_TOOLS]
 });
 
 // Specialists.

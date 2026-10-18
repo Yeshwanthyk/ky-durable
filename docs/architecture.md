@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -91,23 +91,28 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   Status moves only forward (open, surfaced, then done, dismissed or expired). A loop closed as done becomes one memory
   with its outcome. The dream expires rows whose window passed unseen, and reads the open ones in its digest.
   Turn-start recall will read them with `match`; no panel shows them yet.
-- The morning brief: up to 3 lines a day for the user's day in `ky_brief` (`src/dreaming/brief.ts`), one row per
-  local day, gone at their midnight (`src/dreaming/local-day.ts`, found by search so daylight saving at midnight holds).
-  The dream writes them with the `anticipate` tool's brief action from what is `due` and open; events may `append`
-  lines too, within the same cap. A notice ky relayed is never evidence (`isOwnRequest` in `src/history.ts`). A
-  quiet night dreams only when something is due or pinned in the day, with a brief-only prompt. Every hello that
-  day gets the unhandled lines as a `brief` frame, and open pages get it again when a line is written; the card
-  sits above the chat, not in it, each line naming its source. A line is shown, a `ky_surfaced` row
-  (`src/dreaming/surfaced.ts`) and its anticipation surfaced, when the page reports it on screen (`brief-seen`).
-  Outcomes are acted (the chip's message sent), pinned, dismissed, cleared (Dismiss all, not counted as dismissed
-  and not shown to the dream as such), or expired at midnight. The dream's digest reads last week's counts and
-  dismissed lines, and the cap drops to 2 after two weeks in a row under 25% of settled lines acted or pinned.
-  Settings › Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) turns it off: an empty brief, taps refused.
+- The dream is silent: it keeps memory, skills and anticipations, and writes nothing for the user to read. Settings ›
+  Proactivity (`ky_proactivity`, `src/dreaming/proactivity.ts`) is on or off; off starts no episode reflection,
+  makes no recall block and takes no look. A level an older ky stored (brief, boundary) reads as on, and its `ky_brief` and
+  `ky_proposals` tables stay, unread and left out of backups.
+- Looks (`src/dreaming/looks.ts`): while Proactivity is on, ky looks over the user's day at their look times
+  (local HH:MM in `ky_proactivity`, 08:00, 13:00 and 18:00 until they change them in Settings › Proactivity, at most
+  4), each a `look` cron in the Automations Scheduler, booked again on start, when the zone changes, and when the
+  times or on and off change. A look is a fresh conversation on the background model that wakes with memory, shown in
+  Activity like a dream, and may only read: memory_recall, memory_zoom, chat_search, anticipate (list only) and the
+  check-in tools. Its digest holds the open anticipations, the last day of the chats and what looks said lately; it
+  weighs what is needed against what is current and answers with rows (ref, needed, current, tell, prepare or skip,
+  by, message). A pure `decide` (`src/dreaming/decide.ts`) keeps at most 3: a known ref, said again only once the user
+  wrote since, or once nothing holds it open (its anticipation closed, or a memory) and 48 hours passed, and a
+  prepare only at the last look that leaves time before it: when the next look, today's or else tomorrow's first,
+  would be too late.
+  Each goes to the main chat through Delivery as ky's own message, as written (a `ky.look` entry written between
+  turns, starting none), once by `look:<date>:<time>:<ref>`, and is a `ky_surfaced` row of kind look.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
-  looks up the user's latest message, when it is their own and not an ack, in open anticipations, memory notes, chat
+  looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)
   to the request's copy of that message only. The transcript and system prompt never hold it. A block is made once
-  per message and stored as a `ky_surfaced` row (kind recall, loop L2); every later request re-appends each stored
+  per message and stored as a `ky_surfaced` row (kind recall); every later request re-appends each stored
   block to its own message, so the cached prefix never changes. The anticipations it shows become surfaced, and a
   `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
   "Recalled N" under the message. Proactivity off makes none.

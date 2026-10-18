@@ -34,7 +34,7 @@ import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, 
  * background reporter task that posts the answer back to the main agent as
  * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
  * An automation's run is the exception: its report is handed to delivery (src/automations/delivery.ts),
- * which puts it in the chat only between turns, or in the brief while the user is away.
+ * which puts it in the chat only between turns.
  */
 
 /** How a subagent's message ended, for its row in the task feed. */
@@ -90,7 +90,7 @@ type ReporterInput = {
   specialist?: string;
   /** A check-in's run: it reports only what it found new, and a failure stays in Activity. */
   checkIn?: boolean;
-  /** An automation's run: its report is delivered between turns, or to the brief (src/automations/delivery.ts), not steered in. */
+  /** An automation's run: its report is delivered between turns (src/automations/delivery.ts), not steered in. */
   deliver?: boolean;
 };
 
@@ -123,7 +123,7 @@ export type SpecialistDeps = {
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-/** `line` is the report in a line, for the brief; checkpoints from before it have none. */
+/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. */
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string };
 
 /** A check-in's answer when it found nothing worth saying. */
@@ -139,7 +139,7 @@ function failureOf(input: ReporterInput, reason: string): string | undefined {
 /** What a reporter's lines call it: its label, like automation "Inbox", or the subagent's name. */
 const labelOf = (input: ReporterInput) => input.label ?? `subagent ${input.name}`;
 
-/** A report in one line, for the brief while the user is away. */
+/** A report in one line, as what ky surfaced keeps it. */
 const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${said}`;
 
 /** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */

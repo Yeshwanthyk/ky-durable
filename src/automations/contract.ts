@@ -118,7 +118,7 @@ function gateProblem(gate: string | null): string | undefined {
 
 /**
  * What is wrong with what a draft is and does, before anything else is checked (its model, machine and chat, and
- * a cron's syntax, which booking checks): the automation tool's and the UI's saves, and a dream's proposal, alike.
+ * a cron's syntax, which booking checks): the automation tool's and the UI's saves alike.
  */
 export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "cron" | "at" | "gate">): string | undefined {
   return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);
@@ -216,12 +216,21 @@ export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent"
 export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "session">>;
 
 /**
- * Something an automation tells a chat: a run's report, or the notice that it paused. `id` is its one identity,
- * the request id pi takes it by, so however often it is handed over it is delivered once; `content` is what
- * the chat's agent is given; `line` is it in one line, for the event the chat's turn is about;
- * `ref` is what it rests on, like task:a-1f2e-1760600000.
+ * Something ky tells a chat between turns: an event, an automation run's report or the notice that it paused,
+ * which the chat's agent is given and answers; or a look's message (src/dreaming/looks.ts), which is posted as
+ * ky's own, as written, and starts no turn. `id` is its one identity, the request id pi takes it by, so however
+ * often it is handed over it is delivered once; `content` is what the chat's agent is given, or the look's
+ * message; `line` is it in one line, as what ky surfaced keeps it; `ref` is what it rests on, like
+ * task:a-1f2e-1760600000 or anticipation:12. Without a kind it is an event.
  */
-export const DeliverySchema = Type.Object({ id: Type.String(), session: Type.String(), content: Type.String(), line: Type.String(), ref: Type.String() });
+export const DeliverySchema = Type.Object({
+  id: Type.String(),
+  session: Type.String(),
+  content: Type.String(),
+  line: Type.String(),
+  ref: Type.String(),
+  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look")]))
+});
 
 export type Delivery = Readonly<Static<typeof DeliverySchema>>;
 

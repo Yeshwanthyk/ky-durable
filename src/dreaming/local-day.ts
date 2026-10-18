@@ -1,6 +1,6 @@
 /**
- * The user's local day, from their IANA time zone (the browser's, via Automations.setZone): what the dream's
- * 04:00, the brief's day and its midnight are counted in. An unknown or unnamed zone counts as UTC.
+ * The user's local time, from their IANA time zone (the browser's, via Automations.setZone): what the dream's
+ * 04:00 is counted in. An unknown or unnamed zone counts as UTC.
  */
 
 /** One formatter per zone, as making one costs far more than using it; null for a zone Intl does not know. */
@@ -19,7 +19,7 @@ function formatter(zone: string): Intl.DateTimeFormat | null {
 }
 
 /** How far `zone` is ahead of UTC at `now`, in minutes; 0 for an unknown or unnamed zone. */
-export function offsetMinutes(zone: string | null, now: number): number {
+function offsetMinutes(zone: string | null, now: number): number {
   const format = zone === null ? null : formatter(zone);
 
   if (format === null) return 0;
@@ -30,41 +30,19 @@ export function offsetMinutes(zone: string | null, now: number): number {
   return Math.round((wall - Math.floor(now / 60_000) * 60_000) / 60_000);
 }
 
-/** The local date at `now` in `zone`, YYYY-MM-DD. */
-export function localDay(zone: string | null, now: number): string {
-  return new Date(now + offsetMinutes(zone, now) * 60_000).toISOString().slice(0, 10);
+/**
+ * The cron that fires daily at `minutes` past local midnight in `zone`, at its offset at `now`; in UTC when the zone
+ * is unknown. A daylight-saving change moves it an hour until it is booked again.
+ */
+export function localCron(minutes: number, zone: string | null, now = Date.now()): string {
+  const utc = (((minutes - offsetMinutes(zone, now)) % 1440) + 1440) % 1440;
+
+  return `${utc % 60} ${Math.floor(utc / 60)} * * *`;
 }
 
-/** How far ahead the search for the next midnight looks: a day, and the most a daylight-saving change adds. */
-const SEARCH_MS = 26 * 3_600_000;
+/** The local date in `zone` at `now`, YYYY-MM-DD, and the minutes past its midnight. */
+export function localNow(zone: string | null, now: number) {
+  const wall = now + offsetMinutes(zone, now) * 60_000;
 
-/** The search's step; every zone's offset, now and in the past century, is a whole number of quarter hours. */
-const STEP_MS = 15 * 60_000;
-
-/**
- * The next local midnight after `now` in `zone`, epoch ms: the first instant whose local date is not today's.
- * Searched for, not computed from today's offset, because a daylight-saving change can fall on midnight itself
- * (America/Santiago, Cuba, Egypt, Lebanon), where the first instant of tomorrow is 01:00.
- */
-export function nextMidnight(zone: string | null, now: number): number {
-  const today = localDay(zone, now);
-  const later = (at: number) => localDay(zone, at) !== today;
-  // Start from the stroke of the minute after now, so every step lands on a whole minute.
-  let before = now;
-  let after = Math.floor(now / 60_000) * 60_000 + 60_000;
-
-  while (!later(after) && after - now < SEARCH_MS) {
-    before = after;
-    after += STEP_MS;
-  }
-
-  // Between a step still today and the first step that is not, to the millisecond.
-  while (after - before > 1) {
-    const middle = Math.floor((before + after) / 2);
-
-    if (later(middle)) after = middle;
-    else before = middle;
-  }
-
-  return after;
+  return { date: new Date(wall).toISOString().slice(0, 10), minutes: Math.floor(wall / 60_000) % 1440 };
 }

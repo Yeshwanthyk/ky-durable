@@ -19,7 +19,8 @@ const askedFor = (name: string, text: string) =>
 const recalledLines = (page: Tab) => page.frames.flatMap((frame) => (frame.type === "recalled" ? frame.recalls.flatMap((recall) => recall.lines) : []));
 
 /** How many recall blocks went unused last week: the model searched itself in a turn the user started. */
-const missed = (name: string) => inside(name, (instance) => instance.surfaced.lastWeek("recall").missed);
+const missed = (name: string) =>
+  inside(name, (_instance, state) => Number(state.storage.sql.exec("SELECT COUNT(*) AS n FROM ky_surfaced WHERE kind = 'recall' AND outcome = 'missed'").one().n));
 
 describe("what recall looks up", () => {
   it("takes a message's distinctive words, and finds nothing to look up in an ack", () => {

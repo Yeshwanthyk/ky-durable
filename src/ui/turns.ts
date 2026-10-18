@@ -293,7 +293,15 @@ export function buildTurns(
         current = open(message);
         break;
       case "assistant":
+        // A post starts no turn, so it is one of its own, and what a run going on writes after it opens another.
+        if (message.posted) {
+          current = open(null);
+          current.id = message.id;
+        }
+
         addAssistant(message, false);
+
+        if (message.posted) current = undefined;
         break;
       case "tool":
         for (const part of message.parts) {

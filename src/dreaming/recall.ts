@@ -1,7 +1,7 @@
 import { type Message, Type, type UserMessage } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { type History, ownMessages, startedByUser } from "../history";
+import { type History, isOwnRequest, placedBy, startedByUser } from "../history";
 import type { Anticipations } from "./anticipations";
 import { CHAT_SEARCH, countOf, entryAt, MEMORY_RECALL, type Recalled } from "./contract";
 import type { Memory } from "./memory";
@@ -13,14 +13,15 @@ import type { Surfaced } from "./surfaced";
  * user sent in the main chat or a side chat, it looks up what it already knows about the message's words, so
  * the model starts with it instead of searching for it. Deterministic and SQL only: no model call.
  *
- * The words of the user's latest message (not a notice ky posted, and not a short ack) are looked up in chat
- * search (leaving out notices, and ky's answers to them), memory (memory_recall's regex read), open anticipations
- * and the skills' descriptions. What turns up is
+ * The words of the user's latest message (not a short ack) are looked up in chat search (leaving out notices, and
+ * ky's answers to them), memory (memory_recall's regex read), open anticipations and the skills' descriptions. A
+ * report delivered between turns (src/automations/delivery.ts) counts as such a message, so a weather report brings
+ * what ky knows about the day; any other notice (a mail, a peer's question) gets nothing. What turns up is
  * a `<recalled>` block of at most BLOCK_CHARS, one line per hit naming where it is from, appended to the
  * request's copy of that message only: the committed transcript never holds it, and the system prompt stays as
  * it was, so its cache does too. A recalled line never holds a `<`, so none can close the block early. A block is
- * made once per message, when its turn's first request goes out, and kept as a surfaced row (kind recall, loop
- * L2), an empty one when nothing turned up; every later request (a tool round, a retry, the turns after) appends
+ * made once per message, when its turn's first request goes out, and kept as a surfaced row (kind recall), an
+ * empty one when nothing turned up; every later request (a tool round, a retry, the turns after) appends
  * the same block to the same message again, so the conversation's cached prefix holds as well. While Settings ›
  * Proactivity is off, no block is made and none is carried.
  *
@@ -95,6 +96,8 @@ export type RecallWiring = {
   readonly skills: () => readonly SkillLine[];
   /** The main chat or a side chat: the only conversations recall runs in. */
   readonly chat: (session: string) => boolean;
+  /** Whether pi's request id is a report delivered between turns (src/automations/delivery.ts): its turn recalls too. */
+  readonly delivered: (requestId: string) => boolean;
 };
 
 /** The words of `text` worth looking up: lower-cased, not too short or common, each once, the first TERMS. */
@@ -211,7 +214,8 @@ export class Recall {
    */
   searched(session: string, now = Date.now()): void {
     if (!this.#wiring.chat(session) || !startedByUser(this.#wiring.sql, session)) return;
-    const entry = this.#latestOwn(session);
+    // The turn's newest user entry is the user's own, so it is the latest one recall answers.
+    const entry = this.#latest(session);
 
     if (entry === undefined) return;
     const item = itemOf(session, entry.id);
@@ -220,7 +224,7 @@ export class Recall {
     if (this.#wiring.surfaced.outcomeOf("recall", item) === null) this.#wiring.surfaced.outcome("recall", item, "missed", now);
   }
 
-  /** Make the block for `message` if it is the user's own latest and asks something; once per message, empty when nothing turns up. */
+  /** Make the block for `message` if it is the latest the user sent or a report, and asks something; once per message, empty when nothing turns up. */
   #decide(session: string, message: UserMessage, messages: readonly Message[], now: number): void {
     const entry = this.#fresh(session, message);
 
@@ -231,11 +235,11 @@ export class Recall {
     this.#show(session, entry, this.#gather(session, termsOf(text), messages, now), now);
   }
 
-  /** The user's own latest entry in the chat when `message` is it and it is not yet decided; marks it decided. */
+  /** The chat's latest entry recall answers when `message` is it and it is not yet decided; marks it decided. */
   #fresh(session: string, message: UserMessage): number | undefined {
-    const entry = this.#latestOwn(session);
+    const entry = this.#latest(session);
 
-    // A request whose latest user message is not the user's own latest entry (a notice, or one placed since) waits for its own.
+    // A request whose latest user message is not that entry (a notice, or one placed since) waits for its own.
     if (entry === undefined || entry.at !== message.timestamp || this.#decided.has(entry.id)) return undefined;
 
     if (this.#decided.size >= DECIDED) this.#decided.clear();
@@ -251,7 +255,7 @@ export class Recall {
 
   /** Record the block as a surfaced row (an empty one too, so a search still counts as a miss), mark its anticipations recalled, and tell the chips. */
   #show(session: string, entry: number, { lines, anticipations }: Gathered, now: number): void {
-    this.#wiring.surfaced.shown({ kind: "recall", loop: "L2", ref: `entry:${entry}`, item: itemOf(session, entry), text: lines.join("\n"), expiresAt: now + MISS_WINDOW_MS }, now);
+    this.#wiring.surfaced.shown({ kind: "recall", ref: `entry:${entry}`, item: itemOf(session, entry), text: lines.join("\n"), expiresAt: now + MISS_WINDOW_MS }, now);
     this.#wiring.anticipations.recalled(anticipations, now);
 
     if (lines.length === 0) return;
@@ -365,8 +369,11 @@ export class Recall {
     return blocks;
   }
 
-  /** The user's own latest entry in the chat, as History tells it (src/history.ts ownMessages), and its message's timestamp. */
-  #latestOwn(session: string): { readonly id: number; readonly at: number } | undefined {
+  /**
+   * The chat's latest user entry recall answers, and its message's timestamp: the user's own, as History tells it
+   * (src/history.ts ownMessages), or a delivered report.
+   */
+  #latest(session: string): { readonly id: number; readonly at: number } | undefined {
     const users = this.#wiring.sql
       .exec(
         `SELECT id, json_extract(record, '$.model[0].timestamp') AS at FROM pi_entries
@@ -377,9 +384,13 @@ export class Recall {
       .toArray()
       .flatMap((row) => entryAt(row) ?? []);
 
-    const own = ownMessages(this.#wiring.sql, users.map((user) => user.id));
+    const placed = placedBy(this.#wiring.sql, users.map((user) => user.id));
 
-    return users.find((user) => own.has(user.id));
+    return users.find((user) => {
+      const request = placed.get(user.id);
+
+      return isOwnRequest(request) || (request !== undefined && this.#wiring.delivered(request));
+    });
   }
 }
 

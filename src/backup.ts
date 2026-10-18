@@ -61,7 +61,9 @@ const SKIPPED: ReadonlyArray<readonly [string, string]> = [
   ["cf_agents_jobs", "scheduled runs: automations and dreams are booked again on start"],
   ["computer_execution_runtime", "the workspace's sandboxes: started fresh"],
   ["ky_restore*", "a restore in progress"],
-  ["ky_settings", "the model slots the purposes replaced: nothing reads it"]
+  ["ky_settings", "the model slots the purposes replaced: nothing reads it"],
+  ["ky_brief", "the morning brief an older ky kept: nothing reads it"],
+  ["ky_proposals", "the automations an older ky's dream suggested: nothing reads it"]
 ];
 
 /** The tables of an archive a restore leaves out, as what it reports: none, unless ky stopped naming one. */

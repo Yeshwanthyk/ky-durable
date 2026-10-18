@@ -54,11 +54,12 @@ const REVIEW_AFTER = 5;
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
   review: new Set(REVIEW_ALLOWED.review),
   dream: new Set(REVIEW_ALLOWED.dream),
-  episode: new Set(REVIEW_ALLOWED.episode)
+  episode: new Set(REVIEW_ALLOWED.episode),
+  look: new Set(REVIEW_ALLOWED.look)
 };
 
 /** What a blocked call calls each kind. */
-const KIND_NAMES: Record<ReviewKind, string> = { review: "A skill review", dream: "A dream", episode: "An episode reflection" };
+const KIND_NAMES: Record<ReviewKind, string> = { review: "A skill review", dream: "A dream", episode: "An episode reflection", look: "A look" };
 
 /** A skill not opened in this long, and older than STALE_MIN_AGE_MS, is archived by `stale`. */
 const STALE_UNUSED_MS = 60 * 24 * 60 * 60 * 1000;
@@ -589,7 +590,7 @@ export function skillsExtension(
           return undefined;
         }
       }),
-      // A review, a dream or an episode is offered every tool; it may only call the ones its kind allows.
+      // A review, a dream, an episode or a look is offered every tool; it may only call the ones its kind allows.
       hook(ToolTask, {
         beforeTool: (call, api) => {
           const kind = reviews.kind(String(api.conversationId));

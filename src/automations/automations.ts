@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
-import Type from "typebox";
+import Type, { type Static } from "typebox";
 import { Value } from "typebox/value";
 import type { ChatList } from "../chats";
 import { decodeOr } from "../core/decode";
@@ -71,7 +71,7 @@ import { isLive } from "./tasks";
  * again), the slot is skipped too: the row keeps a hash of that text. A gate
  * that fails three fires in a row pauses its automation and the chat is told.
  * What a run or a pause tells its chat goes through delivery
- * (src/automations/delivery.ts): between turns, or to the brief.
+ * (src/automations/delivery.ts), between its turns.
  *
  * The Scheduler delivers a fire at least once, so a run is keyed by its slot
  * (the fire's due time): task `a-<id>-<slot>`. A slot runs once, a fire is
@@ -94,7 +94,7 @@ export type AutomationRuntime = {
   readonly wake: () => Promise<void>;
   /** Abort what a pi conversation is doing. */
   readonly abort: (session: string) => Promise<void>;
-  /** Tell a chat something, between its turns or in the brief (src/automations/delivery.ts); once per id. */
+  /** Tell a chat something, between its turns (src/automations/delivery.ts); once per id. */
   readonly deliver: (item: Delivery) => Promise<void>;
 };
 
@@ -111,9 +111,16 @@ export type AutomationDeps = {
   readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
   /** ky's own nightly job, Dreaming (src/dreaming/dreaming.ts): booked here so one Scheduler holds every fire, at its cron in the user's zone. */
   readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
+  /** ky's looks over the day (src/dreaming/looks.ts), booked here too: those to book in a zone, each a local time and its cron, and one to take. */
+  readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
 };
+
+/** A look's booking: its local HH:MM. */
+const LookFire = Type.Object({ time: Type.String() });
+
+type LookFire = Static<typeof LookFire>;
 
 /** Check-ins booked in one day, and waiting at once. */
 const CHECK_INS_A_DAY = 2;
@@ -213,6 +220,7 @@ export class Automations {
   readonly scheduler = new Scheduler<{
     automation: (fire: Fire, schedule: Schedule<Fire>) => Promise<void>;
     dream: () => Promise<void>;
+    look: (payload: LookFire) => Promise<void>;
     peers: () => Promise<void>;
     machines: () => Promise<void>;
   }>({
@@ -220,6 +228,7 @@ export class Automations {
       automation: (fire, schedule) => this.#fire(fire, schedule),
       // It only starts the dream, so it never holds up the alarm.
       dream: async () => this.#deps.dream.run(),
+      look: async ({ time }) => this.#deps.looks.run(time),
       peers: () => this.#deps.peers(),
       // A runner silent past ONLINE_WITHIN_MS shows offline though its socket looks open.
       machines: async () => this.#deps.machines.recheck()
@@ -314,6 +323,7 @@ export class Automations {
     if (zone === this.checkIns().zone) return;
     // Booked first: a booking that fails leaves the old zone, so the next connect tries again.
     await this.#bookDream(zone);
+    await this.#bookLooks(zone);
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
   }
 
@@ -515,9 +525,10 @@ export class Automations {
     await this.scheduler.set(new Date(at), "dream");
   }
 
-  /** On start: book the nightly dream, and any active automation whose booking is missing. */
+  /** On start: book the nightly dream, the looks, and any active automation whose booking is missing. */
   async recover(): Promise<void> {
     await this.#bookDream(this.checkIns().zone);
+    await this.bookLooks();
 
     for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
       if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
@@ -539,6 +550,24 @@ export class Automations {
     for (const old of stale) await this.scheduler.cancel(old.id);
 
     await this.scheduler.set(cron, "dream", undefined, { idempotent: true });
+  }
+
+  /** Book the looks again: the user changed their times or turned Proactivity on or off. */
+  bookLooks(): Promise<void> {
+    return this.#bookLooks(this.checkIns().zone);
+  }
+
+  /** Book a look at each time wanted in `zone`, and drop those booked at another time or cron; none while Proactivity is off. */
+  async #bookLooks(zone: string | null): Promise<void> {
+    const wanted = this.#deps.looks.booked(zone);
+    const key = (time: string | undefined, cron: string | undefined) => `${time} ${cron}`;
+    const keep = new Set(wanted.map((look) => key(look.time, look.cron)));
+
+    for (const old of await this.scheduler.list()) {
+      if (old.callback === "look" && !keep.has(key(decodeOr(LookFire, old.payload, undefined)?.time, old.type === "cron" ? old.cron : undefined))) await this.scheduler.cancel(old.id);
+    }
+
+    for (const look of wanted) await this.scheduler.set(look.cron, "look", { time: look.time }, { idempotent: true });
   }
 
   /**

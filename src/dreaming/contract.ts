@@ -27,14 +27,10 @@ export const DREAMING_TABLES = {
   dreamLedger: "ky_dream_ledger",
   /** What ky expects to matter soon: open loops, dates ahead, likely asks, watches; each cites its evidence. */
   anticipations: "ky_anticipations",
-  /** The brief: one row per local day, its lines as JSON, gone at the user's midnight. */
-  brief: "ky_brief",
-  /** Each thing ky put in front of the user unasked (a brief line), and what they did with it. */
+  /** Each thing ky put in front of the user unasked (a report in a chat, a recall block), and what became of it. */
   surfaced: "ky_surfaced",
-  /** How proactive ky is: off, the brief only, or the brief and boundary lines. One row. */
+  /** How proactive ky is: on or off. One row. */
   proactivity: "ky_proactivity",
-  /** Automations a dream suggested from a check the user kept doing by hand, until the user accepts or dismisses each. */
-  proposals: "ky_proposals",
   /** The memories each dream run noted, against its cap: one row per dream conversation. */
   dreamNotes: "ky_dream_notes"
 } as const;
@@ -169,71 +165,23 @@ export function anticipationRow(row: Row): Anticipation | undefined {
   return evidence === undefined ? undefined : { ...stored, evidence, pinned: stored.pinned !== 0 };
 }
 
-// The brief and what ky surfaced.
+// Proactivity and what ky surfaced.
 
-/** How proactive ky is: nothing unasked, a morning brief, or the brief and lines at a task's boundary. */
-export const ProactivityLevelSchema = Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]);
+/** How proactive ky is: on, or off for nothing unasked. */
+export const ProactivityLevelSchema = Type.Union([Type.Literal("off"), Type.Literal("on")]);
 
 export type ProactivityLevel = Static<typeof ProactivityLevelSchema>;
 
-export const PROACTIVITY_LEVELS: readonly ProactivityLevel[] = ["off", "brief", "boundary"];
-
-/** Where a brief line came from: the dream, or an event while the user was away; `ref` names what it rests on, like anticipation:12. */
-const BriefSourceSchema = Type.Object({ loop: Type.Union([Type.Literal("dream"), Type.Literal("event")]), ref: Type.String() });
-
-export type BriefSource = Static<typeof BriefSourceSchema>;
-
-/** A line as ky_brief stores it: its text, source, and the prepared ask its chip puts in the composer. */
-const BriefLineSchema = Type.Object({ text: Type.String(), source: BriefSourceSchema, chip: Type.Union([Type.String(), Type.Null()]) });
-
-export type BriefLine = Static<typeof BriefLineSchema>;
-
-/** A row of ky_brief as stored: its lines as JSON text, and its midnight. */
-const BriefStoredSchema = Type.Object({ lines: Type.String(), expires_at: Type.Number() });
-
-/** A day's stored lines and midnight, or undefined when there is no row or a restore damaged it (lines included). */
-export function briefRow(row: Row): { lines: BriefLine[]; expires_at: number } | undefined {
-  const stored = decodeOr(BriefStoredSchema, row, undefined);
-  const lines = stored === undefined ? undefined : parseOr(Type.Array(BriefLineSchema), stored.lines, undefined);
-
-  return stored === undefined || lines === undefined ? undefined : { lines, expires_at: stored.expires_at };
-}
-
-/** A line as the card shows it: its key (day#n), where it came from (like "anticipation #12 · chat 14 Oct"), and whether the user pinned it. */
-const BriefCardLineSchema = Type.Object({
-  key: Type.String(),
-  text: Type.String(),
-  source: Type.String(),
-  chip: Type.Union([Type.String(), Type.Null()]),
-  pinned: Type.Boolean()
-});
-
-export type BriefCardLine = Static<typeof BriefCardLineSchema>;
-
-/** The card: the local day, when it goes (the user's midnight, epoch ms), and its lines. */
-const BriefViewSchema = Type.Object({ day: Type.String(), expires_at: Type.Number(), lines: Type.Array(BriefCardLineSchema) });
-
-export type BriefView = Static<typeof BriefViewSchema>;
-
 /**
- * What became of a surfaced thing; ignored is a boundary line the user went past, and cleared a line the user
- * swept away with the rest of the card (Dismiss all): milder than dismissed, it is neither a dismissal in the
- * rates nor something the dream is told to avoid. Missed is a recall block after which the model still searched
- * memory or the chats itself in the same turn.
+ * What became of a surfaced thing: it expired, or, for a recall block, it was missed: the model still searched memory
+ * or the chats itself in the same turn. An older ky's brief and suggestions also stored acted and dismissed, never
+ * read now.
  */
-const SurfacedOutcomeSchema = Type.Union([
-  Type.Literal("acted"),
-  Type.Literal("pinned"),
-  Type.Literal("dismissed"),
-  Type.Literal("cleared"),
-  Type.Literal("ignored"),
-  Type.Literal("expired"),
-  Type.Literal("missed")
-]);
+const SurfacedOutcomeSchema = Type.Union([Type.Literal("expired"), Type.Literal("missed")]);
 
 export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
 
-export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["acted", "pinned", "dismissed", "cleared", "ignored", "expired", "missed"];
+export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["expired", "missed"];
 
 /** A shown thing's key and text, as a chat's recall blocks are read back. */
 const ShownItemRow = Type.Object({ item: Type.String(), text: Type.String() });
@@ -252,84 +200,16 @@ export const entryAt = (row: Row): Static<typeof EntryAtRow> | undefined => deco
 /** The context recalled for a user's message, by its pi entry id: the lines its chip shows (src/dreaming/recall.ts). */
 export type Recalled = { readonly entry: number; readonly lines: readonly string[] };
 
-/** One outcome's count, null for the shown ones that have none yet. */
-const OutcomeCountRow = Type.Object({ outcome: Type.Union([SurfacedOutcomeSchema, Type.Null()]), n: Type.Integer() });
+/** A look time: local HH:MM. */
+export const LOOK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
-/** A GROUP BY outcome row, or undefined when it is damaged: callers skip it. */
-export const outcomeCount = (row: Row): Static<typeof OutcomeCountRow> | undefined => decodeOr(OutcomeCountRow, row, undefined);
+/** Look times a user may set, at most. */
+export const LOOK_TIMES = 4;
 
-/** A rate as Settings › Proactivity shows it: so many of so many; nothing to show while `of` is 0. */
-const RateSchema = Type.Object({ count: Type.Integer(), of: Type.Integer() });
-
-export type Rate = Static<typeof RateSchema>;
-
-/** Settings › Proactivity: the level, and how the last week's brief and the last month's anticipations went. */
-const ProactivityViewSchema = Type.Object({
-  level: ProactivityLevelSchema,
-  /** Brief lines acted on or pinned, of those shown and settled (handled, or past their midnight), the last 7 days. */
-  accepted: RateSchema,
-  /** Brief lines dismissed one by one, of those shown and settled, the last 7 days. */
-  dismissed: RateSchema,
-  /** Anticipations that expired unseen, of those made, the last 30 days. */
-  expired: RateSchema
-});
+/** Settings › Proactivity: the level, and the look times, earliest first. */
+const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema, looks: Type.Array(Type.String()) });
 
 export type ProactivityView = Static<typeof ProactivityViewSchema>;
-
-// Proposals.
-
-/** Open until the user decides; accepted made the automation, dismissed latches its key forever. */
-const ProposalStatusSchema = Type.Union([Type.Literal("open"), Type.Literal("accepted"), Type.Literal("dismissed")]);
-
-export type ProposalStatus = Static<typeof ProposalStatusSchema>;
-
-/** What a proposal would create: a recurring automation's schedule (UTC cron), its prompt, and an optional gate. */
-const ProposalSpecSchema = Type.Object({ cron: Type.String(), prompt: Type.String(), gate: Type.Union([Type.String(), Type.Null()]) });
-
-export type ProposalSpec = Static<typeof ProposalSpecSchema>;
-
-/** A row of ky_proposals as stored: the spec and evidence as JSON text, times in epoch ms. */
-const ProposalStoredSchema = Type.Object({
-  id: Type.Integer(),
-  dedup_key: Type.String(),
-  title: Type.String(),
-  why: Type.String(),
-  spec: Type.String(),
-  evidence: Type.String(),
-  status: ProposalStatusSchema,
-  created_at: Type.Number(),
-  decided_at: Type.Union([Type.Number(), Type.Null()])
-});
-
-export type Proposal = Omit<Static<typeof ProposalStoredSchema>, "spec" | "evidence"> & { readonly spec: ProposalSpec; readonly evidence: Evidence };
-
-/** A stored row, or undefined when a restore left it damaged (spec or evidence included): callers skip it. */
-export function proposalRow(row: Row): Proposal | undefined {
-  const stored = decodeOr(ProposalStoredSchema, row, undefined);
-  const spec = stored === undefined ? undefined : parseOr(ProposalSpecSchema, stored.spec, undefined);
-  const evidence = stored === undefined ? undefined : parseOr(EvidenceSchema, stored.evidence, undefined);
-
-  return stored === undefined || spec === undefined || evidence === undefined ? undefined : { ...stored, spec, evidence };
-}
-
-/** A key and its status, as the dream's digest lists them so it never offers one twice. */
-const ProposalKeyRow = Type.Object({ dedup_key: Type.String(), status: ProposalStatusSchema });
-
-export const proposalKey = (row: Row): Static<typeof ProposalKeyRow> | undefined => decodeOr(ProposalKeyRow, row, undefined);
-
-/** Activity › Suggested: an open proposal, with the local days of the user's messages it rests on. */
-const ProposalViewSchema = Type.Object({
-  id: Type.Integer(),
-  title: Type.String(),
-  why: Type.String(),
-  cron: Type.String(),
-  prompt: Type.String(),
-  gate: Type.Union([Type.String(), Type.Null()]),
-  days: Type.Array(Type.String()),
-  created_at: Type.Number()
-});
-
-export type ProposalView = Static<typeof ProposalViewSchema>;
 
 // SOUL.md.
 
@@ -406,11 +286,7 @@ export type { Compressor, Memory } from "./memory";
 
 export type { Presence } from "./presence";
 
-export type { Brief } from "./brief";
-
 export type { Proactivity } from "./proactivity";
-
-export type { Proposals } from "./proposals";
 
 export type { Recall } from "./recall";
 
