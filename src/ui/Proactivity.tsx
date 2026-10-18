@@ -4,6 +4,7 @@ import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Icon } from "./Icon";
 
 type ProactivityActions = {
+  readonly open: boolean;
   readonly onView: () => Promise<ProactivityView>;
   readonly onSet: (level: ProactivityLevel) => Promise<ProactivityView>;
   readonly onLooks: (looks: readonly string[]) => Promise<ProactivityView>;
@@ -20,6 +21,7 @@ type PushDevice = { readonly endpoint: string; readonly p256dh: string; readonly
 
 /** What Settings › Proactivity does; provided around the panel. */
 export const ProactivityContext = createContext<ProactivityActions>({
+  open: false,
   onView: () => Promise.reject(new Error("Not connected.")),
   onSet: () => Promise.reject(new Error("Not connected.")),
   onLooks: () => Promise.reject(new Error("Not connected.")),
@@ -108,7 +110,7 @@ function Looks({ view, onChange }: { readonly view: ProactivityView; readonly on
   };
 
   return (
-    <>
+    <section className="group">
       <h3 className="group-label">Looks, your time</h3>
       <div className="card">
         {looks.map((time) => (
@@ -128,7 +130,7 @@ function Looks({ view, onChange }: { readonly view: ProactivityView; readonly on
           </div>
         ) : null}
       </div>
-    </>
+    </section>
   );
 }
 
@@ -168,12 +170,15 @@ function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
   const [view, setView] = useState<ZoneView | null>(null);
 
   useEffect(() => {
-    // Asked again on coming back, as another device may have pinned it meanwhile.
+    if (!actions.open) return;
+
+    actions.onZone().then(setView, onFail);
+
+    // Asked again on coming back, as another device may have pinned it meanwhile; a failed ask keeps what shows.
     const ask = () => {
-      if (document.visibilityState === "visible") actions.onZone().then(setView, onFail);
+      if (document.visibilityState === "visible") actions.onZone().then(setView, () => undefined);
     };
 
-    ask();
     window.addEventListener("focus", ask);
     document.addEventListener("visibilitychange", ask);
 
@@ -188,15 +193,11 @@ function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
   const detected = view.detected ?? (view.pinned ? null : view.zone);
 
   return (
-    <>
+    <section className="group">
       <h3 className="group-label">Time zone</h3>
       <div className="card">
-        <div className="row">
-          <label className="choice-text" htmlFor="time-zone">
-            <span>Time zone</span>
-            <span className="row-sub">{view.zone === null ? "Looks and the dream follow it." : <LocalTime zone={view.zone} />}</span>
-          </label>
-          <select id="time-zone" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
+        <div className="row field" data-stack>
+          <select aria-label="Time zone" className="field-select" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
             <option value={AUTOMATIC}>{`Automatic (${detected ?? "not known yet"})`}</option>
             {pinned !== null && !ZONES.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
             {ZONES.map((zone) => (
@@ -205,9 +206,10 @@ function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
               </option>
             ))}
           </select>
+          <p className="field-hint">{view.zone === null ? "Looks and the dream follow it." : <LocalTime zone={view.zone} />}</p>
         </div>
       </div>
-    </>
+    </section>
   );
 }
 
@@ -300,7 +302,7 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
   const can = pushable();
 
   useEffect(() => {
-    if (!can) return;
+    if (!can || !actions.open) return;
     // The key is fetched ahead, so a click goes straight to asking.
     actions
       .onPushKey()
@@ -323,7 +325,7 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
   const note = deviceNote(can, problem);
 
   return (
-    <>
+    <section className="group">
       <h3 className="group-label">Notifications</h3>
       <div className="card">
         <div className="row">
@@ -363,7 +365,7 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
         </div>
       </div>
       {note === null ? null : <p className="group-note">{note}</p>}
-    </>
+    </section>
   );
 }
 
@@ -375,7 +377,8 @@ export function Proactivity() {
   const fail = useCallback((error: Error) => setProblem(error.message), []);
 
   useEffect(() => {
-    actions.onView().then(setView, fail);
+    // Asked once the socket is open, and again on each reconnect.
+    if (actions.open) actions.onView().then(setView, fail);
   }, [actions, fail]);
 
   if (view === null) return <p className="group-empty">{problem ?? "Loading…"}</p>;
@@ -397,13 +400,15 @@ export function Proactivity() {
   };
 
   return (
-    <section className="group" id="settings-proactivity">
-      <h3 className="group-label">Unasked</h3>
-      <Levels level={view.level} onChoose={choose} />
+    <div id="settings-proactivity">
+      <section className="group">
+        <h3 className="group-label">Unasked</h3>
+        <Levels level={view.level} onChoose={choose} />
+      </section>
       <Looks view={view} onChange={setLooks} />
       <TimeZone onFail={fail} />
       <Notifications view={view} onRightAway={setRightAway} />
       {problem === null ? null : <p className="group-note">{problem}</p>}
-    </section>
+    </div>
   );
 }
