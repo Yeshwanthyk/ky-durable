@@ -13,7 +13,6 @@ import Type, { type Static, type TSchema } from "typebox";
 import { BloubSpecSchema } from "./avatar-spec.ts";
 import type {
   AutomationInfo,
-  BriefView,
   ChatGptCode,
   ChatGptState,
   ChatRow,
@@ -27,7 +26,6 @@ import type {
   PeerInvite,
   PeerView,
   ProactivityView,
-  ProposalView,
   SettingsView,
   SetupView,
   SkillRow,
@@ -105,16 +103,6 @@ export const ServerFrameSchema = Type.Union([
     type: Type.Literal("memory"),
     memory: Type.Object({ count: Type.Number(), newest: Type.Union([Text, Type.Null()]), items: Type.Array(MemoryItemSchema) })
   }),
-  Type.Object({
-    type: Type.Literal("brief"),
-    brief: Type.Unsafe<BriefView>(
-      Type.Object({
-        day: Text,
-        expires_at: Type.Number(),
-        lines: Type.Array(Type.Object({ key: Text, text: Text, source: Text, chip: Type.Union([Text, Type.Null()]), pinned: Type.Boolean() }))
-      })
-    )
-  }),
   Type.Object({ type: Type.Literal("recalled"), session: Text, recalls: Type.Array(Type.Object({ entry: Type.Number(), lines: Texts })) }),
   Type.Object({ type: Type.Literal("automations"), automations: Type.Array(Automation), checkIns: Type.Boolean() }),
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
@@ -148,28 +136,8 @@ const Refused = Type.Object({ refused: Text });
 
 const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Text, actor: Text, body: Text, created_at: Type.Number() }));
 
-const Rate = Type.Object({ count: Type.Number(), of: Type.Number() });
-
-/** Settings › Proactivity: the level and how the brief and anticipations went. */
-const Proactivity = Type.Unsafe<ProactivityView>(
-  Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("brief"), Type.Literal("boundary")]), accepted: Rate, dismissed: Rate, expired: Rate })
-);
-
-/** Activity › Suggested: the open proposals, checked by the fields the list shows. */
-const Proposals = Type.Unsafe<readonly ProposalView[]>(
-  Type.Array(
-    Type.Object({
-      id: Type.Number(),
-      title: Text,
-      why: Text,
-      cron: Text,
-      prompt: Text,
-      gate: Type.Union([Text, Type.Null()]),
-      days: Texts,
-      created_at: Type.Number()
-    })
-  )
-);
+/** Settings › Proactivity: the level. */
+const Proactivity = Type.Unsafe<ProactivityView>(Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]) }));
 
 /** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
 const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
@@ -226,15 +194,6 @@ export const ANSWERS = {
   "mail-disallow": Refusable,
   proactivity: Proactivity,
   "set-proactivity": Proactivity,
-  "brief-seen": Type.Null(),
-  "brief-act": Type.Null(),
-  "brief-pin": Type.Null(),
-  "brief-dismiss": Type.Null(),
-  "brief-clear": Type.Null(),
-  proposals: Proposals,
-  "proposal-seen": Type.Null(),
-  "proposal-accept": Refusable,
-  "proposal-dismiss": Refusable,
   "dream-ledger": Ledger,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };

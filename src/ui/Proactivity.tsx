@@ -1,5 +1,5 @@
 import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { ProactivityLevel, ProactivityView, Rate } from "../protocol";
+import type { ProactivityLevel, ProactivityView } from "../protocol";
 import { Icon } from "./Icon";
 
 type ProactivityActions = {
@@ -14,9 +14,8 @@ export const ProactivityContext = createContext<ProactivityActions>({
 });
 
 const LEVELS: ReadonlyArray<{ level: ProactivityLevel; label: string; sub: string }> = [
-  { level: "off", label: "Off", sub: "No brief. Check-ins are their own switch, in Automations." },
-  { level: "brief", label: "Brief only", sub: "A few lines ready when you first come back each day." },
-  { level: "boundary", label: "Brief and boundary lines", sub: "The brief, and a line when a task ends, if one helps." }
+  { level: "on", label: "On", sub: "ky looks over your day at set times and messages you when something needs you." },
+  { level: "off", label: "Off", sub: "ky says nothing unasked. Check-ins are their own switch, in Automations." }
 ];
 
 /** How far each arrow key moves the choice. */
@@ -37,7 +36,7 @@ function levelAfter(level: ProactivityLevel, key: string): ProactivityLevel | un
   return LEVELS[(index + step + LEVELS.length) % LEVELS.length]?.level;
 }
 
-/** The three levels as one radio group: the chosen one takes Tab, and the arrows move the choice. */
+/** The levels as one radio group: the chosen one takes Tab, and the arrows move the choice. */
 function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonly onChoose: (level: ProactivityLevel) => void }) {
   const group = useRef<HTMLDivElement>(null);
 
@@ -74,16 +73,7 @@ function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonl
   );
 }
 
-/** A rate as a percentage of how many, or a dash while there is nothing to count. */
-const percent = ({ count, of }: Rate) => (of === 0 ? "—" : `${Math.round((count / of) * 100)}%`);
-
-const RATES: ReadonlyArray<{ key: "accepted" | "dismissed" | "expired"; label: string; sub: (rate: Rate) => string }> = [
-  { key: "accepted", label: "Brief lines used", sub: ({ count, of }) => `${count} of ${of} acted on or pinned, last 7 days` },
-  { key: "dismissed", label: "Brief lines dismissed", sub: ({ count, of }) => `${count} of ${of}, last 7 days` },
-  { key: "expired", label: "Anticipations missed", sub: ({ count, of }) => `${count} of ${of} passed unseen, last 30 days` }
-];
-
-// How proactive ky is, and how it is going: the brief's acceptance and dismissals, and anticipations that passed unseen.
+// How proactive ky is: on or off.
 export function Proactivity() {
   const actions = useContext(ProactivityContext);
   const [view, setView] = useState<ProactivityView | null>(null);
@@ -102,27 +92,10 @@ export function Proactivity() {
   };
 
   return (
-    <>
-      <section className="group" id="settings-proactivity">
-        <h3 className="group-label">Unasked</h3>
-        <Levels level={view.level} onChoose={choose} />
-        {problem === null ? null : <p className="group-note">{problem}</p>}
-      </section>
-      <section className="group">
-        <h3 className="group-label">How it is going</h3>
-        <ul className="card" aria-label="Proactivity rates">
-          {RATES.map(({ key, label, sub }) => (
-            <li key={key} className="row">
-              <span className="row-text">
-                <span className="row-label">{label}</span>
-                <span className="row-sub">{sub(view[key])}</span>
-              </span>
-              <span className="row-value">{percent(view[key])}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="group-note">After two weeks with fewer than a quarter of its lines used, the brief keeps to two lines.</p>
-      </section>
-    </>
+    <section className="group" id="settings-proactivity">
+      <h3 className="group-label">Unasked</h3>
+      <Levels level={view.level} onChoose={choose} />
+      {problem === null ? null : <p className="group-note">{problem}</p>}
+    </section>
   );
 }

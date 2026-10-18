@@ -1,26 +1,17 @@
-import { outcomeCount, shownItem, type ShownItem, summaryOf, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
+import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
 
 /**
- * What ky put in front of the user unasked, and what they did with it: one row per thing shown (a brief line,
- * an automation's report put in a chat between turns, or a turn-start recall block), with its outcome. A line is shown with no outcome; the user acts on it (taps
- * its chip), pins or dismisses it, or clears it with the rest of the card; whatever is still unhandled when it
- * expires (the brief's midnight) becomes expired, lazily, on the next read. A pinned one may still be acted on or
- * dismissed; every other outcome is final. Shown means the user's screen showed it, not that a socket was sent it.
- *
- * The counts feed the dream ("What you surfaced last week") and Settings › Proactivity, and the brief's cap
- * lowers itself from 3 to 2 after two weeks in a row with acceptance below 25%. Acceptance is acted or pinned
- * of the settled ones: a line still open before its midnight has not had its chance yet, so it counts in neither.
- * Cleared counts as settled and not accepted, like expired, and never as dismissed.
+ * What ky put in front of the user unasked, and what became of it: one row per thing shown, with its outcome.
+ * A thing is shown with no outcome; the user may act on it or dismiss it, and whatever is still unhandled when it
+ * expires becomes expired, lazily, on the next read. Every outcome is final. The night dream prunes the settled rows.
  */
 
 /**
- * What is surfaced: a brief line, or an event: an automation's report put in a chat between turns
- * (src/automations/delivery.ts). One the user was away for is a brief line from loop "event" instead, and
- * takes its outcome on the card; one in a chat has no outcome to tap yet, so it expires after a day. A recall is the context recalled for a user's message (src/dreaming/recall.ts). A proposal is
- * an automation the dream suggested in Activity › Suggested (src/dreaming/proposals.ts): it never expires, and is
- * acted (accepted) or dismissed.
+ * What is surfaced: an event, an automation's report put in a chat between turns (src/automations/delivery.ts),
+ * which has no outcome to tap yet, so it expires after a day; or a recall, the context recalled for a user's
+ * message (src/dreaming/recall.ts). Rows an older ky wrote for its brief and its suggestions stay, unread.
  */
-export type SurfacedKind = "brief" | "event" | "recall" | "proposal";
+export type SurfacedKind = "event" | "recall";
 
 /** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
 export type Shown = {
@@ -28,27 +19,14 @@ export type Shown = {
   readonly loop: string;
   /** What it rests on, like anticipation:12. */
   readonly ref: string;
-  /** Which one it is, like the brief line 2026-10-16#0. */
+  /** Which one it is, like a report's delivery id. */
   readonly item: string;
   readonly text: string;
   readonly expiresAt: number;
 };
 
-/** A week's shown things by outcome, `open` for the ones with none yet; `settled` is shown less open. */
-export type Week = Readonly<Record<SurfacedOutcome | "open", number>> & { readonly shown: number; readonly settled: number };
-
-const WEEK_MS = 7 * 86_400_000;
-
-/** Settled rows are kept this long after their outcome, for the weekly counts, then pruned by the night dream. */
+/** Settled rows are kept this long after their outcome, then pruned by the night dream. */
 const KEEP_MS = 60 * 86_400_000;
-
-/** The brief's cap, and the lower one after two weak weeks. */
-const BRIEF_CAP = 3;
-
-const WEAK_CAP = 2;
-
-/** Acceptance below this, two weeks in a row, lowers the cap. */
-const WEAK_ACCEPTANCE = 0.25;
 
 export class Surfaced {
   readonly #sql: SqlStorage;
@@ -99,17 +77,14 @@ export class Surfaced {
     return SURFACED_OUTCOMES.find((each) => each === row.outcome) ?? null;
   }
 
-  /**
-   * Record what the user did with a shown item. Refused when it was never shown, and once its outcome is final:
-   * only an unhandled one, or a pinned one becoming acted or dismissed, takes a new one; only an unhandled one is cleared.
-   */
+  /** Record what became of a shown item. Refused when it was never shown, and once it has an outcome. */
   outcome(kind: SurfacedKind, item: string, outcome: SurfacedOutcome, now = Date.now()): void {
     this.expire(now);
     const was = this.outcomeOf(kind, item);
 
     if (was === undefined) throw new Error(`Nothing shown as ${item}.`);
 
-    if (was !== null && !(was === "pinned" && (outcome === "acted" || outcome === "dismissed"))) throw new Error(`${item} is ${was} already.`);
+    if (was !== null) throw new Error(`${item} is ${was} already.`);
 
     this.#sql.exec("UPDATE ky_surfaced SET outcome = ?, outcome_at = ? WHERE kind = ? AND item = ?", outcome, now, kind, item);
   }
@@ -136,49 +111,5 @@ export class Surfaced {
   /** Shown items still unhandled when they expired: expired, at their expiry. How many. */
   expire(now = Date.now()): number {
     return this.#sql.exec("UPDATE ky_surfaced SET outcome = 'expired', outcome_at = expires_at WHERE outcome IS NULL AND expires_at <= ? RETURNING id", now).toArray().length;
-  }
-
-  /** What became of the `kind` shown in [`from`, `to`). */
-  week(kind: SurfacedKind, from: number, to: number): Week {
-    const counts: Record<SurfacedOutcome | "open", number> = { acted: 0, pinned: 0, dismissed: 0, cleared: 0, ignored: 0, expired: 0, missed: 0, open: 0 };
-
-    for (const raw of this.#sql.exec("SELECT outcome, COUNT(*) AS n FROM ky_surfaced WHERE kind = ? AND shown_at >= ? AND shown_at < ? GROUP BY outcome", kind, from, to).toArray()) {
-      const row = outcomeCount(raw);
-
-      if (row !== undefined) counts[row.outcome ?? "open"] += row.n;
-    }
-
-    const shown = Object.values(counts).reduce((sum, n) => sum + n, 0);
-
-    return { ...counts, shown, settled: shown - counts.open };
-  }
-
-  /** The week before `now`: what became of what was shown, after expiring what is due. */
-  lastWeek(kind: SurfacedKind, now = Date.now()): Week {
-    this.expire(now);
-
-    return this.week(kind, now - WEEK_MS, now);
-  }
-
-  /** The texts of the `kind` dismissed in the week before `now`, newest first. */
-  dismissed(kind: SurfacedKind, now = Date.now(), limit = 10): string[] {
-    return this.#sql
-      .exec("SELECT text FROM ky_surfaced WHERE kind = ? AND outcome = 'dismissed' AND shown_at >= ? ORDER BY shown_at DESC, id DESC LIMIT ?", kind, now - WEEK_MS, limit)
-      .toArray()
-      // A text row, as a summary's is.
-      .flatMap((row) => summaryOf(row) ?? []);
-  }
-
-  /** How many brief lines the dream may write: 2 after two weeks in a row with acceptance below 25%, otherwise 3. */
-  briefCap(now = Date.now()): number {
-    this.expire(now);
-
-    const weak = (from: number) => {
-      const week = this.week("brief", from, from + WEEK_MS);
-
-      return week.settled > 0 && (week.acted + week.pinned) / week.settled < WEAK_ACCEPTANCE;
-    };
-
-    return weak(now - WEEK_MS) && weak(now - 2 * WEEK_MS) ? WEAK_CAP : BRIEF_CAP;
   }
 }

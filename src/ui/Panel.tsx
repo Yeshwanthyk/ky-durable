@@ -44,7 +44,6 @@ import { Executor } from "./Executor";
 import { Mail } from "./Mail";
 import { Proactivity } from "./Proactivity";
 import { LastNight } from "./LastNight";
-import { Suggested } from "./Suggested";
 import { Peers } from "./Peers";
 import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
@@ -446,7 +445,6 @@ function Activity({
   return (
     <div ref={body} className="panel-body" data-scroll>
       <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
-      <Suggested now={feed.now} />
       <Automations now={feed.now} session={feed.session} />
       <LastNight now={feed.now} />
       <History past={tasks.filter((task) => !isLive(task))} {...feed} />
@@ -2522,7 +2520,7 @@ function MailPage() {
 function ProactivityPage() {
   return (
     <>
-      <PageHead title="Proactivity">What ky brings up without being asked. Off means no brief, and the dream writes none.</PageHead>
+      <PageHead title="Proactivity">What ky brings up without being asked.</PageHead>
       <Proactivity />
     </>
   );

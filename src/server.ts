@@ -25,7 +25,7 @@ import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { Anticipations, Brief, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Proposals, Recall, Soul, Surfaced } from "./dreaming/wiring";
+import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -225,7 +225,7 @@ export class PiAgent extends DurableObject<Env> {
   /** What ky put in front of the user unasked, and what they did with it. */
   readonly surfaced = new Surfaced(this.ctx.storage.sql);
   /** How proactive ky is, from Settings › Proactivity. */
-  readonly proactivity = new Proactivity(this.ctx.storage.sql, this.surfaced, this.anticipations);
+  readonly proactivity = new Proactivity(this.ctx.storage.sql);
   /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
   readonly recall = new Recall({
     sql: this.ctx.storage.sql,
@@ -236,21 +236,6 @@ export class PiAgent extends DurableObject<Env> {
     proactivity: this.proactivity,
     skills: () => this.skills.list(),
     chat: (session) => this.isChat(session)
-  });
-  /** The day's brief: the card above the chat on the user's first visit of the day. */
-  readonly brief = new Brief(this.ctx.storage.sql, {
-    zone: () => this.automations.checkIns().zone,
-    surfaced: this.surfaced,
-    proactivity: this.proactivity,
-    anticipations: this.anticipations
-  });
-  /** Automations the dream suggests from a check the user kept doing by hand, until the user accepts or dismisses each. */
-  readonly proposals = new Proposals({
-    sql: this.ctx.storage.sql,
-    anticipations: this.anticipations,
-    surfaced: this.surfaced,
-    proactivity: this.proactivity,
-    automations: this.automations
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
@@ -291,9 +276,7 @@ export class PiAgent extends DurableObject<Env> {
         .filter((each) => each.created_by === "dream" && each.status === "active")
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
     }),
-    surfaced: this.surfaced,
-    proactivity: this.proactivity,
-    proposals: this.proposals
+    surfaced: this.surfaced
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -306,8 +289,6 @@ export class PiAgent extends DurableObject<Env> {
         soul: this.soul,
         memory: this.memory,
         anticipations: this.anticipations,
-        brief: this.brief,
-        proposals: this.proposals,
         recall: this.recall,
         history: this.history,
         reviews: this.reviews,
@@ -435,9 +416,7 @@ export class PiAgent extends DurableObject<Env> {
     this.ledger,
     this.automations,
     this.presence,
-    this.brief,
     this.proactivity,
-    this.proposals,
     this.recall,
     this.setup,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),

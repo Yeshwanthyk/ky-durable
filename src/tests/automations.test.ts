@@ -700,10 +700,9 @@ describe("automations", () => {
     expect(await runs(name, id)).toHaveLength(2);
   });
 
-  it("reports while the user is away at boundary: an archived side chat comes back for it, and a deleted one's go to main", async () => {
+  it("reports while the user is away: an archived side chat comes back for it, and a deleted one's go to main", async () => {
     const name = crypto.randomUUID();
     await inside(name, (instance) => {
-      instance.proactivity.set("boundary");
       instance.presence.seen(Date.now() - 2 * 3_600_000);
     });
     const chat = await inside(name, (instance) => instance.newChat());

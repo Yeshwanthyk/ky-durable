@@ -884,23 +884,6 @@ export class PiAgent extends ProductionAgent {
   }
 
   /**
-   * Put lines in today's brief, as events while the user was away do; each line's chip, when it has one, after a
-   * " | ". A line starting "dream: " is the dream's instead: an open anticipation citing the user's newest message.
-   */
-  seedBrief(lines: readonly string[]): string[] {
-    return lines.map((line, index) => {
-      const dreamt = line.startsWith("dream: ");
-      const [text = "", chip] = (dreamt ? line.slice("dream: ".length) : line).split(" | ");
-
-      if (!dreamt) return this.brief.append({ text, chip }, { loop: "event", ref: `test:${Date.now()}:${index}` });
-      const message = Number(this.ctx.storage.sql.exec("SELECT max(id) AS id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user'").one().id);
-      const { id } = this.anticipations.add({ kind: "open_loop", text, evidence: { messages: [message], memories: [] } }, "dream");
-
-      return this.brief.append({ text, chip }, { loop: "dream", ref: `anticipation:${id}` });
-    });
-  }
-
-  /**
    * A night's dream, as Activity › Last night lists it, through the real skill library, memory and ledger: two
    * skills the agent wrote, then a dream that forgets a memory summary, edits one skill, merges the other into
    * it and makes a third. Each name ends in `tag`. Answers with the dream's ledger rows.
@@ -925,30 +908,6 @@ export class PiAgent extends ProductionAgent {
     this.skills.apply({ action: "create", name: tea, description: "Ordering tea", body: "1. Order oolong.", reason: "You asked for tea three times" }, "dream", id);
 
     return this.ledger.lastNight().filter((row) => row.run === `dream-${tag}`);
-  }
-
-  /**
-   * The user's messages holding `text`, oldest first, the first moved to the day before: a check done by hand on two
-   * days, as a proposal cites. Answers with their ids.
-   */
-  askedYesterday(text: string): number[] {
-    const sql = this.ctx.storage.sql;
-
-    const ids = sql
-      .exec("SELECT id FROM pi_entries WHERE json_extract(record, '$.kind') = 'pi.user' AND instr(record, ?) > 0 ORDER BY id", text)
-      .toArray()
-      .map((row) => Number(row.id));
-
-    if (ids[0] !== undefined) {
-      sql.exec("UPDATE pi_entries SET record = json_set(record, '$.model[0].timestamp', json_extract(record, '$.model[0].timestamp') - ?) WHERE id = ?", 86_400_000, ids[0]);
-    }
-
-    return ids;
-  }
-
-  /** What ky surfaced, and what became of each, oldest first. */
-  surfacedRows(): Array<Record<string, SqlStorageValue>> {
-    return this.ctx.storage.sql.exec("SELECT kind, loop, ref, item, text, outcome FROM ky_surfaced ORDER BY id").toArray();
   }
 
   /** Review turns with at least this many tool calls; in memory, so a restart puts back the default. */
@@ -1017,11 +976,6 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  // Each line= is a brief line for today, "text | chip", or "dream: text | chip" for the dream's; answers with their keys.
-  ["POST /test/brief", async (me, url) => Response.json(await me.seedBrief(url.searchParams.getAll("line")))],
-  // The user's messages holding text=, the oldest moved back a day; answers with their ids.
-  ["POST /test/asked-yesterday", async (me, url) => Response.json(await me.askedYesterday(url.searchParams.get("text") ?? ""))],
-  ["GET /test/surfaced", async (me) => Response.json(await me.surfacedRows())],
   // A dream's night of changes, each name ending in tag=; answers with its ledger rows.
   ["POST /test/dream-night", async (me, url) => Response.json(await me.seedDreamNight(url.searchParams.get("tag") ?? "seed"))],
   // n is the tool calls a turn needs to be reviewed for skills; 5 is ky's default.

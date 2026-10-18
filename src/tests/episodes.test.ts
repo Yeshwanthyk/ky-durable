@@ -67,7 +67,7 @@ describe("an episode reflection", () => {
     await settle(page);
     expect(await passes(name)).toBe(0);
 
-    expect(await page.send({ type: "set-proactivity", level: "brief" })).toMatchObject({ type: "result" });
+    expect(await page.send({ type: "set-proactivity", level: "on" })).toMatchObject({ type: "result" });
 
     // The first turn back marks the chat read; the stretch counts from there.
     for (let turn = 0; turn <= EPISODE_TURNS; turn++) await page.say(`back ${turn}`);
@@ -75,6 +75,24 @@ describe("an episode reflection", () => {
     expect(await passes(name)).toBe(1);
     expect(cards(page)).toEqual([]);
     page.close();
+  });
+});
+
+describe("Settings › Proactivity", () => {
+  it("is on by default, and reads a level an older ky stored, brief or boundary, as on", async () => {
+    const levels = await inside(crypto.randomUUID(), (instance, state) => {
+      const fresh = instance.proactivity.level();
+
+      const read = (stored: string) => {
+        state.storage.sql.exec("INSERT OR REPLACE INTO ky_proactivity (id, level) VALUES (1, ?)", stored);
+
+        return instance.proactivity.level();
+      };
+
+      return [fresh, read("brief"), read("boundary"), read("off")];
+    });
+
+    expect(levels).toEqual(["on", "on", "on", "off"]);
   });
 });
 

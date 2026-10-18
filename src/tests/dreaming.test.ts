@@ -25,8 +25,6 @@ describe("dreaming's contract", () => {
         soul: instance.soul,
         memory: instance.memory,
         anticipations: instance.anticipations,
-        brief: instance.brief,
-        proposals: instance.proposals,
         recall: instance.recall,
         history: instance.history,
         reviews: instance.reviews,
@@ -126,7 +124,7 @@ describe("the night's dream", () => {
     expect(dreamCron("Not/AZone")).toBe("0 4 * * *");
   });
 
-  it("fires once the user is away, and writes capped notes, anticipations and the brief, never from a notice or over the user's skills", async () => {
+  it("fires once the user is away, and writes capped notes and anticipations, never from a notice or over the user's skills", async () => {
     const name = crypto.randomUUID();
     const page = await browser(name);
 
@@ -146,7 +144,6 @@ describe("the night's dream", () => {
     await page.say(`Remember these. ${Array.from({ length: DREAM_NOTES + 1 }, (_, i) => dream("memory_note", { text: `night note ${i}` })).join(" ")}`);
     await page.say(`On my plate: ${Array.from({ length: 6 }, (_, i) => dream("anticipate", { action: "add", kind: "open_loop", text: `Plate item ${i}`, messages: [ID] })).join(" ")}`);
 
-    for (let i = 0; i < 4; i++) await page.say(`For the morning: ${dream("anticipate", { action: "brief", text: `Brief line ${i}`, messages: [ID], chip: `Tell me about ${i}` })}`);
     await page.say(
       `Tidy up: ${["mine", "pinned-one", "extra"].map((skill) => dream("skill_manage", { action: "archive", name: skill, absorbed_into: "spare" })).join(" ")}`
     );
@@ -165,7 +162,6 @@ describe("the night's dream", () => {
     expect(page.latest("memory")!.memory.count).toBe(notes + DREAM_NOTES);
     expect(lastAnswer(page).match(/Plate item/g)).toHaveLength(5);
     expect(lastAnswer(page)).not.toContain("Pay Bob");
-    expect(page.latest("brief")!.brief.lines.map((line) => [line.text, line.chip])).toEqual([0, 1, 2].map((i) => [`Brief line ${i}`, `Tell me about ${i}`]));
     const status = Object.fromEntries(page.latest("skills")!.skills.map((skill) => [skill.name, skill.status]));
     expect(status).toEqual({ mine: "active", "pinned-one": "active", spare: "active", extra: "archived" });
     page.close();

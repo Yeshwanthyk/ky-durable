@@ -118,7 +118,7 @@ function gateProblem(gate: string | null): string | undefined {
 
 /**
  * What is wrong with what a draft is and does, before anything else is checked (its model, machine and chat, and
- * a cron's syntax, which booking checks): the automation tool's and the UI's saves, and a dream's proposal, alike.
+ * a cron's syntax, which booking checks): the automation tool's and the UI's saves alike.
  */
 export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "cron" | "at" | "gate">): string | undefined {
   return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);

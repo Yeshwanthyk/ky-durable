@@ -71,7 +71,7 @@ import { isLive } from "./tasks";
  * again), the slot is skipped too: the row keeps a hash of that text. A gate
  * that fails three fires in a row pauses its automation and the chat is told.
  * What a run or a pause tells its chat goes through delivery
- * (src/automations/delivery.ts): between turns, or to the brief.
+ * (src/automations/delivery.ts), between its turns.
  *
  * The Scheduler delivers a fire at least once, so a run is keyed by its slot
  * (the fire's due time): task `a-<id>-<slot>`. A slot runs once, a fire is
@@ -94,7 +94,7 @@ export type AutomationRuntime = {
   readonly wake: () => Promise<void>;
   /** Abort what a pi conversation is doing. */
   readonly abort: (session: string) => Promise<void>;
-  /** Tell a chat something, between its turns or in the brief (src/automations/delivery.ts); once per id. */
+  /** Tell a chat something, between its turns (src/automations/delivery.ts); once per id. */
   readonly deliver: (item: Delivery) => Promise<void>;
 };
 

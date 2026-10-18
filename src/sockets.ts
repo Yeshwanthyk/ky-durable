@@ -35,7 +35,7 @@ import { checkInput, imagesOf } from "./images";
 import type { AutomationAction, Automations } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
-import type { Brief, DreamLedger, Memory, Presence, Proactivity, Proposals, Recall, Soul } from "./dreaming/contract";
+import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND } from "./background";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -176,11 +176,7 @@ export class PiSessionSockets {
   readonly #ledger: DreamLedger;
   readonly #automations: Automations;
   readonly #presence: Presence;
-  /** The day's brief; #brief is a specialist's. */
-  readonly #morning: Brief;
   readonly #proactivity: Proactivity;
-  /** Activity › Suggested: automations the dream proposed. */
-  readonly #proposals: Proposals;
   /** Turn-start recall, for the chips under the user's messages. */
   readonly #recall: Recall;
   readonly #setup: Setup;
@@ -214,9 +210,7 @@ export class PiSessionSockets {
     ledger: DreamLedger,
     automations: Automations,
     presence: Presence,
-    brief: Brief,
     proactivity: Proactivity,
-    proposals: Proposals,
     recall: Recall,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
@@ -248,9 +242,7 @@ export class PiSessionSockets {
     this.#ledger = ledger;
     this.#automations = automations;
     this.#presence = presence;
-    this.#morning = brief;
     this.#proactivity = proactivity;
-    this.#proposals = proposals;
     this.#recall = recall;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
@@ -297,8 +289,6 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
-    // A line the dream or an event writes reaches the pages already open.
-    brief.onChange(() => this.#broadcastBrief());
     automations.onChange(() => {
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
@@ -446,13 +436,6 @@ export class PiSessionSockets {
     return { type: "setup", setup: { ...this.#setup.view(), missing: this.#notSetUp() } };
   }
 
-  /** Send today's brief to every UI socket, empty lines included: an empty one clears the card. */
-  #broadcastBrief(): void {
-    const message: PiServerMessage = { type: "brief", brief: this.#morning.view() };
-
-    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
-  }
-
   /** Send the task feed to every UI socket. */
   broadcastTasks(): void {
     const message = this.#tasksMessage();
@@ -534,10 +517,6 @@ export class PiSessionSockets {
       version: this.#version,
       tools: this.#tools()
     });
-    // As a card and never a chat message, on every hello until each line has an outcome; shown is what the page reports.
-    const brief = this.#morning.view();
-
-    if (brief.lines.length > 0) send(connection, { type: "brief", brief });
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
@@ -973,47 +952,8 @@ export class PiSessionSockets {
     "dream-undo": (message) => this.#ledger.undo(message.entry),
     "automation-save": (message) => this.#saveAutomation(message),
     automation: (message) => this.#automationActions[message.action](message.automation),
-    "brief-seen": (message) => {
-      this.#morning.seen(message.keys);
-
-      return null;
-    },
-    "brief-act": (message) => {
-      this.#morning.act(message.key);
-
-      return null;
-    },
-    "brief-pin": (message) => {
-      this.#morning.pin(message.key);
-
-      return null;
-    },
-    "brief-dismiss": (message) => {
-      this.#morning.dismiss(message.key);
-
-      return null;
-    },
-    "brief-clear": (message) => {
-      this.#morning.clear(message.keys);
-
-      return null;
-    },
-    proposals: () => this.#proposals.view(),
-    "proposal-seen": (message) => {
-      this.#proposals.seen(message.ids);
-
-      return null;
-    },
-    "proposal-accept": (message) => this.#proposals.accept(message.proposal),
-    "proposal-dismiss": (message) => this.#proposals.dismiss(message.proposal),
     proactivity: () => this.#proactivity.view(),
-    "set-proactivity": (message) => {
-      const view = this.#proactivity.set(message.level);
-      // Off clears every open page's card; back on brings today's lines back.
-      this.#broadcastBrief();
-
-      return view;
-    },
+    "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-check-ins": async (message) => {
       await this.#automations.setCheckIns(message.on);
 

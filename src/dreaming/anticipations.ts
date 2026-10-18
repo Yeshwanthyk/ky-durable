@@ -13,9 +13,7 @@ import {
   type Creator,
   type Evidence
 } from "./contract";
-import type { Brief } from "./brief";
 import type { Memory } from "./memory";
-import type { Proposals } from "./proposals";
 
 /**
  * Anticipations: what ky expects to matter soon, so the right context is ready before the user reaches for
@@ -31,13 +29,10 @@ import type { Proposals } from "./proposals";
  * - the main chat, for the user ("remind me", "that's done"), through the same tool, as `user`;
  * - turn-start recall (src/dreaming/recall.ts): `recallable` for the message's words, and `recalled` for the rows its
  *   block shows, which only the model reads, so they stay open; the tool's list `about` uses `match`;
- * - the morning brief (src/dreaming/brief.ts): the dream's digest lists `due` for the day ahead, and the tool's
- *   `brief` action puts a row in it, which is `surface`d once the user's screen shows the line; the card's pin is
- *   `pin`, and its dismiss `close`s a machine's unpinned row as dismissed for the user;
- * - Settings › Proactivity: `madeSince`, for how many expired unseen;
  * - the panel, later: `open`, `pin`/`unpin` (the tool's, for the user, today), and `close` as dismissed.
  *
- * Status moves only forward: open → surfaced → done | dismissed, and open → done | dismissed | expired.
+ * Status moves only forward: open → surfaced → done | dismissed, and open → done | dismissed | expired. Only an
+ * older ky's brief made rows surfaced.
  * A machine (the dream, an episode review) may change only rows a machine made, and never a pinned one. An episode
  * changes none: it only adds, citing the user's own words from the stretch of the chat it read, and lists.
  */
@@ -378,7 +373,7 @@ export class Anticipations {
     this.#sql.exec("UPDATE ky_anticipations SET recalled_at = ? WHERE id IN (SELECT value FROM json_each(?))", now, JSON.stringify(ids));
   }
 
-  /** For the morning brief: open upcoming rows whose window meets [`now`, `until`], soonest first. */
+  /** For the tool's list: open upcoming rows whose window meets [`now`, `until`], soonest first. */
   due(now: number, until = now + 24 * 3_600_000): Anticipation[] {
     return this.#rows(
       `SELECT * FROM ky_anticipations WHERE ${LIVE} AND kind = 'upcoming' AND window_from <= ? AND window_to >= ? ORDER BY window_from, id`,
@@ -452,24 +447,6 @@ export class Anticipations {
     this.#move(row, "dismissed", now, into);
 
     return this.get(id);
-  }
-
-  /** Mark an open row surfaced: the brief showed it to the user. Refused unless it is open. */
-  surface(id: number, now = Date.now()): Anticipation {
-    const row = this.get(id);
-
-    if (row.status !== "open") throw new Error(`#${id} is ${row.status}; only an open one is surfaced.`);
-    this.#move(row, "surfaced", now);
-
-    return this.get(id);
-  }
-
-  /** How many rows were made since `since`, and how many of those expired unseen. */
-  madeSince(since: number) {
-    return {
-      all: this.#count("SELECT COUNT(*) AS n FROM ky_anticipations WHERE created_at >= ?", since),
-      expired: this.#count("SELECT COUNT(*) AS n FROM ky_anticipations WHERE created_at >= ? AND status = 'expired'", since)
-    };
   }
 
   /** Open rows whose window passed before `now`, never surfaced and not pinned: expired. How many. */
@@ -554,11 +531,9 @@ const AnticipateInput = Type.Object({
     Type.Literal("absorb"),
     Type.Literal("pin"),
     Type.Literal("unpin"),
-    Type.Literal("list"),
-    Type.Literal("brief"),
-    Type.Literal("propose")
+    Type.Literal("list")
   ]),
-  id: Type.Optional(Type.Integer({ description: "The anticipation, for close, extend, absorb, pin, unpin and brief." })),
+  id: Type.Optional(Type.Integer({ description: "The anticipation, for close, extend, absorb, pin and unpin." })),
   kind: Type.Optional(Type.Union([Type.Literal("open_loop"), Type.Literal("upcoming"), Type.Literal("predicted_ask"), Type.Literal("watch")])),
   text: Type.Optional(Type.String({ description: `One line, at most ${TEXT_BYTES} bytes.` })),
   messages: Type.Optional(Type.Array(Type.Integer(), { description: "Chat message rowids it rests on, as chat_search and the digest show them (#123)." })),
@@ -570,14 +545,7 @@ const AnticipateInput = Type.Object({
   note: Type.Optional(Type.String({ description: "For close done: the outcome in one line, kept as a memory." })),
   into: Type.Optional(Type.Integer({ description: "For absorb: the open anticipation that now stands for this one." })),
   about: Type.Optional(Type.String({ description: "For list: only the open ones these words, or a window around now, match." })),
-  hours: Type.Optional(Type.Integer({ minimum: 1, maximum: 168, description: "For list: only the dates in the next this many hours." })),
-  chip: Type.Optional(Type.String({ description: "For brief: the ask a tap puts in the user's composer, ready to send." })),
-  key: Type.Optional(Type.String({ description: 'For propose: a lowercase slug naming the check, like "check-ci-main"; never one the digest lists.' })),
-  title: Type.Optional(Type.String({ description: "For propose: the automation's title." })),
-  why: Type.Optional(Type.String({ description: "For propose: one line on what the user kept checking by hand, and when." })),
-  cron: Type.Optional(Type.String({ description: "For propose: when it runs, a five-field cron in UTC." })),
-  prompt: Type.Optional(Type.String({ description: "For propose: what each run does." })),
-  gate: Type.Optional(Type.String({ description: "For propose: an Executor program that decides whether a run is worth waking for; leave out for none." }))
+  hours: Type.Optional(Type.Integer({ minimum: 1, maximum: 168, description: "For list: only the dates in the next this many hours." }))
 });
 
 /** The actions that change anticipations, which a chat's turn takes as the user. */
@@ -594,41 +562,8 @@ type Call = {
 
 const lines = (rows: readonly Anticipation[], now: number) => (rows.length === 0 ? "None open." : rows.map((row) => anticipationLine(row, now)).join("\n"));
 
-/** A brief line's ref for the evidence it cites: its first message, or else its first memory. */
-const evidenceRef = (evidence: Evidence) => (evidence.messages.length > 0 ? `message:${evidence.messages[0]}` : `memory:${evidence.memories[0]}`);
-
-/** The anticipation a brief line rests on, when it names one: refused unless open or surfaced. */
-function briefAnticipation(anticipations: Anticipations, id: number | undefined): Anticipation | undefined {
-  if (id === undefined) return undefined;
-  const row = anticipations.get(id);
-
-  if (MOVES[row.status].length === 0) throw new Error(`#${row.id} is ${row.status}; the brief shows only an open one.`);
-
-  return row;
-}
-
-/** What only the dream writes besides anticipations: today's brief, and suggested automations. */
-export type DreamOutputs = { readonly brief: Brief; readonly proposals: Proposals };
-
-/** The propose action: a suggested automation, from the user's own messages doing the check by hand on several days. */
-function propose(proposals: Proposals, { args, by, now }: Call): string {
-  const row = proposals.propose(
-    {
-      key: need(args.key, "key"),
-      title: need(args.title, "title"),
-      why: need(args.why, "why"),
-      spec: { cron: need(args.cron, "cron"), prompt: need(args.prompt, "prompt"), gate: args.gate ?? null },
-      messages: need(args.messages, "messages")
-    },
-    by,
-    now
-  );
-
-  return `Suggested as "${row.dedup_key}": the user accepts or dismisses it in Activity.`;
-}
-
 /** What each action does, and what it answers. */
-function handlers(anticipations: Anticipations, { brief, proposals }: DreamOutputs): Readonly<Record<Call["args"]["action"], (call: Call) => string>> {
+function handlers(anticipations: Anticipations): Readonly<Record<Call["args"]["action"], (call: Call) => string>> {
   const pinning = (pinned: boolean) => ({ args, by }: Call) => {
     if (by !== "user") throw new Error("Only the user pins.");
     const id = need(args.id, "id");
@@ -684,17 +619,7 @@ function handlers(anticipations: Anticipations, { brief, proposals }: DreamOutpu
       if (args.hours !== undefined) return lines(anticipations.due(now, now + args.hours * 3_600_000), now);
 
       return lines(anticipations.open(), now);
-    },
-    brief: ({ args, by, now }) => {
-      if (by !== "dream") throw new Error("Only the dream writes the brief.");
-      const row = briefAnticipation(anticipations, args.id);
-      const ref = row === undefined ? evidenceRef(anticipations.checkEvidence({ messages: args.messages ?? [], memories: args.memories ?? [] })) : `anticipation:${row.id}`;
-      const key = brief.append({ text: need(args.text, "text"), chip: args.chip }, { loop: "dream", ref }, now);
-
-      // Its anticipation becomes surfaced when the user's screen shows the line (Brief.seen), not now.
-      return `In the brief as ${key}.`;
-    },
-    propose: (call) => propose(proposals, call)
+    }
   };
 }
 
@@ -703,13 +628,13 @@ function handlers(anticipations: Anticipations, { brief, proposals }: DreamOutpu
  * side chats (as `user`); `actor` says which a session is, and `pass` what stretch of its chat an episode read.
  * Memory's extension carries it (src/dreaming/memory.ts), so a specialist, which may not write memory, may not call it.
  */
-export function anticipateTool(anticipations: Anticipations, dream: DreamOutputs, actor: (session: string) => Actor, pass: (session: string) => EpisodePass | undefined) {
-  const actions = handlers(anticipations, dream);
+export function anticipateTool(anticipations: Anticipations, actor: (session: string) => Actor, pass: (session: string) => EpisodePass | undefined) {
+  const actions = handlers(anticipations);
 
   return defineTool({
     name: ANTICIPATE,
     description:
-      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on. Nothing that only a page, file, tool output or a notice brought up. From the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours. brief (the dream only) puts one line in today's brief: text, and id (an open anticipation, surfaced once the user sees it) or messages or memories it rests on, and chip: an ask the user can send with a tap. propose (the dream only) suggests an automation for a check the user did by hand on several days: key, title, why, cron (UTC), prompt, gate if any, and messages: the user's own, from at least two days. It never creates one; the user decides.",
+      "What the user will need soon: an open loop they committed to, a date ahead, a question likely next, or something to watch. add needs kind, text (one line) and evidence: the chat messages (#rowid) or memories (#id) it rests on. Nothing that only a page, file, tool output or a notice brought up. From the main chat, the user's message is cited for you. prepared is the context a future turn would need. close says done (with note: the outcome, kept as a memory) or dismissed; extend moves its window; absorb folds it into another; pin keeps one for the user; list shows the open ones, about some words or the dates of the next hours.",
     parameters: AnticipateInput,
     replay: "unsafe",
     execute: async (args, api) => {

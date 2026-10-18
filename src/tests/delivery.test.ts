@@ -30,11 +30,10 @@ async function save(page: Tab, found: readonly string[], id?: string, prompt = "
   return page.latest("automations")!.automations.find((each) => each.title === "School mail")!.id;
 }
 
-/** A page with Executor connected and Proactivity at boundary, whose user just said hello. */
+/** A page with Executor connected, whose user just said hello. */
 async function ready(name: string): Promise<Tab> {
   const page = await browser(name);
   expect(await page.send({ type: "set-executor", url: EXECUTOR_URL, token: EXECUTOR_TOKEN })).toMatchObject({ type: "result" });
-  expect(await page.send({ type: "set-proactivity", level: "boundary" })).toMatchObject({ type: "result" });
   await page.say("hello");
 
   return page;
@@ -66,14 +65,13 @@ describe("an automation's fire", () => {
     await page.until(() => runs(page, id, "done").length === 2);
     await page.until(() => reports(page).length === 2);
 
-    // Seed: the user last sent a message two hours ago. The next finding still goes to the chat, in full, and not to the brief.
+    // Seed: the user last sent a message two hours ago. The next finding still goes to the chat, in full.
     await inside(name, (instance) => instance.presence.seen(Date.now() - 2 * 3_600_000));
     await save(page, ["Trip form due Friday", "Pizza day", "Book fair"], id);
     await pause(1_100);
     await fire(name, id);
     await page.until(() => reports(page).length === 3);
     expect(reports(page)[2]!.parts.some((part) => part.type === "text" && part.text.includes("Book fair"))).toBe(true);
-    expect(page.latest("brief")?.brief.lines ?? []).toEqual([]);
     page.close();
   });
 

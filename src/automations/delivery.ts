@@ -16,13 +16,13 @@ import { type Delivery, DeliverySchema, SessionRow } from "./contract";
  * brief instead) were delivered there; they only keep their id known until they age out.
  */
 
-/** A line in a chat counts as unhandled for a day, then as expired, as a brief line does at midnight. */
+/** A line in a chat counts as unhandled for a day, then as expired. */
 const EVENT_EXPIRY_MS = 86_400_000;
 
 /** Rows kept after their delivery, so a late second hand-over is still known. */
 const KEEP_MS = 30 * 86_400_000;
 
-/** The limit on an event line, as on a brief line (src/dreaming/brief.ts). */
+/** The limit on an event line's text, as what ky surfaced keeps it. */
 const LINE_BYTES = 280;
 
 const encoder = new TextEncoder();
