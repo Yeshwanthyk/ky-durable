@@ -143,7 +143,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
   A cloud run's report, and the notice that a failing gate paused an automation, go through `Deliveries`
   (`src/automations/delivery.ts`): always into its chat, in full, whether or not the user is around, and only
-  between turns (at once when idle, at the turn's end when busy, never steered into a run). An archived side chat
+  between turns (at once when idle, at the turn's end when busy, never steered into a run). A side chat archived by the time a run starts
   is brought back for it, and a deleted one's go to main. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
   that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
