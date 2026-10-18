@@ -75,7 +75,7 @@ const MAKE_AVATAR = {
  * How to delegate and check work, on and pinned from the start, so reviews, dreams and the stale sweep leave them
  * alone. A ky from before them gets each missing one on its next start; once there, the owner's changes stand.
  */
-const DEFAULT_SKILLS = [
+export const DEFAULT_SKILLS = [
   {
     name: "delegate",
     description: "How to brief subagents, machines and specialists so their work comes back right, and how to check it before telling the user.",

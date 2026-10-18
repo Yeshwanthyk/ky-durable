@@ -1,5 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SKILLS } from "../seeds";
 import { agent, connect, follow, inside, prompt, until } from "./drive";
 import { EXECUTOR_TOKEN, EXECUTOR_URL, FRESH } from "./stack";
 
@@ -143,16 +144,7 @@ describe("a new ky's seeds", () => {
 });
 
 describe("the default skills", () => {
-  const DEFAULTS = {
-    delegate: "How to brief subagents, machines and specialists so their work comes back right, and how to check it before telling the user.",
-    "fan-out": "Split a big question across several subagents, or race a few on the same task, then combine one checked answer.",
-    orchestrate: "Run multi-step work where later steps need earlier results: order the steps, pass real results forward, checkpoint, and keep every worker accounted for.",
-    challenge: "Before a costly or one-way decision, have independent reviewers try to break the plan, then judge on evidence.",
-    sharpen: "Before a vague or large task, work out the real goal, how an expert would do it, and what is over- or underspecified, then do the work.",
-    "prove-it": "Before saying something is done or true, check it on the real thing, and check delegated work through what it produced."
-  };
-
-  const names = Object.keys(DEFAULTS);
+  const names: string[] = DEFAULT_SKILLS.map((skill) => skill.name);
 
   const defaults = (name: string) =>
     inside(name, (instance) =>
@@ -170,6 +162,7 @@ describe("the default skills", () => {
     return name;
   };
 
+  /** Take skills out, as a ky from before they existed lacks them. */
   const remove = (name: string, skills: string[]) =>
     inside(name, (_, state) => {
       for (const skill of skills) {
@@ -185,32 +178,19 @@ describe("the default skills", () => {
 
   it("are added to a ky past its first start, on and pinned, by ky", async () => {
     const name = await started();
-    // As a ky from before them: started once, without them.
     await remove(name, names);
     expect(await defaults(name)).toEqual([]);
 
     await restart(name);
 
     const skills = await defaults(name);
-    expect(Object.fromEntries(skills.map((skill) => [skill.name, skill.description]))).toEqual(DEFAULTS);
 
-    for (const skill of skills) {
-      expect(skill).toMatchObject({ status: "active", pinned: true, by: ["ky"] });
+    for (const { name: skill, description, body } of DEFAULT_SKILLS) {
+      expect(skills.find((each) => each.name === skill)).toMatchObject({ description, body, status: "active", pinned: true, by: ["ky"] });
     }
-
-    expect(skills.find((skill) => skill.name === "prove-it")?.body).toBe(
-      [
-        "Before you tell the user something is done, fixed, booked, sent or true:",
-        "1. Check the real thing the claim is about: open the page, read the file, look at the diff, find the confirmation. A worker saying it worked is not proof.",
-        "2. Check where the claim lives. \"The site is up\" means loading the site, not seeing that the upload finished.",
-        "3. Say how you know: checked it yourself, read it in a source (link), or only inferred. Say what you did not check.",
-        "4. When a check fails, first suspect the check, then the work. Fix and check again on the same path.",
-        "5. Stop checking once the claim is proven."
-      ].join("\n")
-    );
   });
 
-  it("leave the owner's edits, archives and unpins as they are, and bring back a deleted one", async () => {
+  it("leave the owner's edits, archives and unpins as they are, and add one a ky from before it lacks", async () => {
     const name = await started();
     await inside(name, (instance) => {
       instance.skills.apply({ action: "edit", name: "delegate", body: "My own way." }, "user");
@@ -227,7 +207,7 @@ describe("the default skills", () => {
     expect(named("delegate")).toMatchObject({ body: "My own way.", status: "active", pinned: true });
     expect(named("fan-out")).toMatchObject({ status: "archived", pinned: true });
     expect(named("sharpen")).toMatchObject({ status: "active", pinned: false });
-    expect(named("challenge")).toMatchObject({ description: DEFAULTS.challenge, status: "active", pinned: true, by: ["ky"] });
+    expect(named("challenge")).toMatchObject({ status: "active", pinned: true, by: ["ky"] });
     expect(after.filter((skill) => skill.name !== "challenge")).toEqual(kept);
   });
 });

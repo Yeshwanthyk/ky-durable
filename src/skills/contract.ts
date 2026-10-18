@@ -60,7 +60,8 @@ export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]
  * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
  * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
  * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
- * a new ky's first start laying down its starter skills (src/seeds.ts), before anything is the user's.
+ * ky's own seeding (src/seeds.ts): its starter skills on a new ky's first start, and on any start the default skills
+ * it creates and pins when missing.
  */
 export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
 
