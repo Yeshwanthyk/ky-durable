@@ -36,10 +36,13 @@ const HOUR = 3_600_000;
 
 const ORIGIN = "https://ky.example.com";
 
-/** What a push service answers: takes it, refuses it, no longer knows the device, or never answers. */
-type Answer = "ok" | "refused" | "gone" | "lost" | "unreachable";
+/** What a push service answers: takes it, refuses it, no longer knows the device, knows it by another VAPID key, or never answers. */
+type Answer = "ok" | "refused" | "gone" | "lost" | "rekeyed" | "unreachable";
 
-const STATUS: Record<Exclude<Answer, "unreachable">, number> = { ok: 201, refused: 500, gone: 410, lost: 404 };
+const STATUS: Record<Exclude<Answer, "unreachable">, number> = { ok: 201, refused: 500, gone: 410, lost: 404, rekeyed: 403 };
+
+/** The answers after which ky drops the device. */
+const DROPS = new Set<Answer | undefined>(["gone", "lost", "rekeyed"]);
 
 type Op =
   | { readonly op: "subscribe"; readonly device: number }
@@ -50,7 +53,7 @@ type Op =
   /** Posts handed over together, each with what each device's push service answers it. */
   | { readonly op: "post"; readonly answers: readonly (readonly Answer[])[] };
 
-const anAnswer = fc.oneof({ weight: 8, arbitrary: fc.constant<Answer>("ok") }, { weight: 1, arbitrary: fc.constantFrom<Answer>("refused", "gone", "lost", "unreachable") });
+const anAnswer = fc.oneof({ weight: 8, arbitrary: fc.constant<Answer>("ok") }, { weight: 1, arbitrary: fc.constantFrom<Answer>("refused", "gone", "lost", "rekeyed", "unreachable") });
 
 const aDevice = fc.integer({ min: 0, max: ENDPOINTS.length - 1 });
 
@@ -84,7 +87,7 @@ function storage(db: DatabaseSync): Storage {
   return { exec, databaseSize: 0 } as Storage;
 }
 
-/** The user's local date in `zone` at `now`, by Intl alone: the oracle's day, made apart from src/dreaming/local-day.ts. */
+/** The user's local date in `zone` at `now`, by Intl alone: the oracle's day, made apart from localNow in src/dreaming/contract.ts. */
 function dayIn(zone: string | null, now: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: zone ?? "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
@@ -172,6 +175,21 @@ type Tried = { readonly endpoint: string; readonly post: string };
 
 const byPost = (a: Tried, b: Tried) => `${a.post} ${a.endpoint}`.localeCompare(`${b.post} ${b.endpoint}`);
 
+/** What is wrong with a push's headers, sent at `now`: its encoding, its TTL, and its VAPID token and key. */
+function pushProblems(endpoint: string, headers: Headers, origin: string | null, now: number): string[] {
+  const [, token = "", key = ""] = /^vapid t=([^,]+), k=(.+)$/.exec(headers.get("authorization") ?? "") ?? [];
+  const { head, claims } = jwt(token);
+
+  const checks: readonly (readonly [boolean, string])[] = [
+    [headers.get("content-encoding") === "aes128gcm" && headers.has("ttl"), `headers ${[...headers].join(";")}`],
+    [key === vapidPublic && head.alg === "ES256" && head.typ === "JWT", `token head ${token}`],
+    [claims.aud === new URL(endpoint).origin && claims.sub === origin, `claims ${JSON.stringify(claims)}`],
+    [claims.exp > now / 1000 && claims.exp <= now / 1000 + 86_400, `exp ${claims.exp} at ${now}`]
+  ];
+
+  return checks.flatMap(([ok, problem]) => (ok ? [] : [problem]));
+}
+
 /** One ky: its rows, its pushes wired to Delivery as src/server.ts wires them, and a fake push service. */
 class World {
   readonly db = new DatabaseSync(":memory:");
@@ -234,16 +252,7 @@ class World {
   }
 
   #check(endpoint: string, headers: Headers): void {
-    const [, token = "", key = ""] = /^vapid t=([^,]+), k=(.+)$/.exec(headers.get("authorization") ?? "") ?? [];
-    const { head, claims } = jwt(token);
-
-    if (headers.get("content-encoding") !== "aes128gcm" || !headers.get("ttl")) this.problems.push(`headers ${[...headers].join(";")}`);
-
-    if (key !== vapidPublic || head.alg !== "ES256" || head.typ !== "JWT") this.problems.push(`token head ${token}`);
-
-    if (claims.aud !== new URL(endpoint).origin || claims.sub !== this.origin) this.problems.push(`claims ${JSON.stringify(claims)}`);
-
-    if (!(claims.exp > this.now / 1000 && claims.exp <= this.now / 1000 + 86_400)) this.problems.push(`exp ${claims.exp} at ${this.now}`);
+    this.problems.push(...pushProblems(endpoint, headers, this.origin, this.now));
   }
 
   /** The day's count as ky keeps it: the row for `day`, or 0 without one. */
@@ -270,11 +279,8 @@ let posts = 0;
 /** What the runs reached, so a pass means the cap, a day's turn, a gone device and an unknown address were all met. */
 const reached = { pushed: 0, capped: 0, released: 0, gone: 0, days: 0, unknown: 0 };
 
-/** Posts handed over together, checked against the model; the last day the cap filled. */
-async function postAll(world: World, model: Model, answers: readonly (readonly Answer[])[], full: string | undefined): Promise<string | undefined> {
-  const day = dayIn(world.zone, world.now);
-  const before = model.took.get(day) ?? 0;
-
+/** Hand `answers`' posts over one after another without waiting for their pushes, so they are on their way at once: their texts. */
+async function handOver(world: World, answers: readonly (readonly Answer[])[]): Promise<string[]> {
   const texts = answers.map((each) => {
     const text = `post ${++posts}`;
     world.answers.set(text, each);
@@ -282,52 +288,101 @@ async function postAll(world: World, model: Model, answers: readonly (readonly A
     return text;
   });
 
-  const triedBefore = world.tried.length;
-
-  // Handed over one after another without waiting for their pushes, so they are on their way at once.
   for (const text of texts) await world.deliveries.deliver({ id: text, session: "1", content: text, line: text, ref: "memory:1", kind: "look" }, world.now);
   await world.settle();
 
-  // The posts that may push: as many as the day has room for, in the order they were handed over.
+  return texts;
+}
+
+/** The devices subscribed, in order. */
+const subscribed = (model: Model) => [...model.devices].sort((a, b) => a - b);
+
+/** The posts among `texts` that may push: as many as the day has room for after `before`, in the order they were handed over. */
+function mayPush(world: World, model: Model, texts: readonly string[], before: number): string[] {
   const room = model.devices.size === 0 ? 0 : Math.max(0, Math.min(texts.length, world.most - before));
-  const pushing = world.origin === null ? [] : texts.slice(0, room);
-  const devices = [...model.devices].sort((a, b) => a - b);
-  const expected = pushing.flatMap((post) => devices.map((device) => ({ endpoint: ENDPOINTS[device] ?? "", post })));
-  const tried = world.tried.slice(triedBefore);
 
   if (model.devices.size > 0 && room < texts.length) reached.capped++;
 
   if (world.origin === null && room > 0) reached.unknown++;
 
-  // A new local day after a day the cap filled.
-  if (full !== undefined && full !== day && model.devices.size > 0) reached.days++;
+  return world.origin === null ? [] : texts.slice(0, room);
+}
+
+/** The pushes tried since `from` are exactly each pushing post to each subscribed device, and none to a device gone. */
+function expectTried(world: World, model: Model, pushing: readonly string[], from: number): void {
+  const expected = pushing.flatMap((post) => subscribed(model).map((device) => ({ endpoint: ENDPOINTS[device] ?? "", post })));
+  const tried = world.tried.slice(from);
 
   expect([...tried].sort(byPost)).toEqual([...expected].sort(byPost));
 
   for (const each of tried) expect(model.gone.has(ENDPOINTS.findIndex((endpoint) => endpoint === each.endpoint))).toBe(false);
+}
 
-  // A post counts once a device took it; a device gone is dropped.
-  const took = pushing.filter((post) => devices.some((device) => world.answers.get(post)?.[device] === "ok")).length;
-  model.took.set(day, before + took);
+/** How many of `pushing` a device took; each device whose push service dropped it is gone from the model. */
+function settleModel(world: World, model: Model, pushing: readonly string[]): number {
+  const devices = subscribed(model);
+  const answer = (post: string, device: number) => world.answers.get(post)?.[device];
+  const took = pushing.filter((post) => devices.some((device) => answer(post, device) === "ok")).length;
+
+  for (const device of devices.filter((each) => pushing.some((post) => DROPS.has(answer(post, each))))) {
+    model.devices.delete(device);
+    model.gone.add(device);
+    reached.gone++;
+  }
+
   reached.pushed += took;
   reached.released += pushing.length - took;
 
-  for (const post of pushing) {
-    for (const device of devices) {
-      const answer = world.answers.get(post)?.[device];
+  return took;
+}
 
-      if (answer === "gone" || answer === "lost") {
-        model.devices.delete(device);
-        model.gone.add(device);
-        reached.gone++;
-      }
-    }
+/** Posts handed over together, checked against the model; the last day the cap filled. */
+async function postAll(world: World, model: Model, answers: readonly (readonly Answer[])[], full: string | undefined): Promise<string | undefined> {
+  const day = dayIn(world.zone, world.now);
+  const before = model.took.get(day) ?? 0;
+  const from = world.tried.length;
+  const texts = await handOver(world, answers);
+  const pushing = mayPush(world, model, texts, before);
+
+  // A new local day after a day the cap filled.
+  if (full !== undefined && full !== day && model.devices.size > 0) reached.days++;
+
+  expectTried(world, model, pushing, from);
+  const count = before + settleModel(world, model, pushing);
+  model.took.set(day, count);
+
+  expect(world.sent(day)).toBe(count);
+  expect(count).toBeLessThanOrEqual(Math.max(world.most, before));
+
+  return count >= Math.max(world.most, 1) ? day : full;
+}
+
+/** `op`, other than a post, done to ky and to the model alike. */
+function apply(world: World, model: Model, op: Exclude<Op, { op: "post" }>): void {
+  if (op.op === "advance") world.now += op.ms;
+  else if (op.op === "most") world.most = op.most;
+  else if (op.op === "origin") world.origin = op.known ? ORIGIN : null;
+  else if (op.op === "subscribe") {
+    world.pushes.subscribe(subscribers[op.device]?.device(ENDPOINTS[op.device] ?? "") ?? { endpoint: "", p256dh: "", auth: "" }, world.now);
+    model.devices.add(op.device);
+    model.gone.delete(op.device);
+  } else {
+    world.pushes.unsubscribe(ENDPOINTS[op.device] ?? "");
+    model.devices.delete(op.device);
   }
+}
 
-  expect(world.sent(day)).toBe(before + took);
-  expect(before + took).toBeLessThanOrEqual(Math.max(world.most, before));
+/** After a run: no push was malformed, every post is in its chat, and ky keeps the devices the model does. */
+function expectEnd(world: World, model: Model, ops: readonly Op[]): void {
+  expect(world.problems).toEqual([]);
+  expect(world.posted.length).toBe(ops.reduce((count, op) => count + (op.op === "post" ? op.answers.length : 0), 0));
 
-  return before + took >= Math.max(world.most, 1) ? day : full;
+  const kept = world.db
+    .prepare("SELECT endpoint FROM ky_push_devices ORDER BY endpoint")
+    .all()
+    .map((row) => decodeOr(EndpointRow, row, undefined)?.endpoint);
+
+  expect(kept).toEqual(subscribed(model).map((device) => ENDPOINTS[device]));
 }
 
 async function play(zone: string | null, start: number, most: number, ops: readonly Op[]): Promise<void> {
@@ -338,28 +393,11 @@ async function play(zone: string | null, start: number, most: number, ops: reado
   world.most = most;
 
   for (const op of ops) {
-    if (op.op === "advance") world.now += op.ms;
-    else if (op.op === "most") world.most = op.most;
-    else if (op.op === "origin") world.origin = op.known ? ORIGIN : null;
-    else if (op.op === "subscribe") {
-      world.pushes.subscribe(subscribers[op.device]?.device(ENDPOINTS[op.device] ?? "") ?? { endpoint: "", p256dh: "", auth: "" }, world.now);
-      model.devices.add(op.device);
-      model.gone.delete(op.device);
-    } else if (op.op === "unsubscribe") {
-      world.pushes.unsubscribe(ENDPOINTS[op.device] ?? "");
-      model.devices.delete(op.device);
-    } else full = await postAll(world, model, op.answers, full);
+    if (op.op === "post") full = await postAll(world, model, op.answers, full);
+    else apply(world, model, op);
   }
 
-  expect(world.problems).toEqual([]);
-  expect(world.posted.length).toBe(ops.reduce((count, op) => count + (op.op === "post" ? op.answers.length : 0), 0));
-
-  const kept = world.db
-    .prepare("SELECT endpoint FROM ky_push_devices ORDER BY endpoint")
-    .all()
-    .map((row) => decodeOr(EndpointRow, row, undefined)?.endpoint);
-
-  expect(kept).toEqual([...model.devices].sort((a, b) => a - b).map((device) => ENDPOINTS[device]));
+  expectEnd(world, model, ops);
 }
 
 describe("pushes", () => {
