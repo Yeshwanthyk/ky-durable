@@ -14,8 +14,13 @@
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, monospace;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Motion: things arrive with a strong ease-out, move on screen with ease-in-out, and leave faster than they came. */
+  --ease-enter: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --fast: 120ms;
   --standard: 180ms;
+  --enter: 200ms;
+  --exit: 140ms;
 
   --sidebar-width: 264px;
   --thread-width: 44rem;
@@ -809,8 +814,10 @@ kbd {
   height: 22px;
 }
 
-.live .spinner {
-  color: var(--working);
+.live-avatar {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
 }
 
 /* The Working line opens the turn's steps. */
@@ -2029,4 +2036,382 @@ button.live:hover .live-steps {
   translate: -50% 6px;
   visibility: hidden;
   transition-delay: 0s, 0s, 0s, var(--fast);
+}
+
+/* Cards ky composes with the ui tool (Blocks.tsx): one surface, blocks stacked inside. */
+.ui-card-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ui-note {
+  margin: 0;
+  padding-inline: 14px;
+  color: var(--quiet);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ui-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition:
+    opacity var(--enter) var(--ease-enter),
+    transform var(--enter) var(--ease-enter);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+.ui-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: var(--raised);
+  color: var(--muted);
+}
+
+.ui-title {
+  margin: 0;
+  font-size: calc(14px * var(--text-scale));
+  font-weight: 600;
+}
+
+.ui-text > :first-child {
+  margin-top: 0;
+}
+
+.ui-text > :last-child {
+  margin-bottom: 0;
+}
+
+.ui-question {
+  margin: 0;
+  font-weight: 600;
+  font-size: calc(14.5px * var(--text-scale));
+}
+
+.ui-hint {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.ui-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform var(--fast) var(--ease-out),
+    background-color var(--fast) var(--ease-out),
+    border-color var(--fast) var(--ease-out),
+    opacity var(--fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-card[data-live="true"] .ui-option:hover {
+    background: var(--hover);
+    border-color: var(--line-hover);
+  }
+}
+
+.ui-option[data-on="true"] {
+  border-color: var(--ink);
+  background: var(--selected);
+}
+
+.ui-option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ui-card[data-live="false"] .ui-option {
+  cursor: default;
+}
+
+.ui-key {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: calc(11.5px * var(--text-scale));
+  font-weight: 600;
+}
+
+.ui-option[data-on="true"] .ui-key {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.ui-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ui-detail {
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.ui-field {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ui-field input,
+.ui-field textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.ui-field :is(input, textarea):focus-visible {
+  outline: 2px solid var(--working);
+  outline-offset: -1px;
+}
+
+.ui-done {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--ink);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+.ui-done:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ui-typed {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.ui-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-button[data-tone="primary"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.ui-button[data-tone="danger"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ui-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ui-button[data-on="true"]:disabled {
+  opacity: 1;
+}
+
+.ui-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.ui-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ui-list .ui-detail {
+  grid-column: 1 / -1;
+}
+
+.ui-list-title {
+  font-weight: 500;
+}
+
+.ui-list-meta {
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.ui-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.ui-facts > div {
+  display: contents;
+}
+
+.ui-facts dt {
+  color: var(--muted);
+}
+
+.ui-facts dd {
+  margin: 0;
+}
+
+.ui-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.ui-status[data-tone="success"] {
+  color: var(--success);
+}
+
+.ui-status[data-tone="warning"] {
+  color: var(--warning);
+}
+
+.ui-status[data-tone="error"] {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-card {
+    transition: none;
+  }
+}
+
+/* A lasting change a turn made, as one quiet centered line under its answer. */
+.turn-event {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+
+  .icon {
+    flex: none;
+  }
+
+  .quiet {
+    margin-right: 3px;
+  }
+}
+
+.turn-event-name {
+  overflow: hidden;
+  max-width: 60%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where the day changes, centered between turns. */
+.day-stamp {
+  align-self: center;
+  /* Closer to the turn it heads than the thread's gap. */
+  margin-bottom: -16px;
+  color: var(--quiet);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Above the first turn that landed since the user last looked: a hairline, quiet as the day stamp. */
+.new-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: -16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
 }

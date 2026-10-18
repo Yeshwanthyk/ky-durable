@@ -33,6 +33,7 @@ import { Topbar } from "./ui/Topbar";
 import { sentTexts } from "./ui/turns";
 import { useDraft, useReloadOnDeploy } from "./ui/use-draft";
 import { useNow } from "./ui/use-now";
+import type { Visit } from "./ui/thread-marks";
 import { useSeen } from "./ui/use-seen";
 import { SettingsNavContext, usePanel, type PanelState } from "./ui/use-panel";
 import { useSessionRoute } from "./ui/use-session-route";
@@ -144,6 +145,8 @@ type Parts = {
   panel: PanelState;
   shell: Shell;
   setTheme: (theme: Theme) => void;
+  /** When the user last saw the open chat, for its New divider. */
+  visit: Visit;
 };
 
 /** What the page can do to the draft from outside the composer: put a suggested ask in it. */
@@ -334,7 +337,7 @@ function useOutboxParts(outbox: readonly Outgoing[]) {
 }
 
 function Stage(parts: Parts) {
-  const { ky, view, panel } = parts;
+  const { ky, view, panel, visit } = parts;
   const { open, variantId } = view;
   const composer = useRef<DraftHandle>(null);
 
@@ -384,7 +387,7 @@ function Stage(parts: Parts) {
     shallow
   );
 
-  /** While a run is going, Enter steers it; otherwise it starts one. */
+  /** While a run is going, Enter steers it; otherwise it starts one. A tap on a card ky showed sends the same way. */
   const onSend = useStableCallback((input: UserInput) => ky.submit(input, ky.running ? "steer" : "followUp"));
 
   return (
@@ -392,7 +395,7 @@ function Stage(parts: Parts) {
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
-        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} />
+        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
         <DraftDock
           handle={composer}
           run={run}
@@ -579,7 +582,6 @@ function App() {
   const view = describe(ky, session, theme);
   const label = statusLabel(ky.status);
   const status = useMemo(() => ({ label, connected: view.connected }), [label, view.connected]);
-  const parts: Parts = { ky, view, status, panel, shell, setTheme };
   const { setPaletteOpen } = shell;
   const onSearch = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
 
@@ -588,7 +590,8 @@ function App() {
     [ky.chats, ky.mainUpdatedAt]
   );
 
-  const unread = useSeen(session, times);
+  const { unread, visit } = useSeen(session, times);
+  const parts: Parts = { ky, view, status, panel, shell, setTheme, visit };
 
   return (
     <AvatarsContext.Provider value={ky.avatars}>

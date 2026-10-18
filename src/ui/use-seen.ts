@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Type, { type Static } from "typebox";
 import { parseOr } from "../core/decode";
+import type { Visit } from "./thread-marks";
 
 /**
  * Which chats have news the user has not opened: an automation's report or a
@@ -27,13 +28,27 @@ function read(): Seen {
   }
 }
 
-/** Whether a chat last active at `time` has news since it was last seen. */
-const isUnread = (seen: Seen, session: string, time: number) => time > (seen.at[session] ?? seen.since);
+/** When a chat was last seen: its last activity time while open, else when tracking started. */
+const seenAt = (seen: Seen, session: string) => seen.at[session] ?? seen.since;
 
-/** Marks the open chat seen as its activity time moves; says which others are unread. */
-export function useSeen(open: string, times: Readonly<Record<string, number>>): (session: string) => boolean {
+/** Whether a chat last active at `time` has news since it was last seen. */
+const isUnread = (seen: Seen, session: string, time: number) => time > seenAt(seen, session);
+
+type Opened = { readonly session: string; readonly visit: Visit };
+
+const opening = (seen: Seen, session: string): Opened => ({ session, visit: { since: seenAt(seen, session), opened: Date.now() } });
+
+/**
+ * Marks the open chat seen as its activity time moves; says which others are
+ * unread, and when the open one was last seen before this visit opened it.
+ */
+export function useSeen(open: string, times: Readonly<Record<string, number>>) {
   const [seen, setSeen] = useState(read);
+  const [opened, setOpened] = useState(() => opening(seen, open));
   const time = times[open] ?? 0;
+
+  // Taken as the chat opens, before it is marked seen below.
+  if (opened.session !== open) setOpened(opening(seen, open));
 
   useEffect(() => {
     setSeen((current) => {
@@ -50,5 +65,7 @@ export function useSeen(open: string, times: Readonly<Record<string, number>>): 
     });
   }, [open, time]);
 
-  return useCallback((session: string) => session !== open && isUnread(seen, session, times[session] ?? 0), [seen, open, times]);
+  const unread = useCallback((session: string) => session !== open && isUnread(seen, session, times[session] ?? 0), [seen, open, times]);
+
+  return { unread, visit: opened.session === open ? opened.visit : null };
 }

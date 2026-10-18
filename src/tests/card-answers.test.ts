@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+import { answered, card, cardName, compose, decompose, lettered, needsSend, optionState, type Question, sendsOnTap, takesTaps, toggled } from "../ui/card-answers";
+import type { Tool } from "../ui/conversation";
+
+const call = (input: string): Tool => ({
+  kind: "tool",
+  id: "c",
+  name: "ui",
+  category: "other",
+  summary: "ui",
+  status: "done",
+  input,
+  output: "",
+  images: [],
+  durationMs: null
+});
+
+const senders: Question = {
+  type: "choice",
+  label: "Which should I unsubscribe you from?",
+  multiple: true,
+  options: [{ label: "Lyft" }, { label: "Audible Canada" }, { label: "Affirm" }]
+};
+
+const size: Question = { type: "choice", label: "Size", options: [{ label: "Small" }, { label: "Large" }] };
+
+const name: Question = { type: "input", label: "Name" };
+
+describe("card", () => {
+  it("keeps the blocks it knows and skips one it does not, or one that is malformed", () => {
+    const shown = card(call(JSON.stringify({ title: "Hi", blocks: [{ type: "text", text: "Hello" }, { type: "chart", points: [1, 2] }, { type: "choice", label: "Pick" }] })));
+
+    expect(shown).toEqual({ title: "Hi", blocks: [{ type: "text", text: "Hello" }] });
+  });
+
+  it("shows none while its arguments are not JSON yet, or have no block it knows", () => {
+    expect(card(call('{"blocks":[{"type":"te'))).toBeNull();
+    expect(card(call(JSON.stringify({ blocks: [{ type: "chart" }] })))).toBeNull();
+  });
+});
+
+describe("a card's answer", () => {
+  it("is one question's value as it is, a multiple choice's joined by commas", () => {
+    expect(compose([senders], [["Audible Canada", "Affirm"]])).toBe("Audible Canada, Affirm");
+    expect(compose([name], [["  Lumi "]])).toBe("Lumi");
+  });
+
+  it("is a line per question when there are several, leaving out those with nothing in them", () => {
+    expect(compose([size, name], [["Large"], ["Lumi"]])).toBe("Size: Large\nName: Lumi");
+    expect(compose([size, name], [["Large"], []])).toBe("Size: Large");
+  });
+
+  it("reads back from the message that sent it", () => {
+    expect(decompose([senders], "Audible Canada, Affirm")).toEqual([["Audible Canada", "Affirm"]]);
+    expect(decompose([size, name], "Size: Large\nName: Lumi")).toEqual([["Large"], ["Lumi"]]);
+  });
+
+  it("chooses nothing when the user typed their own words instead", () => {
+    expect(decompose([senders], "none of them, thanks")).toEqual([[]]);
+    expect(decompose([size, name], "whatever you think")).toEqual([[], []]);
+  });
+
+  it("is ready once every question has something in it", () => {
+    expect(answered([size, name], [["Large"], [" "]])).toBe(false);
+    expect(answered([size, name], [["Large"], ["Lumi"]])).toBe(true);
+    expect(answered([], [])).toBe(false);
+  });
+});
+
+describe("choosing", () => {
+  it("waits for Send when there is more than one question or a multiple choice", () => {
+    expect(needsSend([senders])).toBe(true);
+    expect(needsSend([size, name])).toBe(true);
+    expect(needsSend([size])).toBe(false);
+    expect(needsSend([name])).toBe(false);
+  });
+
+  it("takes taps only as the chat's latest word, before it is answered or sent from", () => {
+    expect(takesTaps(true, null, false)).toBe(true);
+    expect(takesTaps(false, null, false)).toBe(false);
+    expect(takesTaps(true, "Large", false)).toBe(false);
+    expect(takesTaps(true, null, true)).toBe(false);
+  });
+
+  it("names a card by its title, else its first question", () => {
+    expect(cardName({ title: "Inbox", blocks: [size] })).toBe("Inbox");
+    expect(cardName({ blocks: [{ type: "text", text: "Hi" }, size] })).toBe("Size");
+  });
+
+  it("presses an option of a multiple choice or an answered card, and dims what was not chosen once it takes no taps", () => {
+    expect(optionState(true, true, false, true)).toEqual({ pressed: true, dim: false, ticked: true });
+    expect(optionState(false, false, false, true)).toEqual({ pressed: undefined, dim: false, ticked: false });
+    expect(optionState(false, false, true, false)).toEqual({ pressed: false, dim: true, ticked: false });
+  });
+
+  it("sends on the tap only for a single choice alone", () => {
+    expect(sendsOnTap([size])).toBe(true);
+    expect(sendsOnTap([senders])).toBe(false);
+    expect(sendsOnTap([size, name])).toBe(false);
+    expect(sendsOnTap([name])).toBe(false);
+  });
+
+  it("ticks and unticks a multiple choice's options, and replaces a single choice's", () => {
+    expect(toggled(["Lyft"], "Affirm", true)).toEqual(["Lyft", "Affirm"]);
+    expect(toggled(["Lyft", "Affirm"], "Lyft", true)).toEqual(["Affirm"]);
+    expect(toggled(["Small"], "Large", false)).toEqual(["Large"]);
+  });
+
+  it("picks an option by its letter, either case, and nothing past the last", () => {
+    if (senders.type !== "choice") throw new Error("senders is a choice");
+    expect(lettered(senders, "b")?.label).toBe("Audible Canada");
+    expect(lettered(senders, "C")?.label).toBe("Affirm");
+    expect(lettered(senders, "d")).toBeUndefined();
+    expect(lettered(senders, "Enter")).toBeUndefined();
+  });
+});

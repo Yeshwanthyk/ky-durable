@@ -404,6 +404,80 @@ test("shows queued messages' words, and takes one back to edit or deletes it", a
   await expect(page.getByRole("region", { name: "Chat" }).getByText("first queued thing")).toBeHidden();
 });
 
+test("ky's card takes taps: the chosen options go as the user's next message, and the card keeps them", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const ui = {
+    title: "Subscriptions",
+    icon: "gmail",
+    wait: true,
+    blocks: [
+      { type: "text", text: "I found four senders you never open." },
+      {
+        type: "choice",
+        label: "Which should I unsubscribe you from?",
+        multiple: true,
+        options: [{ label: "Lyft" }, { label: "Audible Canada", detail: "12 this month" }, { label: "Pinterest" }, { label: "Affirm" }]
+      }
+    ]
+  };
+
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+  const card = chat(page).getByRole("region", { name: "Subscriptions" });
+  await expect(card.getByText("Choose all that apply")).toBeVisible();
+  const submit = card.getByRole("button", { name: "Send" });
+  await expect(submit).toBeDisabled();
+  await card.getByRole("button", { name: /Audible Canada/ }).click();
+  await card.getByRole("button", { name: /Affirm/ }).click();
+  await expect(card.getByRole("button", { name: /Affirm/ })).toHaveAttribute("aria-pressed", "true");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-choice.png` });
+  await submit.click();
+
+  await expect(chat(page).getByText("echo: Audible Canada, Affirm")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Send" })).toBeHidden();
+  await expect(card.getByRole("button", { name: /Audible Canada/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(card.getByRole("button", { name: /Lyft/ })).toBeDisabled();
+});
+
+test("ky's card asks for a word: typed and ticked, it goes as the user's next message", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const ui = { wait: true, blocks: [{ type: "input", label: "What would you like to call me?", placeholder: "A name" }] };
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+  const card = chat(page).getByRole("region", { name: "What would you like to call me?" });
+  await card.getByRole("textbox", { name: "What would you like to call me?" }).fill("Lumi");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-input.png` });
+  await card.getByRole("button", { name: "Send answer" }).click();
+
+  await expect(chat(page).getByText("echo: Lumi")).toBeVisible();
+  await expect(card.getByRole("textbox")).toBeHidden();
+});
+
+test("a routine ky made shows as one quiet line under its answer, and a card's small print under the card", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const title = `Nightly roundup ${crypto.randomUUID().slice(0, 8)}`;
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: "gather the day's likes", cron: "0 1 * * *", createdBy: "user" })}`);
+
+  const event = chat(page).locator(".turn-event", { hasText: title });
+  await expect(event).toContainText("Created routine");
+
+  const ui = { title: "Connect X", icon: "x", note: "ky asks before it changes anything.", blocks: [{ type: "buttons", buttons: [{ label: "Authorize", url: "https://example.com/auth" }] }] };
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+  await expect(chat(page).getByRole("link", { name: "Authorize" })).toHaveAttribute("href", "https://example.com/auth");
+  await expect(chat(page).locator(".ui-note")).toHaveText("ky asks before it changes anything.");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/event-note.png` });
+});
+
 test("steers the queue in now: the step ky waits on stops and the queued message goes in", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });
@@ -459,8 +533,18 @@ test("marks a side chat that ky answered while the user was in another chat, unt
 
   await side.getByRole("button", { name: /gate/ }).first().click();
   await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+  // In the chat, New marks where the answer that landed while away starts.
+  const divider = chat(page).getByRole("separator", { name: "New since you last looked" });
+  await expect(divider).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/new-divider.png` });
   await chats.getByRole("button", { name: "Main chat" }).click();
   await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+
+  // Seen, it is not news the next time.
+  await side.getByRole("button", { name: /gate/ }).first().click();
+  await expect(chat(page).getByText("tool said:").first()).toBeVisible();
+  await expect(divider).toBeHidden();
 });
 
 test("picks a purpose's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {

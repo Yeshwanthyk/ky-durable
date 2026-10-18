@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
 import { Icon } from "./Icon";
-import { OpenStepsContext, RecalledContext, Thread } from "./Thread";
+import { ReplyContext } from "./Blocks";
+import type { BlobVariantId } from "./blob-catalog";
+import { OpenStepsContext, RecalledContext, SpeakerContext, Thread } from "./Thread";
 import { Timeline, TimelineSheet } from "./Timeline";
+import type { Visit } from "./thread-marks";
 import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
@@ -13,19 +16,31 @@ const NONE_RECALLED: Readonly<Record<string, readonly string[]>> = {};
 
 const isEmpty = ({ messages, live, running }: ThreadView) => messages.length === 0 && !live && !running;
 
+/** What every turn of the thread reads, besides the turns themselves. */
+type Contexts = {
+  /** What turn-start recall gave the model for each user message, by message id. */
+  recalled?: Readonly<Record<string, readonly string[]>>;
+  /** Who answers here, and their blob, for the working row. */
+  speaker: string;
+  variantId?: BlobVariantId;
+  /** Sends a tap on a card ky showed as the user's next message. */
+  onReply: (text: string) => void;
+};
+
 // The open chat's thread, which follows the end while the user is there; `welcome` stands in while it is empty.
 export function ChatThread({
   chat,
   session,
   welcome,
-  recalled = NONE_RECALLED,
-}: {
+  visit,
+  ...contexts
+}: Contexts & {
   /** Which chat this is: another one starts its thread afresh, with earlier turns folded again. */
   chat: string;
   session: ThreadView;
   welcome: ReactNode;
-  /** What turn-start recall gave the model for each user message, by message id. */
-  recalled?: Readonly<Record<string, readonly string[]>>;
+  /** When the user last saw this chat, for the New divider. */
+  visit: Visit;
 }) {
   const { messages, live, running, tools } = session;
   const threadRef = useRef<HTMLElement>(null);
@@ -39,11 +54,9 @@ export function ChatThread({
   return (
     <main ref={threadRef} className="thread" data-scroll>
       <div ref={innerRef} className="thread-inner">
-        <OpenStepsContext.Provider value={openSteps}>
-          <RecalledContext.Provider value={recalled}>
-            {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} />}
-          </RecalledContext.Provider>
-        </OpenStepsContext.Provider>
+        <ThreadContexts {...contexts} openSteps={openSteps}>
+          {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} />}
+        </ThreadContexts>
       </div>
       <div className="thread-end">
         <button type="button" className="to-latest pressable" data-shown={away} inert={!away} aria-label="Jump to latest" onClick={toLatest}>
@@ -52,6 +65,28 @@ export function ChatThread({
       </div>
       {steps ? <TurnSteps session={session} onClose={() => setSteps(false)} /> : null}
     </main>
+  );
+}
+
+/** Provides what every turn of the thread reads: how to open its steps, what recall gave it, who answers, and where a card's taps go. */
+function ThreadContexts({
+  openSteps,
+  recalled = NONE_RECALLED,
+  speaker,
+  variantId,
+  onReply,
+  children,
+}: Contexts & { openSteps: () => void; children: ReactNode }) {
+  const who = useMemo(() => ({ name: speaker, variantId }), [speaker, variantId]);
+
+  return (
+    <OpenStepsContext.Provider value={openSteps}>
+      <RecalledContext.Provider value={recalled}>
+        <SpeakerContext.Provider value={who}>
+          <ReplyContext.Provider value={onReply}>{children}</ReplyContext.Provider>
+        </SpeakerContext.Provider>
+      </RecalledContext.Provider>
+    </OpenStepsContext.Provider>
   );
 }
 
