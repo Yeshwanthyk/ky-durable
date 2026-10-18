@@ -47,7 +47,7 @@ export class Proactivity {
   looks(): string[] {
     const stored = decodeOr(LooksRow, this.#sql.exec("SELECT looks FROM ky_proactivity WHERE id = 1").toArray()[0], undefined);
 
-    return stored ? parseOr(LooksColumn, stored.looks, DEFAULT_LOOKS) : DEFAULT_LOOKS;
+    return stored ? parseOr(LooksColumn, stored.looks, DEFAULT_LOOKS).toSorted() : DEFAULT_LOOKS;
   }
 
   set(level: ProactivityLevel): ProactivityView {
