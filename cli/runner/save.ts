@@ -28,8 +28,9 @@ function ended(child: ReturnType<typeof spawn>): Promise<{ code: number | null; 
  * A tar.gz of `folders`, relative to `home`, without `excluded`: tar writes the tar, Node gzips it, so
  * the save is the same bytes under GNU tar and bsdtar (whose own `-z` pads its gzip with zeros to a
  * 10 KiB block). The stream fails if tar or gzip does, so whoever reads it never takes a cut archive
- * for a whole one. Exit 1 is accepted: a file changed as tar read it, as a task still running writes;
- * the archive is whole.
+ * for a whole one. Exit 1 is accepted: to GNU tar, the container's, it means a file changed as tar
+ * read it, as a task still running writes, and the archive is whole. (bsdtar also exits 1 for a file
+ * it couldn't read, so on macOS a lost file passes: the tests can't see that case there.)
  */
 export function pack(home: string, folders: readonly string[], excluded: readonly string[]): Readable {
   const args = ["-c", ...excluded.map((each) => `--exclude=${each}`), "-C", home, ...folders];

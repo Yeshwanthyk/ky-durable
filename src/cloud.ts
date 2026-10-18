@@ -445,7 +445,9 @@ export class CloudMachine extends DurableObject<Env> {
     if (state === "stopped") {
       if (restarts === 0) throw new Error(`The sandbox ${id}'s runner was stopped again as it started`);
       // Stopped by a save whose upload failed: its disk may be newer than R2's, so save it, then start afresh.
-      await this.#counted(box, id);
+      await this.#counted(box, id).catch((error: Error) => {
+        throw new Error(`its runner is stopped and its files couldn't be saved, so it is kept as it is: ${error.message}`);
+      });
       await box.destroy();
 
       return this.#up(box, id, name, restarts - 1);

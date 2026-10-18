@@ -180,12 +180,12 @@ checks it today; "—" means it needs a new probe or a unit test.
 | M13 | Yes *(PR 1)* | The new hello fails each open task once as "Interrupted: the runner restarted", the agent ran once, and with M12 no orphan keeps working on it. The stopping runner reports nothing more, so the hello is what closes the task; a cloud runner, whose container is gone for good, first ends each open turn as "Interrupted: the container was stopped". Delivery stays at-most-once. |
 | M14 | Mostly *(PR 4)* | `ky upgrade X` restarts only the runners whose `settings.url` is X's (`restartRunner(context, url)`, same origin). Still open: it restarts them even when the Worker was already current, and doesn't wait for X to speak the binary's protocol. State dirs, status files and labels were already split (`system.ts:135-155`). |
 | M15 | Yes *(PR 5)* | `ky runner status` and `ls` check the status's pid (signal 0): a status whose process is gone reads "not running: it said online at … (7 h ago), but its process N is gone", and `status` exits 1. Each time says how long ago it was. Log lines carry the full ISO date and time (UTC, `Z`), and SIGTERM/SIGINT, "asked to stop" and "stopped" are logged. Before: no pid or age check; logs had `HH:MM:SS` in UTC only; SIGTERM wasn't logged. |
-| M16 | Partly | `waking` is derived and has no deadline in the UI. Container-start failures are `console.warn`ed and retried by the alarm (`src/cloud.ts:187-190, 332-347`), but they never become a machine reason. |
+| M16 | Mostly *(restart safety)* | A start that fails while work waits is retried after 5 s, doubling to the tick, for 10 min (`START_DEADLINE_MS`); then its waiting tasks fail once with "The sandbox didn't start: <error>", which the machine shows as its reason, until new work wakes it. Five failed saves or snapshots in a row show "The sandbox couldn't save its files: <error>" (`src/cloud.ts` `#startFailed`, `#saveWent`). Still open: `waking` shows no step or deadline in the UI. |
 | M17 | No | Documented hazard only (`handled.ts:16-18`). |
 | M18 | Deferred (§8) | See the invariant. PR 3 closes the pre-hello window it named (online needs the hello), but not the rest. |
 | M19 | No | No reply frame. The `halfopen` probe only models the Worker's view, not a runner sending into a dead peer. |
 | M20 | Partly *(PR 4)* | A bare HTTP 401 now probes slowly instead of exiting. REPLACED and a real 4401 close stay fatal (§8). |
-| M21 | No | No expiry anywhere. |
+| M21 | Cloud only *(restart safety)* | A sandbox that can't start fails its waiting tasks at the start deadline (M16). A computer that never comes back still keeps its open work forever. |
 
 ---
 
