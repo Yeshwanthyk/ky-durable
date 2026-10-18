@@ -12,6 +12,10 @@ import { parseOr } from "./core/decode";
  * R2 holds all of it, so the Worker serves without the agent: the files at
  * `sites/<id>/<path>`, the title, creation time and public token at
  * `sites/<id>/.site`, and `sites-public/<token>` naming the id while public.
+ *
+ * A site's page runs sandboxed in an opaque origin, so the browser asks for its
+ * other files without the Access cookie: at the private address only one
+ * self-contained HTML file works; the public address serves a folder whole.
  */
 
 const SITE = "site";
@@ -22,8 +26,14 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 const MAX_SITES = 50;
 
-/** The object that holds a site's title, creation time and public token; never served. */
-export const META = ".site";
+/** How many entries a folder is listed by at a time. */
+const PAGE = 500;
+
+/** The object that holds a site's title, creation time and public token; never served, as no path starting with "." is. */
+const META = ".site";
+
+/** Whether `path` has a segment starting with ".": a dotfile, or a file in a dot folder such as .git. */
+export const hidden = (path: string) => path.split("/").some((part) => part.startsWith("."));
 
 /** A site's id: 32 hex characters, as a file's. */
 export const SITE_ID = /^[0-9a-f]{32}$/;
@@ -80,25 +90,51 @@ type Gathered = { readonly files: ReadonlyMap<string, Uint8Array> } | { readonly
 
 type SiteArgs = Type.Static<typeof SiteArgs>;
 
-/** The files of the folder `dir`, by their path under it. */
+const tooBig = (bytes: number) => ({ refused: `Not published: a site holds at most ${MAX_BYTES / 1024 / 1024} MB, and this is ${(bytes / 1024 / 1024).toFixed(1)} MB.` });
+
+/** The files under `root` by their path under it, hidden ones left out; at most one past MAX_FILES. */
+async function listed(workspace: Workspace, root: string): Promise<string[]> {
+  const paths: string[] = [];
+
+  for (let offset = 0; paths.length <= MAX_FILES; offset += PAGE) {
+    const page = await workspace.fs.find(root, "**", { limit: PAGE, offset });
+
+    for (const entry of page) {
+      const path = entry.path.startsWith(`${root}/`) ? entry.path.slice(root.length + 1) : entry.path.replace(/^\/+/, "");
+
+      if (entry.type === "file" && !hidden(path)) paths.push(path);
+    }
+
+    if (page.length < PAGE) break;
+  }
+
+  return paths;
+}
+
+/** The files of the folder `dir`, by their path under it; their sizes are checked before any is read. */
 async function folder(workspace: Workspace, dir: string): Promise<Gathered> {
   const root = dir.replace(/\/+$/, "");
-  let found;
+
+  if (root === "") return { refused: "Not published: name a folder in the workspace, such as /workspace/site." };
+  let paths;
 
   try {
-    found = (await workspace.fs.find(root, "**", { limit: MAX_FILES + 1 })).filter((entry) => entry.type === "file");
+    paths = await listed(workspace, root);
   } catch (error) {
     return { refused: `Couldn't read ${dir}: ${error instanceof Error ? error.message : String(error)}` };
   }
 
-  if (found.length > MAX_FILES) return { refused: `Not published: a site holds at most ${MAX_FILES} files, and ${dir} has more.` };
+  if (paths.length === 0) return { refused: `Not published: ${dir} has no files.` };
+
+  if (paths.length > MAX_FILES) return { refused: `Not published: a site holds at most ${MAX_FILES} files, and ${dir} has more.` };
+  let bytes = 0;
+
+  for (const path of paths) bytes += (await workspace.fs.stat(`${root}/${path}`)).size;
+
+  if (bytes > MAX_BYTES) return tooBig(bytes);
   const files = new Map<string, Uint8Array>();
 
-  for (const entry of found) {
-    const path = entry.path.startsWith(`${root}/`) ? entry.path.slice(root.length + 1) : entry.path.replace(/^\/+/, "");
-
-    files.set(path, new Uint8Array(await new Response(await workspace.fs.readFile(`${root}/${path}`)).arrayBuffer()));
-  }
+  for (const path of paths) files.set(path, new Uint8Array(await new Response(await workspace.fs.readFile(`${root}/${path}`)).arrayBuffer()));
 
   return { files };
 }
@@ -106,19 +142,11 @@ async function folder(workspace: Workspace, dir: string): Promise<Gathered> {
 /** The files publish names, the page `html` or the folder `dir`, within the caps. */
 async function gather(workspace: Workspace, { html, dir }: SiteArgs): Promise<Gathered> {
   if ((html === undefined) === (dir === undefined)) return { refused: "Not published: give either html or dir." };
-  const gathered = html === undefined ? await folder(workspace, dir ?? "") : { files: new Map([["index.html", new TextEncoder().encode(html)]]) };
 
-  if ("refused" in gathered) return gathered;
-  const { files } = gathered;
+  if (html === undefined) return folder(workspace, dir ?? "");
+  const page = new TextEncoder().encode(html);
 
-  if (files.size === 0) return { refused: `Not published: ${dir} has no files.` };
-
-  if (files.has(META)) return { refused: `Not published: a site can't hold a file named ${META}.` };
-  const bytes = [...files.values()].reduce((total, body) => total + body.byteLength, 0);
-
-  if (bytes > MAX_BYTES) return { refused: `Not published: a site holds at most ${MAX_BYTES / 1024 / 1024} MB, and this is ${(bytes / 1024 / 1024).toFixed(1)} MB.` };
-
-  return gathered;
+  return page.byteLength > MAX_BYTES ? tooBig(page.byteLength) : { files: new Map([["index.html", page]]) };
 }
 
 /** The site tool; only a chat with the user may call it, as `uiExtension`'s. `origin` is ky's address, once a browser opened it. */
@@ -148,8 +176,9 @@ export function siteExtension(chat: (session: string) => boolean, bucket: R2Buck
     const gathered = await gather(workspace, args);
 
     if ("refused" in gathered) return reply(gathered.refused, true);
-    await store(bucket, to.id, gathered.files);
+    // The metadata first, so a publish cut off midway leaves a site that list shows and delete removes.
     await putMeta(bucket, to.id, { created: Date.now(), ...to.was, title: args.title ?? to.was?.title ?? "Untitled" });
+    await store(bucket, to.id, gathered.files);
 
     return reply(`Published at ${privateUrl(to.id)} (id ${to.id}, ${gathered.files.size} files), for the signed-in user only.`);
   }
@@ -171,7 +200,7 @@ export function siteExtension(chat: (session: string) => boolean, bucket: R2Buck
    * token is in the metadata before its public object and outlives it, so a call cut off between the two
    * never leaves a public object the metadata doesn't name, and a token whose object is gone is never reissued.
    */
-  async function change(action: "make_public" | "make_private" | "delete", id: string) {
+  async function change(action: "make_public" | "make_private", id: string) {
     const site = await find(id);
 
     if (!site) return reply(`No site ${id}.`, true);
@@ -185,14 +214,20 @@ export function siteExtension(chat: (session: string) => boolean, bucket: R2Buck
     }
 
     if (site.token !== undefined) await bucket.delete(publicKey(site.token));
+    await putMeta(bucket, id, { title: site.title, created: site.created });
 
-    if (action === "make_private") {
-      await putMeta(bucket, id, { title: site.title, created: site.created });
+    return reply(`Private again: its public address no longer works. It stays at ${privateUrl(id)}.`);
+  }
 
-      return reply(`Private again: its public address no longer works. It stays at ${privateUrl(id)}.`);
-    }
+  /** Delete everything under the site's prefix, its metadata or not, after its public object. */
+  async function remove(id: string) {
+    const all = SITE_ID.test(id) ? await keys(bucket, id) : [];
 
-    await bucket.delete(await keys(bucket, id));
+    if (all.length === 0) return reply(`No site ${id}.`, true);
+    const token = (await meta(bucket, id))?.token;
+
+    if (token !== undefined) await bucket.delete(publicKey(token));
+    await bucket.delete(all);
 
     return reply(`Deleted the site ${id}.`);
   }
@@ -204,7 +239,8 @@ export function siteExtension(chat: (session: string) => boolean, bucket: R2Buck
         name: SITE,
         description:
           "Publish a small static site from HTML you write (html) or a workspace folder of HTML, CSS, JS and images (dir), served at a private ky address " +
-          "only the user can open. publish with an id replaces that site's files. list shows the sites and their addresses. make_public also serves a site " +
+          "only the user can open. At the private address only one self-contained HTML file works (inline its CSS, JS and images); relative files won't load " +
+          "there, though the public address serves them. Files and folders starting with \".\" are left out. publish with an id replaces that site's files. list shows the sites and their addresses. make_public also serves a site " +
           "at a public address anyone with the link can open: do it only when the user asks for a public link. make_private ends the public address for good; " +
           `delete removes the site. At most ${MAX_FILES} files and ${MAX_BYTES / 1024 / 1024} MB a site, ${MAX_SITES} sites.`,
         parameters: SiteArgs,
@@ -214,7 +250,9 @@ export function siteExtension(chat: (session: string) => boolean, bucket: R2Buck
 
           if (args.action === "publish") return publish(args);
 
-          return args.action === "list" ? list() : change(args.action, args.id ?? "");
+          if (args.action === "list") return list();
+
+          return args.action === "delete" ? remove(args.id ?? "") : change(args.action, args.id ?? "");
         }
       })
     ]

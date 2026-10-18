@@ -395,13 +395,13 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(machines);
       this.registry.install(automations);
 
-      // Cards and sites are for a chat with the user: the tools refuse elsewhere; seats go without both, subagents without cards.
+      // Cards and sites are for a chat with the user: the tools refuse elsewhere, and subagents and seats go without them.
       const ui = uiExtension(chat);
       this.registry.install(ui);
       const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
-      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui });
+      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui, site });
       this.registry.install(specialists.extension);
       this.registry.install(specialists.manage);
       this.registry.install(avatarTools(this.avatars, () => [KY_AVATAR, ...this.specialists.list().map((row) => row.id)]));

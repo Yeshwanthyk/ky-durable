@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ASSERTION } from "../access";
 import { call, inside, prompt, promptTool } from "./drive";
 
@@ -55,15 +55,29 @@ describe("sites", () => {
     expect(await site(name, { action: "list" })).toContain(`${id} "Hello" https://ky.test/s/${id}/`);
   });
 
-  it("publishes a folder with nested assets by type, and never serves traversal or its metadata", async () => {
+  it("publishes a folder with nested assets by type, leaving out hidden files, and never serves traversal or its metadata", async () => {
     const name = crypto.randomUUID();
     await write(name, {
       "/workspace/web/index.html": "<link rel=stylesheet href=css/app.css>",
       "/workspace/web/css/app.css": "h1 { color: red }",
       "/workspace/web/js/app.js": "console.log(1)",
+      "/workspace/web/v1.2/LICENSE": "MIT",
+      "/workspace/web/.env": "KEY=secret",
+      "/workspace/web/.git/config": "[core]",
       "/workspace/secret.txt": "not the site's"
     });
-    const id = idOf(await site(name, { action: "publish", title: "Web", dir: "/workspace/web" }));
+    const said = await site(name, { action: "publish", title: "Web", dir: "/workspace/web" });
+    const id = idOf(said);
+    expect(said).toContain("4 files");
+    expect(await env.FILES.head(`sites/${id}/.env`)).toBeNull();
+    expect(await env.FILES.head(`sites/${id}/.git/config`)).toBeNull();
+    expect((await call(`/s/${id}/v1.2/LICENSE`)).headers.get("Content-Type")).toBe("application/octet-stream");
+
+    const head = await call(`/s/${id}/css/app.css`, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toBe("text/css; charset=utf-8");
+    expect(head.headers.get("Content-Security-Policy")).toBe(SANDBOX);
+    expect(await head.text()).toBe("");
 
     expect((await call(`/s/${id}/`)).headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const css = await call(`/s/${id}/css/app.css`);
@@ -89,6 +103,9 @@ describe("sites", () => {
     expect(page.headers.get("X-Robots-Tag")).toBe("noindex");
     expect(page.headers.get("Set-Cookie")).toBeNull();
     expect((await signedOut(`${open}..%2f..%2f`)).status).toBe(404);
+    expect((await signedOut(`${open}.site`)).status).toBe(404);
+    expect((await signedOut("/p/AAAAAAAAAAAAAAAAAAAAAA/")).status).toBe(404);
+    expect((await signedOut("/p/abc/")).status).toBe(404);
 
     expect(await site(name, { action: "make_private", id })).toContain("Private again");
     expect((await signedOut(open)).status).toBe(404);
@@ -117,20 +134,41 @@ describe("sites", () => {
 
   it("refuses past 200 files, 10 MB or 50 sites", async () => {
     const name = crypto.randomUUID();
-    await write(name, Object.fromEntries(Array.from({ length: 201 }, (_, at) => [`/workspace/many/${at}.html`, "x"])));
+    // Files ten to a folder, two deep: the folders don't count toward the cap.
+    const nested = (root: string, count: number) => Object.fromEntries(Array.from({ length: count }, (_, at) => [`${root}/d${at % 20}/e${at % 3}/${at}.html`, "x"]));
+    await write(name, nested("/workspace/full", 200));
+    const full = await site(name, { action: "publish", title: "Full", dir: "/workspace/full" });
+    expect(full).toContain("200 files");
+    expect((await call(`/s/${idOf(full)}/d19/e1/199.html`)).status).toBe(200);
+
+    await write(name, nested("/workspace/many", 201));
     expect(await promptTool(name, `tool site ${JSON.stringify({ action: "publish", title: "Many", dir: "/workspace/many" })}`)).toEqual({
       text: "tool said: Not published: a site holds at most 200 files, and /workspace/many has more.",
       failed: true
     });
 
-    // A page that large wouldn't fit in a tool call, so the folder holds eleven files of 1 MB.
+    // A page that large wouldn't fit in a tool call, so the folder holds eleven files of 1 MB; none is read.
     await write(name, Object.fromEntries(Array.from({ length: 11 }, (_, at) => [`/workspace/big/${at}.html`, "x".repeat(1024 * 1024)])));
+    const reads = await inside(name, (instance) => vi.spyOn(instance.workspace.fs, "readFile"));
     expect(await site(name, { action: "publish", title: "Big", dir: "/workspace/big" })).toContain("at most 10 MB");
+    expect(reads).not.toHaveBeenCalled();
+    reads.mockRestore();
+
+    expect(await site(name, { action: "publish", title: "Root", dir: "/" })).toContain("name a folder in the workspace");
 
     const filler = Array.from({ length: 50 }, () => `sites/${crypto.randomUUID().replaceAll("-", "")}/.site`);
     await Promise.all(filler.map((key) => env.FILES.put(key, JSON.stringify({ title: "filler", created: 0 }))));
     expect(await site(name, { action: "publish", title: "One more", html: "x" })).toContain("at most 50 sites");
     await env.FILES.delete(filler);
+  });
+
+  it("deletes a site a publish left without its metadata", async () => {
+    const name = crypto.randomUUID();
+    const id = crypto.randomUUID().replaceAll("-", "");
+    await env.FILES.put(`sites/${id}/index.html`, "cut off");
+
+    expect(await site(name, { action: "delete", id })).toBe(`tool said: Deleted the site ${id}.`);
+    expect((await env.FILES.list({ prefix: `sites/${id}/` })).objects).toEqual([]);
   });
 
   it("refuses in a conversation that is no chat, like a subagent's", async () => {

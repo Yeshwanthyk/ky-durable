@@ -1,6 +1,4 @@
-import Type from "typebox";
-import { decodeOr } from "./core/decode";
-import { META, publicKey, SITE_ID, siteKey } from "./sites";
+import { hidden, publicKey, SITE_ID, siteKey } from "./sites";
 
 /**
  * The sites the site tool publishes (src/sites.ts), served from R2: `/s/<id>/` after the user's sign-in,
@@ -26,8 +24,6 @@ const TYPES = new Map([
   ["woff2", "font/woff2"]
 ]);
 
-const SiteId = Type.String({ pattern: SITE_ID.source });
-
 const notFound = () => new Response("Not found\n", { status: 404 });
 
 function unescaped(text: string): string | undefined {
@@ -38,7 +34,7 @@ function unescaped(text: string): string | undefined {
   }
 }
 
-/** The site path `rest` (after `/s/<id>`) names; undefined for traversal, an encoded slash or the metadata. */
+/** The site path `rest` (after `/s/<id>`) names; undefined for traversal, an encoded slash, or a hidden path such as the metadata. */
 function sitePath(rest: string): string | undefined {
   if (/%2f|%5c|\\/i.test(rest)) return undefined;
   const decoded = unescaped(rest.slice(1));
@@ -46,18 +42,23 @@ function sitePath(rest: string): string | undefined {
   if (decoded === undefined) return undefined;
   const path = decoded === "" || decoded.endsWith("/") ? `${decoded}index.html` : decoded;
 
-  return path.split("/").some((part) => part === "" || part === "." || part === "..") || path === META ? undefined : path;
+  return path.split("/").includes("") || hidden(path) ? undefined : path;
 }
 
 async function serve(request: Request, env: Env, id: string, rest: string, open: boolean): Promise<Response> {
-  if (request.method !== "GET") return new Response("Method not allowed\n", { status: 405 });
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
   const path = sitePath(rest);
   const object = path === undefined ? null : await env.FILES.get(siteKey(id, path));
 
   if (!path || !object) return notFound();
 
+  return new Response(request.method === "HEAD" ? null : object.body, { headers: headersFor(path, open) });
+}
+
+/** A site file's headers: its type by the last segment's extension, the sandbox, and for a public site, a short cache. */
+function headersFor(path: string, open: boolean): Headers {
   const headers = new Headers({
-    "Content-Type": TYPES.get(path.slice(path.lastIndexOf(".") + 1).toLowerCase()) ?? "application/octet-stream",
+    "Content-Type": TYPES.get(/\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "") ?? "application/octet-stream",
     // No allow-same-origin: the page's script runs in an opaque origin, away from the user's session.
     "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
     "X-Content-Type-Options": "nosniff",
@@ -69,7 +70,7 @@ async function serve(request: Request, env: Env, id: string, rest: string, open:
     headers.set("X-Robots-Tag", "noindex");
   }
 
-  return new Response(object.body, { headers });
+  return headers;
 }
 
 /** A site at `/s/<id>/`, after the user's sign-in; undefined for any other path. */
@@ -94,9 +95,8 @@ export function publicSiteRoute(request: Request, env: Env, url: URL): Promise<R
   if (rest === undefined) return Promise.resolve(Response.redirect(new URL(`/p/${token}/`, url).toString(), 301));
 
   return (async () => {
-    const named = await env.FILES.get(publicKey(token));
-    const id = named ? decodeOr(SiteId, await named.text(), undefined) : undefined;
+    const id = (await (await env.FILES.get(publicKey(token)))?.text()) ?? "";
 
-    return id === undefined ? notFound() : serve(request, env, id, rest, true);
+    return SITE_ID.test(id) ? serve(request, env, id, rest, true) : notFound();
   })();
 }
