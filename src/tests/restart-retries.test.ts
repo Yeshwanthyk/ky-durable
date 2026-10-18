@@ -302,4 +302,8 @@ describe("a sandbox's retries", () => {
   it("keeps a stopped runner whose save fails, and gives up on its start at the deadline", async () => {
     await play(sequence("newTask", "fire", "turnEnd", "saveFails", "idle", "fire", "newTask", "fireMany", "fireMany", "fireMany", "fireMany", "heal", "newTask", "fire"));
   });
+
+  it("clears the count of failed saves when a save works, though the start after it fails", async () => {
+    await play(sequence("startFails", "newTask", "fireMany", "fireMany", "fireMany", "newTask", "fireMany", "saveFails", "heal", "fire", "startFails", "startFails", "fire", "fire"));
+  });
 });

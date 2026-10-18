@@ -560,6 +560,23 @@ describe("ky doctor", () => {
       "✓ Cloud machine: off, so tasks run on your computers: this ky's release has no cloud machine image"
     ]);
 
+    // Deployed from a checkout, labelled with its commit: the release built from that commit runs it, another doesn't.
+    const commit = "a65f3c6d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7";
+
+    current = release("a65f3c6");
+    await deployCommand(ky);
+    current = { ...release("0.2.10"), commit };
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    expect(checks()).toContain("✓ Release: 0.2.10, built from a65f3c6");
+    output = [];
+    expect(await upgradeCommand(ky)).toBe(0);
+    expect(output).toEqual(["Already on 0.2.10"]);
+    current = { ...release("0.2.11"), commit: "b".repeat(40) };
+    expect(await doctor(ky)).toEqual({ code: 1, next: "Next: ky upgrade" });
+    expect(checks()).toContain("✗ Release: a65f3c6, this ky is 0.2.11");
+    current = release("r1");
+    await deployCommand(ky);
+
     account.team = undefined;
     await doctorCommand(ky, true);
     expect(JSON.parse(output.at(-1) ?? "")).toMatchObject({
@@ -848,6 +865,17 @@ describe("the cloud machine", () => {
     expect(registry.pulls()).toBe(pulls);
     expect(registry.uploads()).toBe(3);
     expect(container()?.configuration.image).toBe(image);
+
+    // The account's list still naming the image a rollout replaced: doctor and deploy read the app itself.
+    const rolled = container();
+
+    if (!rolled) throw new Error("No container app");
+    rolled.listed = { ...rolled.configuration, image: `registry.cloudflare.com/acc/ky-cloud@sha256:${"1".repeat(64)}` };
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    fake.requests.splice(0);
+    await deployCommand(ky);
+    expect(fake.requests.filter((request) => request.includes("rollouts"))).toEqual([]);
+    rolled.listed = undefined;
 
     // An app on another image: doctor says so, and a deploy rolls this one out.
     const app = container();

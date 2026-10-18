@@ -165,8 +165,10 @@ export class FakeBox implements CloudBox {
       return new Response("the save failed", { status: 500 });
     }
 
-    this.uploads.push(this.cutUploads === 0 && !(save && this.cutSaves > 0));
     const length = new TextEncoder().encode(this.disk).byteLength;
+
+    // An empty disk answers nothing, which ky refuses as no save: a real runner's tar.gz never is empty.
+    this.uploads.push(length > 0 && this.cutUploads === 0 && !(save && this.cutSaves > 0));
 
     if (this.cutUploads > 0 || (save && this.cutSaves > 0)) {
       if (this.cutUploads > 0) this.cutUploads--;

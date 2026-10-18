@@ -89,7 +89,12 @@ export type FakeScript = {
 
 export type FakeApp = Static<typeof AppBody> & { id: string; aud: string };
 
-export type FakeContainerApp = Static<typeof ContainerAppBody> & { id: string; rollouts: Static<typeof Configuration>[] };
+export type FakeContainerApp = Static<typeof ContainerAppBody> & {
+  id: string;
+  rollouts: Static<typeof Configuration>[];
+  /** What the account's list of apps says the app runs, when it lags the app: after a rollout, Cloudflare's list went on naming the old image. */
+  listed?: Static<typeof Configuration>;
+};
 
 export type FakeAccount = {
   id: string;
@@ -378,7 +383,7 @@ function paid({ account }: Call): void {
 }
 
 function containerApp(found: FakeContainerApp, accountId: string) {
-  const { rollouts: _, ...app } = found;
+  const { rollouts: _, listed: __, ...app } = found;
 
   return { ...app, account_id: accountId, instances: app.instances ?? 0, scheduling_policy: app.scheduling_policy ?? "default", created_at: "2026-01-01T00:00:00Z", version: found.rollouts.length + 1 };
 }
@@ -467,7 +472,11 @@ const ROUTES = new Map<string, Handler>([
   ["DELETE access/apps/:name", deleteApp],
   ["GET workers/durable_objects/namespaces", ({ account, url }) => new Page(namespaceList(account), url)],
   ["GET containers/me", (call) => (paid(call), { account_id: call.account.id })],
-  ["GET containers/applications", (call) => (paid(call), [...call.account.containerApps.values()].map((each) => containerApp(each, call.account.id)))],
+  [
+    "GET containers/applications",
+    (call) => (paid(call), [...call.account.containerApps.values()].map((each) => ({ ...containerApp(each, call.account.id), configuration: each.listed ?? each.configuration })))
+  ],
+  ["GET containers/applications/:name", (call) => containerApp(containerAppNamed(call), call.account.id)],
   ["POST containers/applications", createContainerApp],
   [
     "PATCH containers/applications/:name",
