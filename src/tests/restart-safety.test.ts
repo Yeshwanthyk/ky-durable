@@ -21,7 +21,7 @@ import { type CloudMachine, FakeBox } from "./stack";
  * - P2: R2's markers never shrink, and no destroy throws away a marker R2 lacks (a crash may).
  */
 
-type Op = { readonly op: "newTask" | "turnEnd" | "tick" | "crash" | "uploadFailOnce" | "saveCutOnce" | "idleElapsed" | "sleep" | "wake" };
+type Op = { readonly op: "newTask" | "turnEnd" | "tick" | "crash" | "crashUnseen" | "uploadFailOnce" | "saveCutOnce" | "idleElapsed" | "sleep" | "wake" };
 
 const ORIGIN = "https://ky.test";
 
@@ -120,6 +120,8 @@ const STEPS: Record<Op["op"], (run: Run) => Promise<void>> = {
       () => true
     ),
   crash: (run) => onBox(run.id, (_instance, box) => box.crash()),
+  // Dead, but said to run, as a killed runner's container is for a while.
+  crashUnseen: (run) => onBox(run.id, (_instance, box) => box.crash(true)),
   uploadFailOnce: (run) => onBox(run.id, (_instance, box) => void box.cutUploads++),
   saveCutOnce: (run) => onBox(run.id, (_instance, box) => void box.cutSaves++),
   idleElapsed: (run) => onBox(run.id, (instance) => instance.idleFor(LONG_IDLE_MS)),
@@ -202,6 +204,7 @@ const anOp = fc.oneof(
       ["saveCutOnce", 2],
       ["uploadFailOnce", 1],
       ["crash", 1],
+      ["crashUnseen", 1],
       ["idleElapsed", 1],
       ["wake", 1]
     ] as const
@@ -248,6 +251,28 @@ describe("a sandbox's restart safety", () => {
         "turnEnd"
       )
     );
+  });
+
+  // Live run 3 of test/live-cloud.ts: the follow-up waited START_WITHIN_MS on a container the platform still said ran.
+  it("starts a busy sandbox afresh in the same tick when its container died unseen, and restores its last turn", async () => {
+    const run = await begin();
+
+    try {
+      for (const { op } of sequence("newTask", "tick", "turnEnd", "tick", "newTask", "crashUnseen")) {
+        await STEPS[op](run);
+        await holds(run, `after ${op}`);
+      }
+
+      const began = Date.now();
+
+      await STEPS.tick(run);
+      expect(await onBox(run.id, (_instance, box) => ({ up: box.up, starts: box.starts, state: box.state }))).toEqual({ up: true, starts: 2, state: "running" });
+      expect(Date.now() - began).toBeLessThan(10_000);
+      await holds(run, "after the unseen crash's tick");
+      expect([...markers(await onBox(run.id, (_instance, box) => box.disk))]).toEqual(["m0"]);
+    } finally {
+      await end(run);
+    }
   });
 
   it("tries a cut-off snapshot again at the next tick", async () => {

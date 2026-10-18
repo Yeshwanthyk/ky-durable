@@ -534,6 +534,11 @@ export class PiAgent extends DurableObject<Env> {
         const id = this.sandboxes.named(machine)?.id;
 
         if (id) this.ctx.waitUntil(this.env.CloudMachine.getByName(id).wake(id, this.setup.origin() ?? undefined));
+      },
+      turnEnded: (machine) => {
+        const id = this.sandboxes.named(machine)?.id;
+
+        if (id) this.ctx.waitUntil(this.env.CloudMachine.getByName(id).turnEnded());
       }
     };
   }

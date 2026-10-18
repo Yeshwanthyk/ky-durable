@@ -265,9 +265,44 @@ describe("routing a task to a sandbox", () => {
     expect(await inside(name, (instance) => instance.sandboxNow(web.id))).toMatchObject({ name: "web", busy: true });
     box.socket.close();
   });
+
+  it("asks the sandbox for a snapshot as each of its turns ends", async () => {
+    const name = fresh();
+    const ended: string[] = [];
+
+    await inside(name, (instance) => {
+      instance.createSandbox({ name: "web", repos: ["me/web"] });
+      instance.machines.cloud = { wake: () => {}, turnEnded: (machine) => ended.push(machine) };
+    });
+
+    await prompt(name, `tool machine ${JSON.stringify({ action: "run", prompt: "fix the site", repo: "me/web" })}`);
+    const box = await runner(name, "web", CLOUD_FACTS);
+    const run = await box.run();
+
+    expect(await inside(name, () => ended)).toEqual([]);
+    box.send({ type: "result", task: run.task, turn: run.turn, ok: true, text: "fixed", session: null, agent: "claude" });
+    await until(async () => (await inside(name, () => ended)).includes("web"), "the turn's end told to the sandbox");
+    box.socket.close();
+  });
 });
 
 describe("a sandbox's container", () => {
+  it("brings a booked alarm forward to now when a turn ends, and books none when nothing runs", async () => {
+    const sandbox = await created({ name: unique("web") });
+
+    expect(
+      await onBox(sandbox.id, async (instance, _box, state) => {
+        await instance.turnEnded();
+        const none = await state.storage.getAlarm();
+
+        await state.storage.setAlarm(instance.clock() + 60_000);
+        await instance.turnEnded();
+
+        return { none, forward: ((await state.storage.getAlarm()) ?? Infinity) <= instance.clock() };
+      })
+    ).toEqual({ none: null, forward: true });
+  });
+
   it("saves a running sandbox's disk to its own key as it is deleted, and a sandbox started from that disk gets it back", async () => {
     const sandbox = await created({ name: unique("web") });
 

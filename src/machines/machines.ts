@@ -1084,6 +1084,8 @@ export class MachineHub {
     this.#setTurns(id, { closed: turn });
     this.#sql.exec("UPDATE ky_machines SET turns_ended = turns_ended + 1 WHERE name = ?", task.worker);
 
+    if (this.#sandboxes.named(task.worker)) this.cloud?.turnEnded(task.worker);
+
     // A turn sent after this one is still to run, with the same token and login.
     if (turn === turns.turn) {
       void this.#revoke(id);

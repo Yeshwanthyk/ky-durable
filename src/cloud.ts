@@ -22,8 +22,9 @@ import { putInParts } from "./uploads";
  * - Sleeping saves what must outlive the container to R2 (Claude Code's sessions, each Codex task's
  *   home, the runner's handled seqs, the work trees); the next start restores it before the runner
  *   dials ky, so a follow-up resumes its session. The alarm also snapshots the running container to
- *   R2 once a turn has ended since the last save, so a crash, eviction or rollout loses at most the
- *   open turn.
+ *   R2 once a turn has ended since the last save, and the agent brings the alarm forward as each turn
+ *   ends, so a crash, eviction or rollout loses at most the open turn. A container the platform says
+ *   runs but that doesn't answer in ANSWER_WITHIN_MS died unseen, and is started afresh.
  * - git reaches github.com only through github.internal, which this routes to the Worker's
  *   GithubProxy (src/github.ts) with `{ machine: <its id> }` in its props: it holds the token, lets
  *   the sandbox reach only its repos (the agent's `reposFor`), and lets pushes reach `ky/*` only. `ky github` reaches the PR and deploy tools there too
@@ -70,6 +71,13 @@ const IDLE_MINUTES = 10;
 
 /** How long a container has to start listening. */
 const START_WITHIN_MS = 3 * 60_000;
+
+/**
+ * How long a container the platform says runs has to answer. One that doesn't has died, as when its
+ * runner was killed, and the platform hasn't noticed yet: it is started afresh, where waiting
+ * START_WITHIN_MS for it held a follow-up three minutes before a new container came.
+ */
+const ANSWER_WITHIN_MS = 20_000;
 
 /**
  * Cloudflare's error for a start it refused, as when the last container, just put to sleep, still
@@ -157,6 +165,11 @@ export class CloudMachine extends DurableObject<Env> {
     return { tickMs: TICK_MS, idleMs: idleMinutes ? idleMinutes * 60_000 : idleTimeout(this.env.KY_CLOUD_IDLE_MINUTES), startDeadlineMs: START_DEADLINE_MS };
   }
 
+  /** How long a container the platform says runs has to answer before it is taken for dead; tests shorten it. */
+  answerWithinMs(): number {
+    return ANSWER_WITHIN_MS;
+  }
+
   /** Now, in epoch ms, as the alarm and the wakes book by it; tests move it ahead. */
   clock(): number {
     return Date.now();
@@ -183,6 +196,16 @@ export class CloudMachine extends DurableObject<Env> {
     const at = await this.ctx.storage.getAlarm();
 
     if (at === null || at > this.clock()) await this.ctx.storage.setAlarm(this.clock());
+  }
+
+  /**
+   * A turn of the sandbox ended: snapshot it now, not at the next tick, so a container that dies
+   * right after loses none of it. An alarm is booked whenever a container runs; with none, nothing does.
+   */
+  async turnEnded(): Promise<void> {
+    const at = await this.ctx.storage.getAlarm();
+
+    if (at !== null && at > this.clock()) await this.ctx.storage.setAlarm(this.clock());
   }
 
   /** Keep the container up while a task is open, and put it to sleep once none has been for its idle timeout. */
@@ -225,7 +248,7 @@ export class CloudMachine extends DurableObject<Env> {
       await box.fetch("/ping");
       await this.ctx.storage.setAlarm(this.clock() + tickMs);
     } catch (error) {
-      console.warn(`the sandbox ${id}'s alarm failed; trying again`, error);
+      console.warn(`the sandbox ${id}'s alarm failed; trying again: ${errorText(error)}`, error);
 
       // Idle, the container runs on, and the next tick tries its save again.
       if (!busy) return await this.ctx.storage.setAlarm(this.clock() + tickMs);
@@ -300,7 +323,7 @@ export class CloudMachine extends DurableObject<Env> {
 
       if ((await this.ctx.storage.get<number>(SNAPSHOT_KEY)) !== before) await this.#saveWent(id);
     } catch (error) {
-      console.warn(`the sandbox ${id}'s snapshot failed; trying again at the next tick`, error);
+      console.warn(`the sandbox ${id}'s snapshot failed; trying again at the next tick: ${errorText(error)}`, error);
       await this.#saveWent(id, errorText(error));
     }
   }
@@ -421,8 +444,9 @@ export class CloudMachine extends DurableObject<Env> {
 
   /**
    * Start the container as `name` if it isn't running, and give it its files if it waits for them.
-   * A stopped runner is saved, then started afresh, `restarts` times at most: one start per call.
-   * One whose save fails is never destroyed; the start fails, and the alarm counts it.
+   * A stopped runner is saved, then started afresh, and one that doesn't answer is started afresh,
+   * `restarts` times at most: one start per call. One whose save fails is never destroyed; the start
+   * fails, and the alarm counts it.
    */
   async #up(box: CloudBox, id: string, name: string, restarts = 1): Promise<void> {
     const began = Date.now();
@@ -439,7 +463,10 @@ export class CloudMachine extends DurableObject<Env> {
       }
     }
 
-    const state = await this.#ping(box);
+    const state = starting ? await this.#ping(box, START_WITHIN_MS) : await this.#answers(box, name, restarts);
+
+    // Said to run but silent, it died unseen: nothing of its disk can be saved, so start afresh.
+    if (state === null) return this.#up(box, id, name, restarts - 1);
     const listening = Date.now() - began;
 
     if (state === "stopped") {
@@ -479,9 +506,25 @@ export class CloudMachine extends DurableObject<Env> {
     return save?.size ?? 0;
   }
 
-  /** What the runner says it is doing, once it answers. */
-  async #ping(box: CloudBox): Promise<string> {
-    const until = Date.now() + START_WITHIN_MS;
+  /**
+   * What a container the platform says runs says it is doing; null, once destroyed, if it doesn't
+   * answer in answerWithinMs and `restarts` allows a new one.
+   */
+  async #answers(box: CloudBox, name: string, restarts: number): Promise<string | null> {
+    try {
+      return await this.#ping(box, this.answerWithinMs());
+    } catch (error) {
+      if (restarts === 0) throw error;
+      console.warn(`the sandbox ${name}'s container runs but didn't answer in ${this.answerWithinMs()}ms; starting a new one`);
+      await box.destroy();
+
+      return null;
+    }
+  }
+
+  /** What the runner says it is doing, once it answers, within `withinMs`. */
+  async #ping(box: CloudBox, withinMs: number): Promise<string> {
+    const until = Date.now() + withinMs;
 
     for (;;) {
       try {
@@ -489,7 +532,7 @@ export class CloudMachine extends DurableObject<Env> {
 
         if (answer.ok) return (await answer.text()).trim();
       } catch (error) {
-        // A refused start: the alarm starts it again in RETRY_MS, where waiting here would take START_WITHIN_MS.
+        // A refused start: the alarm starts it again in RETRY_MS, where waiting here would take `withinMs`.
         if (Date.now() > until || String(error).includes(NO_INSTANCE)) throw error;
       }
 

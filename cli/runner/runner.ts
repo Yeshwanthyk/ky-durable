@@ -68,6 +68,8 @@ type Turn = Launch & { turn: number; prompt: string };
 type Run = {
   agent: Agent;
   child: AgentProcess;
+  /** The turn it was started with, so a resume whose session is gone can run it again afresh. */
+  launch: Turn;
   /** Whether it was started with ky's ChatGPT login, which a `creds` frame renews. */
   handed: boolean;
   session: string | null;
@@ -109,6 +111,22 @@ function exitText(agent: Agent, code: number | null, signal: NodeJS.Signals | nu
   const how = signal ? `${agent} was killed by ${signal}.` : code === null ? "" : `${agent} exited with ${code}.`;
 
   return `${how} ${stderr.trim()}`.trim();
+}
+
+/**
+ * Claude Code's word for a resume whose session file isn't there, as when a cloud container stopped
+ * after a turn ended but before a snapshot took it: the follow-up starts a new session instead.
+ */
+const SESSION_GONE = "No conversation found with session ID";
+
+/** What a follow-up whose session was lost says, to the user as a step and to the agent before its prompt. */
+const SESSION_LOST = "This task's earlier conversation was lost (its machine stopped before saving it), so this message starts a new one.";
+
+/** Whether `run` exited only because Claude Code found no session to resume, before it took any prompt. */
+function sessionGone(run: Run, stderr: string): boolean {
+  const fresh = !run.ended && !run.stopped && run.taken === 0 && run.written === 1;
+
+  return fresh && run.agent === "claude" && run.launch.session !== null && stderr.includes(SESSION_GONE);
 }
 
 /** A stopped session's result, naming the queued messages a second stop dropped. */
@@ -507,6 +525,16 @@ export class Runner {
     else next.next = rest;
   }
 
+  /** Run `run`'s turn again in a new session, saying its old one was lost; the turns queued behind it follow. */
+  #afresh(task: string, run: Run): void {
+    const { launch } = run;
+
+    this.#log(`${task}: session ${launch.session?.slice(0, 8)} is gone; starting afresh`);
+    this.#report({ type: "step", task, turn: launch.turn, text: SESSION_LOST });
+    this.#runs.delete(task);
+    this.#start(task, run.agent, { ...launch, prompt: `${SESSION_LOST}\n\n${launch.prompt}`, session: null }).next = run.next;
+  }
+
   #start(task: string, agent: Agent, { turn, prompt, session, taskToken, creds }: Turn): Run {
     this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     const adapter = ADAPTERS[agent];
@@ -527,6 +555,8 @@ export class Runner {
 
         if (this.#runs.get(task) !== run) return;
 
+        if (sessionGone(run, stderr)) return this.#afresh(task, run);
+
         if (!run.ended) {
           this.#end(task, run, false, run.stopped ? stoppedText(run) : exitText(agent, code, signal, stderr));
         }
@@ -539,6 +569,7 @@ export class Runner {
     const run: Run = {
       agent,
       child,
+      launch: { turn, prompt, session, taskToken, creds },
       handed: creds?.codex !== undefined,
       session,
       announced: false,
