@@ -897,6 +897,11 @@ export class PiAgent extends ProductionAgent {
     await this.dreaming.run();
   }
 
+  /** A look at `time`, as its booking would run it. */
+  async look(time: string): Promise<void> {
+    await this.looks.run(time);
+  }
+
   /**
    * A night's dream, as Activity › Last night lists it, through the real skill library, memory and ledger: two
    * skills the agent wrote, then a dream that forgets a memory summary, edits one skill, merges the other into
@@ -986,6 +991,14 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
     "POST /test/dream",
     async (me) => {
       await me.dream();
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  [
+    "POST /test/look",
+    async (me, url) => {
+      await me.look(url.searchParams.get("time") ?? "08:00");
 
       return new Response(null, { status: 204 });
     }

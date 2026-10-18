@@ -53,6 +53,23 @@ describe("buildTurns", () => {
     expect(after[1]).not.toBe(before[1]);
     expect(after[1]?.items).toEqual([{ kind: "text", id: "live:0", text: "Working", final: false }]);
   });
+
+  it("makes a look's post a turn of its own, hours later, leaving the turn before it its answer and its end", () => {
+    const later = 3 * 3_600_000;
+
+    const messages: PiMessage[] = [
+      { id: "u", role: "user", parts: [{ type: "text", text: "Hi" }], timestamp: 1_000 },
+      { id: "a", role: "assistant", parts: [{ type: "text", text: "Hello." }], timestamp: 2_000, stopReason: "stop" },
+      { id: "p", role: "assistant", parts: [{ type: "text", text: "Kai: warm jacket." }], timestamp: later, stopReason: "stop", posted: true },
+      { id: "r", role: "assistant", parts: [{ type: "text", text: "A run's answer after it." }], timestamp: later + 1, stopReason: "stop" }
+    ];
+
+    const [turn, post, after] = buildTurns(messages, null, false, []);
+
+    expect(turn).toMatchObject({ id: "u", endedAt: new Date(2_000).toISOString(), items: [{ kind: "text", text: "Hello.", final: true }] });
+    expect(post).toMatchObject({ id: "p", user: "", items: [{ kind: "text", text: "Kai: warm jacket.", final: true }] });
+    expect(after?.items).toMatchObject([{ kind: "text", text: "A run's answer after it." }]);
+  });
 });
 
 describe("sentTexts", () => {

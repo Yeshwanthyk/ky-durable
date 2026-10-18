@@ -89,6 +89,8 @@ export type PiMessage = {
   readonly timestamp: number;
   readonly stopReason?: string;
   readonly error?: string;
+  /** ky's message posted unasked, a look's (LOOK_POST): a turn of its own, never the answer of the turn before it. */
+  readonly posted?: true;
 };
 
 function userParts(content: UserMessage["content"]): PiMessagePart[] {
@@ -200,7 +202,7 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
 
   if (entry.kind === LOOK_POST) {
     // SAFETY: only Delivery's post (src/server.ts) writes this kind, with LookPostData.
-    return projectMessage(kySays([{ type: "text", text: (entry.data as LookPostData).text }], message.timestamp), String(entry.id));
+    return { ...projectMessage(kySays([{ type: "text", text: (entry.data as LookPostData).text }], message.timestamp), String(entry.id)), posted: true };
   }
 
   if (entry.kind === TO_SPECIALISTS) {

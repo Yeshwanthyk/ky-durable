@@ -858,6 +858,32 @@ test("lists last night's dream in Activity with its reasons, undoes a change, sa
   await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
 });
 
+test("shows a look's post as its own ky message, leaving ky's last answer as it was", async ({ page }) => {
+  await open(page);
+  const tag = `zq${crypto.randomUUID().slice(0, 6)}`;
+  await send(page, `tool memory_note {"text":"${tag}: Kai needs a warm jacket under 10C"}`);
+  const saved = chat(page).getByRole("article").filter({ hasText: `${tag}: Kai needs` }).getByText(/^tool said: .*Saved as #\d+/);
+  await expect(saved).toBeVisible();
+  const id = /#(\d+)/.exec((await saved.textContent()) ?? "")?.[1];
+  const said = `Cold this morning (6C): ${tag} Kai needs his warm jacket.`;
+  const row = { ref: `memory:${id}`, needed: "Kai's jacket when cold", current: "6C at 08:00", action: "tell", message: said };
+  await send(page, `look> ${JSON.stringify(row)}`);
+  const answer = chat(page).getByText(/^echo: look> /);
+  await expect(answer).toBeVisible();
+  await expect(chat(page).getByText("Working")).toHaveCount(0);
+
+  expect((await page.request.post("/test/look?time=08:00")).status()).toBe(204);
+
+  // Its own message, last, as written: the turn before keeps its answer, and no notice wording shows. The thread
+  // shows only its latest turns, so the post is counted as the article after the one holding that answer.
+  const articles = chat(page).getByRole("article");
+  await expect(articles.last()).toHaveText(said);
+  await expect(articles.nth(-2).getByText(/^echo: look> /)).toBeVisible();
+  await expect(answer).toBeVisible();
+  await expect(chat(page).getByText("[ky posted to the user")).toHaveCount(0);
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/look-post.png` : undefined, animations: "disabled" });
+});
+
 test("shows what ky recalled for a message under it, and the recalled lines on a tap", async ({ page }) => {
   await open(page);
   const tag = `zq${crypto.randomUUID().slice(0, 6)}`;
