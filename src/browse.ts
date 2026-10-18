@@ -1,6 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { BrowserWorker, SessionlessBrowser as Browser } from "@cloudflare/playwright";
+import { decodeOr } from "./core/decode";
 
 /**
  * A cloud browser for pages a search API cannot read: ones that render with
@@ -33,6 +34,9 @@ const MAX_TEXT = 20_000;
 
 const MAX_LINKS = 60;
 
+/** A larger PDF is refused, so one file cannot fill the Worker's memory. */
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
+
 const CLOSE_GRACE_MS = 1_000;
 
 const reply = (text: string, isError = false) => ({
@@ -57,7 +61,8 @@ export function browseExtension(binding: BrowserWorker): Extension {
       defineTool({
         name: "browse",
         description:
-          "Open a URL in a cloud browser (no user logins) and read it: title, final URL, visible text and links, optionally a screenshot. " +
+          "Open a URL in a cloud browser (no user logins) and read it: title, final URL, visible text and links, optionally a screenshot; " +
+          "returns the page's main content; reads PDFs as text. " +
           "steps run in order after the page loads: click, fill, press or wait. " +
           "Use it when Exa web search cannot read a page: it needs JavaScript, a click or a form. Use a machine only when the page needs the user's logins.",
         parameters: Type.Object({
@@ -124,7 +129,7 @@ async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal) {
       within(OPERATION_TIMEOUT_MS, "starting the browser", launching)
     ]);
 
-    return await Promise.race([stopped.promise, readPage(browser, args)]);
+    return await Promise.race([stopped.promise, readPage(browser, args, signal)]);
   } finally {
     stopped.dispose();
     // Every path closes the browser exactly once, here, even one that launches after the call gave up.
@@ -135,15 +140,25 @@ async function browse(binding: BrowserWorker, args: Args, signal: AbortSignal) {
 }
 
 /** Open the page, run the steps and read it. */
-async function readPage(browser: Browser, args: Args) {
+async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
   const page = await within(
     OPERATION_TIMEOUT_MS,
     "opening a page",
     browser.newPage({ viewport: { width: 1280, height: 900 } })
   );
 
-  const response = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+  const pdfPath = new URL(args.url).pathname.toLowerCase().endsWith(".pdf");
+
+  // Headless Chromium may download a PDF instead of showing it, and then the navigation fails.
+  const response = await page
+    .goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS })
+    .catch((error: Error) => (pdfPath ? null : Promise.reject(error)));
+
   await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
+
+  const pdf = await pdfReply(page, response, pdfPath, args, signal);
+
+  if (pdf) return pdf;
 
   for (const [index, step] of (args.steps ?? []).entries()) {
     const failed = await runStep(page, step).then(
@@ -154,19 +169,8 @@ async function readPage(browser: Browser, args: Args) {
     if (failed) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${failed}`, true);
   }
 
-  const read: PageRead = await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate((maxLinks) => {
-    const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
-      .flatMap((a) => {
-        const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
-
-        return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
-      })
-      .slice(0, maxLinks);
-
-    return { title: document.title, text: document.body?.innerText ?? "", links };
-  }, MAX_LINKS));
-
-  const text = read.text.length > MAX_TEXT ? `${read.text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : read.text;
+  const read = await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate(readDocument, MAX_LINKS));
+  const text = cut(read.text);
 
   const summary = [
     `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
@@ -195,6 +199,129 @@ async function readPage(browser: Browser, args: Args) {
   return { content, isError: false };
 }
 
+/** The reply for a PDF, when the page is one: its content type says so, or its `.pdf` path shows no text. */
+async function pdfReply(page: Page, response: PageResponse, pdfPath: boolean, args: Args, signal: AbortSignal) {
+  const typed = response?.headers()["content-type"]?.startsWith("application/pdf") === true;
+
+  const blank = async () => !(await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate(() => document.body?.innerText.trim() ?? "")));
+
+  if (!typed && !(pdfPath && (await blank()))) return undefined;
+  const bytes = await response?.body().catch(() => undefined);
+
+  return readPdf(response?.url() ?? args.url, bytes, Boolean(args.steps?.length) || args.screenshot === true, signal);
+}
+
+/**
+ * The page's title, main content and first links, written to run in the page. The content is the first
+ * `main`, `article` or `[role=main]` with enough text, else the body, without navigation, headers,
+ * footers, sidebars or cookie banners; a page that is all of those reads as its whole body.
+ */
+export function readDocument(maxLinks: number): PageRead {
+  const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
+    .flatMap((a) => {
+      const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
+
+      return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
+    })
+    .slice(0, maxLinks);
+
+  const body = document.body;
+
+  if (!body) return { title: document.title, text: "", links };
+
+  const root =
+    ["main", "article", "[role=main]"]
+      .flatMap((selector) => [...document.querySelectorAll<HTMLElement>(selector)])
+      .find((element) => element.innerText.length >= 500) ?? body;
+
+  // A copy without the chrome, so the screenshot still sees the page as it was. innerText follows the
+  // layout only for a rendered element, so the copy sits off screen while it is read. Iframes would load again.
+  const copy = root.cloneNode(true);
+
+  if (!(copy instanceof HTMLElement)) return { title: document.title, text: body.innerText, links };
+
+  copy
+    .querySelectorAll(
+      "nav, header, footer, aside, iframe, [role=navigation], [role=banner], [role=contentinfo], [aria-hidden=true], " +
+        "[id*=cookie i], [class*=cookie i], [id*=consent i], [class*=consent i]"
+    )
+    .forEach((element) => element.remove());
+
+  copy.style.cssText = `position: fixed; top: 0; left: -100000px; width: ${root.clientWidth}px`;
+  body.appendChild(copy);
+  const text = copy.innerText.replace(/\n{3,}/g, "\n\n").trim();
+  copy.remove();
+
+  return { title: document.title, text: text.length < 200 ? body.innerText : text, links };
+}
+
+/**
+ * The reply for the PDF at `url`: its title, page count and text. `bytes` are the browser's copy; without
+ * them it is fetched here. `ignored` says steps or a screenshot were asked for, which a PDF has no use for.
+ */
+export async function readPdf(url: string, bytes: Uint8Array | undefined, ignored: boolean, signal: AbortSignal) {
+  const data = bytes?.length ? bytes : await fetchPdf(url, signal);
+
+  if (!data || data.length > MAX_PDF_BYTES) {
+    return reply(`${url} is a PDF over ${MAX_PDF_BYTES / 1024 / 1024} MB, too large to read.`, true);
+  }
+
+  const { getDocumentProxy, extractText, getMeta } = await import("unpdf");
+  // A copy: pdf.js takes over the buffer it is given, and refuses Playwright's Buffer.
+  const pdf = await getDocumentProxy(new Uint8Array(data));
+
+  try {
+    const { info } = await getMeta(pdf);
+    const { totalPages, text } = await extractText(pdf, { mergePages: true });
+    const title = decodeOr(Type.Object({ Title: Type.String({ minLength: 1 }) }), info, undefined)?.Title;
+
+    const summary = [
+      `${title ?? (new URL(url).pathname.split("/").pop() || url)}\n${url} (PDF, ${totalPages} ${totalPages === 1 ? "page" : "pages"})`,
+      ignored ? "Steps and screenshot don't apply to a PDF, so they were skipped." : "",
+      cut(text.trim())
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return reply(summary);
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
+}
+
+/** The PDF at `url`, or undefined when it is over MAX_PDF_BYTES. */
+async function fetchPdf(url: string, signal: AbortSignal): Promise<Uint8Array | undefined> {
+  const response = await fetch(url, { signal });
+
+  if (!response.ok || !response.body) throw new Error(`fetching the PDF answered HTTP ${response.status}`);
+
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+
+  for await (const chunk of response.body) {
+    if (!(chunk instanceof Uint8Array)) throw new Error("the PDF's download isn't bytes");
+    size += chunk.length;
+
+    // Leaving the loop cancels the download.
+    if (size > MAX_PDF_BYTES) return undefined;
+    chunks.push(chunk);
+  }
+
+  const data = new Uint8Array(size);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return data;
+}
+
+function cut(text: string): string {
+  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : text;
+}
+
 function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -206,6 +333,8 @@ function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
 }
 
 type Page = Awaited<ReturnType<Browser["newPage"]>>;
+
+type PageResponse = Awaited<ReturnType<Page["goto"]>>;
 
 /**
  * Kitesurf takes `Browser.close` but leaves the DevTools socket open, so
