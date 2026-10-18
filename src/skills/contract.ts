@@ -299,7 +299,7 @@ export const SubagentInput = Type.Object({
   title: Type.Optional(Type.String({ description: "3-6 words for the task list, like 'Find compounding pharmacies'." })),
   message: Type.Optional(Type.String()),
   followUp: Type.Optional(Type.Boolean()),
-  model: Type.Optional(Type.String({ description: "spawn, send: provider/modelId; leave out for the worker model." })),
+  model: Type.Optional(Type.String({ description: "spawn, send: provider/modelId, kept for later sends; worker to clear it. Leave out for the one it has, or the worker model." })),
   thinking: Type.Optional(ThinkingLevelSchema),
   specialist: Type.Optional(Type.String({ description: "ask: the specialist's id, like engineer." })),
   specialists: Type.Optional(Type.Array(Type.String(), { description: "discuss: the specialists' ids." })),

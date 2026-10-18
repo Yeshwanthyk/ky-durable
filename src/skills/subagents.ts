@@ -4,7 +4,6 @@ import {
   AssistantEntry,
   type ConversationId,
   configure,
-  type Cursor,
   defineDoc,
   defineExtension,
   defineTask,
@@ -19,7 +18,7 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { agentModel } from "../models";
+import { agentModel, type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
@@ -45,6 +44,8 @@ type Subagent = {
   conversationId: ConversationId;
   /** Answers already reported, so several messages ending in one answer report once. */
   reported: EntryId[];
+  /** The model a spawn or send named for it, as asked; it runs on the worker's when unset. */
+  model?: ModelChoice;
 };
 
 const Subagents = defineDoc<{
@@ -172,8 +173,8 @@ export function subagentExtension(
   mainOnly: readonly Extension[],
   /** The worker's model, applied to each subagent whenever it is messaged. */
   model: () => ModelChoice,
-  /** A model choice as it can run, or undefined when its model is unknown or not connected. */
-  valid: (choice: ModelChoice) => ModelChoice | undefined,
+  /** A named model as it can run, and the models to choose from when it can't. */
+  models: Pick<Models, "valid" | "choices">,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
   specialists?: SpecialistDeps,
@@ -312,7 +313,7 @@ export function subagentExtension(
       "stop (name): abort its current work; it stays usable. " +
       "status (name, or none for all). " +
       "last (name): its latest answer in full. " +
-      "spawn and send take model (provider/modelId) and thinking to run on other than the worker model. " +
+      "spawn and send take model (provider/modelId, kept for later sends; worker to clear it) and thinking to run on other than the worker model. " +
       "Answers are reported back to you as messages when they arrive; do not wait or poll for them. " +
       "Subagents know nothing you do not tell them: give them the full context in the message. " +
       "Specialists (see the roster, if any): " +
@@ -351,7 +352,7 @@ export function subagentExtension(
     return tx.createTask(Reporter, input, background(owner));
   }
 
-  const desk: Desk = { feed, specialists, model, valid, register, deliver };
+  const desk: Desk = { feed, specialists, model, models, register, deliver };
 
   const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
     const conversationId = await register(tx, owner, name);
@@ -369,8 +370,8 @@ type Desk = {
   readonly specialists: SpecialistDeps | undefined;
   /** The worker's model, applied to each subagent whenever it is messaged. */
   readonly model: () => ModelChoice;
-  /** A model choice as it can run, or undefined when its model is unknown or not connected. */
-  readonly valid: (choice: ModelChoice) => ModelChoice | undefined;
+  /** A named model as it can run, and the models to choose from when it can't. */
+  readonly models: Pick<Models, "valid" | "choices">;
   /** A fresh child conversation, configured as a subagent and registered under `name`. */
   readonly register: (tx: Tx, owner: ConversationId, name: string) => Promise<ConversationId>;
   /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
@@ -405,41 +406,38 @@ async function status(feed: TaskFeed, name: string | undefined, api: ToolExecuti
   return lines.length === 0 ? "No subagents." : lines.join("\n");
 }
 
-/** The text of a conversation's latest answer that ended a turn, if it has one. */
-function lastAnswer(api: ToolExecutionApi, conversationId: ConversationId, context: Context): Promise<string | undefined> {
-  // A commit that writes nothing: the tool api lists entries only through a transaction, newest first.
-  return api.commit(async (tx) => {
-    let cursor: Cursor | undefined;
+/** The text of a subagent's latest reported answer: a turn that ended with one, not one stopped or failed. */
+async function lastAnswer(api: ToolExecutionApi, agent: Subagent, context: Context): Promise<string | undefined> {
+  const id = agent.reported.at(-1);
 
-    do {
-      const page = await tx.scanEntries({ conversationId }, 50, cursor);
+  if (id === undefined) return undefined;
+  // A commit that writes nothing: a tool reads an entry only through a transaction.
+  const message = (await api.commit((tx) => tx.entry(id), context))?.model?.[0];
+  const text = message?.role === "assistant" ? textOf(message) : "";
 
-      for (const entry of page.items) {
-        const message = entry.model?.[0];
-
-        if (entry.kind === "pi.assistant" && message?.role === "assistant" && message.stopReason !== "toolUse") return textOf(message);
-      }
-
-      cursor = page.next;
-    } while (cursor !== undefined);
-
-    return undefined;
-  }, context);
+  return text === "" ? undefined : text;
 }
 
 /** The most of an answer `last` reads back. */
 const LAST_MAX = 16_000;
+
+/** `text` cut to `LAST_MAX` with a note, never through a surrogate pair. */
+function capped(text: string): string {
+  if (text.length <= LAST_MAX) return text;
+  const code = text.charCodeAt(LAST_MAX - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? LAST_MAX - 1 : LAST_MAX;
+
+  return `${text.slice(0, end)}…[truncated; ${text.length} chars total]`;
+}
 
 const last: Act = async (_desk, { name }, api, context) => {
   if (name === undefined) return "last needs a name.";
   const agent = (await registryOf(api, context)).agents[name];
 
   if (agent === undefined) return `No subagent named ${name}.`;
-  const text = await lastAnswer(api, agent.conversationId, context);
+  const text = await lastAnswer(api, agent, context);
 
-  if (text === undefined) return `${name} has no answer yet.`;
-
-  return text.length > LAST_MAX ? `${text.slice(0, LAST_MAX)}…[truncated; ${text.length} chars total]` : text;
+  return text === undefined ? `${name} has no answer yet.` : capped(text);
 };
 
 const stop: Act = async (_desk, { name }, api, context) => {
@@ -480,12 +478,30 @@ function messageRefusal(action: "spawn" | "send", name: string | undefined, text
   return text === undefined ? `${action} needs a message.` : undefined;
 }
 
-/** The model a spawn or send asked for, unchecked: `worker` itself when it names none, and a level alone changes the worker's. */
-function askedOf(worker: ModelChoice, { model, thinking }: SubagentInput): ModelChoice {
-  if (model === undefined) return thinking === undefined ? worker : { ...worker, thinkingLevel: thinking };
-  const [provider = "", ...rest] = model.split("/");
+/** What a spawn or send runs on, and the model the subagent keeps after it. */
+type Run = { choice: ModelChoice; own: ModelChoice | undefined } | { refused: string };
 
-  return { provider, modelId: rest.join("/"), thinkingLevel: thinking ?? worker.thinkingLevel };
+/**
+ * A model the message names, else the one the subagent keeps (the worker's once that is gone), else the worker's;
+ * `thinking` changes that one's level. `worker` clears the kept model.
+ */
+function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: SubagentInput): Run {
+  const worker = model();
+  const named = args.model?.trim();
+
+  if (named === undefined || named === "worker") {
+    const own = named === undefined ? kept : undefined;
+    const base = (own && models.valid(own)) ?? worker;
+
+    if (args.thinking === undefined) return { choice: base, own };
+
+    return { choice: { ...base, thinkingLevel: args.thinking }, own: own && { ...own, thinkingLevel: args.thinking } };
+  }
+
+  const asked = parseModel(named, args.thinking ?? (kept ?? worker).thinkingLevel);
+  const choice = models.valid(asked);
+
+  return choice ? { choice, own: asked } : { refused: `No connected model ${asked.provider}/${asked.modelId}. ${models.choices()}` };
 }
 
 /** Spawn a subagent, or send one a message. */
@@ -499,11 +515,9 @@ function message(action: "spawn" | "send"): Act {
     const refusal = messageRefusal(action, name, text, registry);
 
     if (refusal !== undefined || name === undefined || text === undefined) return refusal ?? "";
-    const worker = desk.model();
-    const asked = askedOf(worker, args);
-    const choice = asked === worker ? worker : desk.valid(asked);
+    const run = runOf(desk, registry.agents[name]?.model, args);
 
-    if (choice === undefined) return `No connected model ${asked.provider}/${asked.modelId}.`;
+    if ("refused" in run) return run.refused;
 
     let reporterId: string | undefined;
 
@@ -512,14 +526,15 @@ function message(action: "spawn" | "send"): Act {
 
       if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
 
-      const conversationId =
-        action === "spawn"
-          ? await register(tx, api.conversationId, name)
-          : must(state.agents[name], `No subagent named ${name}.`).conversationId;
+      if (action === "spawn") await register(tx, api.conversationId, name);
+      const agent = must(state.agents[name], `No subagent named ${name}.`);
 
-      const input = { name, conversationId, message: text, followUp: action === "send" && followUp === true };
+      if (run.own === undefined) delete agent.model;
+      else agent.model = run.own;
 
-      const reporter = await deliver(tx, api.conversationId, input, choice);
+      const input = { name, conversationId: agent.conversationId, message: text, followUp: action === "send" && followUp === true };
+
+      const reporter = await deliver(tx, api.conversationId, input, run.choice);
       state.reporters[api.taskId] = reporter;
       reporterId = String(reporter);
 

@@ -18,7 +18,7 @@ import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
 import { isRefusal, type Refusal, refused, type Result } from "../core/refusal";
 import type { MachineHub } from "../machines/contract";
-import type { Models } from "../models";
+import { type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
 import type { Spawn } from "../skills/contract";
 import {
@@ -109,7 +109,7 @@ export type AutomationDeps = {
   readonly feed: TaskFeed;
   readonly machines: MachineHub;
   readonly chats: ChatList;
-  readonly models: Pick<Models, "worker" | "valid" | "catalog">;
+  readonly models: Pick<Models, "worker" | "valid" | "choices">;
   readonly runtime: AutomationRuntime;
   /** Run a gate's program on the user's Executor. */
   readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
@@ -887,7 +887,7 @@ export class Automations {
     if (draft.model === null) return draft;
     const model = this.#deps.models.valid(draft.model);
 
-    return model ? { ...draft, model } : refused(`${draft.model.provider}/${draft.model.modelId} is not available. ${this.#choices()}`);
+    return model ? { ...draft, model } : refused(`${draft.model.provider}/${draft.model.modelId} is not available. ${this.#deps.models.choices()}`);
   }
 
   /** A check-in is a one-off in the cloud that reports to the main chat, within the day's and the waiting caps. */
@@ -944,17 +944,6 @@ export class Automations {
     const title = this.#deps.chats.list().find((each) => each.session === session)?.title;
 
     return `${title || "untitled"} (${session})`;
-  }
-
-  /** The featured models an automation can use, and their thinking levels; any other a provider offers works too. */
-  #choices(): string {
-    const models = this.#deps.models.catalog().flatMap((provider) =>
-      provider.connected
-        ? provider.models.flatMap((model) => (model.featured ? [`${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`] : []))
-        : []
-    );
-
-    return `Choose one of: ${models.join("; ")}. Any other model those providers offer works too, by its id.`;
   }
 
   /** Book its fires: the cron, or the one-off at its time, or now if that has passed. */
@@ -1101,9 +1090,8 @@ function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined
   if (args.model === "worker") return null;
 
   if (args.model === undefined) return args.thinking === undefined ? undefined : { ...base, thinkingLevel: args.thinking };
-  const [provider = "", ...rest] = args.model.split("/");
 
-  return { provider, modelId: rest.join("/"), thinkingLevel: args.thinking ?? base.thinkingLevel };
+  return parseModel(args.model, args.thinking ?? base.thinkingLevel);
 }
 
 /** What an automation is and does, without its status, booking or anything else a row carries. */

@@ -140,8 +140,8 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   "Recalled N" under the message. Proactivity off makes none.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
-  They run on the worker model unless a spawn or send names another (`model`, `thinking`); `subagent last` reads
-  one's latest answer in full (up to 16,000 characters).
+  They run on the worker model unless a spawn or send names another (`model`, kept for later sends until `worker`
+  clears it; `thinking`); `subagent last` reads one's latest reported answer in full (up to 16,000 characters).
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
   persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/skills/specialists.ts`).
   In the main chat or a side chat, typing `@` offers the specialists; a message that starts with `@id` (up to 3 ids)
