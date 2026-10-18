@@ -474,6 +474,7 @@ test("a routine ky made shows as one quiet line under its answer, and a card's s
   await send(page, `tool ui ${JSON.stringify(ui)}`);
   await expect(chat(page).getByRole("link", { name: "Authorize" })).toHaveAttribute("href", "https://example.com/auth");
   await expect(chat(page).locator(".ui-note")).toHaveText("ky asks before it changes anything.");
+
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/event-note.png` });
 });
 
@@ -535,6 +536,7 @@ test("marks a side chat that ky answered while the user was in another chat, unt
   // In the chat, New marks where the answer that landed while away starts.
   const divider = chat(page).getByRole("separator", { name: "New since you last looked" });
   await expect(divider).toBeVisible();
+
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/new-divider.png` });
   await chats.getByRole("button", { name: "Main chat" }).click();
   await expect(side.getByRole("img", { name: "New" })).toBeHidden();

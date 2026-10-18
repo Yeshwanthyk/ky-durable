@@ -290,12 +290,17 @@ function DoneButton({ ready }: { ready: boolean }) {
 
 type Button = Extract<UiBlock, { type: "buttons" }>["buttons"][number];
 
+/** A link a card may open: http or https only, since the arguments are the model's to write. */
+const webLink = (url: string | undefined) => (url !== undefined && /^https?:\/\//i.test(url) ? url : null);
+
 function ButtonsBlock({ buttons, live, pressed, onReply }: { buttons: readonly Button[]; live: boolean; pressed: string; onReply: (text: string) => void }) {
   return (
     <div className="ui-actions">
-      {buttons.map((button) =>
-        button.url ? <LinkButton key={button.label} button={button} url={button.url} /> : <ReplyButton key={button.label} button={button} live={live} pressed={pressed} onReply={onReply} />
-      )}
+      {buttons.map((button) => {
+        const url = webLink(button.url);
+
+        return url ? <LinkButton key={button.label} button={button} url={url} /> : <ReplyButton key={button.label} button={button} live={live} pressed={pressed} onReply={onReply} />;
+      })}
     </div>
   );
 }
