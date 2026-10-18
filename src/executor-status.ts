@@ -12,7 +12,7 @@ import { decodeOr, parseOr } from "./core/decode";
  */
 
 /** Whether a program's result paused for the user, which an unattended caller can never answer. */
-export function pausedForUser(text: string): boolean {
+function pausedForUser(text: string): boolean {
   return /"status"\s*:\s*"(approval|input)-required"/.test(text);
 }
 

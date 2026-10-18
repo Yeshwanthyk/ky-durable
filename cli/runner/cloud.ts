@@ -5,10 +5,12 @@
  *
  *   GET  /ping     whether it is up: waiting for its files, running, or stopped
  *   PUT  /restore  a tar.gz of what the last sleep saved (or nothing, the first time), unpacked into
- *                  the home; then the runner dials ky, so a resumed session finds its files
+ *                  the home; then the runner dials ky, so a resumed session finds its files. A save
+ *                  cut off or corrupted on its way is refused (500), the home untouched, still waiting
  *   POST /save     stop the runner (its socket closes, it takes no more runs), then answer with a
  *                  tar.gz of what must outlive the container: Claude Code's sessions, the runner's
- *                  state (each Codex task's home, the handled seqs) and the work trees
+ *                  state (each Codex task's home, the handled seqs) and the work trees, streamed as
+ *                  tar writes it (chunked, no content-length); a tar that fails breaks the answer off
  *   GET  /snapshot the same tar.gz while the runner keeps running, after a turn ends: the container
  *                  may then die at any time and lose at most the open turn; 409 unless it runs
  *
@@ -21,14 +23,13 @@
  *                    the CloudMachine routes to the Worker's GitHub proxy, which holds the token)
  */
 import { spawn } from "node:child_process";
-import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Context } from "../commands.ts";
 import { checkoutVersion, runRunner } from "./run.ts";
+import { pack, unpack } from "./save.ts";
 import { withEnv } from "./settings.ts";
 import { compiled } from "./system.ts";
 
@@ -42,8 +43,8 @@ const EXCLUDED = ["node_modules", ".ky/bin", ".ky/runner-status.json"];
 
 type State = "waiting" | "running" | "stopped";
 
-/** Run `command`; it fails unless it exits with one of `ok`. */
-function run(command: string, args: string[], ok: readonly number[] = [0]): Promise<void> {
+/** Run `command`; it fails unless it exits 0. */
+function run(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
@@ -52,7 +53,7 @@ function run(command: string, args: string[], ok: readonly number[] = [0]): Prom
       stderr += chunk;
     });
     child.on("error", reject);
-    child.on("close", (code) => (code !== null && ok.includes(code) ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited ${code}: ${stderr.trim()}`))));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited ${code}: ${stderr.trim()}`))));
   });
 }
 
@@ -96,17 +97,8 @@ export async function cloudCommand(context: Context): Promise<number> {
 
   const restore = async (request: IncomingMessage, response: ServerResponse) => {
     if (state !== "waiting") return answer(response, 409, `the runner is ${state}`);
-    const scratch = await mkdtemp(path.join(tmpdir(), "ky-restore-"));
-    const archive = path.join(scratch, "save.tar.gz");
-
-    try {
-      await pipeline(request, createWriteStream(archive));
-
-      if ((await stat(archive)).size > 0) await run("tar", ["-xzf", archive, "-C", system.home]);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-
+    // Throws on a save that isn't whole, which answers 500 and leaves the runner waiting.
+    await unpack(request, system.home);
     state = "running";
     runner = runRunner({ settings, token, state: system.state, version, ky: system.ky, service: false, kind: "cloud", stop: stop.signal });
     answer(response, 204);
@@ -114,17 +106,11 @@ export async function cloudCommand(context: Context): Promise<number> {
 
   /** Answer with a tar.gz of what must outlive the container. */
   const archived = async (response: ServerResponse) => {
-    const scratch = await mkdtemp(path.join(tmpdir(), "ky-save-"));
-    const archive = path.join(scratch, "save.tar.gz");
+    const archive = pack(system.home, kept(system.home, saved), excluded);
 
-    try {
-      // 1: a file changed as tar read it, as a task still running writes; the archive is whole, and has its last finished turn.
-      await run("tar", ["-czf", archive, ...excluded.map((each) => `--exclude=${each}`), "-C", system.home, ...kept(system.home, saved)], [0, 1]);
-      response.writeHead(200, { "content-type": "application/gzip", "content-length": String((await stat(archive)).size) });
-      await pipeline(createReadStream(archive), response);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
+    response.writeHead(200, { "content-type": "application/gzip" });
+    // A tar that fails rejects this, and the server breaks the answer off: the hub never stores it as whole.
+    await pipeline(archive, response);
   };
 
   const save = async (response: ServerResponse) => {

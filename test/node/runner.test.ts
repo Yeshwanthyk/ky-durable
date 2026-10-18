@@ -613,7 +613,15 @@ describe("ky runner cloud", () => {
     await writeFile(path.join(last, ".ky", "codex", "m-1", "auth.json"), "{}");
     execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", ".ky", "ky-work"]);
 
-    expect((await at("/restore", { method: "PUT", body: await readFile(path.join(last, "save.tar.gz")) })).status).toBe(204);
+    const whole = await readFile(path.join(last, "save.tar.gz"));
+
+    // A save cut off on its way here is refused, and the runner waits, its home untouched, for a whole one.
+    const cut = await at("/restore", { method: "PUT", body: whole.subarray(0, whole.length - 20) });
+    expect(cut.status, await cut.text()).toBeGreaterThanOrEqual(400);
+    expect(await ping()).toBe("waiting");
+    expect(existsSync(path.join(home, ".claude", "projects")) || existsSync(path.join(home, "ky-work"))).toBe(false);
+
+    expect((await at("/restore", { method: "PUT", body: whole })).status).toBe(204);
     expect(await ping()).toBe("running");
     expect(await readFile(path.join(home, ".claude", "projects", "fake", "s-1.jsonl"), "utf8")).toBe("{}\n");
     expect((await at("/restore", { method: "PUT", body: "" })).status).toBe(409);
@@ -631,6 +639,8 @@ describe("ky runner cloud", () => {
     // A snapshot is the same archive, and the runner keeps running.
     const snapshot = await at("/snapshot");
     expect(snapshot.status).toBe(200);
+    // Streamed as tar writes it, with no copy staged on the container's disk first.
+    expect(snapshot.headers.get("content-length")).toBeNull();
     const snapshotted = await entries(snapshot, "snapshot.tar.gz");
     expect(await ping()).toBe("running");
 
