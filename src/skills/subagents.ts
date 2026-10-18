@@ -313,7 +313,7 @@ export function subagentExtension(
       "stop (name): abort its current work; it stays usable. " +
       "status (name, or none for all). " +
       "last (name): its latest answer in full. " +
-      "spawn and send take model (provider/modelId, kept for later sends; worker to clear it) and thinking to run on other than the worker model. " +
+      "spawn and send take model (provider/modelId, kept for later sends; worker to clear it) and thinking to run on other than the worker model; not on a followUp send while it is busy. " +
       "Answers are reported back to you as messages when they arrive; do not wait or poll for them. " +
       "Subagents know nothing you do not tell them: give them the full context in the message. " +
       "Specialists (see the roster, if any): " +
@@ -494,8 +494,10 @@ function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: Sub
     const base = (own && models.valid(own)) ?? worker;
 
     if (args.thinking === undefined) return { choice: base, own };
+    const leveled = { ...base, thinkingLevel: args.thinking };
 
-    return { choice: { ...base, thinkingLevel: args.thinking }, own: own && { ...own, thinkingLevel: args.thinking } };
+    // Clamped to the model's levels when its provider answers; as asked otherwise, so a level alone never refuses.
+    return { choice: models.valid(leveled) ?? leveled, own: own && { ...own, thinkingLevel: args.thinking } };
   }
 
   const asked = parseModel(named, args.thinking ?? (kept ?? worker).thinkingLevel);
@@ -515,9 +517,6 @@ function message(action: "spawn" | "send"): Act {
     const refusal = messageRefusal(action, name, text, registry);
 
     if (refusal !== undefined || name === undefined || text === undefined) return refusal ?? "";
-    const run = runOf(desk, registry.agents[name]?.model, args);
-
-    if ("refused" in run) return run.refused;
 
     let reporterId: string | undefined;
 
@@ -525,6 +524,16 @@ function message(action: "spawn" | "send"): Act {
       const state = await tx.doc(Subagents, api.conversationId);
 
       if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
+      // Read here: a round's tool calls run in parallel, and another may have just changed the kept model.
+      const run = runOf(desk, state.agents[name]?.model, args);
+
+      if ("refused" in run) return run.refused;
+      const queued = action === "send" && followUp === true && (args.model !== undefined || args.thinking !== undefined);
+
+      // Configuring now would switch the turn already running, not the queued one.
+      if (queued && (await tx.doc(LiveDoc, must(state.agents[name], `No subagent named ${name}.`).conversationId)).run !== undefined) {
+        return `${name} is busy: a followUp send can't change its model. Send it without followUp, or once it answers.`;
+      }
 
       if (action === "spawn") await register(tx, api.conversationId, name);
       const agent = must(state.agents[name], `No subagent named ${name}.`);

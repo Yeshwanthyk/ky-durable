@@ -1,9 +1,25 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { AssistantEntry, type ConversationId, defineDoc, type EntryId, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { gateStarted, inside, prompt, submit, tasks, until } from "./drive";
-import { GLM, KIMI } from "./stack";
+import { agent, gateStarted, inside, prompt, submit, tasks, until } from "./drive";
+import { GLM, KIMI, OPENCODE_KEY } from "./stack";
 import { BACKGROUND } from "../background";
+import type { ModelChoice } from "../settings";
+
+const FLASH = { provider: "opencode-go", modelId: "deepseek-v4.1-flash" } as const;
+
+/** Connect OpenCode Go, as the user does by adding its key in Settings. */
+const connectOpenCode = (name: string) => inside(name, (instance) => instance.models.addKey("opencode-go", OPENCODE_KEY));
+
+/** The model the main chat's subagent `agent` keeps. */
+const kept = (name: string, agent: string) =>
+  inside(name, async (instance) =>
+    (await instance.harness.pi()).commit(async (tx) => {
+      const model = (await tx.doc(Registry, ROOT_CONVERSATION_ID)).agents[agent]?.model;
+
+      return model && { ...model };
+    }, BACKGROUND)
+  );
 
 /** The subagent tool's `last`, and a subagent on a model of its own, through ky's real PiAgent on the fake models. */
 
@@ -27,7 +43,7 @@ async function answered(name: string, agent: string, message: string, extra: Rec
 // The fake model streams 3 characters every 5ms, too slow to say an answer past the cap, or to repeat `last`'s reply to one.
 
 /** The main chat's subagent registry, by the kind src/skills/subagents.ts keeps it under. */
-const Registry = defineDoc<{ agents: Record<string, { reported: EntryId[] }> }>({
+const Registry = defineDoc<{ agents: Record<string, { reported: EntryId[]; model?: ModelChoice }> }>({
   kind: "ky.subagents",
   version: 1,
   scope: "conversation",
@@ -151,6 +167,48 @@ describe("the subagent tool", () => {
     await answered(name, "thinker", "reply: done", { thinking: "high" });
 
     expect(await requestsOf(name, "thinker")).toEqual([{ model: KIMI, reasoning: "high" }]);
+  });
+
+  it("runs a kept model's next send on the worker model once its provider is gone, and keeps it", async () => {
+    const name = crypto.randomUUID();
+    expect(await connectOpenCode(name)).toEqual({});
+    await answered(name, "keeper", "reply: done", { model: `${FLASH.provider}/${FLASH.modelId}` });
+    expect((await modelsOf(name, "keeper")).at(-1)).not.toBe(GLM);
+
+    await inside(name, (instance) => instance.models.removeKey("opencode-go"));
+    expect(await subagent(name, { action: "send", name: "keeper", message: "reply: again" })).toBe("tool said: Sent to keeper.");
+    await settled(name, "keeper", ["done", "done"]);
+
+    expect((await modelsOf(name, "keeper")).at(-1)).toBe(GLM);
+    expect(await kept(name, "keeper")).toMatchObject(FLASH);
+  });
+
+  it("starts a subagent given a level alone while the worker's provider is down", async () => {
+    const name = crypto.randomUUID();
+    expect(await connectOpenCode(name)).toEqual({});
+    // The key puts every purpose on OpenCode Go; the main agent goes back to Workers AI, to answer while it is down.
+    await inside(name, (instance) => {
+      instance.models.settings.set("worker", { ...FLASH, thinkingLevel: "off" });
+      instance.models.settings.set("main", { provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
+
+      return instance.applyMain();
+    });
+    await agent(name).provider("opencode-go", false);
+
+    expect(await subagent(name, { action: "spawn", name: "thinker", message: "reply: done", thinking: "high" })).toBe(
+      "tool said: Started thinker."
+    );
+  });
+
+  it("refuses a followUp send that names a model while the subagent is busy", async () => {
+    const name = crypto.randomUUID();
+    expect(await prompt(name, "spawn busy gate").then((result) => result.text)).toBe("tool said: Started busy.");
+    await gateStarted(name, 1);
+
+    expect(await subagent(name, { action: "send", name: "busy", message: "reply: later", followUp: true, model: `workers-ai/${KIMI}` })).toBe(
+      "tool said: busy is busy: a followUp send can't change its model. Send it without followUp, or once it answers."
+    );
+    expect(await kept(name, "busy")).toBeUndefined();
   });
 
   it("refuses an unknown model, naming the choices, and starts nothing", async () => {
