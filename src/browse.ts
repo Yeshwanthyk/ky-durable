@@ -216,38 +216,38 @@ export function reached(downloaded: boolean, contentType: string | undefined, he
 
 /** The reply for the PDF at `url`; `response` is the browser's when it showed the PDF, null when it downloaded it. */
 export async function pdfReply(url: string, response: BrowserResponse | null, args: Args, signal: AbortSignal) {
-  const file = await within(OPERATION_TIMEOUT_MS, "downloading the PDF", pdfFile(url, response, signal));
+  // Stopping the call or the time cap ends the download and pdf.js's work, not only the wait for them.
+  const stop = AbortSignal.any([signal, AbortSignal.timeout(OPERATION_TIMEOUT_MS)]);
+  const file = await pdfFile(url, response, stop);
 
-  if (!file) return reply(`${url} is a PDF over ${MAX_PDF_BYTES / 1024 / 1024} MB, too large to read.`, true);
+  if ("refused" in file) return reply(file.refused, true);
 
-  if (response === null && reached(true, file.contentType, file.bytes) !== "pdf") {
-    return reply(`${url} downloads a file that is neither a page nor a PDF, so browse can't read it.`, true);
-  }
-
-  const ignored = Boolean(args.steps?.length) || args.screenshot === true;
-
-  return within(OPERATION_TIMEOUT_MS, "reading the PDF", readPdf(url, file.bytes, ignored, signal));
+  return readPdf(url, file, Boolean(args.steps?.length) || args.screenshot === true, stop);
 }
+
+/** Why browse can't read a file, said to the agent. */
+type Refused = { refused: string };
 
 /** What pdfFile needs of the browser's response. */
 type BrowserResponse = { headers(): Record<string, string>; body(): Promise<Uint8Array> };
 
-type PdfFile = { bytes: Uint8Array; contentType: string | undefined };
-
 /**
- * The file at `url`: the browser's copy when it says it is within MAX_PDF_BYTES, else downloaded here, so
- * an unknown or larger size never sits whole in memory. Undefined when it is over MAX_PDF_BYTES.
+ * The PDF at `url`, or why browse can't read it. The browser's copy is taken when it says it is within
+ * MAX_PDF_BYTES, uncompressed, since a compressed length says nothing of the decoded size; anything else
+ * is downloaded here, so an unknown or larger size never sits whole in memory.
  */
-async function pdfFile(url: string, response: BrowserResponse | null, signal: AbortSignal): Promise<PdfFile | undefined> {
+async function pdfFile(url: string, response: BrowserResponse | null, signal: AbortSignal): Promise<Uint8Array | Refused> {
   const headers = response?.headers();
+  const encoding = headers?.["content-encoding"] ?? "identity";
 
-  if (response && Number(headers?.["content-length"] ?? Number.NaN) <= MAX_PDF_BYTES) {
-    const bytes = await response.body().catch(() => undefined);
+  if (response && encoding === "identity" && Number(headers?.["content-length"] ?? Number.NaN) <= MAX_PDF_BYTES) {
+    // The signal can't stop the browser handing its copy over, so this waits a bounded time.
+    const bytes = await within(OPERATION_TIMEOUT_MS, "the browser's copy", response.body()).catch(() => undefined);
 
-    if (bytes?.length && bytes.length <= MAX_PDF_BYTES) return { bytes, contentType: headers?.["content-type"] };
+    if (bytes?.length && bytes.length <= MAX_PDF_BYTES) return bytes;
   }
 
-  return fetchPdf(url, signal);
+  return fetchPdf(url, response === null, signal);
 }
 
 /**
@@ -273,7 +273,8 @@ export function readDocument(maxLinks: number): PageRead {
   // A hidden element's innerText is all its text, so only one on the screen counts.
   const largest = [...document.querySelectorAll<HTMLElement>("main, article, [role=main]")]
     .flatMap((element) =>
-      element.checkVisibility({ visibilityProperty: true }) || getComputedStyle(element).display === "contents"
+      element.checkVisibility({ visibilityProperty: true }) ||
+      (getComputedStyle(element).display === "contents" && element.parentElement?.checkVisibility({ visibilityProperty: true }) === true)
         ? [{ element, length: element.innerText.length }]
         : []
     )
@@ -315,8 +316,12 @@ async function readPdf(url: string, bytes: Uint8Array, ignored: boolean, signal:
   const { getDocumentProxy, getMeta } = await import("unpdf");
   // A copy: pdf.js takes over the buffer it is given, and refuses Playwright's Buffer.
   const pdf = await getDocumentProxy(new Uint8Array(bytes));
+  // Destroying the document makes a running getPage or getTextContent reject.
+  const destroy = () => void pdf.loadingTask.destroy();
+  signal.addEventListener("abort", destroy, { once: true });
 
   try {
+    signal.throwIfAborted();
     const { info } = await getMeta(pdf);
     const title = decodeOr(Type.Object({ Title: Type.String({ minLength: 1 }) }), info, undefined)?.Title;
     const pages: string[] = [];
@@ -340,26 +345,49 @@ async function readPdf(url: string, bytes: Uint8Array, ignored: boolean, signal:
       .join("\n\n");
 
     return reply(summary);
+  } catch (error) {
+    // A stop or the time cap destroyed the document; say that rather than pdf.js's complaint.
+    signal.throwIfAborted();
+
+    throw error;
   } finally {
+    signal.removeEventListener("abort", destroy);
     await pdf.loadingTask.destroy();
   }
 }
 
-/** The file at `url`, or undefined when it is over MAX_PDF_BYTES. */
-async function fetchPdf(url: string, signal: AbortSignal): Promise<PdfFile | undefined> {
+/**
+ * The PDF at `url`, downloaded here, or why browse can't read it. A file the browser `downloaded` must
+ * prove it is a PDF by its type or first bytes; the download stops at the first chunk that says it isn't.
+ */
+async function fetchPdf(url: string, downloaded: boolean, signal: AbortSignal): Promise<Uint8Array | Refused> {
   const response = await fetch(url, { signal, headers: { Accept: "application/pdf, */*", "User-Agent": "Mozilla/5.0 (compatible; ky)" } });
 
-  if (!response.ok || !response.body) throw new Error(`fetching the PDF answered HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`fetching the PDF answered HTTP ${response.status}`);
 
+  if (!response.body || response.status === 204 || response.status === 205) {
+    return { refused: `${url} answered HTTP ${response.status} with nothing to read.` };
+  }
+
+  const contentType = response.headers.get("content-type") ?? undefined;
   const chunks: Uint8Array[] = [];
   let size = 0;
 
+  // Leaving the loop cancels the download.
   for await (const chunk of response.body) {
     if (!(chunk instanceof Uint8Array)) throw new Error("the PDF's download isn't bytes");
+
+    if (size === 0 && reached(downloaded, contentType, chunk) === "file") {
+      const refused = contentType?.startsWith("text/html")
+        ? `${url} aborted its navigation in the browser, so browse can't read it.`
+        : `${url} downloads a file that is neither a page nor a PDF, so browse can't read it.`;
+
+      return { refused };
+    }
+
     size += chunk.length;
 
-    // Leaving the loop cancels the download.
-    if (size > MAX_PDF_BYTES) return undefined;
+    if (size > MAX_PDF_BYTES) return { refused: `${url} is a PDF over ${MAX_PDF_BYTES / 1024 / 1024} MB, too large to read.` };
     chunks.push(chunk);
   }
 
@@ -371,7 +399,7 @@ async function fetchPdf(url: string, signal: AbortSignal): Promise<PdfFile | und
     offset += chunk.length;
   }
 
-  return { bytes, contentType: response.headers.get("content-type") ?? undefined };
+  return bytes;
 }
 
 function cut(text: string): string {

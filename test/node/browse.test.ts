@@ -85,6 +85,14 @@ describe("browse reads a page's main content", () => {
     expect(result.text).not.toContain("Hidden text");
   });
 
+  it("passes over a display: contents main inside a hidden element", async () => {
+    const hidden = Array.from({ length: 20 }, () => "<p>Hidden text that is not on the screen.</p>").join("");
+    const result = await read(`${CHROME}<div hidden><main style="display: contents">${hidden}</main></div><article><h1>The story</h1>${paragraphs(10)}</article>`);
+
+    expect(result.text).toMatch(/^The story\n\nParagraph 1 of the story/);
+    expect(result.text).not.toContain("Hidden text");
+  });
+
   it("reads a main laid out with display: contents line by line", async () => {
     const result = await read(`${CHROME}<main style="display: contents"><h1>The story</h1>${paragraphs(10)}</main>`);
 

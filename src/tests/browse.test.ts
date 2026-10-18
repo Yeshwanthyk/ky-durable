@@ -47,9 +47,9 @@ const text = (result: { content: Array<{ type: "text"; text: string }> }) => res
 
 const MB = 1024 * 1024;
 
-/** The browser's response for a PDF it showed: `bytes`, declared as `length` bytes, or with no size when null. */
-function shown(bytes: Uint8Array, length: number | null = bytes.length) {
-  const type = { "content-type": "application/pdf" };
+/** The browser's response for a PDF it showed: `bytes`, declared as `length` bytes (none when null), sent in `encoding`. */
+function shown(bytes: Uint8Array, length: number | null = bytes.length, encoding = "identity") {
+  const type = { "content-type": "application/pdf", "content-encoding": encoding };
   const headers = length === null ? type : { ...type, "content-length": String(length) };
   const body = vi.fn(async () => bytes);
 
@@ -124,7 +124,9 @@ describe("browse reads a PDF", () => {
   });
 
   it("refuses a PDF over 15 MB", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Uint8Array(16 * MB)));
+    const huge = new Uint8Array(16 * MB);
+    huge.set(new TextEncoder().encode("%PDF-1.7"));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(huge));
 
     const result = await pdfReply("https://example.com/huge.pdf", null, plain, live());
 
@@ -143,5 +145,53 @@ describe("browse reads a PDF", () => {
     expect(text(await pdfReply("https://example.com/huge.pdf", unsized, plain, live()))).toContain("is a PDF over 15 MB");
     expect(large.body).not.toHaveBeenCalled();
     expect(unsized.body).not.toHaveBeenCalled();
+  });
+
+  it("downloads a compressed PDF itself, since its length counts the compressed bytes", async () => {
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array(16 * MB)));
+    const gzipped = shown(new Uint8Array(), MB, "gzip");
+
+    expect(text(await pdfReply("https://example.com/huge.pdf", gzipped, plain, live()))).toContain("is a PDF over 15 MB");
+    expect(gzipped.body).not.toHaveBeenCalled();
+    expect(fetched).toHaveBeenCalled();
+  });
+
+  it("stops downloading at the first bytes of a large file that isn't a PDF", async () => {
+    let pulled = 0;
+
+    const zip = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        pulled += 1;
+        controller.enqueue(new TextEncoder().encode(`PK${"x".repeat(MB)}`));
+      }
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(zip, { headers: { "content-type": "application/zip" } }));
+
+    expect(text(await pdfReply("https://example.com/archive", null, plain, live()))).toBe(
+      "https://example.com/archive downloads a file that is neither a page nor a PDF, so browse can't read it."
+    );
+    expect(pulled).toBeLessThan(4);
+  });
+
+  it("says a page whose navigation the browser aborted was aborted, not a download", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<html>hi</html>", { headers: { "content-type": "text/html" } }));
+
+    expect(text(await pdfReply("https://example.com/page", null, plain, live()))).toBe(
+      "https://example.com/page aborted its navigation in the browser, so browse can't read it."
+    );
+  });
+
+  it("says when the URL answers with nothing to read", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+
+    expect(text(await pdfReply("https://example.com/empty", null, plain, live()))).toBe("https://example.com/empty answered HTTP 204 with nothing to read.");
+  });
+
+  it("stops reading a PDF when the call is stopped", async () => {
+    const stop = new AbortController();
+    stop.abort(new Error("the browse call was stopped"));
+
+    await expect(pdfReply("https://example.com/report.pdf", shown(pdf(["Words"])), plain, stop.signal)).rejects.toThrow("the browse call was stopped");
   });
 });
