@@ -131,9 +131,11 @@ export class FakeBox implements CloudBox {
   clock: () => number = () => Date.now();
   /** Whether the last start was refused. */
   #unplaced = false;
+  /** Dead, but the platform still says it runs, as it does for a while after a runner is killed. */
+  ghost = false;
 
   async running(): Promise<boolean> {
-    return this.up;
+    return this.up || this.ghost;
   }
 
   async start(env?: Record<string, string>): Promise<void> {
@@ -142,13 +144,15 @@ export class FakeBox implements CloudBox {
     this.startedAt.push(this.clock());
     await this.onStart?.();
     this.#unplaced = this.refusing;
+    this.ghost = false;
     this.up = !this.refusing;
     this.state = "waiting";
     this.disk = "";
   }
 
-  /** The container dies, as a crash or an eviction kills it: its disk is gone. */
-  crash(): void {
+  /** The container dies, as a crash or an eviction kills it: its disk is gone. `unseen`, the platform says it runs on. */
+  crash(unseen = false): void {
+    this.ghost = unseen;
     this.up = false;
     this.state = "waiting";
     this.disk = "";
@@ -207,6 +211,7 @@ export class FakeBox implements CloudBox {
     await this.onDestroy?.(this.disk);
     this.destroys++;
     this.up = false;
+    this.ghost = false;
   }
 }
 
@@ -243,6 +248,11 @@ export class CloudMachine extends ProductionCloudMachine {
 
   override clock(): number {
     return Date.now() + this.ahead;
+  }
+
+  /** A second, not 20: a test's silent container is taken for dead without the wait. */
+  override answerWithinMs(): number {
+    return 1_000;
   }
 
   override async wake(id: string, origin?: string): Promise<void> {

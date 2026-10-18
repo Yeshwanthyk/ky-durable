@@ -11,7 +11,7 @@ import { ky } from "../../cli/ky.ts";
 import { restartRunner } from "../../cli/runner/commands.ts";
 import { github } from "../../cli/runner/github.ts";
 import { HandledSeqs } from "../../cli/runner/handled.ts";
-import { FIRST_OUTPUT_WITHIN_MS, Runner, type ProcessEvents } from "../../cli/runner/runner.ts";
+import { FIRST_OUTPUT_WITHIN_MS, type Launch, Runner, type ProcessEvents } from "../../cli/runner/runner.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
 import { stableKy } from "../../cli/runner/system.ts";
@@ -707,6 +707,8 @@ describe("a task's agent", () => {
 class SilentAgent {
   interrupted = false;
   events: ProcessEvents | undefined;
+  /** Each process started: what it was launched with, and what was written to it. */
+  starts: { launch: Launch; written: string[] }[] = [];
 }
 
 describe("a started agent that writes nothing", () => {
@@ -720,16 +722,20 @@ describe("a started agent that writes nothing", () => {
   };
 
   /** A runner whose claude never writes, and what it reported. */
-  async function silentRunner(stderr: string) {
+  async function silentRunner(stderr: string, session: string | null = null) {
     const dir = await mkdtemp(path.join(tmpdir(), "ky-silent-"));
     const sent: RunnerReport[] = [];
     const agent = new SilentAgent();
 
     const runner = new Runner(
-      (_agent, _task, _launch, events) => {
-        agent.events = events;
+      (_agent, _task, launch, events) => {
+        const written: string[] = [];
+        const start = { launch, written };
 
-        return { write: () => {}, end: () => {}, interrupt: () => (agent.interrupted = true), renew: () => {}, pid: 4242, stderr: () => stderr };
+        agent.events = events;
+        agent.starts.push(start);
+
+        return { write: (text: string) => void start.written.push(text), end: () => {}, interrupt: () => (agent.interrupted = true), renew: () => {}, pid: 4242, stderr: () => stderr };
       },
       () => {},
       new HandledSeqs(path.join(dir, "handled.json"), "test"),
@@ -750,9 +756,9 @@ describe("a started agent that writes nothing", () => {
     };
 
     runner.open(link);
-    runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-1", turn: 1, prompt: "go", session: null, agent: "claude", taskToken: "t" }));
+    runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-1", turn: 1, prompt: "go", session, agent: "claude", taskToken: "t" }));
 
-    return { agent, runner, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
+    return { agent, runner, reports: () => sent, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
   }
 
   beforeEach(() => vi.useFakeTimers());
@@ -779,6 +785,29 @@ describe("a started agent that writes nothing", () => {
     vi.advanceTimersByTime(FIRST_OUTPUT_WITHIN_MS * 2);
     expect(agent.interrupted).toBe(false);
     expect(results()).toEqual([]);
+    await done();
+  });
+
+  it("starts a follow-up afresh, saying so, when Claude Code can't find the session it resumes", async () => {
+    const { agent, reports, done } = await silentRunner("", "2bfa09ad-gone");
+
+    agent.events!.exit(1, "No conversation found with session ID: 2bfa09ad-gone");
+
+    expect(agent.starts.map((start) => start.launch.session)).toEqual(["2bfa09ad-gone", null]);
+    expect(agent.starts[1]?.written.join("")).toMatch(/earlier conversation was lost.*go/s);
+    const steps = reports().flatMap((report) => (report.type === "step" ? [report] : []));
+
+    expect(steps.map((step) => step.turn)).toEqual([1]);
+    expect(steps[0]?.text).toMatch(/earlier conversation was lost/);
+    await done();
+  });
+
+  it("fails a turn that resumed nothing when it exits, whatever its stderr says", async () => {
+    const { agent, results, done } = await silentRunner("");
+    agent.events!.exit(1, "No conversation found with session ID: x");
+
+    expect(agent.starts).toHaveLength(1);
+    expect(results()[0]?.type === "result" && !results()[0]?.ok && results()[0]?.text).toMatch(/claude exited with 1/);
     await done();
   });
 

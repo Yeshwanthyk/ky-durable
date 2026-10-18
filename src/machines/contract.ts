@@ -150,6 +150,8 @@ export type SessionCreds = (agent: Agent) => Promise<RunCreds>;
 export type CloudHook = {
   /** Start the sandbox listed as `machine`. */
   wake(machine: string): void;
+  /** A turn on the sandbox listed as `machine` ended: snapshot its disk now. */
+  turnEnded(machine: string): void;
 };
 
 const RUNNER_TAG_PREFIX = "runner:";
