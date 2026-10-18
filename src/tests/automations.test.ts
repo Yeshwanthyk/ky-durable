@@ -224,7 +224,7 @@ describe("automations", () => {
   it("refuses a post on a machine: its report is posted from the cloud", async () => {
     const name = crypto.randomUUID();
     const said = await say(name, automation({ action: "create", title: "Daily digest", prompt: "digest", cron: "0 9 * * *", machine: "mac", post: true }));
-    expect(said).toBe("tool said: A posted report runs in the cloud.");
+    expect(said).toBe("tool said: A posted report runs in the cloud: ask ky to update it with post false first.");
   });
 
   it("an automations table from an older ky gains post, its automations reading as not posting", async () => {
@@ -846,6 +846,9 @@ describe("check-ins", () => {
     expect(await book(name, session, { at: null, cron: "0 9 * * *" })).toBe("tool said: A check-in runs once: give at, not cron.");
     expect(await book(name, session, { at: new Date(Date.now() - 60_000).toISOString() })).toBe("tool said: A check-in's time must be ahead.");
     expect(await say(name, automation({ action: "pause", id }), session)).toBe("tool said: A dream may only create check-ins and list automations.");
+    // Nor can an update from the user's chat make it post.
+    expect(await say(name, automation({ action: "update", id, post: true }))).toBe("tool said: A check-in's report goes to the main agent, not posted.");
+    expect(await inside(name, (instance) => instance.automations.get(id)?.post)).toBe(false);
   });
 
   it("books at most two a day, and none once the user turns them off, which pauses the waiting ones", async () => {

@@ -141,6 +141,9 @@ const CHECK_IN_ALLOWED: ReadonlySet<string> = new Set(CHECK_IN_TOOLS);
 /** What a post automation's run is told after its prompt. */
 const POSTED = "\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble.";
 
+/** Why a check-in may not post: the main agent checks memory before it tells the user. */
+const CHECK_IN_POSTS = "A check-in's report goes to the main agent, not posted.";
+
 /** What a check-in run is told before its prompt. */
 const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
 
@@ -405,6 +408,8 @@ export class Automations {
     const row = this.get(id);
 
     if (!row) return refused(`No automation ${id}.`);
+
+    if (patch.post && isCheckIn(row)) return refused(CHECK_IN_POSTS);
     const retimed = patch.cron !== undefined || patch.at !== undefined;
     const checked = this.#check(draftOf({ ...row, ...patch, ...timingOf(patch) }));
 
@@ -802,7 +807,7 @@ export class Automations {
           label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
           checkIn,
           deliver: true,
-          post: row.post
+          post: row.post && !checkIn
         });
       });
     } catch (error) {
@@ -910,7 +915,7 @@ export class Automations {
 
     if (draft.gate !== null) return "A check-in has no gate.";
 
-    if (draft.post) return "A check-in's report goes to the main agent, not posted.";
+    if (draft.post) return CHECK_IN_POSTS;
 
     return this.#checkInCapProblem();
   }
@@ -934,7 +939,7 @@ export class Automations {
   #machineProblem(machine: string | null, post = false): string | undefined {
     if (machine === null) return undefined;
 
-    if (post) return "A posted report runs in the cloud.";
+    if (post) return "A posted report runs in the cloud: ask ky to update it with post false first.";
     const known = this.#deps.machines.machines().map((each) => each.name);
 
     if (known.includes(machine)) return undefined;
