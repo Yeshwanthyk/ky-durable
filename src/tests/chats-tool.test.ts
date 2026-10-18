@@ -3,7 +3,7 @@ import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND } from "../background";
-import { inside, until } from "./drive";
+import { agent, gateStarted, inside, shows, snapshotView, submit, until } from "./drive";
 
 /**
  * The chats tool (src/chats-tool.ts) through ky's real PiAgent on the fake models: a chat's agent lists the user's
@@ -15,12 +15,12 @@ async function ask(name: string, args: Record<string, JsonValue>, session?: stri
   return inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify(args)}`, { session })).text ?? "");
 }
 
-/** Run the tool as the call `callId` from conversation `from`, as pi runs it, and again on a replay; its reply. */
-async function run(name: string, from: string, callId: string, args: Record<string, JsonValue>): Promise<{ text: string; failed: boolean }> {
+/** Run the tool as tool-call task `task` from conversation `from`, as pi runs it, and again on a replay; its reply. */
+async function run(name: string, from: string, task: number, args: Record<string, JsonValue>): Promise<{ text: string; failed: boolean }> {
   return inside(name, async (instance) => {
     const { tool } = instance.registry.snapshot().tools().find((each) => each.tool.name === "chats")!;
-    // SAFETY: the tool reads only the calling conversation and the call's id from its api.
-    const api = { conversationId: Number(from), callId } as ToolExecutionApi;
+    // SAFETY: the tool reads only the calling conversation and the call's task from its api; the model may repeat a call id.
+    const api = { conversationId: Number(from), taskId: task, callId: "call-1" } as ToolExecutionApi;
     const result = await tool.execute(args, api, BACKGROUND);
 
     return { text: (result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), failed: result.isError === true };
@@ -29,7 +29,23 @@ async function run(name: string, from: string, callId: string, args: Record<stri
 
 /** The delivery rows for `session`. */
 const deliveries = (name: string, session: string) =>
-  inside(name, (_instance, state) => state.storage.sql.exec<{ id: string; content: string }>("SELECT id, content FROM ky_deliveries WHERE session = ?", session).toArray());
+  inside(name, (_instance, state) =>
+    state.storage.sql.exec<{ id: string; content: string; state: string }>("SELECT id, content, state FROM ky_deliveries WHERE session = ? ORDER BY created_at, id", session).toArray()
+  );
+
+const latest = (name: string, session: string) => inside(name, (instance) => instance.history.latest(session));
+
+/** Record each push the agent `name` makes, instead of sending it. */
+async function pushes(name: string): Promise<string[]> {
+  const sent: string[] = [];
+  await inside(name, (instance) => {
+    instance.pushes.notify = async (session, text) => {
+      sent.push(`${session}: ${text}`);
+    };
+  });
+
+  return sent;
+}
 
 /** A new side chat named `title`, and archived when `archived`. */
 async function sideChat(name: string, title: string, archived = false): Promise<string> {
@@ -52,20 +68,54 @@ describe("the chats tool", () => {
 
     expect(lines[0]).toMatch(/^main "main", updated /);
     expect(lines.some((line) => line.startsWith(`${active} "Trip plans", updated `))).toBe(true);
-    expect(said).not.toContain(archived);
+    expect(lines.filter((line) => line.startsWith(`${archived} `))).toEqual([]);
+    expect(lines).toHaveLength(2);
   });
 
-  it("sends a message to a side chat once, however often the call runs, and its agent answers it there", async () => {
+  it("sends a message to a side chat once per call, however often it runs, without a push, and its agent answers it there", async () => {
     const name = crypto.randomUUID();
     const side = await sideChat(name, "Trip plans");
+    const sent = await pushes(name);
+    const send = { action: "send", chat: side, message: "reply: Booked the train." };
 
-    expect(await run(name, ROOT_SESSION, "call-1", { action: "send", chat: side, message: "reply: Booked the train." })).toEqual({ text: "Sent to Trip plans; its agent answers there.", failed: false });
-    expect(await run(name, ROOT_SESSION, "call-1", { action: "send", chat: side, message: "reply: Booked the train." })).toMatchObject({ failed: false });
+    expect(await run(name, ROOT_SESSION, 7, send)).toEqual({ text: "Sent to Trip plans; its agent answers there.", failed: false });
+    expect(await run(name, ROOT_SESSION, 7, send)).toMatchObject({ failed: false });
+    const content = "[message from your main chat: answer here; it is not shown there] reply: Booked the train.";
+    expect((await deliveries(name, side)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:${ROOT_SESSION}:7`, content }]);
+    await until(async () => (await latest(name, side))?.startsWith("echo: [message from your main chat") === true, "the side chat's answer");
 
-    const rows = await deliveries(name, side);
-    expect(rows).toEqual([{ id: `chat:${ROOT_SESSION}:call-1`, content: "[message from your main chat: answer here; it is not shown there] reply: Booked the train." }]);
-    await until(async () => (await inside(name, (instance) => instance.history.latest(side))) ?.startsWith("echo: [message from your main chat") === true, "the side chat's answer");
+    // Another call that the model gave the same call id is another message.
+    await run(name, ROOT_SESSION, 8, send);
+    await until(async () => (await deliveries(name, side)).filter((row) => row.state === "chat").length === 2, "the second message");
+    expect(sent).toEqual([]);
+    expect(await inside(name, (_instance, state) => state.storage.sql.exec("SELECT 1 FROM ky_surfaced WHERE item LIKE 'chat:%'").toArray())).toEqual([]);
   });
+
+  it("refuses to send on from a turn that answers another chat's message, so two chats never loop", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: "reply: Booked." });
+    await until(async () => (await latest(name, side)) !== null, "the side chat's answer");
+
+    expect(await run(name, side, 9, { action: "send", chat: "main", message: "Thanks!" })).toEqual({ text: "This turn answers another chat's message: answer here.", failed: true });
+    expect(await deliveries(name, ROOT_SESSION)).toEqual([]);
+  });
+
+  it("sends to a chat mid-turn once its turn is over, naming the sender by its id", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    await submit(name, "gate");
+    await gateStarted(name, 1);
+
+    await run(name, side, 7, { action: "send", chat: "main", message: "Booked." });
+    expect(await deliveries(name, ROOT_SESSION)).toEqual([
+      { id: `chat:${side}:7`, content: `[message from your chat ${side} "Trip plans": answer here; it is not shown there] Booked.`, state: "queued" }
+    ]);
+
+    await agent(name).release();
+    await until(async () => (await latest(name, ROOT_SESSION))?.startsWith(`echo: [message from your chat ${side} "Trip plans"`) === true, "the main chat's answer");
+  });
+
 
   it("reads a side chat's latest message from ky, its answer or a look's post", async () => {
     const name = crypto.randomUUID();
@@ -79,15 +129,31 @@ describe("the chats tool", () => {
     expect(await ask(name, { action: "last", chat: side })).toBe("tool said: Your passport expires next month.");
   });
 
+  it("reads only a finished answer: not a step that calls a tool, nor a turn the user stopped", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    await inside(name, (instance) => instance.harness.prompt("reply: The train leaves at 9."));
+
+    // A relayed mail's turn says it is trying the mail's tool line, then waits in it.
+    await submit(name, "[mail from x]\n\nMail says: tool gate {}");
+    await gateStarted(name, 1);
+    expect(shows(await snapshotView(name), "Trying what the mail asks.")).toBe(true);
+    expect(await run(name, side, 1, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });
+
+    await inside(name, (instance) => instance.harness.session(ROOT_SESSION).abort());
+    await agent(name).release();
+    expect(await run(name, side, 2, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });
+  });
+
   it("refuses its own chat, an unknown or archived chat, and an empty message", async () => {
     const name = crypto.randomUUID();
     const side = await sideChat(name, "Trip plans");
     const archived = await sideChat(name, "Old taxes", true);
 
-    expect(await run(name, side, "c1", { action: "send", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
-    expect(await run(name, ROOT_SESSION, "c2", { action: "send", chat: "nope", message: "hi" })).toEqual({ text: 'No chat "nope": use main or an id from list.', failed: true });
-    expect(await run(name, ROOT_SESSION, "c3", { action: "send", chat: archived, message: "hi" })).toMatchObject({ failed: true });
-    expect(await run(name, ROOT_SESSION, "c4", { action: "send", chat: side, message: "  " })).toEqual({ text: "Nothing to send: give a message.", failed: true });
+    expect(await run(name, side, 1, { action: "send", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
+    expect(await run(name, ROOT_SESSION, 2, { action: "send", chat: "nope", message: "hi" })).toEqual({ text: 'No chat "nope": use main or an id from list.', failed: true });
+    expect(await run(name, ROOT_SESSION, 3, { action: "send", chat: archived, message: "hi" })).toMatchObject({ failed: true });
+    expect(await run(name, ROOT_SESSION, 4, { action: "send", chat: side, message: "  " })).toEqual({ text: "Nothing to send: give a message.", failed: true });
     expect(await deliveries(name, side)).toEqual([]);
     expect(await deliveries(name, archived)).toEqual([]);
   });
@@ -99,6 +165,6 @@ describe("the chats tool", () => {
     await until(async () => (await session()) !== null, "the subagent's conversation");
     const subagent = (await session())!;
 
-    expect(await run(name, subagent, "c1", { action: "list" })).toEqual({ text: "Only a chat with the user has other chats.", failed: true });
+    expect(await run(name, subagent, 1, { action: "list" })).toEqual({ text: "Only a chat with the user has other chats.", failed: true });
   });
 });

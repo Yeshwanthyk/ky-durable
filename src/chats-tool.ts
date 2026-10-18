@@ -13,6 +13,9 @@ import type { ChatList, ChatRow } from "./chats";
 /** ky's last message as `last` shows it, at most. */
 const LAST_CHARS = 16_000;
 
+/** What a sent message's delivery id starts with: the request id its turn in the other chat runs for. */
+const SENT = "chat:";
+
 const reply = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], isError });
 
 /** What the tool needs from the rest of ky, set up in src/server.ts. */
@@ -21,6 +24,8 @@ type ChatsParts = {
   /** ky's latest message with text in a chat; null before the first (History.latest). */
   readonly latest: (session: string) => string | null;
   readonly deliver: (item: Delivery) => Promise<void>;
+  /** The request id that started the chat's running turn (src/history.ts startedBy). */
+  readonly startedBy: (session: string) => string | undefined;
   /** The main chat or a side chat, as against a subagent or a seat. */
   readonly chat: (session: string) => boolean;
 };
@@ -46,27 +51,35 @@ function last(parts: ChatsParts, to: Listed): Reply {
   const text = parts.latest(to.session);
 
   if (text === null) return reply(`No message from ky yet in ${to.title}.`);
+  // By code point, so the cut never splits a surrogate pair.
+  const chars = Array.from(text);
 
-  return reply(text.length > LAST_CHARS ? `${text.slice(0, LAST_CHARS)}…[truncated; ${text.length} chars total]` : text);
+  return reply(chars.length > LAST_CHARS ? `${chars.slice(0, LAST_CHARS).join("")}…[truncated; ${chars.length} chars total]` : text);
 }
 
-/** Hand `to` the message as a delivery whose id is the call's, so however often the call runs it goes in once. */
-async function send(parts: ChatsParts, to: Listed, from: string, callId: string, text = ""): Promise<Reply> {
+/**
+ * Hand `to` the message as a chat delivery, keyed by the tool call's task, so however often the call runs it goes
+ * in once. A turn that answers another chat's message sends nothing on, so two chats never talk in a loop.
+ */
+async function send(parts: ChatsParts, to: Listed, from: string, task: number, text = ""): Promise<Reply> {
   const message = text.trim();
+
+  if (parts.startedBy(from)?.startsWith(SENT) === true) return reply("This turn answers another chat's message: answer here.", true);
 
   if (to.session === from) return reply("That is this chat: answer here instead.", true);
 
   if (message === "") return reply("Nothing to send: give a message.", true);
-  // The sender may be an archived chat the user still writes in, so it is named from the whole list.
+  // The sender may be an archived chat the user still writes in, so it is named from the whole list; titles repeat, so by its id too.
   const row = parts.chats.list().find((each) => each.session === from);
-  const sender = row ? titleOf(row) : "main";
+  const sender = row ? `chat ${from} "${titleOf(row)}"` : "main chat";
 
   await parts.deliver({
-    id: `chat:${from}:${callId}`,
+    id: `${SENT}${from}:${task}`,
     session: to.session,
-    content: `[message from your ${sender} chat: answer here; it is not shown there] ${message}`,
-    line: `From your ${sender} chat: ${message}`,
-    ref: `chat:${from}`
+    content: `[message from your ${sender}: answer here; it is not shown there] ${message}`,
+    line: `From your ${sender}: ${message}`,
+    ref: `chat:${from}`,
+    kind: "chat"
   });
 
   return reply(`Sent to ${to.title}; its agent answers there.`);
@@ -88,7 +101,7 @@ export function chatsExtension(parts: ChatsParts): Extension {
           chat: Type.Optional(Type.String()),
           message: Type.Optional(Type.String())
         }),
-        // send's delivery id is the call's, so a replay delivers nothing more.
+        // send's delivery id is the call's task, so a replay delivers nothing more.
         replay: "safe",
         execute: async (args, api) => {
           const from = String(api.conversationId);
@@ -101,7 +114,7 @@ export function chatsExtension(parts: ChatsParts): Extension {
 
           if (!to) return reply(`No chat ${JSON.stringify(args.chat ?? "")}: use main or an id from list.`, true);
 
-          return args.action === "last" ? last(parts, to) : send(parts, to, from, api.callId, args.message);
+          return args.action === "last" ? last(parts, to) : send(parts, to, from, api.taskId, args.message);
         }
       })
     ]

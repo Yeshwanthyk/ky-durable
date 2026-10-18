@@ -334,12 +334,16 @@ export class History {
     return conversation === ROOT_SESSION ? "main chat" : `chat "${this.#name(conversation)}"`;
   }
 
-  /** ky's latest message in `session` that has text, an answer or a look's post; null before the first. */
+  /**
+   * ky's latest message in `session` that has text, a finished answer or a look's post; null before the first.
+   * A step that goes on to call a tool, or an answer cut off by a stop or a failure, is not one.
+   */
   latest(session: string): string | null {
     const row = this.#sql
       .exec(
         `SELECT text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
-           WHERE conversation_id = ? AND json_extract(record, '$.kind') IN ('pi.assistant', '${LOOK_POST}'))
+           WHERE conversation_id = ? AND (json_extract(record, '$.kind') = '${LOOK_POST}'
+             OR (json_extract(record, '$.kind') = 'pi.assistant' AND json_extract(record, '$.model[0].stopReason') IN ('stop', 'length'))))
          WHERE trim(coalesce(text, '')) != '' ORDER BY id DESC LIMIT 1`,
         Number(session)
       )
@@ -498,13 +502,18 @@ export function placedBy(sql: SqlStorage, users: readonly number[]): ReadonlyMap
  * not act as the user.
  */
 export function startedByUser(sql: SqlStorage, conversation: string): boolean {
+  return isOwnRequest(startedBy(sql, conversation));
+}
+
+/** The request id that placed the chat's newest user entry, which the turn runs for; undefined before the first, or for one no request placed. */
+export function startedBy(sql: SqlStorage, conversation: string): string | undefined {
   const newest = decodeOr(
     NewestRow,
     sql.exec("SELECT max(id) AS id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'", Number(conversation)).one(),
     { id: null }
   ).id;
 
-  return newest !== null && ownMessages(sql, [newest]).has(newest);
+  return newest === null ? undefined : placedBy(sql, [newest]).get(newest);
 }
 
 /** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */

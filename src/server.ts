@@ -21,7 +21,7 @@ import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed }
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
-import { History } from "./history";
+import { History, startedBy } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -397,7 +397,16 @@ export class PiAgent extends DurableObject<Env> {
       // Cards are for a chat with the user: the tool refuses elsewhere, and subagents and seats go without it.
       const ui = uiExtension(chat);
       this.registry.install(ui);
-      const chats = chatsExtension({ chats: this.chats, latest: (session) => this.history.latest(session), deliver: (item) => this.deliveries.deliver(item), chat });
+
+      // Chats send each other messages quietly, and never from a turn that answers one.
+      const chats = chatsExtension({
+        chats: this.chats,
+        latest: (session) => this.history.latest(session),
+        deliver: (item) => this.deliveries.deliver(item),
+        startedBy: (session) => startedBy(this.ctx.storage.sql, session),
+        chat
+      });
+
       this.registry.install(chats);
 
       const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui, chats });

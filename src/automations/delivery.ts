@@ -175,6 +175,9 @@ export class Deliveries {
 
       const now = Date.now();
       const marked = this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued' RETURNING id", now, item.id).toArray().length > 0;
+
+      // ky talking to itself is nothing to show the user.
+      if (kind === "chat") continue;
       this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
 
       // Only the flush that marked it pushes it; the push neither holds up the next item nor fails this one.
