@@ -147,18 +147,21 @@ async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
     browser.newPage({ viewport: { width: 1280, height: 900 } })
   );
 
-  const pdfPath = new URL(args.url).pathname.toLowerCase().endsWith(".pdf");
+  // Headless Chromium downloads a PDF it won't show, and the navigation fails; any other failure is the answer.
+  const { response, downloaded } = await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS }).then(
+    (response) => ({ response, downloaded: false }),
+    (error: Error) => {
+      if (!/Download is starting|net::ERR_ABORTED/.test(error.message)) throw error;
 
-  // Headless Chromium may download a PDF instead of showing it, and then the navigation fails.
-  const response = await page
-    .goto(args.url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS })
-    .catch((error: Error) => (pdfPath ? null : Promise.reject(error)));
+      return { response: null, downloaded: true };
+    }
+  );
 
   await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
 
-  const pdf = await pdfReply(page, response, pdfPath, args, signal);
-
-  if (pdf) return pdf;
+  if (downloaded || reached(false, response?.headers()["content-type"]) === "pdf") {
+    return pdfReply(response?.url() ?? args.url, response, args, signal);
+  }
 
   for (const [index, step] of (args.steps ?? []).entries()) {
     const failed = await runStep(page, step).then(
@@ -199,22 +202,59 @@ async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
   return { content, isError: false };
 }
 
-/** The reply for a PDF, when the page is one: its content type says so, or its `.pdf` path shows no text. */
-async function pdfReply(page: Page, response: PageResponse, pdfPath: boolean, args: Args, signal: AbortSignal) {
-  const typed = response?.headers()["content-type"]?.startsWith("application/pdf") === true;
+/**
+ * What a navigation reached: a PDF when its content type or its first bytes say so; otherwise the page
+ * it showed, or, when it `downloaded` a file instead, a file browse cannot read.
+ */
+export function reached(downloaded: boolean, contentType: string | undefined, head?: Uint8Array): "pdf" | "page" | "file" {
+  const magic = head !== undefined && new TextDecoder().decode(head.subarray(0, 5)) === "%PDF-";
 
-  const blank = async () => !(await within(OPERATION_TIMEOUT_MS, "reading the page", page.evaluate(() => document.body?.innerText.trim() ?? "")));
+  if (magic || contentType?.toLowerCase().startsWith("application/pdf") === true) return "pdf";
 
-  if (!typed && !(pdfPath && (await blank()))) return undefined;
-  const bytes = await response?.body().catch(() => undefined);
+  return downloaded ? "file" : "page";
+}
 
-  return readPdf(response?.url() ?? args.url, bytes, Boolean(args.steps?.length) || args.screenshot === true, signal);
+/** The reply for the PDF at `url`; `response` is the browser's when it showed the PDF, null when it downloaded it. */
+export async function pdfReply(url: string, response: BrowserResponse | null, args: Args, signal: AbortSignal) {
+  const file = await within(OPERATION_TIMEOUT_MS, "downloading the PDF", pdfFile(url, response, signal));
+
+  if (!file) return reply(`${url} is a PDF over ${MAX_PDF_BYTES / 1024 / 1024} MB, too large to read.`, true);
+
+  if (response === null && reached(true, file.contentType, file.bytes) !== "pdf") {
+    return reply(`${url} downloads a file that is neither a page nor a PDF, so browse can't read it.`, true);
+  }
+
+  const ignored = Boolean(args.steps?.length) || args.screenshot === true;
+
+  return within(OPERATION_TIMEOUT_MS, "reading the PDF", readPdf(url, file.bytes, ignored, signal));
+}
+
+/** What pdfFile needs of the browser's response. */
+type BrowserResponse = { headers(): Record<string, string>; body(): Promise<Uint8Array> };
+
+type PdfFile = { bytes: Uint8Array; contentType: string | undefined };
+
+/**
+ * The file at `url`: the browser's copy when it says it is within MAX_PDF_BYTES, else downloaded here, so
+ * an unknown or larger size never sits whole in memory. Undefined when it is over MAX_PDF_BYTES.
+ */
+async function pdfFile(url: string, response: BrowserResponse | null, signal: AbortSignal): Promise<PdfFile | undefined> {
+  const headers = response?.headers();
+
+  if (response && Number(headers?.["content-length"] ?? Number.NaN) <= MAX_PDF_BYTES) {
+    const bytes = await response.body().catch(() => undefined);
+
+    if (bytes?.length && bytes.length <= MAX_PDF_BYTES) return { bytes, contentType: headers?.["content-type"] };
+  }
+
+  return fetchPdf(url, signal);
 }
 
 /**
- * The page's title, main content and first links, written to run in the page. The content is the first
- * `main`, `article` or `[role=main]` with enough text, else the body, without navigation, headers,
- * footers, sidebars or cookie banners; a page that is all of those reads as its whole body.
+ * The page's title, main content and first links, written to run in the page. The content is the visible
+ * `main`, `article` or `[role=main]` with the most text, when it holds a good share of the page, else the
+ * body, without navigation, headers, footers, sidebars or cookie banners; a page that is all of those
+ * reads as its whole body.
  */
 export function readDocument(maxLinks: number): PageRead {
   const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
@@ -228,57 +268,73 @@ export function readDocument(maxLinks: number): PageRead {
   const body = document.body;
 
   if (!body) return { title: document.title, text: "", links };
+  const all = body.innerText;
 
-  const root =
-    ["main", "article", "[role=main]"]
-      .flatMap((selector) => [...document.querySelectorAll<HTMLElement>(selector)])
-      .find((element) => element.innerText.length >= 500) ?? body;
+  // A hidden element's innerText is all its text, so only one on the screen counts.
+  const largest = [...document.querySelectorAll<HTMLElement>("main, article, [role=main]")]
+    .flatMap((element) =>
+      element.checkVisibility({ visibilityProperty: true }) || getComputedStyle(element).display === "contents"
+        ? [{ element, length: element.innerText.length }]
+        : []
+    )
+    .sort((a, b) => b.length - a.length)[0];
+
+  const root = largest && largest.length >= all.length * 0.4 ? largest.element : body;
 
   // A copy without the chrome, so the screenshot still sees the page as it was. innerText follows the
-  // layout only for a rendered element, so the copy sits off screen while it is read. Iframes would load again.
+  // layout only for a rendered element, so the copy sits off screen while it is read. Media would load again.
   const copy = root.cloneNode(true);
 
-  if (!(copy instanceof HTMLElement)) return { title: document.title, text: body.innerText, links };
+  if (!(copy instanceof HTMLElement)) return { title: document.title, text: all, links };
 
   copy
     .querySelectorAll(
-      "nav, header, footer, aside, iframe, [role=navigation], [role=banner], [role=contentinfo], [aria-hidden=true], " +
-        "[id*=cookie i], [class*=cookie i], [id*=consent i], [class*=consent i]"
+      "nav, header:not(article header), footer, aside, iframe, video, audio, [role=navigation], [role=banner], " +
+        "[role=contentinfo], [aria-hidden=true], [id*=cookie i], [class*=cookie i], [id*=consent i], [class*=consent i]"
     )
     .forEach((element) => element.remove());
 
-  copy.style.cssText = `position: fixed; top: 0; left: -100000px; width: ${root.clientWidth}px`;
+  copy.style.cssText = `position: fixed; top: 0; left: -100000px; width: ${root.clientWidth || document.documentElement.clientWidth}px`;
   body.appendChild(copy);
-  const text = copy.innerText.replace(/\n{3,}/g, "\n\n").trim();
-  copy.remove();
+  let text = "";
 
-  return { title: document.title, text: text.length < 200 ? body.innerText : text, links };
+  try {
+    text = copy.innerText.replace(/\n{3,}/g, "\n\n").trim();
+  } finally {
+    copy.remove();
+  }
+
+  return { title: document.title, text: text.length < 200 ? all : text, links };
 }
 
 /**
- * The reply for the PDF at `url`: its title, page count and text. `bytes` are the browser's copy; without
- * them it is fetched here. `ignored` says steps or a screenshot were asked for, which a PDF has no use for.
+ * The reply for the PDF at `url`: its title, page count and text, read page by page until MAX_TEXT.
+ * `ignored` says steps or a screenshot were asked for, which a PDF has no use for.
  */
-export async function readPdf(url: string, bytes: Uint8Array | undefined, ignored: boolean, signal: AbortSignal) {
-  const data = bytes?.length ? bytes : await fetchPdf(url, signal);
-
-  if (!data || data.length > MAX_PDF_BYTES) {
-    return reply(`${url} is a PDF over ${MAX_PDF_BYTES / 1024 / 1024} MB, too large to read.`, true);
-  }
-
-  const { getDocumentProxy, extractText, getMeta } = await import("unpdf");
+async function readPdf(url: string, bytes: Uint8Array, ignored: boolean, signal: AbortSignal) {
+  const { getDocumentProxy, getMeta } = await import("unpdf");
   // A copy: pdf.js takes over the buffer it is given, and refuses Playwright's Buffer.
-  const pdf = await getDocumentProxy(new Uint8Array(data));
+  const pdf = await getDocumentProxy(new Uint8Array(bytes));
 
   try {
     const { info } = await getMeta(pdf);
-    const { totalPages, text } = await extractText(pdf, { mergePages: true });
     const title = decodeOr(Type.Object({ Title: Type.String({ minLength: 1 }) }), info, undefined)?.Title;
+    const pages: string[] = [];
+
+    for (let number = 1, length = 0; number <= pdf.numPages && length <= MAX_TEXT; number++) {
+      signal.throwIfAborted();
+      const { items } = await (await pdf.getPage(number)).getTextContent();
+      const text = items.map((item) => ("str" in item ? `${item.str}${item.hasEOL ? "\n" : ""}` : "")).join("").trim();
+      pages.push(text);
+      length += text.length + 1;
+    }
+
+    const count = `${pdf.numPages} ${pdf.numPages === 1 ? "page" : "pages"}`;
 
     const summary = [
-      `${title ?? (new URL(url).pathname.split("/").pop() || url)}\n${url} (PDF, ${totalPages} ${totalPages === 1 ? "page" : "pages"})`,
+      `${title ?? (new URL(url).pathname.split("/").pop() || url)}\n${url} (PDF, ${count})`,
       ignored ? "Steps and screenshot don't apply to a PDF, so they were skipped." : "",
-      cut(text.trim())
+      cut(pages.join("\n").trim())
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -289,9 +345,9 @@ export async function readPdf(url: string, bytes: Uint8Array | undefined, ignore
   }
 }
 
-/** The PDF at `url`, or undefined when it is over MAX_PDF_BYTES. */
-async function fetchPdf(url: string, signal: AbortSignal): Promise<Uint8Array | undefined> {
-  const response = await fetch(url, { signal });
+/** The file at `url`, or undefined when it is over MAX_PDF_BYTES. */
+async function fetchPdf(url: string, signal: AbortSignal): Promise<PdfFile | undefined> {
+  const response = await fetch(url, { signal, headers: { Accept: "application/pdf, */*", "User-Agent": "Mozilla/5.0 (compatible; ky)" } });
 
   if (!response.ok || !response.body) throw new Error(`fetching the PDF answered HTTP ${response.status}`);
 
@@ -307,15 +363,15 @@ async function fetchPdf(url: string, signal: AbortSignal): Promise<Uint8Array | 
     chunks.push(chunk);
   }
 
-  const data = new Uint8Array(size);
+  const bytes = new Uint8Array(size);
   let offset = 0;
 
   for (const chunk of chunks) {
-    data.set(chunk, offset);
+    bytes.set(chunk, offset);
     offset += chunk.length;
   }
 
-  return data;
+  return { bytes, contentType: response.headers.get("content-type") ?? undefined };
 }
 
 function cut(text: string): string {
@@ -333,8 +389,6 @@ function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
 }
 
 type Page = Awaited<ReturnType<Browser["newPage"]>>;
-
-type PageResponse = Awaited<ReturnType<Page["goto"]>>;
 
 /**
  * Kitesurf takes `Browser.close` but leaves the DevTools socket open, so

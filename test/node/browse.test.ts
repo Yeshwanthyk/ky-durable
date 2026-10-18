@@ -55,6 +55,42 @@ describe("browse reads a page's main content", () => {
     expect(result.text).toMatch(/^Paragraph 1 of the story.*\n\n.*\n\n.*\n\nParagraph 4 of the story[^\n]*$/);
   });
 
+  it("keeps the article's own header, where its headline is", async () => {
+    const result = await read(`${CHROME}<article><header><h1>The headline</h1></header>${paragraphs(10)}</article>`);
+
+    expect(result.text).toMatch(/^The headline\n\nParagraph 1 of the story/);
+    expect(result.text).not.toContain("Site header");
+  });
+
+  it("reads the article with the most text when there are several", async () => {
+    const result = await read(`${CHROME}<article><p>A teaser for another story.</p></article><article><h1>The story</h1>${paragraphs(10)}</article>`);
+
+    expect(result.text).toMatch(/^The story\n\nParagraph 1 of the story/);
+    expect(result.text).not.toContain("teaser");
+  });
+
+  it("reads the body when the largest article holds little of the page", async () => {
+    const result = await read(`${CHROME}<article><h1>A side story</h1>${paragraphs(6)}</article><div>${paragraphs(12)}</div>`);
+
+    expect(result.text).toMatch(/^A side story\n\n/);
+    expect(result.text).toContain("Paragraph 12 of the story");
+    expect(result.text).not.toMatch(/Site header|cookies|Footer links/);
+  });
+
+  it("passes over a hidden article", async () => {
+    const hidden = Array.from({ length: 20 }, () => "<p>Hidden text that is not on the screen.</p>").join("");
+    const result = await read(`${CHROME}<article hidden>${hidden}</article><main><h1>The story</h1>${paragraphs(10)}</main>`);
+
+    expect(result.text).toMatch(/^The story\n\nParagraph 1 of the story/);
+    expect(result.text).not.toContain("Hidden text");
+  });
+
+  it("reads a main laid out with display: contents line by line", async () => {
+    const result = await read(`${CHROME}<main style="display: contents"><h1>The story</h1>${paragraphs(10)}</main>`);
+
+    expect(result.text).toMatch(/^The story\n\nParagraph 1 of the story[^\n]*\n\nParagraph 2/);
+  });
+
   it("reads the whole body when the page is mostly chrome", async () => {
     const result = await read(`${CHROME}<p>Short note.</p>`);
 
