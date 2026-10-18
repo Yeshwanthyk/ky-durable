@@ -209,7 +209,10 @@ export class PiAgent extends DurableObject<Env> {
     },
     dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
-    peers: () => this.sweepPeers()
+    peers: () => this.sweepPeers(),
+    unwatched: (id) => {
+      if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
+    }
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -307,7 +310,8 @@ export class PiAgent extends DurableObject<Env> {
     surfaced: this.surfaced,
     proactivity: this.proactivity,
     zone: () => this.automations.checkIns().zone,
-    deliver: (item, now) => this.deliveries.deliver(item, now)
+    deliver: (item, now) => this.deliveries.deliver(item, now),
+    automations: this.automations
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -466,6 +470,9 @@ export class PiAgent extends DurableObject<Env> {
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
     this.proactivity.onChange(() => this.ctx.waitUntil(this.automations.bookLooks()));
+    // A closed watch anticipation, or Proactivity off, retires its watch.
+    this.proactivity.onChange(() => this.ctx.waitUntil(this.looks.retire()));
+    this.anticipations.onClose(() => this.ctx.waitUntil(this.looks.retire()));
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();

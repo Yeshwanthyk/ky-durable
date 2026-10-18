@@ -83,6 +83,10 @@ import { isLive } from "./tasks";
  * search and read the web, answers NOTHING_NEW when it found nothing worth
  * saying, and only then stays out of the chat. Two may be booked a day, six
  * may wait at once, and the user can turn them off.
+ *
+ * Watches are ky's own gated automations a look books for a watch
+ * anticipation (src/dreaming/looks.ts): `watch` holds its id, and the look's
+ * side deletes the automation once that closes.
  */
 
 /** What runs need from pi, set up in server.ts. */
@@ -115,7 +119,12 @@ export type AutomationDeps = {
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   /** Peers' sweep (src/peers/peers.ts sweepPeers): questions that expire, and answers to send again. */
   readonly peers: () => Promise<void>;
+  /** The user deleted the watch for this anticipation: it is dismissed, so no look books it again. */
+  readonly unwatched: (anticipation: number) => void;
 };
+
+/** A check-in's run, or a watch's: read only, and saying nothing when nothing is new. */
+const isCheckIn = (row: AutomationRow) => row.created_by === "dream" || row.watch !== null;
 
 /** A look's booking: its local HH:MM. */
 const LookFire = Type.Object({ time: Type.String() });
@@ -254,6 +263,7 @@ export class Automations {
       gate_errors INTEGER NOT NULL DEFAULT 0,
       gate_found TEXT,
       gate_found_by TEXT,
+      watch INTEGER,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
@@ -265,7 +275,8 @@ export class Automations {
       ["gate_note", "TEXT"],
       ["gate_errors", "INTEGER NOT NULL DEFAULT 0"],
       ["gate_found", "TEXT"],
-      ["gate_found_by", "TEXT"]
+      ["gate_found_by", "TEXT"],
+      ["watch", "INTEGER"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -293,6 +304,11 @@ export class Automations {
     );
 
     return Promise.all(rows.map((row) => this.#view(row)));
+  }
+
+  /** The looks' watches (src/dreaming/looks.ts): each automation booked for a watch anticipation, its id and status. */
+  watches(): Array<{ readonly id: string; readonly watch: number; readonly status: AutomationStatus }> {
+    return this.#rows("SELECT * FROM ky_automations WHERE watch IS NOT NULL").flatMap(({ id, watch, status }) => (watch === null ? [] : [{ id, watch, status }]));
   }
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
@@ -327,17 +343,19 @@ export class Automations {
     this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
   }
 
-  /** Whether the pi session is a check-in's run at work. */
+  /** Whether the pi session is a check-in's or a watch's run at work. */
   checkInRun(session: string): boolean {
     const task = this.#deps.feed.working(session);
 
     if (!task?.source.startsWith(SOURCE)) return false;
 
-    return this.get(task.source.slice(SOURCE.length))?.created_by === "dream";
+    const row = this.get(task.source.slice(SOURCE.length));
+
+    return row !== undefined && isCheckIn(row);
   }
 
-  /** A new active automation, booked; or why it was refused. */
-  async create(draft: AutomationDraft, author: AutomationAuthor): Promise<Result<AutomationRow>> {
+  /** A new active automation, booked; or why it was refused. `watch` is the watch anticipation a look books it for. */
+  async create(draft: AutomationDraft, author: AutomationAuthor, watch: number | null = null): Promise<Result<AutomationRow>> {
     const problem = author === "dream" ? this.#checkInProblem(draft) : undefined;
 
     if (problem !== undefined) return refused(problem);
@@ -351,8 +369,8 @@ export class Automations {
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, gate, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, at, model, machine, chat, gate, watch, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -362,6 +380,7 @@ export class Automations {
       checked.machine,
       checked.chat,
       checked.gate,
+      watch,
       author,
       booked.id,
       now,
@@ -463,16 +482,29 @@ export class Automations {
     return `Resumed "${row.title}".`;
   }
 
-  /** Gone for good: no more fires, the run in progress stops, and the row is removed. Its past runs stay in Activity. */
+  /**
+   * Gone for good: no more fires, the run in progress stops, and the row is removed. Its past runs stay in Activity.
+   * A watch the user deletes dismisses its anticipation, so no look books it again.
+   */
   async delete(id: string): Promise<string> {
     const row = this.get(id);
 
     if (!row) return `No automation ${id}.`;
+    await this.retire(id);
+
+    if (row.watch !== null) this.#deps.unwatched(row.watch);
+
+    return `Deleted "${row.title}".`;
+  }
+
+  /** Gone for good as delete has it, but by ky: a look's watch (src/dreaming/looks.ts), its anticipation left as it is. */
+  async retire(id: string): Promise<void> {
+    const row = this.get(id);
+
+    if (!row) return;
     await this.#halt(row, "archived");
     this.#sql.exec("DELETE FROM ky_automations WHERE id = ?", id);
     this.#emit();
-
-    return `Deleted "${row.title}".`;
   }
 
   /** Back to paused, so resuming it is a separate choice. */
@@ -755,7 +787,7 @@ export class Automations {
 
         if (runs[row.id]?.task === task) return;
         runs[row.id] = { slot, task };
-        const checkIn = row.created_by === "dream";
+        const checkIn = isCheckIn(row);
         await runtime.spawn(tx, conversationOf(chat), {
           name: workerOf(row.id),
           message: checkIn ? `${CHECK_IN}${row.prompt}` : row.prompt,
@@ -972,7 +1004,7 @@ export class Automations {
    */
   #set(
     id: string,
-    patch: Partial<Omit<AutomationRow, "id" | "created_by" | "created_at" | "updated_at">>,
+    patch: Partial<Omit<AutomationRow, "id" | "watch" | "created_by" | "created_at" | "updated_at">>,
     when?: readonly AutomationStatus[]
   ): boolean {
     const current = this.get(id);

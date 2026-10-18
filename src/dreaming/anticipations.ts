@@ -137,6 +137,7 @@ export class Anticipations {
   readonly #memory: Memory;
   /** The main chat or a side chat: the only conversations whose messages are evidence. */
   readonly #chat: (session: string) => boolean;
+  readonly #closed = new Set<() => void>();
 
   constructor(sql: SqlStorage, memory: Memory, chat: (session: string) => boolean) {
     this.#sql = sql;
@@ -161,6 +162,15 @@ export class Anticipations {
     if (!sql.exec("PRAGMA table_info(ky_anticipations)").toArray().some((column) => decodeOr(ColumnRow, column, undefined)?.name === "recalled_at")) {
       sql.exec("ALTER TABLE ky_anticipations ADD COLUMN recalled_at INTEGER");
     }
+  }
+
+  /** Called after rows close (done, dismissed, absorbed or expired), so their watches are retired (src/dreaming/looks.ts). */
+  onClose(listener: () => void): void {
+    this.#closed.add(listener);
+  }
+
+  #notifyClosed(): void {
+    for (const listener of this.#closed) listener();
   }
 
   #rows(query: string, ...bindings: SqlStorageValue[]): Anticipation[] {
@@ -393,6 +403,8 @@ export class Anticipations {
     const closed = MOVES[to].length === 0 ? now : null;
 
     this.#sql.exec("UPDATE ky_anticipations SET status = ?, closed_at = ?, absorbed_into = ? WHERE id = ?", to, closed, absorbedInto, row.id);
+
+    if (closed !== null) this.#notifyClosed();
   }
 
   /** The row `id`, when `by` may change it: a machine only its own kind's rows, never a pinned one; an episode none. */
@@ -451,11 +463,15 @@ export class Anticipations {
 
   /** Open rows whose window passed before `now`, never surfaced and not pinned: expired. How many. */
   expire(now = Date.now()): number {
-    return this.#sql.exec(
+    const expired = this.#sql.exec(
       "UPDATE ky_anticipations SET status = 'expired', closed_at = ? WHERE status = 'open' AND pinned = 0 AND window_to < ? RETURNING id",
       now,
       now
     ).toArray().length;
+
+    if (expired > 0) this.#notifyClosed();
+
+    return expired;
   }
 
   /** The user keeps it: no machine changes it, and it never expires. */
