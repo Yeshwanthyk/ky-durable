@@ -204,19 +204,20 @@ const aWatched = fc.oneof(
 );
 
 describe("the watches a look books", () => {
-  it("are rows with a gate and a prompt on a watch not watched yet, one per ref, two a look, five at most, and as many as that allows", () => {
+  it("are rows with a gate and a prompt on a watch not watched yet, one per ref, two a look, five active at most, and as many as that allows", () => {
     fc.assert(
-      fc.property(fc.array(aWatchRow, { maxLength: 10 }), fc.subarray([...anticipations]), aWatched, (rows, watchable, watchedRefs) => {
+      fc.property(fc.array(aWatchRow, { maxLength: 10 }), fc.subarray([...anticipations]), aWatched, fc.nat(), (rows, watchable, watchedRefs, pick) => {
         const watched = new Set(watchedRefs);
-        const booked = newWatches(rows, new Set(watchable), watched);
+        const live = pick % (watched.size + 1);
+        const booked = newWatches(rows, new Set(watchable), watched, live);
         const wanted = rows.filter((row) => row.gate?.trim() && row.prompt?.trim() && watchable.includes(row.ref) && !watched.has(row.ref));
         const refs = [...new Set(wanted.map((row) => row.ref))];
 
-        expect(booked.map((row) => row.ref)).toEqual(refs.slice(0, Math.max(0, Math.min(NEW_WATCHES, WATCHES - watched.size))));
+        expect(booked.map((row) => row.ref)).toEqual(refs.slice(0, Math.max(0, Math.min(NEW_WATCHES, WATCHES - live))));
 
         for (const row of booked) expect(rows).toContain(row);
         expect(booked.length).toBeLessThanOrEqual(NEW_WATCHES);
-        expect(watched.size + booked.length).toBeLessThanOrEqual(Math.max(WATCHES, watched.size));
+        expect(live + booked.length).toBeLessThanOrEqual(Math.max(WATCHES, live));
       }),
       { numRuns: 500 }
     );

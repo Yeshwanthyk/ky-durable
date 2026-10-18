@@ -76,7 +76,7 @@ class World {
   check(): void {
     const open = new Set(this.#openWatches());
 
-    expect(this.watches.length).toBeLessThanOrEqual(WATCHES);
+    expect(this.watches.filter((each) => each.status === "active").length).toBeLessThanOrEqual(WATCHES);
     expect(this.booked).toBeLessThanOrEqual(NEW_WATCHES);
     expect(this.watches.filter((each) => !open.has(each.watch))).toEqual([]);
 
@@ -91,7 +91,9 @@ class World {
     const watchable = new Set(this.#openWatches().map((each) => `anticipation:${each}`));
     const watched = new Set(this.watches.map((each) => `anticipation:${each.watch}`));
 
-    for (const row of newWatches(rows, watchable, watched)) {
+    const live = this.watches.filter((each) => each.status === "active").length;
+
+    for (const row of newWatches(rows, watchable, watched, live)) {
       const watch = Number(row.ref.slice("anticipation:".length));
 
       if (failing.has(watch)) continue;
@@ -129,14 +131,16 @@ class World {
     this.#retire();
   }
 
-  /** The user, in the Automations panel: a paused or archived watch keeps its row, a deleted one has none. */
+  /** The user, in the Automations panel: a paused or archived watch keeps its row; a deleted one has none and dismisses its anticipation. */
   #user(op: "pause" | "archive" | "delete", index: number): void {
     const row = this.watches[index % Math.max(1, this.watches.length)];
 
     if (row === undefined) return;
 
-    if (op === "delete") this.watches = this.watches.filter((each) => each !== row);
-    else row.status = op === "pause" ? "paused" : "archived";
+    if (op === "delete") {
+      this.watches = this.watches.filter((each) => each !== row);
+      this.#close(row.watch);
+    } else row.status = op === "pause" ? "paused" : "archived";
   }
 }
 
@@ -155,7 +159,7 @@ describe("a look's watches over many looks", () => {
     );
   });
 
-  it("fill up to five, two a look, and take no more while five are paused or archived", () => {
+  it("fill up to five active, two a look, and make room again once some are paused or archived, never twice for one anticipation", () => {
     const world = new World();
 
     for (const each of IDS) world.step({ op: "add", id: each, watch: true });
@@ -166,8 +170,11 @@ describe("a look's watches over many looks", () => {
       expect(world.booked).toBe(booked);
     }
 
-    for (const index of [0, 1, 2, 3, 4]) world.step({ op: index % 2 === 0 ? "pause" : "archive", index });
+    for (const index of [0, 1]) world.step({ op: index % 2 === 0 ? "pause" : "archive", index });
     world.step({ op: "look", rows, failing: [] });
-    expect([world.booked, world.watches.length]).toEqual([0, WATCHES]);
+    const anticipations = world.watches.map((each) => each.watch);
+
+    expect([world.booked, world.watches.length]).toEqual([Math.min(NEW_WATCHES, IDS.length - WATCHES), Math.min(IDS.length, WATCHES + NEW_WATCHES)]);
+    expect(new Set(anticipations).size).toBe(anticipations.length);
   });
 });

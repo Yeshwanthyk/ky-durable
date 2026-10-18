@@ -86,9 +86,9 @@ const isWatch = (row: LookRow): row is WatchRow => (row.gate ?? "").trim() !== "
 /**
  * The watches a look books, in its rows' order: a row with a gate and a prompt on a ref in `watchable` (an open watch
  * anticipation) that is not `watched` already (whatever its automation's status), one per ref, at most NEW_WATCHES and
- * only while fewer than WATCHES are `live` (active; every watched one unless said). The rest wait for a later look.
+ * only while fewer than WATCHES are `live` (active: a paused or archived watch is watched but not live). The rest wait for a later look.
  */
-export function newWatches(rows: readonly LookRow[], watchable: ReadonlySet<string>, watched: ReadonlySet<string>, live = watched.size): WatchRow[] {
+export function newWatches(rows: readonly LookRow[], watchable: ReadonlySet<string>, watched: ReadonlySet<string>, live: number): WatchRow[] {
   const wanted = rows.filter(isWatch).filter((row) => watchable.has(row.ref) && !watched.has(row.ref));
 
   return wanted.filter((row, index) => wanted.findIndex((other) => other.ref === row.ref) === index).slice(0, Math.max(0, Math.min(NEW_WATCHES, WATCHES - live)));
