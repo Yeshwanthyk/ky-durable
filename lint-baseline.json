@@ -262,12 +262,11 @@
   },
   "test/harness/scenarios.ts": {
     "typescript(no-base-to-string)": 1,
-    "typescript(no-meaningless-void-operator)": 1,
     "typescript(no-unsafe-argument)": 1,
-    "typescript(no-unsafe-assignment)": 20,
-    "typescript(no-unsafe-call)": 25,
-    "typescript(no-unsafe-member-access)": 65,
-    "typescript(no-unsafe-return)": 11
+    "typescript(no-unsafe-assignment)": 21,
+    "typescript(no-unsafe-call)": 27,
+    "typescript(no-unsafe-member-access)": 70,
+    "typescript(no-unsafe-return)": 12
   },
   "test/harness/vibeproxy.ts": {
     "typescript(no-unsafe-argument)": 1

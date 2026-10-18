@@ -170,9 +170,39 @@ function segments(startedAt: readonly number[], resets: readonly number[]): numb
   return all;
 }
 
+/** The most starts a segment may hold: one, then each the backoff lets in before the deadline gives up. */
+const MOST_STARTS = 1 + [...Array(40).keys()].filter((k) => earliest(k + 1) <= START_DEADLINE_MS + TICK_MS).length;
+
+/** What the CloudMachine and its container did, for the invariants. */
+type Seen = { startedAt: number[]; tokens: number; wokeAt: number[]; uploads: boolean[]; failures: { saves: number; starts: number } };
+
+/** P3a and P3b's bound: each segment's starts keep to the backoff, and stop at the deadline. */
+function startsHold(run: Run, seen: Seen, where: string): void {
+  // A good start ends its segment just after it: the next start begins the next one.
+  const resets = [0, ...seen.wokeAt, ...run.goodStarts.map((at) => at + 0.5)];
+
+  for (const segment of segments(seen.startedAt, resets)) {
+    for (const [k, after] of segment.entries()) expect(after, `P3a: start ${k} of a segment came too soon ${where}`).toBeGreaterThanOrEqual(earliest(k));
+    expect(segment.length, `P3b: starts went on past the deadline ${where}`).toBeLessThanOrEqual(MOST_STARTS);
+  }
+
+  expect(seen.tokens, `P3a: a machine token for each start, no more ${where}`).toBe(seen.startedAt.length);
+}
+
+/** P3c: the machine says its saves fail after enough in a row, and not once one works. */
+function savesHold(seen: Seen, reason: string, where: string): void {
+  const trailing = seen.uploads.length - 1 - seen.uploads.findLastIndex((ok) => ok);
+
+  if (trailing >= SAVE_FAILURES_BEFORE_REASON) expect(reason, `P3c: the machine says its saves fail ${where}`).toMatch(SAVES_FAIL);
+
+  if (seen.uploads.at(-1) !== true) return;
+  expect(reason, `P3c: a save that works clears its reason ${where}`).not.toMatch(SAVES_FAIL);
+  expect(seen.failures.saves, `P3c: a save that works clears the count ${where}`).toBe(0);
+}
+
 /** P3a–P3d after an operation `where` says. */
 async function holds(run: Run, where: string): Promise<void> {
-  const seen = await onBox(run.id, async (instance, box) => ({
+  const seen = await onBox(run.id, async (instance, box): Promise<Seen> => ({
     startedAt: [...box.startedAt],
     tokens: box.tokens.length,
     wokeAt: [...instance.wokeAt],
@@ -180,31 +210,11 @@ async function holds(run: Run, where: string): Promise<void> {
     failures: await instance.failures()
   }));
 
-  // A good start ends its segment just after it: the next start begins the next one.
-  const resets = [0, ...seen.wokeAt, ...run.goodStarts.map((at) => at + 0.5)];
+  startsHold(run, seen, where);
+  savesHold(seen, (await reasonOf(run)) ?? "", where);
+  const failed = await inside("me", (agent) => run.gaveUp.map((task) => agent.feed.get(task)));
 
-  for (const segment of segments(seen.startedAt, resets)) {
-    for (const [k, after] of segment.entries()) expect(after, `P3a: start ${k} of a segment came too soon ${where}`).toBeGreaterThanOrEqual(earliest(k));
-    expect(segment.length, `P3b: starts went on past the deadline ${where}`).toBeLessThanOrEqual(1 + [...Array(40).keys()].filter((k) => earliest(k + 1) <= START_DEADLINE_MS + TICK_MS).length);
-  }
-
-  expect(seen.tokens, `P3a: a machine token for each start, no more ${where}`).toBe(seen.startedAt.length);
-  const reason = await reasonOf(run);
-  const trailing = seen.uploads.length - 1 - seen.uploads.findLastIndex((ok) => ok);
-
-  if (trailing >= SAVE_FAILURES_BEFORE_REASON) expect(reason ?? "", `P3c: the machine says its saves fail ${where}`).toMatch(SAVES_FAIL);
-
-  if (seen.uploads.at(-1) === true) {
-    expect(reason ?? "", `P3c: a save that works clears its reason ${where}`).not.toMatch(SAVES_FAIL);
-    expect(seen.failures.saves, `P3c: a save that works clears the count ${where}`).toBe(0);
-  }
-
-  if (run.gaveUp.length > 0) {
-    const failed = await inside("me", (agent) => run.gaveUp.map((task) => agent.feed.get(task)));
-
-    for (const row of failed) expect([row?.status, row?.summary], `P3b: a waiting task failed with the start's reason ${where}`).toEqual(["failed", expect.stringContaining("didn't start")]);
-  }
-
+  for (const row of failed) expect([row?.status, row?.summary], `P3b: a waiting task failed with the start's reason ${where}`).toEqual(["failed", expect.stringContaining("didn't start")]);
   expect(run.destroyedUnsaved, `P3d: a destroy threw away a disk R2 lacked ${where}`).toEqual([]);
 }
 

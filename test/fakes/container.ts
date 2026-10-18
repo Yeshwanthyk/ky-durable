@@ -90,6 +90,15 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
   /** Whether the last start was refused, so nothing runs and the port says why. */
   let unplaced = false;
 
+  /** Send `child` `signal`, if it still runs, and wait for it to exit. */
+  const end = async (child: ChildProcess, signal: NodeJS.Signals) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+
+    child.kill(signal);
+    await exited;
+  };
+
   const kill = async () => {
     const was = box;
 
@@ -97,12 +106,7 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
 
     if (!was) return;
 
-    if (was.child.exitCode === null && was.child.signalCode === null) {
-      const exited = new Promise((resolve) => was.child.once("exit", resolve));
-
-      was.child.kill("SIGKILL");
-      await exited;
-    }
+    await end(was.child, "SIGKILL");
 
     rmSync(was.home, { recursive: true, force: true });
   };
@@ -152,35 +156,31 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     return true;
   };
 
-  /** A request to the runner's port, as `getTcpPort(8080).fetch` is. */
-  const toPort = (request: IncomingMessage, response: ServerResponse) => {
-    if (!box) {
-      if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
-      else response.writeHead(502).end("no container");
+  /** No container runs: after a refused start, a 503 that says so, as Cloudflare's; else nothing answers. */
+  const noBox = (response: ServerResponse) => {
+    if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
+    else response.writeHead(502).end("no container");
+  };
 
-      return;
-    }
+  /** Whether this request is a save while saves fail: answered 500 here, it never reaches the runner. */
+  const failsSave = (request: IncomingMessage, response: ServerResponse) => {
+    if (!failing || request.method !== "POST" || request.url !== "/port/save") return false;
+    failedSaves++;
+    response.writeHead(500).end("the save failed");
 
-    if (failing && request.method === "POST" && request.url === "/port/save") {
-      failedSaves++;
-      response.writeHead(500).end("the save failed");
+    return true;
+  };
 
-      return;
-    }
+  /** Forward the request to the runner on `port`; a cut one's answer breaks off after its headers. */
+  const forwardTo = (port: number, request: IncomingMessage, response: ServerResponse, cut: boolean) => {
+    const upstream = forward({ host: "127.0.0.1", port, method: request.method, path: request.url?.slice("/port".length), headers: request.headers }, (answer) => {
+      response.writeHead(answer.statusCode ?? 502, answer.headers);
 
-    const cut = cutsThis(request);
-
-    const upstream = forward(
-      { host: "127.0.0.1", port: box.port, method: request.method, path: request.url?.slice("/port".length), headers: request.headers },
-      (answer) => {
-        response.writeHead(answer.statusCode ?? 502, answer.headers);
-
-        if (!cut) return void answer.pipe(response);
-        cutOff++;
-        answer.destroy();
-        response.destroy();
-      }
-    );
+      if (!cut) return void answer.pipe(response);
+      cutOff++;
+      answer.destroy();
+      response.destroy();
+    });
 
     // Nothing listens yet: the container is still starting, as the real one refuses then.
     upstream.on("error", (error) => {
@@ -188,6 +188,13 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       else response.destroy();
     });
     request.pipe(upstream);
+  };
+
+  /** A request to the runner's port, as `getTcpPort(8080).fetch` is. */
+  const toPort = (request: IncomingMessage, response: ServerResponse) => {
+    if (!box) return noBox(response);
+
+    if (!failsSave(request, response)) forwardTo(box.port, request, response, cutsThis(request));
   };
 
   const server: Server = createServer((request, response) => {
@@ -241,13 +248,7 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     },
     failedSaves: () => failedSaves,
     terminate: async () => {
-      const child = box?.child;
-
-      if (!child || child.exitCode !== null || child.signalCode !== null) return;
-      const exited = new Promise((resolve) => child.once("exit", resolve));
-
-      child.kill("SIGTERM");
-      await exited;
+      if (box) await end(box.child, "SIGTERM");
     },
     close: async () => {
       await kill();

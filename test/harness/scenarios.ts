@@ -94,18 +94,21 @@ async function started(context: Context, name: string, input: string, from: Clie
   return id!;
 }
 
-/** Why the task list says the machine is unwell, if it does. */
-function reasonOf(context: Context, name: string): string | null {
+/** The machines the newest task list shows. */
+function machinesShown(context: Context) {
   const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
 
-  return (latest?.type === "tasks" && latest.machines.find((each) => each.name === name)?.reason) || null;
+  return latest?.type === "tasks" ? latest.machines : [];
+}
+
+/** Why the task list says the machine is unwell, if it does. */
+function reasonOf(context: Context, name: string): string | null {
+  return machinesShown(context).find((each) => each.name === name)?.reason ?? null;
 }
 
 /** Whether the task list shows the machine online. */
 export function online(context: Context, name: string): boolean {
-  const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
-
-  return latest?.type === "tasks" && latest.machines.some((each) => each.name === name && each.online);
+  return machinesShown(context).some((each) => each.name === name && each.online);
 }
 
 function sendTo(context: Context, task: string, message: string): void {
