@@ -135,7 +135,8 @@ const FIXED = new Map<string, Activity>([
   ["memory_recall", { icon: "repo", label: "Recalling memory" }],
   ["memory_zoom", { icon: "repo", label: "Recalling memory" }],
   ["memory_forget", { icon: "repo", label: "Tidying memory" }],
-  ["chat_search", { icon: "search", label: "Searching chats" }]
+  ["chat_search", { icon: "search", label: "Searching chats" }],
+  ["ui", { icon: "chat", label: "Showing you" }]
 ]);
 
 

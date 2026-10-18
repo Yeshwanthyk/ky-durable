@@ -1,15 +1,21 @@
-import { createContext, memo, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { SENDING } from "../outbox";
 import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
+import { KY_AVATAR } from "../avatar-spec";
+import type { BlobVariantId } from "./blob-catalog";
+import { BlockCard } from "./Blocks";
+import { card } from "./card-answers";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";
 import { useLightbox } from "./Lightbox";
 import type { Item, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
-import { Icon, Spinner } from "./Icon";
+import { eventsOf, type ThreadEvent } from "./events";
+import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
+import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
 
 /** Opens the running turn's steps as a timeline; a thread with nowhere to show them has none. */
@@ -17,6 +23,11 @@ export const OpenStepsContext = createContext<(() => void) | null>(null);
 
 /** What turn-start recall gave the model for each of the chat's user messages, by message id. */
 export const RecalledContext = createContext<Readonly<Record<string, readonly string[]>>>({});
+
+/** Who answers in this chat, for the working row: ky's name and blob, or a subagent's name without one. */
+export type Speaker = { readonly name: string; readonly variantId?: BlobVariantId };
+
+export const SpeakerContext = createContext<Speaker>({ name: "ky" });
 
 // The last few turns stay open; older ones fold behind one button, as in pecan.
 const openTurns = 3;
@@ -29,12 +40,17 @@ export type ThreadMode = "live" | "booting" | "dormant";
 export function Thread({
   turns,
   mode = "live",
+  visit = null,
 }: {
   turns: ReadonlyArray<Turn>;
   mode?: ThreadMode;
+  /** When the user last saw this chat, for the New divider above what landed since. */
+  visit?: Visit;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const hidden = showAll ? 0 : Math.max(0, turns.length - openTurns);
+  const hidden = showAll ? 0 : folded(turns.length, openTurns, firstNew(turns, visit));
+  const shownTurns = turns.slice(hidden);
+  const above = marks(shownTurns, visit, Date.now());
   // The first message of a new chat rises in where the welcome screen was, rather than swapping
   // in; opening a chat that already has a turn shows it at once.
   const [arrived] = useState(() => turns.length === 1 && turns[0] !== undefined && fresh(turns[0]));
@@ -49,14 +65,47 @@ export function Thread({
           </span>
         </button>
       ) : null}
-      {turns.slice(hidden).map((turn, index, shown) => (
-        <TurnView
-          key={turn.id}
-          turn={turn}
-          mode={index === shown.length - 1 ? mode : "dormant"}
-          arrived={arrived}
-        />
+      {shownTurns.map((turn, index, shown) => (
+        <Fragment key={turn.id}>
+          <TurnMark mark={above[index]} />
+          <TurnView
+            turn={turn}
+            mode={index === shown.length - 1 ? mode : "dormant"}
+            arrived={arrived}
+            next={shown[index + 1]?.user ?? null}
+            last={index === shown.length - 1}
+          />
+        </Fragment>
       ))}
+    </>
+  );
+}
+
+/** The lasting changes a finished turn made, one quiet line each; a live turn shows them in its work. */
+function TurnEvents({ items, live }: { items: readonly Item[]; live: boolean }) {
+  const events: readonly ThreadEvent[] = live ? [] : eventsOf(items);
+
+  return events.map((event) => (
+    <p key={event.id} className="turn-event">
+      <span className="quiet">{event.verb}</span>
+      <Icon name={event.icon} size={13} />
+      <span className="turn-event-name">{event.name}</span>
+    </p>
+  ));
+}
+
+/** A day stamp, a New divider, or both, above a turn. */
+function TurnMark({ mark }: { mark: Mark | undefined }) {
+  if (mark === undefined) return null;
+
+  return (
+    <>
+      {mark.day === null ? null : <div className="day-stamp">{mark.day}</div>}
+      {mark.isNew ? (
+        <div className="new-divider" role="separator" aria-label="New since you last looked">
+          <span>New</span>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -216,7 +265,20 @@ function useNow(live: boolean, every = 1000) {
 }
 
 // Memoised: buildTurns keeps a finished turn's identity, so only the streaming turn renders per token.
-const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; mode: ThreadMode; arrived: boolean }) {
+const TurnView = memo(function TurnView({
+  turn,
+  mode,
+  arrived,
+  next,
+  last
+}: {
+  turn: Turn;
+  mode: ThreadMode;
+  arrived: boolean;
+  /** The user's next message, which answers this turn's cards. */
+  next: string | null;
+  last: boolean;
+}) {
   // A streaming turn nothing is working on was cut off; it must not look live. While booting, one
   // that already has output is left from before the restart.
   const cutOff = mode === "dormant" || (mode === "booting" && turn.items.length > 0);
@@ -226,7 +288,10 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
   // Specialists' replies are their own messages, under ky's part of the turn.
   const replies = turn.items.filter((item): item is Reply => item.kind === "specialist");
   const waiting = turn.to.filter((id) => !replies.some((reply) => reply.from === id));
-  const { log, answer } = split(turn.items.filter((item) => item.kind !== "specialist"), live);
+  // Cards ky showed with the ui tool are part of its answer, not its work log.
+  const cards = turn.items.flatMap((item) => (item.kind === "tool" && item.name === "ui" && item.status === "done" ? [{ id: item.id, ui: card(item) }] : []));
+  const { log, answer } = split(turn.items.filter((item) => item.kind !== "specialist" && !(item.kind === "tool" && item.name === "ui")), live);
+  const speaker = useContext(SpeakerContext);
   const [open, setOpen] = useState(false);
   const started = turn.startedAt === null ? undefined : Date.parse(turn.startedAt);
   // A cut-off turn has no end time, so it has no duration either.
@@ -281,10 +346,14 @@ const TurnView = memo(function TurnView({ turn, mode, arrived }: { turn: Turn; m
                 <Markdown source={answer} />
               </div>
             ) : null}
+            <TurnEvents items={turn.items} live={live} />
+            {cards.map(({ id, ui }) => (ui ? <BlockCard key={id} ui={ui} answer={next} open={last && !live} /> : null))}
             {live ? (
               <button type="button" className="live" disabled={openSteps === null} aria-haspopup="dialog" onClick={openSteps ?? undefined}>
-                <Spinner size={13} />
-                <span className="shimmer">Working</span>
+                <span className="live-avatar" aria-hidden="true">
+                  <BotAvatar name={speaker.name} variantId={speaker.variantId} owner={speaker.variantId && KY_AVATAR} active size={20} />
+                </span>
+                <span className="shimmer">{speaker.name} is working</span>
                 {took ? <span className="quiet tabular">{took}</span> : null}
                 {steps > 0 && openSteps ? (
                   <span className="quiet live-steps">

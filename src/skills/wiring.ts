@@ -32,25 +32,25 @@ export function skillTools({ skills, reviews, background, chat }: SkillsWiring):
 }
 
 /** The main agent's own extensions, which subagents and specialists may be given or not. */
-export type MainTools = { readonly soul: Extension; readonly memory: Extension; readonly machines: Extension; readonly automations: Extension };
+export type MainTools = { readonly soul: Extension; readonly memory: Extension; readonly machines: Extension; readonly automations: Extension; readonly ui: Extension };
 
 /** Specialists, subagents and their progress steps; `spawn` starts a subagent from outside a tool call. */
 export function delegationTools(
   { specialists: store, feed, models, automations, chat, deliver }: SkillsWiring,
-  { soul, memory, machines, automations: automationTool }: MainTools
+  { soul, memory, machines, automations: automationTool, ui }: MainTools
 ) {
   const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId));
 
   const subagents = subagentExtension(
     feed,
-    [soul, memory, machines, automationTool, specialists.manage],
+    [soul, memory, machines, automationTool, specialists.manage, ui],
     () => models.resolve("worker").choice,
     (feedId) => automations.wanted(feedId),
     {
       store,
       tools: specialists,
       // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
-      remove: [soul, automationTool, specialists.manage],
+      remove: [soul, automationTool, specialists.manage, ui],
       model: (own) => models.worker(own)
     },
     deliver
