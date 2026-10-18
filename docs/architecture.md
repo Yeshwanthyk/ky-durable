@@ -41,7 +41,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_chats` (side chats, `src/chats.ts`), `ky_automations` (`src/automations/automations.ts`), `ky_providers` (`src/providers/records.ts`),
 `ky_purposes` (each purpose's model, `src/settings.ts`),
 `memo_log` and `memo_tree` (memory, `src/dreaming/memory.ts`), `ky_skills`, `ky_skill_versions` and `ky_skill_reviews` (`src/skills/skills.ts`),
-`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat or sent to the brief, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
+`ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_brief` (`src/dreaming/brief.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
 - Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
@@ -142,9 +142,9 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 - Machines: Claude Code or Codex on a real computer (`machine` tool, `src/machines/machines.ts`).
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
   A cloud run's report, and the notice that a failing gate paused an automation, go through `Deliveries`
-  (`src/automations/delivery.ts`): into the chat only between turns (at once when idle, at the turn's end when
-  busy, never steered into a run), or, at Settings › Proactivity boundary with the user away 10 minutes, into
-  today's brief as an event line. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
+  (`src/automations/delivery.ts`): always into its chat, in full, whether or not the user is around, and only
+  between turns (at once when idle, at the turn's end when busy, never steered into a run). A side chat archived by the time a run starts
+  is brought back for it, and a deleted one's go to main. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
   that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
   ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection). A run

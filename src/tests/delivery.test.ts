@@ -5,8 +5,8 @@ import { EXECUTOR_TOKEN, EXECUTOR_URL } from "./stack";
 
 /**
  * An automation's fire, as its alarm runs it, through to the user (src/automations/automations.ts and delivery.ts),
- * driven from the browser: its gate decides whether the run is worth waking for, and its report goes into the chat,
- * once the chat's turn is over, or into today's brief when Settings › Proactivity is at boundary and the user is away.
+ * driven from the browser: its gate decides whether the run is worth waking for, and its report goes into the chat
+ * once the chat's turn is over, in full, even with Settings › Proactivity at boundary and the user away.
  */
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,7 +41,7 @@ async function ready(name: string): Promise<Tab> {
 }
 
 describe("an automation's fire", () => {
-  it("reports to the chat, skips what the last run found, runs again what a failed run found, and goes to the brief while the user is away", async () => {
+  it("reports to the chat, skips what the last run found, runs again what a failed run found, and reports in full while the user is away", async () => {
     const name = crypto.randomUUID();
     const page = await ready(name);
     const id = await save(page, ["Trip form due Friday"]);
@@ -66,14 +66,14 @@ describe("an automation's fire", () => {
     await page.until(() => runs(page, id, "done").length === 2);
     await page.until(() => reports(page).length === 2);
 
-    // Seed: the user last sent a message two hours ago. The next finding waits in today's brief, not the chat.
+    // Seed: the user last sent a message two hours ago. The next finding still goes to the chat, in full, and not to the brief.
     await inside(name, (instance) => instance.presence.seen(Date.now() - 2 * 3_600_000));
     await save(page, ["Trip form due Friday", "Pizza day", "Book fair"], id);
     await pause(1_100);
     await fire(name, id);
-    await page.until(() => (page.latest("brief")?.brief.lines ?? []).some((line) => line.chip === 'Tell me about the automation "School mail" report'));
-    await pause(400);
-    expect(reports(page)).toHaveLength(2);
+    await page.until(() => reports(page).length === 3);
+    expect(reports(page)[2]!.parts.some((part) => part.type === "text" && part.text.includes("Book fair"))).toBe(true);
+    expect(page.latest("brief")?.brief.lines ?? []).toEqual([]);
     page.close();
   });
 

@@ -252,13 +252,9 @@ export class PiAgent extends DurableObject<Env> {
     proactivity: this.proactivity,
     automations: this.automations
   });
-  /** How an automation's report reaches the user: in its chat between turns, or in the brief while they are away. */
+  /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
-    presence: this.presence,
-    proactivity: this.proactivity,
-    brief: this.brief,
     surfaced: this.surfaced,
-    chats: this.chats,
     submit: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session);
 
@@ -361,7 +357,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(skillTools(skilling));
 
       const { machines } = machineTools({ machines: this.machines, feed: this.feed });
-      const { automations, checkInGuard } = automationTools({ automations: this.automations, deliveries: this.deliveries, models: this.models, reviews: this.reviews });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
       this.registry.install(recall);

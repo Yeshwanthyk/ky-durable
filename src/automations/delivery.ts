@@ -1,28 +1,20 @@
 import { defineExtension, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
-import type { ChatList } from "../chats";
-import type { Brief, Presence, Proactivity, Surfaced } from "../dreaming/wiring";
+import type { Surfaced } from "../dreaming/wiring";
 import { decodeOr } from "../core/decode";
-import { type Delivery, DeliverySchema, type HeldReport, HeldReportRow, type QueuedDelivery, SessionRow } from "./contract";
+import { type Delivery, DeliverySchema, SessionRow } from "./contract";
 
 /**
  * How what an automation tells a chat reaches the user: a run's report (src/skills/subagents.ts) or its notice
- * that its gate paused it (src/automations/automations.ts). It enters a chat only between turns, never into a
- * run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the user
- * is watching. With Settings › Proactivity at boundary and the user away (no message sent for PRESENT_MS), it
- * goes to today's brief instead, as an event line whose chip asks ky about the report (which ky reads in full with
- * the automation tool's reports action), and its chat moves up in the sidebar; a line the user has not handled by midnight is carried into the next day's brief. At off and brief, the
- * user turned nothing on, so reports go to the chat as they always have. When the brief will not take a line (it
- * holds its 3 event lines, or proactivity was turned off since), the report goes to the chat after all: a report
- * the user asked for is never lost.
+ * that its gate paused it (src/automations/automations.ts). It always goes to that chat, in full, whether or not
+ * the user is around. It enters only between turns, never into a run: an idle chat takes it at once, and a busy
+ * one when its turn is over, so it never steers the work the user is watching.
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
  * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
  * answer, a stop, a failure), on the next delivery to that chat, and when the object starts. Its id is also its request id with pi, so a submit a crash
- * cut off before its row was marked is taken once when tried again.
+ * cut off before its row was marked is taken once when tried again. Rows an older ky marked 'brief' (sent to the
+ * brief instead) were delivered there; they only keep their id known until they age out.
  */
-
-/** A user who sent a message this recently is at the keyboard; longer (a meeting, lunch) and a chat line waits unseen. */
-const PRESENT_MS = 10 * 60_000;
 
 /** A line in a chat counts as unhandled for a day, then as expired, as a brief line does at midnight. */
 const EVENT_EXPIRY_MS = 86_400_000;
@@ -30,10 +22,8 @@ const EVENT_EXPIRY_MS = 86_400_000;
 /** Rows kept after their delivery, so a late second hand-over is still known. */
 const KEEP_MS = 30 * 86_400_000;
 
-/** The brief's limits on a line and on its chip (src/dreaming/brief.ts). */
+/** The limit on an event line, as on a brief line (src/dreaming/brief.ts). */
 const LINE_BYTES = 280;
-
-const CHIP_CHARS = 500;
 
 const encoder = new TextEncoder();
 
@@ -49,31 +39,9 @@ function fit(text: string): string {
   return `${cut}…`;
 }
 
-/** Reports the automation tool's reports action reads, newest first. */
-const HELD_REPORTS = 3;
-
-/** A held report's cap in that read, so a long one cannot flood the context. */
-const HELD_CHARS = 6_000;
-
-/**
- * The chip is the user's ask about the report, never the report itself put in their mouth: "Tell me about the
- * <label> report", the label being the one the delivery names, like automation "Inbox"; ky reads the report
- * itself with the automation tool's reports action.
- */
-function chipOf(label: string | undefined): string {
-  const name = label?.replaceAll(/\s+/g, " ").trim() ?? "";
-  const ask = name === "" ? "Tell me about that report" : `Tell me about the ${name} report`;
-
-  return ask.length <= CHIP_CHARS ? ask : `${ask.slice(0, CHIP_CHARS - 1)}…`;
-}
-
 /** What delivery needs from the rest of ky, set up in src/server.ts. */
 export type DeliveryParts = {
-  readonly presence: Pick<Presence, "last">;
-  readonly proactivity: Pick<Proactivity, "level">;
-  readonly brief: Pick<Brief, "append">;
   readonly surfaced: Pick<Surfaced, "shown">;
-  readonly chats: Pick<ChatList, "answered">;
   /** Put `content` in the chat by `requestId`: true once pi took it, false (writing nothing) while a run is going. */
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
   /** Resolve once the chat has no run going. */
@@ -106,8 +74,7 @@ export class Deliveries {
   async deliver(item: Delivery, now = Date.now()): Promise<void> {
     const known = this.#sql.exec("SELECT 1 FROM ky_deliveries WHERE id = ?", item.id).toArray().length > 0;
 
-    // The brief's write and the row's go together, with nothing awaited between them.
-    if (!known && !(this.#away(now) && this.#toBrief(item, now))) {
+    if (!known) {
       this.#sql.exec(
         "INSERT INTO ky_deliveries (id, session, content, line, ref, state, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)",
         item.id,
@@ -140,47 +107,6 @@ export class Deliveries {
     for (const session of sessions) this.#parts.later(this.#afterRun(session));
   }
 
-  /** The reports that went to the brief instead of `session`, newest first, in full up to HELD_CHARS each. */
-  held(session: string): HeldReport[] {
-    return this.#sql
-      .exec("SELECT line, content, created_at FROM ky_deliveries WHERE session = ? AND state = 'brief' ORDER BY created_at DESC LIMIT ?", session, HELD_REPORTS)
-      .toArray()
-      .flatMap((row) => {
-        const held = decodeOr(HeldReportRow, row, undefined);
-
-        return held === undefined ? [] : [{ line: held.line, content: held.content.length > HELD_CHARS ? `${held.content.slice(0, HELD_CHARS - 1)}…` : held.content, at: held.created_at }];
-      });
-  }
-
-  /** Proactivity is at boundary and the user has sent nothing for PRESENT_MS. */
-  #away(now: number): boolean {
-    return this.#parts.proactivity.level() === "boundary" && now - this.#parts.presence.last() > PRESENT_MS;
-  }
-
-  /** Today's brief takes the line, and the chat moves up in the sidebar; false when the brief refuses it. */
-  #toBrief(item: Delivery, now: number): boolean {
-    try {
-      this.#parts.brief.append({ text: fit(item.line), chip: chipOf(item.label) }, { loop: "event", ref: item.ref }, now);
-    } catch {
-      // Full, or proactivity turned off since: the chat gets it instead, as it would at off.
-      return false;
-    }
-
-    this.#sql.exec(
-      "INSERT INTO ky_deliveries (id, session, content, line, ref, state, created_at, delivered_at) VALUES (?, ?, ?, ?, ?, 'brief', ?, ?)",
-      item.id,
-      item.session,
-      item.content,
-      item.line,
-      item.ref,
-      now,
-      now
-    );
-    this.#parts.chats.answered(item.session);
-
-    return true;
-  }
-
   async #afterRun(session: string): Promise<void> {
     await this.#parts.idle(session);
     await this.#flush(session);
@@ -207,7 +133,7 @@ export class Deliveries {
     this.#parts.later(wait());
   }
 
-  #queued(session: string): QueuedDelivery[] {
+  #queued(session: string): Delivery[] {
     return this.#sql
       .exec("SELECT id, session, content, line, ref FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
       .toArray()
