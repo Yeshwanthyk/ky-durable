@@ -4,7 +4,7 @@ import path from "node:path";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { WebSocket as Socket } from "ws";
-import type { FileRow, TaskRow } from "../../src/protocol.ts";
+import type { FileRow, MachineInfo, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/machines/contract.ts";
 import { signedIn } from "../../src/tests/fake-access.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
@@ -96,7 +96,7 @@ async function started(context: Context, name: string, input: string, from: Clie
 }
 
 /** The machines the newest task list shows. */
-function machinesShown(context: Context) {
+function machinesShown(context: Context): readonly MachineInfo[] {
   const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
 
   return latest?.type === "tasks" ? latest.machines : [];
