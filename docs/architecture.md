@@ -53,6 +53,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   pin, and marks each the user's ("yours") or ky's (`created_by`, `src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
+  Every start adds whichever of six pinned skills on delegating and checking work (`delegate`, `fan-out`, `orchestrate`, `challenge`, `sharpen`, `prove-it`, `src/seeds.ts`) is missing; one that exists, however the owner changed it, is left as it is.
 - Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
   and again when the zone changes), ky reads what happened since the last dream (what was said in the main chat
   and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with

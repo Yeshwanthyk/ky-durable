@@ -8,8 +8,8 @@ import type { Skills, Specialists } from "./skills/contract";
  * What a new ky starts with, once, on its first start: starter skills, one
  * example specialist and starter automations. Everything that acts on its
  * own is off: the skills are archived and the automations paused, so the
- * owner turns on what they want from Skills and Activity. make-avatar is
- * the exception: on, and added to a ky that predates it.
+ * owner turns on what they want from Skills and Activity. make-avatar and
+ * the default skills are the exception: on, and added to a ky that predates them.
  */
 
 const SKILLS = [
@@ -71,6 +71,86 @@ const MAKE_AVATAR = {
   ].join("\n")
 };
 
+/**
+ * How to delegate and check work, on and pinned from the start, so reviews, dreams and the stale sweep leave them
+ * alone. A ky from before them gets each missing one on its next start; once there, the owner's changes stand.
+ */
+const DEFAULT_SKILLS = [
+  {
+    name: "delegate",
+    description: "How to brief subagents, machines and specialists so their work comes back right, and how to check it before telling the user.",
+    body: [
+      "When you hand work to a subagent, a machine or a specialist:",
+      "1. Brief it fully. It knows nothing you don't write: give the task, why it matters, what is in and out of scope, the inputs (links, names, earlier findings), and what proof you expect back (sources, file paths, a diff, a screenshot).",
+      "2. One writer per target. Never give two workers the same file, repo branch, document or account to change at once.",
+      "3. Name it for its job (researcher, flight-check) and give it a 3-6 word title, so the user can follow it in Activity.",
+      "4. Don't wait or poll: answers arrive as messages. Keep talking to the user meanwhile.",
+      "5. When an answer arrives, check it against the brief, not against its own summary: open the source, the file or the diff it names. Missing proof means it is not done; send it back with what is missing.",
+      "6. Account for every worker before you answer: done, failed (why), or still running. Never report a stopped or failed worker's work as done."
+    ].join("\n")
+  },
+  {
+    name: "fan-out",
+    description: "Split a big question across several subagents, or race a few on the same task, then combine one checked answer.",
+    body: [
+      "Use when a task splits into independent parts, or when you want several attempts at one hard question.",
+      "1. Say what done looks like before you start: the exact answer or artifact, and how you will check it.",
+      "2. Pick a shape. Partition: each subagent gets its own non-overlapping slice (sources, dates, regions, files). Race: each gets the same brief; decide first whether you take the first good answer, rank all, or combine the best parts.",
+      "3. Spawn them together, each with the full brief and its slice. Each must answer PASS, ISSUES or BLOCKED with evidence.",
+      "4. Gather every answer. Note which failed or were blocked; don't hide gaps.",
+      "5. Check the claims that matter yourself. Merge duplicates. For a race, compare whole answers against your done check, pick the best as the base and add at most one or two parts from the others. If the answers disagree wildly, the brief was unclear: rewrite it and run again rather than averaging.",
+      "6. Tell the user the combined answer, what was checked, and what is still unknown."
+    ].join("\n")
+  },
+  {
+    name: "orchestrate",
+    description: "Run multi-step work where later steps need earlier results: order the steps, pass real results forward, checkpoint, and keep every worker accounted for.",
+    body: [
+      "Use for work with steps that depend on each other, over many turns or days.",
+      "1. Write the steps, what each needs from earlier ones, and how each is checked. Start independent steps together.",
+      "2. Give a dependent step the actual result of the step before it (the text, links, file paths), not just \"continue from before\".",
+      "3. One writer per file, branch or document at a time. Stop or finish an old worker before starting its replacement.",
+      "4. After each step, keep a short checkpoint (memory_note or the task title): the goal, decisions made, what is done with its evidence, and the next action.",
+      "5. Check each finished step against its artifacts before starting the next one that depends on it. A changed result means re-checking what relied on it.",
+      "6. You are done when every step is finished and checked, or you can name the exact blocker. Tell the user both, and account for every worker."
+    ].join("\n")
+  },
+  {
+    name: "challenge",
+    description: "Before a costly or one-way decision, have independent reviewers try to break the plan, then judge on evidence.",
+    body: [
+      "Use before something hard to undo (money, sending, deleting, a big plan) or when the user asks \"are we sure?\".",
+      "1. State the plan or claim and what it must achieve in one paragraph.",
+      "2. Get two or three independent views: subagent discuss with specialists, or separate subagents given the same paragraph and sources, each told to find what is wrong, missing or risky, with evidence.",
+      "3. Don't count votes. Check each objection against the facts; keep a strong objection even if only one reviewer raised it, and drop agreement that has no evidence.",
+      "4. Tell the user what to fix, what to decide, and what you dismissed and why."
+    ].join("\n")
+  },
+  {
+    name: "sharpen",
+    description: "Before a vague or large task, work out the real goal, how an expert would do it, and what is over- or underspecified, then do the work.",
+    body: [
+      "Before starting a vague or large task, answer for yourself:",
+      "1. How would a top expert do this? Their sources, their method, and how they would know the result is right.",
+      "2. What is the user really after? The goal behind the words.",
+      "3. Is it over- or underspecified? Drop constraints that don't serve the goal; leave choices that are the user's for the user. Ask one question only if the answer changes the work.",
+      "Fold in only what makes the work better, not bigger. Keep one outside check that the result is right. Then do the work; don't show the user this framing."
+    ].join("\n")
+  },
+  {
+    name: "prove-it",
+    description: "Before saying something is done or true, check it on the real thing, and check delegated work through what it produced.",
+    body: [
+      "Before you tell the user something is done, fixed, booked, sent or true:",
+      "1. Check the real thing the claim is about: open the page, read the file, look at the diff, find the confirmation. A worker saying it worked is not proof.",
+      "2. Check where the claim lives. \"The site is up\" means loading the site, not seeing that the upload finished.",
+      "3. Say how you know: checked it yourself, read it in a source (link), or only inferred. Say what you did not check.",
+      "4. When a check fails, first suspect the check, then the work. Fix and check again on the same path.",
+      "5. Stop checking once the claim is proven."
+    ].join("\n")
+  }
+] as const;
+
 const SPECIALIST = {
   id: "editor",
   description: "Edits writing for clarity and length without changing its meaning.",
@@ -103,9 +183,15 @@ const AUTOMATIONS = [
   }
 ] as const;
 
-/** Seed a new ky; does nothing after its first start. */
+/** Seed a ky: make-avatar and the default skills when missing, on every start; the rest only on its first. */
 export async function seed(setup: Setup, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
   if (!skills.get(MAKE_AVATAR.name)) skills.apply({ action: "create", ...MAKE_AVATAR }, "ky");
+
+  for (const skill of DEFAULT_SKILLS) {
+    if (skills.get(skill.name)) continue;
+    skills.apply({ action: "create", ...skill }, "ky");
+    skills.apply({ action: "pin", name: skill.name }, "ky");
+  }
 
   if (!setup.firstStart()) return;
 
