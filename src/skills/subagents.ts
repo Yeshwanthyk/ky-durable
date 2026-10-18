@@ -4,6 +4,7 @@ import {
   AssistantEntry,
   type ConversationId,
   configure,
+  type Cursor,
   defineDoc,
   defineExtension,
   defineTask,
@@ -171,6 +172,8 @@ export function subagentExtension(
   mainOnly: readonly Extension[],
   /** The worker's model, applied to each subagent whenever it is messaged. */
   model: () => ModelChoice,
+  /** A model choice as it can run, or undefined when its model is unknown or not connected. */
+  valid: (choice: ModelChoice) => ModelChoice | undefined,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
   specialists?: SpecialistDeps,
@@ -308,6 +311,8 @@ export function subagentExtension(
       "send (name, title, message; followUp: true queues it after the current answer instead of steering it): message an existing one, which also resumes an idle one with its history. " +
       "stop (name): abort its current work; it stays usable. " +
       "status (name, or none for all). " +
+      "last (name): its latest answer in full. " +
+      "spawn and send take model (provider/modelId) and thinking to run on other than the worker model. " +
       "Answers are reported back to you as messages when they arrive; do not wait or poll for them. " +
       "Subagents know nothing you do not tell them: give them the full context in the message. " +
       "Specialists (see the roster, if any): " +
@@ -346,7 +351,7 @@ export function subagentExtension(
     return tx.createTask(Reporter, input, background(owner));
   }
 
-  const desk: Desk = { feed, specialists, model, register, deliver };
+  const desk: Desk = { feed, specialists, model, valid, register, deliver };
 
   const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
     const conversationId = await register(tx, owner, name);
@@ -364,6 +369,8 @@ type Desk = {
   readonly specialists: SpecialistDeps | undefined;
   /** The worker's model, applied to each subagent whenever it is messaged. */
   readonly model: () => ModelChoice;
+  /** A model choice as it can run, or undefined when its model is unknown or not connected. */
+  readonly valid: (choice: ModelChoice) => ModelChoice | undefined;
   /** A fresh child conversation, configured as a subagent and registered under `name`. */
   readonly register: (tx: Tx, owner: ConversationId, name: string) => Promise<ConversationId>;
   /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
@@ -397,6 +404,43 @@ async function status(feed: TaskFeed, name: string | undefined, api: ToolExecuti
 
   return lines.length === 0 ? "No subagents." : lines.join("\n");
 }
+
+/** The text of a conversation's latest answer that ended a turn, if it has one. */
+function lastAnswer(api: ToolExecutionApi, conversationId: ConversationId, context: Context): Promise<string | undefined> {
+  // A commit that writes nothing: the tool api lists entries only through a transaction, newest first.
+  return api.commit(async (tx) => {
+    let cursor: Cursor | undefined;
+
+    do {
+      const page = await tx.scanEntries({ conversationId }, 50, cursor);
+
+      for (const entry of page.items) {
+        const message = entry.model?.[0];
+
+        if (entry.kind === "pi.assistant" && message?.role === "assistant" && message.stopReason !== "toolUse") return textOf(message);
+      }
+
+      cursor = page.next;
+    } while (cursor !== undefined);
+
+    return undefined;
+  }, context);
+}
+
+/** The most of an answer `last` reads back. */
+const LAST_MAX = 16_000;
+
+const last: Act = async (_desk, { name }, api, context) => {
+  if (name === undefined) return "last needs a name.";
+  const agent = (await registryOf(api, context)).agents[name];
+
+  if (agent === undefined) return `No subagent named ${name}.`;
+  const text = await lastAnswer(api, agent.conversationId, context);
+
+  if (text === undefined) return `${name} has no answer yet.`;
+
+  return text.length > LAST_MAX ? `${text.slice(0, LAST_MAX)}…[truncated; ${text.length} chars total]` : text;
+};
 
 const stop: Act = async (_desk, { name }, api, context) => {
   const registry = await registryOf(api, context);
@@ -436,14 +480,30 @@ function messageRefusal(action: "spawn" | "send", name: string | undefined, text
   return text === undefined ? `${action} needs a message.` : undefined;
 }
 
+/** The model a spawn or send asked for, unchecked: `worker` itself when it names none, and a level alone changes the worker's. */
+function askedOf(worker: ModelChoice, { model, thinking }: SubagentInput): ModelChoice {
+  if (model === undefined) return thinking === undefined ? worker : { ...worker, thinkingLevel: thinking };
+  const [provider = "", ...rest] = model.split("/");
+
+  return { provider, modelId: rest.join("/"), thinkingLevel: thinking ?? worker.thinkingLevel };
+}
+
 /** Spawn a subagent, or send one a message. */
 function message(action: "spawn" | "send"): Act {
-  return async ({ feed, model, register, deliver }, { name, title, message: text, followUp }, api, context) => {
+  return async (desk, args, api, context) => {
+    const { feed, register, deliver } = desk;
+    const { name, title, message: text, followUp } = args;
+
     if (action === "spawn" && name?.startsWith("@")) return "Names starting with @ are specialists'; use ask.";
     const registry = await registryOf(api, context);
     const refusal = messageRefusal(action, name, text, registry);
 
     if (refusal !== undefined || name === undefined || text === undefined) return refusal ?? "";
+    const worker = desk.model();
+    const asked = askedOf(worker, args);
+    const choice = asked === worker ? worker : desk.valid(asked);
+
+    if (choice === undefined) return `No connected model ${asked.provider}/${asked.modelId}.`;
 
     let reporterId: string | undefined;
 
@@ -459,7 +519,7 @@ function message(action: "spawn" | "send"): Act {
 
       const input = { name, conversationId, message: text, followUp: action === "send" && followUp === true };
 
-      const reporter = await deliver(tx, api.conversationId, input, model());
+      const reporter = await deliver(tx, api.conversationId, input, choice);
       state.reporters[api.taskId] = reporter;
       reporterId = String(reporter);
 
@@ -572,6 +632,7 @@ export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
   send: message("send"),
   stop,
   status: (desk, { name }, api, context) => status(desk.feed, name, api, context),
+  last,
   ask,
   discuss
 };
