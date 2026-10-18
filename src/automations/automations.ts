@@ -264,6 +264,7 @@ export class Automations {
       gate_found TEXT,
       gate_found_by TEXT,
       watch INTEGER,
+      post INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
@@ -276,7 +277,8 @@ export class Automations {
       ["gate_errors", "INTEGER NOT NULL DEFAULT 0"],
       ["gate_found", "TEXT"],
       ["gate_found_by", "TEXT"],
-      ["watch", "INTEGER"]
+      ["watch", "INTEGER"],
+      ["post", "INTEGER NOT NULL DEFAULT 0"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -369,8 +371,8 @@ export class Automations {
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, gate, watch, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, at, model, machine, chat, gate, watch, post, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -381,6 +383,7 @@ export class Automations {
       checked.chat,
       checked.gate,
       watch,
+      checked.post ? 1 : 0,
       author,
       booked.id,
       now,
@@ -795,7 +798,8 @@ export class Automations {
           feedId: task,
           label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
           checkIn,
-          deliver: true
+          deliver: true,
+          post: row.post
         });
       });
     } catch (error) {
@@ -1012,7 +1016,7 @@ export class Automations {
     if (!current || (when !== undefined && !when.includes(current.status))) return false;
     const next = { ...current, ...patch };
     this.#sql.exec(
-      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?,
+      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?,
          gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
       next.title,
       next.prompt,
@@ -1022,6 +1026,7 @@ export class Automations {
       next.machine,
       next.chat,
       next.gate,
+      next.post ? 1 : 0,
       next.gate_checked_at,
       next.gate_note,
       next.gate_errors,
@@ -1107,8 +1112,8 @@ function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined
 }
 
 /** What an automation is and does, without its status, booking or anything else a row carries. */
-function draftOf({ title, prompt, cron, at, model, machine, chat, gate }: AutomationDraft): AutomationDraft {
-  return { title, prompt, cron, at, model, machine, chat, gate };
+function draftOf({ title, prompt, cron, at, model, machine, chat, gate, post }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, chat, gate, post };
 }
 
 /** What the tool's arguments change, leaving out what they do not mention. */
@@ -1121,7 +1126,8 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
     model: modelArg(args, fallback),
     machine: args.machine === "cloud" ? null : args.machine,
     chat: args.chat === "main" ? ROOT_SESSION : args.chat,
-    gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate
+    gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate,
+    post: args.post
   };
 
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
@@ -1167,7 +1173,7 @@ function lineOf(automations: Automations, view: AutomationView): string {
 
   return [
     `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view)}, by ${view.created_by}`,
-    `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}`,
+    `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
     `  next: ${next}; last run: ${last}`,
     ...(view.gate === null
       ? []

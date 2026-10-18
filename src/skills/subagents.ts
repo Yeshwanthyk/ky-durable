@@ -92,6 +92,8 @@ type ReporterInput = {
   checkIn?: boolean;
   /** An automation's run: its report is delivered between turns (src/automations/delivery.ts), not steered in. */
   deliver?: boolean;
+  /** A delivered report is posted as ky's own message, as written, and starts no turn. */
+  post?: boolean;
 };
 
 /** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
@@ -103,6 +105,7 @@ export type SpawnRequest = {
   label?: string;
   checkIn?: boolean;
   deliver?: boolean;
+  post?: boolean;
 };
 
 /** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
@@ -129,9 +132,9 @@ type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; 
 /** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
 
-/** What the main agent reads of a failed run; a check-in's failure stays in Activity. */
+/** What the main agent reads of a failed run; a check-in's or a post's failure stays in Activity. */
 function failureOf(input: ReporterInput, reason: string): string | undefined {
-  if (input.checkIn) return undefined;
+  if (input.checkIn || input.post) return undefined;
 
   return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
 }
@@ -149,8 +152,10 @@ function answeredOf(input: ReporterInput, text: string) {
   return { summary: summarize(text), report: text, message: reportOf(input, text) };
 }
 
-/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
+/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user; a post is as written. */
 function reportOf(input: ReporterInput, text: string): string {
+  if (input.post) return text;
+
   if (input.specialist !== undefined) return `[specialist @${input.specialist} answered: pass on what matters] ${text}`;
 
   if (input.checkIn) {
@@ -260,27 +265,30 @@ export function subagentExtension(
         const { report, line } = reporter.state.checkpoint;
         const feedId = reporter.input.feedId ?? String(reporter.id);
 
-        if (report !== undefined && wanted(feedId) && reporter.input.deliver && handOver) {
-          // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
-          await handOver({
-            id: `subagent-report:${reporter.id}`,
-            session: String(runtime.conversationId),
-            content: report,
-            line: line ?? lineOf(reporter.input, summarize(report)),
-            ref: `task:${feedId}`
-          });
-        } else if (report !== undefined && wanted(feedId)) {
-          const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
-          await main.submit(
-            {
-              type: "input",
+        if (report !== undefined && wanted(feedId)) {
+          if (reporter.input.deliver && handOver) {
+            // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
+            await handOver({
+              id: `subagent-report:${reporter.id}`,
+              session: String(runtime.conversationId),
               content: report,
-              // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
-              whenBusy: "steer",
-              requestId: `subagent-report:${reporter.id}`
-            },
-            context
-          );
+              line: line ?? lineOf(reporter.input, summarize(report)),
+              ref: `task:${feedId}`,
+              kind: reporter.input.post ? "look" : "event"
+            });
+          } else {
+            const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
+            await main.submit(
+              {
+                type: "input",
+                content: report,
+                // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
+                whenBusy: "steer",
+                requestId: `subagent-report:${reporter.id}`
+              },
+              context
+            );
+          }
         }
 
         await runtime.commit(
@@ -348,9 +356,9 @@ export function subagentExtension(
 
   const desk: Desk = { feed, specialists, model, register, deliver };
 
-  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered, post }) => {
     const conversationId = await register(tx, owner, name);
-    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered }, model);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered, post }, model);
 
     return conversationId;
   };

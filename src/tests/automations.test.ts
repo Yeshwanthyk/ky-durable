@@ -88,6 +88,20 @@ async function told(name: string, start: string, session?: string): Promise<stri
     .filter((text) => text.startsWith(start));
 }
 
+/** What ky said in a chat (the main one unless `session`), oldest first. */
+async function kySaid(name: string, session?: string): Promise<string[]> {
+  const view = await snapshotView(name, session);
+
+  return view.messages.filter((message) => message.role === "assistant").map((message) => message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""));
+}
+
+/** What was handed over for the chat to hear, by its kind and what it says. */
+function deliveries(name: string, session: string) {
+  return inside(name, (_instance, state) =>
+    state.storage.sql.exec<{ kind: string; content: string }>("SELECT kind, content FROM ky_deliveries WHERE session = ? ORDER BY created_at", session).toArray()
+  );
+}
+
 /** The reports of the automation titled `title` a chat was given. */
 const reports = (name: string, title: string, session?: string) => told(name, `[automation "${title}" result`, session);
 
@@ -167,7 +181,37 @@ describe("automations", () => {
     await until(async () => (await reports(name, "Daily digest")).length > 0, "the report");
     await settle();
     expect(await reports(name, "Daily digest")).toEqual(['[automation "Daily digest" result: tell the user] echo: digest the news']);
+    expect(await deliveries(name, ROOT_SESSION)).toMatchObject([{ kind: "event" }]);
     expect(await listed(name, id)).toMatch(/last run: done: .*echo: digest the news/);
+  });
+
+  it("posts a post automation's report in its chat as ky's own message, as written, starting no turn", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name, { post: true });
+    expect(await listed(name, id)).toContain("reports to: main, posted as ky's message");
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await kySaid(name)).includes("echo: digest the news"), "the post");
+    await settle();
+
+    expect(await deliveries(name, ROOT_SESSION)).toEqual([{ kind: "look", content: "echo: digest the news" }]);
+    // Last in the chat with no answer to it, and the chat's agent was never given it.
+    expect((await kySaid(name)).at(-1)).toBe("echo: digest the news");
+    expect(await reports(name, "Daily digest")).toEqual([]);
+
+    expect(await say(name, automation({ action: "update", id, post: false }))).toMatch(/^tool said: Updated/);
+    expect(await listed(name, id)).not.toContain("posted as ky's message");
+  });
+
+  it("an automations table from an older ky gains post, its automations reading as not posting", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+    await inside(name, (_instance, state) => state.storage.sql.exec("ALTER TABLE ky_automations DROP COLUMN post"));
+
+    await evictDurableObject(agent(name));
+    expect(await inside(name, (instance) => instance.automations.get(id)?.post)).toBe(false);
+    expect(await listed(name, id)).not.toContain("posted as ky's message");
   });
 
   it("runs one task and one report when a slot fires again during its run and after an eviction", async () => {
