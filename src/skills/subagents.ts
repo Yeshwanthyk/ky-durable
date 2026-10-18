@@ -92,7 +92,7 @@ type ReporterInput = {
   checkIn?: boolean;
   /** An automation's run: its report is delivered between turns (src/automations/delivery.ts), not steered in. */
   deliver?: boolean;
-  /** A delivered report is posted as ky's own message, as written, and starts no turn. */
+  /** A delivered answer is posted as ky's own message, as written, and starts no turn; a failure is still an event. */
   post?: boolean;
 };
 
@@ -126,15 +126,15 @@ export type SpecialistDeps = {
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. */
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string };
+/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. `kind` post: a post run's answer, posted as written. */
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string; kind?: "post" };
 
 /** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
 
-/** What the main agent reads of a failed run; a check-in's or a post's failure stays in Activity. */
+/** What the main agent reads of a failed run; a check-in's failure stays in Activity. */
 function failureOf(input: ReporterInput, reason: string): string | undefined {
-  if (input.checkIn || input.post) return undefined;
+  if (input.checkIn) return undefined;
 
   return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
 }
@@ -148,6 +148,8 @@ const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${sai
 /** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */
 function answeredOf(input: ReporterInput, text: string) {
   if (input.checkIn && NOTHING_NEW.test(text)) return { summary: "Nothing new", report: "", message: undefined };
+
+  if (input.post && !text.trim()) return { summary: "Nothing to post", report: "", message: undefined };
 
   return { summary: summarize(text), report: text, message: reportOf(input, text) };
 }
@@ -223,8 +225,8 @@ export function subagentExtension(
         let report = "";
 
         await runtime.commit(async (tx) => {
-          const next = (report?: string, line?: string) =>
-            ({ status: "running", checkpoint: { phase: "report", report, line } }) as const;
+          const next = (report?: string, line?: string, kind?: "post") =>
+            ({ status: "running", checkpoint: { phase: "report", report, line, kind } }) as const;
 
           if (settled.status === "unanswered") {
             if (settled.reason === "aborted") {
@@ -255,14 +257,14 @@ export function subagentExtension(
           outcome = { status: "done", summary: read.summary };
           report = read.report;
 
-          return next(read.message, lineOf(reporter.input, read.summary));
+          return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined);
         }, context);
         feed.update(feedId, outcome);
 
         if (report) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
-        const { report, line } = reporter.state.checkpoint;
+        const { report, line, kind } = reporter.state.checkpoint;
         const feedId = reporter.input.feedId ?? String(reporter.id);
 
         if (report !== undefined && wanted(feedId)) {
@@ -274,7 +276,7 @@ export function subagentExtension(
               content: report,
               line: line ?? lineOf(reporter.input, summarize(report)),
               ref: `task:${feedId}`,
-              kind: reporter.input.post ? "look" : "event"
+              kind
             });
           } else {
             const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");

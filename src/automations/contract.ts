@@ -223,8 +223,8 @@ export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "
 
 /**
  * Something ky tells a chat between turns: an event, an automation run's report or the notice that it paused,
- * which the chat's agent is given and answers; or a look's message (src/dreaming/looks.ts), which is posted as
- * ky's own, as written, and starts no turn. `id` is its one identity, the request id pi takes it by, so however
+ * which the chat's agent is given and answers; or a look's message (src/dreaming/looks.ts), or a post automation's
+ * report, which is posted as ky's own, as written, and starts no turn. `id` is its one identity, the request id pi takes it by, so however
  * often it is handed over it is delivered once; `content` is what the chat's agent is given, or the look's
  * message; `line` is it in one line, as what ky surfaced keeps it; `ref` is what it rests on, like
  * task:a-1f2e-1760600000 or anticipation:12. Without a kind it is an event.
@@ -235,7 +235,7 @@ export const DeliverySchema = Type.Object({
   content: Type.String(),
   line: Type.String(),
   ref: Type.String(),
-  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look")]))
+  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look"), Type.Literal("post")]))
 });
 
 export type Delivery = Readonly<Static<typeof DeliverySchema>>;

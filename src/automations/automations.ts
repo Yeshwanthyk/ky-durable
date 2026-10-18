@@ -138,6 +138,9 @@ const CHECK_INS_WAITING = 6;
 
 const CHECK_IN_ALLOWED: ReadonlySet<string> = new Set(CHECK_IN_TOOLS);
 
+/** What a post automation's run is told after its prompt. */
+const POSTED = "\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble.";
+
 /** What a check-in run is told before its prompt. */
 const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
 
@@ -793,7 +796,7 @@ export class Automations {
         const checkIn = isCheckIn(row);
         await runtime.spawn(tx, conversationOf(chat), {
           name: workerOf(row.id),
-          message: checkIn ? `${CHECK_IN}${row.prompt}` : row.prompt,
+          message: `${checkIn ? CHECK_IN : ""}${row.prompt}${row.post ? POSTED : ""}`,
           model: this.#modelOf(row),
           feedId: task,
           label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
@@ -884,7 +887,7 @@ export class Automations {
 
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): Result<AutomationDraft> {
-    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
+    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine, draft.post) ?? this.#chatProblem(draft.chat);
 
     if (problem !== undefined) return refused(problem);
 
@@ -907,6 +910,8 @@ export class Automations {
 
     if (draft.gate !== null) return "A check-in has no gate.";
 
+    if (draft.post) return "A check-in's report goes to the main agent, not posted.";
+
     return this.#checkInCapProblem();
   }
 
@@ -925,10 +930,14 @@ export class Automations {
     return undefined;
   }
 
-  #machineProblem(machine: string | null): string | undefined {
+  /** Why it can't run on `machine`: one ky doesn't know, or a post, whose report is posted from the cloud. */
+  #machineProblem(machine: string | null, post = false): string | undefined {
+    if (machine === null) return undefined;
+
+    if (post) return "A posted report runs in the cloud.";
     const known = this.#deps.machines.machines().map((each) => each.name);
 
-    if (machine === null || known.includes(machine)) return undefined;
+    if (known.includes(machine)) return undefined;
 
     return `No machine ${machine}. Known: ${known.join(", ") || "none"}.`;
   }
@@ -1140,7 +1149,7 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
   // What the arguments leave out: no model or machine, and reports to this chat.
   const unset = { cron: null, at: null, model: null, machine: null, chat: caller, gate: null };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
-  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION } : asked;
+  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION, post: false } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
   if (isRefusal(created)) return created.refused;

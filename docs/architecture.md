@@ -171,8 +171,9 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   A cloud run's report, and the notice that a failing gate paused an automation, go through `Deliveries`
   (`src/automations/delivery.ts`): always into its chat, in full, whether or not the user is around, and only
   between turns (at once when idle, at the turn's end when busy, never steered into a run). The chat's agent is given
-  the report and answers it; with `post` on (`ky_automations.post`), it is posted as written as ky's own message, as a
-  look's is, and starts no turn, and a failed run stays in Activity. A side chat archived by the time a run starts
+  the report and answers it; with `post` on (`ky_automations.post`, cloud runs only), the run is told so and its answer is
+  posted as written as ky's own message (delivery kind `post`, read by the next look as said), starting no turn; a
+  blank answer posts nothing, and a failure still goes to the agent as an event. A dream's check-in never posts. A side chat archived by the time a run starts
   is brought back for it, and a deleted one's go to main. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
   that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
