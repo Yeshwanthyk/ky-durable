@@ -48,21 +48,30 @@ function sitePath(rest: string): string | undefined {
 async function serve(request: Request, env: Env, id: string, rest: string, open: boolean): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
   const path = sitePath(rest);
-  const object = path === undefined ? null : await env.FILES.get(siteKey(id, path));
 
-  if (!path || !object) return notFound();
+  if (path === undefined) return notFound();
 
-  return new Response(request.method === "HEAD" ? null : object.body, { headers: headersFor(path, open) });
+  if (request.method === "HEAD") {
+    const head = await env.FILES.head(siteKey(id, path));
+
+    return head ? new Response(null, { headers: headersFor(path, head, open) }) : notFound();
+  }
+
+  const object = await env.FILES.get(siteKey(id, path));
+
+  return object ? new Response(object.body, { headers: headersFor(path, object, open) }) : notFound();
 }
 
-/** A site file's headers: its type by the last segment's extension, the sandbox, and for a public site, a short cache. */
-function headersFor(path: string, open: boolean): Headers {
+/** A site file's headers: its type by the last segment's extension, size and ETag, the sandbox, and for a public site, a short cache. */
+function headersFor(path: string, object: R2Object, open: boolean): Headers {
   const headers = new Headers({
     "Content-Type": TYPES.get(/\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "") ?? "application/octet-stream",
     // No allow-same-origin: the page's script runs in an opaque origin, away from the user's session.
     "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer"
+    "Referrer-Policy": "no-referrer",
+    "Content-Length": String(object.size),
+    ETag: object.httpEtag
   });
 
   if (open) {

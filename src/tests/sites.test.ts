@@ -66,7 +66,7 @@ describe("sites", () => {
       "/workspace/web/.git/config": "[core]",
       "/workspace/secret.txt": "not the site's"
     });
-    const said = await site(name, { action: "publish", title: "Web", dir: "/workspace/web" });
+    const said = await site(name, { action: "publish", title: "Web", dir: "/workspace/./web/" });
     const id = idOf(said);
     expect(said).toContain("4 files");
     expect(await env.FILES.head(`sites/${id}/.env`)).toBeNull();
@@ -77,7 +77,12 @@ describe("sites", () => {
     expect(head.status).toBe(200);
     expect(head.headers.get("Content-Type")).toBe("text/css; charset=utf-8");
     expect(head.headers.get("Content-Security-Policy")).toBe(SANDBOX);
+    expect(head.headers.get("Content-Length")).toBe("17");
     expect(await head.text()).toBe("");
+    const get = await call(`/s/${id}/css/app.css`);
+    expect(get.headers.get("Content-Length")).toBe("17");
+    expect(get.headers.get("ETag")).toMatch(/^".+"$/);
+    expect(get.headers.get("ETag")).toBe(head.headers.get("ETag"));
 
     expect((await call(`/s/${id}/`)).headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const css = await call(`/s/${id}/css/app.css`);
@@ -154,7 +159,9 @@ describe("sites", () => {
     expect(reads).not.toHaveBeenCalled();
     reads.mockRestore();
 
-    expect(await site(name, { action: "publish", title: "Root", dir: "/" })).toContain("name a folder in the workspace");
+    for (const dir of ["/", "/.", "//", "/workspace/.."]) {
+      expect(await site(name, { action: "publish", title: "Root", dir }), dir).toContain("name a folder in the workspace");
+    }
 
     const filler = Array.from({ length: 50 }, () => `sites/${crypto.randomUUID().replaceAll("-", "")}/.site`);
     await Promise.all(filler.map((key) => env.FILES.put(key, JSON.stringify({ title: "filler", created: 0 }))));

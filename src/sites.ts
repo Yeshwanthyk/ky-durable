@@ -92,17 +92,25 @@ type SiteArgs = Type.Static<typeof SiteArgs>;
 
 const tooBig = (bytes: number) => ({ refused: `Not published: a site holds at most ${MAX_BYTES / 1024 / 1024} MB, and this is ${(bytes / 1024 / 1024).toFixed(1)} MB.` });
 
-/** The files under `root` by their path under it, hidden ones left out; at most one past MAX_FILES. */
+/** `dir` as an absolute path with no empty or "." segments; undefined for the root, or with a "..". */
+function canonical(dir: string): string | undefined {
+  const parts = dir.split("/").filter((part) => part !== "" && part !== ".");
+
+  return parts.length === 0 || parts.includes("..") ? undefined : `/${parts.join("/")}`;
+}
+
+/** The files under `root` by their path under it, hidden ones left out and dot folders never walked; at most one past MAX_FILES. */
 async function listed(workspace: Workspace, root: string): Promise<string[]> {
   const paths: string[] = [];
+  const prefix = `${root}/`;
 
   for (let offset = 0; paths.length <= MAX_FILES; offset += PAGE) {
-    const page = await workspace.fs.find(root, "**", { limit: PAGE, offset });
+    const page = await workspace.fs.find(root, "**", { limit: PAGE, offset, exclude: ["**/.*"] });
 
     for (const entry of page) {
-      const path = entry.path.startsWith(`${root}/`) ? entry.path.slice(root.length + 1) : entry.path.replace(/^\/+/, "");
+      const path = entry.path.slice(prefix.length);
 
-      if (entry.type === "file" && !hidden(path)) paths.push(path);
+      if (entry.type === "file" && entry.path.startsWith(prefix) && !hidden(path)) paths.push(path);
     }
 
     if (page.length < PAGE) break;
@@ -111,18 +119,22 @@ async function listed(workspace: Workspace, root: string): Promise<string[]> {
   return paths;
 }
 
-/** The files of the folder `dir`, by their path under it; their sizes are checked before any is read. */
+/** The files of the folder `dir`, by their path under it; or why not, a file that vanished midway included. */
 async function folder(workspace: Workspace, dir: string): Promise<Gathered> {
-  const root = dir.replace(/\/+$/, "");
+  const root = canonical(dir);
 
-  if (root === "") return { refused: "Not published: name a folder in the workspace, such as /workspace/site." };
-  let paths;
+  if (root === undefined) return { refused: `Not published: name a folder in the workspace, such as /workspace/site, not ${dir}.` };
 
   try {
-    paths = await listed(workspace, root);
+    return await read(workspace, root, dir);
   } catch (error) {
     return { refused: `Couldn't read ${dir}: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+/** The files under `root`; their sizes are checked before any is read. */
+async function read(workspace: Workspace, root: string, dir: string): Promise<Gathered> {
+  const paths = await listed(workspace, root);
 
   if (paths.length === 0) return { refused: `Not published: ${dir} has no files.` };
 
