@@ -1,5 +1,5 @@
 import { fauxAssistantMessage, fauxText, type Message } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Compressor, MemoryItem } from "../dreaming/contract";
 import { Memory } from "../dreaming/wiring";
 import { inside, prompt } from "./drive";
@@ -272,6 +272,7 @@ describe("memory_recall and chat_search by day", () => {
     expect(await call(name, "memory_recall", { regex: "ferry", from: "2026-01-02", to: "2026-01-02" })).toBe(
       "tool said: #1 2026-01-02 ferry on 2026-01-02\n1 match."
     );
+    expect(await call(name, "memory_recall", { regex: "ferry", to: "2025-12-31" })).toBe("tool said: No match through 2025-12-31.");
     expect(await call(name, "memory_recall", { regex: "ferry" })).toBe(
       "tool said: #0 2026-01-01 ferry on 2026-01-01\n#1 2026-01-02 ferry on 2026-01-02\n#2 2026-01-03 ferry on 2026-01-03\n3 matches."
     );
@@ -283,11 +284,11 @@ describe("memory_recall and chat_search by day", () => {
 
     for (const day of days) await prompt(name, `The ferry to Lisbon on ${day}`);
     await inside(name, (instance, state) => {
-      // Index the chat, then date each message, and ky's echo of it, on its own day.
+      // Index the chat, then date each message, and ky's echo of it, on its own day: the last at its first instant.
       instance.history.search("ferry");
 
-      for (const day of days) {
-        state.storage.sql.exec("UPDATE ky_history SET at = ? WHERE text LIKE ?", Date.parse(`${day}T12:00:00Z`), `%Lisbon on ${day}`);
+      for (const [day, time] of [["2026-01-01", "12:00"], ["2026-01-02", "12:00"], ["2026-01-03", "00:00"]]) {
+        state.storage.sql.exec("UPDATE ky_history SET at = ? WHERE text LIKE ?", Date.parse(`${day}T${time}:00.000Z`), `%Lisbon on ${day}`);
       }
     });
 
@@ -295,13 +296,50 @@ describe("memory_recall and chat_search by day", () => {
     expect(every).toContain("user: The [ferry] to [Lisbon] on 2026-01-02");
     expect(every).not.toMatch(/on 2026-01-0[13]/);
     expect(every).toMatch(/2 matches\./);
+    expect(await call(name, "chat_search", { query: "zanzibar", from: "2026-01-02", to: "2026-01-02" })).toBe(
+      "tool said: No message matches zanzibar between 2026-01-02 and 2026-01-02."
+    );
 
     // No message has both words: some of them, still only those days.
     const some = await call(name, "chat_search", { query: "ferry zanzibar", from: "2026-01-02", to: "2026-01-03" });
-    expect(some).toContain("No message has all those words");
+    expect(some).toContain("No message has all those words between 2026-01-02 and 2026-01-03; these have some of them.");
     expect(some).toContain("on 2026-01-02");
     expect(some).toContain("on 2026-01-03");
     expect(some).not.toContain("on 2026-01-01");
+  });
+
+  it("reads days in the user's time zone, for chat_search and for a new memory's date", async () => {
+    const name = crypto.randomUUID();
+    // 2026-01-02 at 22:00 in Los Angeles.
+    const late = Date.parse("2026-01-03T06:00:00.000Z");
+
+    await prompt(name, "The night tram in Lisbon");
+
+    const dated = await inside(name, async (instance, state) => {
+      await instance.automations.setZone("America/Los_Angeles");
+      instance.history.search("tram");
+      state.storage.sql.exec("UPDATE ky_history SET at = ? WHERE text LIKE ?", late, "%night tram%");
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(late);
+
+      try {
+        instance.memory.note("rode the night tram");
+      } finally {
+        vi.useRealTimers();
+      }
+
+      return state.storage.sql.exec<{ date: string }>("SELECT date FROM memo_log WHERE text = ?", "rode the night tram").one().date;
+    });
+
+    expect(dated).toBe("2026-01-02");
+    expect(await call(name, "chat_search", { query: "tram", from: "2026-01-02", to: "2026-01-02" })).toContain("user: The night [tram] in Lisbon");
+    expect(await call(name, "chat_search", { query: "tram", from: "2026-01-03", to: "2026-01-03" })).toBe(
+      "tool said: No message matches tram between 2026-01-03 and 2026-01-03."
+    );
+    expect(await call(name, "memory_recall", { regex: "tram", from: "2026-01-02", to: "2026-01-02" })).toBe(
+      "tool said: #0 2026-01-02 rode the night tram\n1 match."
+    );
   });
 
   it("refuses a day no calendar has, or from after to", async () => {

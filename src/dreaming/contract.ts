@@ -314,7 +314,7 @@ function formatter(zone: string): Intl.DateTimeFormat | null {
 }
 
 /** How far `zone` is ahead of UTC at `now`, in minutes; 0 for an unknown or unnamed zone. */
-function offsetMinutes(zone: string | null, now: number): number {
+export function offsetMinutes(zone: string | null, now: number): number {
   const format = zone === null ? null : formatter(zone);
 
   if (format === null) return 0;
