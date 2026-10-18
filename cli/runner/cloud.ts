@@ -5,10 +5,14 @@
  *
  *   GET  /ping     whether it is up: waiting for its files, running, or stopped
  *   PUT  /restore  a tar.gz of what the last sleep saved (or nothing, the first time), unpacked into
- *                  the home; then the runner dials ky, so a resumed session finds its files
+ *                  the home; then the runner dials ky, so a resumed session finds its files. A save
+ *                  cut off or corrupted on its way is refused (500), the home untouched, still waiting
  *   POST /save     stop the runner (its socket closes, it takes no more runs), then answer with a
  *                  tar.gz of what must outlive the container: Claude Code's sessions, the runner's
- *                  state (each Codex task's home, the handled seqs) and the work trees
+ *                  state (each Codex task's home, the handled seqs) and the work trees, streamed as
+ *                  tar writes it (chunked, no content-length); a tar that fails breaks the answer off
+ *   GET  /snapshot the same tar.gz while the runner keeps running, after a turn ends: the container
+ *                  may then die at any time and lose at most the open turn; 409 unless it runs
  *
  * Its settings are the variables `ky runner run` reads with no runner.json (cli/runner/settings.ts),
  * and:
@@ -19,14 +23,13 @@
  *                    the CloudMachine routes to the Worker's GitHub proxy, which holds the token)
  */
 import { spawn } from "node:child_process";
-import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Context } from "../commands.ts";
 import { checkoutVersion, runRunner } from "./run.ts";
+import { pack, unpack } from "./save.ts";
 import { withEnv } from "./settings.ts";
 import { compiled } from "./system.ts";
 
@@ -40,9 +43,10 @@ const EXCLUDED = ["node_modules", ".ky/bin", ".ky/runner-status.json"];
 
 type State = "waiting" | "running" | "stopped";
 
-function run(command: string, args: string[], cwd?: string): Promise<void> {
+/** Run `command`; it fails unless it exits 0. */
+function run(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
 
     child.stderr.on("data", (chunk: Buffer) => {
@@ -83,6 +87,8 @@ export async function cloudCommand(context: Context): Promise<number> {
   const settings = withEnv(undefined, env, system);
   const version = compiled() ? (await context.release()).version : checkoutVersion();
   const saved = [path.join(system.home, ".claude", "projects"), system.state, settings.workdir];
+  // And each Codex task's login, in its home under the state dir: ky sends one with every run.
+  const excluded = [...EXCLUDED, path.join(path.relative(system.home, system.state), "codex", "*", "auth.json")];
   const stop = new AbortController();
   let state: State = "waiting";
   let runner: Promise<void> | undefined;
@@ -91,20 +97,20 @@ export async function cloudCommand(context: Context): Promise<number> {
 
   const restore = async (request: IncomingMessage, response: ServerResponse) => {
     if (state !== "waiting") return answer(response, 409, `the runner is ${state}`);
-    const scratch = await mkdtemp(path.join(tmpdir(), "ky-restore-"));
-    const archive = path.join(scratch, "save.tar.gz");
-
-    try {
-      await pipeline(request, createWriteStream(archive));
-
-      if ((await stat(archive)).size > 0) await run("tar", ["-xzf", archive, "-C", system.home]);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-
+    // Throws on a save that isn't whole, which answers 500 and leaves the runner waiting.
+    await unpack(request, system.home);
     state = "running";
     runner = runRunner({ settings, token, state: system.state, version, ky: system.ky, service: false, kind: "cloud", stop: stop.signal });
     answer(response, 204);
+  };
+
+  /** Answer with a tar.gz of what must outlive the container. */
+  const archived = async (response: ServerResponse) => {
+    const archive = pack(system.home, kept(system.home, saved), excluded);
+
+    response.writeHead(200, { "content-type": "application/gzip" });
+    // A tar that fails rejects this, and the server breaks the answer off: the hub never stores it as whole.
+    await pipeline(archive, response);
   };
 
   const save = async (response: ServerResponse) => {
@@ -114,23 +120,24 @@ export async function cloudCommand(context: Context): Promise<number> {
     }
 
     state = "stopped";
-    const scratch = await mkdtemp(path.join(tmpdir(), "ky-save-"));
-    const archive = path.join(scratch, "save.tar.gz");
-
-    try {
-      await run("tar", ["-czf", archive, ...EXCLUDED.map((excluded) => `--exclude=${excluded}`), "-C", system.home, ...kept(system.home, saved)]);
-      response.writeHead(200, { "content-type": "application/gzip", "content-length": String((await stat(archive)).size) });
-      await pipeline(createReadStream(archive), response);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
+    await archived(response);
   };
+
+  const snapshot = (response: ServerResponse) => (state === "running" ? archived(response) : Promise.resolve(answer(response, 409, `the runner is ${state}`)));
 
   const server = createServer((request, response) => {
     const route = `${request.method} ${request.url}`;
 
     const handled =
-      route === "GET /ping" ? Promise.resolve(answer(response, 200, state)) : route === "PUT /restore" ? restore(request, response) : route === "POST /save" ? save(response) : Promise.resolve(answer(response, 404));
+      route === "GET /ping"
+        ? Promise.resolve(answer(response, 200, state))
+        : route === "PUT /restore"
+          ? restore(request, response)
+          : route === "POST /save"
+            ? save(response)
+            : route === "GET /snapshot"
+              ? snapshot(response)
+              : Promise.resolve(answer(response, 404));
 
     handled.catch((error: Error) => {
       console.error(`${route} failed`, error);

@@ -266,6 +266,11 @@ export async function runRunner({ settings, token, state, version, ky, service, 
 
   let stopping = false;
 
+  /** Until the socket has sent what it buffered, as the stopping report, for a second at most. */
+  const sent = async () => {
+    for (const until = Date.now() + 1_000; (socket?.bufferedAmount ?? 0) > 0 && Date.now() < until; ) await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       // A second signal while the agents settle changes nothing: the wait is bounded.
@@ -273,10 +278,15 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       stopping = true;
       log(`${signal}: stopping, ending each task's agent`);
       say("stopped", signal);
-      void shutdown().then(() => {
-        log("stopped");
-        process.exit(0);
-      });
+      // A stopped container is gone for good, so say so now; a computer's service relaunches its runner, whose hello says it restarted.
+      const told = kind === "cloud" && runner.stopping("Interrupted: the container was stopped. Send it a message to resume.");
+
+      void shutdown()
+        .then(() => (told ? sent() : undefined))
+        .then(() => {
+          log("stopped");
+          process.exit(0);
+        });
     });
   }
 

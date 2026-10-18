@@ -587,7 +587,7 @@ describe("ky runner cloud", () => {
     expect(output()).toContain("KY_RUNNER_TOKEN");
   });
 
-  it("restores the last save before it runs, and saves sessions and work trees but not node_modules", async () => {
+  it("restores the last save before it runs, snapshots and saves sessions and work trees but not node_modules or Codex logins", async () => {
     const { home, port, output } = await cloud({ KY_RUNNER_TOKEN: TOKEN, KY_GITHUB_PROXY: "http://proxy.test/api/git/" });
     const at = (route: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${route}`, init);
     const ping = async () => (await at("/ping")).text();
@@ -607,9 +607,21 @@ describe("ky runner cloud", () => {
     await mkdir(path.join(last, "ky-work", "app", "node_modules", "dep"), { recursive: true });
     await writeFile(path.join(last, "ky-work", "app", "README.md"), "# app\n");
     await writeFile(path.join(last, "ky-work", "app", "node_modules", "dep", "index.js"), "");
-    execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", "ky-work"]);
+    // A Codex task's home, with the login ky sent its last run: ky sends one with every run.
+    await mkdir(path.join(last, ".ky", "codex", "m-1"), { recursive: true });
+    await writeFile(path.join(last, ".ky", "codex", "m-1", "config.toml"), "");
+    await writeFile(path.join(last, ".ky", "codex", "m-1", "auth.json"), "{}");
+    execFileSync("tar", ["-czf", path.join(last, "save.tar.gz"), "-C", last, ".claude", ".ky", "ky-work"]);
 
-    expect((await at("/restore", { method: "PUT", body: await readFile(path.join(last, "save.tar.gz")) })).status).toBe(204);
+    const whole = await readFile(path.join(last, "save.tar.gz"));
+
+    // A save cut off on its way here is refused, and the runner waits, its home untouched, for a whole one.
+    const cut = await at("/restore", { method: "PUT", body: whole.subarray(0, whole.length - 20) });
+    expect(cut.status, await cut.text()).toBeGreaterThanOrEqual(400);
+    expect(await ping()).toBe("waiting");
+    expect(existsSync(path.join(home, ".claude", "projects")) || existsSync(path.join(home, "ky-work"))).toBe(false);
+
+    expect((await at("/restore", { method: "PUT", body: whole })).status).toBe(204);
     expect(await ping()).toBe("running");
     expect(await readFile(path.join(home, ".claude", "projects", "fake", "s-1.jsonl"), "utf8")).toBe("{}\n");
     expect((await at("/restore", { method: "PUT", body: "" })).status).toBe(409);
@@ -618,15 +630,34 @@ describe("ky runner cloud", () => {
       "https://github.com/"
     );
 
+    const entries = async (answer: Response, name: string) => {
+      await writeFile(path.join(last, name), Buffer.from(await answer.arrayBuffer()));
+
+      return execFileSync("tar", ["-tzf", path.join(last, name)], { encoding: "utf8" }).split("\n");
+    };
+
+    // A snapshot is the same archive, and the runner keeps running.
+    const snapshot = await at("/snapshot");
+    expect(snapshot.status).toBe(200);
+    // Streamed as tar writes it, with no copy staged on the container's disk first.
+    expect(snapshot.headers.get("content-length")).toBeNull();
+    const snapshotted = await entries(snapshot, "snapshot.tar.gz");
+    expect(await ping()).toBe("running");
+
     const save = await at("/save", { method: "POST" });
     expect(save.status).toBe(200);
     expect(await ping()).toBe("stopped");
-    await writeFile(path.join(last, "next.tar.gz"), Buffer.from(await save.arrayBuffer()));
-    const listed = execFileSync("tar", ["-tzf", path.join(last, "next.tar.gz")], { encoding: "utf8" }).split("\n");
+    const listed = await entries(save, "next.tar.gz");
 
-    expect(listed).toContain(".claude/projects/fake/s-1.jsonl");
-    expect(listed).toContain("ky-work/app/README.md");
-    expect(listed.some((entry) => entry.includes("node_modules"))).toBe(false);
+    for (const archive of [snapshotted, listed]) {
+      expect(archive).toContain(".claude/projects/fake/s-1.jsonl");
+      expect(archive).toContain("ky-work/app/README.md");
+      expect(archive).toContain(".ky/codex/m-1/config.toml");
+      expect(archive.some((entry) => entry.includes("node_modules") || entry.endsWith("auth.json"))).toBe(false);
+    }
+
+    // A stopped runner takes no snapshot: only a save, or a new container.
+    expect((await at("/snapshot")).status).toBe(409);
   });
 });
 
@@ -721,7 +752,7 @@ describe("a started agent that writes nothing", () => {
     runner.open(link);
     runner.message(JSON.stringify({ type: "run", seq: 1, task: "m-1", turn: 1, prompt: "go", session: null, agent: "claude", taskToken: "t" }));
 
-    return { agent, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
+    return { agent, runner, results: () => sent.filter((report) => report.type === "result"), done: () => rm(dir, { recursive: true, force: true }) };
   }
 
   beforeEach(() => vi.useFakeTimers());
@@ -756,6 +787,15 @@ describe("a started agent that writes nothing", () => {
     agent.events!.exit(null, "", "SIGKILL");
 
     expect(results()[0]).toMatchObject({ ok: false, text: "claude was killed by SIGKILL." });
+    await done();
+  });
+
+  it("ends its open turn with the stop's text when the runner is told to stop, then reports nothing more", async () => {
+    const { runner, results, done } = await silentRunner("");
+
+    expect(results()).toEqual([]);
+    expect(runner.stopping("Interrupted: the container was stopped.")).toBe(true);
+    expect(results()).toMatchObject([{ task: "m-1", turn: 1, ok: false, text: "Interrupted: the container was stopped." }]);
     await done();
   });
 });

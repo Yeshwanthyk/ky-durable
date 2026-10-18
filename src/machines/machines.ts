@@ -140,6 +140,8 @@ const SessionRow = Schema.Object({ session: Schema.String() });
 
 const PairingRow = Schema.Object({ pairing: Schema.Union([Schema.String(), Schema.Null()]) });
 
+const TurnsEndedRow = Schema.Object({ turns_ended: Schema.Number() });
+
 const KindRow = Schema.Object({ name: Schema.String(), kind: Schema.Union([Schema.String(), Schema.Null()]) });
 
 /** Each row of a query, as `schema` says: only the hub writes these tables, so a row that isn't is a bug. */
@@ -325,6 +327,9 @@ export class MachineHub {
       sql.exec("ALTER TABLE ky_machines ADD COLUMN reason TEXT");
     }
 
+    // How many turns of its tasks have closed: a sandbox snapshots its disk to R2 when this passes the count it last saved at.
+    if (!known.some((column) => column.name === "turns_ended")) sql.exec("ALTER TABLE ky_machines ADD COLUMN turns_ended INTEGER NOT NULL DEFAULT 0");
+
     // The latest turn the hub asked the runner to stop: a result that isn't ok for it, or an earlier one, is a stop, not a failure.
     const turns = rows(sql.exec("PRAGMA table_info(ky_machine_turns)"), ColumnRow, "a column of ky_machine_turns");
 
@@ -431,6 +436,31 @@ export class MachineHub {
     for (const watcher of this.#watchers) watcher();
   }
 
+  /**
+   * Why the sandbox `machine` is unwell while its runner may still be online, as its CloudMachine saw:
+   * its saves keep failing. Null clears it, once a save works; a hello clears it too.
+   */
+  trouble(machine: string, reason: string | null): void {
+    this.#sql.exec("UPDATE ky_machines SET reason = ? WHERE name = ?", reason, machine);
+
+    for (const watcher of this.#watchers) watcher();
+  }
+
+  /**
+   * The sandbox `machine` didn't start by its deadline: each waiting task fails once with `text`, which
+   * the machine shows until its next hello, and what waited for it is dropped, so nothing starts it
+   * again until new work comes. A runner of it online since has its tasks, and is left be.
+   */
+  async startFailed(machine: string, text: string): Promise<void> {
+    if (this.online(machine)) return;
+    this.#sql.exec("DELETE FROM ky_machine_inbox WHERE machine = ?", machine);
+    this.#sql.exec("UPDATE ky_machines SET reason = ? WHERE name = ?", text, machine);
+
+    for (const task of this.#feed.open("machine", machine)) await this.#finish(task.id, "failed", text, this.#turns(task.id).turn);
+
+    for (const watcher of this.#watchers) watcher();
+  }
+
   /** The machines: the sandboxes first, the default one first, then the user's computers, each by name. */
   machines(): MachineInfo[] {
     const sandboxes = new Map(this.#sandboxes.live().map((sandbox, at) => [sandbox.name, { sandbox, at }]));
@@ -445,7 +475,8 @@ export class MachineHub {
           name: row.name,
           online,
           seenAt: row.seen_at,
-          reason: online ? null : row.reason,
+          // A sandbox's CloudMachine may know of trouble while its runner is online.
+          reason: online && !sandbox ? null : row.reason,
           active: this.#feed.open("machine", row.name).length,
           state: decodeOr(MachineStateSchema, row.state, "on"),
           note: row.note,
@@ -927,6 +958,11 @@ export class MachineHub {
     return this.#feed.open("machine", machine).length > 0 || this.#pending(machine).length > 0;
   }
 
+  /** How many turns of `machine`'s tasks have closed, ever: 0 for a machine ky doesn't list. */
+  turnsEnded(machine: string): number {
+    return rows(this.#sql.exec("SELECT turns_ended FROM ky_machines WHERE name = ?", machine), TurnsEndedRow, "a machine's turns ended")[0]?.turns_ended ?? 0;
+  }
+
   /** Whether `machine` is paired, and `pairing` is its live pairing: a runner's socket is the machine's only then. */
   pairedAs(machine: string, pairing: string | undefined): boolean {
     return pairing !== undefined && this.#pairing(machine) === pairing;
@@ -1046,6 +1082,7 @@ export class MachineHub {
     const turns = this.#turns(id);
     const from = turns.closed;
     this.#setTurns(id, { closed: turn });
+    this.#sql.exec("UPDATE ky_machines SET turns_ended = turns_ended + 1 WHERE name = ?", task.worker);
 
     // A turn sent after this one is still to run, with the same token and login.
     if (turn === turns.turn) {
@@ -1139,11 +1176,14 @@ function agentsOf(facts: MachineFacts): string[] {
 
 /** Whether a machine is up: the cloud machine asleep, waking or online; a computer online or offline. */
 function upness(machine: MachineInfo): string {
-  if (machine.cloud === "asleep") return "asleep (wakes for a task in a minute or two)";
+  // A sandbox's reason may come while it is up: its saves keep failing.
+  const why = machine.reason ? `; ${machine.reason}` : "";
 
-  if (machine.cloud === "waking") return "waking for its tasks";
+  if (machine.cloud === "asleep") return `asleep (wakes for a task in a minute or two)${why}`;
 
-  if (machine.online) return "online";
+  if (machine.cloud === "waking") return `waking for its tasks${why}`;
+
+  if (machine.online) return `online${why}`;
 
   return machine.reason ? `offline: ${machine.reason}` : "offline";
 }

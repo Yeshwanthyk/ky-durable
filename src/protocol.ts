@@ -29,7 +29,10 @@ export type MachineInfo = {
   readonly name: string;
   readonly online: boolean;
   readonly seenAt: number;
-  /** Why it is offline, when ky knows: its runner was turned away, or closed its connection saying why. Null while online. */
+  /**
+   * Why it is offline, when ky knows: its runner was turned away, or closed its connection saying why;
+   * a sandbox's, also why it didn't start or can't save its files, even online. Else null while online.
+   */
   readonly reason: string | null;
   /** Its tasks that are queued or working. */
   readonly active: number;

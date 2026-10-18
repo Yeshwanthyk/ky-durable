@@ -8,7 +8,9 @@
  *   POST /destroy   kill it and throw its HOME away
  *   *    /port/...  a request to the runner's port, as `getTcpPort(8080).fetch` is; after a start
  *                   it refused, a 503 that says so with REFUSED_HEADER, which the stack's box
- *                   throws as Cloudflare's error
+ *                   throws as Cloudflare's error; a save it was told to cut off (`cutSaves`) reaches
+ *                   the runner, which stops, and its answer breaks off after the headers; while
+ *                   saves fail (`failSaves`), a save is a 500 that never reaches the runner
  *
  * What it changes from the env it is given: KY_URL is the harness's proxy, so a scenario can break
  * the runner's network; KY_GITHUB_PROXY is the stack's github.internal route, which the real
@@ -16,7 +18,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
-import { createServer, request as forward, type Server } from "node:http";
+import { createServer, type IncomingMessage, request as forward, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { portOf } from "./port.ts";
@@ -39,6 +41,16 @@ export type ContainerHost = {
   refuse: (count: number) => void;
   /** The starts refused so far. */
   refused: () => number;
+  /** Cut off the next `count` saves on their way back, as a dropped connection does: the runner is left stopped, its files unsaved. */
+  cutSaves: (count: number) => void;
+  /** The saves cut off so far. */
+  cutOff: () => number;
+  /** From now on, while `on`, answer every save with a 500 before it reaches the runner, which keeps running. */
+  failSaves: (on: boolean) => void;
+  /** The saves answered 500 so far. */
+  failedSaves: () => number;
+  /** Send the runner SIGTERM, as the platform does to stop a container, and wait for it to exit. */
+  terminate: () => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -71,8 +83,21 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
   let starts = 0;
   let refusing = 0;
   let refused = 0;
+  let cutting = 0;
+  let cutOff = 0;
+  let failing = false;
+  let failedSaves = 0;
   /** Whether the last start was refused, so nothing runs and the port says why. */
   let unplaced = false;
+
+  /** Send `child` `signal`, if it still runs, and wait for it to exit. */
+  const end = async (child: ChildProcess, signal: NodeJS.Signals) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+
+    child.kill(signal);
+    await exited;
+  };
 
   const kill = async () => {
     const was = box;
@@ -81,12 +106,7 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
 
     if (!was) return;
 
-    if (was.child.exitCode === null && was.child.signalCode === null) {
-      const exited = new Promise((resolve) => was.child.once("exit", resolve));
-
-      was.child.kill("SIGKILL");
-      await exited;
-    }
+    await end(was.child, "SIGKILL");
 
     rmSync(was.home, { recursive: true, force: true });
   };
@@ -128,6 +148,55 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     box = { child, home, port };
   };
 
+  /** Whether this request is a save to cut off: it takes one of the cuts asked for. */
+  const cutsThis = (request: IncomingMessage) => {
+    if (request.method !== "POST" || request.url !== "/port/save" || cutting === 0) return false;
+    cutting--;
+
+    return true;
+  };
+
+  /** No container runs: after a refused start, a 503 that says so, as Cloudflare's; else nothing answers. */
+  const noBox = (response: ServerResponse) => {
+    if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
+    else response.writeHead(502).end("no container");
+  };
+
+  /** Whether this request is a save while saves fail: answered 500 here, it never reaches the runner. */
+  const failsSave = (request: IncomingMessage, response: ServerResponse) => {
+    if (!failing || request.method !== "POST" || request.url !== "/port/save") return false;
+    failedSaves++;
+    response.writeHead(500).end("the save failed");
+
+    return true;
+  };
+
+  /** Forward the request to the runner on `port`; a cut one's answer breaks off after its headers. */
+  const forwardTo = (port: number, request: IncomingMessage, response: ServerResponse, cut: boolean) => {
+    const upstream = forward({ host: "127.0.0.1", port, method: request.method, path: request.url?.slice("/port".length), headers: request.headers }, (answer) => {
+      response.writeHead(answer.statusCode ?? 502, answer.headers);
+
+      if (!cut) return void answer.pipe(response);
+      cutOff++;
+      answer.destroy();
+      response.destroy();
+    });
+
+    // Nothing listens yet: the container is still starting, as the real one refuses then.
+    upstream.on("error", (error) => {
+      if (!response.headersSent) response.writeHead(502).end(String(error));
+      else response.destroy();
+    });
+    request.pipe(upstream);
+  };
+
+  /** A request to the runner's port, as `getTcpPort(8080).fetch` is. */
+  const toPort = (request: IncomingMessage, response: ServerResponse) => {
+    if (!box) return noBox(response);
+
+    if (!failsSave(request, response)) forwardTo(box.port, request, response, cutsThis(request));
+  };
+
   const server: Server = createServer((request, response) => {
     const route = `${request.method} ${request.url}`;
 
@@ -154,32 +223,7 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       return;
     }
 
-    if (request.url?.startsWith("/port/")) {
-      if (!box) {
-        if (unplaced) response.writeHead(503, { [REFUSED_HEADER]: "1" }).end(NO_INSTANCE);
-        else response.writeHead(502).end("no container");
-
-        return;
-      }
-
-      const upstream = forward(
-        { host: "127.0.0.1", port: box.port, method: request.method, path: request.url.slice("/port".length), headers: request.headers },
-        (answer) => {
-          response.writeHead(answer.statusCode ?? 502, answer.headers);
-          answer.pipe(response);
-        }
-      );
-
-      // Nothing listens yet: the container is still starting, as the real one refuses then.
-      upstream.on("error", (error) => {
-        if (!response.headersSent) response.writeHead(502).end(String(error));
-        else response.destroy();
-      });
-      request.pipe(upstream);
-
-      return;
-    }
-
+    if (request.url?.startsWith("/port/")) return toPort(request, response);
     response.writeHead(404).end();
   });
 
@@ -195,6 +239,17 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
       refusing = count;
     },
     refused: () => refused,
+    cutSaves: (count) => {
+      cutting = count;
+    },
+    cutOff: () => cutOff,
+    failSaves: (on) => {
+      failing = on;
+    },
+    failedSaves: () => failedSaves,
+    terminate: async () => {
+      if (box) await end(box.child, "SIGTERM");
+    },
     close: async () => {
       await kill();
       await new Promise((resolve) => server.close(resolve));

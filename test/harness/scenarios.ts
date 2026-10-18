@@ -4,7 +4,7 @@ import path from "node:path";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { WebSocket as Socket } from "ws";
-import type { FileRow, TaskRow } from "../../src/protocol.ts";
+import type { FileRow, MachineInfo, TaskRow } from "../../src/protocol.ts";
 import { decodeObjectFrame, type ObjectFrame, OUTDATED, PROTOCOL, RUNNER_PATH } from "../../src/machines/contract.ts";
 import { signedIn } from "../../src/tests/fake-access.ts";
 import { decodeNewChat } from "../../src/tests/frames.ts";
@@ -15,6 +15,7 @@ import { type ContainerHost, serveContainer } from "../fakes/container.ts";
 import { type GitServer, serveGit } from "../fakes/git.ts";
 import { serveVibeProxy, type VibeProxyServer } from "./vibeproxy.ts";
 import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
+import { PART_BYTES } from "../../src/uploads.ts";
 
 /**
  * The CLI harness's scenarios. Each drives the local stack the way the user
@@ -31,6 +32,9 @@ import { VIBEPROXY_TEST_PORT } from "../fakes/vibeproxy.ts";
 
 /** The property under test does not hold. */
 export class Violation extends Error {}
+
+/** `GET /test/cloud-snapshot`'s answer. */
+const Snapshotted = Type.Object({ turnsEnded: Type.Number(), snapshotted: Type.Number() });
 
 export type Context = {
   url: string;
@@ -91,11 +95,21 @@ async function started(context: Context, name: string, input: string, from: Clie
   return id!;
 }
 
-/** Whether the task list shows the machine online. */
-export function online(context: Context, name: string): boolean {
+/** The machines the newest task list shows. */
+function machinesShown(context: Context): readonly MachineInfo[] {
   const latest = context.main.frames.findLast((frame) => frame.type === "tasks");
 
-  return latest?.type === "tasks" && latest.machines.some((each) => each.name === name && each.online);
+  return latest?.type === "tasks" ? latest.machines : [];
+}
+
+/** Why the task list says the machine is unwell, if it does. */
+function reasonOf(context: Context, name: string): string | null {
+  return machinesShown(context).find((each) => each.name === name)?.reason ?? null;
+}
+
+/** Whether the task list shows the machine online. */
+export function online(context: Context, name: string): boolean {
+  return machinesShown(context).some((each) => each.name === name && each.online);
 }
 
 function sendTo(context: Context, task: string, message: string): void {
@@ -164,6 +178,33 @@ async function testRoute(context: Context, route: string): Promise<void> {
   const response = await fetch(`${context.url}${route}`, { method: "POST", headers: await signedIn() });
 
   if (response.status !== 204) throw new Error(`${route} answered ${response.status}`);
+}
+
+/** Whether the task's last claude start resumed its first start's session, in another process. */
+function resumedInNewProcess(machineOf: Machine, task: string): boolean {
+  const starts = machineOf.claude().filter((event) => event.event === "start" && event.task === task);
+  const [first, last] = [starts[0], starts.at(-1)];
+
+  return first !== undefined && last !== undefined && last.resume === first.session && last.pid !== first.pid;
+}
+
+/** Send the task `message` as its next turn, and wait for the turn to run and the task to be done again. */
+async function followUp(context: Context, logs: Machine, task: string, message: string): Promise<void> {
+  sendTo(context, task, message);
+  await until("the follow-up turn", () => turns(logs, task).includes(message), 60_000);
+  await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2, 30_000);
+}
+
+/** Wait until R2 has the cloud machine's disk as of every turn ended so far, as a snapshot after a turn puts it. */
+async function snapshotted(context: Context, timeoutMs = 30_000): Promise<void> {
+  for (const deadline = Date.now() + timeoutMs; ; await sleep(250)) {
+    const response = await fetch(`${context.url}/test/cloud-snapshot`, { headers: await signedIn() });
+    const { turnsEnded, snapshotted: saved } = Value.Parse(Snapshotted, await response.json());
+
+    if (turnsEnded > 0 && saved >= turnsEnded) return;
+
+    if (Date.now() > deadline) throw new Violation(`R2 never caught up with the cloud machine: ${saved} of ${turnsEnded} turns ended`);
+  }
 }
 
 /** The newest task list's rows for a worker. */
@@ -284,15 +325,43 @@ async function cloudScript(context: Context, lines: string[], last: string): Pro
   await until("the report", () => context.main.heard(`[machine ${CLOUD}, task ${task} "`) && context.main.heard(last));
 }
 
+/** The large work tree's files and sizes: past one R2 upload part, of bytes gzip can't shrink. */
+const LARGE_TREE: ReadonlyArray<readonly [string, number]> = [
+  ["tree/big.bin", PART_BYTES + 3_000_000],
+  ["tree/a/one.bin", 300_000],
+  ["tree/a/two.txt", 1_000]
+];
+
+/** A file's bytes: each 32 the hash of its name and offset. In the shell script below and here, the same. */
+const LARGE_TREE_WRITE = `const c=require("crypto"),f=require("fs");f.mkdirSync("tree/a",{recursive:true});for(const [n,s] of ${JSON.stringify(LARGE_TREE)}){const b=Buffer.alloc(s);for(let i=0;i<s;i+=32)c.createHash("sha256").update(n+i).digest().copy(b,i);f.writeFileSync(n,b)}`;
+
+/** A node script that prints `label` and the hash of the large tree's every name and content. */
+const largeTreeHashScript = (label: string) =>
+  `const c=require("crypto"),f=require("fs"),h=c.createHash("sha256");for(const [n] of ${JSON.stringify(LARGE_TREE)})h.update(n).update(f.readFileSync(n));console.log("${label} "+h.digest("hex"))`;
+
+/** What `largeTreeHashScript` prints of the tree `LARGE_TREE_WRITE` writes. */
+function largeTreeHash(): string {
+  const tree = createHash("sha256");
+
+  for (const [name, size] of LARGE_TREE) {
+    const content = Buffer.alloc(size);
+
+    for (let at = 0; at < size; at += 32) content.set(createHash("sha256").update(name + at).digest().subarray(0, Math.min(32, size - at)), at);
+    tree.update(name).update(content);
+  }
+
+  return tree.digest("hex");
+}
+
 type Cloud = { logs: Machine; host: ContainerHost; proxy: Proxy; git: GitServer };
 
 /**
  * The cloud machine for one scenario: its container on a fake host whose runner dials ky through a
  * proxy the scenario can break, git on a fake github.com, and GitHub set up in Settings with me/app.
- * It sleeps once idle `idleMs`, if given. The container starts when a task is sent to it; when the
+ * It sleeps once idle `idleMs`, and gives up on failing starts after `startDeadlineMs`, if given. The container starts when a task is sent to it; when the
  * scenario ends it is reset: stopped, and its save forgotten.
  */
-async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
+async function cloudMachine(context: Context, idleMs?: number, startDeadlineMs?: number): Promise<Cloud> {
   const logs = machine(CLOUD, context.dir);
   const proxy = await startProxy(context.url);
   const git = await serveGit(GITHUB_TOKEN);
@@ -319,7 +388,13 @@ async function cloudMachine(context: Context, idleMs?: number): Promise<Cloud> {
     // Awaited: sent and left, its removal can land after the next scenario's set-github and take its token.
     async () => void (await context.main.command({ type: "remove-subscription", kind: "github" }))
   );
-  const query = new URLSearchParams({ url: host.url, github: git.url, ...(idleMs !== undefined && { idle: String(idleMs) }) });
+
+  const query = new URLSearchParams({
+    url: host.url,
+    github: git.url,
+    ...(idleMs !== undefined && { idle: String(idleMs) }),
+    ...(startDeadlineMs !== undefined && { startDeadline: String(startDeadlineMs) })
+  });
 
   await testRoute(context, `/test/cloud-host?${query}`);
   const saved = JSON.stringify((await context.main.command({ type: "set-github", token: GITHUB_TOKEN, repos: ["me/app"] })).result);
@@ -1093,15 +1168,138 @@ export const SCENARIOS: Scenario[] = [
       const { logs, host } = await cloudMachine(context, 3_000);
       const task = await startTask(context, CLOUD, "write the draft");
       await status(context, task, "done", 60_000);
-      const first = logs.claude().find((event) => event.event === "start" && event.task === task);
       await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 30_000);
       sendTo(context, task, "now polish it");
       await until("the follow-up turn", () => turns(logs, task).includes("now polish it"), 60_000);
       await until("the follow-up to finish", () => context.main.history(task).filter((entry) => entry.startsWith("done")).length >= 2);
       check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
-      const resumed = logs.claude().findLast((event) => event.event === "start" && event.task === task);
       // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
-      check(resumed !== undefined && resumed.resume === first?.session && resumed.pid !== first?.pid, "the new container resumed the first session");
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-large-work-tree",
+    expect: "pass",
+    about: "a work tree bigger than one of R2's upload parts sleeps to R2 in parts and wakes whole in a new container, every file's hash the same",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context, 3_000);
+      const expected = largeTreeHash();
+      const task = await startTask(context, CLOUD, `[sh] node -e '${LARGE_TREE_WRITE}' && node -e '${largeTreeHashScript("written")}'`);
+      await status(context, task, "done", 60_000);
+      await until("the tree's hash", () => context.main.heard(`written ${expected}`), 30_000);
+      await until("the cloud machine to sleep", () => !host.running() && !online(context, CLOUD), 60_000);
+      await followUp(context, logs, task, `[sh] node -e '${largeTreeHashScript("restored")}'`);
+      check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
+      // The task can read done before its report reaches the chat; a tree that differs never prints this.
+      await until("the new container's tree to have the same files, with the same hashes", () => context.main.heard(`restored ${expected}`), 30_000);
+    }
+  },
+  {
+    name: "cloud-crash-mid-task",
+    expect: "pass",
+    about: "the cloud container crashes during a task's second turn: that turn fails once, and a follow-up resumes the session the first turn's snapshot kept",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      await snapshotted(context);
+      sendTo(context, task, "[delay=30000] keep drafting");
+      await until("the second turn to start", () => turns(logs, task).includes("[delay=30000] keep drafting"), 30_000);
+      await host.crash();
+      await until("the second turn to fail", () => context.main.history(task).some((entry) => entry.startsWith("failed: Interrupted")), 60_000);
+      await followUp(context, logs, task, "now polish it");
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1, `the crashed turn failed once, got ${JSON.stringify(failures)}`);
+      check(host.starts() === 2, `a new container started after the crash, got ${host.starts()} starts`);
+      // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-crash-while-idle",
+    expect: "pass",
+    about: "the cloud container dies while idle, not yet asleep, as a deploy rollout replaces it: a follow-up resumes the session from the last snapshot",
+    async run(context) {
+      const { logs, host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "write the draft");
+      await status(context, task, "done", 60_000);
+      await snapshotted(context);
+      check(host.running(), "the idle container still runs, short of its idle timeout");
+      await host.crash();
+      await followUp(context, logs, task, "now polish it");
+      check(host.starts() === 2, `a new container woke for the follow-up, got ${host.starts()} starts`);
+      // The fake claude refuses a --resume whose session file isn't there: the new container's HOME had it from R2.
+      check(resumedInNewProcess(logs, task), "the new container resumed the first session");
+    }
+  },
+  {
+    name: "cloud-save-fails-then-busy",
+    expect: "pass",
+    about: "a sleep's save is cut off after the runner stopped; a task that comes then gets a new container with the newer files, not the older save",
+    async run(context) {
+      const { host } = await cloudMachine(context, 3_000);
+      const task = await startTask(context, CLOUD, "[sh] echo first > first.txt");
+      await status(context, task, "done", 60_000);
+      sendTo(context, task, "[sh] echo written-in-turn-2 > marker.txt && echo wrote-it");
+      await until("the second turn to finish", () => context.main.heard("sh exited 0: wrote-it"), 30_000);
+      // Two cut off: the sleep's, and its retry's, so the task below lands while the runner is still stopped.
+      host.cutSaves(2);
+      await until("a save to be cut off", () => host.cutOff() >= 1, 30_000);
+      check(host.running(), "the container still runs after its save was cut off");
+      sendTo(context, task, "[sh] cat marker.txt");
+      await until("the third turn to finish", () => context.main.heard("sh exited 0: written-in-turn-2") || context.main.heard("No such file"), 60_000);
+      check(context.main.heard("sh exited 0: written-in-turn-2"), "the new container had the file the second turn wrote");
+      check(host.starts() === 2, `a new container started for the task, got ${host.starts()} starts`);
+    }
+  },
+  {
+    name: "cloud-start-keeps-failing",
+    expect: "pass",
+    about: "a sandbox whose every start is refused fails its waiting task once, at its start deadline, says why, and stops starting",
+    async run(context) {
+      const { host } = await cloudMachine(context, undefined, 12_000);
+      host.refuse(Infinity);
+      const task = await startTask(context, CLOUD, "[sh] echo never");
+      await status(context, task, "failed", 40_000);
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1 && failures[0]!.includes("didn't start"), `the task failed once with the start's reason, got ${JSON.stringify(failures)}`);
+      await until("the machine to say why", () => reasonOf(context, CLOUD)?.includes("didn't start") ?? false, 10_000);
+      const refused = host.refused();
+      // A start every 2s test tick within the 12s deadline, and one at it.
+      check(refused >= 2 && refused <= 8 && host.starts() === 0, `a bounded number of starts, got ${refused} refused and ${host.starts()} started`);
+      await sleep(6_000);
+      check(host.refused() === refused, `no start after it gave up, got ${host.refused()} refused`);
+    }
+  },
+  {
+    name: "cloud-save-keeps-failing",
+    expect: "pass",
+    about: "a sandbox whose saves keep failing says it couldn't save its files after five, keeps its container, and clears that once a save works",
+    async run(context) {
+      const { host } = await cloudMachine(context, 3_000);
+      const task = await startTask(context, CLOUD, "[sh] echo kept > kept.txt");
+      await status(context, task, "done", 60_000);
+      host.failSaves(true);
+      await until("the machine to say its saves fail", () => reasonOf(context, CLOUD)?.includes("couldn't save its files") ?? false, 60_000);
+      check(host.failedSaves() >= 5, `five saves failed first, got ${host.failedSaves()}`);
+      check(host.running() && host.starts() === 1, `its container still runs, never destroyed, got ${host.starts()} starts`);
+      host.failSaves(false);
+      await until("the cloud machine to sleep", () => !host.running(), 30_000);
+      await until("the reason to clear", () => reasonOf(context, CLOUD) === null, 10_000);
+    }
+  },
+  {
+    name: "cloud-sigterm-report",
+    expect: "pass",
+    about: "the cloud runner gets SIGTERM mid-task, as a container the platform stops does: the task fails saying the container was stopped",
+    async run(context) {
+      const { host } = await cloudMachine(context);
+      const task = await startTask(context, CLOUD, "[delay=30000] long work");
+      await status(context, task, "working", 60_000);
+      await host.terminate();
+      await until("the task to fail", () => context.main.history(task).some((entry) => entry.startsWith("failed")), 30_000);
+      const failures = context.main.history(task).filter((entry) => entry.startsWith("failed"));
+      check(failures.length === 1 && failures[0]!.includes("container was stopped"), `the task failed saying the container was stopped, got ${JSON.stringify(failures)}`);
     }
   },
   {

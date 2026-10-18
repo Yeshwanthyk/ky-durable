@@ -514,13 +514,30 @@ export class PiAgent extends DurableObject<Env> {
     return sandbox !== undefined && sandbox.deletedAt === null && this.machines.busy(sandbox.name);
   }
 
-  /** What the sandbox `id`'s alarm needs: the name it pairs as, its idle minutes, whether it has work; null once deleted. */
+  /**
+   * What the sandbox `id`'s alarm needs: the name it pairs as, its idle minutes, whether it has work,
+   * how many of its turns have ended (it snapshots its disk when that passes its last save); null once deleted.
+   */
   sandboxNow(id: string): SandboxNow {
     const sandbox = this.sandboxes.get(id);
 
     if (!sandbox || sandbox.deletedAt !== null) return null;
 
-    return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name) };
+    return { name: sandbox.name, idleMinutes: sandbox.idleMinutes, busy: this.machines.busy(sandbox.name), turnsEnded: this.machines.turnsEnded(sandbox.name) };
+  }
+
+  /** Why the sandbox `id` is unwell, as its CloudMachine saw (its saves keep failing); null once that is over. */
+  sandboxTrouble(id: string, reason: string | null): void {
+    const sandbox = this.sandboxes.get(id);
+
+    if (sandbox) this.machines.trouble(sandbox.name, reason);
+  }
+
+  /** The sandbox `id` didn't start by its deadline, as `text` says: its waiting tasks fail with that. */
+  async sandboxStartFailed(id: string, text: string): Promise<void> {
+    const sandbox = this.sandboxes.get(id);
+
+    if (sandbox) await this.machines.startFailed(sandbox.name, text);
   }
 
   /** Whether `name` is a live sandbox's, which no runner may pair as or unpair. */

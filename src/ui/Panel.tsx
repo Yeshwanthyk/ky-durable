@@ -1405,9 +1405,10 @@ function MachineUnpair({ machine }: { machine: MachineInfo }) {
   );
 }
 
-// How to bring an offline computer back: the service restarts it, or the user starts it by hand. The cloud machine wakes itself.
+// How to bring an offline computer back: the service restarts it, or the user starts it by hand. The cloud machine wakes itself,
+// and shows only why it couldn't start or save, if it couldn't.
 function MachineRestart({ machine }: { machine: MachineInfo }) {
-  if (machine.online || isCloud(machine)) return null;
+  if (isCloud(machine) ? !machine.reason : machine.online) return null;
 
   // A reason names its own fix, which is never to start it again.
   if (machine.reason) {
