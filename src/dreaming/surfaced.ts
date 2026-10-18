@@ -1,3 +1,5 @@
+import Type from "typebox";
+import { decodeOr } from "../core/decode";
 import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } from "./contract";
 
 /**
@@ -8,10 +10,12 @@ import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } fr
 
 /**
  * What is surfaced: an event, an automation's report put in a chat between turns (src/automations/delivery.ts),
- * which has no outcome to tap yet, so it expires after a day; or a recall, the context recalled for a user's
- * message (src/dreaming/recall.ts). Rows an older ky wrote for its brief and its suggestions stay, unread.
+ * which has no outcome to tap yet, so it expires after a day; a look, a message a look posted in the main chat
+ * (src/dreaming/looks.ts), which expires the same way and is how the next look knows what was said; or a recall,
+ * the context recalled for a user's message (src/dreaming/recall.ts). Rows an older ky wrote for its brief and its
+ * suggestions stay, unread.
  */
-export type SurfacedKind = "event" | "recall";
+export type SurfacedKind = "event" | "look" | "recall";
 
 /** A thing as it is shown: what it is, which loop made it, what it rests on, its key and text, when it goes. */
 export type Shown = {
@@ -27,6 +31,9 @@ export type Shown = {
 
 /** Settled rows are kept this long after their outcome, then pruned by the night dream. */
 const KEEP_MS = 60 * 86_400_000;
+
+/** A ref and when it was last shown. */
+const RefShown = Type.Object({ ref: Type.String(), at: Type.Number() });
 
 export class Surfaced {
   readonly #sql: SqlStorage;
@@ -106,6 +113,16 @@ export class Surfaced {
       )
       .toArray()
       .flatMap((row) => shownItem(row) ?? []);
+  }
+
+  /** When each ref of `kind` was last shown, by ref. */
+  lastShown(kind: SurfacedKind): Map<string, number> {
+    const rows = this.#sql
+      .exec("SELECT ref, max(shown_at) AS at FROM ky_surfaced WHERE kind = ? GROUP BY ref", kind)
+      .toArray()
+      .flatMap((row) => decodeOr(RefShown, row, undefined) ?? []);
+
+    return new Map(rows.map((row) => [row.ref, row.at]));
   }
 
   /** Shown items still unhandled when they expired: expired, at their expiry. How many. */

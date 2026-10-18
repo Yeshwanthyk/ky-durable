@@ -136,8 +136,8 @@ const Refused = Type.Object({ refused: Text });
 
 const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Text, actor: Text, body: Text, created_at: Type.Number() }));
 
-/** Settings › Proactivity: the level. */
-const Proactivity = Type.Unsafe<ProactivityView>(Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]) }));
+/** Settings › Proactivity: the level and the look times. */
+const Proactivity = Type.Unsafe<ProactivityView>(Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts }));
 
 /** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
 const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
@@ -194,6 +194,7 @@ export const ANSWERS = {
   "mail-disallow": Refusable,
   proactivity: Proactivity,
   "set-proactivity": Proactivity,
+  "set-looks": Proactivity,
   "dream-ledger": Ledger,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };

@@ -7,6 +7,7 @@ import type {
 import {
   projectEntries,
   projectEntry,
+  kySays,
   projectMessage,
   type PiMessage,
   type PiMessagePart
@@ -73,26 +74,7 @@ function append(view: PiSessionView, entry: EntryRecord): PiSessionView {
 }
 
 function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
-  const [part] = projectMessage(
-    {
-      role: "assistant",
-      content: [block],
-      api: "",
-      provider: "",
-      model: "",
-      usage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-      },
-      stopReason: "stop",
-      timestamp: 0
-    },
-    LIVE_ID
-  ).parts;
+  const [part] = projectMessage(kySays([block], 0), LIVE_ID).parts;
 
   return must(part, "an assistant block projects to one part");
 }

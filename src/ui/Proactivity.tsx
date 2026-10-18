@@ -5,13 +5,18 @@ import { Icon } from "./Icon";
 type ProactivityActions = {
   readonly onView: () => Promise<ProactivityView>;
   readonly onSet: (level: ProactivityLevel) => Promise<ProactivityView>;
+  readonly onLooks: (looks: readonly string[]) => Promise<ProactivityView>;
 };
 
 /** What Settings › Proactivity does; provided around the panel. */
 export const ProactivityContext = createContext<ProactivityActions>({
   onView: () => Promise.reject(new Error("Not connected.")),
-  onSet: () => Promise.reject(new Error("Not connected."))
+  onSet: () => Promise.reject(new Error("Not connected.")),
+  onLooks: () => Promise.reject(new Error("Not connected."))
 });
+
+/** Look times a user may set, at most, as the server holds them (src/dreaming/contract.ts LOOK_TIMES). */
+const MOST_LOOKS = 4;
 
 const LEVELS: ReadonlyArray<{ level: ProactivityLevel; label: string; sub: string }> = [
   { level: "on", label: "On", sub: "ky looks over your day at set times and messages you when something needs you." },
@@ -73,7 +78,45 @@ function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonl
   );
 }
 
-// How proactive ky is: on or off.
+/** The look times while Proactivity is on, each removable, and a time to add while there is room. */
+function Looks({ view, onChange }: { readonly view: ProactivityView; readonly onChange: (looks: readonly string[]) => void }) {
+  const [adding, setAdding] = useState("");
+  const { looks } = view;
+
+  if (view.level === "off") return null;
+
+  const add = () => {
+    if (adding === "") return;
+    onChange([...looks, adding]);
+    setAdding("");
+  };
+
+  return (
+    <>
+      <h3 className="group-label">Looks, your time</h3>
+      <div className="card">
+        {looks.map((time) => (
+          <div key={time} className="row">
+            <span className="row-label">{time}</span>
+            <button type="button" className="pill pressable" aria-label={`Remove ${time}`} onClick={() => onChange(looks.filter((each) => each !== time))}>
+              Remove
+            </button>
+          </div>
+        ))}
+        {looks.length < MOST_LOOKS ? (
+          <div className="row">
+            <input type="time" aria-label="Look time" value={adding} onChange={(event) => setAdding(event.target.value)} />
+            <button type="button" className="pill pressable" disabled={adding === ""} onClick={add}>
+              Add
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+// How proactive ky is: on or off, and when it looks.
 export function Proactivity() {
   const actions = useContext(ProactivityContext);
   const [view, setView] = useState<ProactivityView | null>(null);
@@ -91,10 +134,16 @@ export function Proactivity() {
     actions.onSet(level).then(setView, fail);
   };
 
+  const setLooks = (looks: readonly string[]) => {
+    setProblem(null);
+    actions.onLooks(looks).then(setView, fail);
+  };
+
   return (
     <section className="group" id="settings-proactivity">
       <h3 className="group-label">Unasked</h3>
       <Levels level={view.level} onChoose={choose} />
+      <Looks view={view} onChange={setLooks} />
       {problem === null ? null : <p className="group-note">{problem}</p>}
     </section>
   );

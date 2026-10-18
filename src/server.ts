@@ -3,7 +3,7 @@ import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
 import type { BrowserWorker } from "@cloudflare/playwright";
-import { ConversationBusy, createRegistry, type Extension, Harness } from "@earendil-works/pi-durable";
+import { ConversationBusy, createRegistry, type Extension, Harness, LiveDoc } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -20,12 +20,13 @@ import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
 import { History } from "./history";
+import { kySays, LOOK_POST } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools } from "./machines/wiring";
-import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
+import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
@@ -207,6 +208,7 @@ export class PiAgent extends DurableObject<Env> {
       return config ? executeOnce(config, code, signal) : { text: "Executor is not connected.", error: true };
     },
     dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
+    looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
     peers: () => this.sweepPeers()
   });
   readonly registry = createRegistry();
@@ -235,7 +237,8 @@ export class PiAgent extends DurableObject<Env> {
     surfaced: this.surfaced,
     proactivity: this.proactivity,
     skills: () => this.skills.list(),
-    chat: (session) => this.isChat(session)
+    chat: (session) => this.isChat(session),
+    delivered: (requestId) => this.deliveries.delivered(requestId)
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
@@ -249,6 +252,16 @@ export class PiAgent extends DurableObject<Env> {
         if (error instanceof ConversationBusy) return false;
         throw error;
       }
+
+      return true;
+    },
+    post: async (session, text, requestId) => {
+      const conversation = await this.harness.conversation(session);
+      // A write waits for no run, so a busy chat is turned away here, as submit's whenBusy does.
+      const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
+
+      if (busy) return false;
+      await conversation.submit({ type: "write", entry: { kind: LOOK_POST, model: [kySays([{ type: "text", text }], Date.now())] }, requestId }, BACKGROUND);
 
       return true;
     },
@@ -277,6 +290,24 @@ export class PiAgent extends DurableObject<Env> {
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
     }),
     surfaced: this.surfaced
+  });
+  /** ky's looks over the user's day, at their look times while Proactivity is on. */
+  readonly looks: Looks = new Looks(this.ctx.storage.sql, {
+    history: this.history,
+    anticipations: this.anticipations,
+    reviews: this.reviews,
+    host: this.#background,
+    // A look may read the web as a check-in does, so it keeps browse.
+    create: async () => {
+      const { id } = await this.harness.sessions.create();
+      await this.#configure(id, "background", { browse: true });
+
+      return id;
+    },
+    surfaced: this.surfaced,
+    proactivity: this.proactivity,
+    zone: () => this.automations.checkIns().zone,
+    deliver: (item, now) => this.deliveries.deliver(item, now)
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser);
@@ -434,6 +465,7 @@ export class PiAgent extends DurableObject<Env> {
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
+    this.proactivity.onChange(() => this.ctx.waitUntil(this.automations.bookLooks()));
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();
@@ -849,14 +881,14 @@ export class PiAgent extends DurableObject<Env> {
     }
   }
 
-  /** Set a top-level conversation up like the main one, on `purpose`'s model. */
-  async #configure(session: string, purpose: Purpose = "main"): Promise<void> {
+  /** Set a top-level conversation up like the main one, on `purpose`'s model; without browse unless `browse`. */
+  async #configure(session: string, purpose: Purpose = "main", { browse = false } = {}): Promise<void> {
     const conversation = await this.harness.conversation(session);
     await conversation.configure(
       {
         ...this.harness.agentDefaults(),
         ...agentModel(this.models.resolve(purpose).choice),
-        extensions: { remove: [this.browse] }
+        extensions: { remove: browse ? [] : [this.browse] }
       },
       BACKGROUND
     );

@@ -135,10 +135,12 @@ export const ClientMessageSchema = Type.Union([
   message("automation-save", { automation: Type.Optional(Text), draft: AutomationDraftSchema }),
   /** Pause, resume, archive, unarchive, run or delete an automation, by its id; the result is what happened, as text. */
   message("automation", { automation: Text, action: AutomationActionSchema }),
-  /** Answers with Settings › Proactivity: the level. */
+  /** Answers with Settings › Proactivity: the level and the look times. */
   message("proactivity", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */
   message("set-proactivity", { level: ProactivityLevelSchema }),
+  /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */
+  message("set-looks", { looks: Texts }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Choose the model, and its thinking level, for one purpose. */

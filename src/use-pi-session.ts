@@ -697,7 +697,8 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
       mailActions: mailActions(ask),
       proactivityActions: {
         onView: () => ask("proactivity", {}),
-        onSet: (level: ProactivityLevel) => ask("set-proactivity", { level })
+        onSet: (level: ProactivityLevel) => ask("set-proactivity", { level }),
+        onLooks: (looks: readonly string[]) => ask("set-looks", { looks })
       }
     }),
     [ask, send]

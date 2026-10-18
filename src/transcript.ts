@@ -39,6 +39,23 @@ export const TO_SPECIALISTS = "ky.to-specialists";
 /** A specialist's own reply in a chat, posted as a passive entry: ky does not pass it on, and it starts nothing. */
 export const SPECIALIST_REPLY = "ky.specialist-reply";
 
+/** A look's message in the main chat (src/dreaming/looks.ts): ky's own, posted as a passive entry, so it starts no run. */
+export const LOOK_POST = "ky.look";
+
+/** An assistant message saying `content` that no model wrote: a look's post, or a block streamed alone. */
+export function kySays(content: AssistantMessage["content"], timestamp: number): AssistantMessage {
+  return {
+    role: "assistant",
+    content,
+    api: "",
+    provider: "",
+    model: "",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp
+  };
+}
+
 export type ToSpecialistsData = { to: string[] };
 
 /** ky reads the user's message to specialists after this mark, so it knows the message is not for it. */

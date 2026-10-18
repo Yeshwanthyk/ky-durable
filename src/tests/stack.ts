@@ -638,6 +638,20 @@ function dreamt(messages: readonly WireMessage[]): Reply | undefined {
   return calls[messages.slice(at + 1).filter((message) => message.role === "tool").length] ?? { text: "Dreamt." };
 }
 
+/**
+ * A look (src/dreaming/looks.ts) answers with the rows its digest asks for: each `look> {json}` in a line said in a
+ * chat, in the digest's order, as one JSON array. Undefined for any other turn.
+ */
+function looked(messages: readonly WireMessage[]): Reply | undefined {
+  const last = messages.findLast((message) => message.role === "user");
+  const prompt = last === undefined ? "" : wireText(last.content);
+
+  if (!prompt.startsWith("[look]")) return undefined;
+  const rows = [...prompt.matchAll(/look> /g)].flatMap((found) => objectAt(prompt, found.index + found[0].length) ?? []);
+
+  return { text: `[${rows.join(",")}]` };
+}
+
 /** The answer to a turn's last message: the user's input, or a tool's result. */
 function reply(last: WireMessage | undefined): Reply {
   // The wire does not say whether a tool failed; its result is its text either way.
@@ -759,7 +773,7 @@ export class PiAgent extends ProductionAgent {
     const answering = (messages: readonly WireMessage[]) => {
       asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
 
-      return dreamt(messages) ?? script(unrecalled(messages));
+      return dreamt(messages) ?? looked(messages) ?? script(unrecalled(messages));
     };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>

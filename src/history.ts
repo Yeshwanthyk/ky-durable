@@ -1,6 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import Type from "typebox";
 import { decodeOr } from "./core/decode";
+import { LOOK_POST } from "./transcript";
 
 /**
  * Chat search: a full-text index over every message of the main chat and the
@@ -356,7 +357,7 @@ export class History {
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
            coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at,
            CASE
-             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
+             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant', '${LOOK_POST}') THEN NULL
              WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
              ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
                    FROM json_each(record, '$.model[0].content') AS part
@@ -442,7 +443,12 @@ function roleOf(row: EntryRow, own: ReadonlySet<number>): Role {
  * episode reflection (src/dreaming/episodes.ts) counts only these as the user's turns.
  */
 export function ownMessages(sql: SqlStorage, users: readonly number[]): ReadonlySet<number> {
-  if (users.length === 0) return new Set();
+  return new Set([...placedBy(sql, users)].flatMap(([entry, request]) => (isOwnRequest(request) ? [entry] : [])));
+}
+
+/** Of the user entries `users` (pi's entry ids), the request id of the submission that placed each; one placed by none is left out. */
+export function placedBy(sql: SqlStorage, users: readonly number[]): ReadonlyMap<number, string | undefined> {
+  if (users.length === 0) return new Map();
 
   const low = Math.min(...users);
   const high = Math.max(...users);
@@ -457,15 +463,15 @@ export function ownMessages(sql: SqlStorage, users: readonly number[]): Readonly
     high
   );
 
-  const own = new Set<number>();
+  const requests = new Map<number, string | undefined>();
 
   for (const raw of placed) {
     const row = decodeOr(PlacedRow, raw, undefined);
 
-    if (row !== undefined && wanted.has(row.entry) && isOwnRequest(row.request ?? undefined)) own.add(row.entry);
+    if (row !== undefined && wanted.has(row.entry)) requests.set(row.entry, row.request ?? undefined);
   }
 
-  return own;
+  return requests;
 }
 
 /**
@@ -481,6 +487,25 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
   ).id;
 
   return newest !== null && ownMessages(sql, [newest]).has(newest);
+}
+
+/** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */
+const WROTE_SINCE = 20;
+
+/** Whether the user sent a message in `conversation` after `at`, epoch ms, among its newest WROTE_SINCE user entries. */
+export function wroteSince(sql: SqlStorage, conversation: string, at: number): boolean {
+  const users = sql
+    .exec(
+      `SELECT id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'
+       AND json_extract(record, '$.model[0].timestamp') > ? ORDER BY id DESC LIMIT ?`,
+      Number(conversation),
+      at,
+      WROTE_SINCE
+    )
+    .toArray()
+    .flatMap((row) => decodeOr(NewestRow, row, undefined)?.id ?? []);
+
+  return ownMessages(sql, users).size > 0;
 }
 
 const day = (at: number) => (at > 0 ? new Date(at).toISOString().slice(0, 10) : "----------");

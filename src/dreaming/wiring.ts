@@ -15,6 +15,8 @@ export { dreamCron, Dreaming } from "./dreaming";
 
 export { DreamLedger } from "./ledger";
 
+export { Looks } from "./looks";
+
 export { Memory } from "./memory";
 
 export { Presence } from "./presence";
@@ -57,7 +59,12 @@ export function dreamingTools({ soul, memory, anticipations, recall, history, re
   };
 
   // An episode's evidence must come from the stretch of its chat its fork read.
-  const anticipate = anticipateTool(anticipations, actor, (session) => reviews.window(session));
+  const anticipate = anticipateTool(
+    anticipations,
+    actor,
+    (session) => reviews.window(session),
+    (session) => reviews.kind(session) === "look"
+  );
 
   return {
     soul: soulExtension(soul),

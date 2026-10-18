@@ -954,6 +954,7 @@ export class PiSessionSockets {
     automation: (message) => this.#automationActions[message.action](message.automation),
     proactivity: () => this.#proactivity.view(),
     "set-proactivity": (message) => this.#proactivity.set(message.level),
+    "set-looks": (message) => this.#proactivity.setLooks(message.looks),
     "set-check-ins": async (message) => {
       await this.#automations.setCheckIns(message.on);
 

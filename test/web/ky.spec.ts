@@ -775,6 +775,38 @@ test("turns Proactivity off and back on in Settings, the arrow keys moving the c
   await expect(on).toBeFocused();
 });
 
+test("sets when ky looks over the day in Settings › Proactivity, and hides the times while it is off", async ({ page }) => {
+  await open(page);
+  await settings(page, "Proactivity");
+  const looks = panel(page).locator("#settings-proactivity");
+  await expect(looks.getByText("08:00")).toBeVisible();
+
+  await looks.getByLabel("Look time").fill("21:15");
+  await looks.getByRole("button", { name: "Add" }).click();
+  await looks.getByRole("button", { name: "Remove 08:00" }).click();
+  await expect(looks.getByRole("button", { name: "Remove 21:15" })).toBeVisible();
+  // Four at most: with four set, there is no time to add.
+  await looks.getByLabel("Look time").fill("06:45");
+  await looks.getByRole("button", { name: "Add" }).click();
+  await expect(looks.getByLabel("Look time")).toBeHidden();
+
+  // Kept, earliest first: a reload still shows them.
+  await page.reload();
+  await settings(page, "Proactivity");
+  await expect(looks.getByRole("button", { name: /^Remove/ })).toHaveText(["Remove", "Remove", "Remove", "Remove"]);
+  await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["06:45", "13:00", "18:00", "21:15"]);
+
+  await panel(page).getByRole("radio", { name: /^Off/ }).click();
+  await expect(looks.getByText("21:15")).toBeHidden();
+  await panel(page).getByRole("radio", { name: /^On/ }).click();
+
+  // Back to the defaults for the tests after.
+  for (const time of ["06:45", "21:15"]) await looks.getByRole("button", { name: `Remove ${time}` }).click();
+  await looks.getByLabel("Look time").fill("08:00");
+  await looks.getByRole("button", { name: "Add" }).click();
+  await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["08:00", "13:00", "18:00"]);
+});
+
 test("lists last night's dream in Activity with its reasons, undoes a change, says why another can't be, and pins a skill", async ({ page }) => {
   await signIn(page);
   const tag = crypto.randomUUID().slice(0, 6);

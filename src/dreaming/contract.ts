@@ -199,8 +199,14 @@ export const entryAt = (row: Row): Static<typeof EntryAtRow> | undefined => deco
 /** The context recalled for a user's message, by its pi entry id: the lines its chip shows (src/dreaming/recall.ts). */
 export type Recalled = { readonly entry: number; readonly lines: readonly string[] };
 
-/** Settings › Proactivity: the level. */
-const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema });
+/** A look time: local HH:MM. */
+export const LOOK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/** Look times a user may set, at most. */
+export const LOOK_TIMES = 4;
+
+/** Settings › Proactivity: the level, and the look times, earliest first. */
+const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema, looks: Type.Array(Type.String()) });
 
 export type ProactivityView = Static<typeof ProactivityViewSchema>;
 

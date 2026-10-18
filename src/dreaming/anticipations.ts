@@ -628,7 +628,12 @@ function handlers(anticipations: Anticipations): Readonly<Record<Call["args"]["a
  * side chats (as `user`); `actor` says which a session is, and `pass` what stretch of its chat an episode read.
  * Memory's extension carries it (src/dreaming/memory.ts), so a specialist, which may not write memory, may not call it.
  */
-export function anticipateTool(anticipations: Anticipations, actor: (session: string) => Actor, pass: (session: string) => EpisodePass | undefined) {
+export function anticipateTool(
+  anticipations: Anticipations,
+  actor: (session: string) => Actor,
+  pass: (session: string) => EpisodePass | undefined,
+  listOnly: (session: string) => boolean
+) {
   const actions = handlers(anticipations);
 
   return defineTool({
@@ -640,6 +645,9 @@ export function anticipateTool(anticipations: Anticipations, actor: (session: st
     execute: async (args, api) => {
       const session = String(api.conversationId);
       const by = actor(session);
+
+      // A look (src/dreaming/looks.ts) only reads.
+      if (args.action !== "list" && listOnly(session)) throw new Error("A look may only list anticipations.");
 
       // A turn a notice started (a relayed mail, a peer's question, a report) holds no word of the user's: its model may read, not act as the user.
       if (by === "user" && USER_ACTS.has(args.action) && !anticipations.startedByUser(session)) {
