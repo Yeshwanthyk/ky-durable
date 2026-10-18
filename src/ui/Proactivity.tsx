@@ -1,6 +1,6 @@
 import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { RIGHT_AWAY_MOST } from "../dreaming/contract";
-import type { ProactivityLevel, ProactivityView } from "../protocol";
+import type { CheckIns, ProactivityLevel, ProactivityView } from "../protocol";
 import { Icon } from "./Icon";
 
 type ProactivityActions = {
@@ -8,6 +8,8 @@ type ProactivityActions = {
   readonly onSet: (level: ProactivityLevel) => Promise<ProactivityView>;
   readonly onLooks: (looks: readonly string[]) => Promise<ProactivityView>;
   readonly onRightAway: (most: number) => Promise<ProactivityView>;
+  readonly onZone: () => Promise<CheckIns>;
+  readonly onSetZone: (zone: string | null) => Promise<CheckIns>;
   readonly onPushKey: () => Promise<string>;
   readonly onSubscribe: (device: PushDevice) => Promise<null>;
   readonly onUnsubscribe: (endpoint: string) => Promise<null>;
@@ -22,6 +24,8 @@ export const ProactivityContext = createContext<ProactivityActions>({
   onSet: () => Promise.reject(new Error("Not connected.")),
   onLooks: () => Promise.reject(new Error("Not connected.")),
   onRightAway: () => Promise.reject(new Error("Not connected.")),
+  onZone: () => Promise.reject(new Error("Not connected.")),
+  onSetZone: () => Promise.reject(new Error("Not connected.")),
   onPushKey: () => Promise.reject(new Error("Not connected.")),
   onSubscribe: () => Promise.reject(new Error("Not connected.")),
   onUnsubscribe: () => Promise.reject(new Error("Not connected."))
@@ -123,6 +127,54 @@ function Looks({ view, onChange }: { readonly view: ProactivityView; readonly on
             </button>
           </div>
         ) : null}
+      </div>
+    </>
+  );
+}
+
+/** The select's value for following where the browser connects. */
+const AUTOMATIC = "";
+
+/** The time now in `zone`, as the user reads a clock. */
+const timeIn = (zone: string) => new Intl.DateTimeFormat(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date());
+
+/** The user's time zone, followed from where they connect or pinned, and the time there now. */
+function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
+  const actions = useContext(ProactivityContext);
+  const [view, setView] = useState<CheckIns | null>(null);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    actions.onZone().then(setView, onFail);
+    const clock = setInterval(() => tick((n) => n + 1), 30_000);
+
+    return () => clearInterval(clock);
+  }, [actions, onFail]);
+
+  if (view === null) return null;
+  const zones = Intl.supportedValuesOf("timeZone");
+  const pinned = view.pinned ? view.zone : null;
+  const automatic = view.pinned ? "Automatic" : `Automatic (${view.zone ?? "not known yet"})`;
+
+  return (
+    <>
+      <h3 className="group-label">Time zone</h3>
+      <div className="card">
+        <div className="row">
+          <label className="choice-text" htmlFor="time-zone">
+            <span>Time zone</span>
+            <span className="row-sub">{view.zone === null ? "Looks and the dream follow it." : `It's ${timeIn(view.zone)} there.`}</span>
+          </label>
+          <select id="time-zone" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
+            <option value={AUTOMATIC}>{automatic}</option>
+            {pinned !== null && !zones.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
+            {zones.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </>
   );
@@ -318,6 +370,7 @@ export function Proactivity() {
       <h3 className="group-label">Unasked</h3>
       <Levels level={view.level} onChoose={choose} />
       <Looks view={view} onChange={setLooks} />
+      <TimeZone onFail={fail} />
       <Notifications view={view} onRightAway={setRightAway} />
       {problem === null ? null : <p className="group-note">{problem}</p>}
     </section>

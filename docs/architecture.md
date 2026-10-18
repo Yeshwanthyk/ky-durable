@@ -174,7 +174,8 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   is brought back for it, and a deleted one's go to main. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
   that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still
-  ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection). A run
+  ahead, set for that morning in the user's time zone (Cloudflare's `cf.timezone` on their last connection, unless they
+  pinned one in Settings › Proactivity, `ky_check_ins.zone_pinned`, until they pick Automatic again). A run
   is told to search in general terms and to answer `NOTHING_NEW` when it found nothing worth saying; then, or when it
   fails, it only shows in Activity ("Nothing new"). Otherwise its report reaches the main agent, which tells the user
   unless memory shows it already has, and notes what it said. A run may call only `executor_skills`,

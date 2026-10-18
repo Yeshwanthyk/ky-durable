@@ -976,6 +976,12 @@ export class PiSessionSockets {
       await this.#automations.setCheckIns(message.on);
 
       return null;
+    },
+    zone: () => this.#automations.checkIns(),
+    "set-zone": async (message) => {
+      await this.#automations.pinZone(message.zone);
+
+      return this.#automations.checkIns();
     }
   };
 }
