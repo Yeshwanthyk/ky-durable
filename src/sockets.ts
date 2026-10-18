@@ -46,6 +46,7 @@ import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from 
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
+import type { Pushes } from "./push";
 import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -177,6 +178,8 @@ export class PiSessionSockets {
   readonly #automations: Automations;
   readonly #presence: Presence;
   readonly #proactivity: Proactivity;
+  /** This device's notifications, from Settings › Proactivity. */
+  readonly #pushes: Pushes;
   /** Turn-start recall, for the chips under the user's messages. */
   readonly #recall: Recall;
   readonly #setup: Setup;
@@ -211,6 +214,7 @@ export class PiSessionSockets {
     automations: Automations,
     presence: Presence,
     proactivity: Proactivity,
+    pushes: Pushes,
     recall: Recall,
     setup: Setup,
     /** What this deploy has no config for now, sent with the setup. */
@@ -243,6 +247,7 @@ export class PiSessionSockets {
     this.#automations = automations;
     this.#presence = presence;
     this.#proactivity = proactivity;
+    this.#pushes = pushes;
     this.#recall = recall;
     this.#setup = setup;
     this.#notSetUp = notSetUp;
@@ -955,6 +960,18 @@ export class PiSessionSockets {
     proactivity: () => this.#proactivity.view(),
     "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-looks": (message) => this.#proactivity.setLooks(message.looks),
+    "set-right-away": (message) => this.#proactivity.setRightAway(message.most),
+    "push-key": () => this.#pushes.key(),
+    "push-subscribe": (message) => {
+      this.#pushes.subscribe(message);
+
+      return null;
+    },
+    "push-unsubscribe": (message) => {
+      this.#pushes.unsubscribe(message.endpoint);
+
+      return null;
+    },
     "set-check-ins": async (message) => {
       await this.#automations.setCheckIns(message.on);
 

@@ -13,6 +13,7 @@ import { Deliveries } from "../../src/automations/delivery";
  * again:
  *
  * - every report and look message handed over is in its chat once, with what its first hand-over said, in hand-over order;
+ * - each of them is pushed to the user's devices once;
  * - a report an older ky sent to the brief is never put in a chat, and no row is left queued.
  */
 
@@ -113,6 +114,8 @@ class World {
   readonly chats = new Chats();
   /** Each id's first hand-over, in hand-over order. */
   readonly handed = new Map<string, { session: string; content: string }>();
+  /** What was pushed, by the text each push said. */
+  readonly pushed: string[] = [];
   #deliveries: Deliveries;
   #opened = 0;
   #now = 1_000;
@@ -156,6 +159,7 @@ class World {
 
     return new Deliveries(storage(this.db), {
       surfaced: { shown: () => undefined },
+      notify: async (_at, text) => void this.pushed.push(text),
       submit: async (at, content, id) => this.chats.submit(life, at, content, id),
       post: async (at, text, id) => this.chats.submit(life, at, text, id, false),
       idle: (at) => this.chats.idle(life, at),
@@ -184,11 +188,12 @@ async function play(ops: readonly Op[]): Promise<void> {
     expect(world.chats.posted.filter((post) => post.session === each)).toEqual(expected.filter((post) => post.session === each));
   }
 
+  expect([...world.pushed].sort()).toEqual(expected.map((post) => post.content).sort());
   expect(world.db.prepare("SELECT id FROM ky_deliveries WHERE state = 'queued'").all()).toEqual([]);
 }
 
 describe("an automation's report", () => {
-  it("reaches its chat once, in full and in order, across busy chats, restarts and crashes; one sent to the brief stays there", async () => {
+  it("reaches its chat once, in full and in order, and is pushed once, across busy chats, restarts and crashes; one sent to the brief stays there", async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(anOp, { maxLength: 40 }), (ops) => play(ops)),
       { numRuns: 300 }

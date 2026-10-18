@@ -9,7 +9,7 @@
 import Type, { type TSchema } from "typebox";
 import { parseOr } from "./core/decode";
 import { AutomationActionSchema, AutomationDraftSchema } from "./automations/contract";
-import { ProactivityLevelSchema, SoulChangeSchema } from "./dreaming/contract";
+import { ProactivityLevelSchema, RIGHT_AWAY_MOST, SoulChangeSchema } from "./dreaming/contract";
 import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
 import { ModelChoiceSchema, PurposeSchema } from "./settings";
 import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
@@ -141,6 +141,14 @@ export const ClientMessageSchema = Type.Union([
   message("set-proactivity", { level: ProactivityLevelSchema }),
   /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */
   message("set-looks", { looks: Texts }),
+  /** Set how many posts a day push to the user's devices; answers with Settings › Proactivity. */
+  message("set-right-away", { most: Type.Integer({ minimum: 0, maximum: RIGHT_AWAY_MOST }) }),
+  /** Answers with ky's VAPID public key, base64url, which this device subscribes to pushes with. */
+  message("push-key", {}),
+  /** Push to this device: its PushSubscription's endpoint and keys. */
+  message("push-subscribe", { endpoint: Text, p256dh: Text, auth: Text }),
+  /** Push no more to the device subscribed at `endpoint`. */
+  message("push-unsubscribe", { endpoint: Text }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Choose the model, and its thinking level, for one purpose. */

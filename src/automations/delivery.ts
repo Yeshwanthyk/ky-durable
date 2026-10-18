@@ -9,7 +9,7 @@ import { ColumnInfo, type Delivery, DeliverySchema, SessionRow } from "./contrac
  * It always goes to that chat, in full, whether or not the user is around. It enters only between turns, never
  * into a run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the
  * user is watching. An event is given to the chat's agent, which answers it; a look's message is posted as ky's
- * own, as written, and starts nothing.
+ * own, as written, and starts nothing. Each, once it is in the chat, is pushed to the user's devices (src/push.ts).
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
  * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
@@ -48,6 +48,8 @@ export type DeliveryParts = {
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
   /** Post `text` in the chat as ky's own message by `requestId`, starting nothing: true once pi took it, false (writing nothing) while a run is going. */
   readonly post: (session: string, text: string, requestId: string) => Promise<boolean>;
+  /** Push `text`, posted in `session`, to the user's devices; never throws. */
+  readonly notify: (session: string, text: string) => Promise<void>;
   /** Resolve once the chat has no run going. */
   readonly idle: (session: string) => Promise<void>;
   /** Work that outlives the call, as ctx.waitUntil. */
@@ -172,8 +174,11 @@ export class Deliveries {
       }
 
       const now = Date.now();
-      this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued'", now, item.id);
+      const marked = this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued' RETURNING id", now, item.id).toArray().length > 0;
       this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
+
+      // Only the flush that marked it pushes it; the push neither holds up the next item nor fails this one.
+      if (marked) this.#parts.later(this.#parts.notify(session, item.line));
     }
   }
 }

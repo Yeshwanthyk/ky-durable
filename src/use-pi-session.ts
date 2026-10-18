@@ -698,7 +698,11 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
       proactivityActions: {
         onView: () => ask("proactivity", {}),
         onSet: (level: ProactivityLevel) => ask("set-proactivity", { level }),
-        onLooks: (looks: readonly string[]) => ask("set-looks", { looks })
+        onLooks: (looks: readonly string[]) => ask("set-looks", { looks }),
+        onRightAway: (most: number) => ask("set-right-away", { most }),
+        onPushKey: () => ask("push-key", {}),
+        onSubscribe: (device: { endpoint: string; p256dh: string; auth: string }) => ask("push-subscribe", device),
+        onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint })
       }
     }),
     [ask, send]

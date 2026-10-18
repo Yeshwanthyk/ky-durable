@@ -5,10 +5,9 @@ import { must } from "../core/must";
 import type { History, Said } from "../history";
 import { anticipationLine, type Anticipations, RUN_CAP } from "./anticipations";
 import type { Memory, NoteRoom } from "./memory";
-import { localCron, localNow } from "./local-day";
 import type { Presence } from "./presence";
 import type { Surfaced } from "./surfaced";
-import { type CheckInsNow, countOf, DREAM_MEMORY_TOOLS, type Mark, markOf } from "./contract";
+import { type CheckInsNow, countOf, DREAM_MEMORY_TOOLS, localCron, localNow, type Mark, markOf } from "./contract";
 import { type ReviewHost, type Reviews, runInFeed, type SkillRow, type Skills, type SkillVersion } from "../skills/contract";
 import type { TaskFeed, TaskRow } from "../automations/contract";
 
