@@ -139,6 +139,9 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
   "Recalled N" under the message. Proactivity off makes none.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
+  The `chats` tool (`src/chats-tool.ts`) lets a chat's agent list the chats not archived (main first), send
+  another chat a message, which goes in as a delivery its agent answers there, and read ky's last message in one.
+  Subagents, specialists and seats go without it.
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
   persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/skills/specialists.ts`).

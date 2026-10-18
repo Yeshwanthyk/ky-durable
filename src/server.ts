@@ -16,6 +16,7 @@ import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { uiExtension } from "./ui-tool";
 import { ChatList, chatActivityExtension } from "./chats";
+import { chatsExtension } from "./chats-tool";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
@@ -396,8 +397,10 @@ export class PiAgent extends DurableObject<Env> {
       // Cards are for a chat with the user: the tool refuses elsewhere, and subagents and seats go without it.
       const ui = uiExtension(chat);
       this.registry.install(ui);
+      const chats = chatsExtension({ chats: this.chats, latest: (session) => this.history.latest(session), deliver: (item) => this.deliveries.deliver(item), chat });
+      this.registry.install(chats);
 
-      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui });
+      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui, chats });
       this.registry.install(specialists.extension);
       this.registry.install(specialists.manage);
       this.registry.install(avatarTools(this.avatars, () => [KY_AVATAR, ...this.specialists.list().map((row) => row.id)]));
@@ -407,7 +410,7 @@ export class PiAgent extends DurableObject<Env> {
 
       // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
       const mail = mailExtension(this.mailDesk, chat);
-      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui]);
+      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui, chats]);
       this.registry.install(seat);
       this.registry.install(progress);
       this.registry.install(checkInGuard);

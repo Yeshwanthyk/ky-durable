@@ -78,6 +78,18 @@ export type Said = {
 
 type EntryRow = { id: number; conversation_id: number; kind: string | null; at: number; text: string | null };
 
+/** An entry's text in SQL: a look's post, or a message's text parts, not thinking, tool calls or images; null for anything else. */
+const TEXT_OF = `CASE
+  WHEN json_extract(record, '$.kind') = '${LOOK_POST}' THEN json_extract(record, '$.data.text')
+  WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
+  WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
+  ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
+        FROM json_each(record, '$.model[0].content') AS part
+        WHERE json_extract(part.value, '$.type') = 'text')
+END`;
+
+const TextRow = Type.Object({ text: Type.String() });
+
 /** A column of `PRAGMA table_info`. */
 const ColumnRow = Type.Object({ name: Type.String() });
 
@@ -322,6 +334,20 @@ export class History {
     return conversation === ROOT_SESSION ? "main chat" : `chat "${this.#name(conversation)}"`;
   }
 
+  /** ky's latest message in `session` that has text, an answer or a look's post; null before the first. */
+  latest(session: string): string | null {
+    const row = this.#sql
+      .exec(
+        `SELECT text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
+           WHERE conversation_id = ? AND json_extract(record, '$.kind') IN ('pi.assistant', '${LOOK_POST}'))
+         WHERE trim(coalesce(text, '')) != '' ORDER BY id DESC LIMIT 1`,
+        Number(session)
+      )
+      .toArray()[0];
+
+    return decodeOr(TextRow, row, undefined)?.text ?? null;
+  }
+
   /** Index every chat message again, as after a restore replaced the transcripts. */
   rebuild(): void {
     this.#sql.exec("DELETE FROM ky_history");
@@ -353,17 +379,8 @@ export class History {
   #entries(from: number): EntryRow[] {
     return this.#sql
       .exec<EntryRow>(
-        // A message's content is a string or a list of parts; only text parts are kept, not thinking, tool calls or images.
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
-           coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at,
-           CASE
-             WHEN json_extract(record, '$.kind') = '${LOOK_POST}' THEN json_extract(record, '$.data.text')
-             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
-             WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
-             ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
-                   FROM json_each(record, '$.model[0].content') AS part
-                   WHERE json_extract(part.value, '$.type') = 'text')
-           END AS text
+           coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at, ${TEXT_OF} AS text
          FROM pi_entries WHERE id > ? ORDER BY id LIMIT ?`,
         from,
         BATCH
