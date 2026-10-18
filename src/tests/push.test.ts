@@ -4,7 +4,7 @@ import Type, { type TSchema } from "typebox";
 import { describe, expect, it } from "vitest";
 import { parseAs } from "../core/decode";
 import { base64url, encrypt, fromBase64url, type PushDevice } from "../push";
-import { browser, inside, type Tab } from "./drive";
+import { browser, inside, type Tab, until } from "./drive";
 
 /**
  * Web Push (src/push.ts) on ky's real Worker: the encryption against RFC 8291's own example, the Vault's VAPID key
@@ -156,7 +156,8 @@ describe("pushes", () => {
     for (const text of ["Kai's school is closed tomorrow.", "Rent is due Friday.", "Your parcel came."]) await post(name, text);
     await page.until(() => kySaid(page).includes("Your parcel came."));
 
-    // Three posts in the chat, two pushes: the third went past the day's two.
+    // Three posts in the chat, two pushes: the third went past the day's two. A post's push goes out after it lands, so wait for it.
+    await until(async () => sent.length >= 2, "two pushes");
     expect(sent).toHaveLength(2);
     expect(await open(sent[0]!.body, keys, auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nKai's school is closed tomorrow.`);
     expect(sent[0]!.headers.get("content-encoding")).toBe("aes128gcm");
