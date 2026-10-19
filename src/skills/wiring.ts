@@ -44,6 +44,8 @@ export function delegationTools(
   const subagents = subagentExtension(
     feed,
     [soul, memory, machines, automationTool, specialists.manage, ui, chats, site],
+    // A run's cards are posted with its report (src/ui-tool.ts).
+    [ui],
     () => models.resolve("worker").choice,
     models,
     (feedId) => automations.wanted(feedId),

@@ -1319,6 +1319,8 @@ export function automationExtension(
           "Actions: create (title, prompt, cron or at, model and thinking optional, machine optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "Every report goes to its chat in full, whether or not the user is around: a side chat archived by the time a run starts is brought back for it, and a deleted one's go to main. " +
+          "A cloud run has the ui tool: a card it shows (a status, stats, a chart, facts, a table) is posted in its chat as ky's own, just before its report, once the run succeeds; " +
+          "it is display only (no wait, nothing to answer), so ask for one in the prompt when the report reads better as a card, like a daily forecast. A machine run has none. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed. " +
