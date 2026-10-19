@@ -8,6 +8,8 @@ import type {
   UserMessage
 } from "@earendil-works/pi-ai";
 import type { EntryDraft, EntryRecord } from "@earendil-works/pi-durable";
+import Type from "typebox";
+import { parseOr } from "./core/decode";
 
 /**
  * This app's display model for a transcript. The harness returns pi's own
@@ -46,13 +48,25 @@ export const SPECIALIST_REPLY = "ky.specialist-reply";
  */
 export const LOOK_POST = "ky.look";
 
-type LookPostData = { readonly text: string };
+/** `cards`: an automation run's cards (src/ui-tool.ts), as a JSON array, shown as the ui tool's are; entries from before have none. */
+type LookPostData = { readonly text: string; readonly cards?: string };
 
-/** The entry a look posts `text` as. */
-export function lookPost(text: string, timestamp: number): EntryDraft {
-  const data: LookPostData = { text };
+/** The entry a look posts `text` as, or an automation's run its `cards`. */
+export function lookPost(text: string, timestamp: number, cards?: string): EntryDraft {
+  const data: LookPostData = cards === undefined ? { text } : { text, cards };
+  const content = cards === undefined ? `[ky posted to the user, unasked] ${text}` : `[ky posted cards to the user, unasked] ${cards}`;
 
-  return { kind: LOOK_POST, data, model: [{ role: "user", content: `[ky posted to the user, unasked] ${text}`, timestamp }] };
+  return { kind: LOOK_POST, data, model: [{ role: "user", content, timestamp }] };
+}
+
+/** A post's cards, each a ui call's arguments; the chat checks each card's blocks as it draws them (src/ui/card-answers.ts). */
+const PostedCards = Type.Array(Type.Unsafe<JsonObject>(Type.Record(Type.String(), Type.Unknown())));
+
+/** A post's cards as the ui tool's calls, so the chat draws them as it draws ky's own; cards that do not read show none. */
+function postedCards(id: string, cards: string | undefined): AssistantMessage["content"] {
+  const parsed = cards === undefined ? [] : parseOr(PostedCards, cards, []);
+
+  return parsed.map((card, index) => ({ type: "toolCall" as const, id: `${id}:card${index}`, name: "ui", arguments: card }));
 }
 
 /** An assistant message saying `content` that no model wrote: a look's post, or a block streamed alone. */
@@ -202,7 +216,10 @@ export function projectEntry(entry: EntryRecord): PiMessage | undefined {
 
   if (entry.kind === LOOK_POST) {
     // SAFETY: only Delivery's post (src/server.ts) writes this kind, with LookPostData.
-    return { ...projectMessage(kySays([{ type: "text", text: (entry.data as LookPostData).text }], message.timestamp), String(entry.id)), posted: true };
+    const data = entry.data as LookPostData;
+    const text = data.text === "" ? [] : [{ type: "text" as const, text: data.text }];
+
+    return { ...projectMessage(kySays([...postedCards(String(entry.id), data.cards), ...text], message.timestamp), String(entry.id)), posted: true };
   }
 
   if (entry.kind === TO_SPECIALISTS) {

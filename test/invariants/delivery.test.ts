@@ -7,12 +7,13 @@ import { Deliveries } from "../../src/automations/delivery";
  * An automation's report reaches its chat (src/automations/delivery.ts), run over generated operations on a real
  * SQLite: reports handed over (ids repeat, as a retried run hands its report over again), chats going busy and
  * idle, turns ending, the object restarting, and a crash between pi taking a report and its row being marked.
- * Some items are a look's messages, posted as ky's own. The chats are a fake pi that takes a request id once and
+ * Some items are a look's messages, posted as ky's own, and some reports carry a run's cards. The chats are a fake pi that takes a request id once and
  * starts a run with each report it takes, and none with a look's message. Old rows a
  * past ky sent to the brief are there from the start. Once every chat has gone idle and the object has started
  * again:
  *
  * - every report and look message handed over is in its chat once, with what its first hand-over said, in hand-over order;
+ * - a report's cards are posted once, just before it; a report that is only cards posts nothing after them;
  * - each of them is pushed to the user's devices once;
  * - a report an older ky sent to the brief is never put in a chat, and no row is left queued.
  */
@@ -21,6 +22,12 @@ const SESSIONS = ["0", "s1", "s2"] as const;
 
 /** Ids of a look's messages, handed over with kind look. */
 const LOOKS = ["l1", "l2"] as const;
+
+/** Ids of reports that carry a run's cards. */
+const CARDED = ["r3", "r4"] as const;
+
+/** The cards report `id` carries, as delivery is handed them. */
+const cardsOf = (id: string) => (CARDED.some((carded) => carded === id) ? `[{"title":"${id}"}]` : undefined);
 
 /** Ids a past ky sent to the brief, as rows in state 'brief'. */
 const BRIEFED = ["b1", "b2"] as const;
@@ -150,7 +157,7 @@ class World {
   async #deliver({ id, session, content }: { id: string; session: string; content: string }): Promise<void> {
     if (!this.handed.has(id)) this.handed.set(id, { session, content });
     const kind = LOOKS.some((look) => look === id) ? "look" : "event";
-    await this.#deliveries.deliver({ id, session, content, line: content, ref: `task:${id}`, kind }, this.#now++).catch(() => undefined);
+    await this.#deliveries.deliver({ id, session, content, line: content, ref: `task:${id}`, kind, cards: cardsOf(id) }, this.#now++).catch(() => undefined);
   }
 
   #open(): Deliveries {
@@ -161,7 +168,7 @@ class World {
       surfaced: { shown: () => undefined },
       notify: async (_at, text) => void this.pushed.push(text),
       submit: async (at, content, id) => this.chats.submit(life, at, content, id),
-      post: async (at, text, id) => this.chats.submit(life, at, text, id, false),
+      post: async (at, text, id, cards) => this.chats.submit(life, at, cards ?? text, id, false),
       idle: (at) => this.chats.idle(life, at),
       later: (work) => void work.catch(() => undefined)
     });
@@ -182,13 +189,19 @@ async function play(ops: readonly Op[]): Promise<void> {
     await settle();
   }
 
-  const expected = [...world.handed].flatMap(([id, first]) => (BRIEFED.some((old) => old === id) ? [] : [{ id, session: first.session, content: first.content }]));
+  const expected = [...world.handed].flatMap(([id, first]) => {
+    if (BRIEFED.some((old) => old === id)) return [];
+    const cards = cardsOf(id);
+    const report = { id, session: first.session, content: first.content };
+
+    return cards === undefined ? [report] : [{ id: `${id}:cards`, session: first.session, content: cards }, ...(first.content === "" ? [] : [report])];
+  });
 
   for (const each of SESSIONS) {
     expect(world.chats.posted.filter((post) => post.session === each)).toEqual(expected.filter((post) => post.session === each));
   }
 
-  expect([...world.pushed].sort()).toEqual(expected.map((post) => post.content).sort());
+  expect([...world.pushed].sort()).toEqual([...world.handed].flatMap(([id, first]) => (BRIEFED.some((old) => old === id) ? [] : [first.content])).sort());
   expect(world.db.prepare("SELECT id FROM ky_deliveries WHERE state = 'queued'").all()).toEqual([]);
 }
 

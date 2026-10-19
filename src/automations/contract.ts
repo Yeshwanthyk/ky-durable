@@ -239,7 +239,9 @@ export const DeliverySchema = Type.Object({
   content: Type.String(),
   line: Type.String(),
   ref: Type.String(),
-  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look"), Type.Literal("post"), Type.Literal("chat")]))
+  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look"), Type.Literal("post"), Type.Literal("chat")])),
+  /** The cards an automation's run showed (src/ui-tool.ts), as a JSON array, posted before the item. */
+  cards: Type.Optional(Nullable(Type.String()))
 });
 
 export type Delivery = Readonly<Static<typeof DeliverySchema>>;
@@ -312,7 +314,7 @@ export const AutomationToolInput = Type.Object({
         "An Executor program body run before each fire, with no model: return the matching items to run, or null to skip. none to clear it."
     })
   ),
-  post: Type.Optional(Type.Boolean({ description: "true: post each report as ky's own message, as written, without a reply." })),
+  post: Type.Optional(Type.Boolean({ description: "true: post each report as ky's own message, as written, without a reply; a card the run shows is posted just before it." })),
   createdBy: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("ky")])),
   all: Type.Optional(Type.Boolean({ description: "list: include done and archived ones." }))
 });

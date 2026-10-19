@@ -105,6 +105,28 @@ function deliveries(name: string, session: string) {
   );
 }
 
+/** A morning forecast, as a run would show it. */
+const FORECAST = {
+  title: "Kai's school day",
+  blocks: [
+    { type: "status", tone: "success", text: "Dry at drop-off" },
+    { type: "stats", items: [{ label: "High", value: "18°" }, { label: "Rain", value: "10%" }] }
+  ]
+};
+
+/** What the ui tool tells a run that kept its card. */
+const KEPT = "Kept: the card is posted to the user before your report once this run succeeds.";
+
+/** The text of a user's message. */
+const userText = (message: { parts: readonly { type: string; text?: string }[] }) => message.parts.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : [])).join("");
+
+/** The cards posted in a chat (the main one unless `session`), as their calls' arguments, oldest first. */
+async function cardsIn(name: string, session?: string): Promise<JsonValue[]> {
+  const view = await snapshotView(name, session);
+
+  return view.messages.flatMap((message) => (message.posted ? message.parts.flatMap((part) => (part.type === "tool-call" && part.name === "ui" ? [part.arguments] : [])) : []));
+}
+
 /** The reports of the automation titled `title` a chat was given. */
 const reports = (name: string, title: string, session?: string) => told(name, `[automation "${title}" result`, session);
 
@@ -207,6 +229,67 @@ describe("automations", () => {
 
     expect(await say(name, automation({ action: "update", id, post: false }))).toMatch(/^tool said: Updated/);
     expect(await listed(name, id)).not.toContain("posted as ky's message");
+  });
+
+  it("gives a run the ui tool, and posts its card in its chat, before the report the chat's agent is given", async () => {
+    const name = crypto.randomUUID();
+    const chat = await inside(name, (instance) => instance.newChat());
+    const id = await create(name, { prompt: `tool ui ${JSON.stringify(FORECAST)}`, chat });
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await reports(name, "Daily digest", chat)).length > 0, "the report");
+
+    // The run was offered ui, and the chat's agent was not given the run's tools.
+    const [first] = await runCalls(name, id);
+    expect(Object.keys(first?.tools ?? {})).toContain("ui");
+    expect(await reports(name, "Daily digest", chat)).toEqual([`[automation "Daily digest" result, its card already shown to the user just above: tell the user the rest] tool said: ${KEPT}`]);
+
+    // The card is ky's own, in the chat the run reports to, and the report comes after it; the main chat has neither.
+    const view = await snapshotView(name, chat);
+    const card = view.messages.findIndex((message) => message.posted && message.parts.some((part) => part.type === "tool-call" && part.name === "ui"));
+    const report = view.messages.findIndex((message) => message.role === "user" && userText(message).startsWith('[automation "Daily digest" result'));
+    expect(card).toBeGreaterThanOrEqual(0);
+    expect(card).toBeLessThan(report);
+    expect(view.messages[card]!.parts.map((part) => (part.type === "tool-call" ? [part.name, part.arguments] : part.type))).toEqual([["ui", FORECAST]]);
+    expect(await cardsIn(name)).toEqual([]);
+  });
+
+  it("posts a post automation's card, then its report, both as ky's own", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name, { prompt: `tool ui ${JSON.stringify(FORECAST)}`, post: true });
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await until(async () => (await kySaid(name)).some((text) => text === `tool said: ${KEPT}`), "the post");
+    await settle();
+
+    const posted = (await snapshotView(name)).messages.filter((message) => message.posted);
+    expect(posted.map((message) => message.parts.map((part) => part.type))).toEqual([["tool-call"], ["text"]]);
+    expect(await cardsIn(name)).toEqual([FORECAST]);
+    expect(await reports(name, "Daily digest")).toEqual([]);
+  });
+
+  it("keeps a run's card display only: wait does nothing, and what asks for an answer is left out", async () => {
+    const name = crypto.randomUUID();
+    const asking = { ...FORECAST, wait: true, blocks: [...FORECAST.blocks, { type: "choice", label: "Pack an umbrella?", options: [{ label: "Yes" }] }, { type: "buttons", buttons: [{ label: "OK" }, { label: "Radar", url: "https://example.com/radar" }] }] };
+    const id = await create(name, { prompt: `tool ui ${JSON.stringify(asking)}`, post: true });
+
+    await runNow(name, id);
+    // The run's turn went on past the call to its answer.
+    const run = await runEnds(name, id);
+    expect(run.summary).toContain("wait does nothing in a run");
+    await until(async () => (await cardsIn(name)).length > 0, "the card");
+
+    expect(await cardsIn(name)).toEqual([{ ...FORECAST, blocks: [...FORECAST.blocks, { type: "buttons", buttons: [{ label: "Radar", url: "https://example.com/radar" }] }] }]);
+  });
+
+  it("gives a plain subagent no ui tool: only a run's cards go with its report", async () => {
+    const name = crypto.randomUUID();
+    const said = await say(name, `spawn helper tool ui ${JSON.stringify(FORECAST)}`);
+    expect(said).toMatch(/^tool said: /);
+    await until(async () => (await told(name, "[subagent helper answered")).length > 0, "the answer");
+    expect((await told(name, "[subagent helper answered")).join("")).toContain("Tool ui is not available");
   });
 
   it("hands a post automation's failed run to the chat's agent, to tell the user", async () => {

@@ -10,6 +10,8 @@ import { ColumnInfo, type Delivery, DeliverySchema, SessionRow } from "./contrac
  * into a run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the
  * user is watching. An event is given to the chat's agent, which answers it; a look's message, or a post automation's
  * report, is posted as ky's own, as written, and starts nothing. Each, once it is in the chat, is pushed to the user's devices (src/push.ts).
+ * A run's cards (src/ui-tool.ts) are posted as ky's own just before its report, so the card reads first and the report
+ * after it, whether the report is posted or the agent tells it.
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
  * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
@@ -46,8 +48,11 @@ export type DeliveryParts = {
   readonly surfaced: Pick<Surfaced, "shown">;
   /** Put `content` in the chat by `requestId`: true once pi took it, false (writing nothing) while a run is going. */
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
-  /** Post `text` in the chat as ky's own message by `requestId`, starting nothing: true once pi took it, false (writing nothing) while a run is going. */
-  readonly post: (session: string, text: string, requestId: string) => Promise<boolean>;
+  /**
+   * Post `text`, or with `cards` (a JSON array) those cards, in the chat as ky's own message by `requestId`, starting
+   * nothing: true once pi took it, false (writing nothing) while a run is going.
+   */
+  readonly post: (session: string, text: string, requestId: string, cards?: string) => Promise<boolean>;
   /** Push `text`, posted in `session`, to the user's devices; never throws. */
   readonly notify: (session: string, text: string) => Promise<void>;
   /** Resolve once the chat has no run going. */
@@ -79,6 +84,11 @@ export class Deliveries {
     if (!sql.exec("PRAGMA table_info(ky_deliveries)").toArray().some((column) => decodeOr(ColumnInfo, column, undefined)?.name === "kind")) {
       sql.exec("ALTER TABLE ky_deliveries ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'");
     }
+
+    // So did a run's cards: a row from before has none.
+    if (!sql.exec("PRAGMA table_info(ky_deliveries)").toArray().some((column) => decodeOr(ColumnInfo, column, undefined)?.name === "cards")) {
+      sql.exec("ALTER TABLE ky_deliveries ADD COLUMN cards TEXT");
+    }
   }
 
   /** Deliver `item` by the rules above, once however often it is handed over. */
@@ -87,13 +97,14 @@ export class Deliveries {
 
     if (!known) {
       this.#sql.exec(
-        "INSERT INTO ky_deliveries (id, session, content, line, ref, kind, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
+        "INSERT INTO ky_deliveries (id, session, content, line, ref, kind, cards, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)",
         item.id,
         item.session,
         item.content,
         item.line,
         item.ref,
         item.kind ?? "event",
+        item.cards ?? null,
         now
       );
     }
@@ -152,7 +163,7 @@ export class Deliveries {
 
   #queued(session: string): Delivery[] {
     return this.#sql
-      .exec("SELECT id, session, content, line, ref, kind FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
+      .exec("SELECT id, session, content, line, ref, kind, cards FROM ky_deliveries WHERE session = ? AND state = 'queued' ORDER BY created_at, id", session)
       .toArray()
       .flatMap((row) => decodeOr(DeliverySchema, row, undefined) ?? []);
   }
@@ -167,8 +178,11 @@ export class Deliveries {
       const kind = item.kind ?? "event";
       // An event or another chat's message is answered by the chat's agent; a look's message or a post is posted as written.
       const put = kind === "look" || kind === "post" ? this.#parts.post : this.#parts.submit;
+      // Its cards first, by their own request id, so a flush that finds the chat busy after them posts them once.
+      const carded = !item.cards || (await this.#parts.post(session, "", `${item.id}:cards`, item.cards));
 
-      if (!(await put(session, item.content, item.id))) {
+      // A post that is only cards has no text to post after them.
+      if (!carded || ((!item.cards || item.content !== "") && !(await put(session, item.content, item.id)))) {
         this.#retry(session);
 
         return;

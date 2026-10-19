@@ -280,7 +280,8 @@ export function buildTurns(
             id: part.id,
             name: part.name,
             ...describe(part.name, args),
-            status: "running",
+            // A post's call (a run's card) ran before it was posted: it has no result to wait for.
+            status: message.posted ? "done" : "running",
             output: "",
             images: [],
             durationMs: null

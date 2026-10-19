@@ -275,13 +275,13 @@ export class PiAgent extends DurableObject<Env> {
 
       return true;
     },
-    post: async (session, text, requestId) => {
+    post: async (session, text, requestId, cards) => {
       const conversation = await this.harness.conversation(session);
       // A write waits for no run, so a busy chat is turned away here, as submit's whenBusy does.
       const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
 
       if (busy) return false;
-      await conversation.submit({ type: "write", entry: lookPost(text, Date.now()), requestId }, BACKGROUND);
+      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards), requestId }, BACKGROUND);
 
       return true;
     },

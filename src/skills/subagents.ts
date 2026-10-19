@@ -24,6 +24,7 @@ import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import { endStep, startStep } from "../step-labels";
+import { RunCards } from "../ui-tool";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
 /**
@@ -34,7 +35,7 @@ import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, 
  * background reporter task that posts the answer back to the main agent as
  * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
  * An automation's run is the exception: its report is handed to delivery (src/automations/delivery.ts),
- * which puts it in the chat only between turns.
+ * which puts it in the chat only between turns, with the cards it showed (src/ui-tool.ts) before it.
  */
 
 /** How a subagent's message ended, for its row in the task feed. */
@@ -128,8 +129,11 @@ export type SpecialistDeps = {
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. `kind` post: a post run's answer, posted as written. */
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string; kind?: "post" };
+/**
+ * `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. `kind` post: a post run's answer, posted as written.
+ * `cards`: the cards a run that answered showed, as a JSON array, posted before its report.
+ */
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string; kind?: "post"; cards?: string };
 
 /** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
@@ -147,17 +151,20 @@ const labelOf = (input: ReporterInput) => input.label ?? `subagent ${input.name}
 /** A report in one line, as what ky surfaced keeps it. */
 const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${said}`;
 
-/** An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing. */
-function answeredOf(input: ReporterInput, text: string) {
+/**
+ * An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing,
+ * and a post with no text only its cards, if any.
+ */
+function answeredOf(input: ReporterInput, text: string, cards: number) {
   if (input.checkIn && NOTHING_NEW.test(text)) return { summary: "Nothing new", report: "", message: undefined };
 
-  if (input.post && !text.trim()) return { summary: "Nothing to post", report: "", message: undefined };
+  if (input.post && !text.trim()) return cards > 0 ? { summary: "Posted a card", report: "", message: "" } : { summary: "Nothing to post", report: "", message: undefined };
 
-  return { summary: summarize(text), report: text, message: reportOf(input, text) };
+  return { summary: summarize(text), report: text, message: reportOf(input, text, cards) };
 }
 
 /** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user; a post is as written. */
-function reportOf(input: ReporterInput, text: string): string {
+function reportOf(input: ReporterInput, text: string, cards: number): string {
   if (input.post) return text;
 
   if (input.specialist !== undefined) return `[specialist @${input.specialist} answered: pass on what matters] ${text}`;
@@ -166,8 +173,10 @@ function reportOf(input: ReporterInput, text: string): string {
     return `[${input.label} found something new: if memory shows you already told the user, say nothing more than "Nothing new." Otherwise tell them in one or two lines, tied to what they asked and who it concerns, with the source; then memory_note what you told them] ${text}`;
   }
 
-  return input.label === undefined
-    ? `[subagent ${input.name} answered, no reply needed] ${text}`
+  if (input.label === undefined) return `[subagent ${input.name} answered, no reply needed] ${text}`;
+
+  return cards > 0
+    ? `[${input.label} result, its card already shown to the user just above: tell the user the rest] ${text}`
     : `[${input.label} result: tell the user] ${text}`;
 }
 
@@ -178,6 +187,8 @@ export function subagentExtension(
   feed: TaskFeed,
   /** Main-agent-only extensions that subagents do not get, besides this one. */
   mainOnly: readonly Extension[],
+  /** Of those, the ones an automation's run keeps. */
+  runKeeps: readonly Extension[],
   /** The worker's model, applied to each subagent whenever it is messaged. */
   model: () => ModelChoice,
   /** A named model as it can run, and the models to choose from when it can't. */
@@ -229,8 +240,8 @@ export function subagentExtension(
         let report = "";
 
         await runtime.commit(async (tx) => {
-          const next = (report?: string, line?: string, kind?: "post") =>
-            ({ status: "running", checkpoint: { phase: "report", report, line, kind } }) as const;
+          const next = (report?: string, line?: string, kind?: "post", cards?: string) =>
+            ({ status: "running", checkpoint: { phase: "report", report, line, kind, cards } }) as const;
 
           if (settled.status === "unanswered") {
             if (settled.reason === "aborted") {
@@ -257,18 +268,22 @@ export function subagentExtension(
             | undefined;
 
           const text = textOf(answer);
-          const read = answeredOf(reporter.input, text);
+          // Only a run that answered posts its cards, each once: a failed or stopped one leaves no half card.
+          const shown = reporter.input.deliver ? await tx.doc(RunCards, conversationId) : undefined;
+          const cards = reporter.input.checkIn && NOTHING_NEW.test(text) ? [] : (shown?.cards.splice(0) ?? []);
+          const read = answeredOf(reporter.input, text, cards.length);
           outcome = { status: "done", summary: read.summary };
           report = read.report;
+          const posted = cards.length > 0 ? `[${cards.map((each) => each.card).join(",")}]` : undefined;
 
-          return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined);
+          return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined, posted);
         }, context);
         feed.update(feedId, outcome);
 
         if (report) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
-        const { report, line, kind } = reporter.state.checkpoint;
+        const { report, line, kind, cards } = reporter.state.checkpoint;
         const feedId = reporter.input.feedId ?? String(reporter.id);
 
         if (report !== undefined && wanted(feedId)) {
@@ -280,7 +295,8 @@ export function subagentExtension(
               content: report,
               line: line ?? lineOf(reporter.input, summarize(report)),
               ref: `task:${feedId}`,
-              kind
+              kind,
+              cards
             });
           } else {
             const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
@@ -341,13 +357,18 @@ export function subagentExtension(
     tools: [tool]
   });
 
-  /** A fresh child conversation, configured as a subagent and registered under `name`, replacing any before it. */
-  async function register(tx: Tx, owner: ConversationId, name: string): Promise<ConversationId> {
+  /**
+   * A fresh child conversation, configured as a subagent and registered under `name`, replacing any before it. An
+   * automation's run keeps what `run` names, the ui tool, whose cards go with its report.
+   */
+  async function register(tx: Tx, owner: ConversationId, name: string, run = false): Promise<ConversationId> {
     const state = await tx.doc(Subagents, owner);
     const anchor = await tx.createTask(Anchor, null, background(owner));
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+
+    if (run) (await tx.doc(RunCards, child.id)).run = true;
     await configure(tx, child.id, {
-      extensions: { remove: [extension, ...mainOnly] },
+      extensions: { remove: [extension, ...mainOnly.filter((each) => !(run && runKeeps.includes(each)))] },
       instructions: `You are the subagent "${name}", working for the main agent. Do the task you are given and answer with what you found or did. Your answer is reported to the main agent, so make it complete and self-contained.`
     });
     state.agents[name] = { conversationId: child.id, reported: [] };
@@ -365,7 +386,7 @@ export function subagentExtension(
   const desk: Desk = { feed, specialists, model, models, register, deliver };
 
   const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered, post }) => {
-    const conversationId = await register(tx, owner, name);
+    const conversationId = await register(tx, owner, name, delivered === true);
     await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered, post }, model);
 
     return conversationId;
