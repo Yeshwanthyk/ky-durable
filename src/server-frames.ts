@@ -34,7 +34,8 @@ import type {
   SpecialistView,
   SubscriptionView,
   TaskLogStep,
-  TaskRow
+  TaskRow,
+  ZoneView
 } from "./protocol";
 
 const Text = Type.String();
@@ -141,6 +142,11 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer() })
 );
 
+/** Settings › Proactivity's time zone: the zone kept, whether the user pinned it, and the asking connection's. */
+const Zone = Type.Unsafe<ZoneView>(
+  Type.Object({ on: Type.Boolean(), zone: Type.Union([Text, Type.Null()]), pinned: Type.Boolean(), detected: Type.Union([Text, Type.Null()]) })
+);
+
 /** Activity › Last night: the latest dream's changes, checked by the fields its rows are told apart and shown by. */
 const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
   Type.Array(
@@ -198,6 +204,8 @@ export const ANSWERS = {
   "set-proactivity": Proactivity,
   "set-looks": Proactivity,
   "set-right-away": Proactivity,
+  zone: Zone,
+  "set-zone": Zone,
   "push-key": Text,
   "push-subscribe": Type.Null(),
   "push-unsubscribe": Type.Null(),

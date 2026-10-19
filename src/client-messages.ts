@@ -151,6 +151,10 @@ export const ClientMessageSchema = Type.Union([
   message("push-unsubscribe", { endpoint: Text }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
+  /** Answers with the user's time zone, whether they pinned it, and the zone this connection is placed in. */
+  message("zone", {}),
+  /** Pin the user's time zone, an IANA name, or null to follow this connection's zone again; answers as zone does. */
+  message("set-zone", { zone: Type.Union([Text, Type.Null()]) }),
   /** Choose the model, and its thinking level, for one purpose. */
   message("set-model", { purpose: PurposeSchema, choice: ModelChoiceSchema }),
   /** Save an API key for a vendor once a test call takes it; the result is `{ refused }` when it doesn't. Never sent back. */

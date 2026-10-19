@@ -430,7 +430,10 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  const { executorActions, peerActions, mailActions, proactivityActions } = useSettingsActions(ask, send);
+  const { executorActions, peerActions, mailActions } = useSettingsActions(ask, send);
+
+  /** Settings › Proactivity's. New on each connect, so a page that asked while the socket was closed asks again. */
+  const proactivityActions = useMemo(() => proactivityActionsOf(ask, state.status === "open"), [ask, state.status]);
 
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
@@ -694,19 +697,26 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
         onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
       },
       peerActions: peerActions(ask),
-      mailActions: mailActions(ask),
-      proactivityActions: {
-        onView: () => ask("proactivity", {}),
-        onSet: (level: ProactivityLevel) => ask("set-proactivity", { level }),
-        onLooks: (looks: readonly string[]) => ask("set-looks", { looks }),
-        onRightAway: (most: number) => ask("set-right-away", { most }),
-        onPushKey: () => ask("push-key", {}),
-        onSubscribe: (device: { endpoint: string; p256dh: string; auth: string }) => ask("push-subscribe", device),
-        onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint })
-      }
+      mailActions: mailActions(ask)
     }),
     [ask, send]
   );
+}
+
+/** Settings › Proactivity's actions, and whether the socket is open to answer them. */
+function proactivityActionsOf(ask: AskFn, open: boolean) {
+  return {
+    open,
+    onView: () => ask("proactivity", {}),
+    onSet: (level: ProactivityLevel) => ask("set-proactivity", { level }),
+    onLooks: (looks: readonly string[]) => ask("set-looks", { looks }),
+    onRightAway: (most: number) => ask("set-right-away", { most }),
+    onZone: () => ask("zone", {}),
+    onSetZone: (zone: string | null) => ask("set-zone", { zone }),
+    onPushKey: () => ask("push-key", {}),
+    onSubscribe: (device: { endpoint: string; p256dh: string; auth: string }) => ask("push-subscribe", device),
+    onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint })
+  };
 }
 
 /** Settings › Peers' actions. */

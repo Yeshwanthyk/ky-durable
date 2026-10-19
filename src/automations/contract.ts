@@ -130,11 +130,14 @@ export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "
   return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);
 }
 
-/** The `ky_check_ins` row: whether the user turned check-ins off, and their time zone. */
-export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()) });
+/** The `ky_check_ins` row: whether the user turned check-ins off, their time zone, and whether they pinned it. */
+export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()), zone_pinned: Type.Number() });
 
-/** Whether check-ins are on, and the user's time zone as their browser's connection last placed it. */
-export type CheckIns = { readonly on: boolean; readonly zone: string | null };
+/** Whether check-ins are on, and the user's time zone: pinned in Settings, or as their browser's connection last placed it. */
+export type CheckIns = { readonly on: boolean; readonly zone: string | null; readonly pinned: boolean };
+
+/** Settings › Proactivity's time zone: the check-ins, and the zone the asking browser's connection is placed in, if known. */
+export type ZoneView = CheckIns & { readonly detected: string | null };
 
 /** A `SELECT COUNT(*) AS n` row. */
 export const CountRow = Type.Object({ n: Type.Number() });

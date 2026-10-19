@@ -12,9 +12,10 @@ import {
   type PiSessionId,
   type PiWhenBusy
 } from "agents/harness/pi";
+import Type from "typebox";
 import { Guard } from "typebox/guard";
 import { ClientMessageSchema, refusedFrame } from "./client-messages";
-import { parseOr } from "./core/decode";
+import { decodeOr, parseOr } from "./core/decode";
 import {
   decodeReport,
   isPipeReport,
@@ -32,7 +33,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
-import type { AutomationAction, Automations } from "./automations/contract";
+import type { AutomationAction, Automations, ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
@@ -87,6 +88,12 @@ const PAIRING_TAG_PREFIX = "pairing:";
 
 /** The tag of a runner socket whose pairing was not its machine's when it came: it gets a goodbye and nothing else. */
 const REFUSED_TAG = "runner-refused";
+
+/** A browser connection's state: the time zone Cloudflare placed it in. */
+const ConnectionZone = Type.Object({ zone: Type.String() });
+
+/** The time zone `connection` was placed in when it opened, if any. */
+const zoneOf = (connection: Connection): string | null => decodeOr(ConnectionZone, connection.state, undefined)?.zone ?? null;
 
 function pairingOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(PAIRING_TAG_PREFIX))?.slice(PAIRING_TAG_PREFIX.length);
@@ -448,6 +455,11 @@ export class PiSessionSockets {
     for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
   }
 
+  /** Settings › Proactivity's time zone, as `connection` sees it. */
+  #zoneView(connection: Connection): ZoneView {
+    return { ...this.#automations.checkIns(), detected: zoneOf(connection) };
+  }
+
   #tasksMessage(): PiServerMessage {
     return {
       type: "tasks",
@@ -507,8 +519,11 @@ export class PiSessionSockets {
     // Cloudflare places the browser's connection in a time zone; check-ins are booked for the user's morning.
     const zone = ctx.request.cf?.timezone;
 
-    // A booking that fails must not keep the page from opening; the next connect tries again.
+    // A booking that fails must not keep the page from opening; the object's next start books it again.
     if (Guard.IsString(zone) && zone) {
+      // Kept on the connection: picking Automatic follows it at once.
+      connection.setState({ zone });
+
       try {
         await this.#automations.setZone(zone);
       } catch (error) {
@@ -976,6 +991,12 @@ export class PiSessionSockets {
       await this.#automations.setCheckIns(message.on);
 
       return null;
+    },
+    zone: (_message, connection) => this.#zoneView(connection),
+    "set-zone": async (message, connection) => {
+      await (message.zone === null ? this.#automations.unpinZone(zoneOf(connection)) : this.#automations.pinZone(message.zone));
+
+      return this.#zoneView(connection);
     }
   };
 }

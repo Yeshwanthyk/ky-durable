@@ -254,6 +254,7 @@ export class Automations {
     this.#sql = sql;
     this.#deps = deps;
     sql.exec("CREATE TABLE IF NOT EXISTS ky_check_ins (id INTEGER PRIMARY KEY CHECK (id = 1), off INTEGER NOT NULL, zone TEXT)");
+    addColumns(sql, AUTOMATION_TABLES.checkIns, [["zone_pinned", "INTEGER NOT NULL DEFAULT 0"]]);
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_automations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -321,9 +322,9 @@ export class Automations {
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
   checkIns(): CheckIns {
-    const row = decodeOr(StoredCheckIns, this.#sql.exec("SELECT off, zone FROM ky_check_ins WHERE id = 1").toArray()[0], undefined);
+    const row = decodeOr(StoredCheckIns, this.#sql.exec("SELECT off, zone, zone_pinned FROM ky_check_ins WHERE id = 1").toArray()[0], undefined);
 
-    return { on: row?.off !== 1, zone: row?.zone ?? null };
+    return { on: row?.off !== 1, zone: row?.zone ?? null, pinned: row?.zone_pinned === 1 };
   }
 
   /** Turn check-ins on or off; off pauses the ones waiting. */
@@ -342,13 +343,66 @@ export class Automations {
     this.#emit();
   }
 
-  /** The user's time zone, from where their browser connects; check-ins are booked for their morning, and the dream for their night. */
+  /**
+   * The user's time zone, from where their browser connects, unless they pinned one; check-ins are booked for their
+   * morning, and the dream for their night.
+   */
   async setZone(zone: string): Promise<void> {
-    if (zone === this.checkIns().zone) return;
-    // Booked first: a booking that fails leaves the old zone, so the next connect tries again.
-    await this.#bookDream(zone);
-    await this.#bookLooks(zone);
-    this.#sql.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone", zone);
+    const now = this.checkIns();
+
+    if (now.pinned || zone === now.zone) return;
+    // A pin that lands first keeps its zone.
+    this.#sql.exec(
+      "INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 0, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone WHERE ky_check_ins.zone_pinned = 0",
+      zone
+    );
+    await this.#bookZone();
+  }
+
+  /** Pin the user's time zone, an IANA name, which later connects leave alone. */
+  async pinZone(zone: string): Promise<void> {
+    const name = ianaZone(zone);
+
+    if (name === undefined) throw new Error(`${zone} isn't a time zone, like Europe/Berlin.`);
+    this.#keepZone(name, true);
+    await this.#bookZone();
+  }
+
+  /** Follow where the user's browser connects again, from `detected`, the asking connection's zone, when it has one. */
+  async unpinZone(detected: string | null): Promise<void> {
+    if (detected === null) {
+      this.#sql.exec("UPDATE ky_check_ins SET zone_pinned = 0 WHERE id = 1");
+
+      return;
+    }
+
+    this.#keepZone(detected, false);
+    await this.#bookZone();
+  }
+
+  #keepZone(zone: string, pinned: boolean): void {
+    this.#sql.exec(
+      "INSERT INTO ky_check_ins (id, off, zone, zone_pinned) VALUES (1, 0, ?, ?) ON CONFLICT (id) DO UPDATE SET zone = excluded.zone, zone_pinned = excluded.zone_pinned",
+      zone,
+      pinned ? 1 : 0
+    );
+  }
+
+  /**
+   * Book the dream and the looks in the zone kept, again if another write changed it meanwhile. The zone is kept
+   * first: a booking that fails is booked again when the object next starts (recover).
+   */
+  async #bookZone(): Promise<void> {
+    let zone = this.checkIns().zone;
+
+    for (;;) {
+      await this.#bookDream(zone);
+      await this.#bookLooks(zone);
+      const now = this.checkIns().zone;
+
+      if (now === zone) return;
+      zone = now;
+    }
   }
 
   /** Whether the pi session is a check-in's or a watch's run at work. */
@@ -1082,6 +1136,17 @@ function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<reado
 
   for (const [name, type] of columns) {
     if (!have.includes(name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
+
+/** `zone` as Intl spells its IANA name; undefined for none, or for an offset like +05:30. */
+function ianaZone(zone: string): string | undefined {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+
+    return /^[+-]/.test(name) ? undefined : name;
+  } catch {
+    return undefined;
   }
 }
 
