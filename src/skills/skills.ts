@@ -319,9 +319,9 @@ export class Skills {
     return this.#save(write, next);
   }
 
-  /** Pin or unpin a skill: the user's call, from the panel or by asking ky; a background run may not. */
+  /** Pin or unpin a skill: the user's call, from the panel or by asking ky, or ky's seeding pinning a default skill it creates; a background run may not. */
   #pin(name: string, pinned: boolean, actor: string): string {
-    if (isMachine(actor)) throw new Error("Only the user pins or unpins a skill.");
+    if (isMachine(actor)) throw new Error("Only the user, or ky's own seeding, pins or unpins a skill.");
 
     if (!this.get(name)) throw new Error(`No skill named ${name}.`);
     this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET pinned = ? WHERE name = ?`, pinned ? 1 : 0, name);
