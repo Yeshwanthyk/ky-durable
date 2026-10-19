@@ -12,7 +12,7 @@ import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contrac
 import { parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { agentModel } from "../models";
-import { type ModelChoice, ModelChoiceSchema } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
 
 export type { Reviews, Skills } from "./skills";
 
@@ -24,6 +24,15 @@ export type { Spawn } from "./subagents";
  * The tables this domain owns. A backup restore stages each as `ky_restore__<table>` and matches
  * it by name, so these never change.
  */
+/** What a good skill is: the bar the agent, a skill review, the nightly dream and make-skill write to. */
+export const SKILL_CRAFT = `A good skill:
+- Does one job: one class of task. Two jobs are two skills.
+- Has a description that says when to use it and, when a neighbouring skill is close, when not ("Not for ...").
+- Opens with the trigger, then numbered steps; a step that isn't obvious says why, so it can be adapted rather than followed blindly.
+- Lists pitfalls: what went wrong before and how the user corrected it.
+- Ends with how to tell it is done: what a finished result has.
+- Holds nothing else: no details of one day's task, no facts about the user, no step that never helped.`;
+
 export const SKILL_TABLES = Object.freeze({
   skills: "ky_skills",
   skillVersions: "ky_skill_versions",
@@ -60,7 +69,8 @@ export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]
  * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
  * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
  * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
- * a new ky's first start laying down its starter skills (src/seeds.ts), before anything is the user's.
+ * ky's own seeding (src/seeds.ts): its starter skills on a new ky's first start, and on any start the default skills
+ * it creates and pins when missing.
  */
 export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
 
@@ -285,6 +295,7 @@ export const SubagentAction = Type.Union([
   Type.Literal("send"),
   Type.Literal("stop"),
   Type.Literal("status"),
+  Type.Literal("last"),
   Type.Literal("ask"),
   Type.Literal("discuss")
 ]);
@@ -298,6 +309,8 @@ export const SubagentInput = Type.Object({
   title: Type.Optional(Type.String({ description: "3-6 words for the task list, like 'Find compounding pharmacies'." })),
   message: Type.Optional(Type.String()),
   followUp: Type.Optional(Type.Boolean()),
+  model: Type.Optional(Type.String({ description: "spawn, send: provider/modelId, kept for later sends; worker to clear it. Leave out for the one it has, or the worker model." })),
+  thinking: Type.Optional(ThinkingLevelSchema),
   specialist: Type.Optional(Type.String({ description: "ask: the specialist's id, like engineer." })),
   specialists: Type.Optional(Type.Array(Type.String(), { description: "discuss: the specialists' ids." })),
   rounds: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)]))

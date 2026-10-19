@@ -142,7 +142,7 @@ export class Looks {
       `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
       ...section("Open anticipations, oldest first:", anticipations.open().map((row) => anticipationLine(row, now))),
       ...section('What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):', history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines),
-      ...section("Said already, by the looks of the last two days:", surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS).map((post) => `- ${post.text}`)),
+      ...section("Said already, by the looks of the last two days:", [...surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS), ...surfaced.items("post", "subagent-report:", now - SAID_QUIET_MS, SHOWN_POSTS)].map((post) => `- ${post.text}`)),
       ...section("Watched already, every 15 minutes:", this.#parts.automations.watches().map((each) => `- #${each.watch}`))
     ].join("\n");
 

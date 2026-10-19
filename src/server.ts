@@ -16,11 +16,12 @@ import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { uiExtension } from "./ui-tool";
 import { ChatList, chatActivityExtension } from "./chats";
+import { chatsExtension } from "./chats-tool";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore } from "./files";
-import { History } from "./history";
+import { History, turnPlacedBy } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -146,9 +147,11 @@ export class PiAgent extends DurableObject<Env> {
       })
     ]
   });
-  /** Its summaries are written on the background model, as notes come in. */
-  readonly memory = new Memory(this.ctx.storage.sql, (system, messages) =>
-    this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
+  /** Its summaries are written on the background model, as notes come in; its days are the user's. */
+  readonly memory = new Memory(
+    this.ctx.storage.sql,
+    (system, messages) => this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 }),
+    () => this.automations.checkIns().zone
   );
   readonly skills = new Skills(this.ctx.storage.sql);
   /** SOUL.md, ky's persona. */
@@ -401,7 +404,18 @@ export class PiAgent extends DurableObject<Env> {
       const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
-      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui, site });
+      // Chats send each other messages quietly, and never from a turn that answers one.
+      const chats = chatsExtension({
+        chats: this.chats,
+        latest: (session) => this.history.latest(session),
+        deliver: (item) => this.deliveries.deliver(item),
+        turn: (session) => turnPlacedBy(this.ctx.storage.sql, session),
+        chat
+      });
+
+      this.registry.install(chats);
+
+      const { specialists, subagents, spawn, progress } = delegationTools(skilling, { soul, memory, machines, automations, ui, chats, site });
       this.registry.install(specialists.extension);
       this.registry.install(specialists.manage);
       this.registry.install(avatarTools(this.avatars, () => [KY_AVATAR, ...this.specialists.list().map((row) => row.id)]));
@@ -411,7 +425,7 @@ export class PiAgent extends DurableObject<Env> {
 
       // A seat in a chat cannot ask or start other agents: replies never lead to more replies.
       const mail = mailExtension(this.mailDesk, chat);
-      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui, site]);
+      const { seat, peer } = peerTools({ group: this.group, peerDesk: this.peerDesk, models: this.models, chat }, [soul, automations, specialists.manage, subagents, mail, ui, chats, site]);
       this.registry.install(seat);
       this.registry.install(progress);
       this.registry.install(checkInGuard);

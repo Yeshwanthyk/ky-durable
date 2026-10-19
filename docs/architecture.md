@@ -45,7 +45,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
-- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
+- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written by the background model, in the language of their memories. `chat_search` finds any message of the main chat and the side chats; it and `memory_recall` take optional `from` and `to` days (YYYY-MM-DD, both included), in the user's time zone, as memories are dated.
 - Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills/skills.ts`).
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
@@ -54,6 +54,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   pin, and marks each the user's ("yours") or ky's (`created_by`, `src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
+  Every start adds whichever of six pinned skills on delegating and checking work (`delegate`, `fan-out`, `orchestrate`, `challenge`, `sharpen`, `prove-it`, `src/seeds.ts`) is missing; one that exists, however the owner changed it, is left as it is. The panel marks them "yours", as it does make-avatar.
 - Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
   and again when the zone changes), ky reads what happened since the last dream (what was said in the main chat
   and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with
@@ -140,7 +141,12 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   `memory_recall` or `chat_search` call later in the turn marks the block missed. A `recalled` frame shows
   "Recalled N" under the message. Proactivity off makes none.
 - Side chats: extra conversations with the main agent's model and memory (`src/chats.ts`).
+  The `chats` tool (`src/chats-tool.ts`) lets a chat's agent list the chats not archived (main first), send
+  another chat a message, which goes in as a delivery its agent answers there, and read ky's last message in one.
+  Subagents, specialists and seats go without it.
 - Cloud subagents: child conversations the main agent spawns, steers and stops (`subagent` tool, `src/skills/subagents.ts`). Each shows in Activity, and you can open its transcript.
+  They run on the worker model unless a spawn or send names another (`model`, kept for later sends until `worker`
+  clears it; `thinking`); `subagent last` reads one's latest reported answer in full (up to 16,000 characters).
 - Specialists: standing bots the user or ky makes, each with an id you @, a one-line description, a brief (its
   persona and standing instructions), and optionally its own model and machine (`specialist` tool, `src/skills/specialists.ts`).
   In the main chat or a side chat, typing `@` offers the specialists; a message that starts with `@id` (up to 3 ids)
@@ -171,7 +177,10 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 - Automations: recurring (cron, UTC) or one-off jobs made from chat (`automation` tool, `src/automations/automations.ts`). The Agents SDK `Scheduler` fires each run as a subagent or machine task, which reports to the chat that made it. In Activity you can add, edit, run now, pause, resume, archive and delete them.
   A cloud run's report, and the notice that a failing gate paused an automation, go through `Deliveries`
   (`src/automations/delivery.ts`): always into its chat, in full, whether or not the user is around, and only
-  between turns (at once when idle, at the turn's end when busy, never steered into a run). A side chat archived by the time a run starts
+  between turns (at once when idle, at the turn's end when busy, never steered into a run). The chat's agent is given
+  the report and answers it; with `post` on (`ky_automations.post`, cloud runs only), the run is told so and its answer is
+  posted as written as ky's own message (delivery kind `post`, read by the next look as said), starting no turn; a
+  blank answer posts nothing, and a failure still goes to the agent as an event. A check-in or a look's watch never posts. A side chat archived by the time a run starts
   is brought back for it, and a deleted one's go to main. A waiting one is a `ky_deliveries` row, delivered once across restarts. A gate
   that finds the same text as the last fire (kept as a hash) skips the fire with no model call.
 - Check-ins: one-offs the dream books (`created_by` `dream`) for something the user asked about with a date still

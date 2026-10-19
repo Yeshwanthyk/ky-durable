@@ -67,6 +67,7 @@ const StoredAutomation = Type.Object({
   gate_note: Nullable(Type.String()),
   gate_errors: Type.Number(),
   watch: Nullable(Type.Integer()),
+  post: Type.Integer(),
   created_by: AuthorSchema,
   status: AutomationStatusSchema,
   schedule_id: Nullable(Type.String()),
@@ -82,8 +83,9 @@ const StoredAutomation = Type.Object({
  * something (null runs every fire); `gate_checked_at` and `gate_note` say when the last check ran and what
  * it came to, and `gate_errors` counts fires in a row whose gate failed (three pause it). `watch` is the watch
  * anticipation a look booked it for (src/dreaming/looks.ts), which retires it when that closes; null for any other.
+ * `post` puts each run's report in its chat as ky's own message, as written, instead of giving it to the chat's agent.
  */
-export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model"> & { model: ModelChoice | null }>;
+export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model" | "post"> & { model: ModelChoice | null; post: boolean }>;
 
 /** What a schedule is and does: everything create and update set. */
 export const AutomationDraftSchema = Type.Object({
@@ -94,10 +96,12 @@ export const AutomationDraftSchema = Type.Object({
   model: Nullable(ModelChoiceSchema),
   machine: Nullable(Type.String()),
   chat: Type.String(),
-  gate: Nullable(Type.String())
+  gate: Nullable(Type.String()),
+  post: Type.Optional(Type.Boolean())
 });
 
-export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate">;
+/** Without `post`, a create reports as an event and an update keeps what it had. */
+export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate"> & Partial<Pick<AutomationRow, "post">>;
 
 /** A title and a prompt are needed: the list shows one, and a run knows only the other. */
 function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
@@ -219,11 +223,12 @@ export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "
 
 /**
  * Something ky tells a chat between turns: an event, an automation run's report or the notice that it paused,
- * which the chat's agent is given and answers; or a look's message (src/dreaming/looks.ts), which is posted as
- * ky's own, as written, and starts no turn. `id` is its one identity, the request id pi takes it by, so however
+ * which the chat's agent is given and answers; or a look's message (src/dreaming/looks.ts), or a post automation's
+ * report, which is posted as ky's own, as written, and starts no turn. `id` is its one identity, the request id pi takes it by, so however
  * often it is handed over it is delivered once; `content` is what the chat's agent is given, or the look's
  * message; `line` is it in one line, as what ky surfaced keeps it; `ref` is what it rests on, like
- * task:a-1f2e-1760600000 or anticipation:12. Without a kind it is an event.
+ * task:a-1f2e-1760600000 or anticipation:12. Without a kind it is an event. A chat's is an event another chat sent
+ * (src/chats-tool.ts): its agent answers it, but the user is not pushed it, nor is it kept as surfaced.
  */
 export const DeliverySchema = Type.Object({
   id: Type.String(),
@@ -231,7 +236,7 @@ export const DeliverySchema = Type.Object({
   content: Type.String(),
   line: Type.String(),
   ref: Type.String(),
-  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look")]))
+  kind: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("look"), Type.Literal("post"), Type.Literal("chat")]))
 });
 
 export type Delivery = Readonly<Static<typeof DeliverySchema>>;
@@ -304,6 +309,7 @@ export const AutomationToolInput = Type.Object({
         "An Executor program body run before each fire, with no model: return the matching items to run, or null to skip. none to clear it."
     })
   ),
+  post: Type.Optional(Type.Boolean({ description: "true: post each report as ky's own message, as written, without a reply." })),
   createdBy: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("ky")])),
   all: Type.Optional(Type.Boolean({ description: "list: include done and archived ones." }))
 });
@@ -319,7 +325,7 @@ export function automationRows(rows: readonly unknown[]): AutomationRow[] {
 
     if (stored === undefined) return [];
 
-    return [{ ...stored, model: stored.model === null ? null : parseOr(ModelColumn, stored.model, null) }];
+    return [{ ...stored, model: stored.model === null ? null : parseOr(ModelColumn, stored.model, null), post: stored.post === 1 }];
   });
 }
 
