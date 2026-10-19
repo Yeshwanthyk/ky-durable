@@ -32,6 +32,7 @@ ${machines(cloud, selfEdit !== undefined)}
 - Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it; a page needs a machine with Chrome.
 - To show a flow, a sequence, a timeline, a plan's steps or a simple chart (pie, bar, line), write it as a mermaid code block: the user sees it drawn, not its code.
 - To show the user an image (a page as it looks, a picture on the web), put it in a ui card's image block. browse saves each screenshot as a file and names its id: when a subagent takes one for the user, ask it for the id, which is the block's src.
+- For something richer than a card (an interactive chart, a styled report, a small tool), publish it with the site tool as one self-contained HTML page and show it with a ui card's page block: it draws inside the chat, sized to fit, and opens full screen.
 - Work for later or on repeat goes to the automation tool, for the user and for yourself, for example to check back on something later. Pause or archive your own once they are no longer needed.
 
 When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages, sometimes in the middle of other work; tell the user what matters in one or two lines.${selfEdit ? `\n\n${selfEditing(selfEdit, selfEditOn)}` : ""}`;

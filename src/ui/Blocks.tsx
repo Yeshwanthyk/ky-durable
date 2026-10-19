@@ -1,4 +1,6 @@
-import { createContext, type KeyboardEvent, type ReactNode, useContext, useState } from "react";
+import { createContext, type KeyboardEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import Type from "typebox";
+import { decodeOr } from "../core/decode";
 import type { UiBlock, UiCard } from "../ui-blocks";
 import { answered, cardName, compose, decompose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { Icon, type IconName } from "./Icon";
@@ -131,6 +133,7 @@ const VIEWS: Views = {
   list: (block) => <ListBlock items={block.items} />,
   facts: (block) => <FactsBlock rows={block.rows} />,
   image: (block) => <ImageBlock src={block.src} caption={block.caption} />,
+  page: (block) => <PageBlock site={block.site} title={block.title ?? "Page"} height={block.height ?? 480} />,
   status: (block) => <StatusBlock text={block.text} tone={block.tone ?? "info"} />
 };
 
@@ -369,6 +372,44 @@ function ImageBlock({ src, caption }: { src: string; caption: string | undefined
         <img src={url} alt={label} loading="lazy" referrerPolicy="no-referrer" />
       </button>
       {caption ? <figcaption>{caption}</figcaption> : null}
+    </figure>
+  );
+}
+
+/** What a site's page opened with ?embed posts (src/site-routes.ts). */
+const HeightReport = Type.Object({ kySiteHeight: Type.Number() });
+
+const clampHeight = (height: number) => Math.min(2000, Math.max(80, Math.ceil(height)));
+
+/**
+ * A published site's page in the card. It runs sandboxed in an opaque origin, as at /s/<id>/, so its script
+ * can't reach ky's page or the user's session; with ?embed it posts its height, and only its own frame's
+ * message sizes the frame.
+ */
+function PageBlock({ site, title, height: initial }: { site: string; title: string; height: number }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(initial);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const reported = event.source === frame.current?.contentWindow ? decodeOr(HeightReport, event.data, null) : null;
+
+      if (reported !== null) setHeight(clampHeight(reported.kySiteHeight));
+    };
+
+    addEventListener("message", onMessage);
+
+    return () => removeEventListener("message", onMessage);
+  }, []);
+
+  return (
+    <figure className="ui-page">
+      <iframe ref={frame} src={`/s/${site}/?embed`} title={title} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" style={{ height }} />
+      <figcaption>
+        <a href={`/s/${site}/`} target="_blank" rel="noreferrer">
+          Open {title}
+        </a>
+      </figcaption>
     </figure>
   );
 }
