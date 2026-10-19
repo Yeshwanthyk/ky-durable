@@ -24,6 +24,15 @@ export type { Spawn } from "./subagents";
  * The tables this domain owns. A backup restore stages each as `ky_restore__<table>` and matches
  * it by name, so these never change.
  */
+/** What a good skill is: the bar the agent, a skill review, the nightly dream and make-skill write to. */
+export const SKILL_CRAFT = `A good skill:
+- Does one job: one class of task. Two jobs are two skills.
+- Has a description that says when to use it and, when a neighbouring skill is close, when not ("Not for ...").
+- Opens with the trigger, then numbered steps; a step that isn't obvious says why, so it can be adapted rather than followed blindly.
+- Lists pitfalls: what went wrong before and how the user corrected it.
+- Ends with how to tell it is done: what a finished result has.
+- Holds nothing else: no details of one day's task, no facts about the user, no step that never helped.`;
+
 export const SKILL_TABLES = Object.freeze({
   skills: "ky_skills",
   skillVersions: "ky_skill_versions",

@@ -135,6 +135,14 @@ describe("a new ky's seeds", () => {
     expect(await seeded(name)).toEqual(first);
   });
 
+  it("ships make-skill on, for when the owner asks for a skill", async () => {
+    const name = `${FRESH}${crypto.randomUUID()}`;
+    (await connect(name)).close();
+    await until(async () => (await seeded(name)).automations.length === 2, "the seeds");
+
+    expect((await seeded(name)).skills).toContainEqual(["make-skill", "active"]);
+  });
+
   it("leaves a ky that isn't new as it is", async () => {
     const name = crypto.randomUUID();
     (await connect(name)).close();

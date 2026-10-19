@@ -8,8 +8,8 @@ import type { Skills, Specialists } from "./skills/contract";
  * What a new ky starts with, once, on its first start: starter skills, one
  * example specialist and starter automations. Everything that acts on its
  * own is off: the skills are archived and the automations paused, so the
- * owner turns on what they want from Skills and Activity. make-avatar and
- * the default skills are the exception: on, and added to a ky that predates them.
+ * owner turns on what they want from Skills and Activity. make-avatar, make-skill and
+ * the default skills are the exceptions: on, and added to a ky that predates them.
  */
 
 const SKILLS = [
@@ -68,6 +68,31 @@ const MAKE_AVATAR = {
     "",
     "Good ones, to learn from:",
     ...Object.values(EXAMPLES).map((spec) => JSON.stringify(spec))
+  ].join("\n")
+};
+
+/**
+ * How to make a skill when the owner asks for one, on from the start like make-avatar. The bar it drafts to
+ * is SKILL_CRAFT, in every conversation's skills rules; a skill review and the dream write to it too.
+ */
+const MAKE_SKILL = {
+  name: "make-skill",
+  description: "Make or rework a skill when the user asks for one. Not for the skills ky saves on its own after a task.",
+  body: [
+    "When asked to make a skill, to remember how to do something, or to improve a skill:",
+    "",
+    "1. Find the job: the class of task, what starts it, and what it is not for. Ask at most two questions, only what the conversation doesn't already say. If the user describes two jobs, propose two skills.",
+    "2. Check the skill list. When one covers the class, open it with skill_view and extend it: a near-twin splits the uses between two skills and neither gets better.",
+    '3. Draft it to the bar in your skills rules. Name it by the class of task (like "weekly-grocery-order"), never by today\'s details.',
+    "4. Show the draft, then walk one real example through it step by step, from this conversation or one the user gives. Where the walk-through stalls or has to guess, fix that step.",
+    "5. Save it with skill_manage (create, or edit when extending) only once the user says yes. Offer to pin it if they want ky's reviews and dreams to leave it as it is.",
+    "",
+    "Pitfalls:",
+    "- A step that only restates the request. A skill is the how: the order, the checks, the preferences.",
+    "- Facts about the user or this one task: those belong to memory.",
+    "- Steps from the first draft that the walk-through never used.",
+    "",
+    "Done when the user has approved it, it is saved, and the walk-through needed no guessing."
   ].join("\n")
 };
 
@@ -183,9 +208,11 @@ const AUTOMATIONS = [
   }
 ] as const;
 
-/** Seed a ky: make-avatar and the default skills when missing, on every start; the rest only on its first. */
+/** Seed a ky: make-avatar, make-skill and the default skills when missing, on every start; the rest only on its first. */
 export async function seed(setup: Setup, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
-  if (!skills.get(MAKE_AVATAR.name)) skills.apply({ action: "create", ...MAKE_AVATAR }, "ky");
+  for (const skill of [MAKE_AVATAR, MAKE_SKILL]) {
+    if (!skills.get(skill.name)) skills.apply({ action: "create", ...skill }, "ky");
+  }
 
   for (const skill of DEFAULT_SKILLS) {
     if (skills.get(skill.name)) continue;
