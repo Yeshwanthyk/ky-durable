@@ -27,7 +27,8 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | Browser UI | React app; one WebSocket per open chat, rebuilt from a snapshot on reconnect. | `src/client.tsx`, `src/ui/*`, `src/use-pi-session.ts` |
 | exec sandbox | `exec` runs JavaScript in a fresh Dynamic Worker over the DO's workspace (`/workspace`). No network except git over HTTPS, no shell or npm. | `src/workspace.ts`, binding `LOADER` |
 | Kitesurf browser | `browse` opens a cloud page, runs steps, reads it, closes it. No logins. Subagents only; the main agent delegates it. | `src/browse.ts`, binding `BROWSER` |
-| R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap). | `src/files.ts`, binding `FILES` |
+| R2 `ky-files` | Screenshots and recordings that machine tasks share (25 MB cap), under `files/`; sites under `sites/<id>/` with their `.site` metadata, and `sites-public/<token>` naming a public site's id. Sites aren't backed up. | `src/files.ts`, `src/sites.ts`, binding `FILES` |
+| Sites | The `site` tool (user chats only) publishes a page or a workspace folder (200 files, 10 MB, 50 sites) at `/s/<id>/` behind Access; `make_public` also serves it signed out at `/p/<token>/` until `make_private`. Served from R2 by the Worker in a CSP sandbox, with no cookie. The sandboxed page asks for its other files without the Access cookie, so at the private address only one self-contained HTML file works (CSS, JS and images inline); relative files load only at the public address. Paths starting with `.` are left out. A separate hostname for sites is a follow-up. | `src/sites.ts`, `src/site-routes.ts` |
 | Email Service | ky's own address (`KY_MAIL_ADDRESS`). Email Routing hands mail to the Worker's `email` handler, which parses it and passes it to the DO; each mail is read in a background conversation that may call no tool, and reported where it matters. The `mail` tool sends with the `EMAIL` binding: at once to the user's addresses and ones they allowed, otherwise held until the user sends it in Settings › Mail. | `src/mail.ts`, `src/ui/Mail.tsx`, binding `EMAIL` |
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`; its URL and token are added in Settings › Tools › Executor and kept in the Vault |
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/workers-ai.ts`, binding `AI` |
@@ -197,7 +198,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 Cloudflare Access signs the owner in, and the Worker checks Access's JWT again on every request
 (`src/access.ts`): its signature against the team's keys, ky's app, the team and the emails in
 `ACCESS_EMAILS`. Only the paths in `BYPASS` skip it: the runner, pairing and upload routes, which check
-their own tokens, and the manifest and icons. `ky deploy` sets up both Access apps and the `ACCESS_*` vars;
+their own tokens, the manifest and icons, and public sites (`/p/*`). `ky deploy` sets up both Access apps and the `ACCESS_*` vars;
 for `pnpm run deploy`, set them in `wrangler.local.jsonc` and make the apps yourself. Runners never use it: each machine pairs once and gets its own
 machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`). The Vault
 keeps a machine token's hash only. For a task token it keeps the hash and the nonce the token is derived
