@@ -479,6 +479,45 @@ test("ky's card shows an image, and a tap opens it full size", async ({ page }) 
   await expect(page.getByRole("dialog")).toBeVisible();
 });
 
+test("ky's card draws data from its numbers: headline stats, a stacked bar chart, and tabs beside it", async ({ page }) => {
+  await open(page);
+
+  const ky = { type: "table", columns: ["PR", "Title", "Merged"], rows: [["#107", "Token page asks for mail permissions", "Oct 17"], ["#145", "Mermaid fences draw as diagrams", "Oct 19"]] };
+
+  const ui = {
+    title: "Your PRs, last 3 days",
+    subtitle: "Oct 17–19 · GitHub",
+    icon: "github",
+    blocks: [
+      { type: "stats", items: [{ value: 53, label: "PRs" }, { value: 41, label: "ky-durable", series: 1 }, { value: 12, label: "scotty", series: 2 }, { value: "52", label: "merged · 1 draft", tone: "success" }] },
+      {
+        type: "columns",
+        columns: [
+          [{ type: "chart", kind: "bar", stacked: true, label: "By day", x: ["Fri 17", "Sat 18", "Sun 19"], series: [{ name: "ky", values: [17, 21, 3] }, { name: "scotty", values: [4, 4, 4] }] }],
+          [{ type: "tabs", tabs: [{ label: "ky · 41", blocks: [ky] }, { label: "scotty · 12", blocks: [{ type: "list", items: [{ title: "Sidebar keeps its width", meta: "#88" }] }] }] }]
+        ]
+      },
+      { type: "chart", kind: "line", label: "Merged per day, two weeks", x: Array.from({ length: 14 }, (_, day) => `Oct ${day + 6}`), series: [{ name: "merged", values: [3, 5, 2, 8, 6, 9, 4, 7, 11, 6, 9, 21, 25, 7] }] }
+    ]
+  };
+
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+  const card = chat(page).getByRole("region", { name: "Your PRs, last 3 days" });
+  await expect(card.getByText("Oct 17–19 · GitHub")).toBeVisible();
+  await expect(card.locator(".ui-stats dd").first()).toHaveText("53");
+  await expect(card.getByRole("row", { name: /Sat 18/ })).toContainText("25");
+  await expect(card.getByRole("tab", { name: "ky · 41" })).toHaveAttribute("aria-selected", "true");
+  await expect(card.getByRole("cell", { name: "Mermaid fences draw as diagrams" })).toBeVisible();
+  await expect(card.getByRole("img", { name: "Merged per day, two weeks" })).toBeVisible();
+
+  if (SHOTS) await card.screenshot({ path: `${SHOTS}/ui-data.png` });
+
+  await card.getByRole("tab", { name: "scotty · 12" }).click();
+  await expect(card.getByText("Sidebar keeps its width")).toBeVisible();
+  await expect(card.getByRole("cell", { name: "Mermaid fences draw as diagrams" })).toBeHidden();
+});
+
 test("ky's card shows a page it published, sized to the page, with a link to open it full size", async ({ page }) => {
   await open(page);
   const html = '<!doctype html><html><body style="margin:0"><div style="height:640px;background:#e8eef7">Tall report</div></body></html>';

@@ -43,6 +43,17 @@ describe("card", () => {
     expect(shown).toEqual({ blocks: [file, web] });
   });
 
+  it("shows numbers, charts and tables side by side and in tabs, but keeps questions out of columns, where no one answers them", () => {
+    const stats = { type: "stats", items: [{ value: 53, label: "PRs" }, { value: "41", label: "ky", series: 1 }] };
+    const chart = { type: "chart", kind: "bar", stacked: true, x: ["Fri", "Sat"], series: [{ name: "ky", values: [17, 21] }, { name: "scotty", values: [4, 4] }] };
+    const table = { type: "table", columns: ["PR", "Title"], rows: [["#145", "Diagrams"]] };
+    const tabs = { type: "tabs", tabs: [{ label: "ky", blocks: [table] }, { label: "scotty", blocks: [{ type: "text", text: "None" }] }] };
+    const columns = { type: "columns", columns: [[chart], [tabs]] };
+    const asking = { type: "columns", columns: [[chart], [{ type: "choice", label: "Pick", options: [{ label: "A" }] }]] };
+
+    expect(card(call(JSON.stringify({ title: "PRs", subtitle: "Oct 17–19", blocks: [stats, columns, asking] })))).toEqual({ title: "PRs", subtitle: "Oct 17–19", blocks: [stats, columns] });
+  });
+
   it("shows none while its arguments are not JSON yet, or have no block it knows", () => {
     expect(card(call('{"blocks":[{"type":"te'))).toBeNull();
     expect(card(call(JSON.stringify({ blocks: [{ type: "chart" }] })))).toBeNull();

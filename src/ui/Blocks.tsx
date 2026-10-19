@@ -1,9 +1,10 @@
 import { createContext, type KeyboardEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import Type from "typebox";
 import { decodeOr } from "../core/decode";
-import type { UiBlock, UiCard } from "../ui-blocks";
+import type { ShownBlock, TabsBlock, UiBlock, UiCard } from "../ui-blocks";
 import { answered, cardName, compose, decompose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { Icon, type IconName } from "./Icon";
+import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
 import { Markdown } from "./Markdown";
 
@@ -83,7 +84,7 @@ export function BlockCard({ ui, answer, open }: { ui: UiCard; answer: string | n
   return (
     <div className="ui-card-slot">
       <section className="ui-card" aria-label={cardName(ui)} data-live={form.live}>
-        {ui.title ? <CardHead title={ui.title} icon={ui.icon} /> : null}
+        {ui.title ? <CardHead title={ui.title} subtitle={ui.subtitle} icon={ui.icon} /> : null}
         {ui.blocks.map((block, at) => (
           <BlockView key={at} block={block} form={form} />
         ))}
@@ -109,7 +110,7 @@ function SendRow({ form }: { form: Form }) {
   );
 }
 
-function CardHead({ title, icon }: { title: string; icon: string | undefined }) {
+function CardHead({ title, subtitle, icon }: { title: string; subtitle: string | undefined; icon: string | undefined }) {
   return (
     <header className="ui-head">
       {icon ? (
@@ -118,23 +119,34 @@ function CardHead({ title, icon }: { title: string; icon: string | undefined }) 
         </span>
       ) : null}
       <h3 className="ui-title">{title}</h3>
+      {subtitle ? <span className="ui-subtitle quiet">{subtitle}</span> : null}
     </header>
   );
 }
 
-type Views = { readonly [Type in UiBlock["type"]]: (block: Extract<UiBlock, { type: Type }>, form: Form) => ReactNode };
+type Views<Block extends { type: string }, Extra> = { readonly [Type in Block["type"]]: (block: Extract<Block, { type: Type }>, extra: Extra) => ReactNode };
+
+/** The blocks that only show, which a tab or a column may hold too. */
+const SHOWN: Views<ShownBlock, Form | null> = {
+  text: (block) => <TextBlock text={block.text} />,
+  list: (block) => <ListBlock label={block.label} items={block.items} />,
+  facts: (block) => <FactsBlock rows={block.rows} />,
+  image: (block) => <ImageBlock src={block.src} caption={block.caption} />,
+  status: (block) => <StatusBlock text={block.text} tone={block.tone ?? "info"} />,
+  stats: (block) => <StatsBlock items={block.items} />,
+  chart: (block) => <ChartBlock chart={block} />,
+  table: (block) => <TableBlock table={block} />
+};
 
 /** Each block type's component. */
-const VIEWS: Views = {
-  text: (block) => <TextBlock text={block.text} />,
+const VIEWS: Views<UiBlock, Form> = {
+  ...SHOWN,
   choice: (block, form) => <ChoiceView choice={block} form={form} />,
   input: (block, form) => <InputView input={block} form={form} />,
   buttons: (block, form) => <ButtonsBlock buttons={block.buttons} live={form.live} pressed={form.answer} onReply={form.reply} />,
-  list: (block) => <ListBlock items={block.items} />,
-  facts: (block) => <FactsBlock rows={block.rows} />,
-  image: (block) => <ImageBlock src={block.src} caption={block.caption} />,
   page: (block) => <PageBlock site={block.site} title={block.title ?? "Page"} height={block.height ?? 480} />,
-  status: (block) => <StatusBlock text={block.text} tone={block.tone ?? "info"} />
+  tabs: (block) => <TabsView tabs={block.tabs} />,
+  columns: (block) => <ColumnsBlock columns={block.columns} />
 };
 
 /** One block, by its type. */
@@ -143,6 +155,113 @@ function BlockView({ block, form }: { block: UiBlock; form: Form }) {
   const view = VIEWS[block.type] as (block: UiBlock, form: Form) => ReactNode;
 
   return view(block, form);
+}
+
+/** A block in a tab or a column. */
+function Shown({ block }: { block: ShownBlock | TabsBlock }) {
+  if (block.type === "tabs") return <TabsView tabs={block.tabs} />;
+  // SAFETY: SHOWN is keyed by block type, so the view under block.type takes that very block.
+  const view = SHOWN[block.type] as (block: ShownBlock, form: Form | null) => ReactNode;
+
+  return view(block, null);
+}
+
+/** Blocks side by side; the grid folds them one under another once a column would be narrower than it reads. */
+function ColumnsBlock({ columns }: { columns: ReadonlyArray<ReadonlyArray<ShownBlock | TabsBlock>> }) {
+  return (
+    <div className="ui-columns">
+      {columns.map((column, index) => (
+        <div className="ui-column" key={index}>
+          {column.map((block, at) => (
+            <Shown key={at} block={block} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Tabs over a few views of the same answer; the first shows first. */
+function TabsView({ tabs }: { tabs: TabsBlock["tabs"] }) {
+  const [shown, setShown] = useState(0);
+  const tab = tabs[shown] ?? tabs[0];
+
+  return (
+    <div className="ui-tabs">
+      <div className="ui-tab-row" role="tablist">
+        {tabs.map((each, index) => (
+          <button key={index} type="button" role="tab" className="ui-tab pressable" aria-selected={index === shown} onClick={() => setShown(index)}>
+            {each.label}
+          </button>
+        ))}
+      </div>
+      <div className="ui-tab-panel" role="tabpanel" aria-label={tab?.label}>
+        {tab?.blocks.map((block, at) => (
+          <Shown key={`${shown}-${at}`} block={block} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Stat = Extract<ShownBlock, { type: "stats" }>["items"][number];
+
+const TONE_COLOR = { info: undefined, success: "var(--success)", warning: "var(--warning)", error: "var(--danger)" } as const;
+
+/** A few headline numbers in a row that wraps; a number that is a chart's series wears its color. */
+function StatsBlock({ items }: { items: readonly Stat[] }) {
+  return (
+    <dl className="ui-stats">
+      {items.map((item, index) => (
+        <div key={index}>
+          <dd style={{ color: item.tone ? TONE_COLOR[item.tone] : undefined }}>
+            {item.series ? <i className="ui-swatch" style={{ background: seriesColor(item.series - 1) }} /> : null}
+            {String(item.value)}
+          </dd>
+          <dt>{item.label}</dt>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+type Table = Extract<ShownBlock, { type: "table" }>;
+
+/** A cell that reads as a number, an amount or a share right-aligns. */
+const numeric = (cell: string) => /^[-+−]?[$€£¥]?[\d.,]+\s?(%|[kKmMbB])?$/.test(cell.trim());
+
+function TableBlock({ table }: { table: Table }) {
+  const right = table.columns.map((_, column) => table.rows.length > 0 && table.rows.every((row) => numeric(row[column] ?? "0")));
+
+  return (
+    <figure className="ui-table">
+      {table.label ? <figcaption className="ui-block-label">{table.label}</figcaption> : null}
+      <div className="ui-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              {table.columns.map((column, index) => (
+                <th key={index} data-numeric={right[index]}>
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, index) => (
+              <tr key={index}>
+                {table.columns.map((_, column) => (
+                  <td key={column} data-numeric={right[column]}>
+                    {row[column] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </figure>
+  );
 }
 
 function ChoiceView({ choice, form }: { choice: Choice; form: Form }) {
@@ -330,8 +449,8 @@ function ReplyButton({ button, live, pressed, onReply }: { button: Button; live:
   );
 }
 
-function ListBlock({ items }: { items: Extract<UiBlock, { type: "list" }>["items"] }) {
-  return (
+function ListBlock({ label, items }: { label: string | undefined; items: Extract<UiBlock, { type: "list" }>["items"] }) {
+  const list = (
     <ul className="ui-list">
       {items.map((item, index) => (
         <li key={index}>
@@ -341,6 +460,15 @@ function ListBlock({ items }: { items: Extract<UiBlock, { type: "list" }>["items
         </li>
       ))}
     </ul>
+  );
+
+  return label ? (
+    <div className="ui-labelled">
+      <p className="ui-block-label">{label}</p>
+      {list}
+    </div>
+  ) : (
+    list
   );
 }
 

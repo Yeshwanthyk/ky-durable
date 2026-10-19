@@ -3,7 +3,8 @@ import { UiCardSchema } from "./ui-blocks";
 
 /**
  * ui: ky shows the user a card in the chat, composed from blocks: text, a
- * choice to tap, a field to type in, buttons, a list, facts, an image, a site's page, a status line.
+ * choice to tap, a field to type in, buttons, a list, facts, an image, a site's page, a status line,
+ * headline numbers, a chart, a table, and tabs and columns that lay those out.
  * The blocks are src/ui-blocks.ts's; the card (src/ui/Blocks.tsx) renders
  * from the call's arguments, block by block, and skips one it does not know.
  * What the user taps or types is sent as their next message, so the answer
@@ -25,7 +26,9 @@ export function uiExtension(chat: (session: string) => boolean): Extension {
         name: UI,
         description:
           "Show the user a card in the chat, composed from blocks, when it reads better than prose: a choice between a few known answers, " +
-          "a short field to fill in, a button to authorize or confirm, a list or facts to look over, an image to see, a page you published with the site tool, a status. Compose what fits what was asked; " +
+          "a short field to fill in, a button to authorize or confirm, a list or facts to look over, an image to see, a page you published with the site tool, a status. " +
+          "For data, give the numbers and the card draws them in the chat's own style: stats for a few headline numbers, a chart (bar, line or donut), a table; " +
+          "lay them out with columns (side by side, folding on a phone) and tabs. Prefer these to a page: they cost a fraction of the tokens and match light and dark. Compose what fits what was asked; " +
           "plain answers stay plain text. The user's taps arrive as their next message: a choice as its label (several joined by \", \"), " +
           "a field as its text, a button as its reply; with several questions, one line each as \"label: answer\". " +
           "With wait, call it last, alone: your turn ends there.",
