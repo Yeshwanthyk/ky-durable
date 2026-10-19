@@ -3,10 +3,27 @@ import { Guard } from "typebox/guard";
 import type { PiMessage, PiMessagePart } from "../transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
-import type { Item, Tool, Turn } from "./conversation";
+import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 
-/** Reports from subagents, machines, specialists, discussions and check-ins arrive as user messages that start like this. */
-const REPORT = /^\[(subagent|machine|specialist|discussion|check-in) ("[^"]*"|[^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
+/** Reports from subagents, machines, specialists, discussions, automations, check-ins and peers arrive as user messages that start like this. */
+const REPORT = /^\[(subagent|machine|specialist|discussion|automation|check-in|peer) ("[^"]*"|[^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
+
+/** A report's quiet line, from its opening bracket: what sent it, and whether it failed or paused. */
+function reportFrom(header: string, kind: string, who: string): ReportFrom {
+  const name = who.replace(/^"(.*)"$/, "$1");
+  const failed = / failed[:\]]/.test(header);
+
+  switch (kind) {
+    case "automation":
+      return { verb: failed ? "Routine failed" : / paused\]/.test(header) ? "Paused routine" : "Ran routine", icon: "clock", name };
+    case "check-in":
+      return { verb: failed ? "Check-in failed" : "Checked in", icon: "clock", name };
+    case "peer":
+      return { verb: "Message from", icon: "chat", name };
+    default:
+      return { verb: failed ? "Failed" : "Report from", icon: "nodes", name: `${kind} ${name}` };
+  }
+}
 
 /** A tool argument shows as text only when it is a string. */
 const text = (value: JsonValue | undefined) => (Guard.IsString(value) ? value : "");
@@ -153,8 +170,10 @@ function sameFields<Value extends { readonly [Key in keyof Value]: Field }>(a: V
   return keys.length === Object.keys(b).length && keys.every((key) => sameField(a[key], b[key]));
 }
 
-function sameTurn({ items, ...turn }: Turn, { items: otherItems, ...other }: Turn): boolean {
-  return sameFields(turn, other) && items.length === otherItems.length && items.every((item, index) => sameFields<Item>(item, otherItems[index]!));
+const sameFrom = (a: ReportFrom | null, b: ReportFrom | null) => a === b || (a !== null && b !== null && sameFields(a, b));
+
+function sameTurn({ items, from, ...turn }: Turn, { items: otherItems, from: otherFrom, ...other }: Turn): boolean {
+  return sameFields(turn, other) && sameFrom(from, otherFrom) && items.length === otherItems.length && items.every((item, index) => sameFields<Item>(item, otherItems[index]!));
 }
 
 /** The turns the last build returned, by id. */
@@ -214,9 +233,9 @@ export function buildTurns(
     const turn: Turn = {
       id: message?.id ?? `t${turns.length}`,
       state: "completed",
-      user: report ? raw.slice(report[0].length) : raw,
+      user: report ? raw.slice(report[0].length) || (/ failed: (.*)\]\s*$/.exec(report[0])?.[1] ?? "") : raw,
       images: message ? message.parts.flatMap((part) => (part.type === "image" ? [keptImageSrc(part)] : [])) : [],
-      from: report ? `${report[1]} ${report[2]}` : null,
+      from: report ? reportFrom(report[0], report[1] ?? "", report[2] ?? "") : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
       to: message?.to ?? [],
       items: [],
