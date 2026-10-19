@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pdfReply, reached } from "../browse";
+import { keepShots, pdfReply, reached } from "../browse";
 
 /**
  * The browse tool's PDF reply (src/browse.ts), on the Worker runtime unpdf runs on: what counts as a PDF,
@@ -193,5 +193,32 @@ describe("browse reads a PDF", () => {
     stop.abort(new Error("the browse call was stopped"));
 
     await expect(pdfReply("https://example.com/report.pdf", shown(pdf(["Words"])), plain, stop.signal)).rejects.toThrow("the browse call was stopped");
+  });
+});
+
+describe("a screenshot", () => {
+  const shot = { type: "image" as const, data: btoa("png bytes"), mimeType: "image/png" };
+
+  it("is saved as a file, its id named after it, and still read", async () => {
+    const saved: string[] = [];
+
+    const save = async (png: Uint8Array) => {
+      saved.push(new TextDecoder().decode(png));
+
+      return "0123456789abcdef0123456789abcdef";
+    };
+
+    const result = await keepShots({ content: [{ type: "text", text: "Page" }, shot], isError: false }, save);
+
+    expect(saved).toEqual(["png bytes"]);
+    expect(result.content.map((part) => part.type)).toEqual(["text", "image", "text"]);
+    const note = result.content[2];
+    expect(note?.type === "text" ? note.text : "").toContain("file 0123456789abcdef0123456789abcdef");
+  });
+
+  it("is still read when it could not be saved", async () => {
+    const result = await keepShots({ content: [shot], isError: false }, () => Promise.reject(new Error("bucket down")));
+
+    expect(result.content).toEqual([shot]);
   });
 });

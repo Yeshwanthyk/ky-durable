@@ -459,6 +459,24 @@ test("ky's card takes taps: the chosen options go as the user's next message, an
   await expect(card.getByRole("button", { name: /Lyft/ })).toBeDisabled();
 });
 
+test("ky's card shows an image, and a tap opens it full size", async ({ page }) => {
+  // A 1×1 PNG, served for the https address the card names, so the test never leaves the stack.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+  await page.route("https://images.example/chart.png", (route) => route.fulfill({ contentType: "image/png", body: png }));
+  await open(page);
+  const ui = { title: "This week", blocks: [{ type: "image", src: "https://images.example/chart.png", caption: "Steps per day" }] };
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+  const card = chat(page).getByRole("region", { name: "This week" });
+  const image = card.getByRole("img", { name: "Steps per day" });
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+  await expect(card.getByText("Steps per day", { exact: true })).toBeVisible();
+
+  await card.getByRole("button", { name: "Open Steps per day" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
+
 test("ky's card asks for a word: typed and ticked, it goes as the user's next message", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();

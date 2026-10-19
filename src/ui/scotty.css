@@ -2315,6 +2315,15 @@ button.live:hover .live-steps {
   font-size: calc(12.5px * var(--text-scale));
 }
 
+/* A card's image: an attachment's frame, a little taller, its caption free to wrap. */
+.ui-image img {
+  max-height: 420px;
+}
+
+.ui-image figcaption {
+  white-space: normal;
+}
+
 .ui-facts {
   display: grid;
   grid-template-columns: max-content 1fr;

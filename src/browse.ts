@@ -54,7 +54,33 @@ const Step = Type.Object({
 
 type PageRead = { title: string; text: string; links: Array<{ text: string; href: string }> };
 
-export function browseExtension(binding: BrowserWorker): Extension {
+type Part = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+type Reply = { content: Part[]; isError: boolean };
+
+/**
+ * Each screenshot is also saved as one of ky's files, so it can be shown to the user, not only read: its id
+ * follows it in the reply. A screenshot that could not be saved is still read.
+ */
+export async function keepShots(result: Reply, save: (png: Uint8Array) => Promise<string>): Promise<Reply> {
+  const content: Part[] = [];
+
+  for (const part of result.content) {
+    content.push(part);
+
+    if (part.type !== "image") continue;
+    const id = await save(Uint8Array.from(atob(part.data), (char) => char.charCodeAt(0))).catch(() => null);
+
+    if (id !== null) {
+      content.push({ type: "text", text: `Screenshot saved as file ${id}. To show it to the user, pass this id on; the ui tool's image block shows it.` });
+    }
+  }
+
+  return { ...result, content };
+}
+
+/** `save` keeps a screenshot as a file and returns its id. */
+export function browseExtension(binding: BrowserWorker, save: (png: Uint8Array) => Promise<string>): Extension {
   return defineExtension({
     name: "browse",
     tools: [
@@ -83,6 +109,7 @@ export function browseExtension(binding: BrowserWorker): Extension {
           const signal = context.abortSignal ? AbortSignal.any([context.abortSignal, timeUp.signal]) : timeUp.signal;
 
           return browse(binding, args, signal)
+            .then((result) => keepShots(result, save))
             .catch((error: Error) => reply(`Could not browse ${args.url}: ${error.message}`, true))
             .finally(() => clearTimeout(timer));
         }
@@ -183,9 +210,7 @@ async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
     .filter(Boolean)
     .join("\n\n");
 
-  const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
-    { type: "text", text: summary }
-  ];
+  const content: Part[] = [{ type: "text", text: summary }];
 
   if (args.screenshot) {
     const shot = await within(OPERATION_TIMEOUT_MS, "the screenshot", (async () => {

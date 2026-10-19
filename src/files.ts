@@ -148,6 +148,14 @@ export async function upload(
   return Response.json({ id, url: `/files/${id}` });
 }
 
+/** Keep an image ky made itself, such as a browse screenshot, where /files/<id> serves it; returns the id. */
+export async function saveImage(bucket: R2Bucket, bytes: Uint8Array, type = "image/png"): Promise<string> {
+  const id = crypto.randomUUID().replaceAll("-", "");
+  await bucket.put(`files/${id}`, bytes, { httpMetadata: { contentType: type } });
+
+  return id;
+}
+
 /** GET /files/<id>, with byte ranges: iOS Safari plays a video only from 206 responses. */
 export async function download(request: Request, bucket: R2Bucket, id: string): Promise<Response> {
   const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") ?? "");

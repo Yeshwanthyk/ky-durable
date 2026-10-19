@@ -20,7 +20,7 @@ import { chatsExtension } from "./chats-tool";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
-import { download, type FileRow, FileStore } from "./files";
+import { download, type FileRow, FileStore, saveImage } from "./files";
 import { History, turnPlacedBy } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
@@ -331,7 +331,7 @@ export class PiAgent extends DurableObject<Env> {
     automations: this.automations
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
-  readonly browse = browseExtension(this.boundary.browser);
+  readonly browse = browseExtension(this.boundary.browser, (png) => saveImage(this.env.FILES, png));
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const chat = (session: string) => this.isChat(session);
