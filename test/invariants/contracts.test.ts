@@ -149,7 +149,7 @@ describe("storage", () => {
 
     const automation = {
       id: "a1", title: "T", prompt: "P", cron: null, at: 1, model: "{broken", machine: null, chat: "main",
-      gate: null, gate_checked_at: null, gate_note: null, gate_errors: 0, watch: null,
+      gate: null, gate_checked_at: null, gate_note: null, gate_errors: 0, watch: null, post: 0,
       created_by: "user", status: "active", schedule_id: null, created_at: 1, updated_at: 1
     };
 

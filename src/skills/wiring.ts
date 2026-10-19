@@ -45,6 +45,7 @@ export function delegationTools(
     feed,
     [soul, memory, machines, automationTool, specialists.manage, ui, chats],
     () => models.resolve("worker").choice,
+    models,
     (feedId) => automations.wanted(feedId),
     {
       store,

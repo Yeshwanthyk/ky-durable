@@ -145,9 +145,11 @@ export class PiAgent extends DurableObject<Env> {
       })
     ]
   });
-  /** Its summaries are written on the background model, as notes come in. */
-  readonly memory = new Memory(this.ctx.storage.sql, (system, messages) =>
-    this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 })
+  /** Its summaries are written on the background model, as notes come in; its days are the user's. */
+  readonly memory = new Memory(
+    this.ctx.storage.sql,
+    (system, messages) => this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 }),
+    () => this.automations.checkIns().zone
   );
   readonly skills = new Skills(this.ctx.storage.sql);
   /** SOUL.md, ky's persona. */

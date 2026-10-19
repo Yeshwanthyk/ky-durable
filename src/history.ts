@@ -99,6 +99,17 @@ const RolesRow = Type.Object({ roles: Type.Number() });
 /** A submission that placed a user entry, as pi keeps it; a damaged one counts as not the user's. */
 const PlacedRow = Type.Object({ entry: Type.Number(), request: Type.Union([Type.String(), Type.Null()]) });
 
+/**
+ * The messages a search reads, by when they were sent: from `from` up to, not including, `to`, in epoch ms;
+ * `days` is how a reply names them, like "between 2026-01-02 and 2026-01-03".
+ */
+export type Span = { readonly from: number; readonly to: number; readonly days: string };
+
+const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
+
+/** What `search` takes besides the query. */
+type SearchOptions = { readonly around?: number; readonly caller?: string; readonly batches?: number; readonly span?: Span };
+
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
 type Hit = { rowid: number; conversation: string; role: string; at: number; snippet: string };
@@ -166,11 +177,11 @@ export class History {
   /**
    * The best matches for `query`, each with `around` messages before and after
    * it. The user's latest message in `caller`, the chat searching, is left out:
-   * it is the question, and ky has it already. `batches` caps the catch-up first: turn-start recall reads at most
-   * a few, so the first turn after a deploy that emptied the index is not held up rebuilding it, and finds
-   * only what is indexed so far.
+   * it is the question, and ky has it already. `span` keeps only the messages sent in it, and the replies name
+   * its days. `batches` caps the catch-up first: turn-start recall reads at most a few, so the first turn after
+   * a deploy that emptied the index is not held up rebuilding it, and finds only what is indexed so far.
    */
-  search(query: string, around = 0, caller = "", batches = Number.POSITIVE_INFINITY): string {
+  search(query: string, { around = 0, caller = "", batches = Number.POSITIVE_INFINITY, span }: SearchOptions = {}): string {
     this.#catchUp(batches);
 
     const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
@@ -178,13 +189,15 @@ export class History {
     if (terms.length === 0) return "Give some words to search for.";
 
     const skip = this.#asking(caller);
-    const every = this.#match(terms.join(" AND "), skip);
+    const during = span === undefined ? "" : ` ${span.days}`;
+    const none = `No message matches ${query.trim()}${during}.`;
+    const every = this.#match(terms.join(" AND "), skip, span ?? ALWAYS);
 
-    if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || `No message matches ${query.trim()}.`;
+    if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || none;
 
-    const some = this.#match(terms.join(" OR "), skip);
+    const some = this.#match(terms.join(" OR "), skip, span ?? ALWAYS);
 
-    return this.#show(some, around, "No message has all those words; these have some of them.\n") || `No message matches ${query.trim()}.`;
+    return this.#show(some, around, `No message has all those words${during}; these have some of them.\n`) || none;
   }
 
   /** The user's latest message in `caller`, or -1. */
@@ -199,13 +212,15 @@ export class History {
     );
   }
 
-  #match(expression: string, skip: number): Hit[] {
+  #match(expression: string, skip: number, span: Pick<Span, "from" | "to">): Hit[] {
     return this.#sql
       .exec<Hit>(
         `SELECT rowid, conversation, role, at, snippet(ky_history, 0, '[', ']', ' … ', 24) AS snippet
-         FROM ky_history WHERE ky_history MATCH ? AND rowid != ? ORDER BY rank LIMIT ?`,
+         FROM ky_history WHERE ky_history MATCH ? AND rowid != ? AND at >= ? AND at < ? ORDER BY rank LIMIT ?`,
         expression,
         skip,
+        span.from,
+        span.to,
         MATCHES
       )
       .toArray();
