@@ -94,6 +94,8 @@ type ReporterInput = {
   checkIn?: boolean;
   /** An automation's run: its report is delivered between turns (src/automations/delivery.ts), not steered in. */
   deliver?: boolean;
+  /** A delivered answer is posted as ky's own message, as written, and starts no turn; a failure is still an event. */
+  post?: boolean;
 };
 
 /** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
@@ -105,6 +107,7 @@ export type SpawnRequest = {
   label?: string;
   checkIn?: boolean;
   deliver?: boolean;
+  post?: boolean;
 };
 
 /** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
@@ -125,8 +128,8 @@ export type SpecialistDeps = {
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. */
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string };
+/** `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. `kind` post: a post run's answer, posted as written. */
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string; kind?: "post" };
 
 /** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
@@ -148,11 +151,15 @@ const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${sai
 function answeredOf(input: ReporterInput, text: string) {
   if (input.checkIn && NOTHING_NEW.test(text)) return { summary: "Nothing new", report: "", message: undefined };
 
+  if (input.post && !text.trim()) return { summary: "Nothing to post", report: "", message: undefined };
+
   return { summary: summarize(text), report: text, message: reportOf(input, text) };
 }
 
-/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user. */
+/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user; a post is as written. */
 function reportOf(input: ReporterInput, text: string): string {
+  if (input.post) return text;
+
   if (input.specialist !== undefined) return `[specialist @${input.specialist} answered: pass on what matters] ${text}`;
 
   if (input.checkIn) {
@@ -222,8 +229,8 @@ export function subagentExtension(
         let report = "";
 
         await runtime.commit(async (tx) => {
-          const next = (report?: string, line?: string) =>
-            ({ status: "running", checkpoint: { phase: "report", report, line } }) as const;
+          const next = (report?: string, line?: string, kind?: "post") =>
+            ({ status: "running", checkpoint: { phase: "report", report, line, kind } }) as const;
 
           if (settled.status === "unanswered") {
             if (settled.reason === "aborted") {
@@ -254,37 +261,40 @@ export function subagentExtension(
           outcome = { status: "done", summary: read.summary };
           report = read.report;
 
-          return next(read.message, lineOf(reporter.input, read.summary));
+          return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined);
         }, context);
         feed.update(feedId, outcome);
 
         if (report) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
-        const { report, line } = reporter.state.checkpoint;
+        const { report, line, kind } = reporter.state.checkpoint;
         const feedId = reporter.input.feedId ?? String(reporter.id);
 
-        if (report !== undefined && wanted(feedId) && reporter.input.deliver && handOver) {
-          // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
-          await handOver({
-            id: `subagent-report:${reporter.id}`,
-            session: String(runtime.conversationId),
-            content: report,
-            line: line ?? lineOf(reporter.input, summarize(report)),
-            ref: `task:${feedId}`
-          });
-        } else if (report !== undefined && wanted(feedId)) {
-          const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
-          await main.submit(
-            {
-              type: "input",
+        if (report !== undefined && wanted(feedId)) {
+          if (reporter.input.deliver && handOver) {
+            // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
+            await handOver({
+              id: `subagent-report:${reporter.id}`,
+              session: String(runtime.conversationId),
               content: report,
-              // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
-              whenBusy: "steer",
-              requestId: `subagent-report:${reporter.id}`
-            },
-            context
-          );
+              line: line ?? lineOf(reporter.input, summarize(report)),
+              ref: `task:${feedId}`,
+              kind
+            });
+          } else {
+            const main = must(await runtime.conversation(runtime.conversationId, context), "The main conversation is gone.");
+            await main.submit(
+              {
+                type: "input",
+                content: report,
+                // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
+                whenBusy: "steer",
+                requestId: `subagent-report:${reporter.id}`
+              },
+              context
+            );
+          }
         }
 
         await runtime.commit(
@@ -354,9 +364,9 @@ export function subagentExtension(
 
   const desk: Desk = { feed, specialists, model, models, register, deliver };
 
-  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered, post }) => {
     const conversationId = await register(tx, owner, name);
-    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered }, model);
+    await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered, post }, model);
 
     return conversationId;
   };
