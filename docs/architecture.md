@@ -199,8 +199,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 Cloudflare Access signs the owner in, and the Worker checks Access's JWT again on every request
 (`src/access.ts`): its signature against the team's keys, ky's app, the team and the emails in
 `ACCESS_EMAILS`. Only the paths in `BYPASS` skip it: the runner, pairing and upload routes, which check
-their own tokens, the manifest and icons, and public sites (`/p/*`). `ky deploy` sets up both Access apps and the `ACCESS_*` vars;
-for `pnpm run deploy`, set them in `wrangler.local.jsonc` and make the apps yourself. Runners never use it: each machine pairs once and gets its own
+their own tokens, the manifest and icons, and public sites (`/p/*`). `ky deploy` sets up both Access apps and the `ACCESS_*` vars. Runners never use it: each machine pairs once and gets its own
 machine token, and each task it runs gets a task token for its uploads (`src/runners.ts`). The Vault
 keeps a machine token's hash only. For a task token it keeps the hash and the nonce the token is derived
 from, with the key in the same storage, so it can derive the token again; task tokens expire a day after
@@ -213,7 +212,7 @@ This is how the owner deploys from a checkout; everyone else uses `ky init` (the
 
 `wrangler.jsonc` is generic: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `AI` and the `PiAgent` object.
 What is yours goes in `wrangler.local.jsonc` (gitignored), which `vite.config.ts` merges over it for
-`pnpm start` and `pnpm run deploy`: `VIBEPROXY_ORIGIN` (VibeProxy's address on your
+`pnpm start`: `VIBEPROXY_ORIGIN` (VibeProxy's address on your
 computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunnel. Copy
 `wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. VibeProxy shows as "Not set up" in Settings until its config and secret are
 there, and ky runs without it. Executor is connected in Settings › Tools › Executor, with its URL and a token.
@@ -229,10 +228,12 @@ Without both, it deploys nothing.
 ```sh
 pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
-npx wrangler r2 bucket create ky-files
-npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
-pnpm run deploy                           # vite build && wrangler deploy
+pnpm start                                             # runs it locally with the overlay
 ```
+
+A live ky deploys only through `ky deploy`, never a wrangler upload from the checkout: that writes the
+generic `wrangler.jsonc` plus whatever local overlay is lying around and drops the Access vars, the
+bucket and mail. `pnpm run deploy` refuses for that reason. AGENTS.md has the by-hand recipe.
 
 For Claude, run VibeProxy on the Mac at `VIBEPROXY_ORIGIN` and a cloudflared tunnel to it with no public
 hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on a vendor whose API key

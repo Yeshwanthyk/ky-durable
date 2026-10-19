@@ -1,6 +1,6 @@
 {
   // Copy to wrangler.local.jsonc (gitignored) and fill in what you use. vite.config.ts merges it over
-  // wrangler.jsonc for `pnpm start` and `pnpm run deploy`: vars merge, VPC services are added, and anything else
+  // wrangler.jsonc for `pnpm start`: vars merge, VPC services are added, and anything else
   // replaces wrangler.jsonc's. Anything left out shows as "Not set up" in Settings. Secrets stay secrets:
   // see .dev.vars.example.
   "vars": {

@@ -109,7 +109,7 @@ const script = (name = "ky") => account.scripts.get(name);
 
 const apps = () => [...account.apps.values()];
 
-/** A Worker deployed some other way, as `pnpm run deploy` deploys the owner's. */
+/** A Worker deployed some other way, as a `wrangler deploy` from a checkout would. */
 function foreignWorker(bucket?: string): FakeScript {
   const bindings = bucket ? [{ type: "r2_bucket", name: "FILES", bucket_name: bucket }] : [];
 
