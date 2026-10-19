@@ -10,7 +10,7 @@ import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";
 import { useLightbox } from "./Lightbox";
-import type { Item, Tool, Turn } from "./conversation";
+import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { eventsOf, type ThreadEvent } from "./events";
 import { Icon } from "./Icon";
@@ -123,7 +123,7 @@ function UserMessage({
 }: {
   text: string;
   images: readonly string[];
-  from: string | null;
+  from: ReportFrom | null;
   task: string | null;
 }) {
   const open = useLightbox();
@@ -169,29 +169,22 @@ function Recalled({ lines }: { lines: readonly string[] }) {
   );
 }
 
-// A subagent's or machine's report arrives as input; it reads as a note, not as the user.
-function Report({ text, from, task }: { text: string; from: string; task: string | null }) {
+// A report arrives as input; it reads as one quiet line, like a turn's events, and opens to what it said.
+function Report({ text, from, task }: { text: string; from: ReportFrom; task: string | null }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <div className="tool">
-        <button
-          type="button"
-          className="tool-row"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Icon name="nodes" size={14} />
-          <span className="verb">Report from</span>
-          <span className="target">{from}</span>
-          <span className="trail">
-            <Icon name="chevronRight" size={12} className="chevron" />
-          </span>
+      <div className="report">
+        <button type="button" className="turn-event report-line" aria-expanded={open} disabled={text.trim() === ""} onClick={() => setOpen((value) => !value)}>
+          <span className="quiet">{from.verb}</span>
+          <Icon name={from.icon} size={13} />
+          <span className="turn-event-name">{from.name}</span>
+          {text.trim() === "" ? null : <Icon name="chevronRight" size={12} className="chevron" />}
         </button>
         <Reveal open={open}>
-          <div className="tool-body">
-            <pre>{text}</pre>
+          <div className="report-body">
+            <Markdown source={text} />
           </div>
         </Reveal>
       </div>

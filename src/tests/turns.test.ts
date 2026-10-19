@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PiMessage } from "../transcript";
+import { peerAnswer } from "../peers/peers";
 import { buildTurns, sentTexts } from "../ui/turns";
 
 describe("buildTurns", () => {
@@ -69,6 +70,35 @@ describe("buildTurns", () => {
     expect(turn).toMatchObject({ id: "u", endedAt: new Date(2_000).toISOString(), items: [{ kind: "text", text: "Hello.", final: true }] });
     expect(post).toMatchObject({ id: "p", user: "", items: [{ kind: "text", text: "Kai: warm jacket.", final: true }] });
     expect(after?.items).toMatchObject([{ kind: "text", text: "A run's answer after it." }]);
+  });
+
+  it("shows an automation's result as a report from it, not as the user's words", () => {
+    const messages: PiMessage[] = [
+      { id: "u", role: "user", parts: [{ type: "text", text: '[automation "Daily Kai school weather" result: tell the user] **Sunday**' }], timestamp: 1 }
+    ];
+
+    const [turn] = buildTurns(messages, null, false, []);
+
+    expect(turn).toMatchObject({ from: { verb: "Ran routine", icon: "clock", name: "Daily Kai school weather" }, user: "**Sunday**" });
+    expect(sentTexts(messages)).toEqual([]);
+  });
+
+  it("shows a failed run with its reason, and a paused one as paused", () => {
+    const failed: PiMessage[] = [{ id: "f", role: "user", parts: [{ type: "text", text: '[automation "Inbox" failed: no tool gmail.search]' }], timestamp: 1 }];
+    const paused: PiMessage[] = [{ id: "p", role: "user", parts: [{ type: "text", text: '[automation "Inbox" paused] Its gate failed 3 fires in a row.' }], timestamp: 1 }];
+
+    expect(buildTurns(failed, null, false, [])[0]).toMatchObject({ from: { verb: "Routine failed", name: "Inbox" }, user: "no tool gmail.search" });
+    expect(buildTurns(paused, null, false, [])[0]).toMatchObject({ from: { verb: "Paused routine", name: "Inbox" } });
+  });
+
+  it("shows a peer's answer as a report from it", () => {
+    const messages: PiMessage[] = [
+      { id: "u", role: "user", parts: [{ type: "text", text: peerAnswer("benky", "free?", "yes") }], timestamp: 1 }
+    ];
+
+    const [turn] = buildTurns(messages, null, false, []);
+
+    expect(turn).toMatchObject({ from: { verb: "Message from", icon: "chat", name: "benky" }, user: "You asked: free?\n\nyes" });
   });
 });
 

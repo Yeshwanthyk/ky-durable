@@ -2415,3 +2415,39 @@ button.live:hover .live-steps {
     background: var(--line);
   }
 }
+
+/* A report (an automation's run, a subagent's answer, a peer's message): one quiet line that opens to what it said. */
+.report {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.report-line {
+  width: 100%;
+  transition: color 150ms var(--ease-out);
+
+  &:not(:disabled):hover {
+    color: var(--ink);
+  }
+
+  .chevron {
+    transition: transform 200ms var(--ease-out);
+  }
+
+  &[aria-expanded="true"] .chevron {
+    transform: rotate(90deg);
+  }
+}
+
+.report-body {
+  margin: 8px auto 0;
+  padding: 10px 14px;
+  max-width: min(100%, 36rem);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: calc(14px * var(--text-scale));
+  text-align: left;
+}

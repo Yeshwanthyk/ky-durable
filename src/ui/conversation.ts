@@ -1,3 +1,5 @@
+import type { IconName } from "./Icon";
+
 /** Scotty's conversation shape: turns of a prompt, a work log and an answer. */
 
 export type Tool = {
@@ -22,14 +24,17 @@ export type Item =
   /** A specialist's own reply to the user's message, posted in the chat. */
   | { kind: "specialist"; id: string; from: string; text: string; failed: boolean };
 
+/** Who a report is from, as its quiet line says it: "Ran routine · Daily weather". */
+export type ReportFrom = { readonly verb: string; readonly icon: IconName; readonly name: string };
+
 export type Turn = {
   id: string;
   state: "completed" | "streaming" | "failed" | "aborted";
   user: string;
   /** Images the user sent with the prompt, as data URLs. */
   images: string[];
-  /** Set when the turn was started by a subagent or machine report, not the user. */
-  from: string | null;
+  /** Set when the turn was started by a report (a subagent, machine, automation, peer…), not the user. */
+  from: ReportFrom | null;
   /** The machine task a report is from; its files show under the report. */
   task: string | null;
   /** The specialists the user's message went to, @'d or routed in a group chat; empty when it went to ky. */
