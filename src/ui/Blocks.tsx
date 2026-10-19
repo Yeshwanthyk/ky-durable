@@ -7,6 +7,7 @@ import { Icon, type IconName } from "./Icon";
 import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
 import { Markdown } from "./Markdown";
+import { useMode } from "./use-mode";
 
 /**
  * A card ky composed with the ui tool (src/ui-tool.ts), block by block. Each
@@ -511,12 +512,15 @@ const clampHeight = (height: number) => Math.min(2000, Math.max(80, Math.ceil(he
 
 /**
  * A published site's page in the card. It runs sandboxed in an opaque origin, as at /s/<id>/, so its script
- * can't reach ky's page or the user's session; with ?embed it posts its height, and only its own frame's
- * message sizes the frame.
+ * can't reach ky's page or the user's session. With ?embed it wears ky's theme, starting in the chat's mode
+ * and told when that changes, and posts its height; only its own frame's message sizes the frame.
  */
 function PageBlock({ site, title, height: initial }: { site: string; title: string; height: number }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(initial);
+  const mode = useMode();
+  const [src] = useState(() => `/s/${site}/?embed=${mode}`);
+  const tell = () => frame.current?.contentWindow?.postMessage({ kyMode: mode }, "*");
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -530,9 +534,11 @@ function PageBlock({ site, title, height: initial }: { site: string; title: stri
     return () => removeEventListener("message", onMessage);
   }, []);
 
+  useEffect(tell, [mode]);
+
   return (
     <figure className="ui-page">
-      <iframe ref={frame} src={`/s/${site}/?embed`} title={title} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" style={{ height }} />
+      <iframe ref={frame} src={src} title={title} sandbox="allow-scripts allow-forms allow-popups" referrerPolicy="no-referrer" style={{ height }} onLoad={tell} />
       <figcaption>
         <a href={`/s/${site}/`} target="_blank" rel="noreferrer">
           Open {title}

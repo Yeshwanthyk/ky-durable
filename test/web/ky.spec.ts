@@ -537,6 +537,26 @@ test("ky's card shows a page it published, sized to the page, with a link to ope
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-page.png` });
 });
 
+test("a page in ky's card wears the chat's theme and follows it to dark", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const html = '<!doctype html><p id="ink" style="color:var(--foreground)">Themed</p>';
+  await send(page, `tool site ${JSON.stringify({ action: "publish", title: "Themed", html })}`);
+  const said = chat(page).locator("p", { hasText: /\(id [0-9a-f]{32},/ });
+  await expect(said).toBeVisible();
+  const id = /id ([0-9a-f]{32})/.exec(await said.innerText())?.[1] ?? "";
+
+  await send(page, `tool ui ${JSON.stringify({ title: "Themed page", blocks: [{ type: "page", site: id, title: "Themed" }] })}`);
+  const ink = chat(page).getByRole("region", { name: "Themed page" }).frameLocator("iframe").locator("#ink");
+  await expect(ink).toHaveCSS("color", "rgb(20, 20, 20)");
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.mode = "dark";
+  });
+  await expect(ink).toHaveCSS("color", "rgb(237, 237, 237)");
+});
+
 test("ky's card asks for a word: typed and ticked, it goes as the user's next message", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();

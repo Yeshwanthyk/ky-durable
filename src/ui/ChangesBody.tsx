@@ -2,6 +2,7 @@ import { type DiffLineAnnotation, parsePatchFiles, type FileDiffMetadata } from 
 import { FileDiff } from "@pierre/diffs/react";
 import { useEffect, useMemo, useState } from "react";
 import { Counts, plural, type Review } from "./change-review";
+import { useMode } from "./use-mode";
 import { countsOf, fileLabel, type Note, notesOn } from "./review";
 import { Icon } from "./Icon";
 
@@ -25,20 +26,6 @@ function useWide(element: HTMLElement | null): boolean {
 
 const SPLIT_WIDTH = 600;
 
-/** The light or dark mode use-theme sets on <html>. */
-function useMode(): "light" | "dark" {
-  const read = (): "light" | "dark" => (document.documentElement.dataset.mode === "dark" ? "dark" : "light");
-  const [mode, setMode] = useState(read);
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => setMode(read()));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-mode"] });
-
-    return () => observer.disconnect();
-  }, []);
-
-  return mode;
-}
 
 type BodyProps = { id: string; caption: string | null; patch: string; review: Review };
 
