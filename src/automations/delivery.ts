@@ -165,7 +165,8 @@ export class Deliveries {
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
       const kind = item.kind ?? "event";
-      const put = kind === "event" ? this.#parts.submit : this.#parts.post;
+      // An event or another chat's message is answered by the chat's agent; a look's message or a post is posted as written.
+      const put = kind === "look" || kind === "post" ? this.#parts.post : this.#parts.submit;
 
       if (!(await put(session, item.content, item.id))) {
         this.#retry(session);
