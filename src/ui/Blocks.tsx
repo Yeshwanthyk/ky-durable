@@ -2,6 +2,7 @@ import { createContext, type KeyboardEvent, type ReactNode, useContext, useState
 import type { UiBlock, UiCard } from "../ui-blocks";
 import { answered, cardName, compose, decompose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { Icon, type IconName } from "./Icon";
+import { useLightbox } from "./Lightbox";
 import { Markdown } from "./Markdown";
 
 /**
@@ -129,6 +130,7 @@ const VIEWS: Views = {
   buttons: (block, form) => <ButtonsBlock buttons={block.buttons} live={form.live} pressed={form.answer} onReply={form.reply} />,
   list: (block) => <ListBlock items={block.items} />,
   facts: (block) => <FactsBlock rows={block.rows} />,
+  image: (block) => <ImageBlock src={block.src} caption={block.caption} />,
   status: (block) => <StatusBlock text={block.text} tone={block.tone ?? "info"} />
 };
 
@@ -349,6 +351,25 @@ function FactsBlock({ rows }: { rows: Extract<UiBlock, { type: "facts" }>["rows"
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A saved file's id reads from ky's own /files; the schema lets nothing else through but an https URL. */
+const imageUrl = (src: string) => (/^[0-9a-f]{32}$/.test(src) ? `/files/${src}` : src);
+
+/** An image, its caption under it; a tap opens it full size. */
+function ImageBlock({ src, caption }: { src: string; caption: string | undefined }) {
+  const open = useLightbox();
+  const url = imageUrl(src);
+  const label = caption ?? "Image";
+
+  return (
+    <figure className="ui-image attachment">
+      <button type="button" className="attachment-open" aria-label={`Open ${label}`} onClick={() => open([{ src: url, label }], 0)}>
+        <img src={url} alt={label} loading="lazy" referrerPolicy="no-referrer" />
+      </button>
+      {caption ? <figcaption>{caption}</figcaption> : null}
+    </figure>
   );
 }
 

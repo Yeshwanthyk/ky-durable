@@ -33,6 +33,16 @@ describe("card", () => {
     expect(shown).toEqual({ title: "Hi", blocks: [{ type: "text", text: "Hello" }] });
   });
 
+  it("shows an image from one of ky's files or an https address, and skips one from anywhere else", () => {
+    const file = { type: "image", src: "0123456789abcdef0123456789abcdef", caption: "The page" };
+    const web = { type: "image", src: "https://example.com/cat.png" };
+    const others = ["javascript:alert(1)", "http://example.com/cat.png", "data:image/png;base64,AA", "/files/../x", "https://a b"];
+
+    const shown = card(call(JSON.stringify({ blocks: [file, web, ...others.map((src) => ({ type: "image", src }))] })));
+
+    expect(shown).toEqual({ blocks: [file, web] });
+  });
+
   it("shows none while its arguments are not JSON yet, or have no block it knows", () => {
     expect(card(call('{"blocks":[{"type":"te'))).toBeNull();
     expect(card(call(JSON.stringify({ blocks: [{ type: "chart" }] })))).toBeNull();

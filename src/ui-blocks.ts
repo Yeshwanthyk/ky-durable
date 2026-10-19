@@ -40,6 +40,15 @@ export const UiBlockSchema = Type.Union([
   Type.Object({ type: Type.Literal("list"), items: Type.Array(Type.Object({ title: Type.String(), detail: Type.Optional(Type.String()), meta: Type.Optional(Type.String()) }), { maxItems: 30 }) }),
   Type.Object({ type: Type.Literal("facts"), rows: Type.Array(Type.Object({ label: Type.String(), value: Type.String() }), { maxItems: 20 }) }),
   Type.Object({
+    type: Type.Literal("image"),
+    src: Type.String({
+      // A file ky saved (a browse screenshot's id) shows from ky's own /files; anything else must be https.
+      pattern: "^(?:[0-9a-f]{32}|https://[^\\s]+)$",
+      description: "A file id ky saved, such as a browse screenshot's, or an https image URL."
+    }),
+    caption: Type.Optional(Type.String({ description: "A line under the image." }))
+  }),
+  Type.Object({
     type: Type.Literal("status"),
     text: Type.String(),
     tone: Type.Optional(Type.Union([Type.Literal("info"), Type.Literal("success"), Type.Literal("warning"), Type.Literal("error")]))
