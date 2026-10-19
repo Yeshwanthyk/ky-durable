@@ -3,8 +3,9 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import Type, { type TSchema } from "typebox";
 import { describe, expect, it } from "vitest";
 import { parseAs } from "../core/decode";
+import { localNow } from "../dreaming/contract";
 import { base64url, encrypt, fromBase64url, type PushDevice } from "../push";
-import { browser, inside, type Tab } from "./drive";
+import { browser, inside, type Tab, until } from "./drive";
 
 /**
  * Web Push (src/push.ts) on ky's real Worker: the encryption against RFC 8291's own example, the Vault's VAPID key
@@ -152,20 +153,25 @@ describe("pushes", () => {
     expect(JSON.stringify(await page.send({ type: "push-key" }))).toMatch(/"result":"[\w-]{87}"/);
     expect(await page.send({ type: "push-subscribe", ...device })).toMatchObject({ type: "result" });
     expect(await page.send({ type: "set-right-away", most: 2 })).toMatchObject({ type: "result", result: { rightAway: 2 } });
+    // The user is in Auckland, so the day the posts below count on is Auckland's today.
+    await inside(name, (instance) => instance.automations.setZone("Pacific/Auckland"));
 
     for (const text of ["Kai's school is closed tomorrow.", "Rent is due Friday.", "Your parcel came."]) await post(name, text);
     await page.until(() => kySaid(page).includes("Your parcel came."));
 
-    // Three posts in the chat, two pushes: the third went past the day's two.
+    // Three posts in the chat, two pushes: the third went past the day's two. A post's push goes out after it lands, so wait for it.
+    await until(async () => sent.length >= 2, "two pushes");
     expect(sent).toHaveLength(2);
     expect(await open(sent[0]!.body, keys, auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nKai's school is closed tomorrow.`);
     expect(sent[0]!.headers.get("content-encoding")).toBe("aes128gcm");
     expect(sent[0]!.headers.get("authorization")).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]{87}$/);
 
-    // The user's day turns at their midnight, not UTC's: in Auckland, 11:30 UTC on 18 October is past midnight.
-    await inside(name, (instance) => instance.automations.setZone("Pacific/Auckland"));
-    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "Still the 18th there.", Date.parse("2026-10-18T10:30:00Z")));
-    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "A new day there.", Date.parse("2026-10-18T11:30:00Z")));
+    // The user's day turns at their midnight, not UTC's: half an hour either side of Auckland's next midnight,
+    // which falls on one UTC date, only the second is a new day. From now, so the test holds on any date.
+    const now = Date.now();
+    const midnight = now - (now % 60_000) + (1440 - localNow("Pacific/Auckland", now).minutes) * 60_000;
+    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "Still today there.", midnight - 30 * 60_000));
+    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "A new day there.", midnight + 30 * 60_000));
     expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual([`ky\n/?session=${ROOT_SESSION}\nA new day there.`]);
 
     // A long post is cut to 120 characters, never through the middle of one.

@@ -44,7 +44,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 `ky_dream` (`src/dreaming/dreaming.ts`), `ky_dream_ledger` (each change a background run made, a dream's, its stale pass's or a skill review's, with its actor and the version it made, for undo, `src/dreaming/ledger.ts`), `ky_presence` (`src/dreaming/presence.ts`), `ky_anticipations` (`src/dreaming/anticipations.ts`), `ky_surfaced` (what ky showed unasked and its outcome, `src/dreaming/surfaced.ts`), `ky_proactivity` (`src/dreaming/proactivity.ts`), `ky_deliveries` (automation reports waiting for their chat, `src/automations/delivery.ts`), `ky_avatars` (`src/avatars.ts`), `ky_files` (`src/files.ts`), `ky_mail`, `ky_mail_allowed` and `ky_mail_expect` (`src/mail.ts`), and the workspace files.
 
 **What the agent can do.**
-- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written in the background on the main model. `chat_search` finds any message of the main chat and the side chats.
+- Memory: a port of [OptMem](https://github.com/VictorTaelin/OptMem) (`memory_note`, `memory_recall`, `memory_zoom`, `memory_forget`), shared by the main chat and its side chats. Summaries are written by the background model, in the language of their memories. `chat_search` finds any message of the main chat and the side chats; it and `memory_recall` take optional `from` and `to` days (YYYY-MM-DD, both included), in the user's time zone, as memories are dated.
 - Skills: procedures the agent writes for itself, after Hermes Agent (`skill_view`, `skill_manage`, `src/skills/skills.ts`).
   Every conversation sees the list. After a main-chat or side-chat turn with 5 or more tool calls, ky forks the
   conversation and asks the fork to update skills; it shows in Activity as "Skill review", and can call only the
@@ -53,6 +53,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   pin, and marks each the user's ("yours") or ky's (`created_by`, `src/ui/Skills.tsx`). Machines can't see skills, so ky opens the matching one and puts its steps in the task.
   A review fork keeps the memory its chat was shown and may search it (`memory_recall`, `memory_zoom`), but not write it.
   Each skill keeps when it was last opened, and each version the conversation that made it.
+  Every start adds whichever of six pinned skills on delegating and checking work (`delegate`, `fan-out`, `orchestrate`, `challenge`, `sharpen`, `prove-it`, `src/seeds.ts`) is missing; one that exists, however the owner changed it, is left as it is. The panel marks them "yours", as it does make-avatar.
 - Dreaming: once a night (04:00 in the zone the user's browser connects from, booked on the automations Scheduler
   and again when the zone changes), ky reads what happened since the last dream (what was said in the main chat
   and the side chats, new memories, skill changes, skill use, finished tasks) in a fresh conversation that wakes with

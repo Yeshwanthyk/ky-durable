@@ -280,7 +280,7 @@ export class Recall {
    */
   #said(session: string, terms: readonly string[], messages: readonly Message[]): string[] {
     const hits = this.#wiring.history
-      .search(terms.join(" "), 0, session, CATCH_UP)
+      .search(terms.join(" "), { caller: session, batches: CATCH_UP })
       .split("\n")
       .flatMap((line) => {
         const id = /^#(\d+) /.exec(line)?.[1];
