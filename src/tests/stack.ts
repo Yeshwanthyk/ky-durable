@@ -700,6 +700,8 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
 const FORWARDS: Array<[RegExp, string?]> = [
   // A check-in's run is answered by what it says to look at.
   [/^\[check-in\][\s\S]*\nWhat to look at:\n([\s\S]*)$/],
+  // A gated run is answered by its prompt after what its gate found (src/automations/automations.ts #admitFound).
+  [/^Gate found:\n[\s\S]*?\n\n(tool \S+ \{[\s\S]*)$/],
   // A post automation's run whose prompt is a tool call makes it, before what it is told about posting (src/automations/automations.ts).
   [/^(tool \S+ \{.*\})\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble\.$/],
   // A mail ky relays into the chat (src/mail.ts arrived) whose summary is a `tool` line: the chat's model says so, then tries it.

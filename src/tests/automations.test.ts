@@ -284,6 +284,38 @@ describe("automations", () => {
     expect(await cardsIn(name)).toEqual([{ ...FORECAST, blocks: [...FORECAST.blocks, { type: "buttons", buttons: [{ label: "Radar", url: "https://example.com/radar" }] }] }]);
   });
 
+  it.each([false, true])("gives a gated one-off's manual run the ui tool after it is resumed, and posts its card in main (post: %s)", async (post) => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const id = await create(name, { prompt: `tool ui ${JSON.stringify(FORECAST)}`, cron: null, at: "2026-12-31T07:00:00Z", gate: 'answer ["rain at 8"]', post });
+
+    // Run now ends a one-off done; resumed, its time still ahead, it runs now again.
+    await runNow(name, id);
+    await runEnds(name, id);
+    expect(await listed(name, id)).toContain("[done]");
+    expect(await say(name, automation({ action: "resume", id }))).toBe('tool said: Resumed "Daily digest".');
+    await pause(1_100);
+    await runNow(name, id);
+    await until(async () => (await runs(name, id)).filter((task) => task.status === "done").length === 2, "the second run");
+
+    // Each run was offered ui with the gate's find before its prompt, and showed its card before its report.
+    const calls = await runCalls(name, id);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls.every((call) => Object.keys(call.tools ?? {}).includes("ui"))).toBe(true);
+    await until(async () => (await cardsIn(name)).length === 2, "both cards");
+    expect(await cardsIn(name)).toEqual([FORECAST, FORECAST]);
+
+    if (post) {
+      await until(async () => (await kySaid(name)).filter((text) => text === `tool said: ${KEPT}`).length === 2, "both posts");
+      expect(await reports(name, "Daily digest")).toEqual([]);
+    } else {
+      await until(async () => (await reports(name, "Daily digest")).length === 2, "both reports");
+      expect(await reports(name, "Daily digest")).toEqual(
+        [1, 2].map(() => `[automation "Daily digest" result, its card already shown to the user just above: tell the user the rest] tool said: ${KEPT}`)
+      );
+    }
+  });
+
   it("gives a plain subagent no ui tool: only a run's cards go with its report", async () => {
     const name = crypto.randomUUID();
     const said = await say(name, `spawn helper tool ui ${JSON.stringify(FORECAST)}`);
