@@ -1,5 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SKILLS } from "../seeds";
 import { agent, connect, follow, inside, prompt, until } from "./drive";
 import { EXECUTOR_TOKEN, EXECUTOR_URL, FRESH } from "./stack";
 
@@ -134,10 +135,87 @@ describe("a new ky's seeds", () => {
     expect(await seeded(name)).toEqual(first);
   });
 
+  it("ships make-skill on, for when the owner asks for a skill", async () => {
+    const name = `${FRESH}${crypto.randomUUID()}`;
+    (await connect(name)).close();
+    await until(async () => (await seeded(name)).automations.length === 2, "the seeds");
+
+    expect((await seeded(name)).skills).toContainEqual(["make-skill", "active"]);
+  });
+
   it("leaves a ky that isn't new as it is", async () => {
     const name = crypto.randomUUID();
     (await connect(name)).close();
 
     expect(await seeded(name)).toEqual({ skills: [], specialists: [], automations: [] });
+  });
+});
+
+describe("the default skills", () => {
+  const names: string[] = DEFAULT_SKILLS.map((skill) => skill.name);
+
+  const defaults = (name: string) =>
+    inside(name, (instance) =>
+      instance.skills
+        .all()
+        .filter((skill) => names.includes(skill.name))
+        .map((skill) => ({ ...skill, by: instance.skills.history(skill.name).map((version) => version.actor) }))
+    );
+
+  const started = async () => {
+    const name = `${FRESH}${crypto.randomUUID()}`;
+    (await connect(name)).close();
+    await until(async () => (await defaults(name)).length === names.length, "the default skills");
+
+    return name;
+  };
+
+  /** Take skills out, as a ky from before they existed lacks them. */
+  const remove = (name: string, skills: string[]) =>
+    inside(name, (_, state) => {
+      for (const skill of skills) {
+        state.storage.sql.exec("DELETE FROM ky_skills WHERE name = ?", skill);
+        state.storage.sql.exec("DELETE FROM ky_skill_versions WHERE name = ?", skill);
+      }
+    });
+
+  const restart = async (name: string) => {
+    await evictDurableObject(agent(name));
+    (await connect(name)).close();
+  };
+
+  it("are added to a ky past its first start, on and pinned, by ky", async () => {
+    const name = await started();
+    await remove(name, names);
+    expect(await defaults(name)).toEqual([]);
+
+    await restart(name);
+
+    const skills = await defaults(name);
+
+    for (const { name: skill, description, body } of DEFAULT_SKILLS) {
+      expect(skills.find((each) => each.name === skill)).toMatchObject({ description, body, status: "active", pinned: true, by: ["ky"] });
+    }
+  });
+
+  it("leave the owner's edits, archives and unpins as they are, and add one a ky from before it lacks", async () => {
+    const name = await started();
+    await inside(name, (instance) => {
+      instance.skills.apply({ action: "edit", name: "delegate", body: "My own way." }, "user");
+      instance.skills.apply({ action: "archive", name: "fan-out" }, "user");
+      instance.skills.apply({ action: "unpin", name: "sharpen" }, "user");
+    });
+    await remove(name, ["challenge"]);
+    const kept = await defaults(name);
+
+    await restart(name);
+
+    const after = await defaults(name);
+    const named = (skill: string) => after.find((each) => each.name === skill);
+    expect(named("delegate")).toMatchObject({ body: "My own way.", status: "active", pinned: true });
+    expect(named("fan-out")).toMatchObject({ status: "archived", pinned: true });
+    expect(named("sharpen")).toMatchObject({ status: "active", pinned: false });
+    expect(named("challenge")).toMatchObject({ status: "active", pinned: true, by: ["ky"] });
+    expect(after.filter((skill) => skill.name !== "challenge")).toEqual(kept);
   });
 });
