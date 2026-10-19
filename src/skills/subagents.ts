@@ -18,7 +18,7 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { agentModel } from "../models";
+import { agentModel, type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
@@ -44,6 +44,8 @@ type Subagent = {
   conversationId: ConversationId;
   /** Answers already reported, so several messages ending in one answer report once. */
   reported: EntryId[];
+  /** The model a spawn or send named for it, as asked; it runs on the worker's when unset. */
+  model?: ModelChoice;
 };
 
 const Subagents = defineDoc<{
@@ -171,6 +173,8 @@ export function subagentExtension(
   mainOnly: readonly Extension[],
   /** The worker's model, applied to each subagent whenever it is messaged. */
   model: () => ModelChoice,
+  /** A named model as it can run, and the models to choose from when it can't. */
+  models: Pick<Models, "valid" | "choices">,
   /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
   specialists?: SpecialistDeps,
@@ -308,6 +312,8 @@ export function subagentExtension(
       "send (name, title, message; followUp: true queues it after the current answer instead of steering it): message an existing one, which also resumes an idle one with its history. " +
       "stop (name): abort its current work; it stays usable. " +
       "status (name, or none for all). " +
+      "last (name): its latest answer in full. " +
+      "spawn and send take model (provider/modelId, kept for later sends; worker to clear it) and thinking to run on other than the worker model; not on a followUp send while it is busy. " +
       "Answers are reported back to you as messages when they arrive; do not wait or poll for them. " +
       "Subagents know nothing you do not tell them: give them the full context in the message. " +
       "Specialists (see the roster, if any): " +
@@ -346,7 +352,7 @@ export function subagentExtension(
     return tx.createTask(Reporter, input, background(owner));
   }
 
-  const desk: Desk = { feed, specialists, model, register, deliver };
+  const desk: Desk = { feed, specialists, model, models, register, deliver };
 
   const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered }) => {
     const conversationId = await register(tx, owner, name);
@@ -364,6 +370,8 @@ type Desk = {
   readonly specialists: SpecialistDeps | undefined;
   /** The worker's model, applied to each subagent whenever it is messaged. */
   readonly model: () => ModelChoice;
+  /** A named model as it can run, and the models to choose from when it can't. */
+  readonly models: Pick<Models, "valid" | "choices">;
   /** A fresh child conversation, configured as a subagent and registered under `name`. */
   readonly register: (tx: Tx, owner: ConversationId, name: string) => Promise<ConversationId>;
   /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
@@ -397,6 +405,40 @@ async function status(feed: TaskFeed, name: string | undefined, api: ToolExecuti
 
   return lines.length === 0 ? "No subagents." : lines.join("\n");
 }
+
+/** The text of a subagent's latest reported answer: a turn that ended with one, not one stopped or failed. */
+async function lastAnswer(api: ToolExecutionApi, agent: Subagent, context: Context): Promise<string | undefined> {
+  const id = agent.reported.at(-1);
+
+  if (id === undefined) return undefined;
+  // A commit that writes nothing: a tool reads an entry only through a transaction.
+  const message = (await api.commit((tx) => tx.entry(id), context))?.model?.[0];
+  const text = message?.role === "assistant" ? textOf(message) : "";
+
+  return text === "" ? undefined : text;
+}
+
+/** The most of an answer `last` reads back. */
+const LAST_MAX = 16_000;
+
+/** `text` cut to `LAST_MAX` with a note, never through a surrogate pair. */
+function capped(text: string): string {
+  if (text.length <= LAST_MAX) return text;
+  const code = text.charCodeAt(LAST_MAX - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? LAST_MAX - 1 : LAST_MAX;
+
+  return `${text.slice(0, end)}…[truncated; ${text.length} chars total]`;
+}
+
+const last: Act = async (_desk, { name }, api, context) => {
+  if (name === undefined) return "last needs a name.";
+  const agent = (await registryOf(api, context)).agents[name];
+
+  if (agent === undefined) return `No subagent named ${name}.`;
+  const text = await lastAnswer(api, agent, context);
+
+  return text === undefined ? `${name} has no answer yet.` : capped(text);
+};
 
 const stop: Act = async (_desk, { name }, api, context) => {
   const registry = await registryOf(api, context);
@@ -436,9 +478,40 @@ function messageRefusal(action: "spawn" | "send", name: string | undefined, text
   return text === undefined ? `${action} needs a message.` : undefined;
 }
 
+/** What a spawn or send runs on, and the model the subagent keeps after it. */
+type Run = { choice: ModelChoice; own: ModelChoice | undefined } | { refused: string };
+
+/**
+ * A model the message names, else the one the subagent keeps (the worker's once that is gone), else the worker's;
+ * `thinking` changes that one's level. `worker` clears the kept model.
+ */
+function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: SubagentInput): Run {
+  const worker = model();
+  const named = args.model?.trim();
+
+  if (named === undefined || named === "worker") {
+    const own = named === undefined ? kept : undefined;
+    const base = (own && models.valid(own)) ?? worker;
+
+    if (args.thinking === undefined) return { choice: base, own };
+    const leveled = { ...base, thinkingLevel: args.thinking };
+
+    // Clamped to the model's levels when its provider answers; as asked otherwise, so a level alone never refuses.
+    return { choice: models.valid(leveled) ?? leveled, own: own && { ...own, thinkingLevel: args.thinking } };
+  }
+
+  const asked = parseModel(named, args.thinking ?? (kept ?? worker).thinkingLevel);
+  const choice = models.valid(asked);
+
+  return choice ? { choice, own: asked } : { refused: `No connected model ${asked.provider}/${asked.modelId}. ${models.choices()}` };
+}
+
 /** Spawn a subagent, or send one a message. */
 function message(action: "spawn" | "send"): Act {
-  return async ({ feed, model, register, deliver }, { name, title, message: text, followUp }, api, context) => {
+  return async (desk, args, api, context) => {
+    const { feed, register, deliver } = desk;
+    const { name, title, message: text, followUp } = args;
+
     if (action === "spawn" && name?.startsWith("@")) return "Names starting with @ are specialists'; use ask.";
     const registry = await registryOf(api, context);
     const refusal = messageRefusal(action, name, text, registry);
@@ -451,15 +524,26 @@ function message(action: "spawn" | "send"): Act {
       const state = await tx.doc(Subagents, api.conversationId);
 
       if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
+      // Read here: a round's tool calls run in parallel, and another may have just changed the kept model.
+      const run = runOf(desk, state.agents[name]?.model, args);
 
-      const conversationId =
-        action === "spawn"
-          ? await register(tx, api.conversationId, name)
-          : must(state.agents[name], `No subagent named ${name}.`).conversationId;
+      if ("refused" in run) return run.refused;
+      const queued = action === "send" && followUp === true && (args.model !== undefined || args.thinking !== undefined);
 
-      const input = { name, conversationId, message: text, followUp: action === "send" && followUp === true };
+      // Configuring now would switch the turn already running, not the queued one.
+      if (queued && (await tx.doc(LiveDoc, must(state.agents[name], `No subagent named ${name}.`).conversationId)).run !== undefined) {
+        return `${name} is busy: a followUp send can't change its model. Send it without followUp, or once it answers.`;
+      }
 
-      const reporter = await deliver(tx, api.conversationId, input, model());
+      if (action === "spawn") await register(tx, api.conversationId, name);
+      const agent = must(state.agents[name], `No subagent named ${name}.`);
+
+      if (run.own === undefined) delete agent.model;
+      else agent.model = run.own;
+
+      const input = { name, conversationId: agent.conversationId, message: text, followUp: action === "send" && followUp === true };
+
+      const reporter = await deliver(tx, api.conversationId, input, run.choice);
       state.reporters[api.taskId] = reporter;
       reporterId = String(reporter);
 
@@ -572,6 +656,7 @@ export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
   send: message("send"),
   stop,
   status: (desk, { name }, api, context) => status(desk.feed, name, api, context),
+  last,
   ask,
   discuss
 };

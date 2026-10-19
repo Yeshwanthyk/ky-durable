@@ -12,7 +12,7 @@ import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contrac
 import { parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { agentModel } from "../models";
-import { type ModelChoice, ModelChoiceSchema } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
 
 export type { Reviews, Skills } from "./skills";
 
@@ -295,6 +295,7 @@ export const SubagentAction = Type.Union([
   Type.Literal("send"),
   Type.Literal("stop"),
   Type.Literal("status"),
+  Type.Literal("last"),
   Type.Literal("ask"),
   Type.Literal("discuss")
 ]);
@@ -308,6 +309,8 @@ export const SubagentInput = Type.Object({
   title: Type.Optional(Type.String({ description: "3-6 words for the task list, like 'Find compounding pharmacies'." })),
   message: Type.Optional(Type.String()),
   followUp: Type.Optional(Type.Boolean()),
+  model: Type.Optional(Type.String({ description: "spawn, send: provider/modelId, kept for later sends; worker to clear it. Leave out for the one it has, or the worker model." })),
+  thinking: Type.Optional(ThinkingLevelSchema),
   specialist: Type.Optional(Type.String({ description: "ask: the specialist's id, like engineer." })),
   specialists: Type.Optional(Type.Array(Type.String(), { description: "discuss: the specialists' ids." })),
   rounds: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)]))
