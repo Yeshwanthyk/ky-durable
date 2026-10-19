@@ -1,3 +1,4 @@
+import { EMBED_HEAD } from "./embed-theme";
 import { hidden, publicKey, SITE_ID, siteKey } from "./sites";
 
 /**
@@ -44,6 +45,13 @@ const HEIGHT_REPORTER = `<script>(() => {
   post();
 })();</script>`;
 
+/** A page as a card shows it: ky's theme ahead of its own HTML (after its doctype, which must stay first), its height reporter after. */
+const themed = (html: string) => {
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? "";
+
+  return `${doctype}${EMBED_HEAD}${html.slice(doctype.length)}${HEIGHT_REPORTER}`;
+};
+
 const notFound = () => new Response("Not found\n", { status: 404 });
 
 function unescaped(text: string): string | undefined {
@@ -83,7 +91,7 @@ async function serve(request: Request, env: Env, id: string, rest: string, open:
   const headers = headersFor(path, object, open);
 
   if (!embed || !headers.get("Content-Type")?.startsWith("text/html")) return new Response(object.body, { headers });
-  const html = new TextEncoder().encode(`${await object.text()}${HEIGHT_REPORTER}`);
+  const html = new TextEncoder().encode(themed(await object.text()));
   headers.set("Content-Length", String(html.byteLength));
   headers.set("ETag", `W/"embed-${object.etag}"`);
 
@@ -110,7 +118,7 @@ function headersFor(path: string, object: R2Object, open: boolean): Headers {
   return headers;
 }
 
-/** A site at `/s/<id>/`, after the user's sign-in; undefined for any other path. With `?embed`, its pages report their height. */
+/** A site at `/s/<id>/`, after the user's sign-in; undefined for any other path. With `?embed` (`=dark` for the dark theme), its pages wear ky's theme and report their height. */
 export function siteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
   if (!url.pathname.startsWith("/s/")) return undefined;
   const [, id, rest] = /^\/s\/([^/]+)(\/.*)?$/.exec(url.pathname) ?? [];

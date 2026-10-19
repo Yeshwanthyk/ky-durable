@@ -2342,29 +2342,26 @@ button.live:hover .live-steps {
   white-space: normal;
 }
 
-/* A site's page in a card: the frame its own height, up to the chat's cap; the open link under it. */
+/* A site's page in a card: no frame of its own, its clear background on the card, its height its own up to the chat's cap; the open link under it. */
 .ui-page {
   margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  overflow: hidden;
 }
 
 .ui-page iframe {
   display: block;
   width: 100%;
   border: 0;
-  background: #fff;
+  background: transparent;
+  color-scheme: light dark;
 }
 
 .ui-page figcaption {
-  padding: 6px 8px;
+  padding-top: 6px;
   font-size: calc(11.5px * var(--text-scale));
-  border-top: 1px solid var(--line);
 }
 
 .ui-page a {
-  color: var(--muted);
+  color: var(--quiet);
 }
 
 .ui-facts {
