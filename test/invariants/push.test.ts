@@ -73,6 +73,11 @@ const aStart = fc.oneof(
   fc.constantFrom(Date.UTC(2026, 3, 5, 2, 30), Date.UTC(2026, 9, 24, 20, 30))
 );
 
+/** A push service's endpoint: any host, any port or none, any path. fc.webUrl would do, but its first run alone takes a fifth of a second building its path tables. */
+const anEndpoint = fc
+  .tuple(fc.domain(), fc.option(fc.nat({ max: 65_535 }), { nil: undefined }), fc.array(fc.string({ unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-._~".split("")) }), { maxLength: 4 }))
+  .map(([host, port, path]) => `https://${host}${port === undefined ? "" : `:${port}`}/${path.join("/")}`);
+
 type Storage = ConstructorParameters<typeof Pushes>[0];
 
 /** A real SQLite behind the `exec(...).toArray()` that Pushes and Deliveries use, nothing else of SqlStorage. */
@@ -436,7 +441,7 @@ describe("a push's record", () => {
 
   it("is signed ES256 for its push service's origin, for at most a day, and verifies with ky's public key", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.webUrl({ validSchemes: ["https"] }), fc.integer({ min: 0, max: Date.UTC(2100, 0, 1) }), async (endpoint, now) => {
+      fc.asyncProperty(anEndpoint, fc.integer({ min: 0, max: Date.UTC(2100, 0, 1) }), async (endpoint, now) => {
         const audience = new URL(endpoint).origin;
         const { head, claims, signed, signature } = jwt(await vapidToken(vapid.privateKey, audience, ORIGIN, now));
         const verified = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, vapid.publicKey, signature, encoder.encode(signed));
