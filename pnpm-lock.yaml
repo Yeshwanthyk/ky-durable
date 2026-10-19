@@ -59,6 +59,9 @@ importers:
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
+      pele:
+        specifier: 1.6.0
+        version: 1.6.0
       postal-mime:
         specifier: ^4.0.6
         version: 4.0.6
@@ -3542,6 +3545,10 @@ packages:
 
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
+
+  pele@1.6.0:
+    resolution: {integrity: sha512-VfAiVItsOGlGhvnBfphdT28VCG7mXMZxQNOwAGsCtxI2ztbUsT39MraEOYjsapLxVETkdUZscm0DdotYDQMLdw==}
+    engines: {node: '>=20'}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -7466,6 +7473,8 @@ snapshots:
   path-to-regexp@8.4.2: {}
 
   pathe@2.0.3: {}
+
+  pele@1.6.0: {}
 
   picocolors@1.1.1: {}
 

@@ -252,6 +252,22 @@ test("streams the answer to a message", async ({ page }) => {
   await expect(page.getByText("echo: hello from the browser")).toBeVisible();
 });
 
+test("draws a mermaid fence in ky's answer as a diagram, and one pele can't read as its code", async ({ page }) => {
+  await open(page);
+  await send(page, "reply: The plan:\n\n```mermaid\nflowchart LR\n  Ask --> Draft --> Ship\n```");
+
+  const diagram = chat(page).getByRole("img", { name: "Diagram" });
+  await expect(diagram.locator("svg")).toBeVisible();
+  await expect(diagram.getByText("Draft")).toBeVisible();
+  await expect(chat(page).locator("pre").filter({ hasText: "flowchart LR" })).toHaveCount(0);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/diagram.png` });
+
+  await send(page, "reply: Broken:\n\n```mermaid\nflowchart LR\n  A -->\n```");
+  await expect(chat(page).getByText("Broken:")).toBeVisible();
+  await expect(chat(page).locator("pre").filter({ hasText: "A -->" })).toBeVisible();
+});
+
 test("previews bloubs in the chat, saves one as ky's avatar, and it answers a poke", async ({ page }) => {
   await open(page);
   const pip = { name: "Pip", body: { w: 108, h: 108, corner: 54, color: "#3d8bff" }, eyes: { count: 2, size: 15 }, top: { kind: "leaf", color: "#3cc46a" }, cheeks: true, feet: true };

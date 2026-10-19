@@ -1,6 +1,7 @@
 import type { CodeHighlighterPlugin, PluginConfig } from "streamdown";
 import { Streamdown } from "streamdown";
 import { useEffect, useState } from "react";
+import { Diagram } from "./Diagram";
 
 type Highlighted = NonNullable<ReturnType<CodeHighlighterPlugin["highlight"]>>;
 
@@ -23,6 +24,9 @@ function finishedOnly(shiki: CodeHighlighterPlugin): CodeHighlighterPlugin {
   };
 }
 
+/** A ```mermaid fence is drawn as a diagram (src/ui/Diagram.tsx), not highlighted. */
+const DIAGRAMS: PluginConfig = { renderers: [{ language: "mermaid", component: Diagram }] };
+
 /** Shiki and its grammars are most of the bundle, so they load with the first code fence. */
 let plugins: PluginConfig | undefined;
 
@@ -30,7 +34,7 @@ let loading: Promise<PluginConfig> | undefined;
 
 // One object for the whole app: Streamdown's memo compares `plugins` by identity.
 const loadHighlighter = () =>
-  (loading ??= import("@streamdown/code").then(({ code }) => (plugins = { code: finishedOnly(code) })));
+  (loading ??= import("@streamdown/code").then(({ code }) => (plugins = { ...DIAGRAMS, code: finishedOnly(code) })));
 
 const FENCE = /^\s*(```|~~~)/m;
 
@@ -42,7 +46,8 @@ function useHighlighter(source: string) {
     if (wanted && !loaded) void loadHighlighter().then(setLoaded);
   }, [wanted, loaded]);
 
-  return wanted ? loaded : undefined;
+  // Diagrams draw before shiki arrives: they don't need it.
+  return wanted ? (loaded ?? DIAGRAMS) : undefined;
 }
 
 // The fence rule Streamdown itself uses to call a block incomplete.

@@ -30,6 +30,7 @@ You are the primary agent: you talk to the user, decide, and delegate. Keep repl
 - Everything else goes to cloud subagents, by default: research, web lookups, browsing, multi-step work. Start several at once when the work splits. They have your tools plus browse, a cloud browser with no logins.${web}
 ${machines(cloud, selfEdit !== undefined)}
 - Machine tasks can show the user screenshots and screen recordings: they appear on the task and in its report. When seeing it would help (a page, a UI change, a bug), ask the task to capture and attach it; a page needs a machine with Chrome.
+- To show a flow, a sequence, a timeline, a plan's steps or a simple chart (pie, bar, line), write it as a mermaid code block: the user sees it drawn, not its code.
 - Work for later or on repeat goes to the automation tool, for the user and for yourself, for example to check back on something later. Pause or archive your own once they are no longer needed.
 
 When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages, sometimes in the middle of other work; tell the user what matters in one or two lines.${selfEdit ? `\n\n${selfEditing(selfEdit, selfEditOn)}` : ""}`;
