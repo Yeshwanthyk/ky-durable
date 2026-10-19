@@ -473,8 +473,29 @@ test("ky's card shows an image, and a tap opens it full size", async ({ page }) 
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
   await expect(card.getByText("Steps per day", { exact: true })).toBeVisible();
 
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-image.png` });
+
   await card.getByRole("button", { name: "Open Steps per day" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("ky's card shows a page it published, sized to the page, with a link to open it full size", async ({ page }) => {
+  await open(page);
+  const html = '<!doctype html><html><body style="margin:0"><div style="height:640px;background:#e8eef7">Tall report</div></body></html>';
+  await send(page, `tool site ${JSON.stringify({ action: "publish", title: "Report", html })}`);
+  const said = chat(page).locator("p", { hasText: /\(id [0-9a-f]{32},/ });
+  await expect(said).toBeVisible();
+  const id = /id ([0-9a-f]{32})/.exec(await said.innerText())?.[1] ?? "";
+
+  await send(page, `tool ui ${JSON.stringify({ title: "Weekly report", blocks: [{ type: "page", site: id, title: "Report" }] })}`);
+  const card = chat(page).getByRole("region", { name: "Weekly report" });
+  const frame = card.locator('iframe[title="Report"]');
+  await expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-popups");
+  await expect(card.frameLocator("iframe").getByText("Tall report")).toBeVisible();
+  await expect.poll(() => frame.evaluate((element) => element.getBoundingClientRect().height)).toBe(640);
+  await expect(card.getByRole("link", { name: "Open Report" })).toHaveAttribute("href", `/s/${id}/`);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-page.png` });
 });
 
 test("ky's card asks for a word: typed and ticked, it goes as the user's next message", async ({ page }) => {

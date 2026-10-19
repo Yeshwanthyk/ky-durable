@@ -49,6 +49,12 @@ export const UiBlockSchema = Type.Union([
     caption: Type.Optional(Type.String({ description: "A line under the image." }))
   }),
   Type.Object({
+    type: Type.Literal("page"),
+    site: Type.String({ pattern: "^[0-9a-f]{32}$", description: "The id of a site the site tool published: its page shows in the card, sized to fit." }),
+    title: Type.Optional(Type.String({ description: "What the page is, for its frame and its open link." })),
+    height: Type.Optional(Type.Integer({ minimum: 80, maximum: 2000, description: "Pixels to show before the page reports its own height. Defaults to 480." }))
+  }),
+  Type.Object({
     type: Type.Literal("status"),
     text: Type.String(),
     tone: Type.Optional(Type.Union([Type.Literal("info"), Type.Literal("success"), Type.Literal("warning"), Type.Literal("error")]))

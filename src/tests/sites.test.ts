@@ -55,6 +55,21 @@ describe("sites", () => {
     expect(await site(name, { action: "list" })).toContain(`${id} "Hello" https://ky.test/s/${id}/`);
   });
 
+  it("serves a page with ?embed with a script that posts its height after it, keeping the sandbox, and nothing else changed", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => instance.setup.opened("https://ky.test/"));
+    const id = idOf(await site(name, { action: "publish", title: "Embedded", html: "<h1>Hi</h1>" }));
+
+    const embedded = await call(`/s/${id}/?embed`);
+    const text = await embedded.text();
+    expect(text).toMatch(/^<h1>Hi<\/h1><script>[\s\S]*kySiteHeight[\s\S]*<\/script>$/);
+    expect(embedded.headers.get("Content-Length")).toBe(String(new TextEncoder().encode(text).byteLength));
+    expect(embedded.headers.get("Content-Security-Policy")).toBe(SANDBOX);
+
+    expect(await (await call(`/s/${id}/`)).text()).toBe("<h1>Hi</h1>");
+    expect((await signedOut(`/s/${id}/?embed`)).status).toBe(401);
+  });
+
   it("publishes a folder with nested assets by type, leaving out hidden files, and never serves traversal or its metadata", async () => {
     const name = crypto.randomUUID();
     await write(name, {

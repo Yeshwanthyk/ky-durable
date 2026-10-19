@@ -2324,6 +2324,31 @@ button.live:hover .live-steps {
   white-space: normal;
 }
 
+/* A site's page in a card: the frame its own height, up to the chat's cap; the open link under it. */
+.ui-page {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ui-page iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.ui-page figcaption {
+  padding: 6px 8px;
+  font-size: calc(11.5px * var(--text-scale));
+  border-top: 1px solid var(--line);
+}
+
+.ui-page a {
+  color: var(--muted);
+}
+
 .ui-facts {
   display: grid;
   grid-template-columns: max-content 1fr;
