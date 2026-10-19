@@ -11,11 +11,12 @@ import { shownItem, type ShownItem, SURFACED_OUTCOMES, type SurfacedOutcome } fr
 /**
  * What is surfaced: an event, an automation's report put in a chat between turns (src/automations/delivery.ts),
  * which has no outcome to tap yet, so it expires after a day; a look, a message a look posted in the main chat
- * (src/dreaming/looks.ts), which expires the same way and is how the next look knows what was said; or a recall,
+ * (src/dreaming/looks.ts), which expires the same way and is how the next look knows what was said; a post, an
+ * automation's report posted as written, which the next look reads the same way; or a recall,
  * the context recalled for a user's message (src/dreaming/recall.ts). Rows an older ky wrote for its brief and its
  * suggestions stay, unread.
  */
-export type SurfacedKind = "event" | "look" | "recall";
+export type SurfacedKind = "event" | "look" | "post" | "recall";
 
 /** A thing as it is shown: what it is, what it rests on, its key and text, when it goes. */
 export type Shown = {

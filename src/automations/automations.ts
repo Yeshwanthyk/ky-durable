@@ -18,7 +18,7 @@ import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
 import { isRefusal, type Refusal, refused, type Result } from "../core/refusal";
 import type { MachineHub } from "../machines/contract";
-import type { Models } from "../models";
+import { type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
 import type { Spawn } from "../skills/contract";
 import {
@@ -109,7 +109,7 @@ export type AutomationDeps = {
   readonly feed: TaskFeed;
   readonly machines: MachineHub;
   readonly chats: ChatList;
-  readonly models: Pick<Models, "worker" | "valid" | "catalog">;
+  readonly models: Pick<Models, "worker" | "valid" | "choices">;
   readonly runtime: AutomationRuntime;
   /** Run a gate's program on the user's Executor. */
   readonly gate: (code: string, signal: AbortSignal) => Promise<GateAnswer>;
@@ -137,6 +137,12 @@ const CHECK_INS_A_DAY = 2;
 const CHECK_INS_WAITING = 6;
 
 const CHECK_IN_ALLOWED: ReadonlySet<string> = new Set(CHECK_IN_TOOLS);
+
+/** What a post automation's run is told after its prompt. */
+const POSTED = "\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble.";
+
+/** Why a check-in may not post: the main agent checks memory before it tells the user. */
+const CHECK_IN_POSTS = "A check-in's report goes to the main agent, not posted.";
 
 /** What a check-in run is told before its prompt. */
 const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
@@ -265,6 +271,7 @@ export class Automations {
       gate_found TEXT,
       gate_found_by TEXT,
       watch INTEGER,
+      post INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL,
       status TEXT NOT NULL,
       schedule_id TEXT,
@@ -277,7 +284,8 @@ export class Automations {
       ["gate_errors", "INTEGER NOT NULL DEFAULT 0"],
       ["gate_found", "TEXT"],
       ["gate_found_by", "TEXT"],
-      ["watch", "INTEGER"]
+      ["watch", "INTEGER"],
+      ["post", "INTEGER NOT NULL DEFAULT 0"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -423,8 +431,8 @@ export class Automations {
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, gate, watch, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, at, model, machine, chat, gate, watch, post, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -435,6 +443,7 @@ export class Automations {
       checked.chat,
       checked.gate,
       watch,
+      checked.post ? 1 : 0,
       author,
       booked.id,
       now,
@@ -453,6 +462,8 @@ export class Automations {
     const row = this.get(id);
 
     if (!row) return refused(`No automation ${id}.`);
+
+    if (patch.post && isCheckIn(row)) return refused(CHECK_IN_POSTS);
     const retimed = patch.cron !== undefined || patch.at !== undefined;
     const checked = this.#check(draftOf({ ...row, ...patch, ...timingOf(patch) }));
 
@@ -844,12 +855,13 @@ export class Automations {
         const checkIn = isCheckIn(row);
         await runtime.spawn(tx, conversationOf(chat), {
           name: workerOf(row.id),
-          message: checkIn ? `${CHECK_IN}${row.prompt}` : row.prompt,
+          message: `${checkIn ? CHECK_IN : ""}${row.prompt}${row.post ? POSTED : ""}`,
           model: this.#modelOf(row),
           feedId: task,
           label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
           checkIn,
-          deliver: true
+          deliver: true,
+          post: row.post && !checkIn
         });
       });
     } catch (error) {
@@ -934,14 +946,14 @@ export class Automations {
 
   /** The draft as it can be saved, or why not. */
   #check(draft: AutomationDraft): Result<AutomationDraft> {
-    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine) ?? this.#chatProblem(draft.chat);
+    const problem = draftProblem(draft) ?? this.#machineProblem(draft.machine, draft.post) ?? this.#chatProblem(draft.chat);
 
     if (problem !== undefined) return refused(problem);
 
     if (draft.model === null) return draft;
     const model = this.#deps.models.valid(draft.model);
 
-    return model ? { ...draft, model } : refused(`${draft.model.provider}/${draft.model.modelId} is not available. ${this.#choices()}`);
+    return model ? { ...draft, model } : refused(`${draft.model.provider}/${draft.model.modelId} is not available. ${this.#deps.models.choices()}`);
   }
 
   /** A check-in is a one-off in the cloud that reports to the main chat, within the day's and the waiting caps. */
@@ -956,6 +968,8 @@ export class Automations {
     if (draft.machine !== null || draft.chat !== ROOT_SESSION) return "A check-in runs in the cloud and reports to the main chat.";
 
     if (draft.gate !== null) return "A check-in has no gate.";
+
+    if (draft.post) return CHECK_IN_POSTS;
 
     return this.#checkInCapProblem();
   }
@@ -975,10 +989,14 @@ export class Automations {
     return undefined;
   }
 
-  #machineProblem(machine: string | null): string | undefined {
+  /** Why it can't run on `machine`: one ky doesn't know, or a post, whose report is posted from the cloud. */
+  #machineProblem(machine: string | null, post = false): string | undefined {
+    if (machine === null) return undefined;
+
+    if (post) return "A posted report runs in the cloud: ask ky to update it with post false first.";
     const known = this.#deps.machines.machines().map((each) => each.name);
 
-    if (machine === null || known.includes(machine)) return undefined;
+    if (known.includes(machine)) return undefined;
 
     return `No machine ${machine}. Known: ${known.join(", ") || "none"}.`;
   }
@@ -998,17 +1016,6 @@ export class Automations {
     const title = this.#deps.chats.list().find((each) => each.session === session)?.title;
 
     return `${title || "untitled"} (${session})`;
-  }
-
-  /** The featured models an automation can use, and their thinking levels; any other a provider offers works too. */
-  #choices(): string {
-    const models = this.#deps.models.catalog().flatMap((provider) =>
-      provider.connected
-        ? provider.models.flatMap((model) => (model.featured ? [`${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`] : []))
-        : []
-    );
-
-    return `Choose one of: ${models.join("; ")}. Any other model those providers offer works too, by its id.`;
   }
 
   /** Book its fires: the cron, or the one-off at its time, or now if that has passed. */
@@ -1066,7 +1073,7 @@ export class Automations {
     if (!current || (when !== undefined && !when.includes(current.status))) return false;
     const next = { ...current, ...patch };
     this.#sql.exec(
-      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?,
+      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?,
          gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
       next.title,
       next.prompt,
@@ -1076,6 +1083,7 @@ export class Automations {
       next.machine,
       next.chat,
       next.gate,
+      next.post ? 1 : 0,
       next.gate_checked_at,
       next.gate_note,
       next.gate_errors,
@@ -1166,14 +1174,13 @@ function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined
   if (args.model === "worker") return null;
 
   if (args.model === undefined) return args.thinking === undefined ? undefined : { ...base, thinkingLevel: args.thinking };
-  const [provider = "", ...rest] = args.model.split("/");
 
-  return { provider, modelId: rest.join("/"), thinkingLevel: args.thinking ?? base.thinkingLevel };
+  return parseModel(args.model, args.thinking ?? base.thinkingLevel);
 }
 
 /** What an automation is and does, without its status, booking or anything else a row carries. */
-function draftOf({ title, prompt, cron, at, model, machine, chat, gate }: AutomationDraft): AutomationDraft {
-  return { title, prompt, cron, at, model, machine, chat, gate };
+function draftOf({ title, prompt, cron, at, model, machine, chat, gate, post }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, chat, gate, post };
 }
 
 /** What the tool's arguments change, leaving out what they do not mention. */
@@ -1186,7 +1193,8 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
     model: modelArg(args, fallback),
     machine: args.machine === "cloud" ? null : args.machine,
     chat: args.chat === "main" ? ROOT_SESSION : args.chat,
-    gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate
+    gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate,
+    post: args.post
   };
 
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
@@ -1199,7 +1207,7 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
   // What the arguments leave out: no model or machine, and reports to this chat.
   const unset = { cron: null, at: null, model: null, machine: null, chat: caller, gate: null };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
-  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION } : asked;
+  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION, post: false } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
   if (isRefusal(created)) return created.refused;
@@ -1232,7 +1240,7 @@ function lineOf(automations: Automations, view: AutomationView): string {
 
   return [
     `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view)}, by ${view.created_by}`,
-    `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}`,
+    `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
     `  next: ${next}; last run: ${last}`,
     ...(view.gate === null
       ? []
