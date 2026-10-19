@@ -342,7 +342,7 @@ function gateDetail(note: string | null): Detail {
   return { key: "gate", text: `gate: ${note.split(":")[0]}`, title: note };
 }
 
-/** The last run, then only what differs from the usual: another chat, its own model, a machine. */
+/** The last run, then only what differs from the usual: another chat, its own model, a machine, a gate, a post. */
 function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
   const last = lastOf(automation, now);
   const chat = automation.chat === MAIN_SESSION ? "Main chat" : plain(automation.chat_label);
@@ -352,6 +352,7 @@ function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
     automation.model ? { key: "model", text: automation.model.modelId } : null,
     automation.machine ? { key: "machine", text: `on ${automation.machine}` } : null,
     automation.gate ? gateDetail(automation.gate_note) : null,
+    automation.post ? { key: "post", text: "posted", title: "Its report is posted as written, with no reply" } : null,
   ].flatMap((extra) => extra ?? []);
 
   if (!last && extras.length === 0) return null;

@@ -78,6 +78,18 @@ export type Said = {
 
 type EntryRow = { id: number; conversation_id: number; kind: string | null; at: number; text: string | null };
 
+/** An entry's text in SQL: a look's post, or a message's text parts, not thinking, tool calls or images; null for anything else. */
+const TEXT_OF = `CASE
+  WHEN json_extract(record, '$.kind') = '${LOOK_POST}' THEN json_extract(record, '$.data.text')
+  WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
+  WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
+  ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
+        FROM json_each(record, '$.model[0].content') AS part
+        WHERE json_extract(part.value, '$.type') = 'text')
+END`;
+
+const TextRow = Type.Object({ text: Type.String() });
+
 /** A column of `PRAGMA table_info`. */
 const ColumnRow = Type.Object({ name: Type.String() });
 
@@ -86,6 +98,17 @@ const RolesRow = Type.Object({ roles: Type.Number() });
 
 /** A submission that placed a user entry, as pi keeps it; a damaged one counts as not the user's. */
 const PlacedRow = Type.Object({ entry: Type.Number(), request: Type.Union([Type.String(), Type.Null()]) });
+
+/**
+ * The messages a search reads, by when they were sent: from `from` up to, not including, `to`, in epoch ms;
+ * `days` is how a reply names them, like "between 2026-01-02 and 2026-01-03".
+ */
+export type Span = { readonly from: number; readonly to: number; readonly days: string };
+
+const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
+
+/** What `search` takes besides the query. */
+type SearchOptions = { readonly around?: number; readonly caller?: string; readonly batches?: number; readonly span?: Span };
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
@@ -154,11 +177,11 @@ export class History {
   /**
    * The best matches for `query`, each with `around` messages before and after
    * it. The user's latest message in `caller`, the chat searching, is left out:
-   * it is the question, and ky has it already. `batches` caps the catch-up first: turn-start recall reads at most
-   * a few, so the first turn after a deploy that emptied the index is not held up rebuilding it, and finds
-   * only what is indexed so far.
+   * it is the question, and ky has it already. `span` keeps only the messages sent in it, and the replies name
+   * its days. `batches` caps the catch-up first: turn-start recall reads at most a few, so the first turn after
+   * a deploy that emptied the index is not held up rebuilding it, and finds only what is indexed so far.
    */
-  search(query: string, around = 0, caller = "", batches = Number.POSITIVE_INFINITY): string {
+  search(query: string, { around = 0, caller = "", batches = Number.POSITIVE_INFINITY, span }: SearchOptions = {}): string {
     this.#catchUp(batches);
 
     const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
@@ -166,13 +189,15 @@ export class History {
     if (terms.length === 0) return "Give some words to search for.";
 
     const skip = this.#asking(caller);
-    const every = this.#match(terms.join(" AND "), skip);
+    const during = span === undefined ? "" : ` ${span.days}`;
+    const none = `No message matches ${query.trim()}${during}.`;
+    const every = this.#match(terms.join(" AND "), skip, span ?? ALWAYS);
 
-    if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || `No message matches ${query.trim()}.`;
+    if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || none;
 
-    const some = this.#match(terms.join(" OR "), skip);
+    const some = this.#match(terms.join(" OR "), skip, span ?? ALWAYS);
 
-    return this.#show(some, around, "No message has all those words; these have some of them.\n") || `No message matches ${query.trim()}.`;
+    return this.#show(some, around, `No message has all those words${during}; these have some of them.\n`) || none;
   }
 
   /** The user's latest message in `caller`, or -1. */
@@ -187,13 +212,15 @@ export class History {
     );
   }
 
-  #match(expression: string, skip: number): Hit[] {
+  #match(expression: string, skip: number, span: Pick<Span, "from" | "to">): Hit[] {
     return this.#sql
       .exec<Hit>(
         `SELECT rowid, conversation, role, at, snippet(ky_history, 0, '[', ']', ' … ', 24) AS snippet
-         FROM ky_history WHERE ky_history MATCH ? AND rowid != ? ORDER BY rank LIMIT ?`,
+         FROM ky_history WHERE ky_history MATCH ? AND rowid != ? AND at >= ? AND at < ? ORDER BY rank LIMIT ?`,
         expression,
         skip,
+        span.from,
+        span.to,
         MATCHES
       )
       .toArray();
@@ -322,6 +349,24 @@ export class History {
     return conversation === ROOT_SESSION ? "main chat" : `chat "${this.#name(conversation)}"`;
   }
 
+  /**
+   * ky's latest message in `session` that has text, a finished answer or a look's post; null before the first.
+   * A step that goes on to call a tool, or an answer cut off by a stop or a failure, is not one.
+   */
+  latest(session: string): string | null {
+    const row = this.#sql
+      .exec(
+        `SELECT text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
+           WHERE conversation_id = ? AND (json_extract(record, '$.kind') = '${LOOK_POST}'
+             OR (json_extract(record, '$.kind') = 'pi.assistant' AND json_extract(record, '$.model[0].stopReason') IN ('stop', 'length'))))
+         WHERE trim(coalesce(text, '')) != '' ORDER BY id DESC LIMIT 1`,
+        Number(session)
+      )
+      .toArray()[0];
+
+    return decodeOr(TextRow, row, undefined)?.text ?? null;
+  }
+
   /** Index every chat message again, as after a restore replaced the transcripts. */
   rebuild(): void {
     this.#sql.exec("DELETE FROM ky_history");
@@ -353,17 +398,8 @@ export class History {
   #entries(from: number): EntryRow[] {
     return this.#sql
       .exec<EntryRow>(
-        // A message's content is a string or a list of parts; only text parts are kept, not thinking, tool calls or images.
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
-           coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at,
-           CASE
-             WHEN json_extract(record, '$.kind') = '${LOOK_POST}' THEN json_extract(record, '$.data.text')
-             WHEN json_extract(record, '$.kind') NOT IN ('pi.user', 'pi.assistant') THEN NULL
-             WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
-             ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10))
-                   FROM json_each(record, '$.model[0].content') AS part
-                   WHERE json_extract(part.value, '$.type') = 'text')
-           END AS text
+           coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at, ${TEXT_OF} AS text
          FROM pi_entries WHERE id > ? ORDER BY id LIMIT ?`,
         from,
         BATCH
@@ -488,6 +524,29 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
   ).id;
 
   return newest !== null && ownMessages(sql, [newest]).has(newest);
+}
+
+/**
+ * The request ids that placed the user entries of the chat's running turn, oldest first: those since ky's last
+ * finished answer (one that did not go on to call a tool). A report steered in mid-turn is one of them; one no
+ * request placed is undefined.
+ */
+export function turnPlacedBy(sql: SqlStorage, conversation: string): Array<string | undefined> {
+  const users = sql
+    .exec(
+      `SELECT id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'
+       AND id > (SELECT coalesce(max(id), 0) FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.assistant'
+                 AND coalesce(json_extract(record, '$.model[0].stopReason'), '') != 'toolUse')
+       ORDER BY id`,
+      Number(conversation),
+      Number(conversation)
+    )
+    .toArray()
+    .flatMap((row) => decodeOr(NewestRow, row, undefined)?.id ?? []);
+
+  const placed = placedBy(sql, users);
+
+  return users.map((id) => placed.get(id));
 }
 
 /** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */

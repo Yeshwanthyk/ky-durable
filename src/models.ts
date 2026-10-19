@@ -112,6 +112,13 @@ export function agentModel({ provider, modelId, thinkingLevel }: ModelChoice): A
   return { model: { provider, modelId }, thinkingLevel };
 }
 
+/** "provider/modelId" as a choice at `thinkingLevel`: the provider is the text before the first "/". */
+export function parseModel(text: string, thinkingLevel: ModelChoice["thinkingLevel"]): ModelChoice {
+  const [provider = "", ...rest] = text.trim().split("/");
+
+  return { provider: provider.trim(), modelId: rest.join("/").trim(), thinkingLevel };
+}
+
 export class Models {
   readonly settings: Settings;
   /** pi's registry, for the harness and for every call ky makes itself. */
@@ -151,6 +158,17 @@ export class Models {
     this.#listeners.add(listener);
 
     return () => this.#listeners.delete(listener);
+  }
+
+  /** The featured models a caller can name, and their thinking levels; any other a provider offers works too. */
+  choices(): string {
+    const models = this.catalog().flatMap((provider) =>
+      provider.connected
+        ? provider.models.flatMap((model) => (model.featured ? [`${provider.id}/${model.modelId} (${model.levels.join(", ") || "off"})`] : []))
+        : []
+    );
+
+    return `Choose one of: ${models.join("; ")}. Any other model those providers offer works too, by its id.`;
   }
 
   catalog(): ProviderInfo[] {

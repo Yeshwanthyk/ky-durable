@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { Access, ASSERTION } from "../access";
+import { Access, ASSERTION, bypassed } from "../access";
 import { worker } from "../server";
 import { call } from "./drive";
 import { AUD, FakeAccess, OWNER } from "./fake-access";
@@ -148,5 +148,10 @@ describe("Access", () => {
 
     // Downloads are outside BYPASS: under /api/files, Access would let them through signed out.
     expect((await asked(FILE, null)).status).toBe(401);
+  });
+
+  it("lets public sites through signed out, and not private ones", () => {
+    expect(bypassed("/p/abc/")).toBe(true);
+    expect(bypassed("/s/abc/")).toBe(false);
   });
 });

@@ -8,8 +8,8 @@ import { ColumnInfo, type Delivery, DeliverySchema, SessionRow } from "./contrac
  * notice that its gate paused it (src/automations/automations.ts), or a look's message (src/dreaming/looks.ts).
  * It always goes to that chat, in full, whether or not the user is around. It enters only between turns, never
  * into a run: an idle chat takes it at once, and a busy one when its turn is over, so it never steers the work the
- * user is watching. An event is given to the chat's agent, which answers it; a look's message is posted as ky's
- * own, as written, and starts nothing. Each, once it is in the chat, is pushed to the user's devices (src/push.ts).
+ * user is watching. An event is given to the chat's agent, which answers it; a look's message, or a post automation's
+ * report, is posted as ky's own, as written, and starts nothing. Each, once it is in the chat, is pushed to the user's devices (src/push.ts).
  *
  * Each item has a row, keyed by its id. Handed over twice, it is delivered once. A queued one waits in its row,
  * so an eviction or a restart keeps it, and it is tried again when the chat's run is over however it ended (an
@@ -165,7 +165,8 @@ export class Deliveries {
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
       const kind = item.kind ?? "event";
-      const put = kind === "look" ? this.#parts.post : this.#parts.submit;
+      // An event or another chat's message is answered by the chat's agent; a look's message or a post is posted as written.
+      const put = kind === "look" || kind === "post" ? this.#parts.post : this.#parts.submit;
 
       if (!(await put(session, item.content, item.id))) {
         this.#retry(session);
@@ -175,6 +176,9 @@ export class Deliveries {
 
       const now = Date.now();
       const marked = this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued' RETURNING id", now, item.id).toArray().length > 0;
+
+      // ky talking to itself is nothing to show the user.
+      if (kind === "chat") continue;
       this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
 
       // Only the flush that marked it pushes it; the push neither holds up the next item nor fails this one.

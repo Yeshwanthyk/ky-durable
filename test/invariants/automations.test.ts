@@ -46,6 +46,7 @@ const automation = {
   gate_note: null,
   gate_errors: 0,
   watch: null,
+  post: 0,
   created_by: "user",
   status: "active",
   schedule_id: null,
@@ -83,7 +84,7 @@ describe("stored rows", () => {
   it.each(["{", "null", "[]", `{"provider":"p"}`, `{"provider":"p","modelId":"m","thinkingLevel":"loud"}`])(
     "reads the corrupt model column %j as the worker's",
     (model) => {
-      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: null }]);
+      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: null, post: false }]);
     }
   );
 

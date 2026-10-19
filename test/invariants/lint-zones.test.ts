@@ -19,12 +19,15 @@ const ZERO = [
   "src/machines/",
   "src/asks.ts",
   "src/backup.ts",
+  "src/chats-tool.ts",
   "src/client-messages.ts",
   "src/github-tools.ts",
   "src/images.ts",
   "src/protocol.ts",
   "src/server-frames.ts",
   "src/settings.ts",
+  "src/site-routes.ts",
+  "src/sites.ts",
   "src/sockets.ts",
   "src/tables.ts"
 ];
