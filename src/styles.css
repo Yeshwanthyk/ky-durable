@@ -86,6 +86,31 @@ body {
   display: none;
 }
 /* A quote reads as an aside: a thin rule and muted text, upright. */
+/* A ```mermaid fence drawn by pele (src/ui/Diagram.tsx), on scotty's palette, so a theme switch recolours it
+   without drawing it again. Charts keep pele's eight series colours. */
+.pele {
+  --pele-bg: transparent;
+  --pele-fg: var(--ink);
+  --pele-muted: var(--muted);
+  --pele-line: var(--muted);
+  --pele-surface: var(--raised);
+  --pele-surface-alt: var(--sunken);
+  --pele-border: var(--line-hover);
+  --pele-accent: var(--working);
+  --pele-critical: var(--danger);
+  --pele-error: var(--danger);
+  --pele-font: inherit;
+  --pele-radius: 6px;
+  margin: 0.5rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.pele.diagram:not([data-drawn]) {
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
 .sd-theme [data-streamdown="blockquote"] {
   border-left-width: 2px;
   border-color: var(--line-hover);
