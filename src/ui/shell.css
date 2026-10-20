@@ -274,6 +274,13 @@
   text-wrap: pretty;
 }
 
+.sidebar-error {
+  margin: 4px 10px;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--danger);
+  text-wrap: pretty;
+}
+
 /* ---------- Floating header ---------- */
 
 /* Floats over the thread; a fade, not a rule, separates it from what scrolls under. */

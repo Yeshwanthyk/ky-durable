@@ -21,16 +21,30 @@ export type Shell = {
   readonly openSession: (session: string) => void;
   /** Creates a side chat and opens it. */
   readonly startChat: () => void;
+  /** Archives a side chat or puts it back; it fails as the server or the connection does. */
+  readonly archiveChat: (session: string, archived: boolean) => Promise<void>;
+  /** Names a side chat; it fails as the server or the connection does. */
+  readonly renameChat: (session: string, title: string) => Promise<void>;
+  /** Why the last side chat change failed, until the next one. */
+  readonly chatError: string | null;
+};
+
+/** What the shell does to side chats through the server. */
+type ChatActions = {
+  readonly newChat: () => Promise<string>;
+  readonly archiveChat: (session: string, archived: boolean) => Promise<void>;
+  readonly renameChat: (session: string, title: string) => Promise<void>;
 };
 
 /** Where the wide layout remembers whether the sidebar is hidden. */
 const SIDEBAR_KEY = "ky:sidebar";
 
 // What slides over the chat (the drawer, the palette) and moving between chats.
-export function useShell(go: (session: string) => void, panel: PanelState, newChat: () => Promise<string>): Shell {
+export function useShell(go: (session: string) => void, panel: PanelState, chats: ChatActions): Shell {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem(SIDEBAR_KEY) === "hidden");
 
   const hideSidebar = (hidden: boolean) => {
@@ -58,13 +72,42 @@ export function useShell(go: (session: string) => void, panel: PanelState, newCh
     go(next);
   };
 
+  // A change that fails says why in the sidebar; the next one clears it.
+  const tracked = async <Result>(work: () => Promise<Result>): Promise<Result> => {
+    setChatError(null);
+
+    try {
+      return await work();
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  };
+
   const startChat = () => {
     setCreating(true);
-    newChat()
+    tracked(chats.newChat)
       .then(openSession)
       .catch(() => undefined)
       .finally(() => setCreating(false));
   };
 
-  return { drawerOpen, setDrawerOpen, sidebarHidden, toggleSidebar, showChats, paletteOpen, setPaletteOpen, creating, openSession, startChat };
+  const archiveChat = (session: string, archived: boolean) => tracked(() => chats.archiveChat(session, archived));
+  const renameChat = (session: string, title: string) => tracked(() => chats.renameChat(session, title));
+
+  return {
+    drawerOpen,
+    setDrawerOpen,
+    sidebarHidden,
+    toggleSidebar,
+    showChats,
+    paletteOpen,
+    setPaletteOpen,
+    creating,
+    openSession,
+    startChat,
+    archiveChat,
+    renameChat,
+    chatError
+  };
 }

@@ -45,7 +45,7 @@ Retired with the sign-in form, cookie and KY_TOKEN, which Access replaced (setup
 
 | id | behaviour | cite | tag | check |
 |---|---|---|---|---|
-| side-chat | New side chat starts a chat. The background model names it from its first message. | src/server.ts:376, src/chats.ts:25, src/server.ts:107 | local | W features › starts a side chat whose title the background model rewrites from its first message; P starts a side chat, names it from its first message, and goes back to the main chat |
+| side-chat | New side chat starts a chat. The background model names it from its first message. Asked for while ky is unreachable, it (and archive or rename) waits for the connection and goes through once it is back; when ky refuses, the sidebar says why. | src/server.ts:376, src/chats.ts:25, src/server.ts:107 | local | W features › starts a side chat whose title the background model rewrites from its first message; P starts a side chat, names it from its first message, and goes back to the main chat; P starts and archives a side chat asked for while ky is unreachable, once it is back; P says why ky refused a new side chat, and clears it on the next try |
 | title-trim | A long title is trimmed. When the background model fails, the first line is kept. | src/titles.ts:24, src/chats.ts:19 | local | W features › trims a long title, and keeps the first line when the background model fails; W models › trims a long title to fit; W models › gives up quietly when the model fails or there is nothing to name |
 
 ## Models, and the Mac online or away

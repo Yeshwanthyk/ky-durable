@@ -176,6 +176,8 @@ export const ANSWERS = {
   "peer-pair": Refusable,
   "peer-remove": Refusable,
   "new-chat": Type.Object({ session: Text }),
+  "archive-chat": Type.Null(),
+  "rename-chat": Type.Null(),
   "skill-history": Type.Unsafe<readonly SkillVersion[]>(Versions),
   "soul-history": Type.Unsafe<readonly SoulVersion[]>(Versions),
   "specialist-history": Type.Unsafe<readonly SoulVersion[]>(Versions),

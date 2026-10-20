@@ -101,6 +101,7 @@ async function pick(page: Page, purpose: string, model: RegExp): Promise<void> {
 }
 
 const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), operationId: Type.String() });
+const NewChat = Type.Object({ type: Type.Literal("new-chat"), id: Type.String() });
 
 /** One socket the page opened: the session it asked for, the submits it sent and the answers it got. */
 type Connection = {
@@ -370,6 +371,72 @@ test("starts a side chat, names it from its first message, and goes back to the 
 
   await chats.getByRole("button", { name: /^Named: Plan a trip to Lisbon/ }).click();
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeVisible();
+});
+
+test("starts and archives a side chat asked for while ky is unreachable, once it is back", async ({ page }) => {
+  let reachable = true;
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (route) => {
+    sockets.push(route);
+
+    if (reachable) route.connectToServer();
+    else void route.close();
+  });
+
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+
+  reachable = false;
+  await sockets.at(-1)!.close();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeHidden();
+  await chats.getByRole("button", { name: "New side chat" }).click();
+
+  reachable = true;
+  await expect(page.getByRole("heading", { name: "A side chat" })).toBeVisible();
+  await expect(page).toHaveURL(/\?session=/);
+  await expect(chats.getByRole("alert")).toHaveCount(0);
+
+  reachable = false;
+  await sockets.at(-1)!.close();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeHidden();
+  await chats.getByRole("button", { name: /^Archive New chat/ }).click();
+
+  reachable = true;
+  await expect(chats.getByRole("button", { name: /^Archived/ })).toBeVisible();
+  await chats.getByRole("button", { name: /^Archived/ }).click();
+  await expect(chats.getByRole("button", { name: /^Unarchive New chat/ }).first()).toBeAttached();
+  await expect(chats.getByRole("alert")).toHaveCount(0);
+});
+
+test("says why ky refused a new side chat, and clears it on the next try", async ({ page }) => {
+  let refuse = true;
+  await page.routeWebSocket(/\/agents\/pi-agent\/me/, (route) => {
+    const server = route.connectToServer();
+    route.onMessage((message) => {
+      const value = parsed(String(message));
+
+      if (refuse && Value.Check(NewChat, value)) {
+        route.send(JSON.stringify({ type: "error", id: value.id, message: "No model provider is enabled." }));
+
+        return;
+      }
+
+      server.send(message);
+    });
+    server.onMessage((message) => route.send(message));
+  });
+
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(chats.getByRole("alert")).toHaveText("No model provider is enabled.");
+  if (SHOTS) await chats.screenshot({ path: `${SHOTS}/side-chat-refused.png` });
+  await expect(chats.getByRole("button", { name: "New side chat" })).toBeEnabled();
+
+  refuse = false;
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page.getByRole("heading", { name: "A side chat" })).toBeVisible();
+  await expect(chats.getByRole("alert")).toHaveCount(0);
 });
 
 test("renames a side chat in the sidebar, and Escape keeps the old name", async ({ page }) => {
