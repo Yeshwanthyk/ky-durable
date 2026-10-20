@@ -232,6 +232,8 @@ export function usePiSession(session: string) {
       for (const pending of unanswered.current.values()) {
         if (pending.session === live.current?.session) live.current.send(JSON.stringify(pending.message));
       }
+
+      for (const message of asks.release()) live.current?.send(message);
     },
     onClose: () => {
       events.flush();
@@ -298,14 +300,23 @@ export function usePiSession(session: string) {
     [agent]
   );
 
-  /** Send a message the server answers by its id; it settles on the answer, an error, the socket closing, or a timeout. */
+  /**
+   * Send a message the server answers by its id; it settles on the answer, an error, the socket closing, or a
+   * timeout. Made while the socket is down, it waits for the socket to open, and a closed one is opened again.
+   */
   const ask: AskFn = useCallback(
     <Type extends Ask>(type: Type, fields: AskFields<Type>) => {
       const id = crypto.randomUUID();
       const answer = asks.wait(type, id);
+      const message = JSON.stringify({ ...fields, type, id });
 
-      if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify({ ...fields, type, id }));
-      else asks.fail(id, "ky isn't connected.");
+      if (agent.readyState === WebSocket.OPEN) {
+        agent.send(message);
+      } else {
+        asks.hold(id, message);
+
+        if (agent.readyState !== WebSocket.CONNECTING) agent.reconnect();
+      }
 
       return answer;
     },
@@ -443,14 +454,18 @@ export function usePiSession(session: string) {
 
   /** Archive a side chat, or put it back in the list. */
   const archiveChat = useCallback(
-    (chat: string, archived: boolean) => send({ type: "archive-chat", id: crypto.randomUUID(), session: chat, archived }),
-    [send]
+    async (chat: string, archived: boolean) => {
+      await ask("archive-chat", { session: chat, archived });
+    },
+    [ask]
   );
 
   /** Name a side chat. */
   const renameChat = useCallback(
-    (chat: string, title: string) => send({ type: "rename-chat", id: crypto.randomUUID(), session: chat, title }),
-    [send]
+    async (chat: string, title: string) => {
+      await ask("rename-chat", { session: chat, title });
+    },
+    [ask]
   );
 
   /** Change a skill as the user. */

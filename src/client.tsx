@@ -568,8 +568,10 @@ function useStablePanel(panel: PanelState): PanelState {
 function useStableShell(shell: Shell): Shell {
   const openSession = useStableCallback(shell.openSession);
   const startChat = useStableCallback(shell.startChat);
+  const archiveChat = useStableCallback(shell.archiveChat);
+  const renameChat = useStableCallback(shell.renameChat);
 
-  return { ...shell, openSession, startChat };
+  return { ...shell, openSession, startChat, archiveChat, renameChat };
 }
 
 function App() {
@@ -577,7 +579,7 @@ function App() {
   const [theme, setTheme] = useTheme();
   const rawPanel = usePanel();
   const ky = usePiSession(session);
-  const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
+  const shell = useStableShell(useShell(go, rawPanel, ky));
   const panel = useStablePanel(rawPanel);
   const view = describe(ky, session, theme);
   const label = statusLabel(ky.status);
@@ -615,9 +617,10 @@ function App() {
                   onOpen={shell.openSession}
                   onNew={shell.startChat}
                   onSearch={onSearch}
-                  onArchive={ky.archiveChat}
-                  onRename={ky.renameChat}
+                  onArchive={shell.archiveChat}
+                  onRename={shell.renameChat}
                   creating={shell.creating}
+                  error={shell.chatError}
                 />
               </div>
               {/* Always there so it can fade with the drawer; closed, it lets every click through. */}

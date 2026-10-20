@@ -1,7 +1,8 @@
 /**
  * The page's asks: messages whose answer it waits on, by id. Every ask settles, one way: with its answer,
  * checked against what that ask is answered with; or failed, by an error frame for it, the socket closing,
- * an answer that isn't what the ask expects, or a minute without any of those.
+ * an answer that isn't what the ask expects, or a minute without any of those. An ask made while the socket
+ * is down is held and sent when it opens, within the same minute.
  */
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { decode } from "./core/decode";
@@ -14,6 +15,8 @@ type Waiting = { answer(result: JsonValue): void; fail(error: Error): void };
 
 export class Asks {
   readonly #waiting = new Map<string, Waiting>();
+  /** Asks made while the socket was down, by id: the message to send when it opens. */
+  readonly #unsent = new Map<string, string>();
   readonly #timeout: number;
 
   constructor(timeout = ASK_TIMEOUT_MS) {
@@ -28,6 +31,7 @@ export class Asks {
       const settled = () => {
         clearTimeout(timer);
         this.#waiting.delete(id);
+        this.#unsent.delete(id);
       };
 
       this.#waiting.set(id, {
@@ -53,15 +57,30 @@ export class Asks {
     this.#waiting.get(id)?.answer(result);
   }
 
+  /** Hold ask `id`'s message until the socket opens. */
+  hold(id: string, message: string): void {
+    if (this.#waiting.has(id)) this.#unsent.set(id, message);
+  }
+
+  /** The held messages, to send now the socket is open; they are no longer held. */
+  release(): string[] {
+    const messages = [...this.#unsent.values()];
+    this.#unsent.clear();
+
+    return messages;
+  }
+
   /** Fail ask `id` with why. */
   fail(id: string, message: string): void {
     this.#waiting.get(id)?.fail(new Error(message));
   }
 
-  /** Fail every ask still waiting: the socket closed, and a new one won't answer them. */
+  /** Fail every ask sent and still waiting: the socket closed, and a new one won't answer them. A held one waits on. */
   close(): void {
     // A Map visits each key once even as the loop deletes them.
-    for (const id of this.#waiting.keys()) this.fail(id, "The connection to ky closed before it answered.");
+    for (const id of this.#waiting.keys()) {
+      if (!this.#unsent.has(id)) this.fail(id, "The connection to ky closed before it answered.");
+    }
   }
 
   /** How many asks are waiting. */

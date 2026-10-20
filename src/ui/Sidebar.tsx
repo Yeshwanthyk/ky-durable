@@ -67,8 +67,8 @@ function SideChat({
   unread: boolean;
   now: number;
   onOpen: (session: string) => void;
-  onArchive: (session: string, archived: boolean) => void;
-  onRename: (session: string, title: string) => void;
+  onArchive: (session: string, archived: boolean) => Promise<void>;
+  onRename: (session: string, title: string) => Promise<void>;
 }) {
   const archived = chat.archived_at !== null;
   const action = archived ? UNARCHIVE : ARCHIVE;
@@ -98,7 +98,8 @@ function SideChat({
             if (next === null) return;
 
             setNamed(next.trim());
-            onRename(chat.session, next);
+            // The sidebar says why it failed; the row goes back to the name it has.
+            onRename(chat.session, next).catch(() => setNamed(null));
           }}
         />
       </li>
@@ -136,7 +137,7 @@ function SideChat({
           className="icon-button pressable chat-archive"
           aria-label={`${action.label} ${title}`}
           title={action.label}
-          onClick={() => onArchive(chat.session, !archived)}
+          onClick={() => onArchive(chat.session, !archived).catch(() => undefined)}
         >
           <Icon name={action.icon} size={14} />
         </button>
@@ -197,6 +198,7 @@ export function Sidebar({
   onArchive,
   onRename,
   creating,
+  error,
 }: {
   chats: readonly ChatRow[];
   session: string;
@@ -209,9 +211,11 @@ export function Sidebar({
   onOpen: (session: string) => void;
   onNew: () => void;
   onSearch: () => void;
-  onArchive: (session: string, archived: boolean) => void;
-  onRename: (session: string, title: string) => void;
+  onArchive: (session: string, archived: boolean) => Promise<void>;
+  onRename: (session: string, title: string) => Promise<void>;
   creating: boolean;
+  /** Why the last side chat change failed. */
+  error: string | null;
 }) {
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
@@ -266,6 +270,11 @@ export function Sidebar({
           <Icon name="plus" size={14} />
         </button>
       </div>
+      {error ? (
+        <p className="sidebar-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       {active.length === 0 ? (
         <p className="sidebar-empty">Start one for a tangent. It remembers what the main chat does.</p>
       ) : (

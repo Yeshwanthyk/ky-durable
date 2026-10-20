@@ -943,6 +943,8 @@ export class PiAgent extends DurableObject<Env> {
 
   /** A side chat: a new top-level conversation set up like the main one, sharing its memory. */
   async newChat(): Promise<string> {
+    // pi can't remove a session, so what can refuse the chat (main's model gone) is asked before one is made.
+    this.models.resolve("main");
     const { id } = await this.harness.sessions.create();
     await this.#configure(id);
     this.chats.add(id);

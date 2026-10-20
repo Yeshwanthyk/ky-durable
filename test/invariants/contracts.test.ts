@@ -138,6 +138,28 @@ describe("the socket edge", () => {
       // A fire-and-forget command's result has no ask: nothing to settle, nothing thrown.
       asks.answer("none", null);
     });
+
+    it("holds an ask made while the socket is down through a close, sends it once on open, and still times it out", async () => {
+      vi.useFakeTimers();
+      const asks = new Asks(1_000);
+
+      const held = asks.wait("new-chat", "a");
+      asks.hold("a", "message a");
+      asks.close();
+      expect(asks.release()).toEqual(["message a"]);
+      expect(asks.release()).toEqual([]);
+      asks.answer("a", { session: "s1" });
+      await expect(held).resolves.toEqual({ session: "s1" });
+
+      const never = asks.wait("archive-chat", "b");
+      asks.hold("b", "message b");
+      const late = expect(never).rejects.toThrow(/didn't answer/);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await late;
+      // A held ask that timed out is not sent when the socket opens.
+      expect(asks.release()).toEqual([]);
+      expect(asks.size).toBe(0);
+    });
   });
 });
 
