@@ -372,6 +372,29 @@ test("starts a side chat, names it from its first message, and goes back to the 
   await expect(page.getByText("echo: Plan a trip to Lisbon")).toBeVisible();
 });
 
+test("asks a side chat from the main chat, and the side chat's answer comes back to the main chat", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const side = new URL(page.url()).searchParams.get("session")!;
+  await send(page, "reply: Trains to Lisbon");
+  await expect(chats.getByRole("button", { name: /^Named: reply: Trains to Lisbon/ })).toBeVisible();
+
+  await chats.getByRole("button", { name: "Main chat" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await send(page, `tool chats ${JSON.stringify({ action: "ask", chat: side, message: "When does the train leave?" })}`);
+  await expect(chat(page).getByText(/tool said: Asked Named: reply: Trains to Lisbon; its agent answers there/)).toBeVisible();
+
+  // The side chat's agent answers the question there; its answer comes back to the main chat, whose agent answers it.
+  await expect(chat(page).getByText(new RegExp(`^echo: \\[answer from your chat ${side} "Named: reply: Trains to Lisbon"`))).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-ask-main.png` });
+
+  await chats.getByRole("button", { name: /^Named: reply: Trains to Lisbon/ }).click();
+  await expect(chat(page).getByText(/^echo: \[question from your main chat: answer here; your answer goes back to it\] When does the train leave\?/)).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-ask-side.png` });
+});
+
 test("renames a side chat in the sidebar, and Escape keeps the old name", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });

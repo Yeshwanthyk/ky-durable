@@ -7,7 +7,8 @@ import { agent, gateStarted, inside, shows, snapshotView, submit, until } from "
 
 /**
  * The chats tool (src/chats-tool.ts) through ky's real PiAgent on the fake models: a chat's agent lists the user's
- * chats, sends one a message as a delivery, and reads ky's last message in one, called with `tool chats {...}`.
+ * chats, sends one a message as a delivery, asks one and gets its answer back, and reads ky's last message in one,
+ * called with `tool chats {...}`.
  */
 
 /** Ask for `args` in a chat, the main one unless `session` names a side chat; what the tool said. */
@@ -61,7 +62,7 @@ async function sideChat(name: string, title: string, archived = false): Promise<
 }
 
 describe("the chats tool", () => {
-  it("lists the main chat first and the side chats not archived", async () => {
+  it("lists the main chat first, then the side chats, archived ones last and marked", async () => {
     const name = crypto.randomUUID();
     const active = await sideChat(name, "Trip plans");
     const archived = await sideChat(name, "Old taxes", true);
@@ -70,9 +71,9 @@ describe("the chats tool", () => {
     const lines = said.replace(/^tool said: /, "").split("\n");
 
     expect(lines[0]).toMatch(/^main "main", updated /);
-    expect(lines.some((line) => line.startsWith(`${active} "Trip plans", updated `))).toBe(true);
-    expect(lines.filter((line) => line.startsWith(`${archived} `))).toEqual([]);
-    expect(lines).toHaveLength(2);
+    expect(lines[1]).toMatch(new RegExp(`^${active} "Trip plans", updated [^,]+$`));
+    expect(lines[2]).toMatch(new RegExp(`^${archived} "Old taxes", updated .+, archived$`));
+    expect(lines).toHaveLength(3);
   });
 
   it("sends a message to a side chat once per call, however often it runs, without a push, and its agent answers it there", async () => {
@@ -174,17 +175,68 @@ describe("the chats tool", () => {
     expect(await run(name, side, 2, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });
   });
 
-  it("refuses its own chat, an unknown or archived chat, and an empty message", async () => {
+  it("refuses its own chat, an unknown chat, and an empty message", async () => {
     const name = crypto.randomUUID();
     const side = await sideChat(name, "Trip plans");
-    const archived = await sideChat(name, "Old taxes", true);
 
     expect(await run(name, side, 1, { action: "send", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
-    expect(await run(name, ROOT_SESSION, 2, { action: "send", chat: "nope", message: "hi" })).toEqual({ text: 'No chat "nope": use main or an id from list.', failed: true });
-    expect(await run(name, ROOT_SESSION, 3, { action: "send", chat: archived, message: "hi" })).toMatchObject({ failed: true });
+    expect(await run(name, side, 2, { action: "ask", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
+    expect(await run(name, ROOT_SESSION, 3, { action: "send", chat: "nope", message: "hi" })).toEqual({ text: 'No chat "nope": use main or an id from list.', failed: true });
     expect(await run(name, ROOT_SESSION, 4, { action: "send", chat: side, message: "  " })).toEqual({ text: "Nothing to send: give a message.", failed: true });
+    expect(await run(name, ROOT_SESSION, 5, { action: "ask", chat: side, message: "  " })).toEqual({ text: "Nothing to ask: give a message.", failed: true });
     expect(await deliveries(name, side)).toEqual([]);
-    expect(await deliveries(name, archived)).toEqual([]);
+  });
+
+  it("reaches an archived chat: reads it, and a send puts it back in the user's list before its agent answers", async () => {
+    const name = crypto.randomUUID();
+    const archived = await sideChat(name, "Old taxes", true);
+    await inside(name, (instance) => instance.harness.prompt("reply: Filed in April.", { session: archived }));
+    const isArchived = () => inside(name, (instance) => instance.chats.list().find((row) => row.session === archived)?.archived_at !== null);
+
+    expect(await isArchived()).toBe(true);
+    expect(await run(name, ROOT_SESSION, 1, { action: "last", chat: archived })).toEqual({ text: "Filed in April.", failed: false });
+
+    expect(await run(name, ROOT_SESSION, 2, { action: "send", chat: archived, message: "Any refund yet?" })).toEqual({ text: "Sent to Old taxes; its agent answers there.", failed: false });
+    expect(await isArchived()).toBe(false);
+    await until(async () => (await latest(name, archived))?.startsWith("echo: [message from your main chat") === true, "the archived chat's answer");
+  });
+
+  it("asks another chat once per call, and hands its answer back to the asking chat, whose agent answers it", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    const sent = await pushes(name);
+    const question = { action: "ask", chat: side, message: "When does the train leave?" };
+
+    expect(await run(name, ROOT_SESSION, 7, question)).toEqual({
+      text: "Asked Trip plans; its agent answers there, and its answer comes back to you here as a message once it is done.",
+      failed: false
+    });
+    expect(await run(name, ROOT_SESSION, 7, question)).toMatchObject({ failed: false });
+    const asked = "[question from your main chat: answer here; your answer goes back to it] When does the train leave?";
+    expect((await deliveries(name, side)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:ask:${ROOT_SESSION}:7`, content: asked }]);
+
+    // The side chat's agent answers there; its answer goes back to the main chat, once, and the main chat's agent answers it.
+    await until(async () => (await deliveries(name, ROOT_SESSION)).some((row) => row.state === "chat"), "the answer handed back");
+    const answer = `[answer from your chat ${side} "Trip plans" to what you asked it; tell the user what matters] echo: ${asked}`;
+    expect((await deliveries(name, ROOT_SESSION)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:answer:${ROOT_SESSION}:7`, content: answer }]);
+    await until(async () => (await latest(name, ROOT_SESSION))?.startsWith(`echo: [answer from your chat ${side}`) === true, "the main chat's answer");
+    expect(sent).toEqual([]);
+  });
+
+  it("refuses to send or ask on from a turn that takes another chat's answer back, so two chats never loop", async () => {
+    const name = crypto.randomUUID();
+    const side = await sideChat(name, "Trip plans");
+    // An answer handed back, by the id the side chat's answer is handed back with, that waits in a tool, so the main chat's turn taking it is still running.
+    await inside(name, (instance) => instance.deliveries.deliver({ id: `chat:answer:${ROOT_SESSION}:7`, session: ROOT_SESSION, content: WAIT, line: "Nine.", ref: `chat:${side}`, kind: "chat" }));
+    await gateStarted(name, 1);
+
+    expect(await run(name, ROOT_SESSION, 9, { action: "ask", chat: side, message: "And the return?" })).toEqual({
+      text: "This turn answers another chat's message: answer here.",
+      failed: true
+    });
+    expect(await run(name, ROOT_SESSION, 10, { action: "send", chat: side, message: "Thanks!" })).toMatchObject({ failed: true });
+    expect(await deliveries(name, side)).toEqual([]);
+    await agent(name).release();
   });
 
   it("refuses a conversation that is not a chat with the user, as a subagent's", async () => {
