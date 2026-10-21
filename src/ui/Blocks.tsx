@@ -52,7 +52,9 @@ type Form = {
 
 function useForm(call: string, questions: readonly Question[], answer: Answered | null, open: boolean): Form {
   const send = useContext(ReplyContext);
-  const [values, setValues] = useState<Value[]>(() => questions.map(() => []));
+  const [kept, setValues] = useState<Value[]>(() => questions.map(() => []));
+  // A draft's questions grow while it shows, so each one past those kept starts unanswered.
+  const values = questions.map((_, at) => kept[at] ?? []);
   const [sent, setSent] = useState(false);
   const live = takesTaps(open, answer, sent) && send !== null;
 
@@ -82,14 +84,15 @@ function useForm(call: string, questions: readonly Question[], answer: Answered 
 
 /**
  * The card a ui call (`call`) showed. `answer` is what answered it, if anything
- * has; `open` says the card is the chat's latest word, so it still takes taps.
+ * has; `open` says the card is the chat's latest word, so it still takes taps;
+ * `drafting` says ky is still writing it, so it shows what has streamed so far.
  */
-export function BlockCard({ call, ui, answer, open }: { call: string; ui: UiCard; answer: Answered | null; open: boolean }) {
+export function BlockCard({ call, ui, answer, open, drafting = false }: { call: string; ui: UiCard; answer: Answered | null; open: boolean; drafting?: boolean }) {
   const form = useForm(call, ui.blocks.filter(isQuestion), answer, open);
 
   return (
     <div className="ui-card-slot">
-      <section className="ui-card" aria-label={cardName(ui)} data-live={form.live}>
+      <section className="ui-card" aria-label={cardName(ui)} aria-busy={drafting} data-live={form.live}>
         {ui.title ? <CardHead title={ui.title} subtitle={ui.subtitle} icon={ui.icon} /> : null}
         {ui.blocks.map((block, at) => (
           <BlockView key={at} block={block} form={form} />

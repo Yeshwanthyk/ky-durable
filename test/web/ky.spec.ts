@@ -550,6 +550,37 @@ test("ky's card with an id updates where it first showed, and the later turn not
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-living-card.png` });
 });
 
+test("ky's card draws as its call streams, and takes taps once it is done", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const ui = {
+    title: "Lisbon trip",
+    blocks: [
+      { type: "status", text: "Flights and the hotel are held until Friday noon", tone: "info" },
+      { type: "list", items: [{ title: "TAP 1234 · SFO → LIS", meta: "Thu 6:40 PM" }, { title: "Memmo Alfama", meta: "3 nights" }, { title: "TAP 1235 · LIS → SFO", meta: "Mon 11:15 AM" }] },
+      { type: "choice", label: "Book them?", options: [{ label: "Book all" }, { label: "Not yet" }] }
+    ]
+  };
+
+  await send(page, `slowly tool ui ${JSON.stringify(ui)}`);
+  const card = chat(page).getByRole("region", { name: "Lisbon trip" });
+
+  // The card shows while its arguments are still arriving: what has come so far, with nothing to tap yet.
+  await expect(card).toHaveAttribute("aria-busy", "true");
+  await expect(card).toContainText("Memmo Alfama");
+  await expect(card.locator("button:enabled")).toHaveCount(0);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-drafting.png` });
+
+  await expect(card).toHaveAttribute("aria-busy", "false", { timeout: 15_000 });
+  await expect(card.getByRole("button", { name: "Book all" })).toBeEnabled();
+  await expect(chat(page).getByRole("region", { name: "Lisbon trip" })).toHaveCount(1);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-drafted.png` });
+});
+
 test("ky's card shows an image, and a tap opens it full size", async ({ page }) => {
   // A 1×1 PNG, served for the https address the card names, so the test never leaves the stack.
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");

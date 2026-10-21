@@ -11,6 +11,7 @@ export const wrote = (turn: Turn | undefined) => (turn !== undefined && turn.fro
  * with the id reads as a quiet "Updated" line in its own turn. The newest call is the card's identity, so its
  * answer is kept by that call. A card waits for its answer until the user writes something after its newest
  * version: a report or a post that lands after it leaves it waiting, so a routine's card can still be answered.
+ * A ui call still streaming or running shows as a draft of what its arguments hold so far, grown as they stream.
  */
 
 export type Placement =
@@ -23,18 +24,21 @@ export type Placement =
       readonly latest: boolean;
       /** Whether it was updated since it first showed. */
       readonly living: boolean;
+      /** Whether its newest version is still being written, so it shows what has streamed so far. */
+      readonly drafting: boolean;
     }
   | { readonly kind: "updated"; readonly name: string };
 
-type Shown = { readonly call: string; readonly ui: UiCard; readonly turn: number };
+type Shown = { readonly call: string; readonly ui: UiCard; readonly turn: number; readonly drafting: boolean };
 
-/** Each done ui call's placement in the turns shown, by call id; a call whose arguments do not read has none. */
+/** Each ui call's placement in the turns shown, by call id; a call whose arguments do not read (yet) has none. */
 export function placements(turns: readonly Turn[]): ReadonlyMap<string, Placement> {
   const shown = turns.flatMap((turn, index) =>
     turn.items.flatMap((item): Shown[] => {
-      const ui = item.kind === "tool" && item.name === "ui" && item.status === "done" ? card(item) : null;
+      if (item.kind !== "tool" || item.name !== "ui" || item.status === "failed") return [];
+      const ui = card(item);
 
-      return ui === null ? [] : [{ call: item.id, ui, turn: index }];
+      return ui === null ? [] : [{ call: item.id, ui, turn: index, drafting: item.status === "running" }];
     })
   );
 
@@ -52,7 +56,7 @@ export function placements(turns: readonly Turn[]): ReadonlyMap<string, Placemen
     const top = id === undefined ? each : (newest.get(id) ?? each);
 
     if (id !== undefined && placed.has(id)) out.set(each.call, { kind: "updated", name: each.ui.title ?? "card" });
-    else out.set(each.call, { kind: "card", call: top.call, ui: top.ui, latest: top.turn >= said, living: top !== each });
+    else out.set(each.call, { kind: "card", call: top.call, ui: top.ui, latest: top.turn >= said, living: top !== each, drafting: top.drafting });
 
     if (id !== undefined) placed.add(id);
   }
