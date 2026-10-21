@@ -126,6 +126,13 @@ export const UiBlockSchema = Type.Union([
     height: Type.Optional(Type.Integer({ minimum: 80, maximum: 2000, description: "Pixels to show before the page reports its own height. Defaults to 480." }))
   }),
   Status,
+  Type.Object({
+    type: Type.Literal("routine"),
+    routine: Type.String({
+      maxLength: 64,
+      description: "An automation's id, from the automation tool: the card shows it as it is now (its schedule, next and last run) with pause and run now, kept current."
+    })
+  }),
   Stats,
   Chart,
   Table,

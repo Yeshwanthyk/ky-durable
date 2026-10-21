@@ -2418,6 +2418,39 @@ button.live:hover .live-steps {
   flex-direction: column;
 }
 
+/* A routine ky named: its row as the panel draws it, boxed like the stats, with run and pause always there. */
+.ui-routine {
+  position: relative;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.ui-routine .feed-text {
+  padding-right: 72px;
+}
+
+.ui-routine .automation-actions {
+  opacity: 1;
+  background: none;
+  mask-image: none;
+  gap: 2px;
+}
+
+.ui-routine .automation-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--quiet);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-routine.feed-item.automation:hover {
+    background: var(--surface);
+  }
+}
+
 .ui-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

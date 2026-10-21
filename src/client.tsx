@@ -5,7 +5,7 @@ import { imageSupport } from "./images";
 import type { SettingsView, TaskRow } from "./protocol";
 import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
-import { AutomationsContext } from "./ui/Automations";
+import { AutomationsContext, RoutinesContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/change-review";
 import type { CardAnswer } from "./ui-blocks";
 import type { BlobVariantId } from "./ui/blob-catalog";
@@ -391,12 +391,16 @@ function Stage(parts: Parts) {
   /** While a run is going, Enter steers it; otherwise it starts one. A tap on a card ky showed sends the same way. */
   const onSend = useStableCallback((input: UserInput, card?: CardAnswer) => ky.submit(input, ky.running ? "steer" : "followUp", card));
 
+  const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
+
   return (
     <section className="stage" aria-label="Chat">
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
-        <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+        <RoutinesContext.Provider value={routines}>
+          <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+        </RoutinesContext.Provider>
         <DraftDock
           handle={composer}
           run={run}
