@@ -15,7 +15,7 @@ import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { eventsOf, type ThreadEvent } from "./events";
 import { Icon } from "./Icon";
-import { type Placement, placements } from "./living-cards";
+import { type Placement, placements, wrote } from "./living-cards";
 import { Markdown } from "./Markdown";
 import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
@@ -84,7 +84,7 @@ export function Thread({
             turn={turn}
             mode={index === shown.length - 1 ? mode : "dormant"}
             arrived={arrived}
-            next={shown[index + 1]?.user ?? null}
+            next={wrote(shown[index + 1])}
           />
         </Fragment>
       ))}
