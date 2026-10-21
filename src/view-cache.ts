@@ -34,7 +34,7 @@ export type SharedLists = {
   readonly settings: SettingsView | null;
 };
 
-type CachedView = Pick<PiSessionView, "messages" | "model">;
+type CachedView = Pick<PiSessionView, "messages" | "model" | "answers">;
 
 type Cache = {
   readonly build: string;
@@ -106,7 +106,7 @@ const sharedOf = ({ catalog, tasks, machines, files, chats, skills, automations,
 
 /** Keep what the session shows now, for the next cold start. */
 export function saveView(session: string, state: PiSessionView & SharedLists): void {
-  const kept: CachedView = { messages: state.messages.slice(-MAX_MESSAGES).map(lighter), model: state.model };
+  const kept: CachedView = { messages: state.messages.slice(-MAX_MESSAGES).map(lighter), model: state.model, answers: state.answers };
   const others = (read()?.sessions ?? []).filter((each) => each.session !== session);
   const cache: Cache = { build: BUILD, shared: sharedOf(state), sessions: [{ session, view: kept }, ...others].slice(0, MAX_SESSIONS) };
 

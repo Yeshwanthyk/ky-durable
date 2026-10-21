@@ -1,8 +1,8 @@
 import { createContext, type KeyboardEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import Type from "typebox";
 import { decodeOr } from "../core/decode";
-import type { ShownBlock, TabsBlock, UiBlock, UiCard } from "../ui-blocks";
-import { answered, cardName, compose, decompose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
+import type { CardAnswer, ShownBlock, TabsBlock, UiBlock, UiCard } from "../ui-blocks";
+import { type Answered, answered, cardName, compose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { Icon, type IconName } from "./Icon";
 import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
@@ -17,8 +17,8 @@ import { useMode } from "./use-mode";
  * button sends its reply, or opens its link.
  */
 
-/** Sends the user's answer as their next message; a thread that cannot send has none. */
-export const ReplyContext = createContext<((text: string) => void) | null>(null);
+/** Sends the user's answer as their next message, with what was chosen kept beside it; a thread that cannot send has none. */
+export const ReplyContext = createContext<((text: string, card?: CardAnswer) => void) | null>(null);
 
 type Option = { label: string; detail?: string };
 
@@ -42,45 +42,49 @@ type Form = {
   readonly done: boolean;
   readonly questions: readonly Question[];
   readonly values: readonly Value[];
-  readonly answer: string;
+  /** The reply of the button that answered it. */
+  readonly button: string | undefined;
   readonly change: (index: number, value: Value) => void;
   readonly submit: () => void;
   readonly reply: (text: string) => void;
 };
 
-function useForm(questions: readonly Question[], answer: string | null, open: boolean): Form {
+function useForm(call: string, questions: readonly Question[], answer: Answered | null, open: boolean): Form {
   const send = useContext(ReplyContext);
   const [values, setValues] = useState<Value[]>(() => questions.map(() => []));
   const [sent, setSent] = useState(false);
   const live = takesTaps(open, answer, sent) && send !== null;
 
-  const reply = (text: string) => {
+  const answerWith = (text: string, chosen: readonly Value[], button?: string) => {
     if (!live || !text) return;
     setSent(true);
-    send(text);
+    const card: CardAnswer = { call, values: chosen.map((value) => [...value]) };
+
+    if (button !== undefined) card.button = button;
+    send(text, card);
   };
 
   const change = (index: number, value: Value) => {
     if (!live) return;
     const next = values.map((each, at) => (at === index ? value : each));
 
-    if (sendsOnTap(questions)) reply(compose(questions, next));
+    if (sendsOnTap(questions)) answerWith(compose(questions, next), next);
     else setValues(next);
   };
 
-  const submit = () => (answered(questions, values) ? reply(compose(questions, values)) : undefined);
-
-  const shown = answer === null ? { done: false, values, answer: "" } : { done: true, values: decompose(questions, answer), answer };
+  const submit = () => (answered(questions, values) ? answerWith(compose(questions, values), values) : undefined);
+  const reply = (text: string) => answerWith(text, values, text);
+  const shown = answer === null ? { done: false, values, button: undefined } : { done: true, ...answer };
 
   return { live, questions, change, submit, reply, ...shown };
 }
 
 /**
- * The card. `answer` is the user's next message, if the chat has one; `open`
- * says the card is the chat's latest word, so it still takes taps.
+ * The card a ui call (`call`) showed. `answer` is what answered it, if anything
+ * has; `open` says the card is the chat's latest word, so it still takes taps.
  */
-export function BlockCard({ ui, answer, open }: { ui: UiCard; answer: string | null; open: boolean }) {
-  const form = useForm(ui.blocks.filter(isQuestion), answer, open);
+export function BlockCard({ call, ui, answer, open }: { call: string; ui: UiCard; answer: Answered | null; open: boolean }) {
+  const form = useForm(call, ui.blocks.filter(isQuestion), answer, open);
 
   return (
     <div className="ui-card-slot">
@@ -144,7 +148,7 @@ const VIEWS: Views<UiBlock, Form> = {
   ...SHOWN,
   choice: (block, form) => <ChoiceView choice={block} form={form} />,
   input: (block, form) => <InputView input={block} form={form} />,
-  buttons: (block, form) => <ButtonsBlock buttons={block.buttons} live={form.live} pressed={form.answer} onReply={form.reply} />,
+  buttons: (block, form) => <ButtonsBlock buttons={block.buttons} live={form.live} pressed={form.button} onReply={form.reply} />,
   page: (block) => <PageBlock site={block.site} title={block.title ?? "Page"} height={block.height ?? 480} />,
   tabs: (block) => <TabsView tabs={block.tabs} />,
   columns: (block) => <ColumnsBlock columns={block.columns} />
@@ -314,7 +318,7 @@ function ChoiceBlock({ choice, value, live, answered, onChange }: ChoiceProps) {
       <div className="ui-options">
         {choice.options.map((option, index) => (
           <OptionRow
-            key={option.label}
+            key={index}
             option={option}
             letter={LETTERS[index] ?? ""}
             on={value.includes(option.label)}
@@ -418,13 +422,13 @@ type Button = Extract<UiBlock, { type: "buttons" }>["buttons"][number];
 /** A link a card may open: http or https only, since the arguments are the model's to write. */
 const webLink = (url: string | undefined) => (url !== undefined && /^https?:\/\//i.test(url) ? url : null);
 
-function ButtonsBlock({ buttons, live, pressed, onReply }: { buttons: readonly Button[]; live: boolean; pressed: string; onReply: (text: string) => void }) {
+function ButtonsBlock({ buttons, live, pressed, onReply }: { buttons: readonly Button[]; live: boolean; pressed: string | undefined; onReply: (text: string) => void }) {
   return (
     <div className="ui-actions">
-      {buttons.map((button) => {
+      {buttons.map((button, index) => {
         const url = webLink(button.url);
 
-        return url ? <LinkButton key={button.label} button={button} url={url} /> : <ReplyButton key={button.label} button={button} live={live} pressed={pressed} onReply={onReply} />;
+        return url ? <LinkButton key={index} button={button} url={url} /> : <ReplyButton key={index} button={button} live={live} pressed={pressed} onReply={onReply} />;
       })}
     </div>
   );
@@ -440,7 +444,7 @@ function LinkButton({ button, url }: { button: Button; url: string }) {
 }
 
 /** A button that sends its reply, or its label, as the user's message. */
-function ReplyButton({ button, live, pressed, onReply }: { button: Button; live: boolean; pressed: string; onReply: (text: string) => void }) {
+function ReplyButton({ button, live, pressed, onReply }: { button: Button; live: boolean; pressed: string | undefined; onReply: (text: string) => void }) {
   const reply = button.reply ?? button.label;
 
   return (

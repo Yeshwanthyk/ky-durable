@@ -7,6 +7,7 @@ import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/change-review";
+import type { CardAnswer } from "./ui-blocks";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
@@ -349,8 +350,8 @@ function Stage(parts: Parts) {
   );
 
   const thread = useMemo(
-    () => ({ messages, live: ky.live, running: ky.running, tools: ky.tools }),
-    [messages, ky.live, ky.running, ky.tools]
+    () => ({ messages, live: ky.live, running: ky.running, tools: ky.tools, answers: ky.answers }),
+    [messages, ky.live, ky.running, ky.tools, ky.answers]
   );
 
   const kept = useSame(view.setUp, shallow);
@@ -388,7 +389,7 @@ function Stage(parts: Parts) {
   );
 
   /** While a run is going, Enter steers it; otherwise it starts one. A tap on a card ky showed sends the same way. */
-  const onSend = useStableCallback((input: UserInput) => ky.submit(input, ky.running ? "steer" : "followUp"));
+  const onSend = useStableCallback((input: UserInput, card?: CardAnswer) => ky.submit(input, ky.running ? "steer" : "followUp", card));
 
   return (
     <section className="stage" aria-label="Chat">

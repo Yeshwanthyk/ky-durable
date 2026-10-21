@@ -388,10 +388,12 @@ test("asks a side chat from the main chat, and the side chat's answer comes back
 
   // The side chat's agent answers the question there; its answer comes back to the main chat, whose agent answers it.
   await expect(chat(page).getByText(new RegExp(`^echo: \\[answer from your chat ${side} "Named: reply: Trains to Lisbon"`))).toBeVisible();
+
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-ask-main.png` });
 
   await chats.getByRole("button", { name: /^Named: reply: Trains to Lisbon/ }).click();
   await expect(chat(page).getByText(/^echo: \[question from your main chat: answer here; your answer goes back to it\] When does the train leave\?/)).toBeVisible();
+
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-ask-side.png` });
 });
 
@@ -480,6 +482,42 @@ test("ky's card takes taps: the chosen options go as the user's next message, an
   await expect(card.getByRole("button", { name: "Send" })).toBeHidden();
   await expect(card.getByRole("button", { name: /Audible Canada/ })).toHaveAttribute("aria-pressed", "true");
   await expect(card.getByRole("button", { name: /Lyft/ })).toBeDisabled();
+});
+
+test("ky's card keeps what was chosen through a reload, labels with commas and all", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const ui = {
+    title: "Pick times",
+    wait: true,
+    blocks: [
+      { type: "choice", label: "Which work?", multiple: true, options: [{ label: "Tue, 10am" }, { label: "Wed, 2pm" }, { label: "Thu, 9am" }] },
+      { type: "input", label: "Anything else?", multiline: true }
+    ]
+  };
+
+  await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+  const card = chat(page).getByRole("region", { name: "Pick times" });
+
+  await card.getByRole("button", { name: /Tue, 10am/ }).click();
+  await card.getByRole("button", { name: /Thu, 9am/ }).click();
+  await card.getByRole("textbox").fill("Not before 9");
+  await card.getByRole("button", { name: "Send" }).click();
+  await expect(chat(page).getByText(/echo: Which work\?: Tue, 10am, Thu, 9am/)).toBeVisible();
+
+  await page.reload();
+
+  const again = chat(page).getByRole("region", { name: "Pick times" });
+
+  await expect(again.getByRole("button", { name: /Tue, 10am/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(again.getByRole("button", { name: /Thu, 9am/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(again.getByRole("button", { name: /Wed, 2pm/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(again.getByText("Not before 9")).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-answer-kept.png` });
 });
 
 test("ky's card shows an image, and a tap opens it full size", async ({ page }) => {

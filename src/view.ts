@@ -13,6 +13,8 @@ import {
   type PiMessagePart
 } from "./transcript";
 import { must } from "./core/must";
+import { decodeOr } from "./core/decode";
+import { CARD_ANSWER, type CardAnswer, CardAnswerSchema } from "./ui-blocks";
 
 /** A tool call running now, with its streamed output. */
 export type PiRunningTool = {
@@ -40,6 +42,8 @@ export type PiSessionView = {
     readonly modelId: string;
   } | null;
   readonly error: string | null;
+  /** What the user answered on ky's cards, by the ui call's id (src/ui/card-answers.ts). */
+  readonly answers: Readonly<Record<string, CardAnswer>>;
 };
 
 /**
@@ -55,12 +59,28 @@ export const EMPTY_VIEW: PiSessionView = {
   queued: 0,
   retry: null,
   model: null,
-  error: null
+  error: null,
+  answers: {}
 };
 
 const LIVE_ID = "live";
 
+/** A card's answer the entry keeps, if it is one; one a damaged or newer entry holds reads as none. */
+const answerOf = (entry: EntryRecord): CardAnswer | null => (entry.kind === CARD_ANSWER ? decodeOr(CardAnswerSchema, entry.data, null) : null);
+
+/** `answers` with what `entries` answered added. */
+function withAnswers(answers: PiSessionView["answers"], entries: readonly EntryRecord[]): PiSessionView["answers"] {
+  const found = entries.flatMap((entry) => {
+    const answer = answerOf(entry);
+
+    return answer === null ? [] : [[answer.call, answer] as const];
+  });
+
+  return found.length === 0 ? answers : { ...answers, ...Object.fromEntries(found) };
+}
+
 function append(view: PiSessionView, entry: EntryRecord): PiSessionView {
+  if (entry.kind === CARD_ANSWER) return { ...view, answers: withAnswers(view.answers, [entry]) };
   const message = projectEntry(entry);
 
   if (!message) return view;
@@ -148,7 +168,8 @@ function reduceView(
         queued: event.inbox.length,
         retry: event.generation?.retry ?? null,
         model: event.agent.model ?? null,
-        error: null
+        error: null,
+        answers: withAnswers({}, event.entries)
       };
     }
 

@@ -5,7 +5,8 @@ import { Attachments } from "./Attachments";
 import { KY_AVATAR } from "../avatar-spec";
 import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
-import { card } from "./card-answers";
+import { answeredWith, card, isQuestion } from "./card-answers";
+import type { CardAnswer } from "../ui-blocks";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";
@@ -23,6 +24,9 @@ export const OpenStepsContext = createContext<(() => void) | null>(null);
 
 /** What turn-start recall gave the model for each of the chat's user messages, by message id. */
 export const RecalledContext = createContext<Readonly<Record<string, readonly string[]>>>({});
+
+/** What the user answered on ky's cards, by the ui call's id. */
+export const AnswersContext = createContext<Readonly<Record<string, CardAnswer>>>({});
 
 /** Who answers in this chat, for the working row: ky's name and blob, or a subagent's name without one. */
 export type Speaker = { readonly name: string; readonly variantId?: BlobVariantId };
@@ -283,6 +287,10 @@ const TurnView = memo(function TurnView({
   const waiting = turn.to.filter((id) => !replies.some((reply) => reply.from === id));
   // Cards ky showed with the ui tool are part of its answer, not its work log.
   const cards = turn.items.flatMap((item) => (item.kind === "tool" && item.name === "ui" && item.status === "done" ? [{ id: item.id, ui: card(item) }] : []));
+  const answers = useContext(AnswersContext);
+  // A card reads its answer from the record kept beside it; only a turn none of whose cards has one, from before
+  // records, reads the next message's words back.
+  const before = !cards.some(({ id }) => answers[id] !== undefined);
   const { log, answer } = split(turn.items.filter((item) => item.kind !== "specialist" && !(item.kind === "tool" && item.name === "ui")), live);
   const speaker = useContext(SpeakerContext);
   const [open, setOpen] = useState(false);
@@ -340,7 +348,9 @@ const TurnView = memo(function TurnView({
               </div>
             ) : null}
             <TurnEvents items={turn.items} live={live} />
-            {cards.map(({ id, ui }) => (ui ? <BlockCard key={id} ui={ui} answer={next} open={last && !live} /> : null))}
+            {cards.map(({ id, ui }) =>
+              ui ? <BlockCard key={id} call={id} ui={ui} answer={answeredWith(ui.blocks.filter(isQuestion), answers[id], before ? next : null)} open={last && !live} /> : null
+            )}
             {live ? (
               <button type="button" className="live" disabled={openSteps === null} aria-haspopup="dialog" onClick={openSteps ?? undefined}>
                 <span className="live-avatar" aria-hidden="true">

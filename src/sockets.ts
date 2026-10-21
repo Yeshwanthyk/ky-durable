@@ -33,6 +33,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
+import { CARD_ANSWER } from "./ui-blocks";
 import type { AutomationAction, Automations, ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
@@ -765,7 +766,7 @@ export class PiSessionSockets {
 
       const theirs = all.length === 0 ? undefined : await this.#group.submit(session, message.input, text, message.operationId ?? crypto.randomUUID());
 
-      if (theirs !== undefined) return theirs;
+      if (theirs !== undefined) return await this.#keepAnswer(session, message, theirs);
     }
 
     // Pass only the options the client set.
@@ -775,7 +776,21 @@ export class PiSessionSockets {
 
     if (message.operationId) options.operationId = message.operationId;
 
-    return await this.#harness.session(session).submit(message.input, options);
+    return await this.#keepAnswer(session, message, await this.#harness.session(session).submit(message.input, options));
+  }
+
+  /**
+   * A message that answers a card keeps what was chosen beside it, once the message is taken, so the card reads its
+   * answer back from the record rather than the words. By the message's operation id, so a resend keeps it once.
+   */
+  async #keepAnswer(session: PiSessionId, message: ClientMessages["submit"], taken: JsonValue): Promise<JsonValue> {
+    if (message.card === undefined) return taken;
+    const conversation = await this.#harness.conversation(session);
+    const requestId = `${message.operationId ?? message.id}:card`;
+
+    await conversation.submit({ type: "write", entry: { kind: CARD_ANSWER, data: message.card }, requestId }, BACKGROUND);
+
+    return taken;
   }
 
   /**
