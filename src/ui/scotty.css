@@ -52,8 +52,9 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
   --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.1);
   --overlay: rgb(0 0 0 / 0.18);
-  --user-bubble: #f1f1f1;
-  --user-ink: var(--ink);
+  /* The user's words in solid ink: the one bold thing in the chat that is not ky's. */
+  --user-bubble: #141414;
+  --user-ink: #ffffff;
 }
 
 /* The dark theme, and anything that is dark in both themes (the Sheet), so tokens inside it read on its surface. */
@@ -85,8 +86,8 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
   --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px rgb(0 0 0 / 0.45);
   --overlay: rgb(0 0 0 / 0.45);
-  --user-bubble: #262626;
-  --user-ink: var(--ink);
+  --user-bubble: #ededed;
+  --user-ink: #141414;
 }
 
 /* The dark theme reads as easily as the light one (docs/ui-polish/contrast.md): body text 7:1,
@@ -107,7 +108,40 @@
   --line-strong: rgb(255 255 255 / 0.36);
   --line-hover: rgb(255 255 255 / 0.5);
   --accent: #e6e6e6;
-  --user-bubble: #2b2b2b;
+  --user-bubble: #e6e6e6;
+  --user-ink: #141414;
+}
+
+/* Settings → Appearance → Accent (use-accent.ts): the user's bubble, the unread dot and focus rings
+   take the color; cards, buttons and text stay ink. Deep enough for white text in both themes. */
+:root {
+  --accent-violet: #5b2fc9;
+  --accent-blue: #1f62d1;
+  --accent-green: #12784f;
+  --accent-ember: #c2410c;
+  --accent-pink: #be2f6b;
+  /* Text on the accent: the page's own color while the accent is ink. */
+  --accent-ink: var(--bg);
+}
+
+:root[data-mode="dark"] {
+  --accent-violet: #7650e0;
+  --accent-blue: #3a7ce0;
+  --accent-green: #1f8d60;
+  --accent-ember: #d4561c;
+  --accent-pink: #cf467f;
+}
+
+:root[data-accent="violet"] { --accent: var(--accent-violet); }
+:root[data-accent="blue"] { --accent: var(--accent-blue); }
+:root[data-accent="green"] { --accent: var(--accent-green); }
+:root[data-accent="ember"] { --accent: var(--accent-ember); }
+:root[data-accent="pink"] { --accent: var(--accent-pink); }
+
+:root[data-accent] {
+  --accent-ink: #ffffff;
+  --user-bubble: var(--accent);
+  --user-ink: var(--accent-ink);
 }
 
 .mono {
@@ -886,7 +920,7 @@ button.live:hover .live-steps {
 .composer {
   max-width: var(--thread-width);
   margin: 0 auto;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: var(--surface);
   box-shadow: var(--shadow);
@@ -1010,12 +1044,13 @@ button.live:hover .live-steps {
 
 .attach-button {
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   margin: 0 0 0 6px;
   display: grid;
   place-items: center;
   border-radius: 50%;
+  background: var(--raised);
   color: var(--muted);
 }
 
@@ -1053,8 +1088,8 @@ button.live:hover .live-steps {
 }
 
 .composer-bar .send-button {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
 }
 
 .composer-note {
@@ -1805,7 +1840,7 @@ button.live:hover .live-steps {
 
 .changes-send .pill {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--accent-ink);
 }
 
 .changes-send .pill .icon {
@@ -1998,7 +2033,7 @@ button.live:hover .live-steps {
 .group-check[data-on="true"] {
   border-color: var(--accent);
   background: var(--accent);
-  color: var(--bg);
+  color: var(--accent-ink);
 }
 
 .group-menu-note {
@@ -2069,12 +2104,15 @@ button.live:hover .live-steps {
 .ui-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  gap: 14px;
+  padding: 18px 18px 16px;
+  border-radius: 16px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  /* A hairline ring in the shadow instead of a border: the edge reads, and the card floats. */
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 10px 30px rgb(0 0 0 / 0.06);
   transition:
     opacity var(--enter) var(--ease-enter),
     transform var(--enter) var(--ease-enter);
@@ -2106,18 +2144,20 @@ button.live:hover .live-steps {
 
 .ui-icon {
   display: grid;
+  flex: none;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-md);
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
   background: var(--raised);
-  color: var(--muted);
+  color: var(--ink);
 }
 
 .ui-title {
   margin: 0;
-  font-size: calc(14px * var(--text-scale));
+  font-size: calc(16px * var(--text-scale));
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .ui-subtitle {
@@ -2158,10 +2198,10 @@ button.live:hover .live-steps {
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
-  background: var(--bg);
+  padding: 8px 12px 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--sunken);
   color: var(--ink);
   font: inherit;
   text-align: left;
@@ -2175,14 +2215,13 @@ button.live:hover .live-steps {
 
 @media (hover: hover) and (pointer: fine) {
   .ui-card[data-live="true"] .ui-option:hover {
-    background: var(--hover);
-    border-color: var(--line-hover);
+    background: var(--selected);
   }
 }
 
 .ui-option[data-on="true"] {
   border-color: var(--ink);
-  background: var(--selected);
+  background: var(--surface);
 }
 
 .ui-option:disabled {
@@ -2200,16 +2239,17 @@ button.live:hover .live-steps {
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
   color: var(--muted);
-  font-size: calc(11.5px * var(--text-scale));
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
 }
 
 .ui-option[data-on="true"] .ui-key {
-  border-color: var(--ink);
   background: var(--ink);
+  box-shadow: none;
   color: var(--bg);
 }
 
@@ -2235,17 +2275,18 @@ button.live:hover .live-steps {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
-  background: var(--bg);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--sunken);
   color: var(--ink);
   font: inherit;
   resize: vertical;
 }
 
 .ui-field :is(input, textarea):focus-visible {
-  outline: 2px solid var(--working);
-  outline-offset: -1px;
+  outline: 0;
+  border-color: var(--line-hover);
+  background: var(--surface);
 }
 
 .ui-done {
@@ -2254,7 +2295,7 @@ button.live:hover .live-steps {
   place-items: center;
   width: 44px;
   border: 0;
-  border-radius: var(--radius-lg);
+  border-radius: 12px;
   background: var(--ink);
   color: var(--bg);
   cursor: pointer;
@@ -2281,22 +2322,44 @@ button.live:hover .live-steps {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
-  padding: 0 16px;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 15px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
-  font-weight: 600;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
+
+  .icon {
+    flex: none;
+    color: var(--muted);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-button:hover:not(:disabled) {
+    background: var(--hover);
+  }
+
+  .ui-button[data-tone="primary"]:hover:not(:disabled) {
+    background: var(--ink);
+    opacity: 0.86;
+  }
 }
 
 .ui-button[data-tone="primary"] {
   border-color: var(--ink);
   background: var(--ink);
   color: var(--bg);
+
+  .icon {
+    color: inherit;
+  }
 }
 
 .ui-button[data-tone="danger"] {
@@ -2344,6 +2407,7 @@ button.live:hover .live-steps {
 
 .ui-list-meta {
   font-size: calc(12.5px * var(--text-scale));
+  font-variant-numeric: tabular-nums;
 }
 
 /* A card's image: an attachment's frame, a little taller, its caption free to wrap. */
@@ -2866,3 +2930,31 @@ button.live:hover .live-steps {
   font-size: calc(14px * var(--text-scale));
   text-align: left;
 }
+
+.accent-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.accent-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3px var(--line-strong);
+}
+
+.accent-swatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--swatch);
+}
+
+.accent-swatch[data-swatch="ink"] { --swatch: var(--ink); }
+.accent-swatch[data-swatch="violet"] { --swatch: var(--accent-violet); }
+.accent-swatch[data-swatch="blue"] { --swatch: var(--accent-blue); }
+.accent-swatch[data-swatch="green"] { --swatch: var(--accent-green); }
+.accent-swatch[data-swatch="ember"] { --swatch: var(--accent-ember); }
+.accent-swatch[data-swatch="pink"] { --swatch: var(--accent-pink); }

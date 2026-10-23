@@ -36,6 +36,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatar-spec";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Skills } from "./Skills";
@@ -2554,8 +2555,40 @@ function AppearancePage({ theme, onTheme }: PageProps) {
             ))}
           </Segmented>
         </div>
+        <AccentRow />
       </div>
     </>
+  );
+}
+
+const ACCENT_NAMES: Record<Accent, string> = { ink: "Ink", violet: "Violet", blue: "Blue", green: "Green", ember: "Ember", pink: "Pink" };
+
+/** The accent: a swatch each, the chosen one ringed. */
+function AccentRow() {
+  const accent = useAccent();
+
+  return (
+    <div className="row">
+      <span className="row-tile">
+        <Icon name="sparkle" size={15} />
+      </span>
+      <span className="row-label">Accent</span>
+      <div className="accent-swatches" role="radiogroup" aria-label="Accent">
+        {ACCENTS.map((each) => (
+          <button
+            key={each}
+            type="button"
+            role="radio"
+            aria-checked={accent === each}
+            aria-label={ACCENT_NAMES[each]}
+            title={ACCENT_NAMES[each]}
+            className="accent-swatch pressable"
+            data-swatch={each}
+            onClick={() => setAccent(each)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
