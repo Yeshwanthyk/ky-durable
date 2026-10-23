@@ -41,6 +41,7 @@ import { useSessionRoute } from "./ui/use-session-route";
 import { wide } from "./ui/layout";
 import { useShell, type Shell } from "./ui/use-shell";
 import { shallow, useSame, useStableCallback } from "./ui/use-stable";
+import { restoreAccent } from "./ui/use-accent";
 import { useTheme } from "./ui/use-theme";
 import { AvatarsContext } from "./ui/Bloub";
 import { type FirstRunTarget, type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
@@ -642,6 +643,8 @@ function App() {
 const root = document.getElementById("root");
 
 if (!root) throw new Error("Missing #root element");
+
+restoreAccent();
 
 createRoot(root).render(<App />);
 

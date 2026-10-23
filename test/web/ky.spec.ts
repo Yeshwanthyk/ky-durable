@@ -1058,6 +1058,22 @@ test("switches the theme and keeps it after a reload", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
 });
 
+test("picks an accent in Settings › Appearance and keeps it after a reload, Ink taking it off", async ({ page }) => {
+  await open(page);
+  await settings(page, "Appearance");
+  const accents = panel(page).getByRole("radiogroup", { name: "Accent" });
+  await expect(accents.getByRole("radio", { name: "Ink", exact: true })).toHaveAttribute("aria-checked", "true");
+  await accents.getByRole("radio", { name: "Violet" }).click();
+  await expect(accents.getByRole("radio", { name: "Violet" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("html")).toHaveAttribute("data-accent", "violet");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-accent", "violet");
+  await settings(page, "Appearance");
+  await panel(page).getByRole("radiogroup", { name: "Accent" }).getByRole("radio", { name: "Ink", exact: true }).click();
+  await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.*/);
+});
+
 test("opens Settings' pages from its first page and comes back with the button or Escape", async ({ page }) => {
   await open(page);
   await settings(page);

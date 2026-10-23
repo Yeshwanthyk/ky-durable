@@ -433,17 +433,18 @@ function ButtonsBlock({ buttons, live, pressed, onReply }: { buttons: readonly B
       {buttons.map((button, index) => {
         const url = webLink(button.url);
 
-        return url ? <LinkButton key={index} button={button} url={url} /> : <ReplyButton key={index} button={button} live={live} pressed={pressed} onReply={onReply} />;
+        return url ? <LinkButton key={index} button={button} url={url} alone={buttons.length === 1} /> : <ReplyButton key={index} button={button} live={live} pressed={pressed} onReply={onReply} />;
       })}
     </div>
   );
 }
 
-/** A button that opens a page, such as an app's authorize link, in a new tab. */
-function LinkButton({ button, url }: { button: Button; url: string }) {
+/** A button that opens a page, such as an app's authorize link, in a new tab: primary when it is the card's only button. */
+function LinkButton({ button, url, alone }: { button: Button; url: string; alone: boolean }) {
   return (
-    <a className="ui-button pressable" data-tone={button.tone ?? "primary"} href={url} target="_blank" rel="noreferrer">
+    <a className="ui-button pressable" data-tone={button.tone ?? (alone ? "primary" : "default")} href={url} target="_blank" rel="noreferrer">
       {button.label}
+      <Icon name="external" size={13} />
     </a>
   );
 }
