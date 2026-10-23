@@ -92,10 +92,13 @@ export function Thread({
   );
 }
 
-/** The turns' card placements, kept as the same map while they read the same, so a streamed token re-renders only its own turn. */
+/**
+ * The turns' card placements, kept as the same map while they read the same, so a streamed token re-renders only its
+ * own turn. A draft reads as what it holds, so the card grows as its call streams.
+ */
 function useSamePlacements(turns: readonly Turn[]): ReadonlyMap<string, Placement> {
   const placed = placements(turns);
-  const key = [...placed].map(([call, each]) => (each.kind === "card" ? `${call}>${each.call}:${each.latest}` : `${call}^`)).join(" ");
+  const key = [...placed].map(([call, each]) => (each.kind === "card" ? `${call}>${each.call}:${each.latest}${each.drafting ? JSON.stringify(each.ui) : ""}` : `${call}^`)).join(" ");
   const kept = useRef({ key, placed });
 
   if (kept.current.key !== key) kept.current = { key, placed };
@@ -392,6 +395,7 @@ const TurnView = memo(function TurnView({
                   ui={placement.ui}
                   answer={answeredWith(placement.ui.blocks.filter(isQuestion), answers[placement.call], before && !placement.living ? next : null)}
                   open={placement.latest && !busy}
+                  drafting={placement.drafting}
                 />
               )
             )}

@@ -451,6 +451,8 @@ export class Vault extends ProductionVault {
  * - A prompt containing `model-refuses` gets a 400, which no retry or stand-in mends.
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
+ * - `slowly tool NAME JSON` makes the same call, its arguments streamed in
+ *   pieces 120ms apart.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
  * - Titles are answered `Title: "Named: <first line>"` and a second line,
@@ -692,6 +694,9 @@ const CALLS: Array<[RegExp, (match: RegExpExecArray) => Reply]> = [
   [/^executor (.+)$/s, (match) => call("executor_execute", { code: match[1]! })],
   // SAFETY: the tests write a JSON object after the tool name, here and below; a bad one fails the turn loudly.
   [/^tool (\S+) (\{.*\})$/s, (match) => call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>)],
+  // The same call with its arguments streamed slowly, so a page shows what it draws from them as they arrive.
+  // SAFETY: as above, the test writes a JSON object after the tool name.
+  [/^slowly tool (\S+) (\{.*\})$/s, (match) => ({ ...call(match[1]!, JSON.parse(match[2]!) as Record<string, JsonValue>), pace: 120 })],
   [/^gate$/, () => call("gate", {})],
   [/^gate-unsafe$/, () => call("gate_unsafe", {})]
 ];

@@ -5,7 +5,8 @@ import type { AiBinding } from "@earendil-works/pi-ai/api/cloudflare-ai-binding"
  * An OpenAI chat-completions server, as Workers AI's compat endpoint (behind
  * the AI binding) and OpenCode Go both are, answering each request from a
  * script. It streams as they do: text in small deltas, a tool call as one
- * delta, then a finish reason and usage.
+ * delta (or, paced, its arguments a few characters at a time), then a finish
+ * reason and usage.
  */
 
 /** A message as the API carries it. */
@@ -17,8 +18,11 @@ export type WireMessage = {
 /** What the script answers: text, one tool call, or a failure with its status. */
 export type Reply =
   | { readonly text: string }
-  /** A call to `tool`; `say` is text the model writes before it, as a model narrating a step does. */
-  | { readonly tool: string; readonly args: Record<string, JsonValue>; readonly say?: string }
+  /**
+   * A call to `tool`; `say` is text the model writes before it, as a model narrating a step does. With `pace`, the
+   * arguments stream in small pieces that many milliseconds apart, as a long call's do.
+   */
+  | { readonly tool: string; readonly args: Record<string, JsonValue>; readonly say?: string; readonly pace?: number }
   | { readonly status: number; readonly error: string };
 
 /** What a request asked, as the wire carries it. */
@@ -97,16 +101,28 @@ function failure(status: number, message: string): Response {
 type Delta = {
   readonly role?: "assistant";
   readonly content?: string;
+  /** A call's first delta names it; each later one adds to its arguments. */
   readonly tool_calls?: ReadonlyArray<{
     readonly index: number;
-    readonly id: string;
-    readonly type: "function";
-    readonly function: { readonly name: string; readonly arguments: string };
+    readonly id?: string;
+    readonly type?: "function";
+    readonly function: { readonly name?: string; readonly arguments: string };
   }>;
 };
 
 /** The tokens a request used, which the last chunk carries and the others carry as null. */
 type Usage = { readonly prompt_tokens: number; readonly completion_tokens: number; readonly total_tokens: number };
+
+/** A tool call's deltas: one with the whole arguments, or paced, the first naming it and the rest its arguments in 12-character pieces. */
+function toolDeltas(reply: Extract<Reply, { tool: string }>): NonNullable<Delta["tool_calls"]>[] {
+  const args = JSON.stringify(reply.args);
+  const [first = "", ...rest] = reply.pace === undefined ? [args] : (args.match(/[\s\S]{1,12}/g) ?? [args]);
+
+  return [
+    [{ index: 0, id: `call_${crypto.randomUUID().slice(0, 8)}`, type: "function", function: { name: reply.tool, arguments: first } }],
+    ...rest.map((piece) => [{ index: 0, function: { arguments: piece } }])
+  ];
+}
 
 /** Text in 3-character deltas a few milliseconds apart, so a test can stop a turn while it streams. */
 function stream(model: string, reply: Exclude<Reply, { status: number }>): Response {
@@ -125,16 +141,7 @@ function stream(model: string, reply: Exclude<Reply, { status: number }>): Respo
       ? (reply.text.match(/[\s\S]{1,3}/g) ?? [""]).map((content) => chunk({ content }))
       : [
           ...((reply.say ?? "").match(/[\s\S]{1,3}/g) ?? []).map((content) => chunk({ content })),
-          chunk({
-            tool_calls: [
-              {
-                index: 0,
-                id: `call_${crypto.randomUUID().slice(0, 8)}`,
-                type: "function",
-                function: { name: reply.tool, arguments: JSON.stringify(reply.args) }
-              }
-            ]
-          })
+          ...toolDeltas(reply).map((tool_calls) => chunk({ tool_calls }))
         ];
 
   const done = [
@@ -149,7 +156,7 @@ function stream(model: string, reply: Exclude<Reply, { status: number }>): Respo
       controller.enqueue(encoder.encode(chunk({ role: "assistant", content: "" })));
 
       for (const each of deltas) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, "pace" in reply ? (reply.pace ?? 5) : 5));
         controller.enqueue(encoder.encode(each));
       }
 

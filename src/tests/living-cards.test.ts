@@ -44,11 +44,21 @@ describe("a card with an id lives where it first showed", () => {
     expect(placed.get("c")).toEqual({ kind: "updated", name: "Trip" });
   });
 
-  it("keeps cards without an id where they were called, and leaves out running and unreadable calls", () => {
-    const placed = placements([turn("t1", ui("a", { blocks: [status("one")] }), ui("b", { blocks: [status("two")] }), ui("r", { id: "x", blocks: [status("…")] }, "running"), ui("u", { blocks: [] }))]);
+  it("keeps cards without an id where they were called, and leaves out failed and unreadable calls", () => {
+    const placed = placements([turn("t1", ui("a", { blocks: [status("one")] }), ui("b", { blocks: [status("two")] }), ui("f", { blocks: [status("…")] }, "failed"), ui("u", { blocks: [] }))]);
 
     expect([...placed.keys()]).toEqual(["a", "b"]);
-    expect(placed.get("a")).toMatchObject({ kind: "card", call: "a", latest: true, living: false });
+    expect(placed.get("a")).toMatchObject({ kind: "card", call: "a", latest: true, living: false, drafting: false });
+  });
+
+  it("shows a call still streaming as a draft, and a living card's draft where the card first showed", () => {
+    const placed = placements([
+      turn("t1", ui("a", { id: "trip", blocks: [status("Booking")] })),
+      turn("t2", ui("b", { id: "trip", blocks: [status("Boo")] }, "running"), ui("c", { blocks: [status("Fresh")] }, "running"))
+    ]);
+
+    expect(placed.get("a")).toMatchObject({ kind: "card", call: "b", drafting: true, ui: { blocks: [{ text: "Boo" }] } });
+    expect(placed.get("c")).toMatchObject({ kind: "card", call: "c", drafting: true });
   });
 
   it("is newest in the last turn only when its newest call is there", () => {

@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type {
   AgentEvent,
   EntryRecord,
@@ -14,6 +14,7 @@ import {
 } from "./transcript";
 import { must } from "./core/must";
 import { decodeOr } from "./core/decode";
+import Type from "typebox";
 import { CARD_ANSWER, type CardAnswer, CardAnswerSchema } from "./ui-blocks";
 
 /** A tool call running now, with its streamed output. */
@@ -99,6 +100,42 @@ function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
   return must(part, "an assistant block projects to one part");
 }
 
+const Json = Type.Unsafe<JsonValue>(Type.Any());
+
+/** The shapes a streamed tool call's arguments are walked by: a string grows, a list or object holds more. */
+const Text = Type.String();
+
+const List = Type.Array(Json);
+
+const Fields = Type.Unsafe<JsonObject>(Type.Record(Type.String(), Json));
+
+const Index = Type.Integer({ minimum: 0 });
+
+/** `value` with `delta` added to the string at `path` in it, as pi streams a tool call's arguments; a path to no string leaves it as it is. */
+function appendAt(value: JsonValue, path: readonly (string | number)[], delta: string): JsonValue {
+  const [key, ...rest] = path;
+
+  if (key === undefined) {
+    const text = decodeOr(Text, value, null);
+
+    return text === null ? value : text + delta;
+  }
+
+  const list = decodeOr(List, value, null);
+  const at = decodeOr(Index, key, null);
+
+  if (list !== null) {
+    const item = at === null ? undefined : list[at];
+
+    return item === undefined ? value : list.map((each, index) => (index === at ? appendAt(item, rest, delta) : each));
+  }
+
+  const fields = decodeOr(Fields, value, null);
+  const item = fields?.[key];
+
+  return fields === null || item === undefined ? value : { ...fields, [key]: appendAt(item, rest, delta) };
+}
+
 function applyChanges(
   live: PiMessage | null,
   changes: readonly MessageChange[]
@@ -135,9 +172,14 @@ function applyChanges(
             (previous?.type === "thinking" ? previous.text : "") + change.delta
         };
         break;
-      case "toolcall_delta":
-        // Partial argument JSON; the call renders once its block completes.
+      case "toolcall_delta": {
+        // A string in the arguments grew; a new key or item comes as the whole block instead.
+        if (previous?.type !== "tool-call") break;
+        const args = decodeOr(Fields, appendAt(previous.arguments, change.path, change.delta), null);
+
+        if (args !== null) parts[change.contentIndex] = { ...previous, arguments: args };
         break;
+      }
     }
 
     message = { ...message, parts };

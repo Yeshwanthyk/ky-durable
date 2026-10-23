@@ -2085,6 +2085,19 @@ button.live:hover .live-steps {
   }
 }
 
+/* A card ky is still writing: each block fades in as it streams, and the border settles once the card is done. */
+.ui-card[aria-busy="true"] {
+  border-style: dashed;
+}
+
+.ui-card[aria-busy="true"] > * {
+  transition: opacity var(--enter) var(--ease-enter);
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
 .ui-head {
   display: flex;
   align-items: center;
@@ -2756,7 +2769,8 @@ button.live:hover .live-steps {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-card {
+  .ui-card,
+  .ui-card[aria-busy="true"] > * {
     transition: none;
   }
 }
