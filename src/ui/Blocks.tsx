@@ -3,6 +3,7 @@ import Type from "typebox";
 import { decodeOr } from "../core/decode";
 import type { CardAnswer, ShownBlock, TabsBlock, UiBlock, UiCard } from "../ui-blocks";
 import { type Answered, answered, cardName, compose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
+import { RoutineBlock } from "./Automations";
 import { Icon, type IconName } from "./Icon";
 import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
@@ -150,6 +151,7 @@ const VIEWS: Views<UiBlock, Form> = {
   input: (block, form) => <InputView input={block} form={form} />,
   buttons: (block, form) => <ButtonsBlock buttons={block.buttons} live={form.live} pressed={form.button} onReply={form.reply} />,
   page: (block) => <PageBlock site={block.site} title={block.title ?? "Page"} height={block.height ?? 480} />,
+  routine: (block) => <RoutineBlock id={block.routine} />,
   tabs: (block) => <TabsView tabs={block.tabs} />,
   columns: (block) => <ColumnsBlock columns={block.columns} />
 };

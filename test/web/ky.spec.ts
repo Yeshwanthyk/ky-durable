@@ -719,6 +719,35 @@ test("a routine's posted card can ask: a tap answers it in the chat, as the user
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/post-asks-answered.png` });
 });
 
+test("ky's card shows a routine as it is now: pausing it from the card changes the card", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const title = `Weekly review ${crypto.randomUUID().slice(0, 8)}`;
+
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: "review the week", cron: "0 16 * * 5", createdBy: "user" })}`);
+
+  const id = /Created automation (\w+),/.exec((await chat(page).getByText(/tool said: Created automation/).textContent()) ?? "")?.[1] ?? "";
+
+  await send(page, `tool ui ${JSON.stringify({ title: "Your new routine", blocks: [{ type: "routine", routine: id }, { type: "routine", routine: "gone123" }] })}`);
+
+  const card = chat(page).getByRole("region", { name: "Your new routine" });
+  const row = card.getByLabel(title);
+
+  await expect(row).toContainText("Weekly");
+  await expect(card.getByText("That routine is gone.")).toBeVisible();
+  await expect(composer(page)).toHaveAttribute("placeholder", "Message ky");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-routine.png` });
+
+  await row.getByRole("button", { name: "Pause" }).click();
+  await expect(row).toContainText("Paused");
+  await expect(panel(page).getByRole("listitem", { name: title })).toContainText("Paused");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-routine-paused.png` });
+});
+
 test("steers the queue in now: the step ky waits on stops and the queued message goes in", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });

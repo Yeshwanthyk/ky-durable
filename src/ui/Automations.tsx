@@ -307,6 +307,7 @@ type ItemProps = {
 
 // Title, one muted line of when, and a quiet line of the last run and anything unusual; every line one line.
 function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
+  const { onAction } = useContext(AutomationsContext);
   const paused = automation.status === "paused";
   const state = STATES[paused ? "paused" : "active"];
 
@@ -327,8 +328,46 @@ function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
           <Details automation={automation} now={now} session={session} />
         </span>
       </button>
-      <AutomationActions id={automation.id} state={state} />
+      <AutomationActions id={automation.id} state={state} onAction={onAction} />
     </li>
+  );
+}
+
+/** The automations and what the user can do to one, for a routine in the chat's cards; provided around the chat. */
+export const RoutinesContext = createContext<{
+  automations: readonly AutomationInfo[];
+  onAction: (automation: string, action: AutomationAction) => void;
+}>({ automations: [], onAction: () => {} });
+
+/**
+ * A routine in one of ky's cards (a `routine` block): the model names it, and the row reads it from the automations
+ * the page already holds, so its schedule, next and last run stay current and no status text is the model's.
+ */
+export function RoutineBlock({ id }: { id: string }) {
+  const { automations, onAction } = useContext(RoutinesContext);
+  const automation = automations.find((each) => each.id === id);
+  const now = Date.now();
+
+  if (automation === undefined) return <p className="ui-routine-gone quiet">That routine is gone.</p>;
+  const archived = automation.status === "archived";
+  const paused = automation.status === "paused";
+  const state = STATES[paused ? "paused" : "active"];
+
+  return (
+    <div className="ui-routine feed-item automation" aria-label={automation.title} data-paused={paused || archived || undefined}>
+      <span className="feed-button">
+        <span className="feed-glyph" data-tone={archived ? "stopped" : state.tone}>
+          <Icon name="clock" size={16} />
+        </span>
+        <span className="feed-text">
+          <span className="feed-title">{plain(automation.title)}</span>
+          <span className="feed-step tabular">{archived ? `${scheduleOf(automation, now)} · Archived` : metaOf(automation, now)}</span>
+          {/* A card leaves out which chat the routine reports to. */}
+          <Details automation={automation} now={now} session={automation.chat} />
+        </span>
+      </span>
+      {archived ? null : <AutomationActions id={automation.id} state={state} onAction={onAction} />}
+    </div>
   );
 }
 
@@ -398,12 +437,12 @@ function IconButton({
 function AutomationActions({
   id,
   state,
+  onAction,
 }: {
   id: string;
   state: (typeof STATES)[keyof typeof STATES];
+  onAction: (automation: string, action: AutomationAction) => void;
 }) {
-  const { onAction } = useContext(AutomationsContext);
-
   return (
     <span className="automation-actions">
       {state.runs && (
