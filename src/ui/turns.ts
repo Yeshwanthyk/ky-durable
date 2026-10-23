@@ -5,8 +5,8 @@ import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
 import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 
-/** Reports from subagents, machines, specialists, discussions, automations, check-ins and peers arrive as user messages that start like this. */
-const REPORT = /^\[(subagent|machine|specialist|discussion|automation|check-in|peer) ("[^"]*"|[^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
+/** Reports from subagents, machines, specialists, discussions, automations, check-ins, peers and the chat that opened this one arrive as user messages that start like this. */
+const REPORT = /^\[(subagent|machine|specialist|discussion|automation|check-in|peer|chat) ("[^"]*"|[^\],\s]+(?:, @[^\],\s]+)*)[^\]]*\]\s*/;
 
 /** A report's quiet line, from its opening bracket: what sent it, and whether it failed or paused. */
 function reportFrom(header: string, kind: string, who: string): ReportFrom {
@@ -20,6 +20,8 @@ function reportFrom(header: string, kind: string, who: string): ReportFrom {
       return { verb: failed ? "Check-in failed" : "Checked in", icon: "clock", name };
     case "peer":
       return { verb: "Message from", icon: "chat", name };
+    case "chat":
+      return { verb: "From", icon: "chat", name };
     default:
       return { verb: failed ? "Failed" : "Report from", icon: "nodes", name: `${kind} ${name}` };
   }

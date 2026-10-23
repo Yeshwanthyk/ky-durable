@@ -231,7 +231,8 @@ export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "
  * often it is handed over it is delivered once; `content` is what the chat's agent is given, or the look's
  * message; `line` is it in one line, as what ky surfaced keeps it; `ref` is what it rests on, like
  * task:a-1f2e-1760600000 or anticipation:12. Without a kind it is an event. A chat's is an event another chat sent
- * (src/chats-tool.ts): its agent answers it, but the user is not pushed it, nor is it kept as surfaced.
+ * with an older chats tool, kept so a row it left queued still goes in: its agent answers it, but the user is not
+ * pushed it, nor is it kept as surfaced.
  */
 export const DeliverySchema = Type.Object({
   id: Type.String(),

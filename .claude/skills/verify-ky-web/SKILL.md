@@ -50,7 +50,13 @@ Everything here runs on this Mac against the local stack. It never touches the d
   - `machine@webmac [delay=MS] <task>`: runs a task on the runner.
   - `spawn …`: starts a subagent.
   - `gate`: calls a tool that waits until `POST /test/release`, which keeps a turn running.
+  - `tool <name> {json}`: calls that tool with those arguments, e.g. `tool chats {"action":"create","title":"News","message":"reply: Hi."}`.
+  - A chat another chat opened answers the message after its `[chat "…": …]` header, so `reply: X` there answers X and `gate` keeps it working.
   - Anything else is echoed back.
+- Chats that run chats (`chats` tool, src/chats-tool.ts): the journey is "the main chat opens a side chat, steers it…" in the spec. Check that:
+  - the opened chat shows up in the sidebar under its title;
+  - each message from its opener reads as one quiet `From main chat` line, never a user bubble with the `[chat "…"` header;
+  - the same tool called from the opened chat is refused.
 - Programs the fake Executor understands (`src/tests/fake-executor.ts`), once `connectExecutor(page)` has connected it:
   - `answer TEXT`: returns TEXT. As an automation's `gate`, `answer null` skips a fire and `answer ["x"]` runs it.
   - `fail TEXT`: fails with TEXT.

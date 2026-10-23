@@ -526,29 +526,6 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
   return newest !== null && ownMessages(sql, [newest]).has(newest);
 }
 
-/**
- * The request ids that placed the user entries of the chat's running turn, oldest first: those since ky's last
- * finished answer (one that did not go on to call a tool). A report steered in mid-turn is one of them; one no
- * request placed is undefined.
- */
-export function turnPlacedBy(sql: SqlStorage, conversation: string): Array<string | undefined> {
-  const users = sql
-    .exec(
-      `SELECT id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'
-       AND id > (SELECT coalesce(max(id), 0) FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.assistant'
-                 AND coalesce(json_extract(record, '$.model[0].stopReason'), '') != 'toolUse')
-       ORDER BY id`,
-      Number(conversation),
-      Number(conversation)
-    )
-    .toArray()
-    .flatMap((row) => decodeOr(NewestRow, row, undefined)?.id ?? []);
-
-  const placed = placedBy(sql, users);
-
-  return users.map((id) => placed.get(id));
-}
-
 /** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */
 const WROTE_SINCE = 20;
 

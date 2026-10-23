@@ -15,13 +15,13 @@ import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND } from "./background";
 import { uiExtension } from "./ui-tool";
-import { ChatList, chatActivityExtension } from "./chats";
+import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore, saveImage } from "./files";
-import { History, turnPlacedBy } from "./history";
+import { History } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -404,12 +404,21 @@ export class PiAgent extends DurableObject<Env> {
       const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
-      // Chats send each other messages quietly, and never from a turn that answers one.
+      // A chat opens side chats and steers them; one it opened runs none, so control goes one way.
       const chats = chatsExtension({
         chats: this.chats,
+        openedFor: (request) => this.chats.openedFor(request),
+        openedBy: (session) => this.chats.openedBy(session),
+        open: (opener) => this.newChat(opener),
+        steer: async (session, content, requestId) => {
+          await (await this.harness.conversation(session)).submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
+        },
+        busy: async (session) => {
+          const conversation = await this.harness.conversation(session);
+
+          return conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
+        },
         latest: (session) => this.history.latest(session),
-        deliver: (item) => this.deliveries.deliver(item),
-        turn: (session) => turnPlacedBy(this.ctx.storage.sql, session),
         chat
       });
 
@@ -941,11 +950,11 @@ export class PiAgent extends DurableObject<Env> {
     );
   }
 
-  /** A side chat: a new top-level conversation set up like the main one, sharing its memory. */
-  async newChat(): Promise<string> {
+  /** A side chat: a new top-level conversation set up like the main one, sharing its memory; the user's, or one `opener` opened with the chats tool. */
+  async newChat(opener?: Opener): Promise<string> {
     const { id } = await this.harness.sessions.create();
     await this.#configure(id);
-    this.chats.add(id);
+    this.chats.add(id, opener);
 
     return id;
   }

@@ -1,5 +1,7 @@
 import { defineExtension, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
+import Type from "typebox";
+import { decodeOr } from "./core/decode";
 
 /**
  * Side chats: top-level conversations the user starts beside the main one.
@@ -16,7 +18,18 @@ export type ChatRow = {
   readonly updated_at: number;
   /** When it was archived, hiding it from the list; null while it is in the list. */
   readonly archived_at: number | null;
+  /** The chat that opened it with the chats tool (src/chats-tool.ts), and steers it; null when the user opened it. */
+  readonly opened_by: string | null;
+  /** The request its first message went in by, `chat-create:<opener>:<task>`, so a create run again finds it; null when the user opened it. */
+  readonly opened_request: string | null;
 };
+
+const SessionOf = Type.Object({ session: Type.String() });
+
+const OpenedBy = Type.Object({ opened_by: Type.Union([Type.String(), Type.Null()]) });
+
+/** Who opened a chat with the chats tool, and by which request. */
+export type Opener = { readonly by: string; readonly request: string };
 
 const TITLE_CHARS = 60;
 
@@ -44,6 +57,12 @@ export class ChatList {
 
     if (!columns.some((column) => column.name === "archived_at")) {
       sql.exec("ALTER TABLE ky_chats ADD COLUMN archived_at INTEGER");
+    }
+
+    // Chats a chat opens came after: a table from before has every chat the user's.
+    if (!columns.some((column) => column.name === "opened_by")) {
+      sql.exec("ALTER TABLE ky_chats ADD COLUMN opened_by TEXT");
+      sql.exec("ALTER TABLE ky_chats ADD COLUMN opened_request TEXT");
     }
 
     // The main chat is not in the list, but the sidebar shows when it last heard from ky too.
@@ -78,15 +97,32 @@ export class ChatList {
     return this.#sql.exec("SELECT 1 FROM ky_chats WHERE session = ?", session).toArray().length > 0;
   }
 
-  add(session: string): void {
+  /** The chat `session` is in the list: the user's, or one `opener` opened and steers. */
+  add(session: string, opener?: Opener): void {
     const now = Date.now();
     this.#sql.exec(
-      "INSERT OR IGNORE INTO ky_chats (session, created_at, updated_at) VALUES (?, ?, ?)",
+      "INSERT OR IGNORE INTO ky_chats (session, created_at, updated_at, opened_by, opened_request) VALUES (?, ?, ?, ?, ?)",
       session,
       now,
-      now
+      now,
+      opener?.by ?? null,
+      opener?.request ?? null
     );
     this.#emit();
+  }
+
+  /** The chat a chats tool create opened by `request`, if one did. */
+  openedFor(request: string): string | undefined {
+    const row = this.#sql.exec("SELECT session FROM ky_chats WHERE opened_request = ?", request).toArray()[0];
+
+    return decodeOr(SessionOf, row, undefined)?.session;
+  }
+
+  /** The chat that opened `session` and steers it; null for the main chat and the user's own. */
+  openedBy(session: string): string | null {
+    const row = this.#sql.exec("SELECT opened_by FROM ky_chats WHERE session = ?", session).toArray()[0];
+
+    return decodeOr(OpenedBy, row, undefined)?.opened_by ?? null;
   }
 
   /** A message went to the chat: move it to the top, and name it if it has no name yet. */
