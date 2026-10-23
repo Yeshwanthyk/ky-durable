@@ -270,7 +270,7 @@ describe("automations", () => {
     expect(await reports(name, "Daily digest")).toEqual([]);
   });
 
-  it("keeps a run's card display only: wait does nothing, and what asks for an answer is left out", async () => {
+  it("keeps what a run's card asks, for the user to answer in the chat; wait does nothing", async () => {
     const name = crypto.randomUUID();
     const asking = { ...FORECAST, wait: true, blocks: [...FORECAST.blocks, { type: "choice", label: "Pack an umbrella?", options: [{ label: "Yes" }] }, { type: "buttons", buttons: [{ label: "OK" }, { label: "Radar", url: "https://example.com/radar" }] }] };
     const id = await create(name, { prompt: `tool ui ${JSON.stringify(asking)}`, post: true });
@@ -281,7 +281,9 @@ describe("automations", () => {
     expect(run.summary).toContain("wait does nothing in a run");
     await until(async () => (await cardsIn(name)).length > 0, "the card");
 
-    expect(await cardsIn(name)).toEqual([{ ...FORECAST, blocks: [...FORECAST.blocks, { type: "buttons", buttons: [{ label: "Radar", url: "https://example.com/radar" }] }] }]);
+    expect(run.summary).toContain("The user answers it in that chat");
+    const { wait: _wait, ...posted } = asking;
+    expect(await cardsIn(name)).toEqual([posted]);
   });
 
   it("gives a plain subagent no ui tool: only a run's cards go with its report", async () => {

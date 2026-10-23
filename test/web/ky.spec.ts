@@ -683,6 +683,42 @@ test("a routine ky made shows as one quiet line under its answer, and a card's s
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/event-note.png` });
 });
 
+test("a routine's posted card can ask: a tap answers it in the chat, as the user's next message", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const title = `Morning forecast ${crypto.randomUUID().slice(0, 8)}`;
+
+  const ui = {
+    title: "Rain at 4pm",
+    blocks: [
+      { type: "stats", items: [{ value: "80%", label: "chance" }] },
+      { type: "choice", label: "Pack an umbrella?", options: [{ label: "Yes, remind me" }, { label: "No" }] }
+    ]
+  };
+
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: `tool ui ${JSON.stringify(ui)}`, cron: "0 7 * * *", post: true, createdBy: "user" })}`);
+
+  const id = /Created automation (\w+),/.exec((await chat(page).getByText(/tool said: Created automation/).textContent()) ?? "")?.[1] ?? "";
+
+  await send(page, `tool automation ${JSON.stringify({ action: "run", id })}`);
+
+  const card = chat(page).getByRole("region", { name: "Rain at 4pm" });
+
+  await expect(card.getByRole("button", { name: /Yes, remind me/ })).toBeEnabled({ timeout: 30_000 });
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/post-asks.png` });
+
+  await card.getByRole("button", { name: /Yes, remind me/ }).click();
+
+  await expect(chat(page).getByText("echo: Yes, remind me")).toBeVisible();
+  await expect(card.getByRole("button", { name: /Yes, remind me/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(card.getByRole("button", { name: "No", exact: true })).toBeDisabled();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/post-asks-answered.png` });
+});
+
 test("steers the queue in now: the step ky waits on stops and the queued message goes in", async ({ page }) => {
   await open(page);
   const chats = page.getByRole("navigation", { name: "Chats" });

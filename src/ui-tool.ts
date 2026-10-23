@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/chord";
 import { defineDoc, defineExtension, defineTool, type Extension, type ToolExecutionApi } from "@earendil-works/pi-durable";
-import { type UiBlock, type UiCard, UiCardSchema } from "./ui-blocks";
+import { type UiCard, UiCardSchema } from "./ui-blocks";
 
 /**
  * ui: ky shows the user a card in the chat, composed from blocks: text, a
@@ -11,8 +11,9 @@ import { type UiBlock, type UiCard, UiCardSchema } from "./ui-blocks";
  * What the user taps or types is sent as their next message, so the answer
  * reads in the history like any other. With `wait`, the turn ends at the call to wait for that answer.
  *
- * An automation's run has no user to answer it: its cards are kept here, display only, and posted in the chat it
- * reports to, before its report, once it succeeds (src/skills/subagents.ts, src/automations/delivery.ts).
+ * An automation's run has no user to answer it as it goes: its cards are kept here and posted in the chat it reports
+ * to, before its report, once it succeeds (src/skills/subagents.ts, src/automations/delivery.ts). A posted card may
+ * still ask: the user's answer is their next message in that chat, for the chat's agent, which sees the card.
  */
 
 const UI = "ui";
@@ -34,17 +35,6 @@ export const RunCards = defineDoc<{ run: boolean; cards: Array<{ call: string; c
   initial: () => ({ run: false, cards: [] })
 });
 
-/** A run's card as it is posted: no wait, and no block that asks for an answer, link buttons aside; null when nothing is left. */
-export function runCard({ wait: _wait, ...card }: UiCard): UiCard | null {
-  const blocks = card.blocks.flatMap((block): UiBlock[] => {
-    if (block.type !== "buttons") return INTERACTIVE.has(block.type) ? [] : [block];
-    const links = block.buttons.filter((button) => button.url !== undefined);
-
-    return links.length > 0 ? [{ ...block, buttons: links }] : [];
-  });
-
-  return blocks.length > 0 ? { ...card, blocks } : null;
-}
 
 /** Only the main chat and side chats have a user to show, and an automation's run a report to post with; elsewhere the call is refused. */
 export function uiExtension(chat: (session: string) => boolean): Extension {
@@ -63,7 +53,8 @@ export function uiExtension(chat: (session: string) => boolean): Extension {
           "To update a card you showed, such as a status that moves on or a list that fills in, give it an id and show it again with the same id: " +
           "the new card replaces the old where it first showed, and the thread notes the update. " +
           "With wait, call it last, alone: your turn ends there. " +
-          "In an automation's run the card is display only: it is posted before your report once the run succeeds, without wait or anything to answer (link buttons stay).",
+          "In an automation's run the card is posted before your report once the run succeeds, and wait does nothing: your run goes on. " +
+          "It may still ask (a choice, a field, buttons): the user's answer arrives later in that chat, for the chat's agent, not for your run.",
         parameters: UiCardSchema,
         replay: "safe",
         execute: async (args, api, context) => {
@@ -81,16 +72,12 @@ export function uiExtension(chat: (session: string) => boolean): Extension {
   });
 }
 
-/** A run keeps its card for its report, once a call however often it is replayed; anywhere else the call is refused. */
-async function keep(args: UiCard, api: ToolExecutionApi, context: Context) {
-  const card = runCard(args);
-
+/** A run keeps its card for its report, without wait, once a call however often it is replayed; anywhere else the call is refused. */
+async function keep({ wait, ...card }: UiCard, api: ToolExecutionApi, context: Context) {
   const kept = await api.commit(async (tx) => {
     const doc = await tx.doc(RunCards, api.conversationId);
 
     if (!doc.run) return "refused";
-
-    if (card === null) return "empty";
 
     if (!doc.cards.some((each) => each.call === api.callId)) doc.cards.push({ call: api.callId, card: JSON.stringify(card) });
 
@@ -99,12 +86,8 @@ async function keep(args: UiCard, api: ToolExecutionApi, context: Context) {
 
   if (kept === "refused") return reply("Not shown: only a chat with the user has someone to show.", true);
 
-  if (kept === "empty") return reply("Not kept: a run's card is display only, and every block in this one asks for an answer.", true);
+  const asks = card.blocks.some((block) => INTERACTIVE.has(block.type)) ? " The user answers it in that chat, later, not to this run." : "";
+  const waits = wait === true ? " wait does nothing in a run: your turn goes on; finish with your report." : "";
 
-  const notes = [
-    JSON.stringify(card?.blocks) !== JSON.stringify(args.blocks) ? " What asks for an answer was left out: no one can answer a run." : "",
-    args.wait ? " wait does nothing in a run: your turn goes on; finish with your report." : ""
-  ].join("");
-
-  return reply(`Kept: the card is posted to the user before your report once this run succeeds.${notes}`);
+  return reply(`Kept: the card is posted to the user before your report once this run succeeds.${asks}${waits}`);
 }

@@ -56,4 +56,12 @@ describe("a card with an id lives where it first showed", () => {
 
     expect(placed.get("a")).toMatchObject({ kind: "card", call: "b", latest: false });
   });
+
+  it("waits for its answer until the user writes after it: a post or a report landing after it leaves it waiting", () => {
+    const post: Turn = { ...turn("p", ui("a", { blocks: [{ type: "choice", label: "Umbrella?", options: [{ label: "Yes" }] }] })), user: "" };
+    const report: Turn = { ...turn("r"), from: { verb: "Ran", icon: "clock", name: "Daily" } };
+
+    expect(placements([post, report]).get("a")).toMatchObject({ latest: true });
+    expect(placements([post, report, turn("u")]).get("a")).toMatchObject({ latest: false });
+  });
 });
