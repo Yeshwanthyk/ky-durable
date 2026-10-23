@@ -1,26 +1,26 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
+import { evictDurableObject } from "cloudflare:test";
+import fc from "fast-check";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND } from "../background";
-import { agent, gateStarted, inside, shows, snapshotView, submit, until } from "./drive";
+import { placedBy } from "../history";
+import { agent, gateStarted, inside, until } from "./drive";
 
 /**
- * The chats tool (src/chats-tool.ts) through ky's real PiAgent on the fake models: a chat's agent lists the user's
- * chats, sends one a message as a delivery, asks one and gets its answer back, and reads ky's last message in one,
- * called with `tool chats {...}`.
+ * The chats tool (src/chats-tool.ts) through ky's real PiAgent on the fake models: a chat opens side chats, steers
+ * the ones it opened, and inspects them; a chat it opened runs none. The fake model answers an opener's message
+ * as the message after its header, so `create` with `gate` leaves the opened chat working until the test releases it.
  */
 
-/** Ask for `args` in a chat, the main one unless `session` names a side chat; what the tool said. */
-async function ask(name: string, args: Record<string, JsonValue>, session?: string): Promise<string> {
-  return inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify(args)}`, { session })).text ?? "");
-}
-
-/** Run the tool as tool-call task `task` from conversation `from`, as pi runs it, and again on a replay; its reply. */
+/** Run the tool as tool-call task `task` from conversation `from`, as pi runs it; its reply. */
 async function run(name: string, from: string, task: number, args: Record<string, JsonValue>): Promise<{ text: string; failed: boolean }> {
   return inside(name, async (instance) => {
+    // The harness, and with it the tools, starts with the first conversation it opens.
+    await instance.harness.conversation(ROOT_SESSION);
     const { tool } = instance.registry.snapshot().tools().find((each) => each.tool.name === "chats")!;
-    // SAFETY: the tool reads only the calling conversation and the call's task from its api; the model may repeat a call id.
+    // SAFETY: the tool reads only the calling conversation and the call's task from its api.
     const api = { conversationId: Number(from), taskId: task, callId: "call-1" } as ToolExecutionApi;
     const result = await tool.execute(args, api, BACKGROUND);
 
@@ -28,215 +28,129 @@ async function run(name: string, from: string, task: number, args: Record<string
   });
 }
 
-/** The delivery rows for `session`. */
-const deliveries = (name: string, session: string) =>
-  inside(name, (_instance, state) =>
-    state.storage.sql.exec<{ id: string; content: string; state: string }>("SELECT id, content, state FROM ky_deliveries WHERE session = ? ORDER BY created_at, id", session).toArray()
-  );
+/** The chat a create's reply names. */
+const opened = (text: string) => /^Opened chat (\S+);/.exec(text)?.[1] ?? "";
 
-/** A message the fake model answers by waiting in the gate tool until the test releases it, as a relayed mail's tool line. */
-const WAIT = "[mail from x]\n\nMail says: tool gate {}";
+/** Create a chat from `from` as task `task`; its session. */
+async function create(name: string, from: string, task: number, message: string, title?: string): Promise<string> {
+  const said = await run(name, from, task, title === undefined ? { action: "create", message } : { action: "create", message, title });
+  expect(said.failed).toBe(false);
+
+  return opened(said.text);
+}
 
 const latest = (name: string, session: string) => inside(name, (instance) => instance.history.latest(session));
 
-/** Record each push the agent `name` makes, instead of sending it. */
-async function pushes(name: string): Promise<string[]> {
-  const sent: string[] = [];
-  await inside(name, (instance) => {
-    instance.pushes.notify = async (session, text) => {
-      sent.push(`${session}: ${text}`);
-    };
+const row = (name: string, session: string) => inside(name, (instance) => instance.chats.list().find((each) => each.session === session));
+
+/** The request ids of the user entries of `session`, oldest first: who placed each message the chat's agent was given (src/history.ts placedBy). */
+const placed = (name: string, session: string) =>
+  inside(name, (_instance, state) => {
+    const users = state.storage.sql
+      .exec<{ id: number }>(`SELECT id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user' ORDER BY id`, Number(session))
+      .toArray()
+      .map((each) => each.id);
+
+    const by = placedBy(state.storage.sql, users);
+
+    return users.map((id) => by.get(id));
   });
 
-  return sent;
-}
-
-/** A new side chat named `title`, and archived when `archived`. */
-async function sideChat(name: string, title: string, archived = false): Promise<string> {
-  const chat = await inside(name, (instance) => instance.newChat());
-  await inside(name, (instance) => instance.chats.rename(chat, title));
-
-  if (archived) await inside(name, (instance) => instance.chats.archive(chat, true));
-
-  return chat;
-}
+/** A side chat the user opened. */
+const userChat = (name: string) => inside(name, (instance) => instance.newChat());
 
 describe("the chats tool", () => {
-  it("lists the main chat first, then the side chats, archived ones last and marked", async () => {
+  it("opens one side chat per call however often it runs, named and steered by the chat that opened it, and its agent starts on the message there", async () => {
     const name = crypto.randomUUID();
-    const active = await sideChat(name, "Trip plans");
-    const archived = await sideChat(name, "Old taxes", true);
+    const first = await create(name, ROOT_SESSION, 7, "reply: Here is what intermittent fasting asks of you.", "Intermittent fasting");
 
-    const said = await ask(name, { action: "list" });
-    const lines = said.replace(/^tool said: /, "").split("\n");
+    expect(await create(name, ROOT_SESSION, 7, "reply: Here is what intermittent fasting asks of you.", "Intermittent fasting")).toBe(first);
+    expect(await row(name, first)).toMatchObject({ title: "Intermittent fasting", opened_by: ROOT_SESSION, opened_request: `chat-create:${ROOT_SESSION}:7`, archived_at: null });
+    await until(async () => (await latest(name, first)) === "Here is what intermittent fasting asks of you.", "the opened chat's answer");
 
-    expect(lines[0]).toMatch(/^main "main", updated /);
-    expect(lines[1]).toMatch(new RegExp(`^${active} "Trip plans", updated [^,]+$`));
-    expect(lines[2]).toMatch(new RegExp(`^${archived} "Old taxes", updated .+, archived$`));
-    expect(lines).toHaveLength(3);
+    // One message, from the opener: its request is named, so it is never the user's.
+    expect(await placed(name, first)).toEqual([`chat-create:${ROOT_SESSION}:7`]);
+    // Another call is another chat, named from its message when no title is given.
+    const second = await create(name, ROOT_SESSION, 8, "reply: Yesterday's top stories.");
+    expect(second).not.toBe(first);
+    expect((await row(name, second))?.title).toBe("reply: Yesterday's top stories.");
   });
 
-  it("sends a message to a side chat once per call, however often it runs, without a push, and its agent answers it there", async () => {
+  it("opens one chat across an eviction: the call run again finds the chat it opened", async () => {
     const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    const sent = await pushes(name);
-    const send = { action: "send", chat: side, message: "reply: Booked the train." };
+    const first = await create(name, ROOT_SESSION, 7, "reply: Hello.");
+    await until(async () => (await latest(name, first)) === "Hello.", "the opened chat's answer");
 
-    expect(await run(name, ROOT_SESSION, 7, send)).toEqual({ text: "Sent to Trip plans; its agent answers there.", failed: false });
-    expect(await run(name, ROOT_SESSION, 7, send)).toMatchObject({ failed: false });
-    const content = "[message from your main chat: answer here; it is not shown there] reply: Booked the train.";
-    expect((await deliveries(name, side)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:${ROOT_SESSION}:7`, content }]);
-    await until(async () => (await latest(name, side))?.startsWith("echo: [message from your main chat") === true, "the side chat's answer");
-
-    // Another call that the model gave the same call id is another message.
-    await run(name, ROOT_SESSION, 8, send);
-    await until(async () => (await deliveries(name, side)).filter((row) => row.state === "chat").length === 2, "the second message");
-    expect(sent).toEqual([]);
-    expect(await inside(name, (_instance, state) => state.storage.sql.exec("SELECT 1 FROM ky_surfaced WHERE item LIKE 'chat:%'").toArray())).toEqual([]);
+    await evictDurableObject(agent(name));
+    expect(await create(name, ROOT_SESSION, 7, "reply: Hello.")).toBe(first);
+    expect(await inside(name, (instance) => instance.chats.list().length)).toBe(1);
+    expect(await placed(name, first)).toEqual([`chat-create:${ROOT_SESSION}:7`]);
   });
 
-  it("refuses to send on from a turn that answers another chat's message, so two chats never loop", async () => {
+  it("steers a working chat into the turn it is in, once per call, and inspect shows it working, then idle with its answer", async () => {
     const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    // The side chat's turn answers it by waiting in a tool, as a mail's tool line asks.
-    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: `Booked.\n${WAIT}` });
+    const chat = await create(name, ROOT_SESSION, 1, "gate");
     await gateStarted(name, 1);
 
-    expect(await run(name, side, 9, { action: "send", chat: "main", message: "Thanks!" })).toEqual({ text: "This turn answers another chat's message: answer here.", failed: true });
-    expect(await deliveries(name, ROOT_SESSION)).toEqual([]);
+    expect(await run(name, ROOT_SESSION, 2, { action: "inspect", chat })).toEqual({ text: `"gate" is working; no message from ky in it yet.`, failed: false });
+    const steer = { action: "steer", chat, message: "reply: Make it the top 15, not 10." };
+    expect(await run(name, ROOT_SESSION, 3, steer)).toEqual({ text: `Steered "gate"; its agent answers there.`, failed: false });
+    expect(await run(name, ROOT_SESSION, 3, steer)).toMatchObject({ failed: false });
+
     await agent(name).release();
+    await until(async () => (await latest(name, chat)) === "Make it the top 15, not 10.", "the steered answer");
+    expect(await placed(name, chat)).toEqual([`chat-create:${ROOT_SESSION}:1`, `chat-steer:${ROOT_SESSION}:3`]);
+    expect(await run(name, ROOT_SESSION, 4, { action: "inspect", chat })).toEqual({ text: `"gate" is idle. ky's latest message there:\nMake it the top 15, not 10.`, failed: false });
   });
 
-  it("still refuses once a report steers into that turn, and sends once the user steps in", async () => {
+  it("steers an idle chat into a new turn, and an archived one back into the user's list", async () => {
     const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    await run(name, ROOT_SESSION, 7, { action: "send", chat: side, message: `Booked.\n${WAIT}` });
+    const chat = await create(name, ROOT_SESSION, 1, "reply: Done.", "News");
+    await until(async () => (await latest(name, chat)) === "Done.", "the first answer");
+    await inside(name, (instance) => instance.chats.archive(chat, true));
+
+    await run(name, ROOT_SESSION, 2, { action: "steer", chat, message: "reply: And the comments?" });
+    expect((await row(name, chat))?.archived_at).toBeNull();
+    await until(async () => (await latest(name, chat)) === "And the comments?", "the steered turn");
+  });
+
+  it("inspect with no chat lists only the chats this chat opened, each working or idle", async () => {
+    const name = crypto.randomUUID();
+    const mine = await create(name, ROOT_SESSION, 1, "gate", "Fasting");
     await gateStarted(name, 1);
+    await userChat(name);
+    const side = await userChat(name);
+    await create(name, side, 1, "reply: Theirs.");
 
-    // A subagent's report joins the turn after its tool round, as src/skills/subagents.ts steers it, and asks for another wait.
-    const steer = (content: string, requestId: string) =>
-      inside(name, async (instance) => {
-        await (await instance.harness.conversation(side)).submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
-      });
-
-    await steer(WAIT, "subagent-report:t-1");
-    await agent(name).release();
-    await gateStarted(name, 2);
-    expect(await run(name, side, 9, { action: "send", chat: "main", message: "Thanks!" })).toMatchObject({ failed: true });
-
-    await steer(WAIT, crypto.randomUUID());
-    await agent(name).release();
-    await gateStarted(name, 3);
-    expect(await run(name, side, 10, { action: "send", chat: "main", message: "Thanks!" })).toMatchObject({ failed: false });
+    const lines = (await run(name, ROOT_SESSION, 2, { action: "inspect" })).text.split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(new RegExp(`^${mine} "Fasting", working, updated `));
+    expect(await run(name, await userChat(name), 1, { action: "inspect" })).toEqual({ text: "This chat has opened no chats yet.", failed: false });
     await agent(name).release();
   });
 
-  it("sends to a chat mid-turn once its turn is over, naming the sender by its id", async () => {
+  it("refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way", async () => {
     const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    await submit(name, "gate");
-    await gateStarted(name, 1);
+    const chat = await create(name, ROOT_SESSION, 1, "reply: ok");
+    const refused = { text: "Another chat opened this one, so this one runs none: answer here.", failed: true };
 
-    await run(name, side, 7, { action: "send", chat: "main", message: "Booked." });
-    expect(await deliveries(name, ROOT_SESSION)).toEqual([
-      { id: `chat:${side}:7`, content: `[message from your chat ${side} "Trip plans": answer here; it is not shown there] Booked.`, state: "queued" }
-    ]);
-
-    await agent(name).release();
-    await until(async () => (await latest(name, ROOT_SESSION))?.startsWith(`echo: [message from your chat ${side} "Trip plans"`) === true, "the main chat's answer");
+    expect(await run(name, chat, 1, { action: "create", message: "reply: deeper" })).toEqual(refused);
+    expect(await run(name, chat, 2, { action: "steer", chat: ROOT_SESSION, message: "hi" })).toEqual(refused);
+    expect(await run(name, chat, 3, { action: "inspect" })).toEqual(refused);
+    expect(await inside(name, (instance) => instance.chats.list().length)).toBe(1);
   });
 
-
-  it("reads a side chat's latest message from ky, its answer or a look's post", async () => {
+  it("steers and inspects only the chats this chat opened: not main, not the user's, not another chat's", async () => {
     const name = crypto.randomUUID();
-    const side = await inside(name, (instance) => instance.newChat());
-    expect(await ask(name, { action: "last", chat: side })).toBe("tool said: No message from ky yet in untitled.");
+    const users = await userChat(name);
+    const theirs = await create(name, users, 1, "reply: ok");
+    const missing = (chat: string) => ({ text: `No chat ${JSON.stringify(chat)} that this chat opened: inspect lists them.`, failed: true });
 
-    await inside(name, (instance) => instance.harness.prompt("reply: The train leaves at 9.", { session: side }));
-    expect(await ask(name, { action: "last", chat: side })).toBe("tool said: The train leaves at 9.");
-
-    await inside(name, (instance) => instance.deliveries.deliver({ id: "look-1", session: side, content: "Your passport expires next month.", line: "Passport", ref: "anticipation:1", kind: "look" }));
-    expect(await ask(name, { action: "last", chat: side })).toBe("tool said: Your passport expires next month.");
-  });
-
-  it("reads only a finished answer: not a step that calls a tool, nor a turn the user stopped", async () => {
-    const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    await inside(name, (instance) => instance.harness.prompt("reply: The train leaves at 9."));
-
-    // A relayed mail's turn says it is trying the mail's tool line, then waits in it.
-    await submit(name, WAIT);
-    await gateStarted(name, 1);
-    expect(shows(await snapshotView(name), "Trying what the mail asks.")).toBe(true);
-    expect(await run(name, side, 1, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });
-
-    await inside(name, (instance) => instance.harness.session(ROOT_SESSION).abort());
-    await agent(name).release();
-    expect(await run(name, side, 2, { action: "last", chat: "main" })).toEqual({ text: "The train leaves at 9.", failed: false });
-  });
-
-  it("refuses its own chat, an unknown chat, and an empty message", async () => {
-    const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-
-    expect(await run(name, side, 1, { action: "send", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
-    expect(await run(name, side, 2, { action: "ask", chat: side, message: "hi" })).toEqual({ text: "That is this chat: answer here instead.", failed: true });
-    expect(await run(name, ROOT_SESSION, 3, { action: "send", chat: "nope", message: "hi" })).toEqual({ text: 'No chat "nope": use main or an id from list.', failed: true });
-    expect(await run(name, ROOT_SESSION, 4, { action: "send", chat: side, message: "  " })).toEqual({ text: "Nothing to send: give a message.", failed: true });
-    expect(await run(name, ROOT_SESSION, 5, { action: "ask", chat: side, message: "  " })).toEqual({ text: "Nothing to ask: give a message.", failed: true });
-    expect(await deliveries(name, side)).toEqual([]);
-  });
-
-  it("reaches an archived chat: reads it, and a send puts it back in the user's list before its agent answers", async () => {
-    const name = crypto.randomUUID();
-    const archived = await sideChat(name, "Old taxes", true);
-    await inside(name, (instance) => instance.harness.prompt("reply: Filed in April.", { session: archived }));
-    const isArchived = () => inside(name, (instance) => instance.chats.list().find((row) => row.session === archived)?.archived_at !== null);
-
-    expect(await isArchived()).toBe(true);
-    expect(await run(name, ROOT_SESSION, 1, { action: "last", chat: archived })).toEqual({ text: "Filed in April.", failed: false });
-
-    expect(await run(name, ROOT_SESSION, 2, { action: "send", chat: archived, message: "Any refund yet?" })).toEqual({ text: "Sent to Old taxes; its agent answers there.", failed: false });
-    expect(await isArchived()).toBe(false);
-    await until(async () => (await latest(name, archived))?.startsWith("echo: [message from your main chat") === true, "the archived chat's answer");
-  });
-
-  it("asks another chat once per call, and hands its answer back to the asking chat, whose agent answers it", async () => {
-    const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    const sent = await pushes(name);
-    const question = { action: "ask", chat: side, message: "When does the train leave?" };
-
-    expect(await run(name, ROOT_SESSION, 7, question)).toEqual({
-      text: "Asked Trip plans; its agent answers there, and its answer comes back to you here as a message once it is done.",
-      failed: false
-    });
-    expect(await run(name, ROOT_SESSION, 7, question)).toMatchObject({ failed: false });
-    const asked = "[question from your main chat: answer here; your answer goes back to it] When does the train leave?";
-    expect((await deliveries(name, side)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:ask:${ROOT_SESSION}:7`, content: asked }]);
-
-    // The side chat's agent answers there; its answer goes back to the main chat, once, and the main chat's agent answers it.
-    await until(async () => (await deliveries(name, ROOT_SESSION)).some((row) => row.state === "chat"), "the answer handed back");
-    const answer = `[answer from your chat ${side} "Trip plans" to what you asked it; tell the user what matters] echo: ${asked}`;
-    expect((await deliveries(name, ROOT_SESSION)).map(({ id, content }) => ({ id, content }))).toEqual([{ id: `chat:answer:${ROOT_SESSION}:7`, content: answer }]);
-    await until(async () => (await latest(name, ROOT_SESSION))?.startsWith(`echo: [answer from your chat ${side}`) === true, "the main chat's answer");
-    expect(sent).toEqual([]);
-  });
-
-  it("refuses to send or ask on from a turn that takes another chat's answer back, so two chats never loop", async () => {
-    const name = crypto.randomUUID();
-    const side = await sideChat(name, "Trip plans");
-    // An answer handed back, by the id the side chat's answer is handed back with, that waits in a tool, so the main chat's turn taking it is still running.
-    await inside(name, (instance) => instance.deliveries.deliver({ id: `chat:answer:${ROOT_SESSION}:7`, session: ROOT_SESSION, content: WAIT, line: "Nine.", ref: `chat:${side}`, kind: "chat" }));
-    await gateStarted(name, 1);
-
-    expect(await run(name, ROOT_SESSION, 9, { action: "ask", chat: side, message: "And the return?" })).toEqual({
-      text: "This turn answers another chat's message: answer here.",
-      failed: true
-    });
-    expect(await run(name, ROOT_SESSION, 10, { action: "send", chat: side, message: "Thanks!" })).toMatchObject({ failed: true });
-    expect(await deliveries(name, side)).toEqual([]);
-    await agent(name).release();
+    expect(await run(name, ROOT_SESSION, 1, { action: "steer", chat: theirs, message: "hi" })).toEqual(missing(theirs));
+    expect(await run(name, ROOT_SESSION, 2, { action: "inspect", chat: users })).toEqual(missing(users));
+    expect(await run(name, users, 2, { action: "steer", chat: ROOT_SESSION, message: "hi" })).toEqual(missing(ROOT_SESSION));
+    expect(await run(name, ROOT_SESSION, 3, { action: "create", message: "  " })).toEqual({ text: "Nothing to start it on: give a message.", failed: true });
+    expect(await run(name, users, 3, { action: "steer", chat: theirs, message: " " })).toEqual({ text: "Nothing to steer it with: give a message.", failed: true });
   });
 
   it("refuses a conversation that is not a chat with the user, as a subagent's", async () => {
@@ -244,8 +158,95 @@ describe("the chats tool", () => {
     await inside(name, (instance) => instance.harness.prompt("spawn helper reply: done"));
     const session = () => inside(name, (instance) => instance.feed.list().find((task) => task.kind === "cloud")?.session ?? null);
     await until(async () => (await session()) !== null, "the subagent's conversation");
-    const subagent = (await session())!;
 
-    expect(await run(name, subagent, 1, { action: "list" })).toEqual({ text: "Only a chat with the user has other chats.", failed: true });
+    expect(await run(name, (await session())!, 1, { action: "create", message: "hi" })).toEqual({ text: "Only a chat with the user runs other chats.", failed: true });
+  });
+
+  it("opens a chat when the main chat's model calls it, as the user asked", async () => {
+    const name = crypto.randomUUID();
+    const said = await inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify({ action: "create", message: "reply: On it.", title: "HN yesterday" })}`)).text ?? "");
+
+    expect(said).toMatch(/^tool said: Opened chat \S+; its agent answers there/);
+    const chat = (await inside(name, (instance) => instance.chats.list()))[0]!;
+    expect(chat).toMatchObject({ title: "HN yesterday", opened_by: ROOT_SESSION });
+    await until(async () => (await latest(name, chat.session)) === "On it.", "the opened chat's answer");
+  });
+});
+
+const byText = (a: string | null, b: string | null) => (a ?? "").localeCompare(b ?? "");
+
+/** One generated call: who calls (an index into the chats so far), what, at which chat, run once or twice as a replay. */
+type Call = { readonly from: number; readonly action: "create" | "steer" | "inspect"; readonly to: number; readonly twice: boolean };
+
+const calls = fc.array(
+  fc.record({ from: fc.nat(7), action: fc.constantFrom("create" as const, "steer" as const, "inspect" as const), to: fc.nat(7), twice: fc.boolean() }),
+  { minLength: 1, maxLength: 12 }
+);
+
+describe("chats run one way, over generated calls", () => {
+  /**
+   * From the main chat, a side chat the user opened, and every chat those open, any of them calls create, steer or
+   * inspect at any chat, sometimes twice as a replay. Once all are idle:
+   * - P1: a chat a chat opened was opened by the main chat or one the user opened: one level, never deeper.
+   * - P2: a call from a chat a chat opened is refused, and opens or gives nothing.
+   * - P3: a chat a chat opened was given messages only by its opener's create and steers, each request once.
+   * - P4: no chat is given a message from a chat it did not open: the main chat and the user's get none at all.
+   * - P5: one create call, however often it runs, opens one chat.
+   */
+  it("keeps every chat a chat opened one level down, given messages only by its opener", async () => {
+    await fc.assert(
+      fc.asyncProperty(calls, async (ops: readonly Call[]) => {
+        const name = crypto.randomUUID();
+        const users = await userChat(name);
+        const chats = [ROOT_SESSION, users];
+        const creates: string[] = [];
+
+        for (const [task, op] of ops.entries()) {
+          const from = chats[op.from % chats.length]!;
+          const to = chats[op.to % chats.length]!;
+          const args: Record<string, JsonValue> = op.action === "create" ? { action: "create", message: `reply: made ${task}` } : { action: op.action, chat: to, message: `reply: steer ${task}` };
+          const managed = await inside(name, (instance) => instance.chats.openedBy(from) !== null);
+          const before = await inside(name, (instance) => instance.chats.list().length);
+          const first = await run(name, from, task, args);
+          const again = op.twice ? await run(name, from, task, args) : first;
+
+          if (managed) {
+            // P2
+            expect(first.failed && again.failed).toBe(true);
+            expect(await inside(name, (instance) => instance.chats.list().length)).toBe(before);
+          } else if (op.action === "create") {
+            // P5
+            expect(opened(again.text)).toBe(opened(first.text));
+            chats.push(opened(first.text));
+            creates.push(`chat-create:${from}:${task}`);
+          }
+        }
+
+        await inside(name, async (instance) => {
+          for (const session of chats) await (await instance.harness.conversation(session)).waitForIdle(BACKGROUND);
+        });
+        const rows = await inside(name, (instance) => instance.chats.list());
+
+        for (const session of chats) {
+          const row = rows.find((each) => each.session === session);
+          const requests = await placed(name, session);
+
+          if (row?.opened_by) {
+            // P1
+            expect(rows.find((each) => each.session === row.opened_by)?.opened_by ?? null).toBeNull();
+            // P3
+            expect(requests[0]).toBe(row.opened_request);
+            expect(requests.every((request) => request?.startsWith(`chat-create:${row.opened_by}:`) || request?.startsWith(`chat-steer:${row.opened_by}:`))).toBe(true);
+            expect(new Set(requests).size).toBe(requests.length);
+          } else {
+            // P4
+            expect(requests.filter((request) => request?.startsWith("chat-"))).toEqual([]);
+          }
+        }
+
+        expect(rows.filter((row) => row.opened_by !== null).map((row) => row.opened_request).toSorted(byText)).toEqual(creates.toSorted(byText));
+      }),
+      { numRuns: 25 }
+    );
   });
 });

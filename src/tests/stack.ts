@@ -709,6 +709,8 @@ const FORWARDS: Array<[RegExp, string?]> = [
   [/^(tool \S+ \{.*\})\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble\.$/],
   // A mail ky relays into the chat (src/mail.ts arrived) whose summary is a `tool` line: the chat's model says so, then tries it.
   [/^\[mail [^\n]*\]\n\nMail says: (tool \S+ \{.*\})$/m, "Trying what the mail asks."],
+  // A chat another chat opened answers the message after the header naming the opener (src/chats-tool.ts fromOpener).
+  [/^\[chat "[^"]*": [^\]]*\] ([\s\S]*)$/],
   // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
   [/^\[a question from [^\]]+\][\s\S]*?\nQuestion:\n([\s\S]*)$/]
 ];

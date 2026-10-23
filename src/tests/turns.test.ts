@@ -83,6 +83,14 @@ describe("buildTurns", () => {
     expect(sentTexts(messages)).toEqual([]);
   });
 
+  it("shows a message from the chat that opened this one as from that chat, not as the user's words", () => {
+    const text = '[chat "main chat": it opened this chat for the user and steers it; answer here, where the user reads it] Find the top 15.';
+    const messages: PiMessage[] = [{ id: "u", role: "user", parts: [{ type: "text", text }], timestamp: 1 }];
+
+    expect(buildTurns(messages, null, false, [])[0]).toMatchObject({ from: { verb: "From", icon: "chat", name: "main chat" }, user: "Find the top 15." });
+    expect(sentTexts(messages)).toEqual([]);
+  });
+
   it("shows a failed run with its reason, and a paused one as paused", () => {
     const failed: PiMessage[] = [{ id: "f", role: "user", parts: [{ type: "text", text: '[automation "Inbox" failed: no tool gmail.search]' }], timestamp: 1 }];
     const paused: PiMessage[] = [{ id: "p", role: "user", parts: [{ type: "text", text: '[automation "Inbox" paused] Its gate failed 3 fires in a row.' }], timestamp: 1 }];
