@@ -520,6 +520,36 @@ test("ky's card keeps what was chosen through a reload, labels with commas and a
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-answer-kept.png` });
 });
 
+test("ky's card with an id updates where it first showed, and the later turn notes the update", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  const plan = (status: string, done: number) => ({
+    id: "trip",
+    title: "Lisbon trip",
+    blocks: [
+      { type: "status", text: status, tone: done === 3 ? "success" : "info" },
+      { type: "stats", items: [{ value: `${done}/3`, label: "booked" }] }
+    ]
+  });
+
+  await send(page, `tool ui ${JSON.stringify(plan("Booking flights", 1))}`);
+  await expect(chat(page).getByRole("region", { name: "Lisbon trip" })).toContainText("Booking flights");
+  await send(page, `tool ui ${JSON.stringify(plan("All booked", 3))}`);
+
+  const event = chat(page).locator(".turn-event", { hasText: "Lisbon trip" });
+
+  await expect(event).toContainText("Updated");
+  const card = chat(page).getByRole("region", { name: "Lisbon trip" });
+
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("All booked");
+  await expect(card).not.toContainText("Booking flights");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-living-card.png` });
+});
+
 test("ky's card shows an image, and a tap opens it full size", async ({ page }) => {
   // A 1×1 PNG, served for the https address the card names, so the test never leaves the stack.
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");

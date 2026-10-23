@@ -60,6 +60,8 @@ export function uiExtension(chat: (session: string) => boolean): Extension {
           "lay them out with columns (side by side, folding on a phone) and tabs. Prefer these to a page: they cost a fraction of the tokens and match light and dark. Compose what fits what was asked; " +
           "plain answers stay plain text. The user's taps arrive as their next message: a choice as its label (several joined by \", \"), " +
           "a field as its text, a button as its reply; with several questions, one line each as \"label: answer\". " +
+          "To update a card you showed, such as a status that moves on or a list that fills in, give it an id and show it again with the same id: " +
+          "the new card replaces the old where it first showed, and the thread notes the update. " +
           "With wait, call it last, alone: your turn ends there. " +
           "In an automation's run the card is display only: it is posted before your report once the run succeeds, without wait or anything to answer (link buttons stay).",
         parameters: UiCardSchema,

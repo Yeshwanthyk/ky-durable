@@ -1,11 +1,11 @@
-import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SENDING } from "../outbox";
 import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
 import { KY_AVATAR } from "../avatar-spec";
 import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
-import { answeredWith, card, isQuestion } from "./card-answers";
+import { answeredWith, isQuestion } from "./card-answers";
 import type { CardAnswer } from "../ui-blocks";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
@@ -15,6 +15,7 @@ import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { eventsOf, type ThreadEvent } from "./events";
 import { Icon } from "./Icon";
+import { type Placement, placements } from "./living-cards";
 import { Markdown } from "./Markdown";
 import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
@@ -27,6 +28,9 @@ export const RecalledContext = createContext<Readonly<Record<string, readonly st
 
 /** What the user answered on ky's cards, by the ui call's id. */
 export const AnswersContext = createContext<Readonly<Record<string, CardAnswer>>>({});
+
+/** Where each of ky's cards lands in the turns shown (src/ui/living-cards.ts), and whether the last turn is live, which keeps every card from taking taps. */
+const CardsContext = createContext<{ readonly placed: ReadonlyMap<string, Placement>; readonly busy: boolean }>({ placed: new Map(), busy: false });
 
 /** Who answers in this chat, for the working row: ky's name and blob, or a subagent's name without one. */
 export type Speaker = { readonly name: string; readonly variantId?: BlobVariantId };
@@ -58,9 +62,13 @@ export function Thread({
   // The first message of a new chat rises in where the welcome screen was, rather than swapping
   // in; opening a chat that already has a turn shows it at once.
   const [arrived] = useState(() => turns.length === 1 && turns[0] !== undefined && fresh(turns[0]));
+  const placed = useSamePlacements(shownTurns);
+  const lastTurn = shownTurns.at(-1);
+  const busy = lastTurn !== undefined && isLive(lastTurn, mode);
+  const cards = useMemo(() => ({ placed, busy }), [placed, busy]);
 
   return (
-    <>
+    <CardsContext.Provider value={cards}>
       {hidden > 0 ? (
         <button type="button" className="earlier pressable" onClick={() => setShowAll(true)}>
           <Icon name="chevronDown" size={14} />
@@ -77,12 +85,32 @@ export function Thread({
             mode={index === shown.length - 1 ? mode : "dormant"}
             arrived={arrived}
             next={shown[index + 1]?.user ?? null}
-            last={index === shown.length - 1}
           />
         </Fragment>
       ))}
-    </>
+    </CardsContext.Provider>
   );
+}
+
+/** The turns' card placements, kept as the same map while they read the same, so a streamed token re-renders only its own turn. */
+function useSamePlacements(turns: readonly Turn[]): ReadonlyMap<string, Placement> {
+  const placed = placements(turns);
+  const key = [...placed].map(([call, each]) => (each.kind === "card" ? `${call}>${each.call}:${each.latest}` : `${call}^`)).join(" ");
+  const kept = useRef({ key, placed });
+
+  if (kept.current.key !== key) kept.current = { key, placed };
+
+  return kept.current.placed;
+}
+
+/**
+ * Whether a turn is being worked on. A streaming turn nothing is working on was cut off and must not look live;
+ * while booting, one that already has output is left from before the restart.
+ */
+function isLive(turn: Turn, mode: ThreadMode) {
+  const cutOff = mode === "dormant" || (mode === "booting" && turn.items.length > 0);
+
+  return turn.state === "streaming" && !cutOff;
 }
 
 /** The lasting changes a finished turn made, one quiet line each; a live turn shows them in its work. */
@@ -266,31 +294,33 @@ const TurnView = memo(function TurnView({
   turn,
   mode,
   arrived,
-  next,
-  last
+  next
 }: {
   turn: Turn;
   mode: ThreadMode;
   arrived: boolean;
   /** The user's next message, which answers this turn's cards. */
   next: string | null;
-  last: boolean;
 }) {
-  // A streaming turn nothing is working on was cut off; it must not look live. While booting, one
-  // that already has output is left from before the restart.
-  const cutOff = mode === "dormant" || (mode === "booting" && turn.items.length > 0);
-  const state = turn.state === "streaming" && cutOff ? "aborted" : turn.state;
-  const live = state === "streaming";
+  const live = isLive(turn, mode);
+  const state = turn.state === "streaming" && !live ? "aborted" : turn.state;
   const now = useNow(live && mode === "live");
   // Specialists' replies are their own messages, under ky's part of the turn.
   const replies = turn.items.filter((item): item is Reply => item.kind === "specialist");
   const waiting = turn.to.filter((id) => !replies.some((reply) => reply.from === id));
-  // Cards ky showed with the ui tool are part of its answer, not its work log.
-  const cards = turn.items.flatMap((item) => (item.kind === "tool" && item.name === "ui" && item.status === "done" ? [{ id: item.id, ui: card(item) }] : []));
+  // Cards ky showed with the ui tool are part of its answer, not its work log; a living card's update is a quiet line.
+  const { placed, busy } = useContext(CardsContext);
+
+  const cards = turn.items.flatMap((item) => {
+    const placement = placed.get(item.id);
+
+    return placement === undefined ? [] : [{ id: item.id, placement }];
+  });
+
   const answers = useContext(AnswersContext);
   // A card reads its answer from the record kept beside it; only a turn none of whose cards has one, from before
-  // records, reads the next message's words back.
-  const before = !cards.some(({ id }) => answers[id] !== undefined);
+  // records, reads the next message's words back. A living card is newer than records, so it never does.
+  const before = !cards.some(({ placement }) => placement.kind === "card" && answers[placement.call] !== undefined);
   const { log, answer } = split(turn.items.filter((item) => item.kind !== "specialist" && !(item.kind === "tool" && item.name === "ui")), live);
   const speaker = useContext(SpeakerContext);
   const [open, setOpen] = useState(false);
@@ -348,8 +378,22 @@ const TurnView = memo(function TurnView({
               </div>
             ) : null}
             <TurnEvents items={turn.items} live={live} />
-            {cards.map(({ id, ui }) =>
-              ui ? <BlockCard key={id} call={id} ui={ui} answer={answeredWith(ui.blocks.filter(isQuestion), answers[id], before ? next : null)} open={last && !live} /> : null
+            {cards.map(({ id, placement }) =>
+              placement.kind === "updated" ? (
+                <p key={id} className="turn-event">
+                  <span className="quiet">Updated</span>
+                  <Icon name="refresh" size={13} />
+                  <span className="turn-event-name">{placement.name}</span>
+                </p>
+              ) : (
+                <BlockCard
+                  key={placement.call}
+                  call={placement.call}
+                  ui={placement.ui}
+                  answer={answeredWith(placement.ui.blocks.filter(isQuestion), answers[placement.call], before && !placement.living ? next : null)}
+                  open={placement.latest && !busy}
+                />
+              )
             )}
             {live ? (
               <button type="button" className="live" disabled={openSteps === null} aria-haspopup="dialog" onClick={openSteps ?? undefined}>

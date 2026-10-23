@@ -134,6 +134,12 @@ export const UiBlockSchema = Type.Union([
 ]);
 
 export const UiCardSchema = Type.Object({
+  id: Type.Optional(
+    Type.String({
+      maxLength: 64,
+      description: "Name a card you will update, such as trip-plan. A later card with the same id replaces it where it first showed, and the thread notes the update."
+    })
+  ),
   title: Type.Optional(Type.String({ description: "A heading for the card." })),
   subtitle: Type.Optional(Type.String({ description: "A quiet line beside the title, such as the dates or the source." })),
   icon: Type.Optional(Type.String({ description: "An app or topic the card is about, such as gmail, calendar, github, file; shown as its icon." })),
@@ -156,6 +162,7 @@ export type TabsBlock = Static<typeof Tabs>;
  * is checked on its own and one a newer ky added is skipped, not the card.
  */
 export const UiCardShown = Type.Object({
+  id: Type.Optional(Type.String()),
   title: Type.Optional(Type.String()),
   subtitle: Type.Optional(Type.String()),
   icon: Type.Optional(Type.String()),

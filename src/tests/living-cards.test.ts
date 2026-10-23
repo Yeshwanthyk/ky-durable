@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import type { UiBlock, UiCard } from "../ui-blocks";
+import type { Tool, Turn } from "../ui/conversation";
+import { placements } from "../ui/living-cards";
+
+const ui = (id: string, card: UiCard, status: Tool["status"] = "done"): Tool => ({
+  kind: "tool",
+  id,
+  name: "ui",
+  category: "other",
+  summary: "ui",
+  status,
+  input: JSON.stringify(card),
+  output: "",
+  images: [],
+  durationMs: null
+});
+
+const turn = (id: string, ...items: Tool[]): Turn => ({
+  id,
+  state: "completed",
+  user: "hi",
+  images: [],
+  from: null,
+  task: null,
+  to: [],
+  items,
+  startedAt: null,
+  endedAt: null
+});
+
+const status = (text: string): UiBlock => ({ type: "status", text, tone: "info" });
+
+describe("a card with an id lives where it first showed", () => {
+  it("shows its newest version at the first call, and each later call as an update", () => {
+    const placed = placements([
+      turn("t1", ui("a", { id: "trip", title: "Trip", blocks: [status("Booking")] })),
+      turn("t2", ui("b", { title: "Other", blocks: [status("Elsewhere")] })),
+      turn("t3", ui("c", { id: "trip", title: "Trip", blocks: [status("Booked")] }))
+    ]);
+
+    expect(placed.get("a")).toMatchObject({ kind: "card", call: "c", latest: true, living: true, ui: { blocks: [{ text: "Booked" }] } });
+    expect(placed.get("b")).toMatchObject({ kind: "card", call: "b", latest: false, living: false });
+    expect(placed.get("c")).toEqual({ kind: "updated", name: "Trip" });
+  });
+
+  it("keeps cards without an id where they were called, and leaves out running and unreadable calls", () => {
+    const placed = placements([turn("t1", ui("a", { blocks: [status("one")] }), ui("b", { blocks: [status("two")] }), ui("r", { id: "x", blocks: [status("…")] }, "running"), ui("u", { blocks: [] }))]);
+
+    expect([...placed.keys()]).toEqual(["a", "b"]);
+    expect(placed.get("a")).toMatchObject({ kind: "card", call: "a", latest: true, living: false });
+  });
+
+  it("is newest in the last turn only when its newest call is there", () => {
+    const placed = placements([turn("t1", ui("a", { id: "p", blocks: [status("one")] }), ui("b", { id: "p", blocks: [status("two")] })), turn("t2")]);
+
+    expect(placed.get("a")).toMatchObject({ kind: "card", call: "b", latest: false });
+  });
+});
