@@ -1,5 +1,8 @@
+import type { AgentEvent, ConversationId, EntryId } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { answered, card, cardName, compose, decompose, lettered, needsSend, optionState, type Question, sendsOnTap, takesTaps, toggled } from "../ui/card-answers";
+import { CARD_ANSWER, type CardAnswer } from "../ui-blocks";
+import { EMPTY_VIEW, reduceEvents } from "../view";
+import { answered, answeredWith, card, cardName, compose, decompose, lettered, needsSend, optionState, type Question, sendsOnTap, takesTaps, toggled } from "../ui/card-answers";
 import type { Tool } from "../ui/conversation";
 
 const call = (input: string): Tool => ({
@@ -99,7 +102,7 @@ describe("choosing", () => {
   it("takes taps only as the chat's latest word, before it is answered or sent from", () => {
     expect(takesTaps(true, null, false)).toBe(true);
     expect(takesTaps(false, null, false)).toBe(false);
-    expect(takesTaps(true, "Large", false)).toBe(false);
+    expect(takesTaps(true, { values: [["Large"]], button: undefined }, false)).toBe(false);
     expect(takesTaps(true, null, true)).toBe(false);
   });
 
@@ -133,5 +136,38 @@ describe("choosing", () => {
     expect(lettered(senders, "C")?.label).toBe("Affirm");
     expect(lettered(senders, "d")).toBeUndefined();
     expect(lettered(senders, "Enter")).toBeUndefined();
+  });
+});
+
+// SAFETY: pi's ids are numbers branded by kind; these stand in for ones pi made.
+const conversationId = 1 as ConversationId;
+
+const kept = (id: number, data: CardAnswer | { readonly call: number }): AgentEvent => ({
+  type: "entry_appended",
+  // SAFETY: as above; `data` is whatever an entry of the kind might hold, checked by the view.
+  entry: { id: id as EntryId, conversationId, kind: CARD_ANSWER, data: data as never }
+});
+
+describe("an answer kept beside its message", () => {
+  const times: Question = { type: "choice", label: "When?", multiple: true, options: [{ label: "Tue, 10am" }, { label: "Wed, 2pm" }] };
+
+  it("reads back from the record, labels with commas and typed line breaks and all", () => {
+    const record = { call: "c1", values: [["Tue, 10am", "Wed, 2pm"], ["line one\nline two"]] };
+
+    expect(answeredWith([times, name], record, "When?: Tue, 10am, Wed, 2pm")).toEqual({ values: record.values, button: undefined });
+    // The words alone lose both: the commas split the labels, and the line break the field.
+    expect(decompose([times, name], compose([times, name], record.values))).not.toEqual(record.values);
+  });
+
+  it("reads a card from before the records back from the next message, and an unanswered one as unanswered", () => {
+    expect(answeredWith([size], undefined, "Large")).toEqual({ values: [["Large"]], button: "Large" });
+    expect(answeredWith([size], undefined, null)).toBeNull();
+  });
+
+  it("is collected by the view by the card's call, and a damaged one is skipped", () => {
+    const view = reduceEvents(EMPTY_VIEW, [kept(1, { call: "c1", values: [["Large"]] }), kept(2, { call: 7 }), kept(3, { call: "c2", values: [], button: "Archive" })]);
+
+    expect(view.answers).toEqual({ c1: { call: "c1", values: [["Large"]] }, c2: { call: "c2", values: [], button: "Archive" } });
+    expect(view.messages).toEqual([]);
   });
 });

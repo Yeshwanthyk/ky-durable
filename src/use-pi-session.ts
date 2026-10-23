@@ -7,6 +7,7 @@ import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
 import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
+import type { CardAnswer } from "./ui-blocks";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
 import type {
@@ -317,9 +318,11 @@ export function usePiSession(session: string) {
    * message gets one operation id, kept across resends, so pi takes it once.
    */
   const submit = useCallback(
-    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp") => {
+    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp", card?: CardAnswer) => {
       const operationId = crypto.randomUUID();
-      const message: ClientMessage = { type: "submit", id: operationId, operationId, input, whenBusy };
+      const message: Extract<ClientMessage, { type: "submit" }> = { type: "submit", id: operationId, operationId, input, whenBusy };
+
+      if (card !== undefined) message.card = card;
       unanswered.current.set(operationId, { session, message });
       // It shows before the server answers: in the thread, or queued behind the run going now.
       setState((current) => ({

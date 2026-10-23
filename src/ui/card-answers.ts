@@ -1,12 +1,14 @@
 import { decodeOr, parseOr } from "../core/decode";
-import { type UiBlock, UiBlockSchema, type UiCard, UiCardShown } from "../ui-blocks";
+import { type CardAnswer, type UiBlock, UiBlockSchema, type UiCard, UiCardShown } from "../ui-blocks";
 import type { Tool } from "./conversation";
 
 /**
  * A ui card's questions and the message that answers them (src/ui/Blocks.tsx).
  * The answer is the user's next message: the one question's value as it is, a
  * multiple choice's options joined by ", ", or with several questions one
- * "label: value" line each. Read back, it shows which options were chosen.
+ * "label: value" line each. Beside it the page keeps what was chosen, by the
+ * card's call (CardAnswer), which is what the card reads back; a card from
+ * before those records reads its answer back from the message's words.
  */
 
 export type Choice = Extract<UiBlock, { type: "choice" }>;
@@ -50,8 +52,21 @@ export const sendsOnTap = (questions: readonly Question[]) => {
   return questions.length === 1 && only?.type === "choice" && only.multiple !== true;
 };
 
+/** What a card was answered with: each question's value, in order, and the reply of the button tapped. */
+export type Answered = { readonly values: readonly Value[]; readonly button: string | undefined };
+
+/**
+ * A card's answer: the record kept beside the message that answered it, or with `next` (the turn's following
+ * message, given only when no card in the turn has a record, so the card is from before them) its words read back.
+ */
+export function answeredWith(questions: readonly Question[], record: CardAnswer | undefined, next: string | null): Answered | null {
+  if (record !== undefined) return { values: record.values, button: record.button };
+
+  return next === null ? null : { values: decompose(questions, next), button: next };
+}
+
 /** A card takes taps while it is the chat's latest word, unanswered, and nothing was sent from it yet. */
-export const takesTaps = (open: boolean, answer: string | null, sent: boolean) => open && answer === null && !sent;
+export const takesTaps = (open: boolean, answer: Answered | null, sent: boolean) => open && answer === null && !sent;
 
 /** A lone single choice sends on the tap and a lone field has its own ✓; any other card with questions waits for Send. */
 export const needsSend = (questions: readonly Question[]) => {

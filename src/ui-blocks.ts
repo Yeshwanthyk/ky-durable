@@ -163,3 +163,20 @@ export const UiCardShown = Type.Object({
   wait: Type.Optional(Type.Boolean()),
   blocks: Type.Array(Type.Unknown())
 });
+
+/**
+ * What the user answered on a card, kept beside their message (src/sockets.ts writes it as a CARD_ANSWER entry):
+ * the page reads which options were chosen from here, not from the message's words, which a label with ", " or a
+ * typed line break would split. `call` is the ui call's id; `values` holds each question's answer, in the card's
+ * order; `button` is the reply of the button tapped.
+ */
+export const CardAnswerSchema = Type.Object({
+  call: Type.String({ maxLength: 200 }),
+  values: Type.Array(Type.Array(Type.String({ maxLength: 4000 }), { maxItems: 12 }), { maxItems: 12 }),
+  button: Type.Optional(Type.String({ maxLength: 4000 }))
+});
+
+export type CardAnswer = Static<typeof CardAnswerSchema>;
+
+/** The entry kind a card's answer is kept as: passive, and with nothing for the model, which reads the user's message. */
+export const CARD_ANSWER = "ky.card-answer";

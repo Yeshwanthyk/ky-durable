@@ -3,14 +3,15 @@ import type { PiSessionView } from "../view";
 import { Icon } from "./Icon";
 import { ReplyContext } from "./Blocks";
 import type { BlobVariantId } from "./blob-catalog";
-import { OpenStepsContext, RecalledContext, SpeakerContext, Thread } from "./Thread";
+import { AnswersContext, OpenStepsContext, RecalledContext, SpeakerContext, Thread } from "./Thread";
+import type { CardAnswer } from "../ui-blocks";
 import { Timeline, TimelineSheet } from "./Timeline";
 import type { Visit } from "./thread-marks";
 import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
 
-type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools">;
+type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools" | "answers">;
 
 const NONE_RECALLED: Readonly<Record<string, readonly string[]>> = {};
 
@@ -23,8 +24,8 @@ type Contexts = {
   /** Who answers here, and their blob, for the working row. */
   speaker: string;
   variantId?: BlobVariantId;
-  /** Sends a tap on a card ky showed as the user's next message. */
-  onReply: (text: string) => void;
+  /** Sends a tap on a card ky showed as the user's next message, with what was chosen. */
+  onReply: (text: string, card?: CardAnswer) => void;
 };
 
 // The open chat's thread, which follows the end while the user is there; `welcome` stands in while it is empty.
@@ -55,7 +56,9 @@ export function ChatThread({
     <main ref={threadRef} className="thread" data-scroll>
       <div ref={innerRef} className="thread-inner">
         <ThreadContexts {...contexts} openSteps={openSteps}>
-          {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} />}
+          <AnswersContext.Provider value={session.answers}>
+            {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} />}
+          </AnswersContext.Provider>
         </ThreadContexts>
       </div>
       <div className="thread-end">

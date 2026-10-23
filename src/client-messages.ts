@@ -14,6 +14,7 @@ import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
 import { ModelChoiceSchema, PurposeSchema } from "./settings";
 import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
 import type { PiServerMessage } from "./protocol";
+import { CardAnswerSchema } from "./ui-blocks";
 
 const Text = Type.String();
 
@@ -38,7 +39,9 @@ export const ClientMessageSchema = Type.Union([
   message("submit", {
     input: UserInputSchema,
     whenBusy: Type.Optional(Type.Union([Type.Literal("followUp"), Type.Literal("steer")])),
-    operationId: Type.Optional(Text)
+    operationId: Type.Optional(Text),
+    /** The message answers a card ky showed: what was chosen, kept beside it for the card to read back. */
+    card: Type.Optional(CardAnswerSchema)
   }),
   message("abort", {}),
   /** Stop the step the run is on, so what is queued goes in now rather than after it. */
