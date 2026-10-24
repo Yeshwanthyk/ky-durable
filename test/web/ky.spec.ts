@@ -2245,4 +2245,55 @@ test.describe("voice notes and video", () => {
       await page.screenshot({ path: `${SHOTS}/sound-as-voice-note.png` });
     }
   });
+
+  test("a voice note plays at the speed the user picked, seeks from the keys, and one at a time", async ({ page }) => {
+    await open(page);
+    const sound = await readFile(`${REPO}/test/web/fixtures/sound.webm`);
+
+    const reply = await page.evaluate(
+      async (bytes) => (await fetch("/api/media", { method: "PUT", headers: { "Content-Type": "audio/webm" }, body: new Uint8Array(bytes) })).text(),
+      [...sound]
+    );
+
+    const id = /"id":"([0-9a-f]{32})"/.exec(reply)?.[1] ?? "";
+
+    const blocks = [
+      { type: "audio", src: id, caption: "First" },
+      { type: "audio", src: id, caption: "Second" }
+    ];
+
+    await send(page, `tool ui ${JSON.stringify({ title: "Two notes", blocks })}`);
+    const card = chat(page).getByRole("region", { name: "Two notes" });
+
+    // The speed steps 1×, 1.5×, 2× and back, and every note keeps the user's pick, after a reload too.
+    await card.getByRole("button", { name: "Speed 1×, change" }).first().click();
+    await card.getByRole("button", { name: "Speed 1.5×, change" }).first().click();
+    await expect(card.getByRole("button", { name: "Speed 2×, change" }).first()).toBeVisible();
+    await page.reload();
+    await expect(card.getByRole("button", { name: "Speed 2×, change" })).toHaveCount(2);
+
+    // The waveform is a slider: End goes to the end, Home back to the start.
+    const seek = card.getByRole("slider", { name: "Seek First" });
+    await expect(seek).toHaveAttribute("aria-valuemax", "4");
+    await seek.focus();
+    await page.keyboard.press("End");
+    await expect(seek).toHaveAttribute("aria-valuenow", "4");
+    await page.keyboard.press("Home");
+    await expect(seek).toHaveAttribute("aria-valuenow", "0");
+
+    // Starting one note stops the other.
+    await card.getByRole("button", { name: "Play First" }).click();
+    await expect(card.getByRole("button", { name: "Pause First" })).toBeVisible();
+    await card.getByRole("button", { name: "Play Second" }).click();
+    await expect(card.getByRole("button", { name: "Pause Second" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Play First" })).toBeVisible();
+    expect(await card.locator("audio").evaluateAll((players) => players.map((player) => (player instanceof HTMLAudioElement ? player.playbackRate : 0)))).toEqual([2, 2]);
+
+    if (SHOTS) {
+      await card.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${SHOTS}/voice-note-speed.png` });
+    }
+
+    await card.getByRole("button", { name: "Speed 2×, change" }).first().click();
+  });
 });
