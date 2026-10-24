@@ -3283,6 +3283,13 @@ button.live:hover .live-steps {
   }
 }
 
+.sidebar-foot {
+  flex: none;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 /* ---------- Artifacts: what ky made, in one place (src/ui/Artifacts.tsx) ---------- */
 
 .artifacts {
@@ -3361,6 +3368,7 @@ button.live:hover .live-steps {
 }
 
 .artifact {
+  --press-scale: 0.98;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -3372,6 +3380,52 @@ button.live:hover .live-steps {
   color: var(--ink);
   text-align: left;
   text-decoration: none;
+}
+
+/* After .pressable, so the card's shadow eases with its press. */
+.artifact.pressable {
+  transition:
+    transform var(--fast) var(--ease-out),
+    box-shadow 200ms ease;
+}
+
+/* Cards rise in as the page opens, a beat apart; past the first row they all arrive together. */
+.artifact-grid > li {
+  animation: artifact-in 260ms var(--ease-enter) both;
+}
+
+.artifact-grid > li:nth-child(2) { animation-delay: 30ms; }
+.artifact-grid > li:nth-child(3) { animation-delay: 60ms; }
+.artifact-grid > li:nth-child(4) { animation-delay: 90ms; }
+.artifact-grid > li:nth-child(n + 5) { animation-delay: 120ms; }
+
+@keyframes artifact-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* A preview fades in once drawn (data-loaded, set in Artifacts.tsx), over the card's grey. */
+.artifact-preview > :is(img, video, iframe) {
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+
+.artifact-preview > [data-loaded] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artifact-grid > li {
+    animation-name: artifact-fade;
+  }
+
+  @keyframes artifact-fade {
+    from {
+      opacity: 0;
+    }
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

@@ -41,6 +41,11 @@ const EMPTY: Record<ArtifactKind, string> = {
   audio: "No audio yet."
 };
 
+/** Marks a preview drawn, so it fades in rather than flashing white over the card. */
+const drawn = (event: { currentTarget: HTMLElement }) => {
+  event.currentTarget.dataset.loaded = "";
+};
+
 const kindOf = (file: FileRow): "images" | "videos" | "audio" =>
   file.type.startsWith("audio/") ? "audio" : file.type.startsWith("video/") ? "videos" : "images";
 
@@ -156,9 +161,9 @@ function Card({
     const { site } = artifact;
 
     return (
-      <a className="artifact" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
+      <a className="artifact pressable" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
         <div className="artifact-preview artifact-site">
-          <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden />
+          <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden onLoad={drawn} />
         </div>
         <Footer title={site.title} meta={meta} icon="globe" badge={site.public ? "Public" : undefined} />
       </a>
@@ -197,13 +202,24 @@ function VisualCard({ src, title, name, meta, video, onView }: { src: string; ti
       <div className="artifact-preview">
         {video ? (
           <>
-            <video src={src} muted playsInline preload="metadata" onLoadedMetadata={(event) => event.currentTarget.videoWidth === 0 && setSound(true)} />
+            <video
+              src={src}
+              muted
+              playsInline
+              preload="metadata"
+              onError={drawn}
+              onLoadedMetadata={(event) => {
+                drawn(event);
+
+                if (event.currentTarget.videoWidth === 0) setSound(true);
+              }}
+            />
             <span className="artifact-play" aria-hidden>
               <Icon name="play" size={14} />
             </span>
           </>
         ) : (
-          <img src={src} alt="" loading="lazy" />
+          <img src={src} alt="" loading="lazy" onLoad={drawn} onError={drawn} />
         )}
       </div>
       <Footer title={title} meta={meta} icon={video ? "play" : "image"} />

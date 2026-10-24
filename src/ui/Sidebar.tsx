@@ -245,14 +245,6 @@ export function Sidebar({
       </button>
       <ul className="chat-list">
         <li>
-          <button type="button" className="chat-item pressable pressable-row" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
-            <Icon name="grid" size={14} />
-            <span className="chat-title">Artifacts</span>
-          </button>
-        </li>
-      </ul>
-      <ul className="chat-list">
-        <li>
           <button
             type="button"
             className="chat-item pressable pressable-row"
@@ -287,6 +279,13 @@ export function Sidebar({
         </ul>
       )}
       <ArchivedChats chats={archived} row={row} />
+      {/* What ky made sits apart from the chats, at the foot, so the list starts with the main chat. */}
+      <div className="sidebar-foot">
+        <button type="button" className="chat-item pressable pressable-row" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
+          <Icon name="grid" size={14} />
+          <span className="chat-title">Artifacts</span>
+        </button>
+      </div>
     </nav>
   );
 }
