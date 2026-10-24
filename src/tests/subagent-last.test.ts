@@ -3,7 +3,7 @@ import { AssistantEntry, type ConversationId, defineDoc, type EntryId, ROOT_CONV
 import { describe, expect, it } from "vitest";
 import { agent, gateStarted, inside, prompt, submit, tasks, until } from "./drive";
 import { GLM, KIMI, OPENCODE_KEY } from "./stack";
-import { BACKGROUND } from "../background";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ModelChoice } from "../settings";
 
 const FLASH = { provider: "opencode-go", modelId: "deepseek-v4.1-flash" } as const;
@@ -18,7 +18,7 @@ const kept = (name: string, agent: string) =>
       const model = (await tx.doc(Registry, ROOT_CONVERSATION_ID)).agents[agent]?.model;
 
       return model && { ...model };
-    }, BACKGROUND)
+    }, BACKGROUND_CONTEXT)
   );
 
 /** The subagent tool's `last`, and a subagent on a model of its own, through ky's real PiAgent on the fake models. */
@@ -49,6 +49,8 @@ const Registry = defineDoc<{ agents: Record<string, { reported: EntryId[]; model
   scope: "conversation",
   history: "latest",
   fork: "initial",
+  // Each change is stored as a delta; no full copy is written.
+  checkpointWhen: () => false,
   initial: () => ({ agents: {} })
 });
 
@@ -64,14 +66,14 @@ const answerWith = (name: string, agent: string, text: string) =>
       const answer = entries.flatMap((entry) => entry.model ?? []).find((message) => message.role === "assistant")!;
       const entry = await tx.appendEntry(AssistantEntry, conversationId, { model: [{ ...answer, content: [{ type: "text", text }] }] });
       (await tx.doc(Registry, ROOT_CONVERSATION_ID)).agents[agent]!.reported.push(entry.id);
-    }, BACKGROUND);
+    }, BACKGROUND_CONTEXT);
   });
 
 /** What `last` returns for `agent`, read from the main conversation's transcript as soon as the tool returns. */
 async function lastOf(name: string, agent: string): Promise<string | undefined> {
   const transcript = (minEntryId?: EntryId) =>
     inside(name, async (instance) =>
-      (await instance.harness.pi()).commit(async (tx) => (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, minEntryId }, 50)).items, BACKGROUND)
+      (await instance.harness.pi()).commit(async (tx) => (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, minEntryId }, 50)).items, BACKGROUND_CONTEXT)
     );
 
   const after = (await transcript())[0]?.id;

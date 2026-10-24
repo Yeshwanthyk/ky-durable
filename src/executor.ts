@@ -42,12 +42,12 @@ export type ExecutorConfig = ExecutorConnection & {
 
 /** What Settings shows of Executor: its address once connected, never the token. */
 
-type CallResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+type CallResult = { output: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 const REQUEST_TIMEOUT_MS = 6 * 60_000;
 
 const failed = (error: Error): CallResult => ({
-  content: [{ type: "text", text: `Executor call failed: ${error.message}` }],
+  output: [{ type: "text", text: `Executor call failed: ${error.message}` }],
   isError: true
 });
 
@@ -59,7 +59,7 @@ function answered(error: Error, ...codes: number[]): boolean {
   return error instanceof StreamableHTTPError && error.code !== undefined && codes.includes(error.code);
 }
 
-/** An MCP tool result as pi tool content: text parts as they are, anything else as JSON. */
+/** An MCP tool result as pi tool output: text parts as they are, anything else as JSON. */
 function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
   const content = (Array.isArray(result.content) ? result.content : []).map((part) =>
     part.type === "text"
@@ -71,7 +71,7 @@ function toResult(result: Awaited<ReturnType<Client["callTool"]>>): CallResult {
     content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
   }
 
-  return { content, isError: result.isError === true };
+  return { output: content, isError: result.isError === true };
 }
 
 /** An MCP session with Executor, signed in with the token. */
@@ -200,7 +200,7 @@ export async function executeOnce(
   try {
     const result = await executor.call("execute", { code }, signal);
 
-    return { text: result.content.map((part) => part.text).join("\n"), error: result.isError === true };
+    return { text: result.output.map((part) => part.text).join("\n"), error: result.isError === true };
   } finally {
     executor.close();
   }
@@ -293,13 +293,13 @@ function connectionTool(current: string, retarget: ExecutorRetarget) {
     parameters: Type.Object({ url: Type.Optional(Type.String({ description: "The new URL. Leave out to only show the current one." })) }),
     replay: "safe",
     execute: async (args) => {
-      if (args.url === undefined) return { content: [{ type: "text", text: `Executor is connected at ${current}.` }] };
+      if (args.url === undefined) return { output: [{ type: "text", text: `Executor is connected at ${current}.` }] };
 
       const { refused } = await retarget(args.url);
 
       return refused
-        ? { content: [{ type: "text", text: `Not changed: ${refused}` }], isError: true }
-        : { content: [{ type: "text", text: `Executor is now connected at ${args.url.trim()}. Its tools reconnect there on their next call.` }] };
+        ? { output: [{ type: "text", text: `Not changed: ${refused}` }], isError: true }
+        : { output: [{ type: "text", text: `Executor is now connected at ${args.url.trim()}. Its tools reconnect there on their next call.` }] };
     }
   });
 }

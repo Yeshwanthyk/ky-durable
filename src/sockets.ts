@@ -40,7 +40,7 @@ import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
-import { BACKGROUND } from "./background";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
@@ -789,7 +789,7 @@ export class PiSessionSockets {
     const conversation = await this.#harness.conversation(session);
     const requestId = `${message.operationId ?? message.id}:card`;
 
-    await conversation.submit({ type: "write", entry: { kind: CARD_ANSWER, data: message.card }, requestId }, BACKGROUND);
+    await conversation.submit({ type: "write", entry: { kind: CARD_ANSWER, data: message.card }, requestId }, BACKGROUND_CONTEXT);
 
     return taken;
   }
@@ -800,11 +800,11 @@ export class PiSessionSockets {
    */
   async #withdraw(session: PiSessionId, operationId: string): Promise<boolean> {
     const conversation = await this.#harness.conversation(session);
-    const record = await (await this.#harness.storage()).submissionByRequest(conversation.id, operationId, BACKGROUND);
+    const record = await (await this.#harness.storage()).submissionByRequest(conversation.id, operationId, BACKGROUND_CONTEXT);
 
     if (record?.status !== "queued") return false;
 
-    return (await (await this.#harness.pi()).abortSubmission(record.id, BACKGROUND, conversation.id)) === "aborted";
+    return (await (await this.#harness.pi()).abortSubmission(record.id, BACKGROUND_CONTEXT, conversation.id)) === "aborted";
   }
 
   /**
@@ -847,14 +847,14 @@ export class PiSessionSockets {
   async #stopRound(session: PiSessionId): Promise<boolean> {
     const conversation = await this.#harness.conversation(session);
     const pi = await this.#harness.pi();
-    const { tasks, submissions } = await pi.inspect(BACKGROUND);
+    const { tasks, submissions } = await pi.inspect(BACKGROUND_CONTEXT);
     const queued = submissions.some((each) => each.conversationId === conversation.id && each.type === "input" && each.status === "queued");
 
     if (!queued) return false;
 
     for (const { record } of tasks) {
       if (record.kind === "pi.tool" && record.conversationId === conversation.id && !record.background && !record.abortRequested) {
-        await pi.abortTask(record.id, BACKGROUND);
+        await pi.abortTask(record.id, BACKGROUND_CONTEXT);
       }
     }
 

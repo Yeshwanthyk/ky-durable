@@ -1,6 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import { defineDoc, defineExtension, defineTool, type Extension, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { type UiCard, UiCardSchema } from "./ui-blocks";
+import { toolReply as reply } from "./core/reply";
 
 /**
  * ui: ky shows the user a card in the chat, composed from blocks: text, a
@@ -21,8 +22,6 @@ const UI = "ui";
 
 const INTERACTIVE = new Set(["choice", "input", "buttons"]);
 
-const reply = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], isError });
-
 /**
  * The cards an automation's run showed, each as its call's id and the card's JSON, kept for its report. `run` is set
  * when the run is spawned; a conversation without it is no run, and its ui calls are refused as before.
@@ -33,6 +32,8 @@ export const RunCards = defineDoc<{ run: boolean; cards: Array<{ call: string; c
   scope: "conversation",
   history: "latest",
   fork: "initial",
+  // Each change is stored as a delta; no full copy is written.
+  checkpointWhen: () => false,
   initial: () => ({ run: false, cards: [] })
 });
 

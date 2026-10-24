@@ -51,6 +51,7 @@ import {
   TurnsRowSchema
 } from "./contract";
 import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
+import { toolReply as reply } from "../core/reply";
 
 /**
  * Machines: computers that run work for the main agent, such as the user's
@@ -1159,8 +1160,6 @@ function sharedLine(files: readonly FileRow[]): string {
 
   return `\n\nShared with the user, shown under this report: ${files.map((file) => file.caption ?? file.name).join("; ")}`;
 }
-
-const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 /** Which agents a machine runs, and each it has but is not signed in to: "runs Codex, Claude Code not signed in". */
 function agentsOf(facts: MachineFacts): string[] {

@@ -25,6 +25,7 @@ import {
   PeerRow,
   QUESTION_CHARS
 } from "./contract";
+import { toolReply as text } from "../core/reply";
 
 /**
  * Peers: other people's kys this one is paired with (docs/multiplayer-shaping.md, X1). The user
@@ -741,8 +742,6 @@ const ACTIONS: Record<Exclude<PeerArgs["action"], "escalate">, (desk: PeerDesk, 
     return isRefusal(paired) ? paired.refused : `Paired with ${name} (${paired.address}).`;
   }
 };
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** The peer tool, for the main chat and the side chats only: `chat` says which conversations those are. */
 export function peerExtension(desk: PeerDesk, chat: (session: string) => boolean): Extension {

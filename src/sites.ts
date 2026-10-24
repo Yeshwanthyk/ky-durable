@@ -2,6 +2,7 @@ import type { Workspace } from "@cloudflare/computer";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import Type from "typebox";
 import { parseOr } from "./core/decode";
+import { toolReply as reply } from "./core/reply";
 
 /**
  * site: the agent of a chat with the user publishes a small static site, one
@@ -53,8 +54,6 @@ const SiteArgs = Type.Object({
   html: Type.Optional(Type.String({ description: "publish: one HTML page, served as the site's index.html." })),
   dir: Type.Optional(Type.String({ description: "publish: a workspace folder, such as /workspace/site, served with its index.html at the root." }))
 });
-
-const reply = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], isError });
 
 async function meta(bucket: R2Bucket, id: string): Promise<SiteMeta | undefined> {
   const object = await bucket.get(siteKey(id, META));

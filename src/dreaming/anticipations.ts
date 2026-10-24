@@ -14,6 +14,7 @@ import {
   type Evidence
 } from "./contract";
 import type { Memory } from "./memory";
+import { toolReply as text } from "../core/reply";
 
 /**
  * Anticipations: what ky expects to matter soon, so the right context is ready before the user reaches for
@@ -510,8 +511,6 @@ export function anticipationLine(row: Anticipation, now: number): string {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** A date the model wrote, as epoch ms; an error when it is not one. */
 function when(value: string, what: string): number {

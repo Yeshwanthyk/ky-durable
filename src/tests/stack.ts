@@ -813,7 +813,7 @@ export class PiAgent extends ProductionAgent {
             await new Promise((resolve) => setTimeout(resolve, 20));
           }
 
-          return { content: [{ type: "text", text: `released after ${runs} runs` }] };
+          return { output: [{ type: "text", text: `released after ${runs} runs` }] };
         }
       });
 
@@ -823,7 +823,7 @@ export class PiAgent extends ProductionAgent {
       parameters: Type.Object({ value: Type.Number() }),
       replay: "safe",
       execute: async ({ value }) => ({
-        content: [{ type: "text", text: String(value * 3) }],
+        output: [{ type: "text", text: String(value * 3) }],
         details: { result: value * 3 }
       })
     });

@@ -4,7 +4,7 @@ import { evictDurableObject } from "cloudflare:test";
 import fc from "fast-check";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import { BACKGROUND } from "../background";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { placedBy } from "../history";
 import { agent, gateStarted, inside, until } from "./drive";
 
@@ -22,9 +22,9 @@ async function run(name: string, from: string, task: number, args: Record<string
     const { tool } = instance.registry.snapshot().tools().find((each) => each.tool.name === "chats")!;
     // SAFETY: the tool reads only the calling conversation and the call's task from its api.
     const api = { conversationId: Number(from), taskId: task, callId: "call-1" } as ToolExecutionApi;
-    const result = await tool.execute(args, api, BACKGROUND);
+    const result = await tool.execute(args, api, BACKGROUND_CONTEXT);
 
-    return { text: (result.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), failed: result.isError === true };
+    return { text: (result.output ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), failed: result.isError === true };
   });
 }
 
@@ -223,7 +223,7 @@ describe("chats run one way, over generated calls", () => {
         }
 
         await inside(name, async (instance) => {
-          for (const session of chats) await (await instance.harness.conversation(session)).waitForIdle(BACKGROUND);
+          for (const session of chats) await (await instance.harness.conversation(session)).waitForIdle(BACKGROUND_CONTEXT);
         });
         const rows = await inside(name, (instance) => instance.chats.list());
 
