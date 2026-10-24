@@ -66,7 +66,7 @@ export type SkillAction = Static<typeof SkillAction>;
 export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
 
 /**
- * The user's answers to a skill's Needs (src/skills/sections.ts), saved from a chat or the panel. Not a version
+ * The user's answers to a skill's Needs (`parse` below), saved from a chat or the panel. Not a version
  * either: answers are the user's facts for the skill, not its text, so a revert or a dream's undo leaves them.
  */
 export const AnswerAction = Type.Literal("answer");
