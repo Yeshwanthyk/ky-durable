@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test, type WebSocketRoute } from "@playwright/test";
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { readFile } from "node:fs/promises";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
@@ -2212,6 +2213,36 @@ test.describe("voice notes and video", () => {
     if (SHOTS) {
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${SHOTS}/voice-and-video-card.png` });
+    }
+  });
+
+  test("a video with no picture plays as a voice note, and a sound saves to the device", async ({ page }) => {
+    await open(page);
+    // A download's sound comes as .webm, which ky files as a video.
+    const sound = await readFile(`${REPO}/test/web/fixtures/sound.webm`);
+
+    const reply = await page.evaluate(
+      async (bytes) => (await fetch("/api/media", { method: "PUT", headers: { "Content-Type": "video/webm" }, body: new Uint8Array(bytes) })).text(),
+      [...sound]
+    );
+
+    const id = /"id":"([0-9a-f]{32})"/.exec(reply)?.[1] ?? "";
+
+    await send(page, `tool ui ${JSON.stringify({ title: "Listen later", blocks: [{ type: "video", src: id, caption: "how-to-be-calm.webm" }] })}`);
+
+    const card = chat(page).getByRole("region", { name: "Listen later" });
+    await expect(card.getByRole("button", { name: "Play how-to-be-calm.webm" })).toBeVisible();
+    await expect(card.locator("video")).toHaveCount(0);
+
+    const save = card.getByRole("link", { name: "Save how-to-be-calm.webm" });
+    await expect(save).toHaveAttribute("download", "how-to-be-calm.webm");
+    const download = page.waitForEvent("download");
+    await save.click();
+    expect((await download).suggestedFilename()).toBe("how-to-be-calm.webm");
+
+    if (SHOTS) {
+      await card.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${SHOTS}/sound-as-voice-note.png` });
     }
   });
 });
