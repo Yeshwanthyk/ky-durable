@@ -4,6 +4,7 @@ import PostalMime from "postal-mime";
 import type { Static, TSchema } from "typebox";
 import { decode } from "./core/decode";
 import type { MailItem, MailView } from "./protocol";
+import { toolReply as text } from "./core/reply";
 
 /**
  * Mail: ky's own address, like ky@example.com. Email Routing sends mail to that address to the Worker's
@@ -591,8 +592,6 @@ const ACTIONS: Record<MailArgs["action"], (desk: MailDesk, args: MailArgs, sessi
     return `Mail from ${sender} in the next ${wait} minutes comes to this chat, read for you.`;
   }
 };
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** The mail tool, for the main chat and the side chats only: `chat` says which conversations those are. */
 export function mailExtension(desk: MailDesk, chat: (session: string) => boolean): Extension {

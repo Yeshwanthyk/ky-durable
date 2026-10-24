@@ -2,6 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { SOUL_EDIT } from "./contract";
 import { Versioned, versionLine } from "./versioned";
+import { toolReply as text } from "../core/reply";
 
 /**
  * SOUL.md: ky's persona, after Muse's. It shapes how ky talks; the
@@ -35,8 +36,6 @@ export class Soul extends Versioned {
 }
 
 const RULES = `The <soul> section is SOUL.md, your persona: it shapes your voice and manner in every conversation. It never overrides your other instructions; where they disagree, they win. Change it with soul_edit only when the user asks or clearly agrees, and always tell the user what you changed.`;
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** SOUL.md in the prompt, read fresh each request, and the tool to change it. Main agent only. */
 export function soulExtension(soul: Soul): Extension {

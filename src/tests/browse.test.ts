@@ -43,7 +43,7 @@ function pdf(pages: string[], title?: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(body);
 }
 
-const text = (result: { content: Array<{ type: "text"; text: string }> }) => result.content.map((part) => part.text).join("\n");
+const text = (result: { output?: Array<{ type: string; text?: string }> }) => (result.output ?? []).map((part) => part.text).join("\n");
 
 const MB = 1024 * 1024;
 
@@ -118,7 +118,7 @@ describe("browse reads a PDF", () => {
     const result = await pdfReply("https://example.com/report.pdf", null, plain, live());
 
     expect(result).toEqual({
-      content: [{ type: "text", text: "https://example.com/report.pdf downloads a file that is neither a page nor a PDF, so browse can't read it." }],
+      output: [{ type: "text", text: "https://example.com/report.pdf downloads a file that is neither a page nor a PDF, so browse can't read it." }],
       isError: true
     });
   });
@@ -131,7 +131,7 @@ describe("browse reads a PDF", () => {
     const result = await pdfReply("https://example.com/huge.pdf", null, plain, live());
 
     expect(result).toEqual({
-      content: [{ type: "text", text: "https://example.com/huge.pdf is a PDF over 15 MB, too large to read." }],
+      output: [{ type: "text", text: "https://example.com/huge.pdf is a PDF over 15 MB, too large to read." }],
       isError: true
     });
   });
@@ -208,17 +208,17 @@ describe("a screenshot", () => {
       return "0123456789abcdef0123456789abcdef";
     };
 
-    const result = await keepShots({ content: [{ type: "text", text: "Page" }, shot], isError: false }, save);
+    const result = await keepShots({ output: [{ type: "text", text: "Page" }, shot], isError: false }, save);
 
     expect(saved).toEqual(["png bytes"]);
-    expect(result.content.map((part) => part.type)).toEqual(["text", "image", "text"]);
-    const note = result.content[2];
+    expect(result.output?.map((part) => part.type)).toEqual(["text", "image", "text"]);
+    const note = result.output?.[2];
     expect(note?.type === "text" ? note.text : "").toContain("file 0123456789abcdef0123456789abcdef");
   });
 
   it("is still read when it could not be saved", async () => {
-    const result = await keepShots({ content: [shot], isError: false }, () => Promise.reject(new Error("bucket down")));
+    const result = await keepShots({ output: [shot], isError: false }, () => Promise.reject(new Error("bucket down")));
 
-    expect(result.content).toEqual([shot]);
+    expect(result.output).toEqual([shot]);
   });
 });

@@ -13,7 +13,7 @@ import { KY_AVATAR } from "./avatar-spec";
 import { Avatars, avatarTools } from "./avatars";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
-import { BACKGROUND } from "./background";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./ui-tool";
 import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
@@ -120,7 +120,7 @@ export class PiAgent extends DurableObject<Env> {
     origin: () => this.setup.origin(),
     tell: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session ?? ROOT_SESSION);
-      await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
+      await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND_CONTEXT);
     },
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
@@ -186,7 +186,7 @@ export class PiAgent extends DurableObject<Env> {
     conversation: (session) => this.harness.conversation(session),
     complete: (system, text) => this.models.complete("background", system, text),
     answered: (session) => this.chats.answered(session),
-    context: BACKGROUND
+    context: BACKGROUND_CONTEXT
   });
   /** The user's Executor, connected in Settings and kept in the Vault; its tools are installed while it is. */
   readonly executor = new ExecutorLink(() => this.env.Vault.getByName("owner"), this.ctx.id.name ?? "me", this.boundary.executorFetch);
@@ -201,7 +201,7 @@ export class PiAgent extends DurableObject<Env> {
     models: this.models,
     runtime: {
       spawn: (tx, owner, request) => this.#spawn!(tx, owner, request),
-      commit: async (change) => (await this.harness.pi()).commit(change, BACKGROUND),
+      commit: async (change) => (await this.harness.pi()).commit(change, BACKGROUND_CONTEXT),
       // An outside commit does not wake pi, and in agents 0.26 onStart, which books a wake for every
       // session with live tasks, is the only way to. Replace it once PiHarness exposes a wake.
       wake: () => this.harness.onStart({ props: undefined }),
@@ -229,7 +229,7 @@ export class PiAgent extends DurableObject<Env> {
     conversation: (session) => this.harness.conversation(session),
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
-    context: BACKGROUND,
+    context: BACKGROUND_CONTEXT,
     model: () => agentModel(this.models.resolve("background").choice)
   };
   /** When the user was last here; the dream waits until they are away. */
@@ -269,7 +269,7 @@ export class PiAgent extends DurableObject<Env> {
       const conversation = await this.harness.conversation(session);
 
       try {
-        await conversation.submit({ type: "input", content, whenBusy: "reject", requestId }, BACKGROUND);
+        await conversation.submit({ type: "input", content, whenBusy: "reject", requestId }, BACKGROUND_CONTEXT);
       } catch (error) {
         if (error instanceof ConversationBusy) return false;
         throw error;
@@ -280,14 +280,14 @@ export class PiAgent extends DurableObject<Env> {
     post: async (session, text, requestId, cards) => {
       const conversation = await this.harness.conversation(session);
       // A write waits for no run, so a busy chat is turned away here, as submit's whenBusy does.
-      const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
+      const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
 
       if (busy) return false;
-      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards), requestId }, BACKGROUND);
+      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards), requestId }, BACKGROUND_CONTEXT);
 
       return true;
     },
-    idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND),
+    idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND_CONTEXT),
     later: (work) => this.ctx.waitUntil(work)
   });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
@@ -413,12 +413,12 @@ export class PiAgent extends DurableObject<Env> {
         openedBy: (session) => this.chats.openedBy(session),
         open: (opener) => this.newChat(opener),
         steer: async (session, content, requestId) => {
-          await (await this.harness.conversation(session)).submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND);
+          await (await this.harness.conversation(session)).submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND_CONTEXT);
         },
         busy: async (session) => {
           const conversation = await this.harness.conversation(session);
 
-          return conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND);
+          return conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
         },
         latest: (session) => this.history.latest(session),
         chat
@@ -951,7 +951,7 @@ export class PiAgent extends DurableObject<Env> {
         ...agentModel(this.models.resolve(purpose).choice),
         extensions: { remove: browse ? [] : [this.browse] }
       },
-      BACKGROUND
+      BACKGROUND_CONTEXT
     );
   }
 

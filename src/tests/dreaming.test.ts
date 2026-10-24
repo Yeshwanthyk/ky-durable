@@ -1,6 +1,6 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { BACKGROUND } from "../background";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { DREAM_MEMORY_TOOLS, DREAMING_TABLES, MEMORY_WRITE_TOOLS, SOUL_EDIT } from "../dreaming/contract";
 import { DREAM_NOTES } from "../dreaming/dreaming";
 import { dreamCron, dreamingTools, Memory, Soul } from "../dreaming/wiring";
@@ -19,7 +19,7 @@ describe("dreaming's contract", () => {
   it("allowlists only tools the domain registers", async () => {
     const names = await inside(crypto.randomUUID(), (instance, state) => {
       // No turn runs here, so episode reflections never start: their host only has to be there.
-      const background = { conversation: () => Promise.reject(new Error("no episodes in this test")), feed: instance.feed, later: () => undefined, context: BACKGROUND, model: () => ({}) };
+      const background = { conversation: () => Promise.reject(new Error("no episodes in this test")), feed: instance.feed, later: () => undefined, context: BACKGROUND_CONTEXT, model: () => ({}) };
 
       const { soul, memory } = dreamingTools({
         soul: instance.soul,

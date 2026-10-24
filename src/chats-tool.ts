@@ -2,6 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { ChatList, ChatRow, Opener } from "./chats";
+import { toolReply as reply } from "./core/reply";
 
 /**
  * chats: a chat with the user opens side chats and runs them, as scotty's sessions are run. It creates one with a
@@ -15,8 +16,6 @@ import type { ChatList, ChatRow, Opener } from "./chats";
 
 /** ky's last message as inspect shows it, at most. */
 const LAST_CHARS = 16_000;
-
-const reply = (value: string, isError = false) => ({ content: [{ type: "text" as const, text: value }], isError });
 
 type Reply = ReturnType<typeof reply>;
 

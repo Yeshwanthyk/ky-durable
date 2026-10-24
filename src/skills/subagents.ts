@@ -20,7 +20,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { agentModel, type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
-import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, reply, type Specialist, type Specialists } from "./specialists";
+import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, type Specialist, type Specialists } from "./specialists";
+import { toolReply as reply } from "../core/reply";
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import { endStep, startStep } from "../step-labels";
@@ -58,6 +59,8 @@ const Subagents = defineDoc<{
   scope: "conversation",
   history: "latest",
   fork: "initial",
+  // Each change is stored as a delta; no full copy is written.
+  checkpointWhen: () => false,
   initial: () => ({ agents: {}, reporters: {} })
 });
 
@@ -719,7 +722,7 @@ export function subagentProgressExtension(feed: TaskFeed): Extension {
           const id = task(api.conversationId);
 
           if (id === undefined) return undefined;
-          const output = (result.content ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+          const output = (result.output ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
           feed.stepEnd(id, call.id, endStep(call.name, call.arguments, output, result.isError !== true));
 
           return undefined;

@@ -2,6 +2,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import Type, { type Static } from "typebox";
 import { AVATAR_TOOL, type AvatarsView, BLOUBS_FENCE, type BloubSpec, BloubSpecSchema, checkSpec, KY_AVATAR, rollSpec } from "./avatar-spec";
 import { decodeOr, parseOr } from "./core/decode";
+import { toolReply as text } from "./core/reply";
 
 /**
  * Avatars: a bloub (avatar-spec.ts) for ky or a specialist, kept in this object's SQLite. Who has none
@@ -74,8 +75,6 @@ const AvatarInput = Type.Object({
 });
 
 type AvatarInput = Static<typeof AvatarInput>;
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** A reply that also shows `specs` in the chat, numbered so the user can pick one. */
 const shown = (lead: string, specs: readonly BloubSpec[]) =>

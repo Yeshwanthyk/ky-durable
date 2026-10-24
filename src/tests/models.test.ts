@@ -198,7 +198,7 @@ describe("a turn", () => {
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
 
     const [sent] = await calls(name);
-    expect(sent).toMatchObject({ url: "https://opencode.ai/zen/go/v1/chat/completions", model: "deepseek-v4.1-flash" });
+    expect(sent).toMatchObject({ url: "https://opencode.ai/inference/go/v1/chat/completions", model: "deepseek-v4.1-flash" });
     expect(sent!.headers.authorization).toBe(`Bearer ${OPENCODE_KEY}`);
   });
 
@@ -444,7 +444,7 @@ describe("naming chats and tasks on the background purpose", () => {
       expect(await title(name, "first")).toBeNull();
     }
 
-    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-5-5 (thinking adaptive)");
+    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-5-5 (thinking disabled)");
     // OpenCode Go is cheaper than the Mac.
     expect(await title(both, "Plan a trip")).toBe("Named: Plan a trip");
     expect((await calls(both)).at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });

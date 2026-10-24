@@ -30,6 +30,7 @@ import {
   TOOLS
 } from "./contract";
 import { rows } from "./rows";
+import { toolReply as reply } from "../core/reply";
 
 /**
  * Specialists: standing bots the user sets up, like @engineer or @researcher.
@@ -223,8 +224,6 @@ export class Specialists {
     for (const listener of this.#listeners) listener();
   }
 }
-
-export const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 const roster = (specialists: readonly SpecialistRow[], except?: string) =>
   specialists.flatMap((each) => (each.id === except ? [] : [`- @${each.id}: ${each.description}`])).join("\n");

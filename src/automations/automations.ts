@@ -51,6 +51,7 @@ import {
 import { programOutcome } from "../executor-status";
 import { isLive } from "./tasks";
 import { cronIn, nextLocal } from "./zoned";
+import { toolReply as reply } from "../core/reply";
 
 /**
  * Automations: jobs that run on a schedule, set up from chat for the user or
@@ -216,6 +217,8 @@ const Runs = defineDoc<{ runs: Record<string, { slot: number; task: string }> }>
   scope: "conversation",
   history: "latest",
   fork: "initial",
+  // Each change is stored as a delta; no full copy is written.
+  checkpointWhen: () => false,
   initial: () => ({ runs: {} })
 });
 
@@ -1229,8 +1232,6 @@ function refusal(id: string, row: AutomationRow | undefined, wanted: string): st
 }
 
 type Args = AutomationToolArgs;
-
-const reply = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 /**
  * The model the tool asked for. `base` is what a level alone changes and a model alone keeps the

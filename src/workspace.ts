@@ -131,7 +131,7 @@ export function createWorkspaceTools(
           { abortSignal: context.abortSignal }
         );
 
-        return { content, isError };
+        return { output: content, isError };
       }
     };
 

@@ -29,6 +29,7 @@ import {
   TOOLS
 } from "./contract";
 import { rows } from "./rows";
+import { toolReply as text } from "../core/reply";
 
 /**
  * Skills: the agent's procedural memory, after Hermes Agent's skills and
@@ -534,8 +535,6 @@ Prefer, in order: patch a skill used in this conversation; extend an existing sk
 ${SKILL_CRAFT}
 
 If nothing is worth keeping, answer "Nothing to save." Otherwise answer with one line per change.`;
-
-const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
 /** The skills extension, for every conversation; only `reviewable` ones are reviewed after a turn. */
 export function skillsExtension(

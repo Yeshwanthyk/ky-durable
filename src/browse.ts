@@ -2,6 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import type { BrowserWorker, SessionlessBrowser as Browser } from "@cloudflare/playwright";
 import { decodeOr } from "./core/decode";
+import { toolReply as reply } from "./core/reply";
 
 /**
  * A cloud browser for pages a search API cannot read: ones that render with
@@ -39,11 +40,6 @@ const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 const CLOSE_GRACE_MS = 1_000;
 
-const reply = (text: string, isError = false) => ({
-  content: [{ type: "text" as const, text }],
-  isError
-});
-
 const Step = Type.Object({
   do: Type.Union([Type.Literal("click"), Type.Literal("fill"), Type.Literal("press"), Type.Literal("wait")]),
   selector: Type.Optional(
@@ -56,27 +52,27 @@ type PageRead = { title: string; text: string; links: Array<{ text: string; href
 
 type Part = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
-type Reply = { content: Part[]; isError: boolean };
+type Reply = { output?: Part[]; isError?: boolean };
 
 /**
  * Each screenshot is also saved as one of ky's files, so it can be shown to the user, not only read: its id
  * follows it in the reply. A screenshot that could not be saved is still read.
  */
 export async function keepShots(result: Reply, save: (png: Uint8Array) => Promise<string>): Promise<Reply> {
-  const content: Part[] = [];
+  const output: Part[] = [];
 
-  for (const part of result.content) {
-    content.push(part);
+  for (const part of result.output ?? []) {
+    output.push(part);
 
     if (part.type !== "image") continue;
     const id = await save(Uint8Array.from(atob(part.data), (char) => char.charCodeAt(0))).catch(() => null);
 
     if (id !== null) {
-      content.push({ type: "text", text: `Screenshot saved as file ${id}. To show it to the user, pass this id on; the ui tool's image block shows it.` });
+      output.push({ type: "text", text: `Screenshot saved as file ${id}. To show it to the user, pass this id on; the ui tool's image block shows it.` });
     }
   }
 
-  return { ...result, content };
+  return { ...result, output };
 }
 
 /** `save` keeps a screenshot as a file and returns its id. */
@@ -210,7 +206,7 @@ async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
     .filter(Boolean)
     .join("\n\n");
 
-  const content: Part[] = [{ type: "text", text: summary }];
+  const output: Part[] = [{ type: "text", text: summary }];
 
   if (args.screenshot) {
     const shot = await within(OPERATION_TIMEOUT_MS, "the screenshot", (async () => {
@@ -221,10 +217,10 @@ async function readPage(browser: Browser, args: Args, signal: AbortSignal) {
       return result;
     })());
 
-    content.push({ type: "image", data: shot.data, mimeType: "image/png" });
+    output.push({ type: "image", data: shot.data, mimeType: "image/png" });
   }
 
-  return { content, isError: false };
+  return { output, isError: false };
 }
 
 /**
