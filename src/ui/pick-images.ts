@@ -12,7 +12,7 @@ const IMAGE_CHARS = Math.floor(MAX_IMAGE_CHARS / MAX_IMAGES);
 
 const QUALITIES = [0.85, 0.72, 0.6];
 
-const base64 = (blob: Blob) =>
+export const base64 = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));

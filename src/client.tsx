@@ -221,8 +221,11 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
   useReloadOnDeploy(updated, draft);
   useTakeReturned(returned, draft.restore, onReturned);
 
+  // A video's frames go only to a model that reads images; its tag still names the video.
+  const seesImages = settings === null || imageSupport(settings, talksToMain ? "main" : "worker") === null;
+
   const submit = () => {
-    const input = canSend(connected, draft.reading, cantSee) ? draft.take() : null;
+    const input = canSend(connected, draft.reading, cantSee) ? draft.take(seesImages) : null;
 
     if (input !== null) onSend(input);
   };

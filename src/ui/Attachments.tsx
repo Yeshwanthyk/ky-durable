@@ -2,11 +2,12 @@ import { createContext, useContext } from "react";
 import { DIFF_TYPE } from "../files";
 import type { FileRow } from "../protocol";
 import { type Media, useLightbox } from "./Lightbox";
+import { VoiceNote } from "./Media";
 
 // Files machine tasks shared, from the task feed; the thread and the task list read them here.
 export const FilesContext = createContext<ReadonlyArray<FileRow>>([]);
 
-/** Screenshots and recordings; a task's patches show as its Changes instead. */
+/** Screenshots, recordings and sounds; a task's patches show as its Changes instead. */
 export const isMedia = (file: FileRow) => file.type !== DIFF_TYPE;
 
 export function Attachments({ task, compact = false }: { task: string; compact?: boolean }) {
@@ -15,14 +16,19 @@ export function Attachments({ task, compact = false }: { task: string; compact?:
 
   if (files.length === 0) return null;
 
-  const media: Media[] = [...files].reverse().map((file) => ({
-    src: `/files/${file.id}`,
-    label: file.caption ?? file.name,
-    video: file.type.startsWith("video/")
-  }));
+  const shown = [...files].reverse();
+  const sounds = shown.filter((file) => file.type.startsWith("audio/"));
+
+  // Screenshots and videos open in the lightbox; a recording of sound plays where it is.
+  const media: Media[] = shown
+    .filter((file) => !file.type.startsWith("audio/"))
+    .map((file) => ({ src: `/files/${file.id}`, label: file.caption ?? file.name, video: file.type.startsWith("video/") }));
 
   return (
     <div className="attachments" data-compact={compact}>
+      {sounds.map((file) => (
+        <VoiceNote key={file.id} src={`/files/${file.id}`} seconds={null} peaks={null} label={file.caption ?? file.name} transcript={compact ? "" : (file.caption ?? file.name)} />
+      ))}
       {media.map((item, index) => (
         <figure key={item.src} className="attachment">
           {item.video && !compact ? (

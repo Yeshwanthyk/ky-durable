@@ -35,6 +35,25 @@ const Image = Type.Object({
   caption: Type.Optional(Type.String({ description: "A line under the image." }))
 });
 
+/** A saved file of ky's, by its id, or an https URL. */
+const Source = (what: string) =>
+  Type.String({
+    pattern: "^(?:[0-9a-f]{32}|https://[^\\s]+)$",
+    description: `A file id ky saved, such as one a task shared or a clip the user sent (the file in its <ky-media> tag), or an https ${what} URL.`
+  });
+
+const Audio = Type.Object({
+  type: Type.Literal("audio"),
+  src: Source("audio"),
+  caption: Type.Optional(Type.String({ description: "A line under the player." }))
+});
+
+const Video = Type.Object({
+  type: Type.Literal("video"),
+  src: Source("video"),
+  caption: Type.Optional(Type.String({ description: "A line under the video." }))
+});
+
 const Status = Type.Object({ type: Type.Literal("status"), text: Type.String(), tone: Type.Optional(Tone) });
 
 const Stats = Type.Object({
@@ -73,7 +92,7 @@ const Table = Type.Object({
 });
 
 /** What a tab or a column holds: blocks that show, none that ask. */
-const Shown = Type.Union([Text, List, Facts, Image, Status, Stats, Chart, Table]);
+const Shown = Type.Union([Text, List, Facts, Image, Audio, Video, Status, Stats, Chart, Table]);
 
 const Tabs = Type.Object({
   type: Type.Literal("tabs"),
@@ -119,6 +138,8 @@ export const UiBlockSchema = Type.Union([
   List,
   Facts,
   Image,
+  Audio,
+  Video,
   Type.Object({
     type: Type.Literal("page"),
     site: Type.String({ pattern: "^[0-9a-f]{32}$", description: "The id of a site the site tool published: its page shows in the card, sized to fit." }),

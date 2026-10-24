@@ -1,10 +1,42 @@
 import type { Outgoing } from "../outbox";
 import type { PiSessionView } from "../view";
-import { Composer, type Mentionable } from "./Composer";
+import { useEffect, useState } from "react";
+import { Composer, type Mentionable, type Voice } from "./Composer";
 import { NAME } from "./open-chat";
 import { QueueTray } from "./QueueTray";
 import type { Draft } from "./use-draft";
 import { useKeyboardInset } from "./use-keyboard-inset";
+import { useRecorder } from "./use-recorder";
+
+/** The microphone, recording into the draft. Send while recording sends the note once it has gone up. */
+function useVoice(draft: Draft, onSubmit: () => void): Voice {
+  const { recorder, start, stop, cancel } = useRecorder({ onError: draft.setError });
+  const [sendWhenReady, setSendWhenReady] = useState(false);
+  const ready = draft.reading === 0 && draft.clips.every((clip) => clip.file !== null);
+
+  useEffect(() => {
+    if (!sendWhenReady || !ready) return;
+    setSendWhenReady(false);
+    onSubmit();
+  }, [sendWhenReady, ready, onSubmit]);
+
+  return {
+    recorder,
+    onRecord: () => {
+      draft.setError(null);
+      void start();
+    },
+    onDone: (send) => {
+      void stop().then((recording) => {
+        if (recording === null) return;
+        draft.addRecording(recording);
+
+        if (send) setSendWhenReady(true);
+      });
+    },
+    onCancel: cancel
+  };
+}
 
 /** The run's state under the thread: retrying. What is queued behind it shows in the queue. */
 function RunNote({ retry }: Pick<PiSessionView, "retry">) {
@@ -66,6 +98,7 @@ export function ComposerDock({
   onDelete: (item: Outgoing) => Promise<void>;
 }) {
   const dock = useKeyboardInset<HTMLDivElement>();
+  const voice = useVoice(draft, onSubmit);
 
   return (
     <div ref={dock} className="composer-wrap">
@@ -90,8 +123,11 @@ export function ComposerDock({
         disabled={!connected}
         busy={draft.reading > 0 || cantSee !== null}
         images={draft.images}
-        onAddImages={draft.addImages}
+        clips={draft.clips}
+        onAddFiles={draft.addFiles}
         onRemoveImage={draft.removeImage}
+        onRemoveClip={draft.removeClip}
+        voice={voice}
         label="Message"
         mentions={mentions}
         history={history}

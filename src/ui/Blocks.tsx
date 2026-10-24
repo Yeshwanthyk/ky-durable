@@ -8,6 +8,7 @@ import { Icon, type IconName } from "./Icon";
 import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
 import { Markdown } from "./Markdown";
+import { VideoClip, VoiceNote } from "./Media";
 import { useMode } from "./use-mode";
 
 /**
@@ -141,6 +142,8 @@ const SHOWN: Views<ShownBlock, Form | null> = {
   list: (block) => <ListBlock label={block.label} items={block.items} />,
   facts: (block) => <FactsBlock rows={block.rows} />,
   image: (block) => <ImageBlock src={block.src} caption={block.caption} />,
+  audio: (block) => <VoiceNote src={fileUrl(block.src)} seconds={null} peaks={null} transcript={block.caption} label={block.caption ?? "Audio"} />,
+  video: (block) => <VideoClip src={fileUrl(block.src)} label={block.caption ?? "Video"} caption={block.caption} />,
   status: (block) => <StatusBlock text={block.text} tone={block.tone ?? "info"} />,
   stats: (block) => <StatsBlock items={block.items} />,
   chart: (block) => <ChartBlock chart={block} />,
@@ -497,12 +500,12 @@ function FactsBlock({ rows }: { rows: Extract<UiBlock, { type: "facts" }>["rows"
 }
 
 /** A saved file's id reads from ky's own /files; the schema lets nothing else through but an https URL. */
-const imageUrl = (src: string) => (/^[0-9a-f]{32}$/.test(src) ? `/files/${src}` : src);
+const fileUrl = (src: string) => (/^[0-9a-f]{32}$/.test(src) ? `/files/${src}` : src);
 
 /** An image, its caption under it; a tap opens it full size. */
 function ImageBlock({ src, caption }: { src: string; caption: string | undefined }) {
   const open = useLightbox();
-  const url = imageUrl(src);
+  const url = fileUrl(src);
   const label = caption ?? "Image";
 
   return (

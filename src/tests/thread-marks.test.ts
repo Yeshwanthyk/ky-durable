@@ -8,7 +8,7 @@ const at = (day: number, hour: number) => new Date(2026, 9, day, hour).getTime()
 const turn = (id: string, started: number, ended: number | null): Turn => ({
   id,
   user: id,
-  images: [],
+  images: [], clips: [],
   from: null,
   task: null,
   to: [],

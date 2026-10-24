@@ -52,7 +52,12 @@ const MEDIA = new Map([
   [".webp", "image/webp"],
   [".gif", "image/gif"],
   [".webm", "video/webm"],
-  [".mp4", "video/mp4"]
+  [".mp4", "video/mp4"],
+  [".m4a", "audio/mp4"],
+  [".mp3", "audio/mpeg"],
+  [".ogg", "audio/ogg"],
+  [".opus", "audio/ogg"],
+  [".wav", "audio/wav"]
 ]);
 
 /** `ky attach <file> [caption]`: what it printed. */
@@ -61,7 +66,7 @@ export async function attach([file, caption]: string[], env: NodeJS.ProcessEnv):
   const task = taskOf(env);
   const type = MEDIA.get(extname(file).toLowerCase());
 
-  if (!type) throw new Error("png, jpeg, webp, gif, webm or mp4 only");
+  if (!type) throw new Error("png, jpeg, webp, gif, webm, mp4, m4a, mp3, ogg, opus or wav only");
   await upload(task, new Uint8Array(await readFile(file)), type, basename(file), caption);
 
   return `Attached: ${basename(file)}`;

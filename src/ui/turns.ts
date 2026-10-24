@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { Guard } from "typebox/guard";
+import { framesOf, type MediaClip, readMedia } from "../media";
 import type { PiMessage, PiMessagePart } from "../transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";
@@ -174,8 +175,16 @@ function sameFields<Value extends { readonly [Key in keyof Value]: Field }>(a: V
 
 const sameFrom = (a: ReportFrom | null, b: ReportFrom | null) => a === b || (a !== null && b !== null && sameFields(a, b));
 
-function sameTurn({ items, from, ...turn }: Turn, { items: otherItems, from: otherFrom, ...other }: Turn): boolean {
-  return sameFields(turn, other) && sameFrom(from, otherFrom) && items.length === otherItems.length && items.every((item, index) => sameFields<Item>(item, otherItems[index]!));
+const sameClips = (a: readonly MediaClip[], b: readonly MediaClip[]) =>
+  a.length === b.length &&
+  a.every((clip, index) => {
+    const other = b[index];
+
+    return other !== undefined && sameFields(clip, other);
+  });
+
+function sameTurn({ items, from, clips, ...turn }: Turn, { items: otherItems, from: otherFrom, clips: otherClips, ...other }: Turn): boolean {
+  return sameFields(turn, other) && sameFrom(from, otherFrom) && sameClips(clips, otherClips) && items.length === otherItems.length && items.every((item, index) => sameFields<Item>(item, otherItems[index]!));
 }
 
 /** The turns the last build returned, by id. */
@@ -204,7 +213,8 @@ function userText(message: PiMessage): string {
 /** What the user wrote in this chat, oldest first: their own words, without reports or image-only messages. */
 export function sentTexts(messages: readonly PiMessage[]): string[] {
   return messages.flatMap((message) => {
-    const text = message.role === "user" ? userText(message) : "";
+    // A message's clips stay with it: ↑ brings back only the words.
+    const text = message.role === "user" ? readMedia(userText(message)).text : "";
 
     return text.trim() === "" || REPORT.test(text) ? [] : [text];
   });
@@ -229,14 +239,17 @@ export function buildTurns(
   let current: Turn | undefined;
 
   const open = (message: PiMessage | null): Turn => {
-    const raw = message ? userText(message) : "";
+    const { clips, text: raw } = readMedia(message ? userText(message) : "");
     const report = REPORT.exec(raw);
+    const images = message ? message.parts.flatMap((part) => (part.type === "image" ? [keptImageSrc(part)] : [])) : [];
 
     const turn: Turn = {
       id: message?.id ?? `t${turns.length}`,
       state: "completed",
       user: report ? raw.slice(report[0].length) || (/ failed: (.*)\]\s*$/.exec(report[0])?.[1] ?? "") : raw,
-      images: message ? message.parts.flatMap((part) => (part.type === "image" ? [keptImageSrc(part)] : [])) : [],
+      // A video's frames are for the model; its player shows the video.
+      images: images.slice(0, images.length - framesOf(clips)),
+      clips,
       from: report ? reportFrom(report[0], report[1] ?? "", report[2] ?? "") : null,
       task: report ? (/\btask (m-[\w-]+)/.exec(report[0])?.[1] ?? null) : null,
       to: message?.to ?? [],

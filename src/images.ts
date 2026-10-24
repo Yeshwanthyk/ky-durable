@@ -2,6 +2,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
 import Type from "typebox";
 import { Value } from "typebox/value";
+import { FRAMES_PER_VIDEO, framesOf, MAX_CLIPS, MAX_FRAME_CHARS, readMedia } from "./media";
 import type { Purpose, SettingsView } from "./settings";
 
 /**
@@ -38,8 +39,15 @@ export function checkInput(input: UserInput): string | null {
   const images = imagesOf(input);
 
   if (input.length === 0 || input.length - images.length > 1) return "Send one text part at most, and something.";
+  // A video's frames come after the user's own images (src/media.ts); the tags in the text count them.
+  const { clips } = readMedia(input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
+  const frames = framesOf(clips);
 
-  if (images.length > MAX_IMAGES) return `Attach at most ${MAX_IMAGES} images.`;
+  if (clips.length > MAX_CLIPS) return `Attach at most ${MAX_CLIPS} clips.`;
+
+  if (frames > images.length || frames > MAX_CLIPS * FRAMES_PER_VIDEO) return "A video's frames don't match its tag.";
+
+  if (images.length - frames > MAX_IMAGES) return `Attach at most ${MAX_IMAGES} images.`;
 
   for (const image of images) {
     if (!IMAGE_TYPES.has(image.mimeType)) return `Images must be JPEG, PNG, WebP or GIF, not ${image.mimeType}.`;
@@ -47,9 +55,13 @@ export function checkInput(input: UserInput): string | null {
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(image.data)) return "An image is not valid base64.";
   }
 
-  if (images.reduce((total, image) => total + image.data.length, 0) > MAX_IMAGE_CHARS) {
+  const chars = (some: readonly ImageContent[]) => some.reduce((total, image) => total + image.data.length, 0);
+
+  if (chars(images.slice(0, images.length - frames)) > MAX_IMAGE_CHARS) {
     return "These images are too large together. Attach fewer.";
   }
+
+  if (chars(images.slice(images.length - frames)) > MAX_FRAME_CHARS) return "These videos' frames are too large together.";
 
   return null;
 }
