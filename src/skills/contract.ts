@@ -89,6 +89,14 @@ const SkillStatus = Type.Union([Type.Literal("active"), Type.Literal("archived")
 
 export type SkillStatus = Static<typeof SkillStatus>;
 
+/**
+ * A skill does one job; a kit runs several, the skills and kits its `## Members` names. Set when it's created
+ * and never changed after, so an edit that drops the Members section leaves a kit a kit, with no members.
+ */
+export const SkillKind = Type.Union([Type.Literal("skill"), Type.Literal("kit")]);
+
+export type SkillKind = Static<typeof SkillKind>;
+
 /** A patch's passage and its replacement, or the version a revert goes back to. */
 const EDITS = {
   old: Type.Optional(Type.String()),
@@ -108,7 +116,9 @@ export const SkillChange = Type.Object({
   /** Why, in a few words; a dream's shows in Activity's Last night. */
   reason: Type.Optional(Type.String()),
   /** On an answer: each need's key and the user's answer; a blank answer clears it. */
-  answers: Type.Optional(Type.Record(Type.String(), Type.String()))
+  answers: Type.Optional(Type.Record(Type.String(), Type.String())),
+  /** On a create: "kit" for a kit; a skill otherwise. */
+  kind: Type.Optional(SkillKind)
 });
 
 export type SkillChange = Static<typeof SkillChange>;
@@ -133,7 +143,8 @@ export const SkillStored = Type.Object({
   pinned: Type.Number(),
   created_by: SkillOrigin,
   /** The user's answers to its Needs as a JSON object; null until the first. */
-  answers: Type.Union([Type.String(), Type.Null()])
+  answers: Type.Union([Type.String(), Type.Null()]),
+  kind: SkillKind
 });
 
 export type SkillRow = Omit<Static<typeof SkillStored>, "pinned" | "answers"> & {
@@ -227,6 +238,25 @@ export function parse(body: string): Sections {
   }
 
   return { needs: [...needs.values()], members: [...members] };
+}
+
+/**
+ * Each skill's kits, by its name: the active kits whose Members name it, in the order given. A kit naming
+ * itself doesn't count; a kit inside a kit is fine, and a cycle is harmless, since nothing follows Members
+ * further than one step.
+ */
+export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
+  const kits = new Map<string, string[]>();
+
+  for (const kit of skills) {
+    if (kit.kind !== "kit" || kit.status !== "active") continue;
+
+    for (const member of parse(kit.body).members) {
+      if (member !== kit.name) kits.set(member, [...(kits.get(member) ?? []), kit.name]);
+    }
+  }
+
+  return kits;
 }
 
 /** Stored answers; a column that doesn't hold an object of strings reads as none. */

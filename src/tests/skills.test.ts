@@ -81,6 +81,33 @@ describe("skills", () => {
     });
   });
 
+  it("makes a kit that lists its members, marks them in the index, and keeps its kind", async () => {
+    const name = crypto.randomUUID();
+    await prompt(name, create());
+    const body = "Ship a change.\n\n## Members\n- weekly-groceries\n- gone";
+    const made = await prompt(name, tool("skill_manage", { action: "create", name: "ship-change", description: "Shipping a change", body, kind: "kit" }));
+    expect(made.text).toBe("tool said: Created ship-change (version 2).");
+
+    const opened = (await prompt(name, tool("skill_view", { name: "ship-change" }))).text;
+    expect(opened).toMatch(/^tool said: # ship-change \(kit\)/);
+    expect(opened).toContain("- weekly-groceries: Ordering the weekly groceries\n- gone (missing)");
+
+    const flip = await promptTool(name, tool("skill_manage", { action: "edit", name: "weekly-groceries", body: "x", kind: "kit" }));
+    expect(flip.failed).toBe(true);
+    expect(flip.text).toContain("A skill's kind is set when it's created and stays.");
+
+    await inside(name, (instance) => {
+      expect(instance.skills.index()).toBe(
+        "- ship-change (kit): Shipping a change\n- weekly-groceries (in ship-change): Ordering the weekly groceries"
+      );
+      // An edit that drops Members, then a revert, leave a kit a kit.
+      instance.skills.apply({ action: "edit", name: "ship-change", body: "Ship a change." }, "user");
+      instance.skills.apply({ action: "revert", name: "ship-change", version: 2 }, "user");
+      expect(instance.skills.get("ship-change")?.kind).toBe("kit");
+      expect(instance.skills.get("weekly-groceries")?.kind).toBe("skill");
+    });
+  });
+
   it("refuses a bad name, a duplicate, and a patch that does not match once", async () => {
     const name = crypto.randomUUID();
     const bad = await promptTool(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));

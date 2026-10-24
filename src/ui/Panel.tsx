@@ -85,6 +85,7 @@ export function Panel({
   onSetModel,
   onSkillChange,
   onSkillHistory,
+  onSkillsPage,
   onSoulChange,
   onSoulHistory,
   onOpen,
@@ -123,6 +124,8 @@ export function Panel({
   onSetModel: (purpose: Purpose, choice: ModelChoice) => void;
   onSkillChange: (change: SkillChange) => void;
   onSkillHistory: (name: string) => Promise<readonly SkillVersion[]>;
+  /** Opens the full Skills page over the chat. */
+  onSkillsPage: () => void;
   onSoulChange: (change: SoulChange) => void;
   onSoulHistory: () => Promise<readonly SoulVersion[]>;
   onOpen: (session: string) => void;
@@ -184,7 +187,7 @@ export function Panel({
           onStopAll={onStopAll}
         />
       ) : tab === "skills" ? (
-        <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} />
+        <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} onPage={onSkillsPage} />
       ) : tab === "soul" ? (
         <Soul
           soul={soul}
