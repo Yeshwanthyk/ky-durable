@@ -3282,3 +3282,290 @@ button.live:hover .live-steps {
     height: 44px;
   }
 }
+
+.sidebar-foot {
+  flex: none;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- Artifacts: what ky made, in one place (src/ui/Artifacts.tsx) ---------- */
+
+.artifacts {
+  background: var(--bg);
+}
+
+.artifacts-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 40px 0;
+}
+
+.artifacts-head h1 {
+  margin: 0;
+  font-size: calc(28px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.artifacts-head .drawer-toggle {
+  margin-left: -8px;
+}
+
+/* Beside the sidebar the menu button has nothing to open, so it takes no room ahead of the title. */
+@media (min-width: 1024px) {
+  .shell:not([data-sidebar="hidden"]) .artifacts-head .drawer-toggle {
+    display: none;
+  }
+}
+
+.artifacts-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 16px 40px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.artifacts-tabs button {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.artifacts-tabs button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.artifacts-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 40px 40px;
+}
+
+.artifacts-empty {
+  margin: 24px 0;
+  color: var(--quiet);
+  font-size: calc(14px * var(--text-scale));
+}
+
+.artifact-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.artifact {
+  --press-scale: 0.98;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+}
+
+/* After .pressable, so the card's shadow eases with its press. */
+.artifact.pressable {
+  transition:
+    transform var(--fast) var(--ease-out),
+    box-shadow 200ms ease;
+}
+
+/* Cards rise in as the page opens, a beat apart; past the first row they all arrive together. */
+.artifact-grid > li {
+  animation: artifact-in 260ms var(--ease-enter) both;
+}
+
+.artifact-grid > li:nth-child(2) { animation-delay: 30ms; }
+.artifact-grid > li:nth-child(3) { animation-delay: 60ms; }
+.artifact-grid > li:nth-child(4) { animation-delay: 90ms; }
+.artifact-grid > li:nth-child(n + 5) { animation-delay: 120ms; }
+
+@keyframes artifact-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* A preview fades in once drawn (data-loaded, set in Artifacts.tsx), over the card's grey. */
+.artifact-preview > :is(img, video, iframe) {
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+
+.artifact-preview > [data-loaded] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artifact-grid > li {
+    animation-name: artifact-fade;
+  }
+
+  @keyframes artifact-fade {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .artifact:is(a, button):hover {
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 6px 18px rgb(0 0 0 / 0.08);
+  }
+}
+
+.artifact-preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--hover);
+  border-bottom: 1px solid var(--line);
+}
+
+.artifact-preview img,
+.artifact-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A site's page, drawn at four times the card's size and shrunk to fit, so it reads as a thumbnail. */
+.artifact-site iframe {
+  width: 400%;
+  height: 400%;
+  border: 0;
+  transform: scale(0.25);
+  transform-origin: 0 0;
+  pointer-events: none;
+  background: #fff;
+}
+
+.artifact-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+
+.artifact-sound {
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+}
+
+.artifact-sound .voice-note {
+  width: 100%;
+  background: var(--surface);
+}
+
+.artifact-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  min-width: 0;
+}
+
+.artifact-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--sunken);
+  color: var(--muted);
+}
+
+.artifact-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifact-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(14px * var(--text-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-meta {
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 500;
+}
+
+@media (max-width: 767px) {
+  .artifacts-head {
+    padding: 14px 16px 0;
+  }
+
+  .artifacts-head h1 {
+    font-size: calc(22px * var(--text-scale));
+  }
+
+  .artifacts-tabs {
+    padding: 12px 16px 4px;
+  }
+
+  .artifacts-body {
+    padding: 12px 16px 32px;
+  }
+
+  .artifact-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+
+  /* Two cards abreast leave the title no room to share with an icon. */
+  .artifact-icon {
+    display: none;
+  }
+}

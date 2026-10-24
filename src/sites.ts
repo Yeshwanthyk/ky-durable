@@ -62,6 +62,25 @@ async function meta(bucket: R2Bucket, id: string): Promise<SiteMeta | undefined>
   return object ? parseOr(SiteMeta, await object.text(), undefined) : undefined;
 }
 
+/** Every site's id, from the folders under `sites/`. */
+const siteIds = async (bucket: R2Bucket) => (await bucket.list({ prefix: "sites/", delimiter: "/" })).delimitedPrefixes.map((prefix) => prefix.slice("sites/".length, -1));
+
+/** A site as the Artifacts page shows it. */
+export type SiteRow = { readonly id: string; readonly title: string; readonly created: number; readonly public: boolean };
+
+/** Every site with its metadata, newest first. */
+export async function listSites(bucket: R2Bucket): Promise<SiteRow[]> {
+  const rows: SiteRow[] = [];
+
+  for (const id of await siteIds(bucket)) {
+    const site = await meta(bucket, id);
+
+    if (site) rows.push({ id, title: site.title, created: site.created, public: site.token !== undefined });
+  }
+
+  return rows.sort((a, b) => b.created - a.created);
+}
+
 const putMeta = (bucket: R2Bucket, id: string, value: SiteMeta) => bucket.put(siteKey(id, META), JSON.stringify(value));
 
 /** Every key under the site's prefix, its metadata included. */
@@ -165,7 +184,7 @@ async function gather(workspace: Workspace, { html, dir }: SiteArgs): Promise<Ga
 export function siteExtension(chat: (session: string) => boolean, bucket: R2Bucket, workspace: Workspace, origin: () => string | null): Extension {
   const privateUrl = (id: string) => `${origin() ?? ""}/s/${id}/`;
   const publicUrl = (token: string) => `${origin() ?? ""}/p/${token}/`;
-  const ids = async () => (await bucket.list({ prefix: "sites/", delimiter: "/" })).delimitedPrefixes.map((prefix) => prefix.slice("sites/".length, -1));
+  const ids = () => siteIds(bucket);
 
   /** The site `id`, when there is one. */
   const find = async (id: string) => (SITE_ID.test(id) ? meta(bucket, id) : undefined);

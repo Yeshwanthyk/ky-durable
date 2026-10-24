@@ -37,7 +37,8 @@ import { useNow } from "./ui/use-now";
 import type { Visit } from "./ui/thread-marks";
 import { useSeen } from "./ui/use-seen";
 import { SettingsNavContext, usePanel, type PanelState } from "./ui/use-panel";
-import { useSessionRoute } from "./ui/use-session-route";
+import { Artifacts } from "./ui/Artifacts";
+import { type ArtifactKind, useSessionRoute } from "./ui/use-session-route";
 import { wide } from "./ui/layout";
 import { useShell, type Shell } from "./ui/use-shell";
 import { shallow, useSame, useStableCallback } from "./ui/use-stable";
@@ -76,6 +77,14 @@ const ChatsSidebar = memo(function ChatsSidebar(props: Omit<ComponentProps<typeo
 
   return <Sidebar {...props} now={now} />;
 });
+
+/** What ky made, over the chat, with its own clock for "Yesterday" and the like. */
+function ArtifactsPage({ kind, tasks, onKind, onChats }: { kind: ArtifactKind; tasks: Ky["tasks"]; onKind: (kind: ArtifactKind) => void; onChats: () => void }) {
+  const now = useNow();
+  const titles = useMemo(() => new Map(tasks.map((task) => [task.id, task.title])), [tasks]);
+
+  return <Artifacts kind={kind} titles={titles} now={now} onKind={onKind} onChats={onChats} />;
+}
 
 /** Why the attached images can't go to this session's model, if they can't. */
 function whyCantSee(images: readonly PendingImage[], settings: SettingsView | null, talksToMain: boolean) {
@@ -582,7 +591,8 @@ function useStableShell(shell: Shell): Shell {
 }
 
 function App() {
-  const [session, go] = useSessionRoute();
+  const route = useSessionRoute();
+  const { session, go } = route;
   const [theme, setTheme] = useTheme();
   const rawPanel = usePanel();
   const ky = usePiSession(session);
@@ -627,12 +637,17 @@ function App() {
                   onArchive={ky.archiveChat}
                   onRename={ky.renameChat}
                   creating={shell.creating}
+                  artifacts={route.artifacts !== null}
+                  onArtifacts={() => {
+                    shell.setDrawerOpen(false);
+                    route.showArtifacts("all");
+                  }}
                 />
               </div>
               {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
               <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} />
 
-              <Stage {...parts} />
+              {route.artifacts === null ? <Stage {...parts} /> : <ArtifactsPage kind={route.artifacts} tasks={ky.tasks} onKind={route.showArtifacts} onChats={shell.showChats} />}
               <KyPanel {...parts} />
               {shell.paletteOpen ? <Palette {...parts} /> : null}
             </div>

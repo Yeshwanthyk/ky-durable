@@ -1892,6 +1892,43 @@ test("shows a task's screenshot and opens it in the lightbox", async ({ page }) 
   await expect(lightbox).toBeHidden();
 });
 
+test("Artifacts gathers what ky made: the sites it published and the screenshots tasks attached, by kind", async ({ page }) => {
+  await open(page);
+  const html = '<!doctype html><body style="margin:0;background:#e8eef7;font:64px sans-serif">Quarterly report</body>';
+  await send(page, `tool site ${JSON.stringify({ action: "publish", title: "Quarterly report", html })}`);
+  await expect(chat(page).locator("p", { hasText: /\(id [0-9a-f]{32},/ })).toBeVisible();
+  await send(page, "machine@webmac [attach] screenshot the web page");
+  await expect(page.getByRole("button", { name: "Open a fake screenshot" }).first()).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "Artifacts" }).click();
+  await expect(page).toHaveURL(/\?artifacts=all/);
+  const artifacts = page.getByRole("region", { name: "Artifacts" });
+  await expect(artifacts.getByRole("link", { name: "Open Quarterly report" })).toHaveAttribute("href", /^\/s\/[0-9a-f]{32}\/$/);
+  await expect(artifacts.getByRole("button", { name: "Open a fake screenshot" })).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/artifacts.png` });
+
+  await artifacts.getByRole("tab", { name: "Sites" }).click();
+  await expect(page).toHaveURL(/\?artifacts=sites/);
+  await expect(artifacts.getByRole("button", { name: "Open a fake screenshot" })).toBeHidden();
+  await expect(artifacts.getByRole("link", { name: "Open Quarterly report" })).toBeVisible();
+
+  await artifacts.getByRole("tab", { name: "Images" }).click();
+  await expect(artifacts.getByRole("link", { name: "Open Quarterly report" })).toBeHidden();
+  await artifacts.getByRole("button", { name: "Open a fake screenshot" }).click();
+  await expect(page.getByRole("dialog", { name: "a fake screenshot" })).toBeVisible();
+  await page.getByRole("dialog", { name: "a fake screenshot" }).getByRole("button", { name: "Close" }).click();
+
+  await artifacts.getByRole("tab", { name: "Audio" }).click();
+  await expect(artifacts.getByText("No audio yet.")).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\?artifacts=images/);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: /^Main chat/ }).click();
+  await expect(artifacts).toBeHidden();
+  await expect(chat(page).getByText("Shared with the user, shown under this report: a fake screenshot")).toBeVisible();
+});
+
 test("sends an image with a message, and refuses a fifth image", async ({ page }) => {
   await open(page);
 

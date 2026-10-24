@@ -1,5 +1,5 @@
 import { EMBED_HEAD } from "./embed-theme";
-import { hidden, publicKey, SITE_ID, siteKey } from "./sites";
+import { hidden, listSites, publicKey, SITE_ID, siteKey } from "./sites";
 
 /**
  * The sites the site tool publishes (src/sites.ts), served from R2: `/s/<id>/` after the user's sign-in,
@@ -118,8 +118,11 @@ function headersFor(path: string, object: R2Object, open: boolean): Headers {
   return headers;
 }
 
-/** A site at `/s/<id>/`, after the user's sign-in; undefined for any other path. With `?embed` (`=dark` for the dark theme), its pages wear ky's theme and report their height. */
+/** A site at `/s/<id>/`, after the user's sign-in, and their list at `/api/sites`; undefined for any other path. With `?embed` (`=dark` for the dark theme), its pages wear ky's theme and report their height. */
 export function siteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
+  // The Artifacts page's list of them.
+  if (url.pathname === "/api/sites") return request.method === "GET" ? listSites(env.FILES).then((sites) => Response.json(sites)) : Promise.resolve(new Response(null, { status: 405 }));
+
   if (!url.pathname.startsWith("/s/")) return undefined;
   const [, id, rest] = /^\/s\/([^/]+)(\/.*)?$/.exec(url.pathname) ?? [];
 
