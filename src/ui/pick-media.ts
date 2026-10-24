@@ -1,5 +1,5 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { FRAMES_PER_VIDEO, MAX_CLIPS, MAX_FRAME_CHARS, MAX_MEDIA_BYTES, type MediaClip, type MediaKind, baseType, mediaKind } from "../media";
+import { FRAMES_PER_VIDEO, MAX_CLIPS, MAX_FRAME_CHARS, MAX_MEDIA_BYTES, type MediaClip, type MediaKind, baseType, mediaKind, soundTypeOf } from "../media";
 import Type from "typebox";
 import { parseOr } from "../core/decode";
 import { peaksFrom } from "./Media";
@@ -81,8 +81,11 @@ async function frame(video: HTMLVideoElement): Promise<ImageContent | null> {
   return null;
 }
 
-/** A video's length and FRAMES_PER_VIDEO frames across it; none when the browser can't decode it. */
-async function readVideo(src: string): Promise<{ seconds: number | null; frames: ImageContent[] }> {
+/**
+ * A video's length and FRAMES_PER_VIDEO frames across it; none when the browser can't decode it. `picture`
+ * is false when it decodes and has none, as a sound saved as .mp4 or .webm.
+ */
+async function readVideo(src: string): Promise<{ seconds: number | null; frames: ImageContent[]; picture: boolean }> {
   try {
     const video = await loaded(document.createElement("video"), src);
     video.playsInline = true;
@@ -98,9 +101,9 @@ async function readVideo(src: string): Promise<{ seconds: number | null; frames:
       if (length === 0) break;
     }
 
-    return { seconds: length > 0 ? Math.round(length) : null, frames };
+    return { seconds: length > 0 ? Math.round(length) : null, frames, picture: video.videoWidth > 0 };
   } catch {
-    return { seconds: null, frames: [] };
+    return { seconds: null, frames: [], picture: true };
   }
 }
 
@@ -128,9 +131,15 @@ export async function prepareClip(file: File): Promise<PendingClip> {
 
   if (file.size > MAX_MEDIA_BYTES) throw new Error(`${file.name || "That clip"} is over ${MAX_MEDIA_BYTES / 1024 / 1024} MB.`);
   const preview = URL.createObjectURL(file);
-  const read = kind === "video" ? { peaks: null, ...(await readVideo(preview)) } : { frames: [], ...(await readAudio(file)) };
+  const video = kind === "video" ? await readVideo(preview) : undefined;
+  const sound = video?.picture === false ? soundTypeOf.get(type) : undefined;
 
-  return { id: crypto.randomUUID(), kind, name: file.name || (kind === "audio" ? "Audio" : "Video"), type, transcript: "", preview, file: null, progress: 0, ...read };
+  if (video && !sound) {
+    return { id: crypto.randomUUID(), kind, name: file.name || "Video", type, transcript: "", preview, file: null, progress: 0, peaks: null, seconds: video.seconds, frames: video.frames };
+  }
+
+  // A sound, or a video that holds only sound: it goes as a voice note, with its waveform.
+  return { id: crypto.randomUUID(), kind: "audio", name: file.name || "Audio", type: sound ?? type, transcript: "", preview, file: null, progress: 0, frames: [], ...(await readAudio(file)) };
 }
 
 /** A note just recorded, ready to upload. */

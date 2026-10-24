@@ -7,6 +7,9 @@
  *
  * A task's code changes travel the same way: the runner's `ky diff` PUTs a
  * git patch as `text/x-diff`, and the UI renders its newest one as a diff.
+ *
+ * `ky attach` types a file by its extension, so a sound saved as .webm or .mp4 arrives as video; its own
+ * tracks decide, and it is stored as the audio type (file-types.ts).
  */
 
 export type FileRow = {
@@ -57,6 +60,27 @@ export class FileStore {
       size INTEGER NOT NULL,
       caption TEXT,
       created_at INTEGER NOT NULL)`);
+    // Whether the files stored as video before upload read their tracks have been given their tracks' type.
+    sql.exec("CREATE TABLE IF NOT EXISTS ky_files_typed (done INTEGER NOT NULL)");
+  }
+
+  /** The files stored as video that may hold only sound, until they've been read once (file-types.ts); then none. */
+  untyped(): FileRow[] {
+    return this.#sql.exec("SELECT 1 FROM ky_files_typed").toArray().length > 0 ? [] : this.#rows("type IN ('video/webm', 'video/mp4')");
+  }
+
+  /** Give the files read their tracks' types, and mark the store read. */
+  typed(types: ReadonlyMap<string, string>): void {
+    for (const [id, type] of types) this.#sql.exec("UPDATE ky_files SET type = ? WHERE id = ?", type, id);
+    this.#sql.exec("DELETE FROM ky_files_typed");
+    this.#sql.exec("INSERT INTO ky_files_typed (done) VALUES (1)");
+
+    if (types.size > 0) for (const listener of this.#listeners) listener();
+  }
+
+  /** A restore's files may come from before upload read tracks: they're read again. */
+  restored(): void {
+    this.#sql.exec("DELETE FROM ky_files_typed");
   }
 
   onChange(listener: () => void): () => void {
@@ -66,15 +90,15 @@ export class FileStore {
   }
 
   list(): FileRow[] {
-    return this.#sql
-      .exec<FileRow>("SELECT * FROM ky_files ORDER BY created_at DESC LIMIT ?", LIST_LIMIT)
-      .toArray();
+    return this.#rows("1 = 1 ORDER BY created_at DESC LIMIT ?", LIST_LIMIT);
   }
 
   forTask(task: string): FileRow[] {
-    return this.#sql
-      .exec<FileRow>("SELECT * FROM ky_files WHERE task = ? ORDER BY created_at", task)
-      .toArray();
+    return this.#rows("task = ? ORDER BY created_at", task);
+  }
+
+  #rows(where: string, ...bindings: SqlStorageValue[]): FileRow[] {
+    return this.#sql.exec<FileRow>(`SELECT * FROM ky_files WHERE ${where}`, ...bindings).toArray();
   }
 
   record(file: Omit<FileRow, "created_at">): FileRow {
@@ -114,7 +138,8 @@ const reply = (status: number, text: string) => new Response(`${text}\n`, { stat
 export async function upload(
   request: Request,
   bucket: R2Bucket,
-  record: (file: Omit<FileRow, "created_at">) => Promise<string | null>
+  record: (file: Omit<FileRow, "created_at">) => Promise<string | null>,
+  typeOf: (declared: string, bytes: Uint8Array) => Promise<string>
 ): Promise<Response> {
   if (request.method !== "PUT") return reply(405, "Use PUT");
   const task = new URL(request.url).searchParams.get("task");
@@ -141,8 +166,9 @@ export async function upload(
 
   if (body.byteLength !== size) return reply(400, "Body is not Content-Length bytes");
   const id = crypto.randomUUID().replaceAll("-", "");
-  await bucket.put(`files/${id}`, body, { httpMetadata: { contentType: type } });
-  const refused = await record({ id, task, name, type, size, caption });
+  const kept = await typeOf(type, new Uint8Array(body));
+  await bucket.put(`files/${id}`, body, { httpMetadata: { contentType: kept } });
+  const refused = await record({ id, task, name, type: kept, size, caption });
 
   if (refused !== null) {
     await bucket.delete(`files/${id}`);
