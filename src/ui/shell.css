@@ -2927,6 +2927,107 @@
   white-space: nowrap;
 }
 
+/* The kits that run a skill, a quiet tag before its other marks. */
+.skill-in-kit {
+  flex: 0 1 auto;
+  min-width: 3em;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sunken);
+  font-size: calc(11px * var(--text-scale));
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* With marks at its right edge a skill's name still keeps room to read. */
+.skill .row-text {
+  min-width: 6em;
+}
+
+/* A kit's members under its row, in order: chips that open each one. */
+.kit-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 10px 40px;
+}
+
+p.kit-members {
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.kit-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.kit-member[data-state="kit"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.kit-member[data-state="missing"],
+.kit-member[data-state="archived"] {
+  color: var(--quiet);
+  text-decoration: line-through;
+}
+
+.kit-member:disabled {
+  cursor: default;
+}
+
+/* An open skill's body, part by part under its headings. */
+.skill-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skill-section-title {
+  margin: 0 0 3px;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The panel's way to the full Skills page, above its groups. */
+.skills-page-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: calc(13px * var(--text-scale));
+}
+
+/* On the full page a skill reads at width, and its parts aren't cut short. */
+.skills-page-body {
+  max-width: 760px;
+}
+
+.skills-page-body .skill-body {
+  max-height: none;
+}
+
 /* ---------- Soul ----------
    After Muse: tall grainy cards under the group's Edit, then the specialists' card of rows; SOUL.md opens in a dark sheet. */
 

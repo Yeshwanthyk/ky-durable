@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { ProviderInfo, SpecialistView } from "../../src/protocol";
 import {
   AnswerAction,
+  kitsOf,
   PinAction,
   REVIEW_ALLOWED,
   SkillAction,
@@ -213,11 +214,14 @@ describe("a skill's Needs", () => {
     updated_at: 0,
     pinned: false,
     created_by: "user",
-    answers: { calendar: "Work", gone: "a need the skill no longer asks" }
+    answers: { calendar: "Work", gone: "a need the skill no longer asks" },
+    kind: "skill"
   };
 
+  const none = () => undefined;
+
   it("shows a chat the answers and asks the open needs in one card", () => {
-    const text = viewText(skill, { peer: false, chat: true });
+    const text = viewText(skill, { peer: false, chat: true, find: none });
 
     expect(text).toContain("## Answers\n- calendar: Work");
     expect(text).not.toContain("gone");
@@ -225,10 +229,81 @@ describe("a skill's Needs", () => {
   });
 
   it("tells a run outside a chat not to ask, and shows a peer neither answers nor needs", () => {
-    expect(viewText(skill, { peer: false, chat: false })).toContain("only the user can, from a chat");
-    const peer = viewText(skill, { peer: true, chat: false });
+    expect(viewText(skill, { peer: false, chat: false, find: none })).toContain("only the user can, from a chat");
+    const peer = viewText(skill, { peer: true, chat: false, find: none });
 
     expect(peer).not.toContain("## Answers");
     expect(peer).not.toContain("## Open needs");
+  });
+});
+
+describe("a kit's Members", () => {
+  const row = (name: string, extra: Partial<SkillRow> = {}): SkillRow => ({
+    name,
+    description: `Doing ${name}`,
+    body: "",
+    status: "active",
+    uses: 0,
+    last_used_at: null,
+    created_at: 0,
+    updated_at: 0,
+    pinned: false,
+    created_by: "user",
+    answers: {},
+    kind: "skill",
+    ...extra
+  });
+
+  const members = (...names: string[]) => `Ship a change.\n\n## Members\n${names.map((name) => `- ${name}`).join("\n")}`;
+
+  it("names each skill's active kits, never a kit as its own, and ignores Members on a plain skill", () => {
+    const skills = [
+      row("ship-change", { kind: "kit", body: members("plan-change", "pr-kit", "ship-change") }),
+      row("pr-kit", { kind: "kit", body: members("open-pr", "plan-change") }),
+      row("old-kit", { kind: "kit", status: "archived", body: members("open-pr") }),
+      row("notes", { body: members("open-pr") })
+    ];
+
+    expect(Object.fromEntries(kitsOf(skills))).toEqual({ "plan-change": ["ship-change", "pr-kit"], "pr-kit": ["ship-change"], "open-pr": ["pr-kit"] });
+  });
+
+  it("never lists a kit among its own kits, whatever the bodies say", () => {
+    const name = fc.constantFrom("a", "b", "c", "d");
+
+    fc.assert(
+      fc.property(fc.array(fc.tuple(name, fc.boolean(), fc.array(name, { maxLength: 5 })), { maxLength: 6 }), (specs) => {
+        const skills = specs.map(([each, kit, named]) => row(each, { kind: kit ? "kit" : "skill", body: members(...named) }));
+
+        for (const [member, kits] of kitsOf(skills)) {
+          expect(kits).not.toContain(member);
+
+          for (const kit of kits) expect(skills.some((skill) => skill.name === kit && skill.kind === "kit")).toBe(true);
+        }
+      })
+    );
+  });
+
+  it("lists a kit's members in order, marking a kit, a missing name and an archived skill", () => {
+    const known = new Map([
+      ["plan-change", row("plan-change")],
+      ["pr-kit", row("pr-kit", { kind: "kit" })],
+      ["old-lint", row("old-lint", { status: "archived" })]
+    ]);
+
+    const kit = row("ship-change", { kind: "kit", body: members("plan-change", "pr-kit", "gone", "old-lint") });
+    const text = viewText(kit, { peer: false, chat: true, find: (name) => known.get(name) });
+
+    expect(text).toContain("# ship-change (kit)");
+    expect(text).toContain("- plan-change: Doing plan-change\n- pr-kit (kit): Doing pr-kit\n- gone (missing)\n- old-lint (archived)");
+    expect(viewText(row("lone", { kind: "kit" }), { peer: true, chat: false, find: () => undefined })).toContain("## Members\nNone yet");
+  });
+
+  it("shows a kit's Members once, resolved, and keeps the sections after it", () => {
+    const kit = row("ship-change", { kind: "kit", body: `${members("plan-change")}\n\n## Done when\nMerged.` });
+    const text = viewText(kit, { peer: true, chat: false, find: () => undefined });
+
+    expect(text.match(/## Members/g)).toHaveLength(1);
+    expect(text).toContain("Ship a change.\n\n## Done when\nMerged.");
+    expect(text).toContain("- plan-change (missing)");
   });
 });

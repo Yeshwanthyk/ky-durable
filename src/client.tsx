@@ -38,7 +38,8 @@ import type { Visit } from "./ui/thread-marks";
 import { useSeen } from "./ui/use-seen";
 import { SettingsNavContext, usePanel, type PanelState } from "./ui/use-panel";
 import { Artifacts } from "./ui/Artifacts";
-import { type ArtifactKind, useSessionRoute } from "./ui/use-session-route";
+import { SkillsPage as Skills } from "./ui/SkillsPage";
+import { type ArtifactKind, type SkillFilter, useSessionRoute } from "./ui/use-session-route";
 import { wide } from "./ui/layout";
 import { useShell, type Shell } from "./ui/use-shell";
 import { shallow, useSame, useStableCallback } from "./ui/use-stable";
@@ -84,6 +85,13 @@ function ArtifactsPage({ kind, tasks, onKind, onChats }: { kind: ArtifactKind; t
   const titles = useMemo(() => new Map(tasks.map((task) => [task.id, task.title])), [tasks]);
 
   return <Artifacts kind={kind} titles={titles} now={now} onKind={onKind} onChats={onChats} />;
+}
+
+/** ky's skills and kits, over the chat, with their own clock for "changed 2d ago". */
+function SkillsPage({ filter, ky, onFilter, onChats }: { filter: SkillFilter; ky: Ky; onFilter: (filter: SkillFilter) => void; onChats: () => void }) {
+  const now = useNow();
+
+  return <Skills filter={filter} skills={ky.skills} now={now} onFilter={onFilter} onChats={onChats} onChange={ky.changeSkill} onHistory={ky.skillHistory} />;
 }
 
 /** Why the attached images can't go to this session's model, if they can't. */
@@ -158,6 +166,8 @@ type Parts = {
   setTheme: (theme: Theme) => void;
   /** When the user last saw the open chat, for its New divider. */
   visit: Visit;
+  /** Opens the Skills page, from the panel's Skills tab. */
+  onSkillsPage: () => void;
 };
 
 /** What the page can do to the draft from outside the composer: put a suggested ask in it. */
@@ -439,7 +449,7 @@ function Stage(parts: Parts) {
 
 // ky's panel, activity, skills, soul and memory, and settings, in its slot. It keeps its own
 // clock, so a running task's timer ticks the panel each second and not the whole page.
-function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
+function KyPanel({ ky, view, status, panel, shell, setTheme, onSkillsPage }: Parts) {
   const now = useNow(panel.open && ky.tasks.some(clockRunning));
   const providers = ky.settings?.providers ?? NONE;
   const { setOpen, openSection, setPage } = panel;
@@ -521,6 +531,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                   onSetModel={ky.setModel}
                   onSkillChange={ky.changeSkill}
                   onSkillHistory={ky.skillHistory}
+                  onSkillsPage={onSkillsPage}
                   onSoulChange={ky.changeSoul}
                   onSoulHistory={ky.soulHistory}
                   onOpen={shell.openSession}
@@ -610,7 +621,14 @@ function App() {
   );
 
   const { unread, visit } = useSeen(session, times);
-  const parts: Parts = { ky, view, status, panel, shell, setTheme, visit };
+
+  const onSkillsPage = useStableCallback(() => {
+    // Below the wide layout the panel covers the page, so it steps aside.
+    if (!wide()) panel.setOpen(false);
+    route.showSkills("all");
+  });
+
+  const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage };
 
   return (
     <AvatarsContext.Provider value={ky.avatars}>
@@ -642,12 +660,23 @@ function App() {
                     shell.setDrawerOpen(false);
                     route.showArtifacts("all");
                   }}
+                  skills={route.skills !== null}
+                  onSkills={() => {
+                    shell.setDrawerOpen(false);
+                    route.showSkills("all");
+                  }}
                 />
               </div>
               {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
               <div className="scrim" aria-hidden onClick={() => shell.setDrawerOpen(false)} />
 
-              {route.artifacts === null ? <Stage {...parts} /> : <ArtifactsPage kind={route.artifacts} tasks={ky.tasks} onKind={route.showArtifacts} onChats={shell.showChats} />}
+              {route.artifacts !== null ? (
+                <ArtifactsPage kind={route.artifacts} tasks={ky.tasks} onKind={route.showArtifacts} onChats={shell.showChats} />
+              ) : route.skills !== null ? (
+                <SkillsPage filter={route.skills} ky={ky} onFilter={route.showSkills} onChats={shell.showChats} />
+              ) : (
+                <Stage {...parts} />
+              )}
               <KyPanel {...parts} />
               {shell.paletteOpen ? <Palette {...parts} /> : null}
             </div>

@@ -11,6 +11,11 @@ const ARTIFACT_KINDS = ["all", "sites", "images", "videos", "audio"] as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
+/** What the Skills page shows: everything, kits, plain skills, the ones with questions to answer, or the archive. */
+const SKILL_FILTERS = ["all", "kits", "skills", "needs", "archived"] as const;
+
+export type SkillFilter = (typeof SKILL_FILTERS)[number];
+
 function sessionFromUrl(search = location.search): string {
   const session = new URLSearchParams(search).get("session");
 
@@ -23,10 +28,18 @@ function artifactsFromUrl(search = location.search): ArtifactKind | null {
   return ARTIFACT_KINDS.find((each) => each === kind) ?? null;
 }
 
-const urlOf = (session: string, artifacts: ArtifactKind | null = null) => {
+function skillsFromUrl(search = location.search): SkillFilter | null {
+  const filter = new URLSearchParams(search).get("skills");
+
+  return SKILL_FILTERS.find((each) => each === filter) ?? null;
+}
+
+const urlOf = (session: string, artifacts: ArtifactKind | null = null, skills: SkillFilter | null = null) => {
   const query = new URLSearchParams();
 
   if (artifacts !== null) query.set("artifacts", artifacts);
+
+  if (skills !== null) query.set("skills", skills);
 
   if (session !== MAIN_SESSION) query.set("session", session);
   const search = query.toString();
@@ -34,24 +47,29 @@ const urlOf = (session: string, artifacts: ArtifactKind | null = null) => {
   return search === "" ? "/" : `/?${search}`;
 };
 
-/** The open chat, and the Artifacts page when it covers the chat. */
+/** The open chat, and the Artifacts or Skills page when one covers the chat. */
 export type Route = {
   readonly session: string;
   readonly artifacts: ArtifactKind | null;
-  /** Opens a chat, closing the Artifacts page. */
+  readonly skills: SkillFilter | null;
+  /** Opens a chat, closing either page. */
   readonly go: (next: string) => void;
   readonly showArtifacts: (kind: ArtifactKind) => void;
+  readonly showSkills: (filter: SkillFilter) => void;
 };
 
-// The open chat and the Artifacts page live in the URL, so back and forward move between them.
+// The open chat and the page over it live in the URL, so back and forward move between them.
 export function useSessionRoute(): Route {
   const [session, setSession] = useState(sessionFromUrl);
   const [artifacts, setArtifacts] = useState(artifactsFromUrl);
+  // One page at a time: the Artifacts page wins a URL that names both.
+  const [skills, setSkills] = useState(() => (artifactsFromUrl() === null ? skillsFromUrl() : null));
 
   useEffect(() => {
     const onPop = () => {
       setSession(sessionFromUrl());
       setArtifacts(artifactsFromUrl());
+      setSkills(artifactsFromUrl() === null ? skillsFromUrl() : null);
     };
 
     // A tapped notification opens its chat here, as going to it would, without reloading the page.
@@ -64,6 +82,7 @@ export function useSessionRoute(): Route {
       if (urlOf(next) !== location.pathname + location.search) history.pushState(null, "", urlOf(next));
       setSession(next);
       setArtifacts(null);
+      setSkills(null);
     };
 
     const worker = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
@@ -77,17 +96,26 @@ export function useSessionRoute(): Route {
   }, []);
 
   const go = (next: string) => {
-    if (next === session && artifacts === null) return;
+    if (next === session && artifacts === null && skills === null) return;
     history.pushState(null, "", urlOf(next));
     setSession(next);
     setArtifacts(null);
+    setSkills(null);
   };
 
   const showArtifacts = (kind: ArtifactKind) => {
     if (kind === artifacts) return;
     history.pushState(null, "", urlOf(session, kind));
     setArtifacts(kind);
+    setSkills(null);
   };
 
-  return { session, artifacts, go, showArtifacts };
+  const showSkills = (filter: SkillFilter) => {
+    if (filter === skills) return;
+    history.pushState(null, "", urlOf(session, null, filter));
+    setSkills(filter);
+    setArtifacts(null);
+  };
+
+  return { session, artifacts, skills, go, showArtifacts, showSkills };
 }

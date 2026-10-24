@@ -1402,6 +1402,33 @@ test("shows ky's skills, edits one, reverts it and archives it", async ({ page }
   await expect(skill.getByRole("button", { name: "Restore" })).toBeVisible();
 });
 
+test("groups a kit with its members as chips, opens a member from one, and shows the kits on the Skills page", async ({ page }) => {
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+  const [member, kit] = [`web-step-${id}`, `web-kit-${id}`];
+  await send(page, `tool skill_manage ${JSON.stringify({ action: "create", name: member, description: "Picks five dinners", body: "## Steps\n1. Pick five dinners." })}`);
+  await expect(page.getByText(`tool said: Created ${member}`)).toBeVisible();
+  const body = `Run in order.\n\n## Members\n- ${member}\n- gone-${id}`;
+  await send(page, `tool skill_manage ${JSON.stringify({ action: "create", name: kit, kind: "kit", description: "Plans the week", body })}`);
+  await expect(page.getByText(`tool said: Created ${kit}`)).toBeVisible();
+
+  await panel(page).getByRole("tab", { name: "Skills" }).click();
+  const chips = panel(page).getByRole("list", { name: `${kit} members` });
+  await expect(chips.getByRole("button", { name: `gone-${id}` })).toBeDisabled();
+  // The member is marked as run by the kit, and its chip opens it.
+  const row = panel(page).getByRole("button", { name: new RegExp(`^${member} Picks`) });
+  await expect(row).toContainText(`in ${kit}`);
+  await chips.getByRole("button", { name: member }).click();
+  await expect(panel(page).getByRole("heading", { name: "Steps" })).toBeVisible();
+
+  await panel(page).getByRole("button", { name: "Open the Skills page" }).click();
+  const skills = page.getByRole("region", { name: "Skills" });
+  await skills.getByRole("tab", { name: "Kits" }).click();
+  await expect(page).toHaveURL(/skills=kits/);
+  await expect(skills.getByRole("button", { name: new RegExp(`^${kit} Plans`) })).toBeVisible();
+  await expect(skills.getByRole("button", { name: new RegExp(`^${member} Picks`) })).toBeHidden();
+});
+
 test("creates a specialist in the Soul tab, edits its brief and reverts it", async ({ page }) => {
   await open(page);
   const id = `web-${crypto.randomUUID().slice(0, 8)}`;

@@ -7,6 +7,7 @@ import {
   AnswerAction,
   parse,
   isMachine,
+  kitsOf,
   PinAction,
   type ReviewHost,
   type ReviewKind,
@@ -16,6 +17,7 @@ import {
   ReviewRunRow,
   runInFeed,
   type SkillAction,
+  type SkillKind,
   SkillAction as SkillActionSchema,
   SkillChange,
   type SkillOrigin,
@@ -227,7 +229,8 @@ export class Skills {
       ["last_used_at", "INTEGER"],
       ["pinned", "INTEGER NOT NULL DEFAULT 0"],
       ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-      ["answers", "TEXT"]
+      ["answers", "TEXT"],
+      ["kind", "TEXT NOT NULL DEFAULT 'skill'"]
     ]);
 
     addColumns(sql, SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]);
@@ -279,10 +282,17 @@ export class Skills {
     return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name), SkillVersion, "a skill version");
   }
 
-  /** The prompt's index: one line per active skill. */
+  /** The prompt's index: one line per active skill, a kit marked as one and a skill with the kits that run it. */
   index(): string {
-    return this.list()
-      .map((skill) => `- ${skill.name}: ${skill.description}`)
+    const active = this.list();
+    const kits = kitsOf(active);
+
+    return active
+      .map((skill) => {
+        const mark = skill.kind === "kit" ? " (kit)" : kits.has(skill.name) ? ` (in ${kits.get(skill.name)?.join(", ")})` : "";
+
+        return `- ${skill.name}${mark}: ${skill.description}`;
+      })
       .join("\n");
   }
 
@@ -315,6 +325,8 @@ export class Skills {
     if (!Value.Check(SkillActionSchema, change.action)) throw new Error(`There is no skill action "${String(change.action)}".`);
     checkName(change.name);
     const action = change.action;
+
+    if (change.kind !== undefined && action !== "create") throw new Error("A skill's kind is set when it's created and stays.");
     const was = this.get(change.name);
     const next = CHANGES[action](change, was, this);
     const refusal = machineRefusal(actor, was, next, change.absorbed_into, this);
@@ -322,7 +334,7 @@ export class Skills {
     if (refusal !== undefined) throw new Error(refusal);
     const write = { name: change.name, action, actor, conversation, run: null, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
 
-    return this.#save(write, next);
+    return this.#save(write, next, change.kind);
   }
 
   /** Pin or unpin a skill: the user's call, from the panel or by asking ky, or ky's seeding pinning a default skill it creates; a background run may not. */
@@ -400,14 +412,15 @@ export class Skills {
     return stale.map((skill) => skill.name);
   }
 
-  #save(write: Omit<SkillWrite, "before">, { description, body, status }: Content): string {
+  /** Write a version; `kind` is a new skill's, and an existing skill keeps its own. */
+  #save(write: Omit<SkillWrite, "before">, { description, body, status }: Content, kind: SkillKind = "skill"): string {
     const { name, action, actor, conversation } = write;
     checkText(description, body);
     const before = rows(this.#sql.exec(`SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name), VersionId, "a skill version's id")[0];
     const landed = [...this.#writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) }));
     const now = Date.now();
     this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
          status = excluded.status, updated_at = excluded.updated_at`,
       name,
@@ -416,7 +429,8 @@ export class Skills {
       status,
       now,
       now,
-      originOf(actor)
+      originOf(actor),
+      kind
     );
 
     const { id } = decode(
@@ -554,6 +568,8 @@ Before a task, check the list. When a skill fits, open it with skill_view and fo
 When you write or change a skill, meet this bar:
 ${SKILL_CRAFT}
 
+A kit is a skill that runs others: its ## Members section names them, one "- name" line each, skills or kits, in the order to run them. Create one with kind "kit" when the same skills keep running together; opening it lists its members, and you open each as you reach it. The skill list marks kits, and each skill with the kits that run it.
+
 A skill may list a ## Needs section: what it must ask the user before it can run, one "- key: question" line each, with choices as a trailing "(a | b)". skill_view shows the answers saved so far and the needs still open; ask the open ones in a single ui card, then save the replies with skill_manage action "answer". Write a Needs line only for something that differs between users and that the steps can't find out.
 
 Machines cannot see your skills. When you hand a machine a task a skill covers, open the skill with skill_view, put its steps and pitfalls in the task, and steer the machine by it while it works.
@@ -575,20 +591,30 @@ ${SKILL_CRAFT}
 
 If nothing is worth keeping, answer "Nothing to save." Otherwise answer with one line per change.`;
 
+const KIT = `A kit runs these in order: open each with skill_view as you reach it and follow it. Skip one marked missing or archived.`;
+
 const ASK = `Ask the user these before following the skill, in one ui card of fields only: a choice block for a need with choices, an input block for one without, each labelled with its question, and no buttons block (the card has its own Send). Then save the replies with skill_manage action "answer", answers keyed as listed.`;
 
 /**
  * skill_view's text: the skill, then its saved answers and its open needs. A peer's conversation sees neither:
  * the answers are the user's facts, and a peer can't answer for them. Nor is one outside a chat told to ask.
  */
-export function viewText(skill: SkillRow, { peer, chat }: { readonly peer: boolean; readonly chat: boolean }): string {
-  const head = `# ${skill.name}${skill.status === "archived" ? " (archived)" : ""}\n${skill.description}\n\n${skill.body}`;
+export function viewText(
+  skill: SkillRow,
+  { peer, chat, find }: { readonly peer: boolean; readonly chat: boolean; readonly find: (name: string) => SkillRow | undefined }
+): string {
+  const kit = skill.kind === "kit";
+  // A kit's members show once, resolved: the body's own list gives way to them.
+  const body = kit ? withoutMembers(skill.body) : skill.body;
+  const head = [`# ${skill.name}${kit ? " (kit)" : ""}${skill.status === "archived" ? " (archived)" : ""}\n${skill.description}\n\n${body}`];
 
-  if (peer) return head;
+  if (kit) head.push(membersText(skill, find));
+
+  if (peer) return head.join("\n\n");
   const { needs } = parse(skill.body);
   const answered = needs.filter((need) => skill.answers[need.key] !== undefined);
   const open = needs.filter((need) => skill.answers[need.key] === undefined);
-  const parts = [head];
+  const parts = [...head];
 
   if (answered.length > 0) parts.push(`## Answers\n${answered.map((need) => `- ${need.key}: ${skill.answers[need.key]}`).join("\n")}`);
 
@@ -598,6 +624,40 @@ export function viewText(skill: SkillRow, { peer, chat }: { readonly peer: boole
   }
 
   return parts.join("\n\n");
+}
+
+/** The body without its `## Members` section, up to the next heading. */
+function withoutMembers(body: string): string {
+  let skipping = false;
+
+  const kept = body.split(/\r?\n/).filter((line) => {
+    const heading = /^##\s+(.+?)\s*#*$/.exec(line.trim());
+
+    if (heading) skipping = heading[1]?.toLowerCase() === "members";
+
+    return !skipping;
+  });
+
+  return kept.join("\n").trim();
+}
+
+/** A kit's members as index lines, each marked when it's a kit itself or can't be opened. */
+function membersText(kit: SkillRow, find: (name: string) => SkillRow | undefined): string {
+  const lines = parse(kit.body)
+    .members.filter((name) => name !== kit.name)
+    .map((name) => {
+      const member = find(name);
+
+      if (member === undefined) return `- ${name} (missing)`;
+
+      if (member.status === "archived") return `- ${name} (archived)`;
+
+      return `- ${name}${member.kind === "kit" ? " (kit)" : ""}: ${member.description}`;
+    });
+
+  return lines.length === 0
+    ? "## Members\nNone yet: name each skill or kit it runs under ## Members, one \"- name\" line each."
+    : `## Members\n${KIT}\n${lines.join("\n")}`;
 }
 
 /** The skills extension, for every conversation; only `reviewable` ones are reviewed after a turn. */
@@ -692,14 +752,14 @@ export function skillsExtension(
 
           const conversation = String(api.conversationId);
 
-          return text(viewText(skills.view(name), { peer: peer(conversation), chat: reviewable(conversation) }));
+          return text(viewText(skills.view(name), { peer: peer(conversation), chat: reviewable(conversation), find: (each) => skills.get(each) }));
         }
       }),
       defineTool({
         name: TOOLS.skillManage,
         description:
           "Change the skill library; every change is kept as a version. Actions: " +
-          "create (name, description, body); edit (name; description and/or body replace them); " +
+          "create (name, description, body; kind: \"kit\" for a kit, which can't change later); edit (name; description and/or body replace them); " +
           "patch (name, old, new: replace one exact passage of the body); archive (name; absorbed_into: the skill that now covers it, when merging); restore (name); " +
           "revert (name, version: back to that version's content, from skill_view history); " +
           "pin and unpin (name), only when the user asks: a pinned skill is never changed by the nightly dream or a skill review; " +
