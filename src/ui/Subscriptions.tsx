@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "../protocol";
+import { EmptyState } from "./Controls";
 import { Icon, type IconName } from "./Icon";
 import { clock } from "./time";
 import { SettingsNavContext } from "./use-panel";
@@ -61,6 +62,7 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
   return (
     <section className="group" id="settings-subscriptions">
       <h3 className="group-label">Subscriptions</h3>
+      {paired ? null : <PairFirst />}
       <fieldset className="subscriptions-rows" disabled={!paired}>
         <div className="card">
           <ClaudeRow view={view("claude")} actions={actions} now={now} />
@@ -68,7 +70,6 @@ export function Subscriptions({ views, actions, now, paired }: SubscriptionsData
           <GithubRow view={view("github")} actions={actions} />
         </div>
       </fieldset>
-      {paired ? null : <PairFirst />}
     </section>
   );
 }
@@ -77,12 +78,16 @@ function PairFirst() {
   const { openSection } = useContext(SettingsNavContext);
 
   return (
-    <p className="group-note">
-      Pair a machine first; Claude Code and Codex run there.{" "}
-      <button type="button" className="refused-link" onClick={() => openSection("settings-machines")}>
-        Go to Machines
-      </button>
-    </p>
+    <EmptyState
+      icon="monitor"
+      action={
+        <button type="button" className="pill primary pressable" onClick={() => openSection("settings-machines")}>
+          Go to Machines
+        </button>
+      }
+    >
+      Pair a machine first
+    </EmptyState>
   );
 }
 

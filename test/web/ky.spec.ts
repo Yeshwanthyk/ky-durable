@@ -59,7 +59,14 @@ async function settings(page: Page, ...rows: string[]): Promise<void> {
 
   while (await back.isVisible()) await back.click();
 
-  for (const row of rows) await panel(page).getByRole("button", { name: new RegExp(`^${row}`) }).first().click();
+  for (const row of rows) {
+    const link = panel(page).getByRole("button", { name: new RegExp(`^${row}`) }).first();
+    // Peers, Mail and Self-edits sit behind More on the first page.
+    const more = panel(page).getByRole("button", { name: /^More/, expanded: false });
+
+    if (!(await link.isVisible()) && (await more.isVisible())) await more.click();
+    await link.click();
+  }
 }
 
 /** Connect Executor in Settings › Tools, unless it is connected already. */
@@ -777,6 +784,8 @@ test("ky's card shows a routine as it is now: pausing it from the card changes t
 
   await row.getByRole("button", { name: "Pause" }).click();
   await expect(row).toContainText("Paused");
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  await panel(page).getByRole("button", { name: /routines?$/i }).click();
   await expect(panel(page).getByRole("listitem", { name: title })).toContainText("Paused");
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/ui-routine-paused.png` });
@@ -1000,7 +1009,7 @@ test("turns Subscriptions off until a machine is paired, and links to Machines",
   await settings(page, "Subscriptions");
   const subscriptions = panel(page).locator("#settings-subscriptions");
 
-  await expect(subscriptions.getByText("Pair a machine first; Claude Code and Codex run there.")).toBeVisible();
+  await expect(subscriptions.getByText("Pair a machine first")).toBeVisible();
   await expect(subscriptions.getByRole("textbox", { name: "Claude subscription token" })).toBeDisabled();
   await expect(subscriptions.getByRole("button", { name: "Sign in" })).toBeDisabled();
   await subscriptions.scrollIntoViewIfNeeded();
@@ -1185,19 +1194,22 @@ test("sets when ky looks over the day in Settings › Proactivity, and hides the
   const looks = panel(page).locator("#settings-proactivity");
   await expect(looks.getByText("08:00")).toBeVisible();
 
+  await looks.getByRole("button", { name: "Add a time" }).click();
   await looks.getByLabel("Look time").fill("21:15");
-  await looks.getByRole("button", { name: "Add" }).click();
+  await looks.getByRole("button", { name: "Add", exact: true }).click();
   await looks.getByRole("button", { name: "Remove 08:00" }).click();
   await expect(looks.getByRole("button", { name: "Remove 21:15" })).toBeVisible();
   // Four at most: with four set, there is no time to add.
+  await looks.getByRole("button", { name: "Add a time" }).click();
   await looks.getByLabel("Look time").fill("06:45");
-  await looks.getByRole("button", { name: "Add" }).click();
+  await looks.getByRole("button", { name: "Add", exact: true }).click();
   await expect(looks.getByLabel("Look time")).toBeHidden();
+  await expect(looks.getByRole("button", { name: "Add a time" })).toBeHidden();
 
   // Kept, earliest first: a reload still shows them.
   await page.reload();
   await settings(page, "Proactivity");
-  await expect(looks.getByRole("button", { name: /^Remove/ })).toHaveText(["Remove", "Remove", "Remove", "Remove"]);
+  await expect(looks.getByRole("button", { name: /^Remove/ })).toHaveCount(4);
   await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["06:45", "13:00", "18:00", "21:15"]);
 
   await panel(page).getByRole("radio", { name: /^Off/ }).click();
@@ -1206,8 +1218,9 @@ test("sets when ky looks over the day in Settings › Proactivity, and hides the
 
   // Back to the defaults for the tests after.
   for (const time of ["06:45", "21:15"]) await looks.getByRole("button", { name: `Remove ${time}` }).click();
+  await looks.getByRole("button", { name: "Add a time" }).click();
   await looks.getByLabel("Look time").fill("08:00");
-  await looks.getByRole("button", { name: "Add" }).click();
+  await looks.getByRole("button", { name: "Add", exact: true }).click();
   await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["08:00", "13:00", "18:00"]);
 });
 
@@ -1217,7 +1230,7 @@ test("sets how many posts a day notify right away in Settings › Proactivity, n
   const section = panel(page).locator("#settings-proactivity");
   // This device's switch: the stack's page runs no service worker, so it can't subscribe here.
   await expect(section.getByRole("switch", { name: /Notifications on this device/ })).toBeVisible();
-  const rightAway = section.getByLabel(/Right away, a day/);
+  const rightAway = section.getByLabel(/Per day, at most/);
   await expect(rightAway).toHaveValue("6");
 
   await rightAway.fill("3");
@@ -1489,63 +1502,96 @@ test("sits the specialists answering a group chat beside ky in the pill, counts 
 test.describe("automations in Activity", () => {
   test.use({ timezoneId: "Asia/Kolkata", locale: "en-US" });
 
+  /** Activity's sheet of every routine, opened from Today's header. */
+  async function routines(page: Page) {
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    await panel(page).getByRole("button", { name: /routines?$/i }).click();
+
+    return panel(page).getByRole("region", { name: "Routines" });
+  }
+
   test("pauses, resumes and archives an automation from Activity", async ({ page }) => {
     await open(page);
     const title = `Check the news ${crypto.randomUUID().slice(0, 8)}`;
     const create = { action: "create", title, prompt: "Read the news and sum it up.", cron: "0 9 * * 1-5" };
     await send(page, `tool automation ${JSON.stringify(create)}`);
-    await expect(page.getByText(`"${title}" (cron 0 9 * * 1-5 UTC)`)).toBeVisible();
+    await expect(page.getByText(`"${title}" (cron 0 9 * * 1-5`)).toBeVisible();
 
-    await panel(page).getByRole("tab", { name: "Activity" }).click();
-    const automation = panel(page).getByRole("listitem", { name: title });
-    await expect(automation).toContainText("Weekdays · 2:30 PM");
-    await expect(automation).toContainText(" · in ");
+    // A cron is wall-clock time in the routine's zone: 9 means 9.
+    const sheet = await routines(page);
+    const automation = sheet.getByRole("listitem", { name: title });
+    await expect(automation).toContainText("Weekdays · 9:00 AM");
+    await expect(automation).toContainText(/in \d+[mhd]/);
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/routines-sheet.png` });
 
     await automation.getByRole("button", { name: "Pause" }).click();
     await expect(automation).toContainText("Paused");
 
     await automation.getByRole("button", { name: "Resume" }).click();
-    await expect(automation).toContainText(" · in ");
+    await expect(automation).toContainText(/in \d+[mhd]/);
     await expect(automation.getByRole("button", { name: "Pause" })).toBeVisible();
 
-    await automation.getByRole("button", { name: "Edit" }).click();
-    await panel(page).getByRole("form", { name: "Edit automation" }).getByRole("button", { name: "Archive" }).click();
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit).toContainText("Weekdays · 9:00 AM");
+    await expect(edit).toContainText(/Next: /);
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/routine-form.png` });
+
+    await edit.getByRole("button", { name: "More actions" }).click();
+    await edit.getByRole("button", { name: "Archive" }).click();
     await expect(automation).toBeHidden();
   });
 
   test("adds, edits, runs and deletes an automation from Activity", async ({ page }) => {
     await open(page);
-    await panel(page).getByRole("tab", { name: "Activity" }).click();
     const title = `Water the plants ${crypto.randomUUID().slice(0, 8)}`;
+    const sheet = await routines(page);
 
-    await panel(page).getByRole("button", { name: "New", exact: true }).click();
+    await sheet.getByRole("button", { name: "New", exact: true }).click();
     const form = panel(page).getByRole("form", { name: "New automation" });
     await form.getByLabel("Title").fill(title);
     await form.getByLabel("Prompt").fill("say the plants are watered");
+    await form.getByRole("radio", { name: "Cron" }).click();
     await form.getByLabel("Cron").fill("nope");
     await form.getByRole("button", { name: "Save" }).click();
     await expect(form.getByRole("alert")).toContainText('Cannot schedule "nope"');
 
     await form.getByLabel("Cron").fill("30 7 * * *");
-    await expect(form).toContainText("Daily · 1:00 PM, your time");
+    await expect(form).toContainText("Daily · 7:30 AM");
     await form.getByRole("button", { name: "Save" }).click();
-    const automation = panel(page).getByRole("listitem", { name: title });
-    await expect(automation).toContainText("Daily · 1:00 PM");
+    const automation = sheet.getByRole("listitem", { name: title });
+    await expect(automation).toContainText("Daily · 7:30 AM");
 
-    await automation.getByRole("button", { name: "Edit" }).click();
+    // The chips write the same local cron: Weekly on Monday at 8:00 AM.
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
     const edit = panel(page).getByRole("form", { name: "Edit automation" });
     await expect(edit.getByLabel("Title")).toHaveValue(title);
-    await edit.getByLabel("Cron").fill("0 8 * * 1");
+    await expect(edit.getByRole("radio", { name: "Daily" })).toHaveAttribute("aria-checked", "true");
+    await edit.getByRole("radio", { name: "Weekly" }).click();
+
+    for (const day of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
+      const toggle = edit.getByRole("button", { name: day, exact: true });
+      const pressed = (await toggle.getAttribute("aria-pressed")) === "true";
+
+      if (pressed !== (day === "Monday")) await toggle.click();
+    }
+
+    await expect(edit.getByRole("button", { name: "Monday" })).toHaveAttribute("aria-pressed", "true");
+    await edit.getByLabel("At", { exact: true }).fill("08:00");
+    await expect(edit).toContainText("Mondays · 8:00 AM");
     await edit.getByRole("button", { name: "Save" }).click();
-    await expect(automation).toContainText("Mondays · 1:30 PM");
+    await expect(automation).toContainText("Mondays · 8:00 AM");
 
     await automation.getByRole("button", { name: "Run now" }).click();
-    await expect(automation).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await expect(edit).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
 
-    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByRole("button", { name: "More actions" }).click();
     await edit.getByRole("button", { name: "Delete" }).click();
     await edit.getByRole("button", { name: "Delete for good" }).click();
-    await expect(panel(page).getByRole("listitem", { name: title })).toBeHidden();
+    await expect(sheet.getByRole("listitem", { name: title })).toBeHidden();
   });
 
   test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
@@ -1556,35 +1602,79 @@ test.describe("automations in Activity", () => {
     await send(page, `tool automation ${JSON.stringify(create)}`);
     await expect(page.getByText("Gate test: returned nothing (null), so a fire now would be skipped.")).toBeVisible();
 
-    await panel(page).getByRole("tab", { name: "Activity" }).click();
-    const automation = panel(page).getByRole("listitem", { name: title });
-    await expect(automation).toContainText("gated");
+    const sheet = await routines(page);
+    const automation = sheet.getByRole("listitem", { name: title });
+    await expect(automation).toContainText("Every 15 min");
 
     // An edit that leaves the gate alone keeps it.
-    await automation.getByRole("button", { name: "Edit" }).click();
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
     const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit).toContainText("gated");
     await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
     await edit.getByLabel("Prompt").fill("tell me what school sent, in one line");
     await edit.getByRole("button", { name: "Save" }).click();
-    await automation.getByRole("button", { name: "Edit" }).click();
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
     await expect(edit.getByLabel("Gate")).toHaveValue("answer null");
 
     await edit.getByLabel("Gate").fill('answer ["Trip form due Friday"]');
     await edit.getByRole("button", { name: "Save" }).click();
     await automation.getByRole("button", { name: "Run now" }).click();
-    await expect(automation.getByText("gate: found")).toHaveAttribute("title", 'found: ["Trip form due Friday"]');
-    await expect(automation).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await expect(edit.getByText("gate: found")).toHaveAttribute("title", 'found: ["Trip form due Friday"]');
+    await expect(edit).toContainText(/Ran (just now|\d+[mhd] ago)|Running/);
 
     // Clearing the field clears the gate.
-    await automation.getByRole("button", { name: "Edit" }).click();
     await edit.getByLabel("Gate").fill("");
     await edit.getByRole("button", { name: "Save" }).click();
-    await expect(automation).not.toContainText("gate");
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await expect(edit.getByText(/^gate/)).toHaveCount(0);
+    await edit.getByRole("button", { name: /^More Model/ }).click();
+    await expect(edit.getByLabel("Gate")).toHaveValue("");
 
-    await automation.getByRole("button", { name: "Edit" }).click();
+    await edit.getByRole("button", { name: "More actions" }).click();
     await edit.getByRole("button", { name: "Delete" }).click();
     await edit.getByRole("button", { name: "Delete for good" }).click();
     await expect(automation).toBeHidden();
+  });
+
+  test("shows today as a timeline: each routine's next run opens its form, and each fire is one row that opens its run", async ({ page }) => {
+    await open(page);
+    const title = `Stretch ${crypto.randomUUID().slice(0, 8)}`;
+    await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: "remind me to stretch", cron: "*/30 * * * *" })}`);
+    await expect(chat(page).locator(".turn-event", { hasText: title })).toContainText("Created routine");
+    const id = /Created automation (\w+),/.exec((await chat(page).getByText(/tool said: Created automation/).last().textContent()) ?? "")?.[1] ?? "";
+
+    await panel(page).getByRole("tab", { name: "Activity" }).click();
+    const today = panel(page).getByRole("list", { name: "Today" });
+    await expect(today.getByRole("listitem", { name: /^Now, / })).toBeVisible();
+    const row = today.getByRole("button", { name: new RegExp(title) });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("every 30 min");
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/today-timeline.png` });
+
+    await row.click();
+    await expect(panel(page).getByRole("form", { name: "Edit automation" }).getByLabel("Title")).toHaveValue(title);
+    await panel(page).getByRole("button", { name: "Cancel" }).click();
+    await expect(today).toBeVisible();
+
+    // A fire is one row: above now, with its result, opening its run; never a task in the subagent fold too.
+    await send(page, `tool automation ${JSON.stringify({ action: "run", id })}`);
+    const fired = today.locator(".today-row", { hasText: title }).filter({ has: page.locator('.today-dot[data-tone="done"]') });
+    await expect(fired).toHaveCount(1, { timeout: 30_000 });
+    await expect(today.getByRole("button", { name: new RegExp(title) })).toHaveCount(2);
+    await expect(panel(page).locator(".ledger-item", { hasText: title })).toHaveCount(0);
+    await expect(panel(page).getByText(/automation-[0-9a-f]/)).toHaveCount(0);
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/today-fired.png` });
+
+    await fired.click();
+    const sheet = page.getByRole("dialog", { name: new RegExp(title) });
+    await expect(sheet).toBeVisible();
+    await sheet.getByRole("button", { name: "Close" }).click();
+    await expect(sheet).toBeHidden();
+
+    await send(page, `tool automation ${JSON.stringify({ action: "delete", id })}`);
   });
 });
 
@@ -1672,7 +1762,7 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   await panel(page).getByRole("button", { name: "Add a machine" }).click();
   const command = panel(page).getByLabel("Pairing command", { exact: true });
   await expect(command).toContainText(`ky runner add ${process.env.KY_STACK_URL}`);
-  await expect(panel(page).getByText(/run this before \d/)).toBeVisible();
+  await expect(panel(page).getByText(/Run this on the computer before \d/)).toBeVisible();
   await page.screenshot({ path: SHOTS ? `${SHOTS}/machines-command.png` : undefined });
   const code = (await command.textContent())!.trim().split(" ").at(-1)!;
 
@@ -1750,9 +1840,10 @@ test("stops every working task at once from Activity", async ({ page }) => {
 test("turns check-ins off and on from Activity, and keeps the choice after a reload", async ({ page }) => {
   await open(page);
   await panel(page).getByRole("tab", { name: "Activity" }).click();
+  await panel(page).getByRole("button", { name: /routines?$/i }).click();
   const on = panel(page).getByRole("button", { name: "Check-ins on" });
   await expect(on).toHaveAttribute("aria-pressed", "true");
-  await panel(page).getByRole("heading", { name: /^Automations/ }).screenshot({ path: SHOTS ? `${SHOTS}/check-ins-on.png` : undefined });
+  await panel(page).getByRole("heading", { name: "Routines" }).screenshot({ path: SHOTS ? `${SHOTS}/check-ins-on.png` : undefined });
 
   await on.click();
   const off = panel(page).getByRole("button", { name: "Check-ins off" });
@@ -1760,12 +1851,13 @@ test("turns check-ins off and on from Activity, and keeps the choice after a rel
 
   await page.reload();
   await panel(page).getByRole("tab", { name: "Activity" }).click();
+  await panel(page).getByRole("button", { name: /routines?$/i }).click();
   // The stack is shared: leave check-ins on.
   await panel(page).getByRole("button", { name: "Check-ins off" }).click();
   await expect(panel(page).getByRole("button", { name: "Check-ins on" })).toBeVisible();
 });
 
-test("lists automations above the history, and only recent tasks until Show earlier", async ({ page }) => {
+test("lists today's routines above its finished tasks, and only recent tasks until Show earlier", async ({ page }) => {
   await open(page);
   const id = crypto.randomUUID().slice(0, 8);
   const jobs = panel(page).getByRole("button", { name: new RegExp(`quick job ${id}`) });
@@ -1780,8 +1872,8 @@ test("lists automations above the history, and only recent tasks until Show earl
   await expect(jobs).toHaveCount(10);
   await expect(panel(page).getByRole("button", { name: new RegExp(`quick job ${id} 0$`) })).toBeHidden();
 
-  const automations = panel(page).getByRole("heading", { name: /^Automations/ });
-  expect((await automations.boundingBox())!.y).toBeLessThan((await jobs.first().boundingBox())!.y);
+  const today = panel(page).getByRole("region", { name: "Today" }).getByRole("heading");
+  expect((await today.boundingBox())!.y).toBeLessThan((await jobs.first().boundingBox())!.y);
 
   await panel(page).getByRole("button", { name: /^Show earlier/ }).click();
   await expect(jobs).toHaveCount(11);

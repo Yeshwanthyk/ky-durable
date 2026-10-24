@@ -1,5 +1,6 @@
 import { createContext, type FormEvent, useContext, useState } from "react";
 import type { ExecutorView } from "../protocol";
+import { VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
 
@@ -25,7 +26,6 @@ export function Executor() {
     <section className="group" id="settings-executor">
       <h3 className="group-label">Executor</h3>
       {view?.url ? <ConnectedExecutor url={view.url} actions={actions} /> : <ConnectExecutor onConnect={actions.onConnect} />}
-      <p className="group-note">Gives ky your apps' tools, like email and calendar. The token stays in ky's Vault.</p>
     </section>
   );
 }
@@ -132,6 +132,7 @@ function ConnectExecutor({ edit, onConnect }: { edit?: { url: string; cancel: ()
 function FormFoot({ testing, ready, cancel }: { testing: boolean; ready: boolean; cancel: (() => void) | undefined }) {
   return (
     <div className="card-foot">
+      <VaultBadge />
       {cancel && (
         <button type="button" className="pill pressable" onClick={cancel}>
           Cancel

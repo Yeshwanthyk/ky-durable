@@ -58,6 +58,7 @@ const StoredAutomation = Type.Object({
   title: Type.String(),
   prompt: Type.String(),
   cron: Nullable(Type.String()),
+  zone: Nullable(Type.String()),
   at: Nullable(Type.Number()),
   model: Nullable(Type.String()),
   machine: Nullable(Type.String()),
@@ -76,8 +77,10 @@ const StoredAutomation = Type.Object({
 });
 
 /**
- * An automation. `prompt` is all each run is told; `cron` is a 5-field UTC cron and `at` a one-off's
- * epoch ms, exactly one set; `model` null runs on the worker's; `machine` null runs in the cloud;
+ * An automation. `prompt` is all each run is told; `cron` is a 5-field cron and `at` a one-off's
+ * epoch ms, exactly one set. `cron` names wall-clock times in `zone`, or in the user's zone when that is null;
+ * "UTC" marks one written before crons followed the user's zone that could not be moved to it.
+ * `model` null runs on the worker's; `machine` null runs in the cloud;
  * `chat` is the main chat or a side chat's session; `schedule_id` is its Scheduler booking while active.
  * `gate` is an Executor program each fire runs first, with no model: the run starts only when it returns
  * something (null runs every fire); `gate_checked_at` and `gate_note` say when the last check ran and what
@@ -110,7 +113,7 @@ function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string 
 
 /** What is wrong with when it runs, if anything. */
 function timingProblem(draft: Pick<AutomationDraft, "cron" | "at">): string | undefined {
-  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron (UTC) or at.";
+  if ((draft.cron === null) === (draft.at === null)) return "Give exactly one of cron or at.";
 
   if (draft.at !== null && !Number.isFinite(draft.at)) return "at must be an ISO time, like 2026-10-06T09:00:00Z.";
 
@@ -274,7 +277,9 @@ export function summarize(text: string): string {
 export type LastRun = Pick<TaskRow, "id" | "status" | "summary" | "finished_at">;
 
 /** An automation as the Activity view and the tool show it. */
-export type AutomationView = Omit<AutomationRow, "schedule_id"> & {
+export type AutomationView = Omit<AutomationRow, "schedule_id" | "zone"> & {
+  /** The zone its cron's times are in: its own, else the user's, else UTC. */
+  readonly zone: string;
   /** When it fires next, in epoch ms; null when nothing is booked. */
   readonly next_run: number | null;
   readonly last_run: LastRun | null;
@@ -303,7 +308,7 @@ export const AutomationToolInput = Type.Object({
   id: Type.Optional(Type.String({ description: "An automation id from create or list." })),
   title: Type.Optional(Type.String({ description: "3-6 words for the automations list." })),
   prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),
-  cron: Type.Optional(Type.String({ description: "A 5-field cron in UTC, like 0 9 * * 1-5." })),
+  cron: Type.Optional(Type.String({ description: "A 5-field cron in the user's time zone, like 0 9 * * 1-5 for 9 AM on weekdays." })),
   at: Type.Optional(Type.String({ description: "A one-off's time, ISO with a zone, like 2026-10-06T09:00:00Z." })),
   model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or worker to clear it, for the worker model." })),
   thinking: Type.Optional(Level),
