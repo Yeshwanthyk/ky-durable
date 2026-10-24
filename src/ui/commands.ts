@@ -17,6 +17,7 @@ export type CommandSources = {
   readonly openSession: (session: string) => void;
   readonly startChat: () => void;
   readonly openPanel: (tab: PanelTab) => void;
+  readonly openSkills: () => void;
   readonly setTheme: (theme: Theme) => void;
   readonly stopAll: () => void;
   /** The sidebar of chats is showing: beside the chat, or as the drawer. */
@@ -96,7 +97,7 @@ function stopAllCommands(working: number, stopAll: () => void): Command[] {
 }
 
 function kyCommands(sources: CommandSources): Command[] {
-  const { openPanel, theme, setTheme, working, stopAll, sidebarShown, toggleSidebar } = sources;
+  const { openPanel, openSkills, theme, setTheme, working, stopAll, sidebarShown, toggleSidebar } = sources;
 
   return [
     {
@@ -111,9 +112,9 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "skills",
       group: "ky",
       label: "Skills",
-      icon: "list",
-      keywords: "procedures how-to library",
-      run: () => openPanel("skills")
+      icon: "layers",
+      keywords: "procedures how-to library kits",
+      run: openSkills
     },
     {
       id: "soul",

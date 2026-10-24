@@ -2877,19 +2877,6 @@
 /* ---------- Skills ----------
    Each skill is a card row that opens in place: when it was used, its steps, then edit, history and archive. */
 
-/* Closed, a skill's description is one line; open, it shows in full. */
-.skill[data-open="true"] .row-sub-text {
-  white-space: normal;
-}
-
-.skill-detail {
-  gap: 8px;
-}
-
-.skill-detail > .row-sub {
-  margin: 0;
-}
-
 .skill-body {
   margin: 0;
   max-height: 320px;
@@ -2907,54 +2894,14 @@
   gap: 6px;
 }
 
-/* A pinned skill's pin, then whose it is, quiet at the row's right edge before the chevron. */
-.skill-pin {
-  flex: none;
-  color: var(--muted);
-}
-
-.skill-needs-mark {
-  flex: none;
-  font-size: calc(11.5px * var(--text-scale));
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.skill-origin {
-  flex: none;
-  font-size: calc(11.5px * var(--text-scale));
-  color: var(--quiet);
-  white-space: nowrap;
-}
-
-/* The kits that run a skill, a quiet tag before its other marks. */
-.skill-in-kit {
-  flex: 0 1 auto;
-  min-width: 3em;
-  max-width: 12em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--sunken);
-  font-size: calc(11px * var(--text-scale));
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-/* With marks at its right edge a skill's name still keeps room to read. */
-.skill .row-text {
-  min-width: 6em;
-}
-
-/* A kit's members under its row, in order: chips that open each one. */
+/* A kit's members, in order: chips that open each one. */
 .kit-members {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   list-style: none;
   margin: 0;
-  padding: 0 14px 10px 40px;
+  padding: 0;
 }
 
 p.kit-members {
@@ -3005,27 +2952,369 @@ p.kit-members {
   color: var(--muted);
 }
 
-/* The panel's way to the full Skills page, above its groups. */
-.skills-page-link {
+/* ---------- The Skills page: the list on the left, the picked skill read in full on the right ---------- */
+
+.skills-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.skills-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border-radius: 12px;
+  gap: 12px;
+  padding: 16px 40px 0;
+}
+
+.skills-toolbar .artifacts-tabs {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.skills-toolbar .artifacts-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skills-tab-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+.skills-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
   background: var(--sunken);
+  color: var(--quiet);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: box-shadow var(--fast) var(--ease-out);
+}
+
+.skills-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.skills-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
   color: var(--ink);
+  font: inherit;
+  font-size: calc(13px * var(--text-scale));
+  outline: none;
+}
+
+.skills-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* Two panes, each its own scroll, the whole height under the toolbar: no boxed column, no empty canvas. */
+.skills-split {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  min-height: 0;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.skills-index {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px 32px 28px;
+  border-right: 1px solid var(--line);
+}
+
+.skills-index-group + .skills-index-group {
+  margin-top: 18px;
+}
+
+.skills-index-label {
+  margin: 0 0 6px;
+  padding: 0 10px;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.skills-index ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skills-index-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .skills-index-row:hover {
+    background: var(--hover);
+  }
+}
+
+.skills-index-row[aria-current="true"] {
+  background: var(--selected);
+}
+
+.skills-index-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 550;
+}
+
+.skills-index-name > svg:first-child {
+  flex: none;
+  color: var(--accent);
+}
+
+.skills-index-pin {
+  flex: none;
+  color: var(--quiet);
+}
+
+/* A skill with questions to answer: one quiet accent dot, the count lives on the To answer tab. */
+.skills-index-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.skills-index-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+}
+
+.skills-reader {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 48px 48px;
+}
+
+/* A new skill settles in rather than swapping hard; short, since picking is frequent. */
+article.skills-reader > * {
+  max-width: 720px;
+  animation: skills-reader-in 180ms var(--ease-out) both;
+}
+
+@keyframes skills-reader-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.skills-back {
+  display: none;
+}
+
+.skills-reader-head {
+  margin-bottom: 22px;
+}
+
+.skills-reader-kind {
+  margin: 0 0 6px;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.skills-reader-head h2 {
+  margin: 0;
+  font-size: calc(24px * var(--text-scale));
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.skills-reader-desc {
+  margin: 6px 0 0;
+  font-size: calc(14.5px * var(--text-scale));
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.skills-reader-meta {
+  margin: 10px 0 0;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+}
+
+.skills-reader-members {
+  margin-bottom: 22px;
+}
+
+.skills-reader-members .kit-member {
+  height: 28px;
+  padding: 0 11px;
   font-size: calc(13px * var(--text-scale));
 }
 
-/* On the full page a skill reads at width, and its parts aren't cut short. */
-.skills-page-body {
-  max-width: 760px;
+.skills-reader-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.skills-page-body .skill-body {
+.skills-reader-body .skill-sections {
+  gap: 18px;
+}
+
+.skills-reader-body .skill-body {
   max-height: none;
+  overflow: visible;
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.6;
+}
+
+.skills-reader-body > .skill-actions {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* What the skill asks before it runs: a quiet card above the steps, its title set like theirs. */
+.skills-reader-body .skill-needs {
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--sunken);
+}
+
+.skills-reader-body .skill-needs-title {
+  font-size: calc(11px * var(--text-scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.skills-reader-body .skill-need .row-sub {
+  font-size: calc(13px * var(--text-scale));
+  color: var(--ink);
+}
+
+.skills-reader-body .skill-need input,
+.skills-reader-body .skill-need select {
+  height: 36px;
+  padding: 0 10px;
+  border-color: var(--line);
+}
+
+.skills-reader-body .skill-needs .skill-actions {
+  padding-top: 2px;
+}
+
+/* Narrow: one pane at a time. The list, then the picked skill pushed over it, with a way back. */
+@media (max-width: 767px) {
+  .skills-toolbar {
+    flex-wrap: wrap;
+    padding: 12px 16px 0;
+  }
+
+  .skills-search {
+    width: 100%;
+  }
+
+  .skills-split {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 12px;
+  }
+
+  .skills-index {
+    padding: 10px 8px 32px;
+    border-right: 0;
+  }
+
+  .skills-split[data-reading="true"] .skills-index,
+  .skills-split:not([data-reading="true"]) .skills-reader {
+    display: none;
+  }
+
+  /* Nothing is open while the list is all there is, so no row reads as picked. */
+  .skills-split:not([data-reading="true"]) .skills-index-row[aria-current] {
+    background: transparent;
+  }
+
+  .skills-reader {
+    padding: 12px 18px 40px;
+  }
+
+  .skills-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 14px -6px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: calc(13px * var(--text-scale));
+  }
+
+  .skills-split[data-reading="true"] .skills-reader {
+    animation: skills-push 220ms var(--ease-out);
+  }
+}
+
+@keyframes skills-push {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  article.skills-reader > *,
+  .skills-split[data-reading="true"] .skills-reader {
+    animation-name: skills-fade;
+  }
+}
+
+@keyframes skills-fade {
+  from {
+    opacity: 0;
+  }
 }
 
 /* ---------- Soul ----------

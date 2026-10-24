@@ -1,64 +1,28 @@
 import { type ReactNode, useState } from "react";
 import type { SkillChange, SkillRow, SkillVersion } from "../protocol";
-import { kitsOf, type Need, parse } from "../skills/contract";
+import { type Need, parse } from "../skills/contract";
 import { Icon } from "./Icon";
 import { ago } from "./time";
 import type { SkillFilter } from "./use-session-route";
 
-const since = (time: number, now: number) => {
+export const since = (time: number, now: number) => {
   const text = ago(time, now);
 
   return text === "now" ? text : `${text} ago`;
 };
 
-const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
+export const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
 
 /** Whose a skill is: the user's (ky's starter skills count as theirs), or one ky wrote, which its dreams may tend. */
-const origin = (skill: SkillRow) =>
+export const origin = (skill: SkillRow) =>
   skill.created_by === "user"
-    ? { mark: "yours", by: "Yours", title: "Yours: ky's dreams never archive it" }
-    : { mark: "ky's", by: "Written by ky", title: "ky wrote it: its dreams may merge or archive it" };
+    ? { by: "Yours", title: "Yours: ky's dreams never archive it" }
+    : { by: "Written by ky", title: "ky wrote it: its dreams may merge or archive it" };
 
 /** The needs the user hasn't answered yet. */
-const openNeeds = (skill: SkillRow) => parse(skill.body).needs.filter((need) => skill.answers[need.key] === undefined);
+export const openNeeds = (skill: SkillRow) => parse(skill.body).needs.filter((need) => skill.answers[need.key] === undefined);
 
 const toAnswer = (skill: SkillRow) => skill.status === "active" && openNeeds(skill).length > 0;
-
-// The row's right edge: the kits that run it, what it still needs, a pin when pinned, and whose the skill is.
-function SkillMarks({ skill, kits }: { skill: SkillRow; kits: readonly string[] }) {
-  const { mark, title } = origin(skill);
-  const open = skill.status === "active" ? openNeeds(skill).length : 0;
-
-  return (
-    <>
-      {kits.length > 0 ? (
-        <span className="skill-in-kit" title={`Run by ${kits.join(", ")}`}>
-          in {kits[0]}
-          {kits.length > 1 ? ` +${kits.length - 1}` : null}
-        </span>
-      ) : null}
-      {open > 0 ? (
-        <span className="skill-needs-mark" title="Questions it asks before it runs">
-          {open === 1 ? "1 question" : `${open} questions`}
-        </span>
-      ) : null}
-      {skill.pinned ? <Icon name="pin" size={13} label="Pinned" className="skill-pin" /> : null}
-      <span className="skill-origin" title={title}>
-        {mark}
-      </span>
-    </>
-  );
-}
-
-// Whose it is, how often it's used, when it changed, and what a pin means.
-function SkillMeta({ skill, now }: { skill: SkillRow; now: number }) {
-  return (
-    <p className="row-sub">
-      {origin(skill).by} · used {times(skill.uses)} · changed {since(skill.updated_at, now)}
-      {skill.pinned ? " · pinned, so ky's dreams and reviews leave it as it is" : null}
-    </p>
-  );
-}
 
 // Pin or unpin an active skill; an archived one has nothing to keep.
 function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: SkillChange) => void }) {
@@ -78,15 +42,7 @@ function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: Sk
   );
 }
 
-type Groups = {
-  skills: readonly SkillRow[];
-  filter: SkillFilter;
-  now: number;
-  onChange: (change: SkillChange) => void;
-  onHistory: (name: string) => Promise<readonly SkillVersion[]>;
-};
-
-const EMPTY: Record<SkillFilter, string> = {
+export const EMPTY: Record<SkillFilter, string> = {
   all: "No skills yet. ky writes one after a busy turn, or when you ask it to remember how to do something.",
   kits: "No kits yet. A kit runs several skills together; ask ky to make one when the same skills keep running in a row.",
   skills: "No skills yet.",
@@ -95,7 +51,7 @@ const EMPTY: Record<SkillFilter, string> = {
 };
 
 /** The groups a filter shows, each a label and its rows. */
-function grouped(skills: readonly SkillRow[], filter: SkillFilter): ReadonlyArray<readonly [string, readonly SkillRow[]]> {
+export function grouped(skills: readonly SkillRow[], filter: SkillFilter): ReadonlyArray<readonly [string, readonly SkillRow[]]> {
   const active = skills.filter((skill) => skill.status === "active");
   const kits: readonly [string, readonly SkillRow[]] = ["Kits", active.filter((skill) => skill.kind === "kit")];
   const plain: readonly [string, readonly SkillRow[]] = ["Skills", active.filter((skill) => skill.kind === "skill")];
@@ -118,74 +74,17 @@ function grouped(skills: readonly SkillRow[], filter: SkillFilter): ReadonlyArra
 /** How many skills have questions to answer, for the Skills page's filter. */
 export const toAnswerCount = (skills: readonly SkillRow[]) => skills.filter(toAnswer).length;
 
-// ky's skills, kits first: what each is for and how it reads, with editing, archiving, and going back a version.
-export function SkillGroups({ skills, filter, now, onChange, onHistory }: Groups) {
-  const [open, setOpen] = useState<string | null>(null);
-  const kits = kitsOf(skills);
-  const known = new Map(skills.map((skill) => [skill.name, skill]));
-  const groups = grouped(skills, filter).filter(([, rows]) => rows.length > 0);
-
-  if (groups.length === 0) return <p className="panel-empty">{EMPTY[filter]}</p>;
-
-  return groups.map(([label, rows]) => (
-    <section key={label} className="group">
-      <h3 className="group-label">{label}</h3>
-      <ul className="card">
-        {rows.map((skill) => (
-          <SkillItem
-            key={skill.name}
-            skill={skill}
-            kits={kits.get(skill.name) ?? []}
-            known={known}
-            now={now}
-            open={open === skill.name}
-            onToggle={() => setOpen((value) => (value === skill.name ? null : skill.name))}
-            onOpen={setOpen}
-            onChange={onChange}
-            onHistory={onHistory}
-          />
-        ))}
-      </ul>
-    </section>
-  ));
-}
-
-// The panel's Skills tab: every group, and the way to the full page.
-export function Skills({ onPage, ...groups }: Omit<Groups, "filter"> & { onPage: () => void }) {
-  return (
-    <div className="panel-body" data-scroll>
-      <button type="button" className="skills-page-link pressable" onClick={onPage}>
-        Open the Skills page
-        <Icon name="chevronRight" size={13} />
-      </button>
-      <SkillGroups {...groups} filter="all" />
-    </div>
-  );
-}
-
 type Mode = "read" | "edit" | "history";
 
-function SkillItem({
+// An open skill: its Needs and body to read, or its form, or its versions; with the actions under them.
+export function SkillReader({
   skill,
-  kits,
-  known,
   now,
-  open,
-  onToggle,
-  onOpen,
   onChange,
   onHistory,
 }: {
   skill: SkillRow;
-  /** The active kits that run it. */
-  kits: readonly string[];
-  /** Every skill by name, to mark a kit's members. */
-  known: ReadonlyMap<string, SkillRow>;
   now: number;
-  open: boolean;
-  onToggle: () => void;
-  /** Opens another skill, a kit's member, in its place. */
-  onOpen: (name: string) => void;
   onChange: (change: SkillChange) => void;
   onHistory: (name: string) => Promise<readonly SkillVersion[]>;
 }) {
@@ -200,60 +99,41 @@ function SkillItem({
   };
 
   return (
-    <li className="skill" data-open={open} data-kind={skill.kind}>
-      <button type="button" className="row disclosure" aria-expanded={open} onClick={onToggle}>
-        <span className="row-tile">
-          <Icon name={archived ? "archive" : skill.kind === "kit" ? "layers" : "list"} size={15} />
-        </span>
-        <span className="row-text">
-          <span className="row-label">{skill.name}</span>
-          <span className="row-sub row-sub-text">{skill.description}</span>
-        </span>
-        <SkillMarks skill={skill} kits={kits} />
-        <Icon name="chevronRight" size={14} className="row-chevron chevron" />
-      </button>
-      {skill.kind === "kit" ? <KitMembers kit={skill} known={known} onOpen={onOpen} /> : null}
-      <div className="expand" inert={!open}>
-        <div className="expand-inner">
-          <div className="item-body skill-detail">
-            <SkillMeta skill={skill} now={now} />
-            {mode === "edit" ? (
-              <SkillForm
-                skill={skill}
-                onCancel={() => setMode("read")}
-                onSave={(description, body) => {
-                  onChange({ action: "edit", name: skill.name, description, body });
-                  setMode("read");
-                }}
-              />
-            ) : mode === "history" ? (
-              <SkillVersions
-                name={skill.name}
-                versions={versions}
-                now={now}
-                onRevert={(version) => {
-                  onChange({ action: "revert", name: skill.name, version });
-                  setMode("read");
-                }}
-              />
-            ) : (
-              <>
-                <SkillNeeds key={JSON.stringify(skill.answers)} skill={skill} onChange={onChange} />
-                <SkillBody body={skill.body} />
-              </>
-            )}
-            <SkillActions
-              mode={mode}
-              archived={archived}
-              pin={<PinButton skill={skill} onChange={onChange} />}
-              onMode={setMode}
-              onHistory={showHistory}
-              onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
-            />
-          </div>
-        </div>
-      </div>
-    </li>
+    <>
+      {mode === "edit" ? (
+        <SkillForm
+          skill={skill}
+          onCancel={() => setMode("read")}
+          onSave={(description, body) => {
+            onChange({ action: "edit", name: skill.name, description, body });
+            setMode("read");
+          }}
+        />
+      ) : mode === "history" ? (
+        <SkillVersions
+          name={skill.name}
+          versions={versions}
+          now={now}
+          onRevert={(version) => {
+            onChange({ action: "revert", name: skill.name, version });
+            setMode("read");
+          }}
+        />
+      ) : (
+        <>
+          <SkillNeeds key={JSON.stringify(skill.answers)} skill={skill} onChange={onChange} />
+          <SkillBody body={skill.body} />
+        </>
+      )}
+      <SkillActions
+        mode={mode}
+        archived={archived}
+        pin={<PinButton skill={skill} onChange={onChange} />}
+        onMode={setMode}
+        onHistory={showHistory}
+        onArchive={() => onChange({ action: archived ? "restore" : "archive", name: skill.name })}
+      />
+    </>
   );
 }
 
@@ -427,7 +307,7 @@ function NeedField({ need, value, onValue }: { need: Need; value: string; onValu
 
 // A kit's members in order, each a chip that opens it: a kit inside the kit marked as one, a name that
 // can't be opened (gone, or archived) struck through.
-function KitMembers({ kit, known, onOpen }: { kit: SkillRow; known: ReadonlyMap<string, SkillRow>; onOpen: (name: string) => void }) {
+export function KitMembers({ kit, known, onOpen }: { kit: SkillRow; known: ReadonlyMap<string, SkillRow>; onOpen: (name: string) => void }) {
   const members = parse(kit.body).members.filter((name) => name !== kit.name);
 
   if (members.length === 0) return <p className="kit-members row-sub">No members yet</p>;
