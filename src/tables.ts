@@ -17,6 +17,7 @@ const CORE_TABLES = [
   "ky_main_chat",
   // files.ts
   "ky_files",
+  "ky_files_typed",
   // mail.ts
   "ky_mail",
   "ky_mail_allowed",

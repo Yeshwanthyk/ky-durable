@@ -42,6 +42,12 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
 
 const VIDEO_TYPES: ReadonlySet<string> = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
+/** The audio type a video type's file takes when it holds no picture, as a sound saved as .mp4 or .webm does. */
+export const soundTypeOf: ReadonlyMap<string, string> = new Map([
+  ["video/mp4", "audio/mp4"],
+  ["video/webm", "audio/webm"]
+]);
+
 /** A clip's type without its parameters: MediaRecorder says "audio/webm;codecs=opus". */
 export const baseType = (type: string) => type.replace(/;.*$/s, "").trim().toLowerCase();
 

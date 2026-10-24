@@ -177,7 +177,7 @@ function Card({
 
   if (artifact.kind === "audio") return <SoundCard src={src} title={title} name={file.name} meta={made} />;
 
-  return <VisualCard src={src} title={title} name={file.name} meta={made} video={artifact.kind === "videos"} onView={() => onView(src)} />;
+  return <VisualCard src={src} title={title} meta={made} video={artifact.kind === "videos"} onView={() => onView(src)} />;
 }
 
 function SoundCard({ src, title, name, meta }: { src: string; title: string; name: string; meta: string }) {
@@ -191,12 +191,7 @@ function SoundCard({ src, title, name, meta }: { src: string; title: string; nam
   );
 }
 
-/** A picture or a video; a video with no picture, such as a sound saved as .webm, shows as a sound. */
-function VisualCard({ src, title, name, meta, video, onView }: { src: string; title: string; name: string; meta: string; video: boolean; onView: () => void }) {
-  const [sound, setSound] = useState(false);
-
-  if (sound) return <SoundCard src={src} title={title} name={name} meta={meta.replace(/^Video/, "Audio")} />;
-
+function VisualCard({ src, title, meta, video, onView }: { src: string; title: string; meta: string; video: boolean; onView: () => void }) {
   return (
     <button type="button" className="artifact pressable" aria-label={`Open ${title}`} onClick={onView}>
       <div className="artifact-preview">
@@ -208,11 +203,7 @@ function VisualCard({ src, title, name, meta, video, onView }: { src: string; ti
               playsInline
               preload="metadata"
               onError={drawn}
-              onLoadedMetadata={(event) => {
-                drawn(event);
-
-                if (event.currentTarget.videoWidth === 0) setSound(true);
-              }}
+              onLoadedMetadata={drawn}
             />
             <span className="artifact-play" aria-hidden>
               <Icon name="play" size={14} />

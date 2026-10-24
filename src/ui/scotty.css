@@ -3148,8 +3148,10 @@ button.live:hover .live-steps {
 }
 
 .voice-note {
+  box-sizing: border-box;
   margin: 0;
-  width: min(300px, 100%);
+  /* 300px of player inside its padding and border, as before; never wider than its column. */
+  width: min(324px, 100%);
   padding: 8px 14px 8px 8px;
   border-radius: 20px;
   background: var(--sunken);

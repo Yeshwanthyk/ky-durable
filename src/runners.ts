@@ -1,3 +1,4 @@
+import { uploadedType } from "./file-types";
 import { upload } from "./files";
 import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./machines/contract";
 
@@ -64,7 +65,7 @@ async function taskUpload(request: Request, env: Env, url: URL): Promise<Respons
 
   if (!task || !token || (await vault(env).check("task", token)) !== task) return unauthorized();
 
-  return upload(request, env.FILES, (file) => agent(env).attachFile(file));
+  return upload(request, env.FILES, (file) => agent(env).attachFile(file), uploadedType);
 }
 
 /**

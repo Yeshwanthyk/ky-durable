@@ -1929,6 +1929,29 @@ test("Artifacts gathers what ky made: the sites it published and the screenshots
   await expect(chat(page).getByText("Shared with the user, shown under this report: a fake screenshot")).toBeVisible();
 });
 
+test("Artifacts files a sound saved as a video under Audio, and its card holds the whole player", async ({ page }) => {
+  await open(page);
+  await send(page, `machine@webmac [sh] ky attach ${REPO}/test/web/fixtures/sound.webm "Lecture audio"`);
+  await expect(page.getByText(/sh exited 0/).first()).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "Artifacts" }).click();
+  const artifacts = page.getByRole("region", { name: "Artifacts" });
+  await artifacts.getByRole("tab", { name: "Audio" }).click();
+  const card = artifacts.getByRole("listitem").filter({ hasText: "Lecture audio" });
+  await expect(card.getByText(/^Audio · /)).toBeVisible();
+  await expect(card.getByRole("button", { name: /^Play/ })).toBeVisible();
+
+  const save = await card.getByRole("link", { name: /^Save/ }).boundingBox();
+  const edge = await card.boundingBox();
+  expect(save && edge && save.x + save.width <= edge.x + edge.width - 8).toBe(true);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/artifacts-audio.png` });
+
+
+  await artifacts.getByRole("tab", { name: "Videos" }).click();
+  await expect(artifacts.getByText("No videos yet.")).toBeVisible();
+});
+
 test("sends an image with a message, and refuses a fifth image", async ({ page }) => {
   await open(page);
 

@@ -20,6 +20,7 @@ import { chatsExtension } from "./chats-tool";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
+import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
 import { uploadMedia } from "./media-upload";
 import { History } from "./history";
@@ -521,6 +522,7 @@ export class PiAgent extends DurableObject<Env> {
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();
+    this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
@@ -802,12 +804,14 @@ export class PiAgent extends DurableObject<Env> {
       const sql = this.ctx.storage.sql;
       this.sandboxes.keep(sandboxes);
       this.sandboxes.seeded();
+      this.files.restored();
       sql.exec("UPDATE ky_automations SET schedule_id = NULL");
       sql.exec("UPDATE ky_tasks SET status = 'stopped', finished_at = coalesce(finished_at, ?) WHERE status IN ('queued', 'working')", Date.now());
       this.setup.moved(origin);
       this.history.rebuild();
     });
 
+    this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     const { summary } = this.backups.plan();
     const uploadBytes = (await this.env.FILES.list({ prefix: "files/" })).objects.reduce((total, object) => total + object.size, 0);
 
