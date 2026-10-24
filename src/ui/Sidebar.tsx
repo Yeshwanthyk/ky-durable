@@ -197,6 +197,8 @@ export function Sidebar({
   onArchive,
   onRename,
   creating,
+  artifacts,
+  onArtifacts,
 }: {
   chats: readonly ChatRow[];
   session: string;
@@ -212,6 +214,9 @@ export function Sidebar({
   onArchive: (session: string, archived: boolean) => void;
   onRename: (session: string, title: string) => void;
   creating: boolean;
+  /** Whether the Artifacts page is open, over the chat. */
+  artifacts: boolean;
+  onArtifacts: () => void;
 }) {
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
@@ -240,10 +245,18 @@ export function Sidebar({
       </button>
       <ul className="chat-list">
         <li>
+          <button type="button" className="chat-item pressable pressable-row" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
+            <Icon name="grid" size={14} />
+            <span className="chat-title">Artifacts</span>
+          </button>
+        </li>
+      </ul>
+      <ul className="chat-list">
+        <li>
           <button
             type="button"
             className="chat-item pressable pressable-row"
-            aria-current={session === main ? "page" : undefined}
+            aria-current={session === main && !artifacts ? "page" : undefined}
             data-unread={mainUnread}
             data-news={mainNews}
             onClick={() => onOpen(main)}

@@ -6,20 +6,53 @@ import { MAIN_SESSION } from "./open-chat";
 /** A tapped notification's chat, as public/sw.js posts it to an open ky: the chat's query, `?session=…`. */
 const OpenChat = Type.Object({ type: Type.Literal("open-chat"), search: Type.String() });
 
+/** What the Artifacts page shows: everything, or one kind. */
+const ARTIFACT_KINDS = ["all", "sites", "images", "videos", "audio"] as const;
+
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+
 function sessionFromUrl(search = location.search): string {
   const session = new URLSearchParams(search).get("session");
 
   return session && /^[\w-]{1,64}$/.test(session) ? session : MAIN_SESSION;
 }
 
-const urlOf = (session: string) => (session === MAIN_SESSION ? "/" : `/?session=${session}`);
+function artifactsFromUrl(search = location.search): ArtifactKind | null {
+  const kind = new URLSearchParams(search).get("artifacts");
 
-// The open chat lives in the URL, so back and forward move between chats.
-export function useSessionRoute(): [string, (next: string) => void] {
+  return ARTIFACT_KINDS.find((each) => each === kind) ?? null;
+}
+
+const urlOf = (session: string, artifacts: ArtifactKind | null = null) => {
+  const query = new URLSearchParams();
+
+  if (artifacts !== null) query.set("artifacts", artifacts);
+
+  if (session !== MAIN_SESSION) query.set("session", session);
+  const search = query.toString();
+
+  return search === "" ? "/" : `/?${search}`;
+};
+
+/** The open chat, and the Artifacts page when it covers the chat. */
+export type Route = {
+  readonly session: string;
+  readonly artifacts: ArtifactKind | null;
+  /** Opens a chat, closing the Artifacts page. */
+  readonly go: (next: string) => void;
+  readonly showArtifacts: (kind: ArtifactKind) => void;
+};
+
+// The open chat and the Artifacts page live in the URL, so back and forward move between them.
+export function useSessionRoute(): Route {
   const [session, setSession] = useState(sessionFromUrl);
+  const [artifacts, setArtifacts] = useState(artifactsFromUrl);
 
   useEffect(() => {
-    const onPop = () => setSession(sessionFromUrl());
+    const onPop = () => {
+      setSession(sessionFromUrl());
+      setArtifacts(artifactsFromUrl());
+    };
 
     // A tapped notification opens its chat here, as going to it would, without reloading the page.
     const onMessage = (event: MessageEvent) => {
@@ -28,8 +61,9 @@ export function useSessionRoute(): [string, (next: string) => void] {
       if (!open) return;
       const next = sessionFromUrl(open.search);
 
-      if (next !== sessionFromUrl()) history.pushState(null, "", urlOf(next));
+      if (urlOf(next) !== location.pathname + location.search) history.pushState(null, "", urlOf(next));
       setSession(next);
+      setArtifacts(null);
     };
 
     const worker = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
@@ -43,10 +77,17 @@ export function useSessionRoute(): [string, (next: string) => void] {
   }, []);
 
   const go = (next: string) => {
-    if (next === session) return;
+    if (next === session && artifacts === null) return;
     history.pushState(null, "", urlOf(next));
     setSession(next);
+    setArtifacts(null);
   };
 
-  return [session, go];
+  const showArtifacts = (kind: ArtifactKind) => {
+    if (kind === artifacts) return;
+    history.pushState(null, "", urlOf(session, kind));
+    setArtifacts(kind);
+  };
+
+  return { session, artifacts, go, showArtifacts };
 }
