@@ -94,11 +94,12 @@ describe("browse reads a PDF", () => {
     );
   });
 
-  it("cuts long text with the same note as a page", async () => {
+  it("keeps long text whole past the old 20,000 characters, for guardrails to spill", async () => {
     const page = Array.from({ length: 60 }, () => "word ".repeat(15).trim()).join("\n");
     const result = await pdfReply("https://example.com/long.pdf", shown(pdf(Array.from({ length: 40 }, () => page))), plain, live());
 
-    expect(text(result)).toMatch(/\(PDF, 40 pages\)\n\n[word \n]{20000}\n\[cut at 20000 characters\]$/);
+    expect(text(result)).toMatch(/\(PDF, 40 pages\)\n\n[word \n]{170000,}$/);
+    expect(text(result)).not.toContain("[cut at");
   });
 
   it("downloads a PDF the browser downloaded instead of showing, and knows it by its first bytes", async () => {

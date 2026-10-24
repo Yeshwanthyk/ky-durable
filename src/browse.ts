@@ -31,7 +31,11 @@ const CALL_TIMEOUT_MS = 90_000;
 
 const CLOSE_TIMEOUT_MS = 5_000;
 
-const MAX_TEXT = 20_000;
+/**
+ * A bound on what a page's text can hold in memory, not on what the model reads: guardrails (src/guardrails.ts) puts
+ * any result over its SPILL_CHARS in a workspace file the model reads in ranges, so a long page reaches it whole.
+ */
+const MAX_TEXT = 400_000;
 
 const MAX_LINKS = 60;
 

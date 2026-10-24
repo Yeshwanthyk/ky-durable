@@ -53,6 +53,7 @@ import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
+import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
 import type { Vault } from "./vault";
 
@@ -382,6 +383,8 @@ export class PiAgent extends DurableObject<Env> {
         deliver: (item) => this.deliveries.deliver(item)
       };
 
+      const workspaceTools = createWorkspaceTools(this.workspace, { read: { maxBytes: READ_MAX_BYTES } });
+
       // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
       this.registry.install(soul);
       this.registry.install({
@@ -398,8 +401,17 @@ export class PiAgent extends DurableObject<Env> {
             tag: false
           }
         ],
-        tools: createWorkspaceTools(this.workspace)
+        tools: workspaceTools
       });
+      // Before every other tool hook: a blocked call then starts no progress step, and those after see the preview.
+      // The workspace's file tools page through files already; exec's output is a program's, so it can spill.
+      this.registry.install(
+        guardrailsExtension({
+          sql: this.ctx.storage.sql,
+          workspace: this.workspace,
+          unspilled: new Set(workspaceTools.map((tool) => tool.name).filter((name) => name !== "exec"))
+        })
+      );
 
       await this.#installExecutor();
       this.registry.install(this.browse);
