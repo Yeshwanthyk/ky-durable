@@ -34,6 +34,13 @@ const composer = (page: Page) => page.getByRole("textbox", { name: "Message" });
 
 const panel = (page: Page) => page.getByRole("complementary", { name: "Activity and settings" });
 
+/** Opens the Skills page from the sidebar: the list on the left, the picked skill read on the right. */
+const skillsPage = async (page: Page) => {
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "Skills" }).click();
+
+  return page.getByRole("region", { name: "Skills" });
+};
+
 const chat = (page: Page) => page.getByRole("region", { name: "Chat" });
 
 /** Where to save screenshots for a PR, when set. */
@@ -1298,22 +1305,23 @@ test("lists last night's dream in Activity with its reasons, undoes a change, sa
   await page.screenshot({ path: SHOTS ? `${SHOTS}/last-night-undone.png` : undefined });
 
   // The merged skill is back, as ky wrote it; pinning one keeps after a reload.
-  await panel(page).getByRole("tab", { name: "Skills" }).click();
-  const skillRow = (name: string) => panel(page).getByRole("button", { name: new RegExp(`^${name}`) });
-  await expect(skillRow(run)).toContainText("ky's");
+  const skills = await skillsPage(page);
+  const list = skills.getByRole("navigation", { name: "Skills list" });
+  const skillRow = (name: string) => list.getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect(skillRow(run)).toBeVisible();
   await skillRow(groceries).click();
-  const skill = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name: new RegExp(`^${groceries}`) }) });
+  const skill = skills.getByRole("article", { name: groceries });
+  await expect(skill.getByText("Skill · Written by ky")).toBeVisible();
   await skill.getByRole("button", { name: "Pin", exact: true }).click();
   await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
   await expect(skill.getByRole("button", { name: "Unpin" })).toHaveAttribute("aria-pressed", "true");
-  await expect(skill.getByText("Written by ky · used 0 times")).toContainText("pinned, so ky's dreams and reviews leave it as it is");
-  // The row opens with a transition: shoot it open.
+  await expect(skill.getByText("Used 0 times")).toContainText("pinned, so ky's dreams and reviews leave it as it is");
+  // The reader settles in with a short transition: shoot it settled.
   await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
   await page.screenshot({ path: SHOTS ? `${SHOTS}/skill-pinned.png` : undefined });
 
+  // The page is in the URL, so a reload lands back on it.
   await page.reload();
-  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
-  await panel(page).getByRole("tab", { name: "Skills" }).click();
   await expect(skillRow(groceries).getByRole("img", { name: "Pinned" })).toBeVisible();
 });
 
@@ -1382,9 +1390,9 @@ test("shows ky's skills, edits one, reverts it and archives it", async ({ page }
   await send(page, `tool skill_manage ${JSON.stringify(create)}`);
   await expect(page.getByText(`tool said: Created ${name}`)).toBeVisible();
 
-  await panel(page).getByRole("tab", { name: "Skills" }).click();
-  const skill = panel(page).getByRole("listitem").filter({ has: page.getByRole("button", { name: new RegExp(`^${name}`) }) });
-  await skill.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  const skills = await skillsPage(page);
+  await skills.getByRole("navigation", { name: "Skills list" }).getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  const skill = skills.getByRole("article", { name });
   await expect(skill.getByText("Order oat milk.")).toBeVisible();
 
   await skill.getByRole("button", { name: "Edit" }).click();
@@ -1412,17 +1420,17 @@ test("groups a kit with its members as chips, opens a member from one, and shows
   await send(page, `tool skill_manage ${JSON.stringify({ action: "create", name: kit, kind: "kit", description: "Plans the week", body })}`);
   await expect(page.getByText(`tool said: Created ${kit}`)).toBeVisible();
 
-  await panel(page).getByRole("tab", { name: "Skills" }).click();
-  const chips = panel(page).getByRole("list", { name: `${kit} members` });
+  const skills = await skillsPage(page);
+  const list = skills.getByRole("navigation", { name: "Skills list" });
+  await list.getByRole("button", { name: new RegExp(`^${kit} Plans`) }).click();
+  const chips = skills.getByRole("article", { name: kit }).getByRole("list", { name: `${kit} members` });
   await expect(chips.getByRole("button", { name: `gone-${id}` })).toBeDisabled();
-  // The member is marked as run by the kit, and its chip opens it.
-  const row = panel(page).getByRole("button", { name: new RegExp(`^${member} Picks`) });
-  await expect(row).toContainText(`in ${kit}`);
+  // A chip opens its member, which says which kit runs it.
   await chips.getByRole("button", { name: member }).click();
-  await expect(panel(page).getByRole("heading", { name: "Steps" })).toBeVisible();
+  const opened = skills.getByRole("article", { name: member });
+  await expect(opened.getByRole("heading", { name: "Steps" })).toBeVisible();
+  await expect(opened.getByText(`in ${kit}`)).toBeVisible();
 
-  await panel(page).getByRole("button", { name: "Open the Skills page" }).click();
-  const skills = page.getByRole("region", { name: "Skills" });
   await skills.getByRole("tab", { name: "Kits" }).click();
   await expect(page).toHaveURL(/skills=kits/);
   await expect(skills.getByRole("button", { name: new RegExp(`^${kit} Plans`) })).toBeVisible();

@@ -14,9 +14,6 @@ import type {
   SettingsView,
   SetupView,
   VendorOption,
-  SkillChange,
-  SkillRow,
-  SkillVersion,
   MemoryView,
   ModelChoice,
   ModelOption,
@@ -41,7 +38,6 @@ import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
-import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
 import { Mail } from "./Mail";
@@ -56,9 +52,9 @@ import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-pane
 
 export type Theme = "light" | "dark";
 
-export type PanelTab = "activity" | "skills" | "soul" | "settings";
+export type PanelTab = "activity" | "soul" | "settings";
 
-// Who ky is and how it is doing, then everything it is doing and has done, its skills, its soul and memory, and its settings.
+// Who ky is and how it is doing, then everything it is doing and has done, its soul and memory, and its settings.
 export function Panel({
   name,
   variantId,
@@ -73,7 +69,6 @@ export function Panel({
   now,
   settings,
   setup,
-  skills,
   soul,
   memory,
   memoryActions,
@@ -83,9 +78,6 @@ export function Panel({
   theme,
   onTheme,
   onSetModel,
-  onSkillChange,
-  onSkillHistory,
-  onSkillsPage,
   onSoulChange,
   onSoulHistory,
   onOpen,
@@ -112,7 +104,6 @@ export function Panel({
   now: number;
   settings: SettingsView | null;
   setup: SetupView | null;
-  skills: readonly SkillRow[];
   soul: SoulView | null;
   memory: MemoryView | null;
   memoryActions: MemoryActions;
@@ -122,10 +113,6 @@ export function Panel({
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onSetModel: (purpose: Purpose, choice: ModelChoice) => void;
-  onSkillChange: (change: SkillChange) => void;
-  onSkillHistory: (name: string) => Promise<readonly SkillVersion[]>;
-  /** Opens the full Skills page over the chat. */
-  onSkillsPage: () => void;
   onSoulChange: (change: SoulChange) => void;
   onSoulHistory: () => Promise<readonly SoulVersion[]>;
   onOpen: (session: string) => void;
@@ -156,7 +143,6 @@ export function Panel({
         {(
           [
             ["activity", "Activity"],
-            ["skills", "Skills"],
             ["soul", "Soul"],
             ["settings", "Settings"],
           ] as const
@@ -186,8 +172,6 @@ export function Panel({
           onStop={onStop}
           onStopAll={onStopAll}
         />
-      ) : tab === "skills" ? (
-        <Skills skills={skills} now={now} onChange={onSkillChange} onHistory={onSkillHistory} onPage={onSkillsPage} />
       ) : tab === "soul" ? (
         <Soul
           soul={soul}

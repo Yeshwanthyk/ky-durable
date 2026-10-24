@@ -166,7 +166,7 @@ type Parts = {
   setTheme: (theme: Theme) => void;
   /** When the user last saw the open chat, for its New divider. */
   visit: Visit;
-  /** Opens the Skills page, from the panel's Skills tab. */
+  /** Opens the Skills page, from the sidebar or the command palette. */
   onSkillsPage: () => void;
 };
 
@@ -449,7 +449,7 @@ function Stage(parts: Parts) {
 
 // ky's panel, activity, skills, soul and memory, and settings, in its slot. It keeps its own
 // clock, so a running task's timer ticks the panel each second and not the whole page.
-function KyPanel({ ky, view, status, panel, shell, setTheme, onSkillsPage }: Parts) {
+function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
   const now = useNow(panel.open && ky.tasks.some(clockRunning));
   const providers = ky.settings?.providers ?? NONE;
   const { setOpen, openSection, setPage } = panel;
@@ -519,7 +519,6 @@ function KyPanel({ ky, view, status, panel, shell, setTheme, onSkillsPage }: Par
                   now={now}
                   settings={ky.settings}
                   setup={ky.setup}
-                  skills={ky.skills}
                   soul={ky.soul}
                   memory={ky.memory}
                   memoryActions={memoryActions}
@@ -529,9 +528,6 @@ function KyPanel({ ky, view, status, panel, shell, setTheme, onSkillsPage }: Par
                   theme={view.theme}
                   onTheme={setTheme}
                   onSetModel={ky.setModel}
-                  onSkillChange={ky.changeSkill}
-                  onSkillHistory={ky.skillHistory}
-                  onSkillsPage={onSkillsPage}
                   onSoulChange={ky.changeSoul}
                   onSoulHistory={ky.soulHistory}
                   onOpen={shell.openSession}
@@ -557,7 +553,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme, onSkillsPage }: Par
 }
 
 // ⌘K, mounted only while it is open, with its own clock for its "5m ago" hints.
-function Palette({ ky, view, panel, shell, setTheme }: Parts) {
+function Palette({ ky, view, panel, shell, setTheme, onSkillsPage }: Parts) {
   const now = useNow();
 
   return (
@@ -574,6 +570,7 @@ function Palette({ ky, view, panel, shell, setTheme }: Parts) {
         openSession: shell.openSession,
         startChat: shell.startChat,
         openPanel: panel.openTab,
+        openSkills: onSkillsPage,
         setTheme,
         stopAll: ky.stopAll,
         sidebarShown: wide() ? !shell.sidebarHidden : shell.drawerOpen,
