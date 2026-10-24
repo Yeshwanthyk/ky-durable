@@ -5,7 +5,7 @@
  * runs.
  *
  * ky changes and removes only what it made. A Worker the CLI deployed carries the `ky` tag and its
- * release's version; one of the same name without the tag (one `pnpm run deploy` made, say) is
+ * release's version; one of the same name without the tag (one `wrangler deploy` made, say) is
  * never changed or removed. A bucket the CLI made holds a marker object; one without it is never
  * adopted or emptied, and teardown leaves a bucket another Worker binds. An Access app the CLI
  * made carries the `ky` tag too; one without it that guards the Worker's address is never changed
@@ -283,7 +283,7 @@ const sendEmail = (config: Unstable_RawConfig) =>
 /** The Worker's bindings, from the config, with its buckets and `env` added as plain text. */
 function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Record<string, string>): Binding[] {
   for (const key of Object.keys(config))
-    if (!DEPLOYS.has(key)) throw new Error(`ky deploy can't deploy \`${key}\`: ${REFUSED.get(key) ?? "use `pnpm run deploy` from a checkout"}`);
+    if (!DEPLOYS.has(key)) throw new Error(`ky deploy can't deploy \`${key}\`: ${REFUSED.get(key) ?? "take it out of the overlay"}`);
 
   const single = (binding: { binding?: string } | undefined) => (binding?.binding ? [binding.binding] : []);
 

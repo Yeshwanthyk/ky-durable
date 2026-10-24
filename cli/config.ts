@@ -2,7 +2,7 @@
  * The CLI user's owner overlay (C6): what a checkout keeps in wrangler.local.jsonc, `ky init`
  * writes to ~/.config/ky/wrangler.local.jsonc. Same format, same merge: `ky deploy` lays it over
  * the release's generic wrangler.jsonc with wrangler-overlay.ts, as vite.config.ts does for
- * `pnpm run deploy`. It names the account and the Worker, and holds the owner's vars (who Access
+ * `pnpm start`. It names the account and the Worker, and holds the owner's vars (who Access
  * lets in among them) and VPC services: the two things the overlay merges rather than replaces. The
  * Worker's bindings stay the release's, so a release that changes them reaches every `ky upgrade`.
  * It holds no token. A second ky on the same computer (`ky init --as <name>`) keeps its overlay in

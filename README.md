@@ -172,7 +172,7 @@ VibeProxy or a key added in Settings, ky runs on Workers AI.
 | --- | --- |
 | `pnpm start` | `vite dev` |
 | `pnpm build` | `vite build` |
-| `pnpm run deploy` | `vite build && wrangler deploy` |
+| `pnpm run deploy` | refuses: a live ky deploys only through `ky deploy` (AGENTS.md) |
 | `pnpm typecheck` | `tsc --noEmit`, then `tsconfig.node.json` (the runner and the test harnesses) |
 | `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
 | `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |

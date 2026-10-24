@@ -13,7 +13,7 @@ const LAZY = /\/node_modules\/(\.pnpm\/[^/]+\/node_modules\/)?(shiki|@shikijs|@p
 
 /**
  * The owner overlay: this deploy's own vars and bindings, merged over the generic wrangler.jsonc. `pnpm start`
- * runs with it, and `pnpm run deploy` deploys the config `vite build` resolves with it.
+ * runs with it. Nothing deploys this build: a live ky deploys only through `ky deploy` (AGENTS.md).
  */
 const OVERLAY = path.join(import.meta.dirname, "wrangler.local.jsonc");
 

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "vite dev",
     "build": "vite build",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "echo \"pnpm run deploy is gone: a wrangler deploy from a checkout writes a live ky without its Access vars, bucket and mail. Merge to main to ship, or run 'pnpm ky deploy <name>' as AGENTS.md says.\" >&2; exit 1",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "types": "wrangler types env.d.ts --include-runtime false --env-file .dev.vars.example",
     "test": "vitest run --config src/tests/vitest.config.ts",

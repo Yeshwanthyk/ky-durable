@@ -1,6 +1,6 @@
 /**
  * The owner overlay (wrangler.local.jsonc) over the generic wrangler.jsonc, as
- * vite.config.ts applies it for `pnpm start` and `pnpm run deploy`: vars merge,
+ * vite.config.ts applies it for `pnpm start`: vars merge,
  * VPC services are added, and anything else the overlay sets replaces
  * wrangler.jsonc's. It changes `config` in place, since a config the Vite
  * plugin's `config` hook returns is merged again, adding every array to itself.
