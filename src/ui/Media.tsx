@@ -57,8 +57,9 @@ async function decodePeaks(url: string): Promise<string | null> {
 }
 
 /**
- * A voice note: play, its waveform filling as it plays, and its time. A tap on the waveform seeks.
- * What the device heard shows under it, in the message's own words, for the user to check.
+ * A voice note: play, its waveform filling as it plays, its time, and save, which keeps the file on the device to
+ * play with no connection. A tap on the waveform seeks. What the device heard shows under it, in the message's
+ * own words, for the user to check.
  */
 export function VoiceNote({
   src,
@@ -66,7 +67,8 @@ export function VoiceNote({
   peaks,
   transcript = "",
   mine = false,
-  label = "Voice note"
+  label = "Voice note",
+  name = label
 }: {
   src: string;
   seconds: number | null;
@@ -74,6 +76,8 @@ export function VoiceNote({
   transcript?: string;
   mine?: boolean;
   label?: string;
+  /** The file name a save gives it. */
+  name?: string;
 }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -124,6 +128,9 @@ export function VoiceNote({
           ))}
         </div>
         <span className="voice-note-time">{clock(playing || at > 0 ? at : length)}</span>
+        <a className="voice-note-save pressable" href={src} download={name} aria-label={`Save ${label}`} title="Save to play offline">
+          <Icon name="download" size={14} />
+        </a>
       </div>
       <audio
         ref={audio}
@@ -147,11 +154,25 @@ export function VoiceNote({
   );
 }
 
-/** A video, played where it is. */
-export function VideoClip({ src, label, caption }: { src: string; label: string; caption?: string | undefined }) {
+/**
+ * A video, played where it is. A file named a video that has no picture, such as sound a download saved as .webm
+ * or .mp4, plays as a voice note instead of a grey box.
+ */
+export function VideoClip({ src, label, caption, name }: { src: string; label: string; caption?: string | undefined; name?: string }) {
+  const [sound, setSound] = useState(false);
+
+  if (sound) return <VoiceNote src={src} seconds={null} peaks={null} transcript={caption} label={label} name={name} />;
+
   return (
     <figure className="video-clip">
-      <video src={src} controls playsInline preload="metadata" aria-label={label} />
+      <video
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        aria-label={label}
+        onLoadedMetadata={(event) => event.currentTarget.videoWidth === 0 && setSound(true)}
+      />
       {caption ? <figcaption>{caption}</figcaption> : null}
     </figure>
   );

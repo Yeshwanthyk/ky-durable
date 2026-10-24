@@ -1397,6 +1397,12 @@ button.live:hover .live-steps {
   margin-top: 8px;
 }
 
+/* A sound, or a video played in place, takes the whole row. */
+.attachments > .voice-note,
+.attachments > .video-clip {
+  grid-column: 1 / -1;
+}
+
 .attachment {
   margin: 0;
   border: 1px solid var(--line);
@@ -3208,6 +3214,24 @@ button.live:hover .live-steps {
   font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
+}
+
+.voice-note-save {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: -6px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0.6;
+}
+
+.voice-note-save:hover,
+.voice-note-save:focus-visible {
+  opacity: 1;
+  background: var(--hover);
 }
 
 .voice-note audio {
