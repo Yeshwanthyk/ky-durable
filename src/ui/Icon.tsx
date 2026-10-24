@@ -1,12 +1,15 @@
 // One small hand-drawn set on a 16px grid, 1.5 stroke, round joins. Paths stay simple on purpose.
 const paths = {
   plus: "M8 3.25v9.5M3.25 8h9.5",
+  minus: "M3.25 8h9.5",
   search: "M7 11.75a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5ZM10.5 10.5l3.25 3.25",
   sidebar: "M2.75 3.25h10.5v9.5H2.75zM6.25 3.25v9.5",
   panel: "M2.75 3.25h10.5v9.5H2.75zM9.75 3.25v9.5",
   settings: "M2.75 4.75h6.5M11.75 4.75h1.5M2.75 11.25h1.5M6.75 11.25h6.5M10.5 3.25v3M5.5 9.75v3",
   chevronRight: "M6.5 4.25 10.25 8 6.5 11.75",
   chevronDown: "M4.25 6.5 8 10.25l3.75-3.75",
+  lock: "M5 7.25V5.5a3 3 0 0 1 6 0v1.75M4.25 7.25h7.5v5.5h-7.5z",
+  chevronUpDown: "M5.25 6.25 8 3.5l2.75 2.75M5.25 9.75 8 12.5l2.75-2.75",
   arrowUp: "M8 12.75V3.5M4 7.25 8 3.25l4 4",
   arrowDown: "M8 3.25v9.25M4 8.75l4 4 4-4",
   check: "m3.5 8.25 2.75 2.75 6.25-6.5",

@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, type HTMLAttributes, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Type, { type Static } from "typebox";
 import { parseOr } from "../core/decode";
 import type { MachineChange, MachineFacts, MachineLogin, MachineState } from "../machines/contract";
@@ -28,7 +28,8 @@ import type {
   TaskRow,
   ToolInfo,
 } from "../protocol";
-import { Automations, Pick } from "./Automations";
+import { Pick, type RoutinesView, RoutinesPage, Timeline, TODAY, TodayHead, useZone } from "./Automations";
+import { BROWSER_ZONE, clockIn, sameDay } from "./schedule";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
 import { Changes } from "./Changes";
 import { CopyButton, CopyLine } from "./CopyButton";
@@ -36,6 +37,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatar-spec";
 import { Icon, Spinner, type IconName } from "./Icon";
+import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
@@ -43,10 +45,10 @@ import { Skills } from "./Skills";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
 import { Mail } from "./Mail";
-import { Proactivity } from "./Proactivity";
+import { Proactivity, ProactivityValue } from "./Proactivity";
 import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
-import { Subscriptions, type SubscriptionsData } from "./Subscriptions";
+import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
 import { TaskTimeline } from "./Timeline";
 import { ago, clock, day } from "./time";
@@ -214,49 +216,6 @@ export function Panel({
       )}
     </aside>
   );
-}
-
-// A segmented control whose one pill slides under the chosen option, so you see where you went.
-function Segmented({ chosen, small, children, ...rest }: HTMLAttributes<HTMLDivElement> & { chosen: unknown; small?: boolean }) {
-  const track = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => placePill(track.current, true), [chosen]);
-  // A new width (the panel resized, the font arrived) moves the pill without the slide.
-  useEffect(() => {
-    const element = track.current;
-
-    if (element === null) return;
-    const observer = new ResizeObserver(() => placePill(element, false));
-
-    observer.observe(element);
-    void document.fonts.ready.then(() => placePill(element, false));
-
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div ref={track} className={small ? "segmented small" : "segmented"} {...rest}>
-      <span className="segmented-pill" aria-hidden="true" />
-      {children}
-    </div>
-  );
-}
-
-/** Puts the pill under the chosen option; it slides only once it has been placed. */
-function placePill(track: HTMLElement | null, glide: boolean) {
-  const pill = track?.querySelector<HTMLElement>(":scope > .segmented-pill");
-  const chosen = track?.querySelector<HTMLElement>(':scope > [aria-selected="true"], :scope > [aria-checked="true"]');
-
-  if (!pill) return;
-  pill.dataset.shown = String(chosen !== null && chosen !== undefined);
-
-  if (!chosen) return;
-  pill.dataset.glide = String(glide && pill.dataset.placed === "true");
-  pill.dataset.placed = "true";
-  pill.style.width = `${chosen.offsetWidth}px`;
-  pill.style.height = `${chosen.offsetHeight}px`;
-  pill.style.borderRadius = getComputedStyle(chosen).borderRadius;
-  pill.style.transform = `translate(${chosen.offsetLeft}px, ${chosen.offsetTop}px)`;
 }
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -428,7 +387,8 @@ type FeedProps = {
   onStop: (task: string) => void;
 };
 
-// What is running now, then scheduled work, then the most recent finished tasks; older ones on request.
+// What is running now, then today on a timeline with its finished tasks folded in, then earlier days. The header
+// opens every routine, and a row opens its routine's form, each in place of the timeline.
 function Activity({
   tasks,
   running,
@@ -440,19 +400,109 @@ function Activity({
   onStopAll: () => void;
 }) {
   const body = useRef<HTMLDivElement>(null);
+  const zone = useZone();
+  const [view, setView] = useState<RoutinesView>(TODAY);
+  const [run, setRun] = useState<TaskRow | null>(null);
+  const live = tasks.filter(isLive);
+  const past = tasks.filter((task) => !isLive(task));
+  // A routine's fire is its row on the timeline, so today's fold holds only the work chats handed out.
+  const today = past.filter((task) => sameDay(task.updated_at, feed.now, zone) && routineOf(task) === null);
+  const earlier = past.filter((task) => !sameDay(task.updated_at, feed.now, zone));
+  const latest = today[0];
+  const finished = latest ? { at: latest.updated_at, row: <FinishedFold key="finished" latest={latest} tasks={today} {...feed} /> } : null;
+
+  // A fire's row opens its run, as the task's own row would; false when there is no run to open.
+  const openRun = (automation: string) => {
+    const fired = tasks.find((task) => routineOf(task) === automation);
+
+    if (fired) setRun(fired);
+
+    return fired !== undefined;
+  };
 
   useArrivals(body);
 
+  // Each page starts at its top.
+  const show = (next: RoutinesView) => {
+    setView(next);
+    body.current?.scrollTo({ top: 0 });
+  };
+
+  if (view.page !== "today")
+    return (
+      <div ref={body} className="panel-body" data-scroll>
+        <RoutinesPage view={view} now={feed.now} zone={zone} session={feed.session} onView={show} />
+      </div>
+    );
+
   return (
     <div ref={body} className="panel-body" data-scroll>
-      <NowSection live={tasks.filter(isLive)} running={running} onStopAll={onStopAll} {...feed} />
-      <Automations now={feed.now} session={feed.session} />
+      <NowSection live={live} running={running} onStopAll={onStopAll} {...feed} />
+      <section className="feed-group today" aria-label="Today">
+        <TodayHead now={feed.now} zone={zone} onView={show} />
+        <Timeline now={feed.now} zone={zone} busy={live.length + running.length > 0} finished={finished} onView={show} onRun={openRun} />
+      </section>
+      {run ? <TaskSheet task={run} now={feed.now} onClose={() => setRun(null)} onOpen={feed.onOpen} /> : null}
       <LastNight now={feed.now} />
-      <History past={tasks.filter((task) => !isLive(task))} {...feed} />
-      {tasks.length === 0 && running.length === 0 ? (
-        <p className="panel-empty">Work ky hands to subagents and your machines shows up here.</p>
-      ) : null}
+      <History past={earlier} {...feed} />
     </div>
+  );
+}
+
+/** The routine a task is a fire of (its source is `automation:<id>`), or null for work a chat handed out. */
+function routineOf(task: TaskRow): string | null {
+  return task.source.startsWith("automation:") ? task.source.slice("automation:".length) : null;
+}
+
+/** A task's time as every row writes it: "11:48 AM". */
+const clockAt = (time: number) => clockIn(time, BROWSER_ZONE);
+
+/** How long after a task finishes the fold opens on its own, to show it. */
+const FRESH_MS = 5 * 60_000;
+
+// Today's finished tasks as one timeline row: how many and how they went. It opens on its own once one has just
+// finished, and stays as the user leaves it after that.
+function FinishedFold({ latest, tasks, ...feed }: FeedProps & { latest: TaskRow; tasks: readonly TaskRow[] }) {
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const [fresh, setFresh] = useState(false);
+  const [shown, setShown] = useState(RECENT);
+  const open = choice ?? fresh;
+
+  if (!fresh && tasks.some((task) => Date.now() - task.updated_at < FRESH_MS)) setFresh(true);
+
+  const failed = tasks.filter((task) => task.status === "failed").length;
+  const noun = tasks.every((task) => task.kind === "cloud") ? "subagent task" : "task";
+  const earlier = new Set(tasks.slice(RECENT, shown).map((task) => task.id));
+  const hidden = tasks.length - shown;
+
+  return (
+    <li className="today-item today-fold" data-open={open || undefined}>
+      <button type="button" className="today-row disclosure" aria-expanded={open} onClick={() => setChoice(!open)}>
+        <span className="today-time tabular">{clockAt(latest.updated_at)}</span>
+        <span className="today-dot" data-tone={failed > 0 ? "failed" : "done"} />
+        <span className="today-title">
+          {tasks.length} {noun}
+          {tasks.length === 1 ? "" : "s"}
+        </span>
+        <span className="today-note">{failed > 0 ? `${failed} failed` : tasks.length === 1 ? "done" : "all done"}</span>
+        <Icon name="chevronRight" size={12} className="chevron" />
+      </button>
+      {open ? (
+        <>
+          <ul className="feed today-tasks">
+            {tasks.slice(0, shown).map((task) => (
+              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} arriveKey={`past:${task.id}`} {...feed} />
+            ))}
+          </ul>
+          {hidden > 0 ? (
+            <button type="button" className="feed-more pressable" onClick={() => setShown((count) => count + EARLIER)}>
+              Show earlier
+              <span className="feed-more-count tabular">{hidden} more</span>
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </li>
   );
 }
 
@@ -582,7 +632,7 @@ function MachineList({
     <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
-        <p className="group-empty">None yet. Add one to run tasks on your own computer.</p>
+        <EmptyState icon="monitor">No machines yet</EmptyState>
       ) : (
         <ul className="card">
           {machines.map((machine) => (
@@ -866,7 +916,7 @@ function AddSandbox({
   const [from, setFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  if (live >= view.cap) return <p className="group-note">ky runs at most {view.cap} sandboxes; delete one to add another.</p>;
+  if (live >= view.cap) return <span className="actions-note">{`${view.cap} of ${view.cap} sandboxes`}</span>;
 
   if (!open) {
     return (
@@ -1058,7 +1108,7 @@ function AddMachine({ now }: { now: number }) {
         <Icon name="monitor" />
         {code === null ? "Add a machine" : "New code"}
       </button>
-      {error ? <p className="group-note">{error}</p> : null}
+      <Problem text={error ?? undefined} />
       {code === null ? null : <PairingCommand code={code} now={now} />}
     </>
   );
@@ -1066,15 +1116,12 @@ function AddMachine({ now }: { now: number }) {
 
 // The command that pairs a computer with `code`, until the code expires.
 function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
-  if (code.expiresAt <= now) return <p className="group-note">That code has expired. Make a new one.</p>;
+  if (code.expiresAt <= now) return <EmptyState icon="clock">That code expired. Make a new one.</EmptyState>;
 
   return (
-    <div className="machine-code">
-      <p className="group-note">
-        On the computer, with <code>ky</code> installed, run this before {clock(code.expiresAt)}; it works once. It sets up
-        the runner, starts it at login, and waits for it to come online here.
-      </p>
+    <div className="card code-card machine-code">
       <CopyLine text={`ky runner add ${location.origin} ${code.code}`} label="Pairing command" />
+      <p className="card-note">{`Run this on the computer before ${clock(code.expiresAt)}. It works once.`}</p>
     </div>
   );
 }
@@ -1280,7 +1327,7 @@ function MachineGone({ name }: { name: string }) {
   return (
     <>
       <PageHead title={name} />
-      <p className="group-empty">This machine is no longer paired.</p>
+      <EmptyState icon="monitor">This machine is no longer paired.</EmptyState>
     </>
   );
 }
@@ -1580,9 +1627,16 @@ const STATUS_WORD: Record<TaskRow["status"], string> = {
 /** How long a live task has run; how long a finished one took, and what it cost. */
 const figuresOf = (task: TaskRow, now: number) => (isLive(task) ? [elapsed(task, now)] : spendParts(task, now));
 
+/** A figure that says nothing: no time, no money. */
+const NOTHING = /^(0s|\$0(\.0+)?)$/;
+
 /** Who did it, then its figures: "webmac · 34s · 1 turn · $0.01". The line breaks only between parts. */
 function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
-  const parts = [task.worker, ...figuresOf(task, now).filter((part) => part !== null)];
+  // A routine's id names no one, and nothing spent says nothing.
+  const who = task.worker.startsWith("automation-") ? [] : [task.worker];
+  const parts = [...who, ...figuresOf(task, now).filter((part) => part !== null && !NOTHING.test(part))];
+
+  if (parts.length === 0) return null;
 
   return (
     <span className="row-sub" title={task.worker}>
@@ -1599,7 +1653,7 @@ function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
 /** A row's first column: when a finished task ended, or a live one's spinner. */
 function TaskLead({ task }: { task: TaskRow }) {
   return (
-    <span className="ledger-lead tabular">{isLive(task) ? <StatusGlyph status={task.status} /> : clock(task.updated_at)}</span>
+    <span className="ledger-lead tabular">{isLive(task) ? <StatusGlyph status={task.status} /> : clockAt(task.updated_at)}</span>
   );
 }
 
@@ -1929,7 +1983,7 @@ function ModelPickers({
 
 /** Why there is no model to show: Settings is still loading, or no provider is on. */
 function NoModels({ loading }: { loading: boolean }) {
-  return <p className="group-empty">{loading ? "Loading models…" : "No model provider is enabled."}</p>;
+  return loading ? <p className="group-empty">Loading models…</p> : <EmptyState icon="plug">No model provider is on</EmptyState>;
 }
 
 // A provider or tool: what it needs while it is off, or why it last failed, and how it stands.
@@ -2133,6 +2187,7 @@ function AddKey({
         </label>
         <KeyRefusal text={refused} />
         <div className="card-foot">
+          <VaultBadge />
           <button type="submit" className="pill primary pressable" disabled={testing || key.trim() === ""}>
             {testing ? "Testing…" : "Test and save"}
           </button>
@@ -2159,10 +2214,7 @@ function SelfEdits({
       <h3 className="group-label">Self-edits</h3>
       <div className="card">
         <div className="row">
-          <span className="row-tile">
-            <Icon name="repo" size={15} />
-          </span>
-          <span className="row-label">ky's repo</span>
+          <span className="row-label">Repo</span>
           <InlineEdit
             value={repo ?? ""}
             className="repo-edit"
@@ -2180,10 +2232,7 @@ function SelfEdits({
           </p>
         ) : null}
         <div className="row">
-          <span className="row-tile">
-            <Icon name="globe" size={15} />
-          </span>
-          <span className="row-label">ky's address</span>
+          <span className="row-label">Address</span>
           <span className="row-value repo-edit">{url ?? <span className="quiet">Set with the repo</span>}</span>
         </div>
       </div>
@@ -2200,11 +2249,8 @@ function ToolsGroup({ catalog }: { catalog: readonly ToolInfo[] }) {
       <h3 className="group-label">Tools</h3>
       <div className="card">
         <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          <span className="row-tile">
-            <Icon name="terminal" size={15} />
-          </span>
           <span className="row-label">What ky can use</span>
-          <span className="row-value tabular">{catalog.length}</span>
+          <RowValue>{catalog.length}</RowValue>
           <Icon name="chevronRight" size={14} className="row-chevron chevron" />
         </button>
         {open ? (
@@ -2238,7 +2284,7 @@ type SettingsProps = {
 };
 
 /** What every Settings page is drawn from: Settings' data and the page it is on. */
-type PageProps = SettingsProps & { page: SettingsPage };
+type PageProps = SettingsProps & { page: SettingsPage; more: boolean; onMore: (open: boolean) => void };
 
 /** A page's identity, for keys and for finding the row that opens it. */
 const keyOf = (page: SettingsPage) => JSON.stringify(page);
@@ -2375,14 +2421,12 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
   const lines = [machineGlance(machines, now), mainGlance(settings), vibeGlance(settings, setup)];
 
   return (
-    <ul className="glance" aria-label="Status">
+    <ul className="card glance" aria-label="Status">
       {lines.map((line) => (
         <li key={line.label}>
-          <button type="button" className="glance-line pressable" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
+          <button type="button" className="glance-line" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
             <span className="glance-label">{line.label}</span>
-            <span className="glance-value state" data-tone={line.tone}>
-              {line.text}
-            </span>
+            <RowValue tone={line.tone}>{line.text}</RowValue>
             <Icon name="chevronRight" size={14} className="row-chevron" />
           </button>
         </li>
@@ -2391,54 +2435,106 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
   );
 }
 
-/** How many machines are online, in a few words. */
-function machinesValue(machines: readonly MachineInfo[]): string {
+/** How many machines are online out of how many, after a dot that is green while any is. */
+function machinesValue(machines: readonly MachineInfo[]): ReactNode {
   const online = machines.filter((machine) => machine.online).length;
 
-  if (machines.length === 0) return "None";
+  if (machines.length === 0) return <RowValue>None</RowValue>;
 
-  return online === machines.length ? `${online} online` : `${online} of ${machines.length} online`;
+  return <RowValue tone={online > 0 ? "online" : "off"}>{`${online}/${machines.length}`}</RowValue>;
 }
 
-/** How many there are, or None. */
-const countOrNone = (count: number, word: string) => (count === 0 ? "None" : `${count} ${word}`);
+/** How many are connected, after a dot that is green while any is; None when none is. */
+function connectedValue(connected: number): ReactNode {
+  return connected === 0 ? <RowValue tone="off">None</RowValue> : <RowValue tone="online">{connected}</RowValue>;
+}
 
-/** Settings' groups, in order: the page each opens, and what it is set to now. */
-const GROUPS: ReadonlyArray<{ to: SettingsPage; icon: IconName; label: string; value: (props: SettingsProps) => string }> = [
-  { to: { kind: "models" }, icon: "chat", label: "Models", value: ({ settings }) => plural(Object.keys(settings?.purposes ?? {}).length, "role") },
-  {
-    to: { kind: "providers" },
-    icon: "plug",
-    label: "Providers",
-    value: ({ settings }) => countOrNone(settings?.providers.filter((provider) => provider.connected).length ?? 0, "connected"),
-  },
-  { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
-  {
-    to: { kind: "subscriptions" },
-    icon: "globe",
-    label: "Subscriptions",
-    value: ({ subscriptions }) => countOrNone(subscriptions.views.filter((view) => view.connected).length, "connected"),
-  },
-  { to: { kind: "peers" }, icon: "nodes", label: "Peers", value: () => "Other people's kys" },
-  { to: { kind: "mail" }, icon: "mail", label: "Mail", value: () => "ky's own address" },
-  { to: { kind: "proactivity" }, icon: "sparkle", label: "Proactivity", value: () => "What ky says unasked" },
-  { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => String(catalog.length) },
-  { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => (theme === "dark" ? "Dark" : "Light") },
-  { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => setup?.repo ?? "Not set" },
+/** A row on Settings' first page: the page it opens, its icon and name, and what it is set to, if that says anything. */
+type GroupRow = { to: SettingsPage; icon: IconName; label: string; value?: (props: SettingsProps) => ReactNode };
+
+/** Settings' rows, in cards of what belongs together: what ky thinks with, where it works, how it treats you. */
+const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
+  [
+    { to: { kind: "models" }, icon: "chat", label: "Models", value: ({ settings }) => <RowValue>{Object.keys(settings?.purposes ?? {}).length}</RowValue> },
+    {
+      to: { kind: "providers" },
+      icon: "plug",
+      label: "Providers",
+      value: ({ settings }) => connectedValue(settings?.providers.filter((provider) => provider.connected).length ?? 0),
+    },
+    { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => <RowValue>{catalog.length}</RowValue> },
+  ],
+  [
+    { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
+    {
+      to: { kind: "subscriptions" },
+      icon: "globe",
+      label: "Subscriptions",
+      value: ({ subscriptions }) => connectedValue(subscriptions.views.filter((view) => view.connected).length),
+    },
+  ],
+  [
+    { to: { kind: "proactivity" }, icon: "sparkle", label: "Proactivity", value: () => <ProactivityValue /> },
+    { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => <AppearanceValue theme={theme} /> },
+  ],
 ];
 
-// Settings' first page: what matters at a glance, then every group and what it is set to.
+/** What most people set once or never: behind More, so the first page stays short. */
+const MORE: readonly GroupRow[] = [
+  { to: { kind: "peers" }, icon: "nodes", label: "Peers" },
+  { to: { kind: "mail" }, icon: "mail", label: "Mail" },
+  { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => <RowValue>{setup?.repo ?? "Not set"}</RowValue> },
+];
+
+/** The pages behind More, so coming back from one finds More open. */
+const MORE_PAGES: ReadonlySet<SettingsPage["kind"]> = new Set(MORE.map((row) => row.to.kind));
+
+/** The theme, with the accent's swatch before it. */
+function AppearanceValue({ theme }: { theme: Theme }) {
+  const accent = useAccent();
+
+  return (
+    <span className="row-value">
+      <span className="row-swatch" data-swatch={accent} aria-hidden="true" />
+      <span className="row-value-text">{theme === "dark" ? "Dark" : "Light"}</span>
+    </span>
+  );
+}
+
+function GroupLinks({ rows, props }: { rows: readonly GroupRow[]; props: SettingsProps }) {
+  return rows.map((row) => (
+    <PageLink key={row.label} to={row.to} icon={row.icon} label={row.label}>
+      {row.value?.(props)}
+    </PageLink>
+  ));
+}
+
+// Settings' first page: what matters at a glance, a few short cards of pages, and the rarely-set rest behind More.
 function SettingsHome(props: PageProps) {
+  const { more, onMore } = props;
+
   return (
     <>
       <Glance machines={props.machines} settings={props.settings} setup={props.setup} now={props.now} />
-      <ul className="card settings-groups" aria-label="Settings">
-        {GROUPS.map((group) => (
-          <PageLink key={group.label} to={group.to} icon={group.icon} label={group.label}>
-            <span className="row-value">{group.value(props)}</span>
-          </PageLink>
+      <div className="settings-groups">
+        {GROUPS.map((rows) => (
+          <ul key={rows.map((row) => row.label).join()} className="card">
+            <GroupLinks rows={rows} props={props} />
+          </ul>
         ))}
-      </ul>
+        <div className="settings-more">
+          <button type="button" className="routine-more disclosure" aria-expanded={more} onClick={() => onMore(!more)}>
+            <Icon name="chevronRight" size={12} className="chevron" />
+            More
+            <span className="routine-more-sub">Peers, Mail, Self-edits</span>
+          </button>
+          {more ? (
+            <ul className="card">
+              <GroupLinks rows={MORE} props={props} />
+            </ul>
+          ) : null}
+        </div>
+      </div>
     </>
   );
 }
@@ -2494,7 +2590,7 @@ function MachinesPage({ machines, subscriptions, now }: PageProps) {
 function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
   return (
     <>
-      <PageHead title="Subscriptions">Machines use these where they aren't signed in.</PageHead>
+      <PageHead title="Subscriptions">For machines that aren't signed in themselves.</PageHead>
       <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
     </>
   );
@@ -2503,7 +2599,7 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
 function PeersPage() {
   return (
     <>
-      <PageHead title="Peers">Pair with a friend's ky, and yours can ask theirs questions. A question from theirs can use your memory, skills and connected apps; yours won't act for them, and asks you when it isn't sure.</PageHead>
+      <PageHead title="Peers">Your ky and a friend's can ask each other questions.</PageHead>
       <Peers />
     </>
   );
@@ -2512,7 +2608,7 @@ function PeersPage() {
 function MailPage() {
   return (
     <>
-      <PageHead title="Mail">ky's own email address, to sign up for things and write to people for you. It asks before writing to anyone new.</PageHead>
+      <PageHead title="Mail">ky's own address. It asks before writing to anyone new.</PageHead>
       <Mail />
     </>
   );
@@ -2521,7 +2617,7 @@ function MailPage() {
 function ProactivityPage() {
   return (
     <>
-      <PageHead title="Proactivity">What ky brings up without being asked.</PageHead>
+      <PageHead title="Proactivity" />
       <Proactivity />
     </>
   );
@@ -2543,15 +2639,13 @@ function AppearancePage({ theme, onTheme }: PageProps) {
       <PageHead title="Appearance" />
       <div className="card">
         <div className="row">
-          <span className="row-tile">
-            <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
-          </span>
           <span className="row-label">Theme</span>
           <Segmented small role="radiogroup" aria-label="Theme" chosen={theme}>
             {(["light", "dark"] as const).map((each) => (
-              <button key={each} type="button" role="radio" aria-checked={theme === each} className="pressable" onClick={() => onTheme(each)}>
+              <SegmentedOption key={each} checked={theme === each} onChoose={() => onTheme(each)}>
+                <Icon name={each === "light" ? "sun" : "moon"} size={13} />
                 {each === "light" ? "Light" : "Dark"}
-              </button>
+              </SegmentedOption>
             ))}
           </Segmented>
         </div>
@@ -2563,17 +2657,27 @@ function AppearancePage({ theme, onTheme }: PageProps) {
 
 const ACCENT_NAMES: Record<Accent, string> = { ink: "Ink", violet: "Violet", blue: "Blue", green: "Green", ember: "Ember", pink: "Pink" };
 
-/** The accent: a swatch each, the chosen one ringed. */
+/** The accent: a swatch each, the chosen one ringed; the arrows move the choice, as in any radio group. */
 function AccentRow() {
   const accent = useAccent();
+  const group = useRef<HTMLDivElement>(null);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+
+    if (step === undefined) return;
+    event.preventDefault();
+    const next = ACCENTS[(ACCENTS.indexOf(accent) + step + ACCENTS.length) % ACCENTS.length];
+
+    if (next === undefined) return;
+    setAccent(next);
+    group.current?.querySelector<HTMLElement>(`[data-swatch="${next}"]`)?.focus();
+  };
 
   return (
     <div className="row">
-      <span className="row-tile">
-        <Icon name="sparkle" size={15} />
-      </span>
       <span className="row-label">Accent</span>
-      <div className="accent-swatches" role="radiogroup" aria-label="Accent">
+      <div ref={group} className="accent-swatches" role="radiogroup" aria-label="Accent" onKeyDown={onKeyDown}>
         {ACCENTS.map((each) => (
           <button
             key={each}
@@ -2582,6 +2686,7 @@ function AccentRow() {
             aria-checked={accent === each}
             aria-label={ACCENT_NAMES[each]}
             title={ACCENT_NAMES[each]}
+            tabIndex={accent === each ? 0 : -1}
             className="accent-swatch pressable"
             data-swatch={each}
             onClick={() => setAccent(each)}
@@ -2595,7 +2700,7 @@ function AccentRow() {
 function SelfEditsPage({ setup, onSetRepo }: PageProps) {
   return (
     <>
-      <PageHead title="Self-edits">ky changes itself through pull requests to this repo.</PageHead>
+      <PageHead title="Self-edits">ky opens pull requests here to change itself.</PageHead>
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : <p className="group-empty">Loading…</p>}
     </>
   );
@@ -2651,6 +2756,10 @@ function Settings(props: SettingsProps) {
   const left = useRef<string | null>(null);
   const View = PAGE_VIEWS[page.kind];
   const parent = parentOf(page);
+  // More stays open while Settings is; it opens on its own when a page behind it is shown, so the way back finds its row.
+  const [more, setMore] = useState(MORE_PAGES.has(page.kind));
+
+  if (MORE_PAGES.has(page.kind) && !more) setMore(true);
 
   const back = () => {
     left.current = keyOf(page);
@@ -2678,7 +2787,7 @@ function Settings(props: SettingsProps) {
           {BACK_LABELS[parent.kind] ?? "Settings"}
         </button>
       )}
-      <View page={page} {...props} />
+      <View page={page} more={more} onMore={setMore} {...props} />
     </div>
   );
 }

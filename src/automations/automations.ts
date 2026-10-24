@@ -50,12 +50,15 @@ import {
 } from "./contract";
 import { programOutcome } from "../executor-status";
 import { isLive } from "./tasks";
+import { cronIn, nextLocal } from "./zoned";
 
 /**
  * Automations: jobs that run on a schedule, set up from chat for the user or
- * by ky for itself ("every weekday at 9 UTC, check X and tell me"). Each
- * automation is a row here, booked on the Agents SDK Scheduler as a UTC cron
- * or a one-off time. Each fire starts one run: a fresh cloud subagent, or a
+ * by ky for itself ("every weekday at 9, check X and tell me"). Each
+ * automation is a row here, booked on the Agents SDK Scheduler as a one-off:
+ * its time, or the next time its cron names in the user's zone, each cron fire
+ * booking the next (src/automations/zoned.ts), so 9 AM stays 9 AM across a
+ * daylight-saving change and moves with the user. Each fire starts one run: a fresh cloud subagent, or a
  * task on a machine. Its result reaches the main chat through the subagent
  * reporter or the machines report path, and its row in the task feed, with
  * source `automation:<id>`, is the automation's last run.
@@ -194,6 +197,15 @@ type GateCheck =
 /** A fire: the automation, and the slot run-now picks; a scheduled fire's slot is its due time. */
 type Fire = { id: string; slot?: number };
 
+/** When it runs: a cron in its zone (null for the user's), or a one-off time. */
+type Timing = Pick<AutomationRow, "cron" | "zone" | "at">;
+
+/** A draft as saved, with the zone its cron is in. */
+type Draft = AutomationDraft & Pick<AutomationRow, "zone">;
+
+/** A cron booking due this soon, or overdue, is about to fire: booking again leaves it be. */
+const MINUTE_MS = 60_000;
+
 /** One run: its slot, its task id, and the chat it reports to. */
 type Run = { slot: number; task: string; chat: string };
 
@@ -285,7 +297,9 @@ export class Automations {
       ["gate_found", "TEXT"],
       ["gate_found_by", "TEXT"],
       ["watch", "INTEGER"],
-      ["post", "INTEGER NOT NULL DEFAULT 0"]
+      ["post", "INTEGER NOT NULL DEFAULT 0"],
+      // Crons were UTC before they followed the user's zone; recover moves each it can.
+      ["zone", "TEXT DEFAULT 'UTC'"]
     ]);
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
@@ -398,6 +412,7 @@ export class Automations {
     for (;;) {
       await this.#bookDream(zone);
       await this.#bookLooks(zone);
+      await this.#bookAutomations(zone);
       const now = this.checkIns().zone;
 
       if (now === zone) return;
@@ -425,14 +440,14 @@ export class Automations {
 
     if (isRefusal(checked)) return checked;
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
-    const booked = await this.#tryBook(id, checked);
+    const booked = await this.#tryBook(id, { ...checked, zone: null });
 
     if (booked.error !== undefined) return refused(booked.error);
     const now = Date.now();
     this.#sql.exec(
       `INSERT INTO ky_automations
-        (id, title, prompt, cron, at, model, machine, chat, gate, watch, post, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, zone, at, model, machine, chat, gate, watch, post, created_by, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       id,
       checked.title,
       checked.prompt,
@@ -468,7 +483,9 @@ export class Automations {
     const checked = this.#check(draftOf({ ...row, ...patch, ...timingOf(patch) }));
 
     if (isRefusal(checked)) return checked;
-    const why = row.status === "active" && retimed ? await this.#rebook(row, checked) : this.#save(id, checked);
+    // A cron given now is in the user's zone, as the tool and the form both say.
+    const timed = { ...checked, zone: patch.cron === undefined ? row.zone : null };
+    const why = row.status === "active" && retimed ? await this.#rebook(row, timed) : this.#save(id, timed);
 
     if (why) return why;
 
@@ -482,7 +499,7 @@ export class Automations {
   }
 
   /** Book an active automation's new time and save the draft; or, when the time can't be booked, keep the old one. */
-  async #rebook(row: AutomationRow, draft: AutomationDraft): Promise<Refusal | undefined> {
+  async #rebook(row: AutomationRow, draft: Draft): Promise<Refusal | undefined> {
     await this.#unbook(row);
 
     const booked = await this.#tryBook(row.id, draft);
@@ -500,7 +517,7 @@ export class Automations {
   }
 
   /** Save what it is and does, leaving its status and booking as they are. */
-  #save(id: string, draft: AutomationDraft): undefined {
+  #save(id: string, draft: Draft): undefined {
     this.#set(id, draft);
 
     return undefined;
@@ -627,10 +644,41 @@ export class Automations {
     await this.#bookDream(this.checkIns().zone);
     await this.bookLooks();
 
-    for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
-      if (row.schedule_id !== null && (await this.scheduler.get(row.schedule_id))) continue;
-      await this.#keepBooking(row.id, await this.#book(row.id, row));
+    await this.#bookAutomations(this.checkIns().zone);
+  }
+
+  /**
+   * Book each active automation whose booking is missing or no longer its next time in `zone` (the user's zone
+   * changed, or a booking from when crons were UTC), first moving UTC crons to `zone` where cron can say them.
+   * A booking due within the minute is left to fire, so this never skips the fire that woke the object.
+   */
+  async #bookAutomations(zone: string | null): Promise<void> {
+    const now = Date.now();
+
+    if (zone !== null) {
+      for (const row of this.#rows("SELECT * FROM ky_automations WHERE zone = 'UTC' AND cron IS NOT NULL")) {
+        const local = cronIn(row.cron ?? "", zone, now);
+
+        if (local !== undefined) this.#set(row.id, { cron: local, zone: null });
+      }
     }
+
+    for (const row of this.#rows("SELECT * FROM ky_automations WHERE status = 'active'")) {
+      const booked = row.schedule_id === null ? undefined : await this.scheduler.get(row.schedule_id);
+
+      if (booked && !(row.cron !== null && this.#stale(row, booked, zone, now))) continue;
+
+      if (booked) await this.scheduler.cancel(booked.id);
+      await this.#keepBooking(row.id, await this.#book(row.id, row, zone));
+    }
+  }
+
+  /** Whether a cron's booking is not at its next time in `zone`: a cron the Scheduler repeats, from before, or a time a zone change moved. */
+  #stale(row: AutomationRow, booked: Schedule<unknown>, zone: string | null, now: number): boolean {
+    if (booked.type === "cron") return true;
+    const due = booked.time * 1000;
+
+    return due > now + MINUTE_MS && due !== nextLocal(row.cron ?? "", row.zone ?? zone, now);
   }
 
   /**
@@ -677,6 +725,12 @@ export class Automations {
     const row = this.get(fire.id);
 
     if (row?.status !== "active") return;
+
+    // Each cron fire books the next before anything can skip this one; a delivery again finds it booked.
+    if (row.cron !== null && fire.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id) {
+      await this.#keepBooking(row.id, await this.#bookNext(row, schedule.time * 1000));
+    }
+
     const slot = slotOf(fire, schedule, row);
     const task = `a-${row.id}-${slot}`;
 
@@ -1018,15 +1072,25 @@ export class Automations {
     return `${title || "untitled"} (${session})`;
   }
 
-  /** Book its fires: the cron, or the one-off at its time, or now if that has passed. */
-  async #book(id: string, timing: Pick<AutomationRow, "cron" | "at">): Promise<string> {
-    const when = timing.cron ?? new Date(Math.max(timing.at ?? 0, Date.now()));
+  /** Book its next fire: the next time its cron names in its zone (`zone`, the user's, when it has none), or its one-off time, or now if that has passed. */
+  async #book(id: string, timing: Timing, zone = this.checkIns().zone): Promise<string> {
+    const at = timing.cron === null ? Math.max(timing.at ?? 0, Date.now()) : nextLocal(timing.cron, timing.zone ?? zone, Date.now());
 
-    return (await this.scheduler.set(when, "automation", { id }, { idempotent: true })).id;
+    return (await this.scheduler.set(new Date(at), "automation", { id }, { idempotent: true })).id;
   }
 
-  /** Booking is how a cron is checked: the Scheduler refuses one it cannot parse. */
-  async #tryBook(id: string, timing: Pick<AutomationRow, "cron" | "at">): Promise<{ id?: string; error?: string }> {
+  /**
+   * Book the fire after the one at `due`. Not idempotent: the firing booking is still there, with the same payload,
+   * until its callback returns.
+   */
+  async #bookNext(row: AutomationRow, due: number): Promise<string> {
+    const at = nextLocal(row.cron ?? "", row.zone ?? this.checkIns().zone, Math.max(due, Date.now()));
+
+    return (await this.scheduler.set(new Date(at), "automation", { id: row.id })).id;
+  }
+
+  /** Booking is how a cron is checked: it cannot be booked when cron-schedule cannot read it. */
+  async #tryBook(id: string, timing: Timing): Promise<{ id?: string; error?: string }> {
     try {
       return { id: await this.#book(id, timing) };
     } catch (error) {
@@ -1050,6 +1114,7 @@ export class Automations {
 
     return {
       ...rest,
+      zone: row.zone ?? this.checkIns().zone ?? "UTC",
       next_run: next ? next.time * 1000 : null,
       last_run: lastOf(this.#deps.feed.latestFrom(sourceOf(row.id)))
     };
@@ -1073,11 +1138,12 @@ export class Automations {
     if (!current || (when !== undefined && !when.includes(current.status))) return false;
     const next = { ...current, ...patch };
     this.#sql.exec(
-      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?,
+      `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, zone = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?,
          gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
       next.title,
       next.prompt,
       next.cron,
+      next.zone,
       next.at,
       next.model === null ? null : JSON.stringify(next.model),
       next.machine,
@@ -1212,7 +1278,7 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
 
   if (isRefusal(created)) return created.refused;
 
-  return `Created automation ${created.id}, "${created.title}" (${scheduleOf(created)}).${await gateTest(automations, created.gate)}`;
+  return `Created automation ${created.id}, "${created.title}" (${scheduleOf(created, automations.checkIns().zone)}).${await gateTest(automations, created.gate)}`;
 }
 
 /** A new gate run once, so the model sees what fires will make of it and can fix it now. */
@@ -1229,8 +1295,8 @@ async function gateTest(automations: Automations, gate: string | null): Promise<
   return `\nGate test: ${found}, so a fire now would run with it before its prompt:\n${preview}`;
 }
 
-function scheduleOf(row: Pick<AutomationRow, "cron" | "at">): string {
-  return row.cron === null ? `once at ${new Date(row.at ?? 0).toISOString()}` : `cron ${row.cron} UTC`;
+function scheduleOf(row: Pick<AutomationRow, "cron" | "at">, zone: string | null): string {
+  return row.cron === null ? `once at ${new Date(row.at ?? 0).toISOString()}` : `cron ${row.cron} ${zone ?? "UTC"}`;
 }
 
 function lineOf(automations: Automations, view: AutomationView): string {
@@ -1239,7 +1305,7 @@ function lineOf(automations: Automations, view: AutomationView): string {
   const last = view.last_run ? `${view.last_run.status}${view.last_run.summary ? `: ${view.last_run.summary}` : ""}` : "never";
 
   return [
-    `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view)}, by ${view.created_by}`,
+    `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view, view.zone)}, by ${view.created_by}`,
     `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
     `  next: ${next}; last run: ${last}`,
     ...(view.gate === null
@@ -1315,7 +1381,7 @@ export function automationExtension(
         description:
           "Schedule work to run later or on repeat, for the user or for yourself (to check back on something). " +
           "Each run is a fresh subagent, or a task on a machine, that knows only the prompt; its result is reported to this conversation, for you to pass on. " +
-          "Crons are UTC: convert the user's local time. " +
+          "Crons are in the user's time zone (list shows it), so 9 AM is 0 9 * * *; they keep to it across daylight saving. " +
           "Actions: create (title, prompt, cron or at, model and thinking optional, machine optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "Every report goes to its chat in full, whether or not the user is around: a side chat archived by the time a run starts is brought back for it, and a deleted one's go to main. " +

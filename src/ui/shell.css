@@ -1216,16 +1216,6 @@
   text-align: center;
 }
 
-/* No automations: one quiet line on the rows' edge where the card would be, not a box that reads as a field. */
-.automations .group-empty {
-  margin: 0;
-  padding: 2px 14px 0;
-  border-radius: 0;
-  box-shadow: none;
-  font-size: calc(12.5px * var(--text-scale));
-  line-height: 1.45;
-}
-
 /* How to bring an offline computer back: one line and the command, on a sunken patch. */
 .machine-restart {
   display: flex;
@@ -1580,11 +1570,65 @@
   white-space: nowrap;
   max-width: 60%;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* A designed value (RowValue): a dot and a word or count on one line, pushed to the trailing edge. The text, not the
+   dot, takes the ellipsis, so a status never loses its colour when the row is narrow. */
+.row-value:has(> .row-value-text) {
+  flex: 0 1 auto;
+  max-width: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.row-value-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A status's dot: the same 7px as the accent's swatch, centred on the text's x-height. */
+.row-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--quiet));
+}
+
+.row-dot[data-tone="online"],
+.row-dot[data-tone="done"] {
+  --tone: var(--success);
+}
+
+.row-dot[data-tone="offline"],
+.row-dot[data-tone="failed"] {
+  --tone: var(--danger);
+}
+
+.row-dot[data-tone="paused"],
+.row-dot[data-tone="waking"] {
+  --tone: var(--warning);
+}
+
+/* A row that goes somewhere ends in a chevron: quiet until the row is hovered. */
 .row-chevron {
   flex: none;
   color: var(--quiet);
+  opacity: 0.75;
+  transition:
+    color var(--fast) ease,
+    opacity var(--fast) ease;
+}
+
+/* The chevron's glyph sits 5px inside its 14px box: the row's end padding gives those back, so the glyph's edge lines up
+   with a switch's or a segmented control's edge in the same card. */
+.row:has(> .row-chevron),
+.glance-line {
+  padding-right: 8px;
 }
 
 /* A small filled square for each row's icon, the same rhythm as the activity tiles. */
@@ -1901,11 +1945,9 @@
   --tone: var(--muted);
 }
 
-/* What matters first: your computer, the main agent, VibeProxy. A quiet label, a plain value. */
+/* What matters first: your computer, the main agent, VibeProxy. A card like the rest, a quiet label, a plain value. */
 .glance {
-  margin: 0 0 24px;
-  padding: 0;
-  list-style: none;
+  margin: 0 0 16px;
 }
 
 .glance-line {
@@ -1913,36 +1955,21 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 6px 4px;
+  min-height: 48px;
+  padding-block: 8px;
+  padding-left: 14px;
+  font-size: calc(13.5px * var(--text-scale));
   text-align: left;
-  box-shadow: inset 0 -1px 0 var(--line);
 }
 
+/* The label keeps its words; the value beside it gives way first. */
 .glance-label {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(13px * var(--text-scale));
-  color: var(--muted);
-}
-
-.glance-value,
-.glance .state {
-  flex: 0 1 auto;
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: calc(13.5px * var(--text-scale));
-  font-weight: 500;
   color: var(--ink);
-}
-
-.glance .state:is([data-tone="offline"], [data-tone="failed"], [data-tone="paused"], [data-tone="waking"]) {
-  color: color-mix(in srgb, var(--tone) 80%, var(--ink));
 }
 
 .page-link {
@@ -1957,11 +1984,17 @@
 
 @media (hover: hover) and (pointer: fine) {
   .page-link:hover,
+  .glance-line:hover,
   .choice:hover {
     background: var(--hover);
   }
 
-  .glance-line:hover .glance-label,
+  .row:hover > .row-chevron,
+  .glance-line:hover > .row-chevron {
+    color: var(--muted);
+    opacity: 1;
+  }
+
   .page-back:hover {
     color: var(--ink);
   }
@@ -2023,6 +2056,329 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* ---------- Settings' system ----------
+   Every option is one row: its label on the left, never wrapping, and its control on the right, all on
+   one 48px rhythm. Rows that open a page carry an icon tile; rows that set something don't. */
+
+.settings-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-more > .card {
+  margin-top: 6px;
+}
+
+/* A label names a row in a word or two: it keeps its line, and the value beside it gives way. */
+.page-link .row-text,
+.row > .row-label,
+.row-text > .row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.page-link .row-text {
+  flex: 1 0 auto;
+  max-width: 62%;
+}
+
+/* Full-width rows show a press as a fill, not a shrink. */
+.page-link:active,
+.glance-line:active,
+.picker:active {
+  background: var(--selected);
+}
+
+/* The accent's dot beside Appearance's value. */
+.row-swatch {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.row-swatch[data-swatch="ink"] {
+  background: var(--ink);
+}
+
+/* A URL under a label breaks where it must instead of running under the row's buttons. */
+.row-sub {
+  overflow-wrap: anywhere;
+}
+
+/* Executor's address is one token: it ends in an ellipsis beside its buttons. */
+#settings-executor .row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row > .pill {
+  height: 28px;
+  padding: 0 11px;
+  font-size: calc(12px * var(--text-scale));
+}
+
+/* A segmented control on a row is as wide as its words, at the row's right edge. */
+.row > .segmented.small {
+  width: auto;
+  margin-left: auto;
+}
+
+.row > .segmented.small > button {
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.row > .segmented.small .icon {
+  color: inherit;
+}
+
+.row > .accent-swatches {
+  margin-left: auto;
+  padding-right: 3px;
+  gap: 9px;
+}
+
+/* An on/off switch: a 36×22 track, the knob slides to the lit side. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 22px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background-color var(--standard) var(--ease-out);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+:root:not([data-accent]) .switch[aria-checked="true"] {
+  background: var(--success);
+}
+
+.switch:disabled {
+  opacity: 0.45;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 0 0 0.5px rgb(0 0 0 / 0.04);
+  transition: transform 200ms var(--ease-out);
+}
+
+.switch[aria-checked="true"] .switch-knob {
+  transform: translateX(14px);
+}
+
+/* From the keyboard it flips at once. */
+.switch:focus-visible,
+.switch:focus-visible .switch-knob {
+  transition: none;
+}
+
+/* A small number: − and + either side of the figure, in one sunken pill. */
+.stepper {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--hover);
+}
+
+.stepper-button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+}
+
+.stepper-button:disabled {
+  color: var(--quiet);
+}
+
+.stepper-value {
+  width: 2.2em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 550;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepper-value::-webkit-inner-spin-button,
+.stepper-value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-value:focus-visible {
+  outline-offset: 0;
+  border-radius: 6px;
+}
+
+/* A long list behind a row: the native picker covers the row, so a tap anywhere opens it. */
+.picker {
+  cursor: pointer;
+}
+
+.picker .row-text {
+  flex: 0 0 auto;
+}
+
+.picker-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  /* 16px stops iOS from zooming into it. */
+  font-size: 16px;
+}
+
+.picker:has(.picker-select:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+
+/* Times as chips under their label: each with its ×, and + for one more. */
+.row.looks {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--quiet);
+  transition:
+    background-color var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out);
+}
+
+.chip-add {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.chip-field {
+  padding: 0 3px 0 8px;
+  gap: 4px;
+}
+
+.chip-field input {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: max(16px, calc(12.5px * var(--text-scale)));
+}
+
+.chip-field input:focus-visible {
+  outline: 0;
+}
+
+.chip-field:focus-within {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.chip-confirm {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 550;
+}
+
+.chip-confirm:disabled {
+  background: var(--line-strong);
+  color: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chip-remove:hover {
+    background: var(--line);
+    color: var(--ink);
+  }
+
+  .chip-add:hover,
+  .stepper-button:not(:disabled):hover {
+    background: var(--line);
+    color: var(--ink);
+  }
+
+  .picker:hover {
+    background: var(--hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switch-knob,
+  .chip-remove {
+    transition: none;
+  }
 }
 
 /* A machine's page holds what its row used to open to, in one card. */
@@ -3098,12 +3454,6 @@
   transition: opacity var(--fast) var(--ease-out);
 }
 
-.panel .automation-editor-head .icon-button {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-}
-
 .feed-item.automation:has(:focus-visible) {
   background: var(--hover);
 }
@@ -3221,48 +3571,10 @@
   margin: 0 5px;
 }
 
-.automation-editor {
-  padding: 4px 6px 8px;
-  border-radius: 16px;
-  background: var(--raised);
-  transition:
-    opacity 200ms var(--ease-out),
-    transform 200ms var(--ease-out);
-}
-
-/* Inside the feed's card it fills the card edge to edge, a sunken well among the rows. */
-.feed > .automation-editor {
-  border-radius: 0;
-  padding: 6px 8px 10px;
-}
-
-@starting-style {
-  .automation-editor {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .automation-editor {
-    transition: opacity 200ms var(--ease-out);
-  }
-}
-
 .automation-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-.automation-editor-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: 8px;
-  font-size: calc(12px * var(--text-scale));
-  font-weight: 550;
-  color: var(--quiet);
 }
 
 .automation-form .card {
@@ -3348,19 +3660,7 @@
   font-family: var(--font-sans);
 }
 
-.automation-when {
-  flex: none;
-  width: 148px;
-}
-
-.automation-when > button {
-  height: 26px;
-  border-radius: 8px;
-  font-size: calc(12.5px * var(--text-scale));
-}
-
 .automation-cron,
-.automation-time,
 .key-input {
   flex: none;
   padding: 4px 8px;
@@ -3398,10 +3698,6 @@
   box-shadow: 0 0 0 1px var(--line-strong);
 }
 
-.peer-how {
-  margin-top: 0;
-}
-
 /* A peer's dot says how it answers: green when paired, amber when it doesn't answer, red when it unpaired. */
 .peer-sub {
   display: flex;
@@ -3427,7 +3723,8 @@
 }
 
 .peer-detail {
-  margin: -4px 14px 10px 52px;
+  margin-top: -4px;
+  padding-left: 52px;
 }
 
 .peer-confirm {
@@ -3459,13 +3756,6 @@
   word-break: break-all;
 }
 
-.peer-invite {
-  padding: 10px 6px 4px;
-}
-
-.peer-invite > .group-note {
-  margin: 0 8px;
-}
 
 /* ---------- Mail ---------- */
 
@@ -3621,11 +3911,6 @@
   color: var(--surface);
 }
 
-.automation-end {
-  display: flex;
-  gap: 2px;
-}
-
 .automation-text {
   height: 32px;
   padding: 0 10px;
@@ -3638,6 +3923,579 @@
 
 .automation-text.danger {
   color: var(--danger);
+}
+
+/* ---------- Today ----------
+   Activity's day on one axis: a card of short rows, each a time, a dot, a routine and a quiet note. What ran
+   sits above a blue line at now; what is still to come today sits below it; the rest of the week folds. */
+
+.today-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin: 0 0 6px;
+  padding: 0 0 0 14px;
+}
+
+.today-date {
+  margin: 0;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.today-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 6px 0 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out);
+}
+
+.today-list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+
+/* Time on its own column so the clocks line up. The title takes the room it needs; the note has what is left,
+   at the right edge, and gives way first. */
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px 0 14px;
+  font-size: calc(13px * var(--text-scale));
+  text-align: left;
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+.today-time {
+  flex: none;
+  width: 54px;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.today-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-note {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A run's dot: green done, red failed, blue and breathing while it runs, a hollow ring for one to come. */
+.today-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+
+.today-dot[data-tone="done"] {
+  background: var(--success);
+}
+
+.today-dot[data-tone="failed"] {
+  background: var(--danger);
+}
+
+.today-dot:is([data-tone="working"], [data-tone="queued"]) {
+  background: var(--working);
+  animation: today-breathe 1.6s var(--ease-out) infinite;
+}
+
+.today-dot:is([data-tone="next"], [data-tone="stopped"]) {
+  background: none;
+  box-shadow: inset 0 0 0 1.25px var(--quiet);
+}
+
+@keyframes today-breathe {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Now: a thin blue rule with the time on it, on the clocks' column. */
+.today-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 12px 0 14px;
+  color: var(--working);
+  font-size: calc(11.5px * var(--text-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-now::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--working) 45%, transparent);
+}
+
+.today-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 550;
+  text-align: left;
+}
+
+/* Finished tasks, folded to one quieter row; open, their rows sit flat in the card under it. */
+.today-fold > .today-row :is(.today-title, .today-dot) {
+  opacity: 0.7;
+}
+
+.today-fold .chevron {
+  flex: none;
+  color: var(--quiet);
+}
+
+.today-tasks {
+  margin: 4px 0;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
+}
+
+.today-fold > .feed-more {
+  margin: 0 0 4px;
+}
+
+.today-empty {
+  margin: 0;
+  padding: 2px 14px 0;
+  color: var(--quiet);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+/* ---------- Routines ----------
+   Every routine on one page in place of Today, and a routine's form on another. A page opened by a pointer
+   eases in; one the keyboard opened is simply there. */
+
+:is(.routines, .routine-page)[data-glide] {
+  transition:
+    opacity var(--standard) var(--ease-out),
+    transform var(--standard) var(--ease-out);
+}
+
+@starting-style {
+  :is(.routines, .routine-page)[data-glide] {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.routines-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
+  padding-left: 4px;
+}
+
+.routines-title {
+  margin: 0 auto 0 0;
+  font-size: calc(20px * var(--text-scale));
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.routines-empty {
+  margin: 0;
+  padding: 2px 14px 12px;
+  color: var(--quiet);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.routine-button {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot title next"
+    ". when when";
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 1px;
+  width: 100%;
+  padding: 9px 12px 9px 14px;
+  text-align: left;
+}
+
+.routine-button .today-dot {
+  grid-area: dot;
+}
+
+.routine-title {
+  grid-area: title;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: calc(13.5px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-when {
+  grid-area: when;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-next {
+  grid-area: next;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+}
+
+/* An archived row has no form: its words sit as a row would, Unarchive at the right edge. */
+.feed-item.routine:not(.automation) {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.feed-item.routine[data-paused] :is(.routine-title, .routine-next, .today-dot) {
+  opacity: 0.5;
+}
+
+.routines-archived {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 0 14px;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 550;
+}
+
+.routines-archived + .feed {
+  margin-top: 2px;
+}
+
+/* The form: the title is the page's header; under it how the last run went; then cards. */
+.routine-form {
+  gap: 10px;
+}
+
+.routine-form-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.routine-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(18px * var(--text-scale));
+  font-weight: 650;
+}
+
+.routine-name::placeholder {
+  color: var(--quiet);
+}
+
+.routine-name:focus-visible {
+  outline: 0;
+  background: var(--hover);
+}
+
+.routine-last {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  margin: -6px 0 2px;
+  padding: 0 4px;
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+}
+
+.routine-result {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.routine-last > * + *::before {
+  content: "·";
+  margin: 0 5px;
+}
+
+.routine-prompt-card .automation-prompt {
+  padding-top: 11px;
+}
+
+.routine-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+}
+
+.routine-schedule > * + * {
+  box-shadow: none;
+}
+
+.routine-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.routine-chip,
+.routine-day {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out);
+}
+
+.routine-chip[aria-checked="true"],
+.routine-day[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.routine-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.routine-days {
+  display: flex;
+  gap: 4px;
+}
+
+.routine-day {
+  width: 28px;
+  padding: 0;
+}
+
+.routine-field {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.routine-field.automation-cron {
+  width: 12em;
+  text-align: left;
+}
+
+.routine-minute {
+  width: 4.5em;
+}
+
+.routine-step {
+  max-width: none;
+}
+
+.routine-step select {
+  background: var(--hover);
+  color: var(--ink);
+  text-align: left;
+  text-align-last: left;
+}
+
+.routine-sentence {
+  margin: 0;
+  color: var(--ink);
+  font-size: calc(13px * var(--text-scale));
+  text-wrap: pretty;
+}
+
+.routine-runs {
+  margin: -6px 0 0;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.routine-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 550;
+}
+
+.routine-more-sub {
+  color: var(--quiet);
+  font-weight: 450;
+}
+
+.routine-more-card .automation-gate {
+  border-top: 0;
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+/* ⋯ on the left, away from Save; its menu opens above it. */
+.routine-end {
+  position: relative;
+}
+
+.routine-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 140px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 8px 24px rgb(0 0 0 / 12%);
+  transform-origin: bottom left;
+}
+
+.routine-menu > .automation-text {
+  text-align: left;
+  border-radius: 8px;
+}
+
+.routine-menu[data-glide] {
+  transition:
+    opacity var(--fast) var(--ease-out),
+    transform var(--fast) var(--ease-out);
+}
+
+@starting-style {
+  .routine-menu[data-glide] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.automation-foot .routine-run {
+  margin-left: auto;
+}
+
+.automation-foot .routine-run + .primary {
+  margin-left: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .today-row:hover,
+  .today-all:hover,
+  .routine-menu > .automation-text:hover {
+    background: var(--hover);
+  }
+
+  .today-all:hover {
+    color: var(--ink);
+  }
+
+  .routine-chip:hover:not([aria-checked="true"]),
+  .routine-day:hover:not([aria-pressed="true"]) {
+    color: var(--ink);
+  }
+}
+
+.today-row:focus-visible {
+  outline: 0;
+  background: var(--hover);
+}
+
+@media (hover: none) {
+  .routine .routine-button {
+    padding-right: 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-dot:is([data-tone="working"], [data-tone="queued"]) {
+    animation: none;
+  }
+
+  :is(.routines, .routine-page)[data-glide],
+  .routine-menu[data-glide] {
+    transition: opacity var(--fast) var(--ease-out);
+  }
+
+  @starting-style {
+    :is(.routines, .routine-page)[data-glide],
+    .routine-menu[data-glide] {
+      transform: none;
+    }
+  }
 }
 
 /* ---------- Last night ----------
@@ -4055,4 +4913,117 @@
 .row-avatar {
   background: none;
   overflow: visible;
+}
+
+/* ---------- Settings: what a section says besides its rows ----------
+   One treatment for every line of help: it sits inside a card, on the card's 14px inset, never loose below it. */
+
+/* A section still loading: a card with one quiet line, so the page keeps its grid while it waits. */
+.settings .group-empty {
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: calc(13px * var(--text-scale));
+  color: var(--quiet);
+}
+
+/* Nothing to list yet: a row's height and rhythm, with an icon, one line, and an action if there is one. */
+.empty-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px 8px 14px;
+}
+
+.empty-state-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: calc(13.5px * var(--text-scale));
+  color: var(--muted);
+}
+
+.empty-state > .pill {
+  flex: none;
+}
+
+/* A sentence that belongs to a card (when a code expires, how to set something up): the card's last line, 12px and
+   muted, on the same inset as the rows' labels. */
+.card-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.45;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.card-note code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+/* A line to copy, in its own card or inside a form's card, with its note under it. */
+.code-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 0;
+}
+
+.code-card:not(:has(> .card-note)) {
+  padding-bottom: 10px;
+}
+
+.code-card .copy-line {
+  margin: 0 10px 0 6px;
+}
+
+.group-actions > .code-card,
+.group-actions > .empty-state,
+.group-actions > .automation-refused {
+  flex-basis: 100%;
+}
+
+/* Why the actions beside it are missing one: as quiet as a disabled button, and on their line. */
+.actions-note {
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Where a secret goes once saved: a lock and three words at the start of the form's footer, before its buttons. */
+.vault-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  padding-left: 4px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+}
+
+/* A row's sub line that reports a failure takes the danger colour. */
+.row-sub[data-problem="true"] {
+  color: var(--danger);
+}
+
+/* The steps under a card's row: numbered, on the labels' inset. */
+.card > .mail-steps {
+  margin: 0;
+  padding: 0 14px 12px 32px;
+}
+
+.card > .mail-steps > li + li {
+  margin-top: 4px;
+}
+
+/* An empty state's parts and a card's note belong to what is above them: no hairline between. */
+.empty-state > *,
+.card > .card-note,
+.code-card > * {
+  box-shadow: none;
 }

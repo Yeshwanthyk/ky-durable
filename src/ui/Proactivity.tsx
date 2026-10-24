@@ -1,6 +1,8 @@
-import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useState } from "react";
 import { RIGHT_AWAY_MOST } from "../dreaming/contract";
 import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
+import { Problem } from "./Subscriptions";
+import { RowValue, Segmented, SegmentedOption, Stepper, Switch } from "./Controls";
 import { Icon } from "./Icon";
 
 type ProactivityActions = {
@@ -36,101 +38,80 @@ export const ProactivityContext = createContext<ProactivityActions>({
 /** Look times a user may set, at most, as the server holds them (src/dreaming/contract.ts LOOK_TIMES). */
 const MOST_LOOKS = 4;
 
+/** Each level, and the one line under the switch that says what it does. */
 const LEVELS: ReadonlyArray<{ level: ProactivityLevel; label: string; sub: string }> = [
-  { level: "on", label: "On", sub: "ky looks over your day at set times and messages you when something needs you." },
-  { level: "off", label: "Off", sub: "ky says nothing unasked. Check-ins are their own switch, in Automations." }
+  { level: "on", label: "On", sub: "When you're needed" },
+  { level: "off", label: "Off", sub: "Only when you write" },
 ];
 
-/** How far each arrow key moves the choice. */
-const ARROWS = new Map([
-  ["ArrowDown", 1],
-  ["ArrowRight", 1],
-  ["ArrowUp", -1],
-  ["ArrowLeft", -1]
-]);
-
-/** The level an arrow key moves to from `level`, round the list, as a radio group's arrows do. */
-function levelAfter(level: ProactivityLevel, key: string): ProactivityLevel | undefined {
-  const step = ARROWS.get(key);
-
-  if (step === undefined) return undefined;
-  const index = LEVELS.findIndex((each) => each.level === level);
-
-  return LEVELS[(index + step + LEVELS.length) % LEVELS.length]?.level;
-}
-
-/** The levels as one radio group: the chosen one takes Tab, and the arrows move the choice. */
+/** The levels as one segmented radio group: the chosen one takes Tab, and the arrows move the choice. */
 function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonly onChoose: (level: ProactivityLevel) => void }) {
-  const group = useRef<HTMLDivElement>(null);
-
-  const onKeyDown = (event: KeyboardEvent) => {
-    const next = levelAfter(level, event.key);
-
-    if (next === undefined) return;
-    event.preventDefault();
-    onChoose(next);
-    group.current?.querySelector<HTMLElement>(`[data-level="${next}"]`)?.focus();
-  };
-
   return (
-    <div ref={group} className="card choices" role="radiogroup" aria-label="Proactivity" onKeyDown={onKeyDown}>
-      {LEVELS.map((each) => (
-        <button
-          key={each.level}
-          type="button"
-          role="radio"
-          data-level={each.level}
-          aria-checked={level === each.level}
-          tabIndex={level === each.level ? 0 : -1}
-          className="choice"
-          onClick={() => onChoose(each.level)}
-        >
-          <span className="choice-text">
-            <span>{each.label}</span>
-            <span className="row-sub">{each.sub}</span>
-          </span>
-          <Icon name="check" size={14} className="choice-check" />
-        </button>
-      ))}
+    <div className="card">
+      <div className="row">
+        <span className="row-text">
+          <span className="row-label">Messages you first</span>
+          <span className="row-sub">{LEVELS.find((each) => each.level === level)?.sub}</span>
+        </span>
+        <Segmented small role="radiogroup" aria-label="Proactivity" chosen={level}>
+          {LEVELS.map((each) => (
+            <SegmentedOption key={each.level} checked={level === each.level} onChoose={() => onChoose(each.level)}>
+              {each.label}
+            </SegmentedOption>
+          ))}
+        </Segmented>
+      </div>
     </div>
   );
 }
 
-/** The look times while Proactivity is on, each removable, and a time to add while there is room. */
-function Looks({ view, onChange }: { readonly view: ProactivityView; readonly onChange: (looks: readonly string[]) => void }) {
-  const [adding, setAdding] = useState("");
-  const { looks } = view;
+/** Focus a field as it appears: it appears because the user asked for it. */
+const focusOnce = (field: HTMLInputElement | null) => field?.focus();
 
-  if (view.level === "off") return null;
+/** The look times as chips, each removable, and a time to add while there is room. */
+function Looks({ looks, onChange }: { readonly looks: readonly string[]; readonly onChange: (looks: readonly string[]) => void }) {
+  const [adding, setAdding] = useState<string | null>(null);
 
   const add = () => {
-    if (adding === "") return;
+    if (!adding) return;
     onChange([...looks, adding]);
-    setAdding("");
+    setAdding(null);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") add();
+
+    if (event.key === "Escape") setAdding(null);
   };
 
   return (
-    <section className="group">
-      <h3 className="group-label">Looks, your time</h3>
-      <div className="card">
+    <div className="row looks">
+      <span className="row-label">Looks at</span>
+      <ul className="chips" aria-label="When ky looks">
         {looks.map((time) => (
-          <div key={time} className="row">
-            <span className="row-label">{time}</span>
-            <button type="button" className="pill pressable" aria-label={`Remove ${time}`} onClick={() => onChange(looks.filter((each) => each !== time))}>
-              Remove
+          <li key={time} className="chip tabular">
+            <span>{time}</span>
+            <button type="button" className="chip-remove pressable" aria-label={`Remove ${time}`} onClick={() => onChange(looks.filter((each) => each !== time))}>
+              <Icon name="x" size={11} />
             </button>
-          </div>
+          </li>
         ))}
-        {looks.length < MOST_LOOKS ? (
-          <div className="row">
-            <input type="time" aria-label="Look time" value={adding} onChange={(event) => setAdding(event.target.value)} />
-            <button type="button" className="pill pressable" disabled={adding === ""} onClick={add}>
+        {looks.length >= MOST_LOOKS ? null : adding === null ? (
+          <li>
+            <button type="button" className="chip chip-add pressable" aria-label="Add a time" onClick={() => setAdding("")}>
+              <Icon name="plus" size={12} />
+            </button>
+          </li>
+        ) : (
+          <li className="chip chip-field">
+            <input ref={focusOnce} type="time" aria-label="Look time" value={adding} onKeyDown={onKeyDown} onChange={(event) => setAdding(event.target.value)} />
+            <button type="button" className="chip-confirm pressable" disabled={adding === ""} onClick={add}>
               Add
             </button>
-          </div>
-        ) : null}
-      </div>
-    </section>
+          </li>
+        )}
+      </ul>
+    </div>
   );
 }
 
@@ -159,12 +140,20 @@ function LocalTime({ zone }: { readonly zone: string }) {
     return () => clearInterval(clock);
   }, []);
 
-  const time = timeIn(zone);
-
-  return <>{time === null ? zone : `It's ${time} there.`}</>;
+  return <>{timeIn(zone) ?? zone}</>;
 }
 
-/** The user's time zone, followed from where they connect or pinned, and the time there now. */
+/** A zone as people name it: its city, "America/Toronto" as Toronto. */
+const cityOf = (zone: string) => (zone.split("/").at(-1) ?? zone).replaceAll("_", " ");
+
+/** What the time zone row says: the pinned zone's city, or Auto and the city it follows. */
+function zoneWords(pinned: string | null, detected: string | null): string {
+  if (pinned !== null) return cityOf(pinned);
+
+  return detected === null ? "Auto" : `Auto · ${cityOf(detected)}`;
+}
+
+/** The user's time zone, followed from where they connect or pinned, and the time there now: a row that opens the list. */
 function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
   const actions = useContext(ProactivityContext);
   const [view, setView] = useState<ZoneView | null>(null);
@@ -193,23 +182,27 @@ function TimeZone({ onFail }: { readonly onFail: (error: Error) => void }) {
   const detected = view.detected ?? (view.pinned ? null : view.zone);
 
   return (
-    <section className="group">
-      <h3 className="group-label">Time zone</h3>
-      <div className="card">
-        <div className="row field" data-stack>
-          <select aria-label="Time zone" className="field-select" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
-            <option value={AUTOMATIC}>{`Automatic (${detected ?? "not known yet"})`}</option>
-            {pinned !== null && !ZONES.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
-            {ZONES.map((zone) => (
-              <option key={zone} value={zone}>
-                {zone}
-              </option>
-            ))}
-          </select>
-          <p className="field-hint">{view.zone === null ? "Looks and the dream follow it." : <LocalTime zone={view.zone} />}</p>
-        </div>
-      </div>
-    </section>
+    <label className="row picker">
+      <span className="row-text">
+        <span className="row-label">Time zone</span>
+        {view.zone === null ? null : (
+          <span className="row-sub">
+            <LocalTime zone={view.zone} />
+          </span>
+        )}
+      </span>
+      <RowValue>{zoneWords(pinned, detected)}</RowValue>
+      <Icon name="chevronUpDown" size={14} className="row-chevron" />
+      <select aria-label="Time zone" className="picker-select" value={pinned ?? AUTOMATIC} onChange={(event) => actions.onSetZone(event.target.value || null).then(setView, onFail)}>
+        <option value={AUTOMATIC}>{`Automatic (${detected ?? "not known yet"})`}</option>
+        {pinned !== null && !ZONES.includes(pinned) ? <option value={pinned}>{pinned}</option> : null}
+        {ZONES.map((zone) => (
+          <option key={zone} value={zone}>
+            {zone}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -288,9 +281,9 @@ async function unsubscribe(forget: (endpoint: string) => Promise<null>): Promise
 
 /** What to say under the switch, if anything: on an iPhone in Safari, how to get notifications at all. */
 function deviceNote(can: boolean, problem: string | null): string | null {
-  if (iosInBrowser()) return "On iPhone, add ky to your Home Screen first (Share › Add to Home Screen), then turn this on there.";
+  if (iosInBrowser()) return "Add ky to your Home Screen first";
 
-  return can ? problem : "This browser can't show notifications from ky.";
+  return can ? problem : "Not supported in this browser";
 }
 
 /** Notifications on this device, on or off, and how many posts a day may notify. */
@@ -329,44 +322,38 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
       <h3 className="group-label">Notifications</h3>
       <div className="card">
         <div className="row">
-          <span className="choice-text">
-            <span>Notifications on this device</span>
-            <span className="row-sub">What ky posts unasked shows here, and a tap opens its chat.</span>
+          <span className="row-text">
+            <span className="row-label">This device</span>
+            {note === null ? null : (
+              <span className="row-sub" data-problem={problem !== null && note === problem}>
+                {note}
+              </span>
+            )}
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={on}
-            aria-label="Notifications on this device"
-            className="pill pressable"
-            disabled={!can || key === null}
-            onClick={toggle}
-          >
-            {on ? "On" : "Off"}
-          </button>
+          <Switch on={on} label="Notifications on this device" disabled={!can || key === null} onFlip={toggle} />
         </div>
         <div className="row">
-          <label className="choice-text" htmlFor="right-away">
-            <span>Right away, a day</span>
-            <span className="row-sub">Past this many, a post still lands in its chat, without a notification.</span>
+          <label className="row-text" htmlFor="right-away">
+            <span className="row-label">Per day, at most</span>
+            <span className="row-sub">More arrive silently.</span>
           </label>
-          <input
-            id="right-away"
-            type="number"
-            min={0}
-            max={RIGHT_AWAY_MOST}
-            value={view.rightAway}
-            onChange={(event) => {
-              const most = event.target.valueAsNumber;
-
-              if (Number.isInteger(most) && most >= 0 && most <= RIGHT_AWAY_MOST) onRightAway(most);
-            }}
-          />
+          <Stepper id="right-away" value={view.rightAway} min={0} max={RIGHT_AWAY_MOST} onChange={onRightAway} />
         </div>
       </div>
-      {note === null ? null : <p className="group-note">{note}</p>}
     </section>
   );
+}
+
+/** Whether Proactivity is on, for its row on Settings' first page; nothing until ky says. */
+export function ProactivityValue() {
+  const actions = useContext(ProactivityContext);
+  const [level, setLevel] = useState<ProactivityLevel | null>(null);
+
+  useEffect(() => {
+    if (actions.open) actions.onView().then((view) => setLevel(view.level), () => undefined);
+  }, [actions]);
+
+  return level === null ? null : <RowValue tone={level === "on" ? "online" : "off"}>{LEVELS.find((each) => each.level === level)?.label}</RowValue>;
 }
 
 // How proactive ky is: on or off, when it looks, and what notifies this device.
@@ -401,14 +388,18 @@ export function Proactivity() {
 
   return (
     <div id="settings-proactivity">
-      <section className="group">
-        <h3 className="group-label">Unasked</h3>
+      <section className="group" aria-label="Unasked">
         <Levels level={view.level} onChoose={choose} />
       </section>
-      <Looks view={view} onChange={setLooks} />
-      <TimeZone onFail={fail} />
+      <section className="group">
+        <h3 className="group-label">Schedule</h3>
+        <div className="card">
+          {view.level === "off" ? null : <Looks looks={view.looks} onChange={setLooks} />}
+          <TimeZone onFail={fail} />
+        </div>
+      </section>
       <Notifications view={view} onRightAway={setRightAway} />
-      {problem === null ? null : <p className="group-note">{problem}</p>}
+      <Problem text={problem ?? undefined} />
     </div>
   );
 }

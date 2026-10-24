@@ -1,5 +1,15 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { createContext, type FormEvent, type KeyboardEvent, type ReactNode, useContext, useState } from "react";
+import {
+  createContext,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import type {
   AutomationAction,
   AutomationDraft,
@@ -10,89 +20,36 @@ import type {
   ProviderInfo,
   TaskRow,
 } from "../protocol";
+import { nextLocals } from "../automations/zoned";
 import { byNextRun } from "./automation-order";
 import { Icon } from "./Icon";
 import { MAIN_SESSION } from "./open-chat";
 import { plain } from "./plain";
+import { ProactivityContext } from "./Proactivity";
+import {
+  BROWSER_ZONE,
+  clockIn,
+  cronInWords,
+  cronOf,
+  HOUR_STEPS,
+  inputTime,
+  oftenOf,
+  rhythmOf,
+  runIn,
+  sameDay,
+  scheduleSentence,
+  wallInput,
+  weekdayIn,
+  zoneName,
+} from "./schedule";
 import { ago } from "./time";
 
-const PLAIN_CRON = /^(\d+) (\d+|\*) \* \* (\S+)$/;
-
-const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-const EVERY = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"] as const;
-
-/** A cron weekday field as days 0-6, or undefined when it is not a plain list or range. */
-function weekdays(field: string): number[] | undefined {
-  if (field === "*") return [0, 1, 2, 3, 4, 5, 6];
-  const days = new Set<number>();
-
-  for (const part of field.split(",")) {
-    const range = /^(\d)(?:-(\d))?$/.exec(part);
-
-    if (!range) return undefined;
-    const from = Number(range[1]);
-    const to = Number(range[2] ?? range[1]);
-
-    if (to < from || to > 7) return undefined;
-
-    for (let day = from; day <= to; day++) days.add(day % 7);
-  }
-
-  return [...days].sort((a, b) => a - b);
-}
-
-/** Days 0-6 in words: Daily, Weekdays, Weekends, Mondays, or Mon, Wed, Fri. */
-function daysInWords(days: readonly number[]): string {
-  const key = days.join(",");
-
-  if (days.length === 7) return "Daily";
-
-  if (key === "1,2,3,4,5") return "Weekdays";
-
-  if (key === "0,6") return "Weekends";
-
-  if (days.length === 1) return EVERY[days[0] ?? 0] ?? key;
-
-  // Monday first, as a week reads.
-  return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((day) => WEEK[day]).join(", ");
-}
-
-const clockOf = (date: Date) => date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-
-/**
- * A plain hourly, daily or weekly UTC cron in the browser's time: "Daily · 7:00 AM",
- * "Weekdays · 9:30 AM", "Hourly at :45"; undefined for any other cron.
- */
-function plainTime([, minute = "", hour = "", weekday = ""]: string[], now: number): string | undefined {
-  const utc = new Date(now);
-
-  utc.setUTCHours(hour === "*" ? 0 : Number(hour), Number(minute), 0, 0);
-
-  if (hour === "*")
-    return weekday === "*" ? `Hourly at :${String(utc.getMinutes()).padStart(2, "0")}` : undefined;
-  const days = weekdays(weekday);
-
-  if (!days) return undefined;
-  // The local day can fall a day either side of the UTC one.
-  const shift = (utc.getDay() - utc.getUTCDay() + 7) % 7;
-  const local = days.map((day) => (day + shift) % 7).sort((a, b) => a - b);
-
-  return `${daysInWords(local)} · ${clockOf(utc)}`;
-}
-
-/** A cron in words, in the browser's time, when it is a plain hourly, daily or weekly time; else as written, in UTC. */
-function cronInWords(cron: string, now = Date.now()): string {
-  const parts = PLAIN_CRON.exec(cron);
-
-  return (parts && plainTime([...parts], now)) ?? `${cron} UTC`;
-}
-
-/** When it runs: a cron, or a one-off's local time. */
-function scheduleOf(automation: AutomationInfo, now: number): string {
-  if (automation.cron !== null) return cronInWords(automation.cron, now);
+/** When it runs: a cron in words, or a one-off's local time. */
+function scheduleOf(automation: AutomationInfo): string {
+  if (automation.cron !== null) return cronInWords(automation.cron);
 
   const at = new Date(automation.at ?? 0).toLocaleString(undefined, {
+    timeZone: automation.zone,
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -112,11 +69,11 @@ function nextOf(automation: AutomationInfo, now: number): string {
   return wait === "now" ? "due now" : `in ${wait}`;
 }
 
-/** The row's one muted line: when it runs, when next, and a quiet "by ky" or "check-in" when ky made it. */
+/** A card's one muted line: when it runs, when next, and a quiet "by ky" or "check-in" when ky made it. */
 function metaOf(automation: AutomationInfo, now: number): string {
   const by = automation.created_by === "ky" ? ["by ky"] : automation.created_by === "dream" ? ["check-in"] : [];
 
-  return [scheduleOf(automation, now), nextOf(automation, now), ...by].join(" · ");
+  return [scheduleOf(automation), nextOf(automation, now), ...by].join(" · ");
 }
 
 /** The automations, what the user can do to one, and what a form offers; provided around the panel. */
@@ -145,8 +102,193 @@ export const AutomationsContext = createContext<{
   onCheckIns: () => {},
 });
 
-/** The editor open in the list: a new automation, one by id, or none. */
+/** The user's time zone from Settings, read once the socket opens; the browser's until then, or when it has none. */
+export function useZone(): string {
+  const { open, onZone } = useContext(ProactivityContext);
+  const [zone, setZone] = useState<string | null>(null);
+
+  // biome-ignore-start lint/correctness/useExhaustiveDependencies: read again only when the socket opens
+  useEffect(() => {
+    if (open) onZone().then((view) => setZone(view.zone), () => undefined);
+  }, [open]);
+  // biome-ignore-end lint/correctness/useExhaustiveDependencies: read again only when the socket opens
+
+  return zone ?? BROWSER_ZONE;
+}
+
+/**
+ * What Activity shows of routines: today's timeline, the sheet of them all, or one routine's form. `back` is
+ * where the form returns to; `glide` is false when the keyboard opened the page, so it appears at once.
+ */
+export type RoutinesView =
+  | { readonly page: "today" }
+  | { readonly page: "all"; readonly glide: boolean }
+  | { readonly page: "edit"; readonly id: string; readonly back: "today" | "all"; readonly glide: boolean };
+
+export const TODAY: RoutinesView = { page: "today" };
+
+/** The form for a new routine. */
 const NEW = "new";
+
+/** A click from a pointer glides the next page in; one from the keyboard (detail 0) does not. */
+const glideOf = (event: MouseEvent) => event.detail !== 0;
+
+const notArchived = (automation: AutomationInfo) => automation.status !== "archived";
+
+/** How the header names the sheet: "All 16 routines", "1 routine", or "Routines". */
+function allLabel(count: number): string {
+  if (count === 0) return "Routines";
+
+  return count === 1 ? "1 routine" : `All ${count} routines`;
+}
+
+// Activity's header: today's date, quiet, and the way to every routine.
+export function TodayHead({ now, zone, onView }: { now: number; zone: string; onView: (view: RoutinesView) => void }) {
+  const { automations } = useContext(AutomationsContext);
+  const date = new Date(now).toLocaleDateString(undefined, { timeZone: zone, weekday: "short", month: "short", day: "numeric" });
+
+  return (
+    <header className="today-head">
+      <h3 className="today-date">{date}</h3>
+      <button type="button" className="today-all pressable" onClick={(event) => onView({ page: "all", glide: glideOf(event) })}>
+        {allLabel(automations.filter(notArchived).length)}
+        <Icon name="chevronRight" size={12} />
+      </button>
+    </header>
+  );
+}
+
+/** A timeline row's dot: how a run went, that one runs now, or that one is coming. */
+type Tone = TaskRow["status"] | "next";
+
+/** One run on the timeline: when, which routine, and what it came to or how often it runs. */
+type Slot = { readonly key: string; readonly at: number; readonly tone: Tone; readonly automation: AutomationInfo; readonly note: string };
+
+/** What a run came to in a few words: its summary's first line, else how it ended. */
+function resultOf(run: NonNullable<AutomationInfo["last_run"]>): string {
+  const first = plain(run.summary ?? "").split("\n")[0]?.trim();
+
+  if (first) return first;
+
+  return run.status === "done" ? "done" : run.status;
+}
+
+/** Today's runs so far, those still to come today, and those later this week, each soonest first. */
+function slotsOf(automations: readonly AutomationInfo[], now: number, zone: string) {
+  const past: Slot[] = [];
+  const next: Slot[] = [];
+  const later: Slot[] = [];
+
+  for (const automation of automations) {
+    const run = automation.last_run;
+
+    if (run && (run.status === "queued" || run.status === "working"))
+      past.push({ key: `run:${automation.id}`, at: now - 1, tone: run.status, automation, note: "running" });
+    else if (run?.finished_at != null && sameDay(run.finished_at, now, zone))
+      past.push({ key: `ran:${automation.id}`, at: run.finished_at, tone: run.status, automation, note: resultOf(run) });
+
+    const when = automation.next_run;
+
+    if (automation.status !== "active" || when === null) continue;
+    const often = oftenOf(automation.cron);
+
+    if (sameDay(when, now, zone)) next.push({ key: `next:${automation.id}`, at: when, tone: "next", automation, note: often || (automation.post ? "posts" : "") });
+    else if (when - now < WEEK_MS) later.push({ key: `later:${automation.id}`, at: when, tone: "next", automation, note: often || scheduleOf(automation) });
+  }
+
+  const soonest = (a: Slot, b: Slot) => a.at - b.at;
+
+  return { past: past.sort(soonest), next: next.sort(soonest), later: later.sort(soonest) };
+}
+
+const WEEK_MS = 7 * 86_400_000;
+
+/** Each slot with its time, written only on the first of a run of rows that share it. */
+function once(slots: readonly Slot[], timeOf: (slot: Slot) => string): [Slot, string][] {
+  return slots.map((slot, index) => {
+    const time = timeOf(slot);
+    const before = slots[index - 1];
+
+    return [slot, before !== undefined && timeOf(before) === time ? "" : time];
+  });
+}
+
+/** A row of the timeline: its time, a dot, the routine and a quiet note; it opens the routine. */
+function SlotRow({ slot, time, onOpen }: { slot: Slot; time: string; onOpen: (event: MouseEvent) => void }) {
+  return (
+    <li className="today-item">
+      <button type="button" className="today-row" onClick={onOpen}>
+        <span className="today-time tabular">{time}</span>
+        <span className="today-dot" data-tone={slot.tone} />
+        <span className="today-title">{plain(slot.automation.title)}</span>
+        {slot.note ? <span className="today-note">{slot.note}</span> : null}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Today on one axis: what ran, with what it came to, above a line at now; what comes later today below it,
+ * each routine once, at its next run; then the rest of the week, folded. `finished` is the row of today's
+ * finished tasks and when the last ended, set among the runs by its time.
+ */
+export function Timeline({
+  now,
+  zone,
+  busy,
+  finished,
+  onView,
+  onRun,
+}: {
+  now: number;
+  zone: string;
+  /** Something runs now, above the timeline: an empty day says nothing. */
+  busy: boolean;
+  finished: { readonly at: number; readonly row: ReactNode } | null;
+  onView: (view: RoutinesView) => void;
+  /** Opens a routine's latest run; false when it has none to open. */
+  onRun: (automation: string) => boolean;
+}) {
+  const { automations } = useContext(AutomationsContext);
+  const [weekOpen, setWeekOpen] = useState(false);
+  const { past, next, later } = slotsOf(automations.filter(notArchived), now, zone);
+
+  // A fire opens its run; a run to come opens the routine.
+  const open = (slot: Slot) => (event: MouseEvent) => {
+    if (slot.tone !== "next" && onRun(slot.automation.id)) return;
+
+    onView({ page: "edit", id: slot.automation.id, back: "today", glide: glideOf(event) });
+  };
+
+  if (past.length + next.length + later.length === 0 && finished === null)
+    return busy ? null : <p className="today-empty">Nothing today.</p>;
+
+  const before = past.filter((slot) => finished === null || slot.at <= finished.at);
+  const after = past.filter((slot) => finished !== null && slot.at > finished.at);
+  const row = ([slot, time]: [Slot, string]) => <SlotRow key={slot.key} slot={slot} time={time} onOpen={open(slot)} />;
+  const timeOf = (slot: Slot) => (slot.tone === "working" || slot.tone === "queued" ? "now" : clockIn(slot.at, zone));
+
+  return (
+    <ol className="today-list" aria-label="Today">
+      {once(before, timeOf).map(row)}
+      {finished?.row}
+      {once(after, timeOf).map(row)}
+      <li className="today-now" aria-label={`Now, ${clockIn(now, zone)}`}>
+        Now {clockIn(now, zone)}
+      </li>
+      {once(next, timeOf).map(row)}
+      {later.length > 0 ? (
+        <li className="today-item">
+          <button type="button" className="today-group disclosure" aria-expanded={weekOpen} onClick={() => setWeekOpen(!weekOpen)}>
+            Later this week · {later.length}
+            <Icon name="chevronRight" size={12} className="chevron" />
+          </button>
+        </li>
+      ) : null}
+      {weekOpen ? once(later, (slot) => weekdayIn(slot.at, zone)).map(row) : null}
+    </ol>
+  );
+}
 
 // Check-ins: ky looks again, on the day, at something you asked about with a date ahead.
 function CheckInsSwitch() {
@@ -165,61 +307,84 @@ function CheckInsSwitch() {
   );
 }
 
-// Scheduled work, active and paused: add, edit, run now, pause, resume, archive and delete; archived ones fold away below.
-export function Automations({ now, session }: { now: number; session: string }) {
-  const { automations: all } = useContext(AutomationsContext);
-  const automations = all.filter((automation) => automation.status !== "archived");
-  const archived = all.filter((automation) => automation.status === "archived");
-  const [editing, setEditing] = useState<string | null>(null);
-  const close = () => setEditing(null);
-  // Nothing to list: the empty state stands in for the card.
-  const empty = automations.length === 0 && editing === null;
+/** The sheet or a routine's form, in place of today's timeline; Escape and the back button leave it. */
+export function RoutinesPage({
+  view,
+  now,
+  zone,
+  session,
+  onView,
+}: {
+  view: Exclude<RoutinesView, { page: "today" }>;
+  now: number;
+  zone: string;
+  session: string;
+  onView: (view: RoutinesView) => void;
+}) {
+  const { automations } = useContext(AutomationsContext);
+
+  if (view.page === "all") return <AllRoutines glide={view.glide} now={now} session={session} onView={onView} />;
+  const back = () => onView(view.back === "all" ? { page: "all", glide: false } : TODAY);
+  const automation = automations.find((each) => each.id === view.id);
+
+  // Deleted while open, by ky or another tab: back to where it came from.
+  if (view.id !== NEW && automation === undefined) return <BackTo view={back} />;
 
   return (
-    <section className="feed-group automations">
-      <h3 className="feed-head">
-        Automations
+    <section className="routine-page" data-glide={view.glide || undefined}>
+      <AutomationForm key={view.id} automation={automation} zone={automation?.zone ?? zone} now={now} onClose={back} />
+    </section>
+  );
+}
+
+/** Leaves a page whose routine is gone, once rendered. */
+function BackTo({ view }: { view: () => void }) {
+  useEffect(view, []);
+
+  return null;
+}
+
+// Every routine, soonest first, to pause, resume, run or open; New and Check-ins at the top; archived ones folded below.
+function AllRoutines({ glide, now, session, onView }: { glide: boolean; now: number; session: string; onView: (view: RoutinesView) => void }) {
+  const { automations: all } = useContext(AutomationsContext);
+  const automations = all.filter(notArchived);
+  const archived = all.filter((automation) => automation.status === "archived");
+  const edit = (id: string) => (event: MouseEvent) => onView({ page: "edit", id, back: "all", glide: glideOf(event) });
+
+  const escape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") onView(TODAY);
+  };
+
+  return (
+    <section className="routines" aria-label="Routines" data-glide={glide || undefined} onKeyDown={escape}>
+      <button type="button" className="page-back pressable" onClick={() => onView(TODAY)}>
+        <Icon name="arrowLeft" size={14} />
+        Today
+      </button>
+      <header className="routines-head">
+        <h3 className="routines-title">Routines</h3>
         <CheckInsSwitch />
-        <button
-          type="button"
-          className="feed-action pressable"
-          onClick={() => setEditing(NEW)}
-        >
+        <button type="button" className="feed-action pressable" onClick={edit(NEW)}>
           <Icon name="plus" size={12} />
           New
         </button>
-      </h3>
-      {empty ? (
-        <p className="group-empty">Nothing scheduled. Add one, or ask ky.</p>
+      </header>
+      {automations.length === 0 ? (
+        <p className="routines-empty">No routines yet.</p>
       ) : (
         <ul className="feed">
-          {editing === NEW && <AutomationForm onClose={close} />}
-          {byNextRun(automations).map((automation) =>
-            automation.id === editing ? (
-              <AutomationForm
-                key={automation.id}
-                automation={automation}
-                onClose={close}
-              />
-            ) : (
-              <AutomationItem
-                key={automation.id}
-                automation={automation}
-                now={now}
-                session={session}
-                onEdit={() => setEditing(automation.id)}
-              />
-            ),
-          )}
+          {byNextRun(automations).map((automation) => (
+            <RoutineItem key={automation.id} automation={automation} now={now} session={session} onEdit={edit(automation.id)} />
+          ))}
         </ul>
       )}
-      <ArchivedAutomations archived={archived} now={now} />
+      <ArchivedAutomations archived={archived} />
     </section>
   );
 }
 
 // Archived automations, folded away until asked for; unarchiving one brings it back paused.
-function ArchivedAutomations({ archived, now }: { archived: readonly AutomationInfo[]; now: number }) {
+function ArchivedAutomations({ archived }: { archived: readonly AutomationInfo[] }) {
   const { onAction } = useContext(AutomationsContext);
   const [open, setOpen] = useState(false);
 
@@ -227,27 +392,22 @@ function ArchivedAutomations({ archived, now }: { archived: readonly AutomationI
 
   return (
     <>
-      <button type="button" className="automation-text pressable" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Archived ({archived.length})
+      <button type="button" className="routines-archived disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
+        Archived · {archived.length}
+        <Icon name="chevronRight" size={12} className="chevron" />
       </button>
       {open && (
         <ul className="feed" aria-label="Archived automations">
           {archived.map((automation) => (
-            <li key={automation.id} className="feed-item automation" aria-label={automation.title} data-paused>
-              <span className="feed-button">
-                <span className="feed-glyph" data-tone="stopped">
-                  <Icon name="clock" size={16} />
-                </span>
-                <span className="feed-text">
-                  <span className="feed-title">{plain(automation.title)}</span>
-                  <span className="feed-step tabular">{scheduleOf(automation, now)} · Archived</span>
-                </span>
+            <li key={automation.id} className="feed-item routine" aria-label={automation.title} data-paused>
+              <span className="routine-button">
+                <span className="today-dot" data-tone="stopped" />
+                <span className="routine-title">{plain(automation.title)}</span>
+                <span className="routine-when tabular">{scheduleOf(automation)}</span>
               </span>
-              <span className="automation-actions">
-                <button type="button" className="automation-text pressable" onClick={() => onAction(automation.id, "unarchive")}>
-                  Unarchive
-                </button>
-              </span>
+              <button type="button" className="automation-text pressable" onClick={() => onAction(automation.id, "unarchive")}>
+                Unarchive
+              </button>
             </li>
           ))}
         </ul>
@@ -300,33 +460,23 @@ const STATES = {
 type ItemProps = {
   automation: AutomationInfo;
   now: number;
-  /** The open chat, so a row names where it reports only when that is elsewhere. */
+  /** The open chat, so a card names where it reports only when that is elsewhere. */
   session: string;
-  onEdit: () => void;
 };
 
-// Title, one muted line of when, and a quiet line of the last run and anything unusual; every line one line.
-function AutomationItem({ automation, now, session, onEdit }: ItemProps) {
+// One line: how the last run went, the title, when it runs and when next; run and pause on hover.
+function RoutineItem({ automation, now, onEdit }: ItemProps & { onEdit: (event: MouseEvent) => void }) {
   const { onAction } = useContext(AutomationsContext);
   const paused = automation.status === "paused";
   const state = STATES[paused ? "paused" : "active"];
 
   return (
-    <li className="feed-item automation" aria-label={automation.title} data-paused={paused || undefined}>
-      <button
-        type="button"
-        className="feed-button"
-        aria-label={`Edit ${automation.title}`}
-        onClick={onEdit}
-      >
-        <span className="feed-glyph" data-tone={state.tone}>
-          <Icon name="clock" size={16} />
-        </span>
-        <span className="feed-text">
-          <span className="feed-title">{plain(automation.title)}</span>
-          <span className="feed-step tabular">{metaOf(automation, now)}</span>
-          <Details automation={automation} now={now} session={session} />
-        </span>
+    <li className="feed-item automation routine" aria-label={automation.title} data-paused={paused || undefined}>
+      <button type="button" className="routine-button" aria-label={`Edit ${automation.title}`} onClick={onEdit}>
+        <span className="today-dot" data-tone={paused ? "stopped" : (automation.last_run?.status ?? "next")} />
+        <span className="routine-title">{plain(automation.title)}</span>
+        <span className="routine-when tabular">{scheduleOf(automation)}</span>
+        <span className="routine-next tabular">{nextOf(automation, now)}</span>
       </button>
       <AutomationActions id={automation.id} state={state} onAction={onAction} />
     </li>
@@ -361,7 +511,7 @@ export function RoutineBlock({ id }: { id: string }) {
         </span>
         <span className="feed-text">
           <span className="feed-title">{plain(automation.title)}</span>
-          <span className="feed-step tabular">{archived ? `${scheduleOf(automation, now)} · Archived` : metaOf(automation, now)}</span>
+          <span className="feed-step tabular">{archived ? `${scheduleOf(automation)} · Archived` : metaOf(automation, now)}</span>
           {/* A card leaves out which chat the routine reports to. */}
           <Details automation={automation} now={now} session={automation.chat} />
         </span>
@@ -382,7 +532,7 @@ function gateDetail(note: string | null): Detail {
 }
 
 /** The last run, then only what differs from the usual: another chat, its own model, a machine, a gate, a post. */
-function Details({ automation, now, session }: Omit<ItemProps, "onEdit">) {
+function Details({ automation, now, session }: ItemProps) {
   const last = lastOf(automation, now);
   const chat = automation.chat === MAIN_SESSION ? "Main chat" : plain(automation.chat_label);
 
@@ -461,15 +611,35 @@ function AutomationActions({
   );
 }
 
-/** The form's fields as the inputs hold them. */
+/** The rhythm chips, each the shape of schedule it writes. */
+const CHIPS = [
+  { chip: "once", label: "Once" },
+  { chip: "hourly", label: "Hourly" },
+  { chip: "hours", label: "Every few hours" },
+  { chip: "daily", label: "Daily" },
+  { chip: "weekly", label: "Weekly" },
+  { chip: "cron", label: "Cron" },
+] as const;
+
+type Chip = (typeof CHIPS)[number]["chip"];
+
+/** The form's fields as the inputs hold them. Times are wall-clock times in the routine's zone. */
 type Form = {
   title: string;
   prompt: string;
-  repeat: boolean;
-  /** A UTC cron, when it repeats. */
+  chip: Chip;
+  /** The cron as written, for the Cron chip. */
   cron: string;
-  /** A local time for a datetime-local input, when it runs once. */
+  /** A one-off's time, for a datetime-local input. */
   at: string;
+  /** "HH:MM": Daily's and Weekly's time, and the hour Every few hours starts from. */
+  clock: string;
+  /** Hourly's minute past the hour. */
+  minute: number;
+  /** Every few hours' step. */
+  every: number;
+  /** Weekly's days, 0-6 from Sunday. */
+  days: readonly number[];
   /** provider/modelId, or empty for the worker model. */
   model: string;
   thinking: string;
@@ -480,24 +650,48 @@ type Form = {
   gate: string;
 };
 
-const BLANK: Form = {
-  title: "",
-  prompt: "",
-  repeat: true,
-  cron: "0 9 * * 1-5",
-  at: "",
-  model: "",
-  thinking: "",
-  machine: "",
-  chat: MAIN_SESSION,
-  gate: "",
-};
+const pad = (value: number) => String(value).padStart(2, "0");
 
-/** Epoch ms as a datetime-local input's value, in local time. */
-function localInput(ms: number): string {
-  return new Date(ms - new Date(ms).getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
+/** A form with a schedule's fields at their defaults: weekdays at 9:00 AM. */
+function blank(now: number, zone: string): Form {
+  return {
+    title: "",
+    prompt: "",
+    chip: "weekly",
+    cron: "0 9 * * 1-5",
+    at: wallInput(Math.ceil(now / 3_600_000) * 3_600_000, zone),
+    clock: "09:00",
+    minute: 0,
+    every: 3,
+    days: [1, 2, 3, 4, 5],
+    model: "",
+    thinking: "",
+    machine: "",
+    chat: MAIN_SESSION,
+    gate: "",
+  };
+}
+
+/** A cron's chip and the fields it fills; a shape no chip writes opens on Cron. */
+function timingFields(cron: string): Partial<Form> {
+  const rhythm = rhythmOf(cron);
+
+  switch (rhythm.kind) {
+    case "hourly":
+      return rhythm.days.length === 7 ? { chip: "hourly", minute: rhythm.minute } : { chip: "cron" };
+    case "hours":
+      return HOUR_STEPS.some((step) => step === rhythm.every)
+        ? { chip: "hours", every: rhythm.every, clock: `${pad(rhythm.hour)}:${pad(rhythm.minute)}` }
+        : { chip: "cron" };
+    case "daily":
+      return {
+        chip: rhythm.days.length === 7 ? "daily" : "weekly",
+        clock: `${pad(rhythm.hour)}:${pad(rhythm.minute)}`,
+        days: rhythm.days.length === 7 ? [1, 2, 3, 4, 5] : rhythm.days,
+      };
+    default:
+      return { chip: "cron" };
+  }
 }
 
 export function modelFields(
@@ -511,32 +705,50 @@ export function modelFields(
     : { model: "", thinking: "" };
 }
 
-function timingFields(
-  automation: AutomationInfo,
-): Pick<Form, "repeat" | "cron" | "at"> {
-  if (automation.cron !== null)
-    return { repeat: true, cron: automation.cron, at: "" };
+function formOf(automation: AutomationInfo | undefined, now: number, zone: string): Form {
+  const empty = blank(now, zone);
+
+  if (!automation) return empty;
+  const { title, prompt, chat, cron, at } = automation;
+  const timing = cron === null ? { chip: "once" as const, at: wallInput(at ?? now, zone) } : { cron, ...timingFields(cron) };
 
   return {
-    repeat: false,
-    cron: BLANK.cron,
-    at: localInput(automation.at ?? Date.now()),
-  };
-}
-
-function formOf(automation: AutomationInfo | undefined): Form {
-  if (!automation) return BLANK;
-  const { title, prompt, chat } = automation;
-
-  return {
+    ...empty,
     title,
     prompt,
     chat,
     machine: automation.machine ?? "",
     gate: automation.gate ?? "",
-    ...timingFields(automation),
+    ...timing,
     ...modelFields(automation.model),
   };
+}
+
+/** "HH:MM" as an hour and minute. */
+function clockParts(clock: string) {
+  const [hour = 0, minute = 0] = clock.split(":").map(Number);
+
+  return { hour, minute };
+}
+
+/** The cron the chosen chip and its fields write; null for a one-off. */
+function cronFor(form: Form): string | null {
+  const clock = clockParts(form.clock);
+
+  switch (form.chip) {
+    case "once":
+      return null;
+    case "hourly":
+      return cronOf({ kind: "hourly", minute: form.minute, days: [0, 1, 2, 3, 4, 5, 6] });
+    case "hours":
+      return cronOf({ kind: "hours", every: form.every, ...clock });
+    case "daily":
+      return cronOf({ kind: "daily", ...clock, days: [0, 1, 2, 3, 4, 5, 6] });
+    case "weekly":
+      return cronOf({ kind: "daily", ...clock, days: form.days });
+    case "cron":
+      return form.cron.trim();
+  }
 }
 
 type Pickable = {
@@ -585,10 +797,9 @@ export function choiceOf(
   };
 }
 
-function draftOf(form: Form, choices: readonly Pickable[]): AutomationDraft {
-  const timing = form.repeat
-    ? { cron: form.cron.trim(), at: null }
-    : { cron: null, at: new Date(form.at).getTime() };
+function draftOf(form: Form, choices: readonly Pickable[], zone: string): AutomationDraft {
+  const cron = cronFor(form);
+  const timing = cron === null ? { cron: null, at: inputTime(form.at, zone) } : { cron, at: null };
 
   return {
     title: form.title.trim(),
@@ -603,23 +814,28 @@ function draftOf(form: Form, choices: readonly Pickable[]): AutomationDraft {
 
 /** Everything a save needs: words, and when it runs. */
 function complete(form: Form): boolean {
-  const when = form.repeat ? form.cron : form.at;
+  const when = form.chip === "once" ? form.at : form.chip === "weekly" && form.days.length === 0 ? "" : (cronFor(form) ?? "");
 
   return [form.title, form.prompt, when].every((field) => field.trim() !== "");
 }
 
 type FieldProps = { form: Form; set: (patch: Partial<Form>) => void };
 
-// Two cards, like Settings: the words as one note, then how it runs as rows.
+// The routine's title as the header and how its last run went; its prompt; its schedule; where it runs and
+// reports; the rarely changed under More; then leaving it, running it and saving.
 function AutomationForm({
   automation,
+  zone,
+  now,
   onClose,
 }: {
-  automation?: AutomationInfo;
+  automation?: AutomationInfo | undefined;
+  zone: string;
+  now: number;
   onClose: () => void;
 }) {
-  const { providers, onSave } = useContext(AutomationsContext);
-  const [form, setForm] = useState(() => formOf(automation));
+  const { providers, onSave, onAction } = useContext(AutomationsContext);
+  const [form, setForm] = useState(() => formOf(automation, now, zone));
   const [refused, setRefused] = useState<string | undefined>();
   const set = (patch: Partial<Form>) => setForm((current) => ({ ...current, ...patch }));
   const label = automation ? "Edit automation" : "New automation";
@@ -627,7 +843,7 @@ function AutomationForm({
   const save = async (event: FormEvent) => {
     event.preventDefault();
 
-    const why = await onSave(automation?.id, draftOf(form, modelChoices(providers)));
+    const why = await onSave(automation?.id, draftOf(form, modelChoices(providers), zone));
 
     setRefused(why);
 
@@ -639,126 +855,221 @@ function AutomationForm({
   };
 
   return (
-    <li className="automation-editor">
-      <form className="automation-form" aria-label={label} onSubmit={save} onKeyDown={escape}>
-        <div className="automation-editor-head">
-          <span>{label}</span>
-          <IconButton label="Cancel" icon="x" onClick={onClose} />
-        </div>
-        <div className="card automation-words">
-          <input
-            className="automation-name"
-            aria-label="Title"
-            placeholder="Name it"
-            value={form.title}
-            onChange={(event) => set({ title: event.target.value })}
-          />
-          <textarea
-            className="automation-prompt"
-            aria-label="Prompt"
-            placeholder="What each run does. It knows nothing else."
-            rows={3}
-            value={form.prompt}
-            onChange={(event) => set({ prompt: event.target.value })}
-          />
-          <label className="automation-gate">
-            <span className="automation-gate-label">Gate</span>
-            <textarea
-              aria-label="Gate"
-              placeholder="Optional. An Executor program that returns what to act on, or null to skip the run."
-              rows={1}
-              spellCheck={false}
-              value={form.gate}
-              onChange={(event) => set({ gate: event.target.value })}
-            />
-          </label>
-        </div>
-        <div className="card">
-          <WhenField form={form} set={set} />
-          <ModelField form={form} set={set} />
-          <PlaceFields form={form} set={set} />
-        </div>
-        {refused && (
-          <p className="automation-refused" role="alert">
-            {refused}
-          </p>
-        )}
-        <div className="automation-foot">
-          {automation && <EndButtons id={automation.id} onClose={onClose} />}
-          <button type="submit" className="pill primary pressable" disabled={!complete(form)}>
-            Save
+    <form className="automation-form routine-form" aria-label={label} onSubmit={save} onKeyDown={escape}>
+      <div className="routine-form-head">
+        <input
+          className="routine-name"
+          aria-label="Title"
+          placeholder="Name it"
+          // A new routine starts at its name; an opened one at nothing, so no keyboard pops up.
+          autoFocus={!automation}
+          value={form.title}
+          onChange={(event) => set({ title: event.target.value })}
+        />
+        <IconButton label="Cancel" icon="x" onClick={onClose} />
+      </div>
+      {automation ? <LastRun automation={automation} now={now} /> : null}
+      <div className="card routine-prompt-card">
+        <textarea
+          className="automation-prompt"
+          aria-label="Prompt"
+          placeholder="What each run does. It knows nothing else."
+          rows={3}
+          value={form.prompt}
+          onChange={(event) => set({ prompt: event.target.value })}
+        />
+      </div>
+      <ScheduleCard form={form} set={set} zone={zone} now={now} />
+      <div className="card">
+        <PlaceFields form={form} set={set} />
+      </div>
+      <MoreFields form={form} set={set} />
+      {refused && (
+        <p className="automation-refused" role="alert">
+          {refused}
+        </p>
+      )}
+      <div className="automation-foot">
+        {automation && <EndMenu id={automation.id} onClose={onClose} />}
+        {automation && automation.status !== "archived" ? (
+          <button type="button" className="pill pressable routine-run" onClick={() => onAction(automation.id, "run")}>
+            Run now
           </button>
-        </div>
-      </form>
-    </li>
+        ) : null}
+        <button type="submit" className="pill primary pressable" disabled={!complete(form)}>
+          Save
+        </button>
+      </div>
+    </form>
   );
 }
 
-const WHENS = [
-  { repeat: true, label: "Repeat" },
-  { repeat: false, label: "Once" },
+/** How the last run went, how long ago, what it came to, and the gate's last check; the first thing asked of a routine. */
+function LastRun({ automation, now }: { automation: AutomationInfo; now: number }) {
+  const last = lastOf(automation, now);
+  const run = automation.last_run;
+  const gate = automation.gate ? gateDetail(automation.gate_note) : null;
+  const result = run && last && last.status !== "queued" && last.status !== "working" ? resultOf(run) : null;
+
+  if (!last && !gate) return <p className="routine-last">Hasn't run yet</p>;
+
+  return (
+    <p className="routine-last">
+      {last ? (
+        <span className="automation-last" data-status={last.status}>
+          {last.text}
+        </span>
+      ) : null}
+      {result && result !== "done" ? <span className="routine-result">{result}</span> : null}
+      {gate ? (
+        <span className="automation-detail" data-detail="gate" title={gate.title}>
+          {gate.text}
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
+/** Days for Weekly's toggles, Monday first. */
+const DAYS = [
+  [1, "M", "Monday"],
+  [2, "T", "Tuesday"],
+  [3, "W", "Wednesday"],
+  [4, "T", "Thursday"],
+  [5, "F", "Friday"],
+  [6, "S", "Saturday"],
+  [0, "S", "Sunday"],
 ] as const;
 
-function WhenField({ form, set }: FieldProps) {
+// The rhythm as chips, the few fields it needs, a sentence of what that comes to, and the next three runs to prove it.
+function ScheduleCard({ form, set, zone, now }: FieldProps & { zone: string; now: number }) {
+  const cron = cronFor(form);
+
+  const choose = (chip: Chip) => {
+    // The raw cron starts as what the chips wrote, so Cron is a way to fine-tune it.
+    if (chip === "cron" && cron !== null && form.chip !== "cron") set({ chip, cron });
+    else set({ chip });
+  };
+
+  const at = inputTime(form.at, zone);
+
+  const sentence =
+    cron === null
+      ? Number.isNaN(at)
+        ? `Once · ${zoneName(zone)}`
+        : `Once · ${new Date(at).toLocaleString(undefined, { timeZone: zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${zoneName(zone)}`
+      : scheduleSentence(cron, zone);
+
+  const runs = cron === null ? [] : previewOf(cron, zone, now);
+
   return (
-    <>
-      <div className="row">
-        <span className="row-label">When</span>
-        <div className="segmented small automation-when" role="radiogroup" aria-label="When">
-          {WHENS.map((when) => (
-            <button
-              key={when.label}
-              type="button"
-              role="radio"
-              aria-checked={form.repeat === when.repeat}
-              className="pressable"
-              onClick={() => set({ repeat: when.repeat })}
-            >
-              {when.label}
-            </button>
-          ))}
-        </div>
+    <div className="card routine-schedule">
+      <div className="routine-chips" role="radiogroup" aria-label="Rhythm">
+        {CHIPS.map(({ chip, label }) => (
+          <button key={chip} type="button" role="radio" aria-checked={form.chip === chip} className="routine-chip pressable" onClick={() => choose(chip)}>
+            {label}
+          </button>
+        ))}
       </div>
-      {form.repeat ? <CronRow form={form} set={set} /> : <TimeRow form={form} set={set} />}
-    </>
+      <RhythmFields form={form} set={set} />
+      <p className="routine-sentence">{sentence}</p>
+      {runs.length > 0 ? (
+        <p className="routine-runs tabular">Next: {runs.map((run) => runIn(run, zone, now)).join(" · ")}</p>
+      ) : null}
+    </div>
   );
 }
 
-function CronRow({ form, set }: FieldProps) {
-  return (
-    <label className="row">
-      <span className="row-text">
-        <span className="row-label">Schedule</span>
-        <span className="row-sub">{cronInWords(form.cron.trim())}, your time</span>
-      </span>
-      <input
-        className="automation-cron"
-        aria-label="Cron"
-        placeholder="0 9 * * 1-5"
-        spellCheck={false}
-        value={form.cron}
-        onChange={(event) => set({ cron: event.target.value })}
-      />
-    </label>
-  );
+/** The next three runs, as the server books them; none for a cron it cannot read. */
+function previewOf(cron: string, zone: string, now: number): number[] {
+  try {
+    return nextLocals(cron, zone, now, 3);
+  } catch {
+    return [];
+  }
 }
 
-function TimeRow({ form, set }: FieldProps) {
-  return (
-    <label className="row">
-      <span className="row-text">
-        <span className="row-label">Time</span>
-        <span className="row-sub">Your local time</span>
-      </span>
-      <input
-        className="automation-time"
-        aria-label="Time"
-        type="datetime-local"
-        value={form.at}
-        onChange={(event) => set({ at: event.target.value })}
-      />
-    </label>
+/** The fields the chosen chip needs: a time, a minute, a step, days, or the cron itself. */
+function RhythmFields({ form, set }: FieldProps) {
+  const time = (label: string) => (
+    <input className="routine-field" aria-label={label} type="time" value={form.clock} onChange={(event) => set({ clock: event.target.value })} />
   );
+
+  switch (form.chip) {
+    case "once":
+      return (
+        <div className="routine-fields">
+          <input className="routine-field" aria-label="Time" type="datetime-local" value={form.at} onChange={(event) => set({ at: event.target.value })} />
+        </div>
+      );
+    case "hourly":
+      return (
+        <div className="routine-fields">
+          At minute
+          <input
+            className="routine-field routine-minute"
+            aria-label="Minute"
+            type="number"
+            min={0}
+            max={59}
+            value={form.minute}
+            onChange={(event) => set({ minute: Math.min(59, Math.max(0, Math.trunc(Number(event.target.value) || 0))) })}
+          />
+        </div>
+      );
+    case "hours":
+      return (
+        <div className="routine-fields">
+          Every
+          <span className="automation-pick routine-step">
+            <select aria-label="Every" value={form.every} onChange={(event) => set({ every: Number(event.target.value) })}>
+              {HOUR_STEPS.map((step) => (
+                <option key={step} value={step}>
+                  {step} hours
+                </option>
+              ))}
+            </select>
+            <Icon name="chevronDown" size={12} />
+          </span>
+          from {time("From")}
+        </div>
+      );
+    case "daily":
+      return <div className="routine-fields">At {time("At")}</div>;
+    case "weekly":
+      return (
+        <div className="routine-fields">
+          <span className="routine-days" role="group" aria-label="Days">
+            {DAYS.map(([day, letter, name]) => (
+              <button
+                key={day}
+                type="button"
+                className="routine-day pressable"
+                aria-label={name}
+                aria-pressed={form.days.includes(day)}
+                onClick={() => set({ days: form.days.includes(day) ? form.days.filter((each) => each !== day) : [...form.days, day] })}
+              >
+                {letter}
+              </button>
+            ))}
+          </span>
+          at {time("At")}
+        </div>
+      );
+    case "cron":
+      return (
+        <div className="routine-fields">
+          <input
+            className="routine-field automation-cron"
+            aria-label="Cron"
+            placeholder="0 9 * * 1-5"
+            spellCheck={false}
+            value={form.cron}
+            onChange={(event) => set({ cron: event.target.value })}
+          />
+        </div>
+      );
+  }
 }
 
 /** A settings row: its name on the left, a quiet select on the right. */
@@ -786,8 +1097,36 @@ export function Pick({
   );
 }
 
-function ModelField({ form, set }: FieldProps) {
-  return <ModelPicks providers={useContext(AutomationsContext).providers} form={form} set={set} />;
+// The model and the gate, which most routines leave alone: folded, unless this one sets either.
+function MoreFields({ form, set }: FieldProps) {
+  const [open, setOpen] = useState(() => form.model !== "" || form.gate !== "");
+  const { providers } = useContext(AutomationsContext);
+
+  return (
+    <>
+      <button type="button" className="routine-more disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="chevronRight" size={12} className="chevron" />
+        More
+        <span className="routine-more-sub">Model, gate</span>
+      </button>
+      {open ? (
+        <div className="card routine-more-card">
+          <ModelPicks providers={providers} form={form} set={set} />
+          <label className="automation-gate">
+            <span className="automation-gate-label">Gate</span>
+            <textarea
+              aria-label="Gate"
+              placeholder="Optional. An Executor program that returns what to act on, or null to skip the run."
+              rows={1}
+              spellCheck={false}
+              value={form.gate}
+              onChange={(event) => set({ gate: event.target.value })}
+            />
+          </label>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 /** The model and, when it has levels, the thinking picks; an empty model is the worker's. */
@@ -852,9 +1191,10 @@ function PlaceFields({ form, set }: FieldProps) {
   );
 }
 
-/** Archive keeps it for ky to bring back; delete asks once more, then removes it for good. */
-function EndButtons({ id, onClose }: { id: string; onClose: () => void }) {
+/** Archive and Delete, away from Save behind ⋯. Archive keeps it for ky to bring back; Delete asks once more. */
+function EndMenu({ id, onClose }: { id: string; onClose: () => void }) {
   const { onAction } = useContext(AutomationsContext);
+  const [open, setOpen] = useState<false | "pointer" | "keyboard">(false);
   const [sure, setSure] = useState(false);
 
   const end = (action: AutomationAction) => {
@@ -862,18 +1202,32 @@ function EndButtons({ id, onClose }: { id: string; onClose: () => void }) {
     onClose();
   };
 
+  // Focus that leaves the menu and its button closes it.
+  const blur = (event: FocusEvent) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+  };
+
   return (
-    <span className="automation-end">
-      <button type="button" className="automation-text pressable" onClick={() => end("archive")}>
-        Archive
-      </button>
+    <span className="routine-end" onBlur={blur}>
       <button
         type="button"
-        className="automation-text danger pressable"
-        onClick={() => (sure ? end("delete") : setSure(true))}
+        className="icon-button pressable routine-end-button"
+        aria-label="More actions"
+        aria-expanded={open !== false}
+        onClick={(event) => setOpen(open ? false : event.detail === 0 ? "keyboard" : "pointer")}
       >
-        {sure ? "Delete for good" : "Delete"}
+        <Icon name="more" size={16} />
       </button>
+      {open ? (
+        <span className="routine-menu" role="group" aria-label="More actions" data-glide={open === "pointer" || undefined}>
+          <button type="button" className="automation-text pressable" onClick={() => end("archive")}>
+            Archive
+          </button>
+          <button type="button" className="automation-text danger pressable" onClick={() => (sure ? end("delete") : setSure(true))}>
+            {sure ? "Delete for good" : "Delete"}
+          </button>
+        </span>
+      ) : null}
     </span>
   );
 }

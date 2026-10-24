@@ -165,6 +165,9 @@ function nextDaily(hour: number, minute = 0): string {
   return new Date(today > now.getTime() ? today : today + 86_400_000).toISOString();
 }
 
+/** The booking of a daily cron at `hour`:`minute`, in UTC while the user's zone is unknown: a one-off at its next time. */
+const bookedDaily = (hour: number, minute = 0) => ({ type: "scheduled", time: Date.parse(nextDaily(hour, minute)) / 1000 });
+
 /** The model calls an automation's runs made. */
 function runCalls(name: string, id: string) {
   return inside(name, (instance) => instance.boundary.calls.filter((call) => call.system.includes(`automation-${id}`)));
@@ -182,7 +185,7 @@ describe("automations", () => {
     expect(line).toContain("model: worker model; where: cloud; reports to: main");
     expect(line).toContain(`next: ${nextDaily(9)}; last run: never`);
 
-    expect(await booking(name, id)).toMatchObject({ type: "cron", cron: "0 9 * * *", callback: "automation", payload: { id } });
+    expect(await booking(name, id)).toMatchObject({ ...bookedDaily(9), callback: "automation", payload: { id } });
     expect(await runs(name, id)).toEqual([]);
   });
 
@@ -415,7 +418,7 @@ describe("automations", () => {
     expect(await say(name, automation({ action: "resume", id }))).toBe('tool said: Resumed "Daily digest".');
     expect(await listed(name, id)).toContain(`[active] cron 0 9 * * * UTC`);
     expect(await listed(name, id)).toContain(`next: ${nextDaily(9)}`);
-    expect(await booking(name, id)).toMatchObject({ type: "cron", cron: "0 9 * * *" });
+    expect(await booking(name, id)).toMatchObject(bookedDaily(9));
     expect(await runs(name, id)).toHaveLength(1);
   });
 
@@ -430,13 +433,13 @@ describe("automations", () => {
     expect(await listed(name, id)).toContain(`"Afternoon digest" [active] cron 30 14 * * * UTC`);
     expect(await listed(name, id)).toContain(`next: ${nextDaily(14, 30)}`);
     const after = await booking(name, id);
-    expect(after).toMatchObject({ type: "cron", cron: "30 14 * * *" });
+    expect(after).toMatchObject(bookedDaily(14, 30));
     expect(await inside(name, (instance) => instance.automations.scheduler.get(before!.id))).toBeUndefined();
 
     // A cron the Scheduler cannot read is refused, and the booking stays as it was.
     expect(await say(name, automation({ action: "update", id, cron: "not a cron" }))).toMatch(/^tool said: Cannot schedule "not a cron": /);
     expect(await listed(name, id)).toContain(`next: ${nextDaily(14, 30)}`);
-    expect(await booking(name, id)).toMatchObject({ type: "cron", cron: "30 14 * * *" });
+    expect(await booking(name, id)).toMatchObject(bookedDaily(14, 30));
   });
 
   it("archive cancels the schedule; unarchive brings it back paused", async () => {
@@ -569,7 +572,7 @@ describe("automations", () => {
     const socket = await connect(name);
     await until(async () => (await booking(name, id)) !== undefined, "the booking to come back");
     socket.close();
-    expect(await booking(name, id)).toMatchObject({ type: "cron", cron: "0 9 * * *" });
+    expect(await booking(name, id)).toMatchObject(bookedDaily(9));
     expect(await listed(name, id)).toContain(`next: ${nextDaily(9)}`);
   });
 
@@ -996,5 +999,67 @@ describe("check-ins", () => {
 
     const off = await inside(name, (instance) => instance.dreaming.digest({ memories: 0, at: 0 }, { ...on, on: false }));
     expect(off).not.toContain("Check-ins waiting");
+  });
+});
+
+describe("automations in the user's time zone", () => {
+  // Intl may spell Kolkata by its old name.
+  const KOLKATA_CRON = /\[active\] cron 0 9 \* \* 1-5 Asia\/(Kolkata|Calcutta),/;
+
+  /** The next 9:00 on a weekday in Kolkata (UTC+5:30, no daylight saving) after now, epoch seconds. */
+  function nextKolkataWeekday(): number {
+    for (let day = 0; ; day++) {
+      const now = Date.now();
+      const date = new Date(now + 330 * 60_000 + day * 86_400_000);
+      const at = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 9) - 330 * 60_000;
+      const weekday = new Date(at + 330 * 60_000).getUTCDay();
+
+      if (at > now && weekday >= 1 && weekday <= 5) return at / 1000;
+    }
+  }
+
+  it("books a cron at its next time in the user's zone, and the zone shows in the list", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => instance.automations.pinZone("Asia/Kolkata"));
+    const id = await create(name, { cron: "0 9 * * 1-5" });
+
+    expect(await listed(name, id)).toMatch(KOLKATA_CRON);
+    expect(await booking(name, id)).toMatchObject({ type: "scheduled", time: nextKolkataWeekday() });
+  });
+
+  it("a fire books the next time before it runs, once however often it is delivered", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => instance.automations.pinZone("Asia/Kolkata"));
+    const id = await create(name, { cron: "0 9 * * 1-5" });
+
+    // Its booking comes due now, as the alarm would find it at 9 AM.
+    await inside(name, async (instance, state) => {
+      const old = instance.automations.get(id)?.schedule_id;
+
+      if (old) await instance.automations.scheduler.cancel(old);
+      const due = await instance.automations.scheduler.set(new Date(), "automation", { id });
+      state.storage.sql.exec("UPDATE ky_automations SET schedule_id = ? WHERE id = ?", due.id, id);
+    });
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runs(name, id)).length === 1, "the run to start");
+
+    expect(await booking(name, id)).toMatchObject({ type: "scheduled", time: nextKolkataWeekday() });
+    expect((await inside(name, automationFires)).length).toBe(1);
+  });
+
+  it("moves with the user's zone, and moves a UTC cron from before into it", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => instance.automations.pinZone("Europe/Berlin"));
+    const id = await create(name, { cron: "0 9 * * 1-5" });
+    const legacy = await create(name, { title: "Old digest" });
+
+    // Written when crons were UTC: 03:30 UTC on weekdays is 09:00 in Kolkata.
+    await inside(name, (_instance, state) => state.storage.sql.exec("UPDATE ky_automations SET zone = 'UTC', cron = '30 3 * * 1-5' WHERE id = ?", legacy));
+    await inside(name, (instance) => instance.automations.pinZone("Asia/Kolkata"));
+
+    expect(await listed(name, id)).toMatch(KOLKATA_CRON);
+    expect(await booking(name, id)).toMatchObject({ type: "scheduled", time: nextKolkataWeekday() });
+    expect(await listed(name, legacy)).toMatch(KOLKATA_CRON);
+    expect(await booking(name, legacy)).toMatchObject({ type: "scheduled", time: nextKolkataWeekday() });
   });
 });

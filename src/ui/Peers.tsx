@@ -1,5 +1,6 @@
 import { createContext, type FormEvent, useCallback, useContext, useEffect, useState } from "react";
 import type { PeerInvite, PeerView } from "../protocol";
+import { EmptyState } from "./Controls";
 import { CopyLine } from "./CopyButton";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
@@ -70,7 +71,6 @@ export function Peers() {
       </section>
       <section className="group">
         <h3 className="group-label">Add a peer</h3>
-        <p className="group-note peer-how">One of you makes an invite and sends it; the other pastes it. Each names the other's ky its own way.</p>
         <div className="group-actions">
           <button type="button" className="pill pressable" aria-pressed={adding === "invite"} onClick={() => choose("invite")}>
             <Icon name="plus" size={14} />
@@ -99,7 +99,7 @@ function hostOf(address: string): string {
 function PeerList({ peers, onRemove }: { peers: PeerView[] | null; onRemove: (name: string) => Promise<string | undefined> }) {
   if (peers === null) return <p className="group-empty">Checking peers…</p>;
 
-  if (peers.length === 0) return <p className="group-empty">No peers yet. Once you pair, ky can ask theirs, and theirs can ask ky.</p>;
+  if (peers.length === 0) return <EmptyState icon="nodes">No peers yet.</EmptyState>;
 
   return (
     <div className="card">
@@ -146,7 +146,7 @@ function PeerRow({ peer, onRemove }: { peer: PeerView; onRemove: (name: string) 
           </button>
         )}
       </div>
-      {peer.state === "unreachable" && peer.detail ? <p className="group-note peer-detail">{peer.detail}</p> : null}
+      {peer.state === "unreachable" && peer.detail ? <p className="card-note peer-detail">{peer.detail}</p> : null}
       {confirming ? (
         <div className="machine-confirm peer-confirm" role="alertdialog" aria-label={`Unpair ${peer.name}`}>
           <p>Unpair {peer.name}? Neither ky can ask the other anything until you pair again.</p>
@@ -238,14 +238,12 @@ function InviteForm({ onInvite }: { onInvite: PeerActions["onInvite"] }) {
 function Invite({ invite, expiresAt }: { invite: PeerInvite; expiresAt: number }) {
   const now = useNow();
 
-  if (expiresAt <= now) return <p className="group-note peer-invite">That invite has expired. Make a new one.</p>;
+  if (expiresAt <= now) return <EmptyState icon="clock">That invite expired. Make a new one.</EmptyState>;
 
   return (
-    <div className="machine-code peer-invite">
-      <p className="group-note">
-        Send them this. They choose <b>I have an invite</b> in Settings › Peers and paste it. It works once, until {clock(expiresAt)}.
-      </p>
+    <div className="code-card peer-invite">
       <CopyLine text={`${invite.address} ${invite.code}`} label="Invite" />
+      <p className="card-note">{`Send it to them to paste under I have an invite. It works once, until ${clock(expiresAt)}.`}</p>
     </div>
   );
 }

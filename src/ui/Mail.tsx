@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { MailItem, MailView } from "../protocol";
 import { CopyLine } from "./CopyButton";
+import { EmptyState } from "./Controls";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
@@ -65,8 +66,9 @@ export function Mail() {
     <>
       <section className="group" id="settings-mail">
         <h3 className="group-label">Address</h3>
-        <CopyLine text={view.address} label="Address" />
-        <p className="group-note">Give it out as you would your own. ky reads what comes, and tells you what matters.</p>
+        <div className="card code-card">
+          <CopyLine text={view.address} label="Address" />
+        </div>
       </section>
       {view.held.length > 0 ? (
         <section className="group">
@@ -76,12 +78,11 @@ export function Mail() {
               <HeldMail key={mail.id} mail={mail} onSend={act(actions.onApprove)} onDiscard={act(actions.onDiscard)} />
             ))}
           </div>
-          <p className="group-note">ky asks before writing to someone new. Once you send one, it may write to them again.</p>
         </section>
       ) : null}
       <section className="group">
         <h3 className="group-label">Recent</h3>
-        <RecentMail mail={view.recent} address={view.address} />
+        <RecentMail mail={view.recent} />
       </section>
       <section className="group">
         <h3 className="group-label">ky may write to</h3>
@@ -107,15 +108,15 @@ function NotSetUp() {
           </span>
           <span className="status-dot" />
         </div>
+        <ol className="card-note mail-steps">
+          <li>
+            On Cloudflare, turn on <b>Email Routing</b> and <b>Email Sending</b> for your domain.
+          </li>
+          <li>
+            Run <code>ky init --mail yourdomain.com</code>.
+          </li>
+        </ol>
       </div>
-      <ol className="group-note mail-steps">
-        <li>
-          Add your domain to Cloudflare, and turn on <b>Email Routing</b> and <b>Email Service › Email Sending</b> for it.
-        </li>
-        <li>
-          Run <code>ky init --mail yourdomain.com</code>: ky gets <code>&lt;its name&gt;@yourdomain.com</code>, and the deploy routes that address to it.
-        </li>
-      </ol>
     </section>
   );
 }
@@ -182,10 +183,10 @@ function MailLine({ mail, now }: { mail: MailItem; now: number }) {
   );
 }
 
-function RecentMail({ mail, address }: { mail: readonly MailItem[]; address: string }) {
+function RecentMail({ mail }: { mail: readonly MailItem[] }) {
   const now = useNow();
 
-  if (mail.length === 0) return <p className="group-empty">No mail yet. What comes to {address} shows here.</p>;
+  if (mail.length === 0) return <EmptyState icon="mail">No mail yet</EmptyState>;
 
   return (
     <div className="card">
@@ -199,7 +200,7 @@ function RecentMail({ mail, address }: { mail: readonly MailItem[]; address: str
 function Allowed({ allowed, onRemove }: { allowed: readonly string[]; onRemove: (address: string) => Promise<string | undefined> }) {
   const [refused, setRefused] = useState<string>();
 
-  if (allowed.length === 0) return <p className="group-empty">Only you, until you send a mail ky wrote to someone new.</p>;
+  if (allowed.length === 0) return <EmptyState icon="mail">No one but you yet</EmptyState>;
 
   return (
     <div className="card">
