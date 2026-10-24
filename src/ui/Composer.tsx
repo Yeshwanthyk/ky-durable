@@ -1,7 +1,10 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
+import { clock, mediaKind } from "../media";
+import type { PendingClip } from "./pick-media";
 import { imageSrc, type PendingImage } from "./pick-images";
+import type { Recorder } from "./use-recorder";
 
 // Enter sends on a keyboard; on touch Enter is a newline and the button sends.
 const coarse = () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
@@ -47,8 +50,18 @@ function fitsOneLine(metrics: Metrics, text: string, width: number): boolean {
   return ruler.measureText(text).width < width - metrics.paddingX - 8;
 }
 
-const imageFiles = (files: FileList | null | undefined) =>
-  [...(files ?? [])].filter((file) => file.type.startsWith("image/"));
+/** What the composer takes: images, and audio and video clips. */
+const attachable = (files: FileList | null | undefined) =>
+  [...(files ?? [])].filter((file) => file.type.startsWith("image/") || mediaKind(file.type) !== null);
+
+/** The microphone: record a voice note, then attach it, send it, or throw it away. */
+export type Voice = {
+  readonly recorder: Recorder;
+  readonly onRecord: () => void;
+  /** Stop recording and attach the note; with `send`, send the message once it has gone up. */
+  readonly onDone: (send: boolean) => void;
+  readonly onCancel: () => void;
+};
 
 /** Someone the composer offers when the user types @. */
 export type Mentionable = { readonly id: string; readonly description: string };
@@ -82,8 +95,11 @@ export function Composer({
   working = false,
   autoFocus = false,
   images = [],
-  onAddImages,
+  clips = [],
+  onAddFiles,
   onRemoveImage,
+  onRemoveClip,
+  voice,
   children,
   label,
   mentions = [],
@@ -98,10 +114,15 @@ export function Composer({
   busy?: boolean;
   working?: boolean;
   autoFocus?: boolean;
-  /** Images to send with the message; with onAddImages, the composer offers to attach them. */
+  /** Images to send with the message; with onAddFiles, the composer offers to attach them. */
   images?: readonly PendingImage[];
-  onAddImages?: (files: File[]) => void;
+  /** Voice notes and videos to send with the message. */
+  clips?: readonly PendingClip[];
+  onAddFiles?: (files: File[]) => void;
   onRemoveImage?: (id: string) => void;
+  onRemoveClip?: (id: string) => void;
+  /** Offers the microphone. */
+  voice?: Voice;
   children?: ReactNode;
   label: string;
   /** Who typing @ offers; picking one puts its @id in. */
@@ -213,19 +234,23 @@ export function Composer({
     // Text that plainly fits the pill cannot have wrapped; only near the edge is the layout asked.
     if (!fitsOneLine(metrics.current, value, pillWidth.current) && element.scrollHeight > metrics.current.oneLine) setOpen(true);
   }, [value, open]);
-  const empty = value.trim() === "" && images.length === 0;
+  const empty = value.trim() === "" && images.length === 0 && clips.length === 0;
   const stop = working && empty && onStop !== undefined;
-  const attach = onAddImages !== undefined && !disabled;
+  const attach = onAddFiles !== undefined && !disabled;
+  const recording = voice !== undefined && voice.recorder.state !== "idle" ? voice.recorder : null;
 
   return (
     <form
       className="composer"
       data-dragging={dragging}
       data-open={open}
+      data-recording={recording !== null || undefined}
       onSubmit={(event) => {
         event.preventDefault();
 
-        if (stop) onStop();
+        // Send while recording sends the note, once it has gone up.
+        if (recording !== null) voice?.onDone(true);
+        else if (stop) onStop();
         else if (!empty && !busy && !disabled) onSubmit();
       }}
       onDragOver={(event) => {
@@ -240,11 +265,11 @@ export function Composer({
       }}
       onDrop={(event) => {
         setDragging(false);
-        const files = imageFiles(event.dataTransfer.files);
+        const files = attachable(event.dataTransfer.files);
 
         if (!attach || files.length === 0) return;
         event.preventDefault();
-        onAddImages(files);
+        onAddFiles(files);
       }}
     >
       {images.length > 0 ? (
@@ -264,32 +289,40 @@ export function Composer({
           ))}
         </ul>
       ) : null}
-      {onAddImages ? (
+      {clips.length > 0 ? (
+        <ul className="composer-clips" aria-label="Clips to send">
+          {clips.map((clip) => (
+            <ClipChip key={clip.id} clip={clip} onRemove={() => onRemoveClip?.(clip.id)} />
+          ))}
+        </ul>
+      ) : null}
+      {onAddFiles && recording === null ? (
         <>
           <button
             type="button"
             className="attach-button pressable"
-            aria-label="Attach images"
+            aria-label="Attach images, audio or video"
             disabled={disabled}
             onClick={() => picker.current?.click()}
           >
-            <Icon name="image" size={17} />
+            <Icon name="plus" size={17} />
           </button>
           <input
             ref={picker}
             type="file"
-            accept="image/*"
+            accept="image/*,audio/*,video/*"
             multiple
             hidden
             onChange={(event) => {
-              const files = imageFiles(event.target.files);
+              const files = attachable(event.target.files);
               event.target.value = "";
 
-              if (files.length > 0) onAddImages(files);
+              if (files.length > 0) onAddFiles(files);
             }}
           />
         </>
       ) : null}
+      {recording !== null && voice ? <RecordingStrip recorder={recording} onCancel={voice.onCancel} /> : null}
       {menu ? (
         <ul className="mention-menu" id={menuId} role="listbox" aria-label="Specialists">
           {options.map((option, index) => (
@@ -329,12 +362,13 @@ export function Composer({
           setCaret(event.target.selectionStart);
           onChange(event.target.value);
         }}
+        hidden={recording !== null}
         onPaste={(event) => {
-          const files = imageFiles(event.clipboardData.files);
+          const files = attachable(event.clipboardData.files);
 
           if (!attach || files.length === 0) return;
           event.preventDefault();
-          onAddImages(files);
+          onAddFiles(files);
         }}
         onKeyDown={(event) => {
           if (menu && !event.nativeEvent.isComposing) {
@@ -395,17 +429,80 @@ export function Composer({
         }}
       />
       <div className="composer-bar">
-        {children}
+        {recording === null ? children : null}
+        {voice && recording === null ? (
+          <button type="button" className="mic-button pressable" aria-label="Record a voice note" disabled={disabled} onClick={voice.onRecord}>
+            <Icon name="mic" size={17} />
+          </button>
+        ) : null}
+        {voice && recording !== null ? (
+          <button type="button" className="mic-button pressable" aria-label="Done recording" disabled={recording.state !== "recording"} onClick={() => voice.onDone(false)}>
+            <Icon name="check" size={16} />
+          </button>
+        ) : null}
         <button
           type="submit"
           className="send-button pressable"
-          data-mode={stop ? "stop" : "send"}
-          aria-label={stop ? "Stop" : "Send"}
-          disabled={disabled || busy || (empty && !stop)}
+          data-mode={stop && recording === null ? "stop" : "send"}
+          aria-label={recording !== null ? "Send voice note" : stop ? "Stop" : "Send"}
+          disabled={disabled || (recording !== null ? recording.state !== "recording" : busy || (empty && !stop))}
         >
-          <Icon name={stop ? "stop" : "arrowUp"} size={stop ? 12 : 15} />
+          <Icon name={stop && recording === null ? "stop" : "arrowUp"} size={stop && recording === null ? 12 : 15} />
         </button>
       </div>
     </form>
+  );
+}
+
+/** A clip waiting to be sent: what it is, how long, and while it uploads, how far along. */
+function ClipChip({ clip, onRemove }: { clip: PendingClip; onRemove: () => void }) {
+  const uploading = clip.file === null;
+
+  return (
+    <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined}>
+      {clip.kind === "video" ? (
+        <video src={clip.preview} muted playsInline preload="metadata" aria-hidden />
+      ) : (
+        <span className="composer-clip-wave" aria-hidden>
+          {Array.from({ length: 20 }, (_, index) => (clip.peaks ?? "").charAt(index * 2) || "3").map((digit, index) => (
+            <span key={index} style={{ height: `${Math.max(14, (Number(digit) + 1) * 10)}%` }} />
+          ))}
+        </span>
+      )}
+      <span className="composer-clip-label">
+        <span>{clip.kind === "audio" ? clip.name : clip.seconds !== null ? clock(clip.seconds) : "Video"}</span>
+        {clip.kind === "audio" && clip.seconds !== null ? <span className="quiet">{clock(clip.seconds)}</span> : null}
+      </span>
+      {uploading ? <span className="composer-clip-progress" style={{ width: `${clip.progress * 100}%` }} role="progressbar" aria-label={`Uploading ${clip.name}`} aria-valuenow={Math.round(clip.progress * 100)} /> : null}
+      <button type="button" className="composer-image-remove" aria-label={`Remove ${clip.name}`} onClick={onRemove}>
+        <Icon name="x" size={10} />
+      </button>
+    </li>
+  );
+}
+
+/** While a voice note records: throw it away, how long it has gone, its sound as it comes, and the words heard. */
+function RecordingStrip({ recorder, onCancel }: { recorder: Exclude<Recorder, { state: "idle" }>; onCancel: () => void }) {
+  const live = recorder.state === "recording" ? recorder : null;
+
+  return (
+    <div className="recording-strip" role="status" aria-label={live ? `Recording, ${clock(live.seconds)}` : "Starting the microphone"}>
+      <button type="button" className="attach-button pressable" aria-label="Discard voice note" onClick={onCancel}>
+        <Icon name="x" size={15} />
+      </button>
+      <span className="recording-dot" aria-hidden />
+      <span className="recording-time">{clock(live?.seconds ?? 0)}</span>
+      <span className="recording-wave" aria-hidden>
+        {Array.from({ length: 28 }, (_, index) => {
+          const level = live?.levels[index - (28 - (live?.levels.length ?? 0))] ?? 0;
+
+          return <span key={index} style={{ height: `${Math.max(10, level * 100)}%` }} />;
+        })}
+      </span>
+      {/* Right to left, so the newest words stay in view; the words inside keep their own direction. */}
+      <span className="recording-heard">
+        <bdi>{live?.heard || (live ? "Listening…" : "Starting…")}</bdi>
+      </span>
+    </div>
   );
 }

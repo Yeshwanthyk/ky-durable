@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
+import { clock, framesOf, readMedia } from "../media";
 import { type Outgoing, outgoingImages, outgoingText } from "../outbox";
 import { Icon } from "./Icon";
 
-/** What a row says: the words, and how many images ride along. */
+/** What a row says: the words, each clip, and how many images ride along; a video's frames aren't the user's images. */
 function summary(item: Outgoing): string {
-  const text = outgoingText(item.input).trim();
-  const images = outgoingImages(item.input);
-  const pictures = images === 0 ? "" : images === 1 ? "1 image" : `${images} images`;
+  const { clips, text } = readMedia(outgoingText(item.input).trim());
+  const images = outgoingImages(item.input) - framesOf(clips);
+  const pictures = images <= 0 ? "" : images === 1 ? "1 image" : `${images} images`;
+  const named = clips.map((clip) => (clip.seconds === null ? clip.name : `${clip.name} ${clock(clip.seconds)}`));
 
-  return [text, pictures].filter(Boolean).join(" · ");
+  return [text, ...named, pictures].filter(Boolean).join(" · ");
 }
 
 /**

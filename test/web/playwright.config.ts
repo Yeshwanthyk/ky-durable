@@ -31,5 +31,15 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure"
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 860 } } }]
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 860 },
+        // A stand-in microphone and camera, for a test that records: a beep, granted without asking.
+        launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] }
+      }
+    }
+  ]
 });

@@ -1,3 +1,4 @@
+import type { MediaClip } from "../media";
 import type { IconName } from "./Icon";
 
 /** Scotty's conversation shape: turns of a prompt, a work log and an answer. */
@@ -31,8 +32,10 @@ export type Turn = {
   id: string;
   state: "completed" | "streaming" | "failed" | "aborted";
   user: string;
-  /** Images the user sent with the prompt, as data URLs. */
+  /** Images the user sent with the prompt, as data URLs; a video's frames, which went to the model, are not among them. */
   images: string[];
+  /** Voice notes and videos the user sent with the prompt (src/media.ts). */
+  clips: readonly MediaClip[];
   /** Set when the turn was started by a report (a subagent, machine, automation, peer…), not the user. */
   from: ReportFrom | null;
   /** The machine task a report is from; its files show under the report. */

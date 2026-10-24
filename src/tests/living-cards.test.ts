@@ -20,7 +20,7 @@ const turn = (id: string, ...items: Tool[]): Turn => ({
   id,
   state: "completed",
   user: "hi",
-  images: [],
+  images: [], clips: [],
   from: null,
   task: null,
   to: [],

@@ -33,6 +33,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
+import { spokenText } from "./media";
 import { CARD_ANSWER } from "./ui-blocks";
 import type { AutomationAction, Automations, ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";
@@ -751,7 +752,7 @@ export class PiSessionSockets {
 
     if (problem !== null) throw new Error(problem);
 
-    if (chat) this.#chats.touch(session, textOf(message.input));
+    if (chat) this.#chats.touch(session, spokenText(textOf(message.input)));
 
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.

@@ -21,6 +21,7 @@ import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed }
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { download, type FileRow, FileStore, saveImage } from "./files";
+import { uploadMedia } from "./media-upload";
 import { History } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
@@ -1022,6 +1023,8 @@ export function worker(access: Access) {
       const file = /^\/files\/([0-9a-f]{32})$/.exec(url.pathname)?.[1];
 
       if (file && request.method === "GET") return download(request, env.FILES, file);
+
+      if (url.pathname === "/api/media") return uploadMedia(request, env.FILES);
 
       try {
         return (

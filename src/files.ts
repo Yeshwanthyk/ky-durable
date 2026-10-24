@@ -28,6 +28,11 @@ const FILE_TYPES: ReadonlySet<string> = new Set([
   "image/gif",
   "video/webm",
   "video/mp4",
+  "audio/webm",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/wav",
   DIFF_TYPE
 ]);
 
@@ -117,7 +122,7 @@ export async function upload(
   if (!task) return reply(400, "Name the task: ?task=<id>");
   const type = request.headers.get("Content-Type") ?? "";
 
-  if (!FILE_TYPES.has(type)) return reply(415, "Type must be png, jpeg, webp, gif, webm, mp4 or x-diff");
+  if (!FILE_TYPES.has(type)) return reply(415, "Type must be png, jpeg, webp, gif, webm, mp4, an audio type of webm, mp4, mpeg, ogg or wav, or x-diff");
   const size = Number(request.headers.get("Content-Length"));
   const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
 

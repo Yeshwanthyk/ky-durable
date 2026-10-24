@@ -1,4 +1,4 @@
-import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
+import { expect, type Locator, type Page, test, type WebSocketRoute } from "@playwright/test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -2152,4 +2152,66 @@ test("paints the last chat from the cache before the socket answers, then the sn
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
   await expect(page.getByText(`echo: remember me ${id}`)).toBeVisible();
+});
+
+test.describe("voice notes and video", () => {
+  // Chromium's stand-in microphone (playwright.config.ts) plays a beep.
+  test.use({ permissions: ["microphone"] });
+
+  test("records a voice note, sends a video, and ky plays both back in a card", async ({ page }) => {
+    await open(page);
+    // Each clip went up before its message; its player plays the file it went up as.
+    const fileOf = async (player: Locator) => /\/files\/([0-9a-f]{32})$/.exec((await player.evaluate((element) => element.closest("figure")?.querySelector("audio, video")?.getAttribute("src"))) ?? "")?.[1] ?? "";
+
+    // Record: the strip takes the text's place, with the time and the sound as it comes.
+    await page.getByRole("button", { name: "Record a voice note" }).click();
+    await expect(page.getByRole("status", { name: /^Recording, 0:0[1-9]/ })).toBeVisible();
+    await expect(composer(page)).toBeHidden();
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/voice-recording.png` });
+
+    await page.getByRole("button", { name: "Send voice note" }).click();
+    const note = chat(page).getByRole("button", { name: "Play Voice note" });
+    await expect(note).toBeVisible();
+    await expect(composer(page)).toBeVisible();
+
+    // A video goes up first, then rides with the words.
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Attach images, audio or video" }).click();
+    await (await chooser).setFiles(`${REPO}/test/web/fixtures/clip.webm`);
+    await expect(page.getByRole("list", { name: "Clips to send" }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("progressbar")).toBeHidden();
+    await send(page, "what happens in this one");
+    await expect(chat(page).getByRole("figure").getByLabel("clip.webm")).toBeVisible();
+    await expect(page.getByRole("list", { name: "Clips to send" })).toBeHidden();
+
+    // ky shows the clips back in a card, by their files.
+    const voice = await fileOf(note);
+    const video = await fileOf(chat(page).getByRole("figure").getByLabel("clip.webm"));
+    expect([voice, video]).toEqual([expect.stringMatching(/^[0-9a-f]{32}$/), expect.stringMatching(/^[0-9a-f]{32}$/)]);
+
+    const ui = {
+      title: "Played back",
+      blocks: [
+        { type: "audio", src: voice, caption: "Your note" },
+        { type: "video", src: video, caption: "Your video" }
+      ]
+    };
+
+    await send(page, `tool ui ${JSON.stringify(ui)}`);
+
+    const card = chat(page).getByRole("region", { name: "Played back" });
+    await expect(card.getByRole("button", { name: "Play Your note" })).toBeVisible();
+    await expect(card.getByRole("figure").getByLabel("Your video")).toBeVisible();
+
+    await note.click();
+    await expect(chat(page).getByRole("button", { name: "Pause Voice note" })).toBeVisible();
+
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/voice-and-video.png` });
+
+    if (SHOTS) {
+      await card.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${SHOTS}/voice-and-video-card.png` });
+    }
+  });
 });

@@ -39,7 +39,7 @@ function taskPrompt(workdir: string): string {
 
   return `You are running a task for ky, the user's agent; the user reads the result in ky, often on a phone.
 
-To show the user a screenshot, a recording or a chart, attach it: ky attach <file> [caption] (png, jpeg, webp, gif, webm or mp4, at most 25 MB). It appears on this task and in its report. Attach every image or video you make for the user, and mention it in your answer.
+To show the user a screenshot, a recording, a sound or a chart, attach it: ky attach <file> [caption] (png, jpeg, webp, gif, webm, mp4, m4a, mp3, ogg, opus or wav, at most 25 MB). It appears on this task and in its report. Attach every image, video or audio file you make for the user, and mention it in your answer.
 - For web pages use Playwright. The first time, install it in ${capture}: mkdir -p ${capture} && cd ${capture} && echo '{"private":true}' > package.json && npm install playwright && npx playwright install chromium. Run capture scripts from there.
 - Screenshot at a 390x844 viewport unless asked otherwise. Record video with the browser context option recordVideo: { dir, size }; the webm is saved when the context closes.
 - Save captures under ${join(workdir, ".captures")}, never inside a repository.

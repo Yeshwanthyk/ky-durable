@@ -7,6 +7,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
 import { answeredWith, isQuestion } from "./card-answers";
 import type { CardAnswer } from "../ui-blocks";
+import type { MediaClip } from "../media";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";
@@ -17,6 +18,7 @@ import { eventsOf, type ThreadEvent } from "./events";
 import { Icon } from "./Icon";
 import { type Placement, placements, wrote } from "./living-cards";
 import { Markdown } from "./Markdown";
+import { SentClip } from "./Media";
 import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
 
@@ -153,11 +155,13 @@ function fresh(turn: Turn) {
 function UserMessage({
   text,
   images,
+  clips,
   from,
   task,
 }: {
   text: string;
   images: readonly string[];
+  clips: readonly MediaClip[];
   from: ReportFrom | null;
   task: string | null;
 }) {
@@ -174,6 +178,13 @@ function UserMessage({
             <button key={index} type="button" className="attachment-open" aria-label={`Open ${item.label}`} onClick={() => open(media, index)}>
               <img src={item.src} alt={item.label} loading="lazy" />
             </button>
+          ))}
+        </div>
+      ) : null}
+      {clips.length > 0 ? (
+        <div className="user-clips">
+          {clips.map((clip) => (
+            <SentClip key={clip.file} clip={clip} />
           ))}
         </div>
       ) : null}
@@ -340,7 +351,7 @@ const TurnView = memo(function TurnView({
   // turn ends: the log folds away behind "Worked" and the answer stays put.
   return (
     <article className="turn" data-arrived={arrived} data-sending={turn.id.startsWith(SENDING) || undefined}>
-      <UserMessage text={turn.user} images={turn.images} from={turn.from} task={turn.task} />
+      <UserMessage text={turn.user} images={turn.images} clips={turn.clips} from={turn.from} task={turn.task} />
       {recalled && recalled.length > 0 && turn.from === null ? <Recalled lines={recalled} /> : null}
       <div className="assistant">
         {live && mode === "booting" ? null : (
