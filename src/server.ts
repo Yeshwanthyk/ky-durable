@@ -362,6 +362,7 @@ export class PiAgent extends DurableObject<Env> {
         automations: this.automations,
         background: this.#background,
         chat,
+        peer: (session) => this.peerAsks.peerConversation(session),
         deliver: (item) => this.deliveries.deliver(item)
       };
 

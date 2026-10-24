@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { ProviderInfo, SpecialistView } from "../../src/protocol";
 import {
+  AnswerAction,
   PinAction,
   REVIEW_ALLOWED,
   SkillAction,
@@ -12,10 +14,12 @@ import {
   specialistOf,
   SubagentAction,
   SubagentInput,
+  parse,
+  type SkillRow,
   SKILL_TABLES,
   TOOLS
 } from "../../src/skills/contract";
-import { CHANGES } from "../../src/skills/skills";
+import { CHANGES, viewText } from "../../src/skills/skills";
 import { MANAGE } from "../../src/skills/specialists";
 import { ACTIONS } from "../../src/skills/subagents";
 import { specialistDraft } from "../../src/ui/Soul";
@@ -39,8 +43,8 @@ describe("each tool's actions", () => {
     expect(Object.keys(handlers).sort()).toEqual(literals(union));
   });
 
-  it("gives every skill_manage change a handler, and takes those plus pin and unpin, which write no version", () => {
-    expect(SkillChange.properties.action.anyOf).toEqual([SkillAction, PinAction]);
+  it("gives every skill_manage change a handler, and takes those plus pin, unpin and answer, which write no version", () => {
+    expect(SkillChange.properties.action.anyOf).toEqual([SkillAction, PinAction, AnswerAction]);
     expect(Object.keys(CHANGES).sort()).toEqual(literals(SkillAction));
     expect(literals(PinAction)).toEqual(["pin", "unpin"]);
   });
@@ -144,5 +148,87 @@ describe("the panel's specialist sheet", () => {
       model,
       brief: "Be exact."
     });
+  });
+});
+
+describe("a skill's Needs", () => {
+  const body = [
+    "1. Book the room.",
+    "",
+    "## Needs",
+    "- calendar: Which calendar holds work events? (Work | Personal)",
+    "- tone: How formal should invites read?",
+    "- calendar: asked twice, kept once",
+    "- Bad Key: not a key",
+    "- lone: (only | )",
+    "",
+    "## Members",
+    "- weekly-groceries",
+    "- `meal-plan`",
+    "- weekly-groceries",
+    "",
+    "## Steps",
+    "- calendar: not a need here"
+  ].join("\n");
+
+  it("reads each need once, with its choices, and each member once", () => {
+    expect(parse(body)).toEqual({
+      needs: [
+        { key: "calendar", question: "Which calendar holds work events?", choices: ["Work", "Personal"] },
+        { key: "tone", question: "How formal should invites read?", choices: [] },
+        { key: "lone", question: "(only | )", choices: [] }
+      ],
+      members: ["weekly-groceries", "meal-plan"]
+    });
+  });
+
+  it("never throws, and every need it reads has a key and a question", () => {
+    const line = fc.oneof(fc.string(), fc.constantFrom("## Needs", "## Members", "# Title", "- a-key: q (x | y)", "- k:", "(|)", "\r"));
+
+    fc.assert(
+      fc.property(fc.array(line, { maxLength: 30 }), (lines) => {
+        const { needs, members } = parse(lines.join("\n"));
+        const keys = needs.map((need) => need.key);
+
+        expect(new Set(keys).size).toBe(keys.length);
+        expect(new Set(members).size).toBe(members.length);
+
+        for (const need of needs) {
+          expect(need.key).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+          expect(need.question.trim()).not.toBe("");
+          expect(need.choices.length === 0 || need.choices.length >= 2).toBe(true);
+        }
+      })
+    );
+  });
+
+  const skill: SkillRow = {
+    name: "book-room",
+    description: "Booking a meeting room",
+    body,
+    status: "active",
+    uses: 0,
+    last_used_at: null,
+    created_at: 0,
+    updated_at: 0,
+    pinned: false,
+    created_by: "user",
+    answers: { calendar: "Work", gone: "a need the skill no longer asks" }
+  };
+
+  it("shows a chat the answers and asks the open needs in one card", () => {
+    const text = viewText(skill, { peer: false, chat: true });
+
+    expect(text).toContain("## Answers\n- calendar: Work");
+    expect(text).not.toContain("gone");
+    expect(text).toMatch(/## Open needs\nAsk the user these .* one ui card[\s\S]*- tone: How formal should invites read\?/);
+  });
+
+  it("tells a run outside a chat not to ask, and shows a peer neither answers nor needs", () => {
+    expect(viewText(skill, { peer: false, chat: false })).toContain("only the user can, from a chat");
+    const peer = viewText(skill, { peer: true, chat: false });
+
+    expect(peer).not.toContain("## Answers");
+    expect(peer).not.toContain("## Open needs");
   });
 });

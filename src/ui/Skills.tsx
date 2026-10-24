@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react";
 import type { SkillChange, SkillRow, SkillVersion } from "../protocol";
+import { type Need, parse } from "../skills/contract";
 import { Icon } from "./Icon";
 import { ago } from "./time";
 
@@ -17,12 +18,21 @@ const origin = (skill: SkillRow) =>
     ? { mark: "yours", by: "Yours", title: "Yours: ky's dreams never archive it" }
     : { mark: "ky's", by: "Written by ky", title: "ky wrote it: its dreams may merge or archive it" };
 
-// The row's right edge: a pin when pinned, and whose the skill is.
+/** The needs the user hasn't answered yet. */
+const openNeeds = (skill: SkillRow) => parse(skill.body).needs.filter((need) => skill.answers[need.key] === undefined);
+
+// The row's right edge: what it still needs, a pin when pinned, and whose the skill is.
 function SkillMarks({ skill }: { skill: SkillRow }) {
   const { mark, title } = origin(skill);
+  const open = skill.status === "active" ? openNeeds(skill).length : 0;
 
   return (
     <>
+      {open > 0 ? (
+        <span className="skill-needs-mark" title="Questions it asks before it runs">
+          {open === 1 ? "1 question" : `${open} questions`}
+        </span>
+      ) : null}
       {skill.pinned ? <Icon name="pin" size={13} label="Pinned" className="skill-pin" /> : null}
       <span className="skill-origin" title={title}>
         {mark}
@@ -172,7 +182,10 @@ function SkillItem({
                 }}
               />
             ) : (
-              <pre className="skill-body">{skill.body}</pre>
+              <>
+                <SkillNeeds key={JSON.stringify(skill.answers)} skill={skill} onChange={onChange} />
+                <pre className="skill-body">{skill.body}</pre>
+              </>
             )}
             <SkillActions
               mode={mode}
@@ -303,5 +316,56 @@ function SkillForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// What the skill asks before it runs, answered in place: a choice where it lists them, a line otherwise.
+function SkillNeeds({ skill, onChange }: { skill: SkillRow; onChange: (change: SkillChange) => void }) {
+  const needs = parse(skill.body).needs;
+  const [draft, setDraft] = useState<Record<string, string>>(() => ({ ...skill.answers }));
+
+  if (needs.length === 0 || skill.status === "archived") return null;
+  const changed = needs.filter((need) => (draft[need.key] ?? "") !== (skill.answers[need.key] ?? ""));
+
+  return (
+    <form
+      className="skill-needs"
+      aria-label={`${skill.name} needs`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onChange({ action: "answer", name: skill.name, answers: Object.fromEntries(changed.map((need) => [need.key, draft[need.key] ?? ""])) });
+      }}
+    >
+      <h4 className="skill-needs-title">Needs</h4>
+      {needs.map((need) => (
+        <NeedField key={need.key} need={need} value={draft[need.key] ?? ""} onValue={(value) => setDraft((was) => ({ ...was, [need.key]: value }))} />
+      ))}
+      <div className="skill-actions">
+        <button type="submit" className="pill" disabled={changed.length === 0}>
+          Save answers
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function NeedField({ need, value, onValue }: { need: Need; value: string; onValue: (value: string) => void }) {
+  return (
+    <label className="skill-need">
+      <span className="row-sub">{need.question}</span>
+      {need.choices.length > 0 ? (
+        <select value={value} onChange={(event) => onValue(event.target.value)}>
+          <option value="">Not answered</option>
+          {need.choices.map((choice) => (
+            <option key={choice} value={choice}>
+              {choice}
+            </option>
+          ))}
+          {value !== "" && !need.choices.includes(value) ? <option value={value}>{value}</option> : null}
+        </select>
+      ) : (
+        <input value={value} placeholder="Not answered" onChange={(event) => onValue(event.target.value)} />
+      )}
+    </label>
   );
 }

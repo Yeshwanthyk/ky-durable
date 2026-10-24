@@ -2913,6 +2913,13 @@
   color: var(--muted);
 }
 
+.skill-needs-mark {
+  flex: none;
+  font-size: calc(11.5px * var(--text-scale));
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .skill-origin {
   flex: none;
   font-size: calc(11.5px * var(--text-scale));
@@ -4575,14 +4582,33 @@
   gap: 8px;
 }
 
-.skill-form {
+.skill-form,
+.skill-needs {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.skill-needs {
+  margin-bottom: 10px;
+}
+
+.skill-needs-title {
+  margin: 0;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 600;
+}
+
+.skill-need {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .skill-form input,
 .skill-form textarea,
+.skill-need input,
+.skill-need select,
 .machine-note-input,
 .repo-edit-input {
   width: 100%;
