@@ -1714,6 +1714,36 @@ test.describe("automations in Activity", () => {
   });
 });
 
+test("an app action waits for the user's tap on its card: Approve finishes the program, and Settings sets the tool to Allow, Ask or Block", async ({ page }) => {
+  await open(page);
+  await connectExecutor(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+
+  await send(page, `tool executor_execute ${JSON.stringify({ code: "approve gmail.send send mail to sam" })}`);
+  const card = chat(page).getByRole("region", { name: "Approve this app action?" });
+  await expect(card.getByText("send mail to sam")).toBeVisible();
+  await expect(chat(page).getByText("Only your tap approves it")).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/approval-card.png` });
+  await card.getByRole("button", { name: "Approve" }).click();
+
+  // ky resumes the program at Executor itself, the card goes, and the chat hears what came of it.
+  await expect(card).toBeHidden();
+  await expect(chat(page).getByText(/did send mail to sam/).first()).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/approval-done.png` });
+  await settings(page, "Tools");
+  const policy = panel(page).getByRole("radiogroup", { name: "Approvals for gmail.send" });
+  await policy.getByRole("radio", { name: "Block" }).click();
+  await expect(policy.getByRole("radio", { name: "Block" })).toHaveAttribute("aria-checked", "true");
+
+  if (SHOTS) await panel(page).getByRole("region", { name: "Approvals" }).screenshot({ path: `${SHOTS}/approval-policies.png` });
+  // The stack is shared: put the tool back to the default.
+  await policy.getByRole("radio", { name: "Ask" }).click();
+  await expect(policy.getByRole("radio", { name: "Ask" })).toHaveAttribute("aria-checked", "true");
+});
+
 test("lists the tools ky can use", async ({ page }) => {
   await open(page);
   await connectExecutor(page);

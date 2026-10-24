@@ -45,7 +45,10 @@ import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
-import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail";
+import { type MailDesk, mailDisallow, mailView } from "./mail";
+import type { Approvals } from "./approvals/approvals";
+import type { ExecutorApprovals } from "./approvals/executor";
+import { decideMail } from "./approvals/mail";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
@@ -175,6 +178,8 @@ export class PiSessionSockets {
   readonly #mail: MailDesk;
   readonly #pipe: RunnerPipe;
   readonly #executor: ExecutorLink;
+  readonly #approvals: Approvals;
+  readonly #executorApprovals: ExecutorApprovals;
   readonly #chats: ChatList;
   readonly #skills: Skills;
   readonly #soul: Soul;
@@ -211,6 +216,8 @@ export class PiSessionSockets {
     mail: MailDesk,
     pipe: RunnerPipe,
     executor: ExecutorLink,
+    /** The approvals waiting on the user, and Executor's tool policies. */
+    approvals: { readonly store: Approvals; readonly executor: ExecutorApprovals },
     chats: ChatList,
     skills: Skills,
     soul: Soul,
@@ -244,6 +251,8 @@ export class PiSessionSockets {
     this.#mail = mail;
     this.#pipe = pipe;
     this.#executor = executor;
+    this.#approvals = approvals.store;
+    this.#executorApprovals = approvals.executor;
     this.#chats = chats;
     this.#skills = skills;
     this.#soul = soul;
@@ -294,6 +303,7 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
+    approvals.store.onChange(() => this.#broadcastApprovals());
     // A block made for a message shows as a chip under it, in the browsers following that chat.
     recall.onShown((session, recalled) => {
       for (const socket of this.#getWebSockets(sessionTag(session))) send(socket, { type: "recalled", session, recalls: [recalled] });
@@ -332,6 +342,16 @@ export class PiSessionSockets {
     subscriptions.onChange(() => {
       this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
     });
+  }
+
+  #approvalsMessage(): PiServerMessage {
+    return { type: "approvals", approvals: this.#approvals.pending(), policies: this.#executorApprovals.policies() };
+  }
+
+  #broadcastApprovals(): void {
+    const message = this.#approvalsMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
   }
 
   async #executorMessage(): Promise<PiServerMessage> {
@@ -544,6 +564,7 @@ export class PiSessionSockets {
     send(connection, this.#setupMessage());
     send(connection, await this.#subscriptionsMessage());
     send(connection, await this.#executorMessage());
+    send(connection, this.#approvalsMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
     send(connection, this.#soulMessage());
@@ -948,8 +969,16 @@ export class PiSessionSockets {
     "peer-pair": (message) => peerPair(this.#peers, message.name, message.address, message.code),
     "peer-remove": (message) => peerRemove(this.#peers, message.name),
     "mail-view": () => mailView(this.#mail),
-    "mail-approve": (message) => mailApprove(this.#mail, message.mail),
-    "mail-discard": (message) => mailDiscard(this.#mail, message.mail),
+    "mail-approve": (message) => decideMail(this.#approvals, this.#mail, message.mail, "accept"),
+    "mail-discard": (message) => decideMail(this.#approvals, this.#mail, message.mail, "decline"),
+    // Only the user's own socket decides an approval: no tool reaches here.
+    "approval-decide": (message) => this.#approvals.onDecision(message.approval, message.action),
+    "set-tool-policy": (message) => {
+      this.#executorApprovals.setPolicy(message.tool, message.policy);
+      this.#broadcastApprovals();
+
+      return null;
+    },
     "mail-disallow": (message) => mailDisallow(this.#mail, message.address),
     "new-chat": async () => ({ session: await this.#newChat() }),
     "archive-chat": (message) => {

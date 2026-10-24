@@ -16,6 +16,7 @@ import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
+import { ApprovalsContext } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext } from "./ui/Proactivity";
 import { LedgerContext } from "./ui/LastNight";
@@ -416,13 +417,20 @@ function Stage(parts: Parts) {
 
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
+  const approvals = useMemo(
+    () => ({ approvals: ky.approvals, policies: ky.policies, actions: ky.approvalActions }),
+    [ky.approvals, ky.policies, ky.approvalActions]
+  );
+
   return (
     <section className="stage" aria-label="Chat">
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
         <RoutinesContext.Provider value={routines}>
+          <ApprovalsContext.Provider value={approvals}>
           <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+          </ApprovalsContext.Provider>
         </RoutinesContext.Provider>
         <DraftDock
           handle={composer}
@@ -471,6 +479,12 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
   );
 
   const executor = useMemo(() => ({ view: ky.executor, actions: ky.executorActions }), [ky.executor, ky.executorActions]);
+
+  const approvals = useMemo(
+    () => ({ approvals: ky.approvals, policies: ky.policies, actions: ky.approvalActions }),
+    [ky.approvals, ky.policies, ky.approvalActions]
+  );
+
   const nav = useMemo(() => ({ page: panel.page, go: setPage, openSection }), [panel.page, setPage, openSection]);
 
   const memoryActions = useMemo(
@@ -499,6 +513,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
     <PanelSlot panel={panel}>
       <AutomationsContext.Provider value={automations}>
         <ExecutorContext.Provider value={executor}>
+          <ApprovalsContext.Provider value={approvals}>
           <PeerContext.Provider value={ky.peerActions}>
           <MailContext.Provider value={ky.mailActions}>
           <ProactivityContext.Provider value={ky.proactivityActions}>
@@ -546,6 +561,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           </ProactivityContext.Provider>
           </MailContext.Provider>
           </PeerContext.Provider>
+          </ApprovalsContext.Provider>
         </ExecutorContext.Provider>
       </AutomationsContext.Provider>
     </PanelSlot>

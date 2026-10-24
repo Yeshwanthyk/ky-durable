@@ -41,6 +41,9 @@ import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, pe
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
 import { Pushes } from "./push";
+import { Approvals } from "./approvals/approvals";
+import { ExecutorApprovals } from "./approvals/executor";
+import { handleMail, mailHeld } from "./approvals/mail";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
@@ -133,7 +136,8 @@ export class PiAgent extends DurableObject<Env> {
     limits: mailLimits(this.env),
     owners: () => (this.env.ACCESS_EMAILS ?? "").split(",").map(addressOf).filter((address) => address !== ""),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
-    triage: (mail, content, started) => this.#triageMail(mail.id, mail.party, content, started)
+    triage: (mail, content, started) => this.#triageMail(mail.id, mail.party, content, started),
+    held: (mail) => mailHeld(this.approvals, mail)
   };
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
@@ -260,6 +264,19 @@ export class PiAgent extends DurableObject<Env> {
     // A side chat by its name; the main chat, and one not named yet, as ky.
     title: (session) => this.chats.list().find((chat) => chat.session === session)?.title || "ky",
     origin: () => this.setup.origin()
+  });
+  /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
+  readonly approvals = new Approvals(this.ctx.storage.sql, {
+    chat: (session) => this.isChat(session),
+    // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
+    owner: (session) => this.feed.working(session)?.chat || ROOT_SESSION,
+    notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text))
+  });
+  /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
+  readonly executorApprovals = new ExecutorApprovals(this.ctx.storage.sql, this.approvals, {
+    config: () => this.executor.config(),
+    chat: (session) => this.isChat(session),
+    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
@@ -486,6 +503,7 @@ export class PiAgent extends DurableObject<Env> {
     this.mailDesk,
     this.pipe,
     this.executor,
+    { store: this.approvals, executor: this.executorApprovals },
     this.chats,
     this.skills,
     this.soul,
@@ -531,6 +549,7 @@ export class PiAgent extends DurableObject<Env> {
     // When the providers change, the chats move to what main resolves to now.
     this.models.onChange(() => this.ctx.waitUntil(this.applyMain()));
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
+    handleMail(this.approvals, () => this.mailDesk);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -547,7 +566,7 @@ export class PiAgent extends DurableObject<Env> {
 
     const installed = this.registry.snapshot().extension("executor");
 
-    if (config) this.registry.install(executorExtension(config, (url) => this.executor.retarget(url)));
+    if (config) this.registry.install(executorExtension(config, this.executorApprovals, (url) => this.executor.retarget(url)));
     else if (installed) this.registry.uninstall(installed);
   }
 

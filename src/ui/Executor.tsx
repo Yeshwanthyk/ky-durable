@@ -1,6 +1,8 @@
 import { createContext, type FormEvent, useContext, useState } from "react";
+import type { ToolPolicy } from "../approvals/contract";
 import type { ExecutorView } from "../protocol";
-import { VaultBadge } from "./Controls";
+import { ApprovalsContext } from "./Approvals";
+import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
 
@@ -26,6 +28,46 @@ export function Executor() {
     <section className="group" id="settings-executor">
       <h3 className="group-label">Executor</h3>
       {view?.url ? <ConnectedExecutor url={view.url} actions={actions} /> : <ConnectExecutor onConnect={actions.onConnect} />}
+      {view?.url ? <ToolPolicies /> : null}
+    </section>
+  );
+}
+
+const POLICIES: ReadonlyArray<[ToolPolicy, string]> = [
+  ["allow", "Allow"],
+  ["ask", "Ask"],
+  ["block", "Block"]
+];
+
+/**
+ * Each app tool that has asked for approval, and what ky does next time: ask
+ * with a card (the default), allow it while the user is in the chat, or block
+ * it. With nobody in the chat, Allow asks too.
+ */
+function ToolPolicies() {
+  const { policies, actions } = useContext(ApprovalsContext);
+  const [refused, setRefused] = useState<string>();
+
+  if (policies.length === 0) return null;
+
+  return (
+    <section className="card" aria-label="Approvals">
+      {policies.map(({ tool, policy }) => (
+        <div className="row" key={tool}>
+          <span className="row-text">
+            <span className="row-label">{tool}</span>
+          </span>
+          <Segmented small role="radiogroup" aria-label={`Approvals for ${tool}`} chosen={policy}>
+            {POLICIES.map(([each, label]) => (
+              <SegmentedOption key={each} checked={policy === each} onChoose={() => void actions.onPolicy(tool, each).then(setRefused)}>
+                {label}
+              </SegmentedOption>
+            ))}
+          </Segmented>
+        </div>
+      ))}
+      <Problem text={refused} />
+      <p className="card-foot quiet">Allow approves only while you're in the chat; in a routine or a peer's question it asks you.</p>
     </section>
   );
 }

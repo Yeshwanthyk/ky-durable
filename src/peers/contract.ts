@@ -115,8 +115,10 @@ export const PEER_TOOL = "peer";
 /**
  * The tools a peer conversation may call, besides `peer escalate`: memory and skill lookups, and the
  * executor. The executor runs programs against the user's connected apps, so a peer conversation can
- * act through them, not only look things up; the user chose to keep it (an app's own approval, and the
- * peer prompt's rules, are what hold it back).
+ * act through them, not only look things up; the user chose to keep it. What holds it back is that an
+ * approval is the user's alone (src/approvals/executor.ts): executor_resume can't accept, so a tool that
+ * needs approval waits as a card in the user's main chat, with a push, until their own tap decides it.
+ * A peer can only decline, cancel, or answer a request for input.
  */
 export const PEER_TOOLS = ["memory_recall", "memory_zoom", "skill_view", "executor_skills", "executor_execute", "executor_resume"] as const;
 

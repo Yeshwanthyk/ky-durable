@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectExecutor, inside, prompt, promptTool, submit, until } from "./drive";
+import { connectExecutor, inside, prompt, promptTool, said, submit, until } from "./drive";
 import { EXECUTOR_TOKEN, EXECUTOR_URL } from "./stack";
 
 /** What the fake Executor saw: how often `code` ran, cancellations, sessions opened. */
@@ -109,10 +109,10 @@ describe("executor approvals in model mode", () => {
     expect(saved).toBe(BROWSER);
   });
 
-  it("passes resume's response to Executor unchanged", async () => {
+  it("passes a decline to Executor unchanged", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
-    const args = { requestId: "request-9", response: { action: "accept", content: { reason: "yes", count: 2, ok: true, tags: ["a", "b"] } } };
+    const args = { requestId: "request-9", response: { action: "decline" } };
 
     await prompt(name, `tool executor_resume ${JSON.stringify(args)}`);
 
@@ -123,15 +123,16 @@ describe("executor approvals in model mode", () => {
     const name = crypto.randomUUID();
     await connectBrowserUrl(name);
 
-    expect((await prompt(name, 'tool executor_execute {"code":"approve send mail to sam"}')).text).toBe(
-      'tool said: {"status":"approval-required","requestId":"request-1","message":"send mail to sam"}'
+    expect((await prompt(name, 'tool executor_execute {"code":"approve send mail to sam"}')).text).toMatch(
+      /^tool said: \{"status":"approval-required","requestId":"request-1","message":"send mail to sam"\}/
     );
     // Executor forgets the session, as a new one after the Durable Object wakes.
     await inside(name, (instance) => instance.boundary.executorFake.open.clear());
+    const [card] = await inside(name, (instance) => instance.approvals.pending());
 
-    expect((await prompt(name, 'tool executor_resume {"requestId":"request-1","response":{"action":"accept"}}')).text).toBe(
-      'tool said: {"status":"completed","result":"did send mail to sam"}'
-    );
+    // The user's tap resumes it on a session of its own, which closes after.
+    expect(await inside(name, (instance) => instance.approvals.onDecision(card!.id, "accept"))).toEqual({});
+    await said(name, '{"status":"completed","result":"did send mail to sam"}');
     expect(await inside(name, (instance) => instance.boundary.executorFake.sessions)).toBe(2);
   });
 

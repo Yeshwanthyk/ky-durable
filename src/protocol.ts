@@ -2,6 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import type { PiSessionId } from "agents/harness/pi";
 import type { Static } from "typebox";
+import type { ApprovalView, ToolPolicyView } from "./approvals/contract";
 import type { AvatarsView } from "./avatar-spec";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
@@ -214,6 +215,8 @@ export type PiServerMessage =
   | { readonly type: "executor"; readonly executor: ExecutorView }
   /** The tools ky has, as in hello; sent when they change, as when Executor is connected or removed. */
   | { readonly type: "tools"; readonly tools: readonly PiToolInfo[] }
+  /** The approvals waiting on the user's tap, each shown as a card in its chat, and each Executor tool's policy; sent on connect and on change. */
+  | { readonly type: "approvals"; readonly approvals: readonly ApprovalView[]; readonly policies: readonly ToolPolicyView[] }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 
