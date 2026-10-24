@@ -47,6 +47,40 @@ describe("skills", () => {
     );
   });
 
+  it("saves the user's answers from a chat without a version, and refuses one no need asks or a background run", async () => {
+    const name = crypto.randomUUID();
+    const body = "1. Order the list.\n\n## Needs\n- store: Which store? (Costco | Safeway)\n- day: Which day?";
+    await prompt(name, tool("skill_manage", { action: "create", name: "weekly-groceries", description: "Ordering the weekly groceries", body }));
+
+    const open = (await prompt(name, tool("skill_view", { name: "weekly-groceries" }))).text;
+    expect(open).toMatch(/## Open needs\nAsk the user these[\s\S]*- store: Which store\? \(Costco \| Safeway\)\n- day: Which day\?/);
+
+    const saved = await prompt(name, tool("skill_manage", { action: "answer", name: "weekly-groceries", answers: { store: "Costco" } }));
+    expect(saved.text).toBe("tool said: Saved an answer for weekly-groceries.");
+    const seen = (await prompt(name, tool("skill_view", { name: "weekly-groceries" }))).text;
+    expect(seen).toContain("## Answers\n- store: Costco");
+    const stillOpen = seen?.split("## Open needs")[1] ?? "";
+    expect(stillOpen).toMatch(/- day: Which day\?$/);
+    expect(stillOpen).not.toContain("store");
+
+    const typo = await promptTool(name, tool("skill_manage", { action: "answer", name: "weekly-groceries", answers: { shop: "Costco" } }));
+    expect(typo.failed).toBe(true);
+    expect(typo.text).toContain("weekly-groceries doesn't ask shop; it asks store, day.");
+
+    await inside(name, (instance) => {
+      expect(() => instance.skills.apply({ action: "answer", name: "weekly-groceries", answers: { day: "Sunday" } }, "dream")).toThrow(
+        "Only the user answers a skill's needs."
+      );
+      // The panel's answer clears one with a blank, and a revert of the text keeps the answers.
+      instance.skills.apply({ action: "answer", name: "weekly-groceries", answers: { day: "Sunday", store: "" } }, "user");
+      expect(instance.skills.get("weekly-groceries")?.answers).toEqual({ day: "Sunday" });
+      expect(instance.skills.history("weekly-groceries").map((each) => each.action)).toEqual(["create"]);
+      instance.skills.apply({ action: "patch", name: "weekly-groceries", old: "Order", new: "Buy" }, "user");
+      instance.skills.apply({ action: "revert", name: "weekly-groceries", version: instance.skills.history("weekly-groceries")[1]?.id ?? 0 }, "user");
+      expect(instance.skills.get("weekly-groceries")?.answers).toEqual({ day: "Sunday" });
+    });
+  });
+
   it("refuses a bad name, a duplicate, and a patch that does not match once", async () => {
     const name = crypto.randomUUID();
     const bad = await promptTool(name, tool("skill_manage", { action: "create", name: "Fix PR 12", description: "x", body: "y" }));

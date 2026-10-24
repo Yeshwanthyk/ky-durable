@@ -22,13 +22,15 @@ export type SkillsWiring = {
   readonly background: ReviewHost;
   /** The main chat or a side chat. */
   readonly chat: (session: string) => boolean;
+  /** A conversation answering another ky's question (src/peers/peers.ts). */
+  readonly peer: (session: string) => boolean;
   /** How an automation run's report reaches the user (src/automations/delivery.ts). */
   readonly deliver: (item: Delivery) => Promise<void>;
 };
 
 /** The skill tools, with the reviews of busy turns. */
-export function skillTools({ skills, reviews, background, chat }: SkillsWiring): Extension {
-  return skillsExtension(skills, reviews, background, chat);
+export function skillTools({ skills, reviews, background, chat, peer }: SkillsWiring): Extension {
+  return skillsExtension(skills, reviews, background, chat, peer);
 }
 
 /** The main agent's own extensions, which subagents and specialists may be given or not. */

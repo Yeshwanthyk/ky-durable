@@ -66,6 +66,12 @@ export type SkillAction = Static<typeof SkillAction>;
 export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
 
 /**
+ * The user's answers to a skill's Needs (src/skills/sections.ts), saved from a chat or the panel. Not a version
+ * either: answers are the user's facts for the skill, not its text, so a revert or a dream's undo leaves them.
+ */
+export const AnswerAction = Type.Literal("answer");
+
+/**
  * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
  * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
  * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
@@ -92,7 +98,7 @@ const EDITS = {
 
 /** One change to the library, skill_manage's input; which fields it needs depends on the action. */
 export const SkillChange = Type.Object({
-  action: Type.Union([SkillAction, PinAction]),
+  action: Type.Union([SkillAction, PinAction, AnswerAction]),
   name: Type.String(),
   description: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
@@ -100,7 +106,9 @@ export const SkillChange = Type.Object({
   /** On an archive that is a merge: the active skill that now covers this one. A dream must give it. */
   absorbed_into: Type.Optional(Type.String()),
   /** Why, in a few words; a dream's shows in Activity's Last night. */
-  reason: Type.Optional(Type.String())
+  reason: Type.Optional(Type.String()),
+  /** On an answer: each need's key and the user's answer; a blank answer clears it. */
+  answers: Type.Optional(Type.Record(Type.String(), Type.String()))
 });
 
 export type SkillChange = Static<typeof SkillChange>;
@@ -123,17 +131,110 @@ export const SkillStored = Type.Object({
   created_at: Type.Number(),
   updated_at: Type.Number(),
   pinned: Type.Number(),
-  created_by: SkillOrigin
+  created_by: SkillOrigin,
+  /** The user's answers to its Needs as a JSON object; null until the first. */
+  answers: Type.Union([Type.String(), Type.Null()])
 });
 
-export type SkillRow = Omit<Static<typeof SkillStored>, "pinned"> & {
+export type SkillRow = Omit<Static<typeof SkillStored>, "pinned" | "answers"> & {
   /** The user pinned it: a dream leaves it as it is. */
   readonly pinned: boolean;
+  /** The user's answer to each need, by its key. */
+  readonly answers: Readonly<Record<string, string>>;
 };
 
-/** A stored skill, its pin as a boolean. */
-export function skillOf({ pinned, ...row }: Static<typeof SkillStored>): SkillRow {
-  return { ...row, pinned: pinned !== 0 };
+const Answers = Type.Record(Type.String(), Type.String());
+
+// A skill's sections ky reads, besides following it: `## Needs`, what the skill asks the user before it can
+// run, one `- key: question` line each, with the choices in a trailing `(a | b)`; and `## Members`, the skills a
+// kit runs, one `- name` line each. Anything else in the body is its steps. Parsing never throws: a line that
+// doesn't fit is the skill's text, not a need.
+
+export type Need = {
+  /** lowercase-with-hyphens, as skill names are; the answer is kept under it. */
+  readonly key: string;
+  readonly question: string;
+  /** The options to pick from, when the question lists them; none means a free answer. */
+  readonly choices: readonly string[];
+};
+
+export type Sections = {
+  readonly needs: readonly Need[];
+  readonly members: readonly string[];
+};
+
+const KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const NEED = /^[-*]\s+([^:\s]+)\s*:\s*(.+)$/;
+
+const MEMBER = /^[-*]\s+`?([^`\s]+)`?\s*$/;
+
+const CHOICES = /\s*\(([^()]*\|[^()]*)\)\s*$/;
+
+/** The lines under each `## heading`, by its lowercased title. */
+function sections(body: string): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  let current: string[] | undefined;
+
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    const heading = /^##\s+(.+?)\s*#*$/.exec(line);
+
+    if (heading) {
+      const title = (heading[1] ?? "").toLowerCase();
+      current = found.get(title) ?? [];
+      found.set(title, current);
+    } else if (/^#\s/.test(line)) {
+      current = undefined;
+    } else if (line !== "") {
+      current?.push(line);
+    }
+  }
+
+  return found;
+}
+
+function need(line: string): Need | undefined {
+  const match = NEED.exec(line);
+  const key = match?.[1];
+  const rest = match?.[2]?.trim();
+
+  if (key === undefined || rest === undefined || !KEY.test(key)) return undefined;
+  const choices = CHOICES.exec(rest);
+  const options = (choices?.[1] ?? "").split("|").map((option) => option.trim()).filter((option) => option !== "");
+  const question = choices && options.length >= 2 ? rest.slice(0, choices.index).trim() : rest;
+
+  return question === "" ? undefined : { key, question, choices: choices && options.length >= 2 ? options : [] };
+}
+
+/** A body's needs, first of each key, and its members, each once, in the order written. */
+export function parse(body: string): Sections {
+  const found = sections(body);
+  const needs = new Map<string, Need>();
+
+  for (const line of found.get("needs") ?? []) {
+    const each = need(line);
+
+    if (each && !needs.has(each.key)) needs.set(each.key, each);
+  }
+
+  const members = new Set<string>();
+
+  for (const line of found.get("members") ?? []) {
+    const name = MEMBER.exec(line)?.[1];
+
+    if (name !== undefined && KEY.test(name)) members.add(name);
+  }
+
+  return { needs: [...needs.values()], members: [...members] };
+}
+
+/** Stored answers; a column that doesn't hold an object of strings reads as none. */
+const answersOf = (stored: string | null): Record<string, string> => (stored === null ? {} : parseOr(Answers, stored, {}));
+
+/** A stored skill, its pin as a boolean and its answers as an object. */
+export function skillOf({ pinned, answers, ...row }: Static<typeof SkillStored>): SkillRow {
+  return { ...row, pinned: pinned !== 0, answers: answersOf(answers) };
 }
 
 /**
