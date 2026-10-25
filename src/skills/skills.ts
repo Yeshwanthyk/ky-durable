@@ -1,26 +1,44 @@
-import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { Value } from "typebox/value";
-import { decode } from "../core/decode";
-import { must } from "../core/must";
+import { Sql } from "../core/sql";
 import {
+  Ambiguous,
   AnswerAction,
-  parse,
+  BadName,
+  Exists,
+  Incomplete,
   isMachine,
+  KindStays,
   kitsOf,
+  MachineAnswers,
+  MachinePins,
+  NoAnswers,
+  NoDescription,
+  NoSkill,
+  NoSuchAction,
+  NotAMerge,
+  NotAsked,
+  NotInBody,
+  NoVersion,
+  parse,
   PinAction,
+  Pinned,
   type ReviewHost,
-  type ReviewKind,
+  ReviewKind,
   REVIEW_ALLOWED,
-  ReviewRow,
   reviewFork,
-  ReviewRunRow,
   runInFeed,
   type SkillAction,
-  type SkillKind,
   SkillAction as SkillActionSchema,
   SkillChange,
+  type SkillKind,
   type SkillOrigin,
+  type SkillRefusal,
   type SkillRow,
   type SkillStatus,
   SkillStored,
@@ -30,10 +48,13 @@ import {
   skillOf,
   SKILL_CRAFT,
   SKILL_TABLES,
-  TOOLS
+  type TextRefusal,
+  TooLong,
+  TOOLS,
+  UsersOwn
 } from "./contract";
-import { rows } from "./rows";
 import { toolReply as text } from "../core/reply";
+import type { Reviews, Skills } from "./wiring";
 
 /**
  * Skills: the agent's procedural memory, after Hermes Agent's skills and
@@ -54,7 +75,7 @@ const DESCRIPTION_CHARS = 200;
 const BODY_CHARS = 20_000;
 
 /** A turn with at least this many tool calls is reviewed for skills. */
-const REVIEW_AFTER = 5;
+export const REVIEW_AFTER = 5;
 
 /** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 const ALLOWED: Record<ReviewKind, ReadonlySet<string>> = {
@@ -78,386 +99,413 @@ const originOf = (actor: string): SkillOrigin => (actor === "agent" || actor ===
 /** What a version holds. */
 type Content = { readonly description: string; readonly body: string; readonly status: SkillStatus };
 
-const ColumnRow = Type.Object({ name: Type.String() });
+const ColumnRow = Schema.Struct({ name: Schema.String });
 
-const VersionId = Type.Object({ id: Type.Number() });
+const VersionId = Schema.Struct({ id: Schema.Number });
 
-const Touched = Type.Object({ name: Type.String(), at: Type.Number() });
+const Touched = Schema.Struct({ name: Schema.String, at: Schema.Number });
 
-const Inserted = Type.Object({ id: Type.Number() });
+const Reached = Schema.Struct({ upto: Schema.Number, created_at: Schema.Number });
 
-const Reached = Type.Object({ upto: Type.Number(), created_at: Type.Number() });
+const Forked = Schema.Struct({ parent: Schema.String, upto: Schema.Number });
 
-const Forked = Type.Object({ parent: Type.String(), upto: Type.Number() });
+/** A review log row, as `kind` reads it. */
+const ReviewRow = Schema.Struct({ kind: ReviewKind });
+
+/** A review log row, as `run` reads it: a dream's run token, null for a review, whose run is its conversation. */
+const ReviewRunRow = Schema.Struct({ run: Schema.NullOr(Schema.String) });
 
 /** Add the columns a table was first made without; returns the ones it added. */
-function addColumns(sql: SqlStorage, table: string, columns: ReadonlyArray<readonly [string, string]>): string[] {
-  const have = rows(sql.exec(`PRAGMA table_info(${table})`), ColumnRow, `a column of ${table}`);
-  const added: string[] = [];
+const addColumns = (table: string, columns: ReadonlyArray<readonly [string, string]>) =>
+  Effect.gen(function* () {
+    const sql = yield* Sql;
+    const have = yield* sql.rows(ColumnRow, `PRAGMA table_info(${table})`);
+    const added: string[] = [];
 
-  for (const [name, type] of columns) {
-    if (have.some((column) => column.name === name)) continue;
-    sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
-    added.push(name);
-  }
+    for (const [name, type] of columns) {
+      if (have.some((column) => column.name === name)) continue;
+      yield* sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      added.push(name);
+    }
 
-  return added;
-}
+    return added;
+  });
 
 /** The body with one exact passage replaced; the passage must appear exactly once. */
-function patched(skill: SkillRow, old: string, replacement: string): string {
+function patched(skill: SkillRow, old: string, replacement: string): Effect.Effect<string, NotInBody | Ambiguous> {
   const count = skill.body.split(old).length - 1;
 
-  if (old === "" || count === 0) throw new Error(`The text to replace is not in ${skill.name}.`);
+  if (old === "" || count === 0) return Effect.fail(new NotInBody({ name: skill.name }));
 
-  if (count > 1) throw new Error(`The text to replace appears ${count} times in ${skill.name}; quote more of it.`);
+  if (count > 1) return Effect.fail(new Ambiguous({ name: skill.name, count }));
 
-  return skill.body.replace(old, () => replacement);
+  return Effect.succeed(skill.body.replace(old, () => replacement));
 }
 
-function checkName(name: string): void {
-  if (!NAME.test(name)) {
-    throw new Error(`Bad skill name "${name}": lowercase letters, digits and hyphens, at most 64.`);
-  }
+function checkText(description: string, body: string): Effect.Effect<void, TextRefusal> {
+  if (description.trim() === "") return Effect.fail(new NoDescription());
+
+  if (description.length > DESCRIPTION_CHARS) return Effect.fail(new TooLong({ field: "description", length: description.length, limit: DESCRIPTION_CHARS }));
+
+  if (body.length > BODY_CHARS) return Effect.fail(new TooLong({ field: "body", length: body.length, limit: BODY_CHARS }));
+
+  return Effect.void;
 }
 
-function checkText(description: string, body: string): void {
-  if (description.trim() === "") throw new Error("A skill needs a description.");
+/** `value`, or `refusal` when it is missing. */
+const given = <A, E>(value: A | undefined, refusal: E): Effect.Effect<A, E> => (value === undefined ? Effect.fail(refusal) : Effect.succeed(value));
 
-  if (description.length > DESCRIPTION_CHARS) {
-    throw new Error(`The description is ${description.length} characters; keep it under ${DESCRIPTION_CHARS}.`);
-  }
+/** What a change makes of the skill it names, `was`, or why it can't; `history` reads a skill's versions. */
+type Change = (
+  change: SkillChange,
+  was: SkillRow | undefined,
+  history: (name: string) => Effect.Effect<ReadonlyArray<SkillVersion>>
+) => Effect.Effect<Content, SkillRefusal>;
 
-  if (body.length > BODY_CHARS) throw new Error(`The body is ${body.length} characters; keep it under ${BODY_CHARS}.`);
-}
-
-/** What a change makes of the skill it names, `was`, or why it can't. */
-type Change = (change: SkillChange, was: SkillRow | undefined, skills: Skills) => Content;
-
-const existing = (change: SkillChange, was: SkillRow | undefined): SkillRow => must(was, `No skill named ${change.name}.`);
+const existing = (change: SkillChange, was: SkillRow | undefined) => given(was, new NoSkill({ name: change.name }));
 
 /** One handler per action: the record's type makes it exhaustive, so no action falls through to another. */
 export const CHANGES: Readonly<Record<SkillAction, Change>> = {
-  create: (change, was) => {
-    if (was) throw new Error(`${change.name} exists; edit or patch it.`);
+  create: (change, was) =>
+    Effect.gen(function* () {
+      if (was) return yield* new Exists({ name: change.name });
 
-    return {
-      description: must(change.description, "create needs a description and a body."),
-      body: must(change.body, "create needs a description and a body."),
-      status: "active"
-    };
-  },
-  edit: (change, was) => {
-    const skill = existing(change, was);
+      return {
+        description: yield* given(change.description, new Incomplete({ action: "create" })),
+        body: yield* given(change.body, new Incomplete({ action: "create" })),
+        status: "active" as const
+      };
+    }),
+  edit: (change, was) =>
+    Effect.map(existing(change, was), (skill) => ({ description: change.description ?? skill.description, body: change.body ?? skill.body, status: skill.status })),
+  patch: (change, was) =>
+    Effect.gen(function* () {
+      const skill = yield* existing(change, was);
+      const old = yield* given(change.old, new Incomplete({ action: "patch" }));
+      const replacement = yield* given(change.new, new Incomplete({ action: "patch" }));
 
-    return { description: change.description ?? skill.description, body: change.body ?? skill.body, status: skill.status };
-  },
-  patch: (change, was) => {
-    const skill = existing(change, was);
-    const old = must(change.old, "patch needs old and new.");
+      return { ...skill, body: yield* patched(skill, old, replacement) };
+    }),
+  archive: (change, was) => Effect.map(existing(change, was), (skill) => ({ ...skill, status: "archived" as const })),
+  restore: (change, was) => Effect.map(existing(change, was), (skill) => ({ ...skill, status: "active" as const })),
+  revert: (change, was, history) =>
+    Effect.gen(function* () {
+      yield* existing(change, was);
+      const id = yield* given(change.version, new Incomplete({ action: "revert" }));
+      const versions = yield* history(change.name);
 
-    return { ...skill, body: patched(skill, old, must(change.new, "patch needs old and new.")) };
-  },
-  archive: (change, was) => ({ ...existing(change, was), status: "archived" }),
-  restore: (change, was) => ({ ...existing(change, was), status: "active" }),
-  revert: (change, was, skills) => {
-    existing(change, was);
-    const id = must(change.version, "revert needs a version.");
-
-    return must(
-      skills.history(change.name).find((each) => each.id === id),
-      `${change.name} has no version ${id}.`
-    );
-  }
+      return yield* given(
+        versions.find((each) => each.id === id),
+        new NoVersion({ name: change.name, version: id })
+      );
+    })
 };
 
 /**
- * Why a background run (a dream, a review: `isMachine`) may not turn `was` into `next`, or undefined when it
+ * Why a background run (a dream, a review: `isMachine`) may not turn `was` into `next`, or nothing when it
  * may. The guards are in code, after Hermes's curator: a pinned skill is left as it is, and whatever moves an
  * active skill to archived, an archive or a revert to an archived version, archives only what ky made and only
  * as a merge into another active skill (staleness is `stale`'s, not the model's). One change per skill a run is the ledger's (src/dreaming/ledger.ts), which sees each write first.
  */
-function machineRefusal(actor: string, was: SkillRow | undefined, next: Content, absorbedInto: string | undefined, skills: Skills): string | undefined {
+function machineRefusal(actor: string, was: SkillRow | undefined, next: Content, into: SkillRow | undefined): Pinned | UsersOwn | NotAMerge | undefined {
   if (!isMachine(actor) || was === undefined) return undefined;
 
-  if (was.pinned) return `${was.name} is pinned; ky's background runs leave it as it is.`;
+  if (was.pinned) return new Pinned({ name: was.name });
 
-  return was.status === "active" && next.status === "archived" ? archiveRefusal(was, absorbedInto, skills) : undefined;
+  return was.status === "active" && next.status === "archived" ? archiveRefusal(was, into) : undefined;
 }
 
-/** Why a background run may not archive an active skill: the user's own, or not a merge into another active one. */
-function archiveRefusal(was: SkillRow, absorbedInto: string | undefined, skills: Skills): string | undefined {
-  if (was.created_by === "user") return `${was.name} is the user's own skill; a background run may not archive it.`;
-  const into = absorbedInto === undefined ? undefined : skills.get(absorbedInto);
+/** Why a background run may not archive an active skill: the user's own, or not a merge into the active skill `into`. */
+function archiveRefusal(was: SkillRow, into: SkillRow | undefined): UsersOwn | NotAMerge | undefined {
+  if (was.created_by === "user") return new UsersOwn({ name: was.name });
 
   if (into?.status === "active" && into.name !== was.name) return undefined;
 
-  return `That archives ${was.name}, and a background run archives a skill only as a merge: give absorbed_into, the active skill that now covers it. Skills nobody uses are archived by ky itself.`;
+  return new NotAMerge({ name: was.name });
 }
 
-/** The skill library in the Durable Object's SQLite, with every version kept. */
-export class Skills {
-  readonly #sql: SqlStorage;
-  readonly #listeners = new Set<() => void>();
-  readonly #writes = new Set<(write: SkillWrite) => ((version: number) => void) | undefined>();
-  /** A turn with at least this many tool calls is reviewed. */
-  reviewAfter = REVIEW_AFTER;
+/** Called just before each write; a watcher that throws refuses it, and one that returns a function hears the version it made. */
+export type Watcher = (write: SkillWrite) => ((version: number) => void) | undefined;
 
-  constructor(sql: SqlStorage) {
-    this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skills} (
-      name TEXT PRIMARY KEY,
-      description TEXT NOT NULL,
-      body TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      uses INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillVersions} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      action TEXT NOT NULL,
-      actor TEXT NOT NULL,
-      description TEXT NOT NULL,
-      body TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )`);
+/** Who hears of the library's writes: the facade (wiring.ts) owns both sets. */
+export type Hooks = { readonly writes: ReadonlySet<Watcher>; readonly listeners: ReadonlySet<() => void> };
 
-    const added = addColumns(sql, SKILL_TABLES.skills, [
-      ["last_used_at", "INTEGER"],
-      ["pinned", "INTEGER NOT NULL DEFAULT 0"],
-      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-      ["answers", "TEXT"],
-      ["kind", "TEXT NOT NULL DEFAULT 'skill'"]
-    ]);
-
-    addColumns(sql, SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]);
-
-    // Skills from before provenance was kept: who made each is its first version's actor, and the user's when unknown.
-    if (added.includes("created_by")) {
-      sql.exec(
-        `UPDATE ${SKILL_TABLES.skills} SET created_by = COALESCE((SELECT actor FROM ${SKILL_TABLES.skillVersions} v
-           WHERE v.name = ${SKILL_TABLES.skills}.name ORDER BY v.id LIMIT 1), 'user')`
-      );
-      sql.exec(`UPDATE ${SKILL_TABLES.skills} SET created_by = 'user' WHERE created_by NOT IN ('agent', 'review', 'dream')`);
-    }
-  }
-
-  /**
-   * Called just before each change is written; a watcher that throws refuses the change. One that returns a
-   * function hears the id of the version the change made, once it is written.
-   */
-  onWrite(watcher: (write: SkillWrite) => ((version: number) => void) | undefined): () => void {
-    this.#writes.add(watcher);
-
-    return () => this.#writes.delete(watcher);
-  }
-
-  onChange(listener: () => void): () => void {
-    this.#listeners.add(listener);
-
-    return () => this.#listeners.delete(listener);
-  }
-
-  #skills(query: string, ...bindings: SqlStorageValue[]): SkillRow[] {
-    return rows(this.#sql.exec(query, ...bindings), SkillStored, "a stored skill").map(skillOf);
-  }
-
-  get(name: string): SkillRow | undefined {
-    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE name = ?`, name)[0];
-  }
-
-  list(status: SkillStatus = "active"): SkillRow[] {
-    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE status = ? ORDER BY name`, status);
-  }
-
+export interface SkillLibrary {
+  readonly get: (name: string) => Effect.Effect<SkillRow | undefined>;
+  readonly list: (status?: SkillStatus) => Effect.Effect<ReadonlyArray<SkillRow>>;
   /** Every skill, active ones first, for the panel. */
-  all(): SkillRow[] {
-    return this.#skills(`SELECT * FROM ${SKILL_TABLES.skills} ORDER BY status = 'archived', name`);
-  }
-
-  history(name: string): SkillVersion[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name), SkillVersion, "a skill version");
-  }
-
+  readonly all: Effect.Effect<ReadonlyArray<SkillRow>>;
+  readonly history: (name: string) => Effect.Effect<ReadonlyArray<SkillVersion>>;
   /** The prompt's index: one line per active skill, a kit marked as one and a skill with the kits that run it. */
-  index(): string {
-    const active = this.list();
-    const kits = kitsOf(active);
-
-    return active
-      .map((skill) => {
-        const mark = skill.kind === "kit" ? " (kit)" : kits.has(skill.name) ? ` (in ${kits.get(skill.name)?.join(", ")})` : "";
-
-        return `- ${skill.name}${mark}: ${skill.description}`;
-      })
-      .join("\n");
-  }
-
+  readonly index: Effect.Effect<string>;
   /** Open a skill for use, and count the use. */
-  view(name: string): SkillRow {
-    const skill = this.get(name);
-
-    if (!skill) throw new Error(`No skill named ${name}.`);
-    this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET uses = uses + 1, last_used_at = ? WHERE name = ?`, Date.now(), name);
-
-    return skill;
-  }
-
+  readonly view: (name: string) => Effect.Effect<SkillRow, NoSkill>;
   /** Versions made after a time, oldest first, newest `limit` of them. */
-  versionsSince(at: number, limit: number, exceptActor = ""): SkillVersion[] {
-    return rows(
-      this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?`, at, exceptActor, limit),
-      SkillVersion,
-      "a skill version"
-    ).reverse();
-  }
-
+  readonly versionsSince: (at: number, limit: number, exceptActor?: string) => Effect.Effect<ReadonlyArray<SkillVersion>>;
   /** Apply one change and record the result as a new version; returns what happened. An action ky doesn't know is refused. */
-  apply(change: SkillChange, actor: string, conversation: string | null = null): string {
-    // The tool's input is checked against its schema, but the panel's change comes off a socket.
-    if (Value.Check(PinAction, change.action)) return this.#pin(change.name, change.action === "pin", actor);
-
-    if (Value.Check(AnswerAction, change.action)) return this.#answer(change.name, change.answers ?? {}, actor);
-
-    if (!Value.Check(SkillActionSchema, change.action)) throw new Error(`There is no skill action "${String(change.action)}".`);
-    checkName(change.name);
-    const action = change.action;
-
-    if (change.kind !== undefined && action !== "create") throw new Error("A skill's kind is set when it's created and stays.");
-    const was = this.get(change.name);
-    const next = CHANGES[action](change, was, this);
-    const refusal = machineRefusal(actor, was, next, change.absorbed_into, this);
-
-    if (refusal !== undefined) throw new Error(refusal);
-    const write = { name: change.name, action, actor, conversation, run: null, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
-
-    return this.#save(write, next, change.kind);
-  }
-
-  /** Pin or unpin a skill: the user's call, from the panel or by asking ky, or ky's seeding pinning a default skill it creates; a background run may not. */
-  #pin(name: string, pinned: boolean, actor: string): string {
-    if (isMachine(actor)) throw new Error("Only the user, or ky's own seeding, pins or unpins a skill.");
-
-    if (!this.get(name)) throw new Error(`No skill named ${name}.`);
-    this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET pinned = ? WHERE name = ?`, pinned ? 1 : 0, name);
-
-    for (const listener of this.#listeners) listener();
-
-    return pinned ? `Pinned ${name}: ky's dreams and reviews leave it as it is.` : `Unpinned ${name}.`;
-  }
-
-  /**
-   * Save the user's answers to a skill's Needs, keeping the others; a blank answer clears its need. Only the
-   * user's, from the panel or a chat: a background run would be answering for them. A key the skill doesn't
-   * ask is refused, so a typo can't hide an answer.
-   */
-  #answer(name: string, given: Readonly<Record<string, string>>, actor: string): string {
-    if (isMachine(actor)) throw new Error("Only the user answers a skill's needs.");
-    const skill = this.get(name);
-
-    if (!skill) throw new Error(`No skill named ${name}.`);
-    const asked = new Set(parse(skill.body).needs.map((need) => need.key));
-    const unknown = Object.keys(given).filter((key) => !asked.has(key));
-
-    if (unknown.length > 0) {
-      throw new Error(`${name} doesn't ask ${unknown.join(", ")}; it asks ${asked.size === 0 ? "nothing" : [...asked].join(", ")}.`);
-    }
-
-    if (Object.keys(given).length === 0) throw new Error("No answers to save.");
-    const answers = new Map(Object.entries(skill.answers));
-
-    for (const [key, value] of Object.entries(given)) {
-      if (value.trim() === "") answers.delete(key);
-      else answers.set(key, value.trim());
-    }
-
-    this.#sql.exec(`UPDATE ${SKILL_TABLES.skills} SET answers = ? WHERE name = ?`, JSON.stringify(Object.fromEntries(answers)), name);
-
-    for (const listener of this.#listeners) listener();
-
-    return `Saved ${Object.keys(given).length === 1 ? "an answer" : "answers"} for ${name}.`;
-  }
-
+  readonly apply: (change: SkillChange, actor: string, conversation?: string | null) => Effect.Effect<string, SkillRefusal>;
   /**
    * Archive every skill ky made that nobody has opened in 60 days and that is older than 14, leaving
    * pinned ones and the user's. A skill opened before ky kept when (uses but no last_used_at) is left too:
    * its last use is unknown, and so is one the user changed lately, such as by undoing its archive. The
    * dream runs it first, as part of its `run`; each archive is a version like any other, by "dream".
    */
-  stale(run: string, now = Date.now()): string[] {
-    const touched = new Map(
-      rows(
-        this.#sql.exec(`SELECT name, MAX(created_at) AS at FROM ${SKILL_TABLES.skillVersions} WHERE actor = 'user' GROUP BY name`),
-        Touched,
-        "a skill's last change by the user"
-      ).map((row) => [row.name, row.at])
+  readonly stale: (run: string, now?: number) => Effect.Effect<ReadonlyArray<string>, TextRefusal>;
+}
+
+/** The skill library in the Durable Object's SQLite, with every version kept. */
+export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills/Library") {
+  /** Needs Sql, which the edge provides, and the facade's hooks. Makes its tables, as B's constructor did. */
+  static readonly layer = (hooks: Hooks) =>
+    Layer.effect(Library)(
+      Effect.gen(function* () {
+        const sql = yield* Sql;
+
+        // Storage failing is a defect, as a throwing exec was at B.
+        const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+        const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
+
+        yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skills} (
+          name TEXT PRIMARY KEY,
+          description TEXT NOT NULL,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          uses INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )`);
+        yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillVersions} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor TEXT NOT NULL,
+          description TEXT NOT NULL,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )`);
+
+        const added = yield* Effect.orDie(
+          addColumns(SKILL_TABLES.skills, [
+            ["last_used_at", "INTEGER"],
+            ["pinned", "INTEGER NOT NULL DEFAULT 0"],
+            ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+            ["answers", "TEXT"],
+            ["kind", "TEXT NOT NULL DEFAULT 'skill'"]
+          ])
+        );
+
+        yield* Effect.orDie(addColumns(SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]));
+
+        // Skills from before provenance was kept: who made each is its first version's actor, and the user's when unknown.
+        if (added.includes("created_by")) {
+          yield* exec(
+            `UPDATE ${SKILL_TABLES.skills} SET created_by = COALESCE((SELECT actor FROM ${SKILL_TABLES.skillVersions} v
+               WHERE v.name = ${SKILL_TABLES.skills}.name ORDER BY v.id LIMIT 1), 'user')`
+          );
+          yield* exec(`UPDATE ${SKILL_TABLES.skills} SET created_by = 'user' WHERE created_by NOT IN ('agent', 'review', 'dream')`);
+        }
+
+        const skills = (query: string, ...params: SqlStorageValue[]) => Effect.map(rows(SkillStored, query, ...params), (stored) => stored.map(skillOf));
+        const get = (name: string) => Effect.map(skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE name = ?`, name), (found) => found[0]);
+        const list = (status: SkillStatus = "active") => skills(`SELECT * FROM ${SKILL_TABLES.skills} WHERE status = ? ORDER BY name`, status);
+        const history = (name: string) => rows(SkillVersion, `SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC`, name);
+
+        const changed = Effect.sync(() => {
+          for (const listener of hooks.listeners) listener();
+        });
+
+        /** Write a version; `kind` is a new skill's, and an existing skill keeps its own. */
+        const save = (write: Omit<SkillWrite, "before">, { description, body, status }: Content, kind: SkillKind = "skill") =>
+          Effect.gen(function* () {
+            const { name, action, actor, conversation } = write;
+            yield* checkText(description, body);
+            const [before] = yield* rows(VersionId, `SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name);
+            // A watcher refuses by throwing, as at B: the throw is the ledger's own Error, and the edge rethrows it as it was.
+            const landed = yield* Effect.sync(() => [...hooks.writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) })));
+            const now = yield* Clock.currentTimeMillis;
+            yield* exec(
+              `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
+                 status = excluded.status, updated_at = excluded.updated_at`,
+              name,
+              description,
+              body,
+              status,
+              now,
+              now,
+              originOf(actor),
+              kind
+            );
+
+            const [inserted] = yield* rows(
+              VersionId,
+              `INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, conversation, description, body, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+              name,
+              action,
+              actor,
+              conversation,
+              description,
+              body,
+              status,
+              now
+            );
+
+            if (inserted === undefined) return yield* Effect.die(new Error("A new skill version has an id."));
+            const { id } = inserted;
+
+            yield* Effect.sync(() => {
+              for (const each of landed) each?.(id);
+            });
+            yield* changed;
+
+            return `${action === "create" ? "Created" : `Saved ${action} of`} ${name} (version ${id}).`;
+          });
+
+        /** Pin or unpin a skill: the user's call, from the panel or by asking ky, or ky's seeding pinning a default skill it creates; a background run may not. */
+        const pin = (name: string, pinned: boolean, actor: string) =>
+          Effect.gen(function* () {
+            if (isMachine(actor)) return yield* new MachinePins();
+
+            if (!(yield* get(name))) return yield* new NoSkill({ name });
+            yield* exec(`UPDATE ${SKILL_TABLES.skills} SET pinned = ? WHERE name = ?`, pinned ? 1 : 0, name);
+            yield* changed;
+
+            return pinned ? `Pinned ${name}: ky's dreams and reviews leave it as it is.` : `Unpinned ${name}.`;
+          });
+
+        /**
+         * Save the user's answers to a skill's Needs, keeping the others; a blank answer clears its need. Only the
+         * user's, from the panel or a chat: a background run would be answering for them. A key the skill doesn't
+         * ask is refused, so a typo can't hide an answer.
+         */
+        const answer = (name: string, answers: Readonly<Record<string, string>>, actor: string) =>
+          Effect.gen(function* () {
+            if (isMachine(actor)) return yield* new MachineAnswers();
+            const skill = yield* get(name);
+
+            if (!skill) return yield* new NoSkill({ name });
+            const asked = parse(skill.body).needs.map((need) => need.key);
+            const unknown = Object.keys(answers).filter((key) => !asked.includes(key));
+
+            if (unknown.length > 0) return yield* new NotAsked({ name, unknown, asked });
+
+            if (Object.keys(answers).length === 0) return yield* new NoAnswers();
+            const kept = new Map(Object.entries(skill.answers));
+
+            for (const [key, value] of Object.entries(answers)) {
+              if (value.trim() === "") kept.delete(key);
+              else kept.set(key, value.trim());
+            }
+
+            yield* exec(`UPDATE ${SKILL_TABLES.skills} SET answers = ? WHERE name = ?`, JSON.stringify(Object.fromEntries(kept)), name);
+            yield* changed;
+
+            return `Saved ${Object.keys(answers).length === 1 ? "an answer" : "answers"} for ${name}.`;
+          });
+
+        return {
+          get,
+          list,
+          all: skills(`SELECT * FROM ${SKILL_TABLES.skills} ORDER BY status = 'archived', name`),
+          history,
+          index: Effect.map(list(), (active) => {
+            const kits = kitsOf(active);
+
+            return active
+              .map((skill) => {
+                const mark = skill.kind === "kit" ? " (kit)" : kits.has(skill.name) ? ` (in ${kits.get(skill.name)?.join(", ")})` : "";
+
+                return `- ${skill.name}${mark}: ${skill.description}`;
+              })
+              .join("\n");
+          }),
+          view: (name) =>
+            Effect.gen(function* () {
+              const skill = yield* get(name);
+
+              if (!skill) return yield* new NoSkill({ name });
+              yield* exec(`UPDATE ${SKILL_TABLES.skills} SET uses = uses + 1, last_used_at = ? WHERE name = ?`, yield* Clock.currentTimeMillis, name);
+
+              return skill;
+            }),
+          versionsSince: (at, limit, exceptActor = "") =>
+            Effect.map(
+              rows(SkillVersion, `SELECT * FROM ${SKILL_TABLES.skillVersions} WHERE created_at > ? AND actor != ? ORDER BY id DESC LIMIT ?`, at, exceptActor, limit),
+              (versions) => versions.toReversed()
+            ),
+          apply: (change, actor, conversation = null) =>
+            Effect.gen(function* () {
+              // The tool's input is checked against its schema, but the panel's change comes off a socket.
+              if (Value.Check(PinAction, change.action)) return yield* pin(change.name, change.action === "pin", actor);
+
+              if (Value.Check(AnswerAction, change.action)) return yield* answer(change.name, change.answers ?? {}, actor);
+
+              if (!Value.Check(SkillActionSchema, change.action)) return yield* new NoSuchAction({ action: String(change.action) });
+
+              if (!NAME.test(change.name)) return yield* new BadName({ name: change.name });
+              const action = change.action;
+
+              if (change.kind !== undefined && action !== "create") return yield* new KindStays();
+              const was = yield* get(change.name);
+              const next = yield* CHANGES[action](change, was, history);
+              const into = change.absorbed_into === undefined ? undefined : yield* get(change.absorbed_into);
+              const refusal = machineRefusal(actor, was, next, into);
+
+              if (refusal !== undefined) return yield* refusal;
+              const write = { name: change.name, action, actor, conversation, run: null, absorbed_into: change.absorbed_into ?? null, reason: change.reason ?? null };
+
+              return yield* save(write, next, change.kind);
+            }),
+          stale: (run, at) =>
+            Effect.gen(function* () {
+              const now = at ?? (yield* Clock.currentTimeMillis);
+
+              const touched = new Map(
+                (yield* rows(Touched, `SELECT name, MAX(created_at) AS at FROM ${SKILL_TABLES.skillVersions} WHERE actor = 'user' GROUP BY name`)).map((row) => [row.name, row.at])
+              );
+
+              const stale = (yield* list()).filter((skill) => {
+                if (skill.pinned || skill.created_by === "user" || skill.created_at > now - STALE_MIN_AGE_MS) return false;
+
+                if (skill.last_used_at === null && skill.uses > 0) return false;
+
+                return Math.max(skill.last_used_at ?? skill.created_at, touched.get(skill.name) ?? 0) <= now - STALE_UNUSED_MS;
+              });
+
+              for (const skill of stale) {
+                const write = { name: skill.name, action: "archive" as const, actor: "dream", conversation: null, run, absorbed_into: null, reason: "Not used in 60 days" };
+                yield* save(write, { ...skill, status: "archived" });
+              }
+
+              return stale.map((skill) => skill.name);
+            })
+        };
+      })
     );
+}
 
-    const stale = this.list().filter((skill) => {
-      if (skill.pinned || skill.created_by === "user" || skill.created_at > now - STALE_MIN_AGE_MS) return false;
-
-      if (skill.last_used_at === null && skill.uses > 0) return false;
-
-      return Math.max(skill.last_used_at ?? skill.created_at, touched.get(skill.name) ?? 0) <= now - STALE_UNUSED_MS;
-    });
-
-    for (const skill of stale) {
-      const write = { name: skill.name, action: "archive" as const, actor: "dream", conversation: null, run, absorbed_into: null, reason: "Not used in 60 days" };
-      this.#save(write, { ...skill, status: "archived" });
-    }
-
-    return stale.map((skill) => skill.name);
-  }
-
-  /** Write a version; `kind` is a new skill's, and an existing skill keeps its own. */
-  #save(write: Omit<SkillWrite, "before">, { description, body, status }: Content, kind: SkillKind = "skill"): string {
-    const { name, action, actor, conversation } = write;
-    checkText(description, body);
-    const before = rows(this.#sql.exec(`SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name), VersionId, "a skill version's id")[0];
-    const landed = [...this.#writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) }));
-    const now = Date.now();
-    this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET description = excluded.description, body = excluded.body,
-         status = excluded.status, updated_at = excluded.updated_at`,
-      name,
-      description,
-      body,
-      status,
-      now,
-      now,
-      originOf(actor),
-      kind
-    );
-
-    const { id } = decode(
-      Inserted,
-      this.#sql
-        .exec(
-          `INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, conversation, description, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-          name,
-          action,
-          actor,
-          conversation,
-          description,
-          body,
-          status,
-          now
-        )
-        .one(),
-      "a new skill version's id"
-    );
-
-    for (const each of landed) each?.(id);
-
-    for (const listener of this.#listeners) listener();
-
-    return `${action === "create" ? "Created" : `Saved ${action} of`} ${name} (version ${id}).`;
-  }
+export interface BackgroundLog {
+  readonly kind: (conversation: string) => Effect.Effect<ReviewKind | undefined>;
+  /**
+   * The run `conversation`'s changes belong to, for the dream's ledger: a dream's token, which its stale pass
+   * shares, or the conversation itself (a review's, or a dream's from before tokens were kept).
+   */
+  readonly run: (conversation: string) => Effect.Effect<string>;
+  /**
+   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
+   * was made at, so the next one of its kind knows where this one read to. `run` is a dream's token, which its stale
+   * pass used too. `at` is when it ran, now unless said: a mark that ran nothing records 0.
+   */
+  readonly add: (conversation: string, parent: string, kind?: ReviewKind, mark?: { readonly upto?: number; readonly run?: string; readonly at?: number }) => Effect.Effect<void>;
+  /** The newest entry of `parent` a fork of `kind` was made at, and when that fork ran; undefined before the first. */
+  readonly reached: (parent: string, kind: ReviewKind) => Effect.Effect<{ readonly upto: number; readonly at: number } | undefined>;
+  /**
+   * What the fork `conversation` read of its parent: the parent, and its entries after the one the fork before it of
+   * the same kind was made at, up to its own. Undefined for a fork that recorded no entry, or for no fork.
+   */
+  readonly window: (conversation: string) => Effect.Effect<{ readonly parent: string; readonly after: number; readonly upto: number } | undefined>;
 }
 
 /**
@@ -466,99 +514,75 @@ export class Skills {
  * open. They remember, like the chats they serve, but may call only the tools
  * their kind allows.
  */
-export class Reviews {
-  readonly #sql: SqlStorage;
+export class ReviewLog extends Context.Service<ReviewLog, BackgroundLog>()("ky/skills/ReviewLog") {
+  /** Needs Sql, which the edge provides. Makes its table, as B's constructor did. */
+  static readonly layer = Layer.effect(ReviewLog)(
+    Effect.gen(function* () {
+      const sql = yield* Sql;
+      const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+      const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
 
-  constructor(sql: SqlStorage) {
-    this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillReviews} (
-      conversation TEXT PRIMARY KEY,
-      parent TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )`);
-    addColumns(sql, SKILL_TABLES.skillReviews, [
-      ["kind", "TEXT NOT NULL DEFAULT 'review'"],
-      ["upto", "INTEGER"],
-      ["run", "TEXT"]
-    ]);
-    // reached and window read a chat's rows of one kind on every turn's end.
-    sql.exec(`CREATE INDEX IF NOT EXISTS skill_reviews_by_parent ON ${SKILL_TABLES.skillReviews} (parent, kind)`);
-  }
+      yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillReviews} (
+        conversation TEXT PRIMARY KEY,
+        parent TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`);
+      yield* Effect.orDie(
+        addColumns(SKILL_TABLES.skillReviews, [
+          ["kind", "TEXT NOT NULL DEFAULT 'review'"],
+          ["upto", "INTEGER"],
+          ["run", "TEXT"]
+        ])
+      );
+      // reached and window read a chat's rows of one kind on every turn's end.
+      yield* exec(`CREATE INDEX IF NOT EXISTS skill_reviews_by_parent ON ${SKILL_TABLES.skillReviews} (parent, kind)`);
 
-  kind(conversation: string): ReviewKind | undefined {
-    return rows(this.#sql.exec(`SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRow, "a skill review")[0]?.kind;
-  }
+      return {
+        kind: (conversation) =>
+          Effect.map(rows(ReviewRow, `SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ([row]) => row?.kind),
+        run: (conversation) =>
+          Effect.map(rows(ReviewRunRow, `SELECT run FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ([row]) => row?.run ?? conversation),
+        add: (conversation, parent, kind = "review", mark = {}) =>
+          Effect.gen(function* () {
+            yield* exec(
+              `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto, run) VALUES (?, ?, ?, ?, ?, ?)`,
+              conversation,
+              parent,
+              mark.at ?? (yield* Clock.currentTimeMillis),
+              kind,
+              mark.upto ?? null,
+              mark.run ?? null
+            );
+          }),
+        reached: (parent, kind) =>
+          Effect.map(
+            rows(
+              Reached,
+              `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ? AND upto IS NOT NULL ORDER BY upto DESC LIMIT 1`,
+              parent,
+              kind
+            ),
+            ([row]) => (row === undefined ? undefined : { upto: row.upto, at: row.created_at })
+          ),
+        window: (conversation) =>
+          Effect.gen(function* () {
+            const [row] = yield* rows(Forked, `SELECT parent, upto FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ? AND upto IS NOT NULL`, conversation);
 
-  has(conversation: string): boolean {
-    return this.kind(conversation) !== undefined;
-  }
+            if (row === undefined) return undefined;
 
-  /**
-   * The run `conversation`'s changes belong to, for the dream's ledger: a dream's token, which its stale pass
-   * shares, or the conversation itself (a review's, or a dream's from before tokens were kept).
-   */
-  run(conversation: string): string {
-    return rows(this.#sql.exec(`SELECT run FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?`, conversation), ReviewRunRow, "a skill review's run")[0]?.run ?? conversation;
-  }
+            const [before] = yield* rows(
+              Reached,
+              `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = (SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?) AND upto < ? ORDER BY upto DESC LIMIT 1`,
+              row.parent,
+              conversation,
+              row.upto
+            );
 
-  /**
-   * `parent` is the chat a review forked; a dream has none, and records "". `upto` is the parent's entry the fork
-   * was made at, so the next one of its kind knows where this one read to. `run` is a dream's token, which its stale
-   * pass used too. `at` is when it ran, now unless said: a mark that ran nothing records 0.
-   */
-  add(conversation: string, parent: string, kind: ReviewKind = "review", mark: { readonly upto?: number; readonly run?: string; readonly at?: number } = {}): void {
-    this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind, upto, run) VALUES (?, ?, ?, ?, ?, ?)`,
-      conversation,
-      parent,
-      mark.at ?? Date.now(),
-      kind,
-      mark.upto ?? null,
-      mark.run ?? null
-    );
-  }
-
-  /** The newest entry of `parent` a fork of `kind` was made at, and when that fork ran; undefined before the first. */
-  reached(parent: string, kind: ReviewKind): { readonly upto: number; readonly at: number } | undefined {
-    const row = rows(
-      this.#sql.exec(
-        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = ? AND upto IS NOT NULL ORDER BY upto DESC LIMIT 1`,
-        parent,
-        kind
-      ),
-      Reached,
-      "where a review read to"
-    )[0];
-
-    return row === undefined ? undefined : { upto: row.upto, at: row.created_at };
-  }
-
-  /**
-   * What the fork `conversation` read of its parent: the parent, and its entries after the one the fork before it of
-   * the same kind was made at, up to its own. Undefined for a fork that recorded no entry, or for no fork.
-   */
-  window(conversation: string): { readonly parent: string; readonly after: number; readonly upto: number } | undefined {
-    const row = rows(
-      this.#sql.exec(`SELECT parent, upto FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ? AND upto IS NOT NULL`, conversation),
-      Forked,
-      "what a review read"
-    )[0];
-
-    if (row === undefined) return undefined;
-
-    const before = rows(
-      this.#sql.exec(
-        `SELECT upto, created_at FROM ${SKILL_TABLES.skillReviews} WHERE parent = ? AND kind = (SELECT kind FROM ${SKILL_TABLES.skillReviews} WHERE conversation = ?) AND upto < ? ORDER BY upto DESC LIMIT 1`,
-        row.parent,
-        conversation,
-        row.upto
-      ),
-      Reached,
-      "where the review before read to"
-    )[0];
-
-    return { parent: row.parent, after: before?.upto ?? 0, upto: row.upto };
-  }
+            return { parent: row.parent, after: before?.upto ?? 0, upto: row.upto };
+          })
+      };
+    })
+  );
 }
 
 const PROMPT = `Skills are your procedures: how to do one class of task for this user, written by you from experience. The <skills> section lists them. Memory is who the user is and what happened; a skill is how to do something.
