@@ -422,6 +422,41 @@ describe("automations", () => {
     expect(await runs(name, id)).toHaveLength(1);
   });
 
+  it("stop ends the live run and keeps the schedule; with no run going it says so", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name, { prompt: "gate" });
+
+    await runNow(name, id);
+    await gateStarted(name, 1);
+    expect(await say(name, automation({ action: "stop", id }))).toBe(`tool said: Stopped "Daily digest"'s run.`);
+    await runEnds(name, id, "stopped");
+    await agent(name).release();
+    await settle();
+
+    expect(await listed(name, id)).toContain(`[active] cron 0 9 * * * UTC`);
+    expect(await booking(name, id)).toMatchObject(bookedDaily(9));
+    expect(await reports(name, "Daily digest")).toEqual([]);
+    expect((await runs(name, id)).map((task) => task.status)).toEqual(["stopped"]);
+    expect(await say(name, automation({ action: "stop", id }))).toBe('tool said: "Daily digest" has no run going.');
+  });
+
+  it("a view carries its newest runs, newest first, with when and how each went", async () => {
+    const name = crypto.randomUUID();
+    const id = await create(name);
+
+    await runNow(name, id);
+    await runEnds(name, id);
+    await pause(1_100);
+    await runNow(name, id);
+    await until(async () => (await runs(name, id)).length === 2 && (await runs(name, id)).every((task) => task.status === "done"), "two runs");
+
+    const view = await inside(name, async (instance) => (await instance.automations.list(true)).find((each) => each.id === id));
+    expect(view?.runs.map((run) => run.status)).toEqual(["done", "done"]);
+    expect(view?.runs[0]?.created_at).toBeGreaterThan(view?.runs[1]?.created_at ?? Infinity);
+    expect(view?.runs[0]?.finished_at).not.toBeNull();
+    expect(view?.last_run?.id).toBe(view?.runs[0]?.id);
+  });
+
   it("update rebooks the schedule", async () => {
     const name = crypto.randomUUID();
     const id = await create(name);

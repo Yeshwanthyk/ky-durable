@@ -35,7 +35,7 @@ import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
 import { spokenText } from "./media";
 import { CARD_ANSWER } from "./ui-blocks";
-import type { AutomationAction, Automations, ZoneView } from "./automations/contract";
+import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
@@ -66,6 +66,13 @@ const OPEN = 1;
 
 /** The submit options a client set; ones it left out stay absent. */
 type SubmitOptions = { whenBusy?: PiWhenBusy; operationId?: string };
+
+/** How every automation run stands, as one string: it changes when a run starts, ends, or is charged. */
+function runsKey(tasks: readonly TaskRow[]): string {
+  return tasks
+    .flatMap((task) => (task.source?.startsWith(AUTOMATION_SOURCE) ? `${task.id}:${task.status}:${task.finished_at}:${task.cost_usd}` : []))
+    .join(",");
+}
 
 function sessionTag(session: PiSessionId): string {
   return `${SESSION_TAG_PREFIX}${session}`;
@@ -318,7 +325,15 @@ export class PiSessionSockets {
     automations.onChange(() => {
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
-    feed.onChange(() => this.broadcastTasks());
+    feed.onChange((tasks) => {
+      this.broadcastTasks();
+      // A routine's view carries its runs: send it again when one starts or ends, not on each step.
+      const runs = runsKey(tasks);
+
+      if (runs === this.#runsKey) return;
+      this.#runsKey = runs;
+      this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
+    });
     hub.onChange(() => this.broadcastTasks());
     files.onChange(() => this.broadcastTasks());
 
@@ -891,12 +906,16 @@ export class PiSessionSockets {
   }
 
   /** What each action from Activity does to one automation, by id. */
+  /** The automation runs' states when automations were last sent, so a step alone sends nothing. */
+  #runsKey = "";
+
   readonly #automationActions: AutomationActions = {
     pause: (id) => this.#automations.pause(id),
     resume: (id) => this.#automations.resume(id),
     archive: (id) => this.#automations.archive(id),
     unarchive: (id) => this.#automations.unarchive(id),
     run: (id) => this.#automations.run(id),
+    stop: (id) => this.#automations.stop(id),
     delete: (id) => this.#automations.delete(id)
   };
 

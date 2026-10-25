@@ -34,6 +34,13 @@ function skillsFromUrl(search = location.search): SkillFilter | null {
   return SKILL_FILTERS.find((each) => each === filter) ?? null;
 }
 
+/** The Routines page: "" for the list, else the routine open in it, by its id. */
+function routineFromUrl(search = location.search): string | null {
+  const id = new URLSearchParams(search).get("routines");
+
+  return id !== null && /^[\w-]{0,64}$/.test(id) ? id : null;
+}
+
 declare global {
   interface Window {
     /** The installed app's launches (Chromium): the manifest's launch_handler brings an open ky forward instead of opening another. */
@@ -41,12 +48,14 @@ declare global {
   }
 }
 
-const urlOf = (session: string, artifacts: ArtifactKind | null = null, skills: SkillFilter | null = null) => {
+const urlOf = (session: string, artifacts: ArtifactKind | null = null, skills: SkillFilter | null = null, routine: string | null = null) => {
   const query = new URLSearchParams();
 
   if (artifacts !== null) query.set("artifacts", artifacts);
 
   if (skills !== null) query.set("skills", skills);
+
+  if (routine !== null) query.set("routines", routine);
 
   if (session !== MAIN_SESSION) query.set("session", session);
   const search = query.toString();
@@ -54,15 +63,18 @@ const urlOf = (session: string, artifacts: ArtifactKind | null = null, skills: S
   return search === "" ? "/" : `/?${search}`;
 };
 
-/** The open chat, and the Artifacts or Skills page when one covers the chat. */
+/** The open chat, and the Artifacts, Skills or a routine's page when one covers the chat. */
 export type Route = {
   readonly session: string;
   readonly artifacts: ArtifactKind | null;
   readonly skills: SkillFilter | null;
+  /** The routine whose page is open, by id. */
+  readonly routine: string | null;
   /** Opens a chat, closing either page. */
   readonly go: (next: string) => void;
   readonly showArtifacts: (kind: ArtifactKind) => void;
   readonly showSkills: (filter: SkillFilter) => void;
+  readonly showRoutine: (id: string) => void;
 };
 
 // The open chat and the page over it live in the URL, so back and forward move between them.
@@ -71,12 +83,14 @@ export function useSessionRoute(): Route {
   const [artifacts, setArtifacts] = useState(artifactsFromUrl);
   // One page at a time: the Artifacts page wins a URL that names both.
   const [skills, setSkills] = useState(() => (artifactsFromUrl() === null ? skillsFromUrl() : null));
+  const [routine, setRoutine] = useState(() => (artifactsFromUrl() === null && skillsFromUrl() === null ? routineFromUrl() : null));
 
   useEffect(() => {
     const onPop = () => {
       setSession(sessionFromUrl());
       setArtifacts(artifactsFromUrl());
       setSkills(artifactsFromUrl() === null ? skillsFromUrl() : null);
+      setRoutine(artifactsFromUrl() === null && skillsFromUrl() === null ? routineFromUrl() : null);
     };
 
     // A tapped notification opens its chat here, as going to it would, without reloading the page.
@@ -90,6 +104,7 @@ export function useSessionRoute(): Route {
       setSession(next);
       setArtifacts(null);
       setSkills(null);
+      setRoutine(null);
     };
 
     // An installed ky launched again, from a shortcut say, opens where it was launched at here, as a tapped
@@ -100,13 +115,15 @@ export function useSessionRoute(): Route {
       if (target === null || target.origin !== location.origin) return;
       const [next, kind] = [sessionFromUrl(target.search), artifactsFromUrl(target.search)];
       const filter = kind === null ? skillsFromUrl(target.search) : null;
-      const url = urlOf(next, kind, filter);
+      const shown = kind === null && filter === null ? routineFromUrl(target.search) : null;
+      const url = urlOf(next, kind, filter, shown);
 
       if (url === location.pathname + location.search) return;
       history.pushState(null, "", url);
       setSession(next);
       setArtifacts(kind);
       setSkills(filter);
+      setRoutine(shown);
     });
 
     const worker = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
@@ -120,11 +137,12 @@ export function useSessionRoute(): Route {
   }, []);
 
   const go = (next: string) => {
-    if (next === session && artifacts === null && skills === null) return;
+    if (next === session && artifacts === null && skills === null && routine === null) return;
     history.pushState(null, "", urlOf(next));
     setSession(next);
     setArtifacts(null);
     setSkills(null);
+    setRoutine(null);
   };
 
   const showArtifacts = (kind: ArtifactKind) => {
@@ -132,6 +150,7 @@ export function useSessionRoute(): Route {
     history.pushState(null, "", urlOf(session, kind));
     setArtifacts(kind);
     setSkills(null);
+    setRoutine(null);
   };
 
   const showSkills = (filter: SkillFilter) => {
@@ -139,7 +158,17 @@ export function useSessionRoute(): Route {
     history.pushState(null, "", urlOf(session, null, filter));
     setSkills(filter);
     setArtifacts(null);
+    setRoutine(null);
   };
 
-  return { session, artifacts, skills, go, showArtifacts, showSkills };
+  /** The Routines page with `id` open, "" for none: opening the page is a step back can undo, opening a row in it is not. */
+  const showRoutine = (id: string) => {
+    if (id === routine) return;
+    history[routine === null ? "pushState" : "replaceState"](null, "", urlOf(session, null, null, id).replace(/routines=(&|$)/, "routines$1"));
+    setRoutine(id);
+    setArtifacts(null);
+    setSkills(null);
+  };
+
+  return { session, artifacts, skills, routine, go, showArtifacts, showSkills, showRoutine };
 }

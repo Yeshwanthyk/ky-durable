@@ -2560,3 +2560,82 @@ test.describe("voice notes and video", () => {
     await card.getByRole("button", { name: "Speed 2×, change" }).first().click();
   });
 });
+
+test("Routines sit by Skills in the sidebar: a row a routine, opened in place for its runs, and Stop while one runs", async ({ page }) => {
+  test.setTimeout(120_000);
+  await open(page);
+  const tag = crypto.randomUUID().slice(0, 6);
+
+  const idOf = async (title: string) => {
+    const said = chat(page).getByText(new RegExp(`tool said: Created automation \\w+, "${title}"`));
+
+    return /Created automation (\w+),/.exec((await said.textContent()) ?? "")?.[1] ?? "";
+  };
+
+  const digest = `Inbox digest ${tag}`;
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title: digest, prompt: "sum up the inbox", cron: "0 9 * * 1-5", createdBy: "user" })}`);
+  const digestId = await idOf(digest);
+  const triage = `Triage ${tag}`;
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title: triage, prompt: "gate", cron: "0 * * * *", createdBy: "user" })}`);
+  await idOf(triage);
+  const weekly = `Weekly review ${tag}`;
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title: weekly, prompt: "review the week", cron: "0 16 * * 5", createdBy: "user" })}`);
+  await send(page, `tool automation ${JSON.stringify({ action: "pause", id: await idOf(weekly) })}`);
+
+  const sidebar = page.getByRole("navigation", { name: "Chats" });
+  await sidebar.getByRole("button", { name: "Routines" }).click();
+  await expect(page).toHaveURL(/routines(&|$)/);
+  const routines = page.getByRole("region", { name: "Routines" });
+  await expect(routines.getByRole("heading", { name: "Routines" })).toBeVisible();
+  await expect(routines.getByRole("listitem", { name: weekly })).toContainText("Paused");
+  await expect(routines.getByRole("listitem", { name: digest })).toContainText(/Weekdays · 9:00 AM · Next run in/);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/routines-list.png` });
+
+  // Opening a row shows its runs in place, and the address names it.
+  const digestRow = routines.getByRole("listitem", { name: digest });
+  await digestRow.getByRole("button", { name: new RegExp(digest) }).click();
+  await expect(page).toHaveURL(new RegExp(`routines=${digestId}`));
+  await expect(digestRow).toContainText("No runs yet");
+
+  // Three runs of the digest, one after another, give it a history.
+  for (const count of [1, 2, 3]) {
+    await digestRow.getByRole("button", { name: "Run now" }).click();
+    // A run still going would skip the next as an overlap, and run now's slot is a second, so each waits.
+    await expect(digestRow.getByRole("option", { name: /^Succeeded/ })).toHaveCount(count, { timeout: 30_000 });
+    await page.waitForTimeout(1_100);
+  }
+
+  await expect(digestRow.getByRole("listbox", { name: "Recent runs" }).getByRole("option", { selected: true })).toHaveCount(1);
+  await expect(digestRow.getByRole("region", { name: "Latest run" })).toContainText("Succeeded");
+  await expect(digestRow).toContainText("Last run today");
+  await expect(digestRow.getByRole("switch")).toHaveAttribute("aria-checked", "true");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/routine-open.png` });
+
+  // A live run: the row says what it's doing, the sidebar pulses, Stop ends it, and a stop is no failure.
+  const triageRow = routines.getByRole("listitem", { name: triage });
+  await triageRow.getByRole("button", { name: new RegExp(triage) }).click();
+  await expect(digestRow.getByRole("region", { name: "Latest run" })).toHaveCount(0);
+  await triageRow.getByRole("button", { name: "Run now" }).click();
+  await expect(triageRow.getByRole("button", { name: "Stop" })).toBeVisible({ timeout: 30_000 });
+  await expect(triageRow).toContainText("Running");
+  await expect(sidebar.getByRole("status", { name: "A routine is running" })).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/routine-running.png` });
+
+  await triageRow.getByRole("button", { name: "Stop" }).click();
+  await expect(triageRow.getByRole("button", { name: "Run now" })).toBeVisible();
+  await expect(triageRow.getByRole("region", { name: "Latest run" })).toContainText("Stopped");
+  await release(page);
+  await expect(triageRow.getByRole("region", { name: "Latest run" })).toContainText("Stopped");
+  await expect(sidebar.getByRole("status", { name: "A routine is running" })).toHaveCount(0);
+  await expect(routines).not.toContainText("failed this week");
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/routine-stopped.png` });
+
+  // The switch pauses it, and the head counts one fewer on schedule.
+  await triageRow.getByRole("switch").click();
+  await expect(triageRow.getByRole("switch")).toHaveAttribute("aria-checked", "false");
+  await expect(triageRow).toContainText("Paused");
+});
