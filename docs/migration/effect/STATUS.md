@@ -19,8 +19,10 @@ against B, never against the PR before it.
 | W1-S | `src/core/sql.ts`: sync-first `Sql` service over `ctx.storage.sql` | chief of staff | `effect/foundation` | done (4e8d6b5, 70ce4f8) | 5/5 on a real DO; no-rollback mutant red |
 | W1-R | Real data: squarey's backup restored at B and on the branch | chief of staff | `effect/foundation` | done for foundation | `real-data.ts`: HEAD = B (47 skills, 16 routines; same 2 runtime tables emptied on both) |
 | H1 | Harvest after U1 | chief of staff | `effect/foundation` | done: `scripts/mutant.sh` (open, then save) regenerates a moved mutant (round-tripped unmarked-bucket, still caught); doctor fails on stale `node_modules`; the skill's scripts turn off fsmonitor (the IPC noise); SKILL.md says read exit codes, not piped output. Temp-path normalization already lives in the deploy proof | `doctor.sh deploy` all ok |
-| U2 | Automations | `mcp:a60c26c0-d744-4bc6-b9e3-62c6f5a27b69` | `effect/u2-automations` (from foundation 4d79519) | running | its thread |
-| U3 | Skills | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3-skills` (from foundation 4d79519) | running | its thread |
+| U2 | Automations | `mcp:a60c26c0-d744-4bc6-b9e3-62c6f5a27b69` | `effect/u2-automations` (from foundation 4d79519) | running (restarted 21:01Z after a usage-limit stop); owns contracts.test.ts:156 (automations' corrupt-column decode); its `agents/harness/pi` stub landed (e0dc37d) | its thread |
+| U3 | Skills: library and review log | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3-skills` (from foundation 4d79519) | done, merged into foundation (a63fb56); flip deleted `src/skills/legacy`; Fable 5.1 review: 5 findings, 2 and 5 recorded in `divergences/skills.md` (4b6b3a4), 1, 3, 4 go to U3b | on foundation: `prove.sh skills --runs 500 --seed 20261025`: 112 held, 0 lost; 500 runs; 5/5 mutants; real-data HEAD = B; visual 0 of 8 |
+| U3b | Skills: Fable fixes 1, 3, 4 (stale-sweep property sees `last_used_at`, an independent answers oracle, one storage helper); port `specialists.ts` and `subagents.ts` with their exported API unchanged | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3b-skills` (from foundation) | running | its thread |
+| W2-K | Kit: a mutant run no longer overwrites `proof.json`; `fc.commands` size large (U3's note) | chief of staff | `effect/foundation` | done (77132f0) | `prove.sh deploy --runs 500 --seed 20261025`: 69 held; 500 runs; 6/6 mutants, evidence kept |
 
 ## Resumed (2026-10-25)
 
