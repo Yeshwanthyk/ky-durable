@@ -17,7 +17,7 @@
  * three releases, cuts at any request, and the owner adding secrets, and hold all five after each.
  * `pnpm parity deploy` runs them at the bar: KY_RUNS (500), KY_SEED.
  */
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import fc from "fast-check";
@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
 import { Cloudflare } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand } from "../../cli/commands.ts";
+import { overlayFor, readOverlay, writeOverlay } from "../../cli/config.ts";
 import { initCommand } from "../../cli/init.ts";
 import type { Release } from "../../cli/release.ts";
 import { type FakeAccount, type FakeApp, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare } from "../fakes/cloudflare.ts";
@@ -299,11 +300,11 @@ describe("ky deploy, on any account", () => {
   it("I-D6: a deploy after the overlay changed leaves the Worker running it, even of the same release", async () => {
     const at = await after(["now"]);
     const saved = overlay;
-    const { rawConfig } = experimental_readRawConfig({ config: saved });
     const emails = `${EMAIL},friend@example.com`;
 
+    // The owner lets one more person in: the overlay changes, the release doesn't.
     overlay = path.join(path.dirname(saved), "wrangler.changed.jsonc");
-    await writeFile(overlay, JSON.stringify({ ...rawConfig, vars: { ...rawConfig.vars, ACCESS_EMAILS: emails } }));
+    await writeOverlay(overlay, overlayFor((await readOverlay(saved)) ?? {}, "acc", "ky", emails));
 
     try {
       expect((await deploy(at, "now")).ok).toBe(true);

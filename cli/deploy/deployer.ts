@@ -30,7 +30,6 @@ import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Type } from "typebox";
@@ -158,8 +157,11 @@ const find = <A, E extends Failure, R>(operation: Effect.Effect<A, E, R>, ...mis
 /** Whether Cloudflare refused the login. */
 const refused = (error: Failure) => REFUSALS.has(error._tag);
 
-/** `value` without the fields it leaves undefined, to compare with what Cloudflare answers, which has none. */
-const defined = <A>(value: Readonly<Record<string, A>>) => Record.filter(value, (each) => each !== undefined);
+/** A binding as sent, or as Cloudflare answers it. */
+type Bound = { readonly type: string };
+
+/** `binding` without the fields it leaves undefined, to compare with what Cloudflare answers, which has none. */
+const defined = (binding: Bound) => Object.fromEntries(Object.entries(binding).filter(([, each]) => each !== undefined));
 
 /** Whether two lists of names hold the same names. */
 const sameNames = (a: readonly string[] | null | undefined, b: readonly string[] | null | undefined) => Equal.equals([...(a ?? [])].sort(), [...(b ?? [])].sort());
@@ -488,7 +490,7 @@ const saveApp = (accountId: string, found: FoundApp | undefined, settings: AppSe
     const current = unchanged(found, settings);
 
     if (current) return current;
-    const app = { accountId, type: "self_hosted", tags: [TAG], ...settings };
+    const app = { accountId, type: "self_hosted", tags: [TAG], name: settings.name, destinations: [...settings.destinations], policies: settings.policies.map((policy) => ({ ...policy, include: [...policy.include] })) };
     const saved = found?.id ? yield* ZeroTrust.updateAccessApplicationForAccount({ appId: found.id, ...app }) : yield* ZeroTrust.createAccessApplicationForAccount(app);
 
     if (!("aud" in saved) || !saved.aud) return yield* new NoAudience({ app: settings.name });
@@ -709,15 +711,22 @@ const deployedAlready = (accountId: string, script: Script | undefined, version:
     return Equal.equals(uploaded(settings), uploaded(upload)) && sameBindings(settings.bindings, upload.bindings);
   });
 
+/** What an upload sets on the Worker, its bindings aside, as sent or as Cloudflare answers it. */
+type UploadSettings = {
+  readonly compatibilityDate?: string | null;
+  readonly compatibilityFlags?: readonly string[] | null;
+  readonly observability?: { readonly enabled?: boolean | null } | null;
+};
+
 /** What an upload and the settings it left compare by, its bindings aside. */
-const uploaded = (upload: Omit<Upload, "bindings" | "migrations">) => ({
-  date: upload.compatibilityDate,
+const uploaded = (upload: UploadSettings) => ({
+  date: upload.compatibilityDate ?? undefined,
   flags: [...(upload.compatibilityFlags ?? [])].sort(),
   observed: upload.observability?.enabled ?? false
 });
 
 /** Whether the Worker holds exactly the bindings wanted, its secrets aside. */
-function sameBindings(found: readonly Binding[] | undefined, wanted: readonly Binding[]): boolean {
+function sameBindings(found: readonly Bound[] | null | undefined, wanted: readonly Binding[]): boolean {
   const bound = (found ?? []).filter((binding) => binding.type !== "secret_text");
 
   return bound.length === wanted.length && wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
