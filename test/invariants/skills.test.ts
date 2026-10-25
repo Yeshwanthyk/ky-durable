@@ -457,6 +457,18 @@ describe("a skill's guards", () => {
       version: fc.option(fc.record({ actor: fc.constantFrom("user", "agent", "dream"), age: anAge }), { nil: null })
     });
 
+    type Made = typeof aSkill extends fc.Arbitrary<infer T> ? T : never;
+
+    /** What the sweep may archive at all: an active, unpinned skill ky made, at least 14 days old. */
+    const sweepable = ({ status, pinned, created_by, created }: Made) => status === "active" && pinned === 0 && created_by !== "user" && created >= 14 * DAY;
+
+    /** Its last sign of life, opened or else made, or the user's change when later, is 60 days gone; a use before ky kept when is unknown. */
+    const quiet = ({ opened, uses, created, version }: Made) => {
+      if (opened === null && uses > 0) return false;
+
+      return Math.min(opened ?? created, version?.actor === "user" ? version.age : Infinity) >= 60 * DAY;
+    };
+
     fc.assert(
       fc.property(fc.array(aSkill, { maxLength: 6 }), (made) => {
         const db = new DatabaseSync(":memory:");
@@ -480,15 +492,7 @@ describe("a skill's guards", () => {
           }
         });
 
-        // Its last sign of life: opened, else made; or the user's change, when later. A use before ky kept when is unknown.
-        const stale = made.flatMap(({ created_by, status, pinned, created, opened, uses, version }, at) => {
-          if (status !== "active" || pinned === 1 || created_by === "user" || created < 14 * DAY) return [];
-
-          if (opened === null && uses > 0) return [];
-          const quiet = Math.min(opened ?? created, version?.actor === "user" ? version.age : Infinity);
-
-          return quiet >= 60 * DAY ? [`skill-${at}`] : [];
-        });
+        const stale = made.flatMap((skill, at) => (sweepable(skill) && quiet(skill) ? [`skill-${at}`] : []));
 
         expect(skills.stale("run-1", NOW)).toEqual(stale);
         expect(made.map((_, at) => skills.get(`skill-${at}`)?.status)).toEqual(made.map(({ status }, at) => (stale.includes(`skill-${at}`) ? "archived" : status)));
