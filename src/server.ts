@@ -41,6 +41,11 @@ import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
+import { Approvals } from "./inbound/approvals";
+import { type Delivery, type Hook, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
+import type { HooksView } from "./inbound/shapes";
+import { hookRoute, inboundRoute } from "./inbound/routes";
+import { hookGuard, inboundTools } from "./inbound/tools";
 import { Pushes } from "./push";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
@@ -308,6 +313,23 @@ export class PiAgent extends DurableObject<Env> {
     idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND_CONTEXT),
     later: (work) => this.ctx.waitUntil(work)
   });
+  /** What waits for the user's OK. A stand-in until the approvals PR, which brings the real one (src/inbound/approvals.ts). */
+  readonly approvals = new Approvals(this.ctx.storage.sql, {
+    chat: (session) => this.isChat(session),
+    owner: () => ROOT_SESSION,
+    notify: (session, text) => void this.pushes.notify(session, text).catch(() => undefined)
+  });
+  /** Webhooks, and the credentials ky asked for (src/inbound/inbound.ts). */
+  readonly inbound = new Inbound(this.ctx.storage.sql, {
+    vault: () => this.env.Vault.getByName("owner"),
+    approvals: this.approvals,
+    chat: (session) => this.isChat(session),
+    // After the turn running there, so outside data never lands in the middle of the user's own turn.
+    tell: async (session, content, requestId) => {
+      const conversation = await this.harness.conversation(session);
+      await conversation.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
+    },
+  });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
     anticipations: this.anticipations,
@@ -474,6 +496,8 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(deliveryExtension(this.deliveries));
       this.registry.install(peer);
       this.registry.install(mail);
+      this.registry.install(inboundTools(this.inbound, { vault: () => this.env.Vault.getByName("owner"), chat }));
+      this.registry.install(hookGuard(this.inbound));
 
       return Harness.open(
         storage,
@@ -986,6 +1010,41 @@ export class PiAgent extends DurableObject<Env> {
     return runInFeed(this.#background, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
   }
 
+  /** Settings › Webhooks: the hooks, and the chats a hook can post to. */
+  inboundHooks(): HooksView {
+    const chats = this.chats.list().filter((chat) => chat.archived_at === null);
+
+    return { hooks: this.inbound.hooks(), chats: [{ session: ROOT_SESSION, title: "ky" }, ...chats.map(({ session, title }) => ({ session, title: title || "New chat" }))] };
+  }
+
+  addHook(id: string, session: string, label: string, signed: boolean): Hook | { refused: string } {
+    return this.inbound.addHook(id, session, label, signed);
+  }
+
+  removeHook(id: string): boolean {
+    return this.inbound.removeHook(id);
+  }
+
+  /** A post to a hook, its token, size and signature checked by the Worker (src/inbound/routes.ts). */
+  hookReceived(id: string, delivery: Delivery): Promise<Received> {
+    return this.inbound.received(id, delivery);
+  }
+
+  /** The credential ky asked a chat for, which the Worker saves what the user typed as; null when it isn't asking. */
+  secretAsk(session: string, name: string): SecretAsk | null {
+    return this.inbound.askFor(session, name) ?? null;
+  }
+
+  /** The Vault holds the credential the chat asked for: tell it so. */
+  secretSaved(session: string, name: string): Promise<boolean> {
+    return this.inbound.saved(session, name);
+  }
+
+  /** The credentials ky is asking a chat for, for its masked fields. */
+  secretAsks(session: string): SecretAsk[] {
+    return this.inbound.asks(session);
+  }
+
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */
   sweepPeers(now = Date.now()): Promise<void> {
     return sweepPeers(this.peerDesk, now);
@@ -1062,9 +1121,15 @@ export class PiAgent extends DurableObject<Env> {
   }
 }
 
-/** What Access lets through signed out: the routes that take their own tokens, the public sites, then the public files. */
+/** What Access lets through signed out: the routes that take their own tokens, webhooks, the public sites, then the public files. */
 function signedOut(request: Request, env: Env, url: URL): Promise<Response> {
-  return tokenRoute(request, env, url) ?? peerRoute(request, env, url) ?? publicSiteRoute(request, env, url) ?? env.ASSETS.fetch(request);
+  return (
+    tokenRoute(request, env, url) ??
+    peerRoute(request, env, url) ??
+    hookRoute(request, env, url) ??
+    publicSiteRoute(request, env, url) ??
+    env.ASSETS.fetch(request)
+  );
 }
 
 /**
@@ -1077,14 +1142,20 @@ export function worker(access: Access) {
       const url = new URL(request.url);
 
       // What Access lets through signed out: runners and their tasks, and other kys, which sign in with their
-      // own tokens (src/runners.ts, src/peers/peers.ts) and never with the user's, and the manifest and icons iOS fetches without a cookie.
+      // own tokens (src/runners.ts, src/peers/peers.ts) and never with the user's, webhooks, whose URL holds their token
+      // (src/inbound/routes.ts), and the manifest and icons iOS fetches without a cookie.
       if (bypassed(url.pathname)) return signedOut(request, env, url);
 
       const refused = await access.refuse(request, env);
 
       if (refused) return refused;
 
-      const owner = ownerRoute(request, env, url) ?? sandboxRoute(request, env, url) ?? backupRoute(request, env, url) ?? siteRoute(request, env, url);
+      const owner =
+        ownerRoute(request, env, url) ??
+        sandboxRoute(request, env, url) ??
+        backupRoute(request, env, url) ??
+        siteRoute(request, env, url) ??
+        inboundRoute(request, env, url);
 
       if (owner) return owner;
 

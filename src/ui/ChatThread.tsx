@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { PiSessionView } from "../view";
 import { Icon } from "./Icon";
 import { ApprovalCards } from "./Approvals";
+import { InboundCards } from "./InboundCards";
 import { ReplyContext } from "./Blocks";
 import type { BlobVariantId } from "./blob-catalog";
 import { AnswersContext, OpenStepsContext, RecalledContext, SpeakerContext, Thread } from "./Thread";
@@ -61,6 +62,7 @@ export function ChatThread({
             {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} />}
           </AnswersContext.Provider>
           <ApprovalCards chat={chat} />
+          <InboundCards session={chat} changed={turns} />
         </ThreadContexts>
       </div>
       <div className="thread-end">

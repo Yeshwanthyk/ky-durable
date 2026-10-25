@@ -1,0 +1,176 @@
+import type { JsonObject } from "@earendil-works/pi-ai";
+import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
+import Type from "typebox";
+import { toolReply as reply } from "../core/reply";
+import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SCHEMES, SECRET_NAME } from "./credentials";
+import { HOOK_TURN_TOOLS, type Inbound, type InboundDesk, type SecretCall } from "./inbound";
+
+/**
+ * The credential tools, and the guard on a chat working on a webhook. ky asks for a credential (request_secret),
+ * lists the ones it has (list_secrets), and calls an API with one (secret_request), but never sees one: the Vault
+ * makes the call and redacts what comes back.
+ */
+
+const RequestSecret = Type.Object({
+  name: Type.String({ pattern: SECRET_NAME.source, description: "What to call it, like GITHUB_TOKEN: a letter, then letters, digits, _ and -." }),
+  origin: Type.String({ description: "The only https origin it may be sent to, like https://api.github.com." }),
+  scheme: Type.Union(
+    SCHEMES.map((scheme) => Type.Literal(scheme)),
+    { description: "bearer: Authorization: Bearer <value>. basic: Authorization: Basic of user:password. header: the value in a header of its own." }
+  ),
+  header: Type.Optional(Type.String({ description: "The header's name, for a header credential only, like X-Api-Key." })),
+  purpose: Type.String({ maxLength: 200, description: "What it's for, in a few words the user reads before they enter it." })
+});
+
+const SecretRequest = Type.Object({
+  name: Type.String({ description: "The credential's name, as list_secrets shows it." }),
+  url: Type.String({ description: "An https URL on the credential's own origin." }),
+  method: Type.Optional(Type.String({ description: "GET when left out. Anything but GET and HEAD waits for the user's approval." })),
+  headers: Type.Optional(Type.Record(Type.String(), Type.String())),
+  body: Type.Optional(Type.String())
+});
+
+/** The methods secret_request makes without asking: they read, and change nothing. */
+const READS = new Set(["GET", "HEAD"]);
+
+/** What the tools reach besides the chat's own state: the Vault, and which conversations are chats with the user. */
+type ToolDesk = Pick<InboundDesk, "vault" | "chat">;
+
+/** Credentials are only a chat's: elsewhere no user sees the field or the approval, so the tools refuse. */
+const NOT_A_CHAT = "Only a chat with the user can use credentials.";
+
+export function inboundTools(inbound: Inbound, desk: ToolDesk): Extension {
+  return defineExtension({
+    name: "credentials",
+    tools: [
+      defineTool({
+        name: "request_secret",
+        description:
+          "Ask the user for an API credential: a token, key or password ky calls an API with. The chat shows them a masked field; what they type goes " +
+          "to ky's Vault and never to you. Your turn ends here; once they save it you're told, and call the API with secret_request. " +
+          "Never ask for a credential in a message: the user's words are in the chat's history.",
+        parameters: RequestSecret,
+        replay: "safe",
+        execute: async (args, api) => {
+          const session = String(api.conversationId);
+
+          if (!desk.chat(session)) return reply(NOT_A_CHAT, true);
+          const info: CredentialInfo = { origin: args.origin, scheme: args.scheme, header: args.header ?? null, purpose: args.purpose.trim() };
+          const bad = badInfo(args.name, info);
+
+          if (bad) return reply(bad, true);
+          inbound.ask(session, args.name, info);
+
+          return {
+            ...reply(`A masked field for ${args.name} is showing in the chat. Your turn ends here; you're told once the user saves it.`),
+            control: { terminate: true }
+          };
+        }
+      }),
+      defineTool({
+        name: "list_secrets",
+        description: "The API credentials ky keeps: each one's name, the origin it is sent to, how, and what it's for. Never their values.",
+        parameters: Type.Object({}),
+        replay: "safe",
+        execute: async (_args, api) => {
+          if (!desk.chat(String(api.conversationId))) return reply(NOT_A_CHAT, true);
+          const kept = (await desk.vault().status()).filter((secret) => secret.kind === HTTP_KIND);
+
+          if (kept.length === 0) return reply("No credentials yet. Ask for one with request_secret.");
+
+          return reply(
+            kept
+              .map(({ id, meta }) => {
+                const how = meta?.scheme === "header" ? `header ${String(meta.header)}` : String(meta?.scheme);
+
+                return `${id}: ${String(meta?.origin)} (${how}): ${String(meta?.purpose)}`;
+              })
+              .join("\n")
+          );
+        }
+      }),
+      defineTool({
+        name: "secret_request",
+        description:
+          "Call an API with a credential the user saved: ky's Vault adds it and makes the call, to that credential's origin only, and answers with the " +
+          "status and body, the credential cut out of it, up to 20,000 characters. It follows no redirect. A GET or HEAD goes at once; any other " +
+          "method waits for the user's approval, and your turn ends until they decide.",
+        parameters: SecretRequest,
+        replay: "unsafe",
+        execute: async (args, api) => {
+          const conversation = String(api.conversationId);
+          const method = (args.method ?? "GET").toUpperCase();
+
+          if (!desk.chat(conversation)) return reply(NOT_A_CHAT, true);
+
+          if (!/^[A-Z]{1,16}$/.test(method)) return reply("A method is a word, like GET or POST.", true);
+
+          const call: SecretCall = { name: args.name, url: args.url, method, headers: args.headers ?? {}, body: args.body ?? null, guarded: inbound.guarded(conversation) };
+
+          if (!READS.has(method)) {
+            const asked = inbound.requestApproval({
+              kind: "secret-request",
+              subject: args.name,
+              summary: `${method} ${args.url} with ${args.name}`,
+              payload: call,
+              conversation
+            });
+
+            if ("refused" in asked) return reply(asked.refused, true);
+
+            return {
+              ...reply(`${method} ${args.url} waits for the user's approval, asked for in the chat. Your turn ends here; ky makes the call if they approve, and tells you what came back.`),
+              control: { terminate: true }
+            };
+          }
+
+          const answer = await desk.vault().httpRequest(call.name, { url: call.url, method, headers: call.headers, body: call.body });
+
+          return reply(replyText(answer), replyFailed(answer));
+        }
+      })
+    ]
+  });
+}
+
+/**
+ * A run working on a webhook's outside data calls only HOOK_TURN_TOOLS without asking. Any other call is blocked and
+ * asked of the user as an approval; approved, it gets one pass, for that tool with exactly those arguments.
+ */
+export function hookGuard(inbound: Inbound): Extension {
+  return defineExtension({
+    name: "hook-guard",
+    hooks: [
+      hook(ToolTask, {
+        beforeTool: (call, api) => {
+          const conversation = String(api.conversationId);
+
+          if (HOOK_TURN_TOOLS.has(call.name) || !inbound.guarded(conversation) || inbound.passed(conversation, call.name, call.arguments)) return undefined;
+
+          const asked = inbound.requestApproval({
+            kind: "webhook-action",
+            subject: call.name,
+            summary: `${call.name} ${brief(call.arguments)}, while working on a webhook`,
+            payload: { tool: call.name, arguments: call.arguments },
+            conversation
+          });
+
+          if ("refused" in asked) return { block: `This chat is working on a webhook's outside data, so ${call.name} isn't made: ${asked.refused}` };
+
+          return {
+            block:
+              `This chat is working on a webhook's outside data, so ${call.name} waits for the user's approval, asked for in the chat. ` +
+              "Don't call it again: say what you would do, and end your turn. You're told what they decide."
+          };
+        }
+      })
+    ]
+  });
+}
+
+/** A call's arguments, short enough for a card's line. */
+function brief(args: JsonObject): string {
+  const text = JSON.stringify(args);
+
+  return text.length > 160 ? `${text.slice(0, 159)}…` : text;
+}

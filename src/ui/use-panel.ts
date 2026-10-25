@@ -14,6 +14,7 @@ export type SettingsPage =
   | { readonly kind: "subscriptions" }
   | { readonly kind: "peers" }
   | { readonly kind: "mail" }
+  | { readonly kind: "inbound" }
   | { readonly kind: "proactivity" }
   | { readonly kind: "tools" }
   | { readonly kind: "appearance" }
@@ -29,6 +30,7 @@ const SECTION_PAGES = new Map<string, SettingsPage>([
   ["settings-executor", { kind: "tools" }],
   ["settings-peers", { kind: "peers" }],
   ["settings-mail", { kind: "mail" }],
+  ["settings-inbound", { kind: "inbound" }],
   ["settings-proactivity", { kind: "proactivity" }]
 ]);
 

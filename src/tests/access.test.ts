@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { Access, ASSERTION, bypassed } from "../access";
+import { Access, ASSERTION, BYPASS, bypassed } from "../access";
 import { worker } from "../server";
 import { call } from "./drive";
 import { AUD, FakeAccess, OWNER } from "./fake-access";
@@ -31,6 +31,9 @@ describe("Access", () => {
         ["/", {}],
         [FILE, {}],
         ["/api/runners/codes", { method: "POST" }],
+        ["/api/inbound/hooks", { method: "POST", body: "{}" }],
+        ["/api/inbound/secrets", {}],
+        ["/api/inbound/asks?session=1", {}],
         ["/agents/pi-agent/me", { headers: { ...headers, Upgrade: "websocket" } }],
         ["/test/gate-runs", {}]
       ] as const) {
@@ -153,5 +156,16 @@ describe("Access", () => {
   it("lets public sites through signed out, and not private ones", () => {
     expect(bypassed("/p/abc/")).toBe(true);
     expect(bypassed("/s/abc/")).toBe(false);
+  });
+
+  it("lets webhooks through signed out, to their own token check, and nothing else of inbound", async () => {
+    // The whole list: a path added here is a path anyone reaches without signing in, the deploy's Access app too.
+    expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*", "/p/*", "/hooks/*"]);
+    expect(bypassed("/hooks/0123456789abcdef0123456789abcdef/token")).toBe(true);
+
+    for (const path of ["/hooks", "/hooksx/a", "/api/hooks/a", "/api/inbound/hooks", "/api/inbound/asks", "/x/hooks/a"]) expect(bypassed(path), path).toBe(false);
+    const response = await asked(`/hooks/${"0".repeat(32)}/${"0".repeat(64)}`, null, { method: "POST", body: "{}", headers: { "CF-Connecting-IP": crypto.randomUUID() } });
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toBe(REFUSED);
   });
 });

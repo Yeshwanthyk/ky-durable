@@ -3596,3 +3596,25 @@ button.live:hover .live-steps {
     display: none;
   }
 }
+
+/* A chat's credential fields and approvals, under its thread (InboundCards.tsx). */
+.inbound-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inbound-summary {
+  overflow-wrap: anywhere;
+}
+
+.inbound-shown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbound-add {
+  align-self: flex-start;
+  margin-top: 8px;
+}

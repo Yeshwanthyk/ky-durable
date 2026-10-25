@@ -9,6 +9,7 @@ import type { ChatGptCode, ChatGptState } from "./protocol";
 import { base64url, fromBase64url, vapidToken } from "./push";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
+import { type Credential, credentialFetch, type CredentialReply, type CredentialRequest, HTTP_KIND, signedWith } from "./inbound/credentials";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -30,6 +31,12 @@ import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
  *   is signed in with a device code the Vault's alarm polls for, and
  *   refreshed here; its refresh token never leaves the Vault.
  *
+ * - HTTP credentials, ("http", name), are an API's token the user typed into a
+ *   masked field. Only the Vault reads one: `httpRequest` makes the call with
+ *   it, to its own origin only, and redacts it from what comes back
+ *   (src/inbound/credentials.ts). A webhook's signing secret, ("hook-signing",
+ *   its id), never leaves either: `hookSigned` checks a post with it.
+ *
  * - ky's VAPID key pair signs its Web Push (src/push.ts): made the first
  *   time it is needed, kept with the HMAC key, and never handed out; only
  *   its public half and the tokens it signs leave the Vault.
@@ -42,8 +49,11 @@ import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
 /** What a secret is for, like "provider", "claude" or "github". */
 type SecretKind = string;
 
-/** `peer-invite` and `peer` are src/peers/peers.ts's: a code another ky pairs with, and the token it calls this ky with. */
-export type TokenKind = "pair" | "machine" | "task" | "peer-invite" | "peer";
+/**
+ * `peer-invite` and `peer` are src/peers/peers.ts's: a code another ky pairs with, and the token it calls this ky with.
+ * `hook` is a webhook's, in its URL (src/inbound/routes.ts); its subject is the hook's id.
+ */
+export type TokenKind = "pair" | "machine" | "task" | "peer-invite" | "peer" | "hook";
 
 /** The kinds `issue` can give out again: a task's runs all carry its one token. */
 export type ReissuedKind = "task";
@@ -109,6 +119,8 @@ export class Vault extends DurableObject<Env> {
   openai: Fetch = (input, init) => fetch(input, init);
   /** GitHub's API, as Settings lists a token's repos; tests answer instead. */
   github: Fetch = (input, init) => fetch(input, init);
+  /** The APIs HTTP credentials are for, as `httpRequest` calls them; tests answer instead. */
+  http: Fetch = (input, init) => fetch(input, init);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -348,6 +360,24 @@ export class Vault extends DurableObject<Env> {
   peerToken(name: string): string | null {
     // SAFETY: only src/peers/peers.ts writes this kind, each value a token string.
     return this.#current("peer", name) as string | null;
+  }
+
+  /** Call an API with the HTTP credential `name`: only its own origin, the answer redacted (src/inbound/credentials.ts). */
+  httpRequest(name: string, request: CredentialRequest): Promise<CredentialReply> {
+    // SAFETY: only the secret route (src/inbound/routes.ts) writes this kind, each value a Credential.
+    const credential = this.#current(HTTP_KIND, name) as Credential | null;
+
+    if (!credential) return Promise.resolve({ refused: `There is no credential ${name}. list_secrets shows the ones there are.` });
+
+    return credentialFetch(this.http, credential, request);
+  }
+
+  /** Whether a post's body passes the hook's signature check: any body for a hook without a signing secret. */
+  async hookSigned(id: string, body: string, signature: string | null): Promise<boolean> {
+    // SAFETY: only the hook routes (src/inbound/routes.ts) write this kind, each value a string.
+    const secret = this.#current("hook-signing", id) as string | null;
+
+    return secret === null || signedWith(secret, body, signature);
   }
 
   /** The repos a GitHub token reaches, for Settings to pick from, or why GitHub refused it. */

@@ -40,6 +40,7 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { Inbound } from "./Inbound";
 import { Mail } from "./Mail";
 import { Proactivity, ProactivityValue } from "./Proactivity";
 import { LastNight } from "./LastNight";
@@ -2470,6 +2471,7 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
 const MORE: readonly GroupRow[] = [
   { to: { kind: "peers" }, icon: "nodes", label: "Peers" },
   { to: { kind: "mail" }, icon: "mail", label: "Mail" },
+  { to: { kind: "inbound" }, icon: "plug", label: "Webhooks" },
   { to: { kind: "self-edits" }, icon: "repo", label: "Self-edits", value: ({ setup }) => <RowValue>{setup?.repo ?? "Not set"}</RowValue> },
 ];
 
@@ -2601,6 +2603,15 @@ function MailPage() {
   );
 }
 
+function InboundPage() {
+  return (
+    <>
+      <PageHead title="Webhooks">URLs a service posts to, into a chat, and the API credentials ky calls with.</PageHead>
+      <Inbound />
+    </>
+  );
+}
+
 function ProactivityPage() {
   return (
     <>
@@ -2704,6 +2715,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   subscriptions: SubscriptionsPage,
   peers: PeersPage,
   mail: MailPage,
+  inbound: InboundPage,
   proactivity: ProactivityPage,
   tools: ToolsPage,
   appearance: AppearancePage,
