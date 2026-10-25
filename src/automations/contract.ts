@@ -76,8 +76,8 @@ const StoredAutomation = Schema.Struct({
   title: Schema.String,
   prompt: Schema.String,
   cron: Schema.NullOr(Schema.String),
-  /** Missing from a row restored without the column, which reads as null: the user's zone. */
-  zone: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** Missing from a row restored without the column, which reads as the column's default, "UTC": a cron from before crons followed the user's zone. */
+  zone: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed("UTC"))),
   at: Schema.NullOr(Schema.Number),
   model: ModelColumn,
   machine: Schema.NullOr(Schema.String),

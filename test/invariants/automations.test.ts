@@ -92,7 +92,7 @@ describe("stored rows", () => {
   it.each(["{", "null", "[]", `{"provider":"p"}`, `{"provider":"p","modelId":"m","thinkingLevel":"loud"}`])(
     "reads the corrupt model column %j as the worker's",
     (model) => {
-      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: null, post: false }]);
+      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", model: null, post: false }]);
     }
   );
 
@@ -108,7 +108,7 @@ describe("stored rows", () => {
         // settings' own schema says what a model choice is.
         const expected = Value.Check(ModelChoiceSchema, parsed) ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
 
-        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: expected, post: false }]);
+        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", model: expected, post: false }]);
       })
     );
   });
@@ -117,8 +117,8 @@ describe("stored rows", () => {
     expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [] }]);
   });
 
-  it("keeps a row stored without its zone column, which reads as the user's zone", () => {
-    expect(automationRows([automation])).toEqual([{ ...automation, post: false }]);
+  it("keeps a row stored without its zone column, which reads as the column's default, UTC", () => {
+    expect(automationRows([automation])).toEqual([{ ...automation, zone: "UTC", post: false }]);
   });
 
   it("leaves out a row damaged past reading, keeping the rest", () => {
@@ -256,10 +256,10 @@ describe("runs", () => {
       { numRuns: budget().numRuns * 4, seed: budget().seed, examples: [[PAUSED_AFTER_DONE]] }
     );
 
-  it("OneRunPerSlot: a slot starts one run and posts one report, however often it fires", async () => {
+  // Its report posts once by delivery's own once-per-task, which World.#report keeps, not the domain's.
+  it("OneRunPerSlot: a slot starts one run, however often it fires", async () => {
     await holds((world) => {
       expect(twice(world.started)).toEqual([]);
-      expect(twice(world.posted)).toEqual([]);
     });
   });
 

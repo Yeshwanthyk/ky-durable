@@ -143,15 +143,14 @@ export type GateCheck =
   | { readonly kind: "error"; readonly text: string };
 
 /**
- * What the Durable Object gives the domain: its deps, the Scheduler that holds every fire, how to tell listeners a
- * row changed, and the gate check a fire runs (the edge's own, so a test may stand in for it).
+ * What the Durable Object gives the domain: its deps, the Scheduler that holds every fire, and how to tell
+ * listeners a row changed.
  */
 export class Host extends Context.Service<
   Host,
   AutomationDeps & {
     readonly scheduler: Pick<Scheduler<Callbacks>, "set" | "get" | "list" | "cancel">;
     readonly emit: () => void;
-    readonly checkGate: (code: string) => Promise<GateCheck>;
   }
 >()("ky/automations/Host") {}
 
@@ -798,7 +797,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       if (row.gate === null) return UNGATED;
       const { gate } = row;
-      const check = yield* Effect.promise(() => host.checkGate(gate));
+      const check = yield* checkGate(gate);
 
       if (check.kind === "found") return yield* admitFound(row.id, task, check.text, forced);
       const errors = check.kind === "error" ? row.gate_errors + 1 : 0;
@@ -890,8 +889,9 @@ const make = Effect.gen(function* () {
 
   const start = (row: AutomationRow, slot: number, task: string) => {
     const chat = reportTo(row.chat);
+    const { machine } = row;
 
-    return row.machine === null ? runInCloud(row, { slot, task, chat }) : Effect.sync(() => runOnMachine(row, row.machine ?? "", { task, chat }));
+    return machine === null ? runInCloud(row, { slot, task, chat }) : Effect.sync(() => runOnMachine(row, machine, { task, chat }));
   };
 
   /** The slot's run has started. A queued one may not have yet, and a failed one did not. */
@@ -1275,15 +1275,7 @@ const make = Effect.gen(function* () {
 
     checkGate,
 
-    fire,
-
-    /** How the tool names a chat: main, or a side chat's title and session. */
-    chatLabel: (session: string) => {
-      if (session === ROOT_SESSION) return "main";
-      const title = chats.list().find((each) => each.session === session)?.title;
-
-      return `${title || "untitled"} (${session})`;
-    }
+    fire
   };
 });
 

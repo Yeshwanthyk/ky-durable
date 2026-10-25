@@ -6,9 +6,10 @@
  */
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { type Schedule, Scheduler } from "agents/schedules";
 import { makeEdge, type Refusable } from "../core/edge";
-import { isRefusal, type Result } from "../core/refusal";
+import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { Models } from "../models";
 import type { Reviews } from "../skills/contract";
@@ -19,13 +20,6 @@ import { automationExtension, checkInGuardExtension } from "./tool";
 export { Deliveries, deliveryExtension } from "./delivery";
 
 export { TaskFeed } from "./tasks";
-
-/** A value the domain can't refuse; a refusal here is a bug. */
-function sure<A extends object>(result: Result<A>): A {
-  if (isRefusal(result)) throw new Error(`Unexpected refusal: ${result.refused}`);
-
-  return result;
-}
 
 export class Automations {
   readonly #listeners = new Set<() => void>();
@@ -51,13 +45,12 @@ export class Automations {
     const host = Layer.succeed(Host)({
       ...deps,
       scheduler: this.scheduler,
-      emit: () => this.#emit(),
-      checkGate: (code) => this.checkGate(code)
+      emit: () => this.#emit()
     });
 
     this.#edge = makeEdge(Automator.layer.pipe(Layer.provide(Layer.mergeAll(Sql.layer(storage), host))));
     // Built now, so the tables are there before the first request.
-    sure(this.#edge.run(Automator.use(() => Effect.succeed({}))));
+    this.#edge.run(Automator.use(() => Effect.void));
     // A run's progress changes an automation's last run; the feed does not say which task changed.
     deps.feed.onChange((tasks) => {
       if (tasks.some((task) => task.source.startsWith(AUTOMATION_SOURCE))) this.#emit();
@@ -72,22 +65,22 @@ export class Automations {
   }
 
   get(id: string): AutomationRow | undefined {
-    return sure(this.#edge.run(Automator.use((automator) => Effect.map(automator.get(id), (row) => ({ row }))))).row;
+    return this.#edge.run(Automator.use((automator) => automator.get(id)));
   }
 
   /** Newest first; without `all`, only the active and paused ones. */
   async list(all = true): Promise<AutomationView[]> {
-    return sure(await this.#edge.runPromise(Automator.use((automator) => automator.list(all))));
+    return this.#edge.runPromise(Automator.use((automator) => automator.list(all)));
   }
 
   /** The looks' watches (src/dreaming/looks.ts): each automation booked for a watch anticipation, its id and status. */
   watches(): Array<{ readonly id: string; readonly watch: number; readonly status: AutomationStatus }> {
-    return sure(this.#edge.run(Automator.use((automator) => automator.watches)));
+    return this.#edge.run(Automator.use((automator) => automator.watches));
   }
 
   /** Whether the dream may book check-ins, and the user's time zone. On until the user turns them off. */
   checkIns(): CheckIns {
-    return sure(this.#edge.run(Automator.use((automator) => automator.checkIns)));
+    return this.#edge.run(Automator.use((automator) => automator.checkIns));
   }
 
   /** Turn check-ins on or off; off pauses the ones waiting. */
@@ -102,9 +95,7 @@ export class Automations {
 
   /** Pin the user's time zone, an IANA name, which later connects leave alone; one that isn't throws. */
   async pinZone(zone: string): Promise<void> {
-    const pinned = await this.#edge.runPromise(Effect.as(Automator.use((automator) => automator.pinZone(zone)), {}));
-
-    if (isRefusal(pinned)) throw new Error(pinned.refused);
+    await this.#edge.runPromise(Effect.catch(Automator.use((automator) => automator.pinZone(zone)), ({ refusal }) => Effect.die(new Error(refusal))));
   }
 
   /** Follow where the user's browser connects again, from `detected`, the asking connection's zone, when it has one. */
@@ -114,7 +105,7 @@ export class Automations {
 
   /** Whether the pi session is a check-in's or a watch's run at work. */
   checkInRun(session: string): boolean {
-    return sure(this.#edge.run(Automator.use((automator) => Effect.map(automator.checkInRun(session), (yes) => ({ yes }))))).yes;
+    return this.#edge.run(Automator.use((automator) => automator.checkInRun(session)));
   }
 
   /** A new active automation, booked; or why it was refused. `watch` is the watch anticipation a look books it for. */
@@ -157,9 +148,7 @@ export class Automations {
 
   /** Back to paused, so resuming it is a separate choice. */
   unarchive(id: string): string {
-    const done = this.#edge.run(Automator.use((automator) => Effect.map(automator.unarchive(id), (said) => ({ said }))));
-
-    return isRefusal(done) ? done.refused : done.said;
+    return this.#edge.run(Effect.catch(Automator.use((automator) => automator.unarchive(id)), ({ refusal }) => Effect.succeed(refusal)));
   }
 
   /** Fire it now, through the Scheduler like any fire, as its own slot. */
@@ -169,7 +158,7 @@ export class Automations {
 
   /** Whether a task's report should still reach the chat: not for a paused or archived automation. */
   wanted(feedId: string): boolean {
-    return sure(this.#edge.run(Automator.use((automator) => Effect.map(automator.wanted(feedId), (yes) => ({ yes }))))).yes;
+    return this.#edge.run(Automator.use((automator) => automator.wanted(feedId)));
   }
 
   /** Book a look at the machines at `at`, epoch ms (MachineHub.recheck). */
@@ -199,23 +188,24 @@ export class Automations {
 
   /** Run a gate's program once, as a fire does, and say what it came to. A tool's create and update test it this way. */
   async checkGate(code: string): Promise<GateCheck> {
-    return sure(await this.#edge.runPromise(Automator.use((automator) => automator.checkGate(code))));
+    return this.#edge.runPromise(Automator.use((automator) => automator.checkGate(code)));
   }
 
   /** How the tool names a chat: main, or a side chat's title and session. */
   chatLabel(session: string): string {
-    return sure(this.#edge.run(Automator.use((automator) => Effect.sync(() => ({ label: automator.chatLabel(session) }))))).label;
+    if (session === ROOT_SESSION) return "main";
+    const title = this.#deps.chats.list().find((each) => each.session === session)?.title;
+
+    return `${title || "untitled"} (${session})`;
   }
 
   /** What a by-id action did, or why not, in the words the tool and Activity read. */
-  async #say<E extends Refusable>(action: Effect.Effect<string, E, Automator>): Promise<string> {
-    const done = await this.#edge.runPromise(Effect.map(action, (said) => ({ said })));
-
-    return isRefusal(done) ? done.refused : done.said;
+  #say<E extends Refusable>(action: Effect.Effect<string, E, Automator>): Promise<string> {
+    return this.#edge.runPromise(Effect.catch(action, ({ refusal }) => Effect.succeed(refusal)));
   }
 
-  async #void(action: Effect.Effect<unknown, never, Automator>): Promise<void> {
-    sure(await this.#edge.runPromise(Effect.as(action, {})));
+  #void(action: Effect.Effect<unknown, never, Automator>): Promise<void> {
+    return this.#edge.runPromise(Effect.asVoid(action));
   }
 
   #emit(): void {
