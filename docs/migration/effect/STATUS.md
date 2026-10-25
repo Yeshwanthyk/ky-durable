@@ -14,13 +14,29 @@ against B, never against the PR before it.
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
 | U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` (settled) | `effect/lane-screenshot-diff` | done, integrated (2bacb35, 4136158, 65d0921) | `pnpm visual`: B vs HEAD 0 on 8 pages |
 | U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | done, settled (9c066ba) | its thread |
-| U1 | Deploy (pilot) | `mcp:8758b1bd-ad05-4614-a90c-5aabb146c3af` | `effect/u1-deploy` (from `effect/foundation`) | done, merged into foundation (dbb56e4): ported (f1ebace), parity (c0f5b65), mutants + I-D6/I-D7 (52e1bc6), flip deleted `cli/deploy/legacy/` (942c147); refusals `implements Refusable`, boundaries fence on `cli/deploy` (e51c888); divergences I-D2/I-D3 fixed (b7a9692); Fable 5.1 review in flight | `prove.sh deploy --seed 20261025`: 69 held, 0 lost; 500 runs; 6/6 mutants; statechart shown to owner |
+| U1 | Deploy (pilot) | `mcp:8758b1bd-ad05-4614-a90c-5aabb146c3af` | `effect/u1-deploy` (from `effect/foundation`) | done, merged into foundation (dbb56e4): ported (f1ebace), parity (c0f5b65), mutants + I-D6/I-D7 (52e1bc6), flip deleted `cli/deploy/legacy/` (942c147); refusals `implements Refusable`, boundaries fence on `cli/deploy` (e51c888); divergences I-D2/I-D3 fixed (b7a9692); Fable 5.1 review: FIX FIRST, finding 1 fixed (b1a8aa1), the rest recorded |  `prove.sh deploy --seed 20261025`: 69 held, 0 lost; 500 runs; 6/6 mutants; statechart shown to owner |
 | W1-K | Kit: one clock per run, `due`/`pending`/`nextAlarm` | chief of staff | `effect/foundation` | done (3c162ba) | toy 7/7; `--mutant all` caught at 500 runs |
 | W1-S | `src/core/sql.ts`: sync-first `Sql` service over `ctx.storage.sql` | chief of staff | `effect/foundation` | done (4e8d6b5, 70ce4f8) | 5/5 on a real DO; no-rollback mutant red |
 | W1-R | Real data: squarey's backup restored at B and on the branch | chief of staff | `effect/foundation` | done for foundation | `real-data.ts`: HEAD = B (47 skills, 16 routines; same 2 runtime tables emptied on both) |
 | H1 | Harvest after U1 | chief of staff | `effect/foundation` | done: `scripts/mutant.sh` (open, then save) regenerates a moved mutant (round-tripped unmarked-bucket, still caught); doctor fails on stale `node_modules`; the skill's scripts turn off fsmonitor (the IPC noise); SKILL.md says read exit codes, not piped output. Temp-path normalization already lives in the deploy proof | `doctor.sh deploy` all ok |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
 | U3 | Skills | — | — | waits for Wave 2 "go" | — |
+
+## Paused here (2026-10-25)
+
+- **Objective:** move ky to Effect v4, domain by domain, each proven against B; Wave 1 (deploy) is closed.
+- **State:** foundation clean at b1a8aa1 plus this note; nothing pushed; no thread or agent running.
+- **Proof:** `prove.sh deploy --seed 20261025` after the review fix: ratchet 69 held, 0 lost; 500 runs; 6/6 mutants.
+  `pnpm typecheck`, `lint` (425, baseline), `fallow` pass.
+- **Fable review of deploy, findings:** 1 fixed (a containers check that can't reach Cloudflare fails the
+  deploy instead of dropping the cloud machine; untested: the fake can't drop a request). 2 and 4 recorded
+  as residual risks in `divergences/deploy.md`; 5 recorded there. Not done, on purpose (owner: don't
+  overfix): 3 (refusals travel as defects through `Cloudflare.run`), 6 (`bucketState` read twice),
+  7 (Service with no dependencies, `Out<T>`, unused Schemas). Pick up only if a later domain needs them.
+- **Next action:** recap to the owner and ask for the Wave 2 go (U2 automations, U3 skills, each a writer
+  in its own worktree from foundation; big delegation, so show the review first).
+- **Owner's call:** stale worktrees effect-lane-screenshot-diff, effect-lane-skill-drafts,
+  spike-effect-do-storage, effect-u1-deploy (merged).
 
 ## U0 steps
 
