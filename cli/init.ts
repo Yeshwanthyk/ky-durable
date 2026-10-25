@@ -14,10 +14,11 @@ import * as Accounts from "@distilled.cloud/cloudflare/accounts";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { isCancel, password, select, text } from "@clack/prompts";
 import type { Unstable_RawConfig } from "wrangler";
-import { Cloudflare, refused, tokenPage } from "./cloudflare.ts";
+import { Cloudflare, Refused, refused, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
 import { emails, mailAddress, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
-import { claim, type Deployed, deploy, NameTaken, teamDomain, zeroTrustPage } from "./deployer.ts";
+import { type Deployed, Taken, zeroTrustPage } from "./deploy/contract.ts";
+import { claim, deploy, teamDomain } from "./deploy/wiring.ts";
 import { bold, cancelled, dim, green, open, type Output, output, qr, terminal } from "./output.ts";
 
 export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string; mail?: string };
@@ -260,7 +261,7 @@ export async function initCommand(context: Context, flags: InitFlags): Promise<n
       // Refuses a Worker or bucket of this name that ky didn't make, before anything is written.
       await claim(target);
     } catch (error) {
-      if (error instanceof NameTaken && !saved.name) throw new Error(`${error.taken}; pick another name: run \`ky init\` again with another --name`);
+      if (error instanceof Refused && error.reason instanceof Taken && !saved.name) throw new Error(`${error.reason.taken}; pick another name: run \`ky init\` again with another --name`);
       throw error;
     }
 

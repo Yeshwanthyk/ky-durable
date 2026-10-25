@@ -59,12 +59,24 @@ export function answeredWithError(error: unknown): error is CloudflareError {
   return error instanceof CloudflareError;
 }
 
+/** A domain's refusal (deploy's, say), thrown in its own words: the message is what the user reads. */
+export class Refused extends Error {
+  /** The refusal itself, a tagged error such as deploy's `Taken`. */
+  readonly reason: Error;
+
+  constructor(reason: Error, refusal: string) {
+    super(refusal);
+    this.reason = reason;
+  }
+}
+
 /** What @distilled.cloud/cloudflare fails with: Cloudflare's error, tagged by its code. */
 const Tagged = Type.Object({ _tag: Type.String() });
 
 type Layered = ReturnType<typeof layer>;
 
-type Services = Layer.Success<Layered>;
+/** What an operation needs to run: distilled's login and an HTTP client. */
+export type Services = Layer.Success<Layered>;
 
 /**
  * How a permission check retries: Cloudflare answers a token without a permission "Authentication
@@ -97,12 +109,16 @@ export class Cloudflare {
     return new Cloudflare(this.#token, this.login, BRIEFLY);
   }
 
-  /** Runs one operation; a failure throws a CloudflareError. */
+  /** Runs one operation: a refusal throws Refused, Cloudflare's error a CloudflareError, and a defect as it was thrown. */
   async run<A, E>(operation: Effect.Effect<A, E, Services>): Promise<A> {
     const exit = await Effect.runPromiseExit(operation.pipe(Effect.provide(this.#layer)));
 
     if (Exit.isSuccess(exit)) return exit.value;
     const error = Cause.squash(exit.cause);
+
+    if (!Cause.hasFails(exit.cause)) throw error;
+
+    if (error instanceof Error && "refusal" in error && typeof error.refusal === "string") throw new Refused(error, error.refusal);
     const tag = Value.Check(Tagged, error) ? error._tag : "UnknownError";
     const message = error instanceof Error ? error.message : String(error);
 

@@ -11,7 +11,7 @@ import { gunzipSync } from "node:zlib";
 import { type Archive, type LeftOut, readArchive, readTar, restoreArchive, type Send, type Summary } from "../src/archive.ts";
 import { type Context, target } from "./commands.ts";
 import { readDeployed, readOverlay } from "./config.ts";
-import { address } from "./deployer.ts";
+import { address } from "./deploy/wiring.ts";
 import { bold, dim, green } from "./output.ts";
 
 type Flags = { url?: string; out?: string; force?: boolean };
