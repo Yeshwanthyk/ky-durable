@@ -91,8 +91,22 @@ self.addEventListener("push", (event) => {
   // src/push.ts sends lines: the title, the chat's address, then the text.
   const [title = "ky", url = "/", ...text] = (event.data?.text() ?? "").split("\n");
 
-  event.waitUntil(self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } }));
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } });
+      await badge();
+    })()
+  );
 });
+
+// The app icon's badge counts ky's notifications not yet tapped or dismissed, or is a plain dot where a browser
+// can't list them. Opening ky clears it (src/client.tsx).
+async function badge() {
+  if (!("setAppBadge" in navigator)) return;
+  const shown = await self.registration.getNotifications();
+
+  await navigator.setAppBadge(shown.length || undefined).catch(() => {});
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

@@ -2207,7 +2207,17 @@ test("serves the web app manifest and icons to the Home Screen without signing i
   try {
     const manifest = await stranger.get("/manifest.webmanifest", { maxRedirects: 0 });
     expect(manifest.status()).toBe(200);
-    expect(await manifest.json()).toMatchObject({ name: "ky", display: "standalone" });
+    expect(await manifest.json()).toMatchObject({
+      name: "ky",
+      display: "standalone",
+      display_override: ["window-controls-overlay", "standalone"],
+      launch_handler: { client_mode: ["focus-existing", "auto"] },
+      shortcuts: [
+        { name: "Main chat", url: "/" },
+        { name: "Skills", url: "/?skills=all" },
+        { name: "Artifacts", url: "/?artifacts=all" }
+      ]
+    });
 
     const icon = await stranger.get("/icons/icon-512.png", { maxRedirects: 0 });
     expect(icon.status()).toBe(200);
@@ -2220,6 +2230,74 @@ test("serves the web app manifest and icons to the Home Screen without signing i
   } finally {
     await stranger.dispose();
   }
+});
+
+test("opens the page each app shortcut names", async ({ page }) => {
+  // Each page covers the chat, so there's no connected chat to wait for.
+  await signIn(page);
+  await page.goto("/?skills=all");
+  await expect(page.getByRole("region", { name: "Skills" })).toBeVisible();
+  await page.goto("/?artifacts=all");
+  await expect(page.getByRole("region", { name: "Artifacts" })).toBeVisible();
+});
+
+/** What the badge test's stand-ins record: the page's clearAppBadge calls, and public/sw.js's tray and badge counts. */
+declare global {
+  var kyCleared: number;
+  var kyBadges: (number | undefined)[];
+  var kyTray: string[];
+  /** public/sw.js's own registration, as its global scope has it. */
+  var registration: ServiceWorkerRegistration;
+}
+
+test("badges the app icon for a push, and clears it once ky is open", async ({ page, context }) => {
+  await page.addInitScript(() => {
+    globalThis.kyCleared = 0;
+    Object.defineProperty(navigator, "clearAppBadge", { configurable: true, value: async () => void globalThis.kyCleared++ });
+  });
+  await open(page);
+  await expect.poll(() => page.evaluate(() => globalThis.kyCleared)).toBe(1);
+
+  // The stack runs Vite's dev server, where ky doesn't register public/sw.js itself.
+  const cdp = await context.newCDPSession(page);
+
+  const registered = new Promise<string>((resolve) =>
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const ours = registrations.find((each) => each.scopeURL === new URL("/", page.url()).href && !each.isDeleted);
+
+      if (ours) resolve(ours.registrationId);
+    })
+  );
+
+  await cdp.send("ServiceWorker.enable");
+  await page.evaluate(async () => void (await navigator.serviceWorker.register("/sw.js")));
+  const registrationId = await registered;
+  const worker = context.serviceWorkers().find((each) => each.url().endsWith("/sw.js")) ?? (await context.waitForEvent("serviceworker"));
+
+  // Headless Chromium shows no notifications, so a stand-in tray holds what the worker shows.
+  await worker.evaluate(() => {
+    globalThis.kyBadges = [];
+    globalThis.kyTray = [];
+    Object.defineProperty(navigator, "setAppBadge", { configurable: true, value: async (count?: number) => void globalThis.kyBadges.push(count) });
+    Object.assign(globalThis.registration, {
+      showNotification: async (title: string, options: NotificationOptions) => void globalThis.kyTray.push(`${title}: ${options.body}`),
+      getNotifications: async () => globalThis.kyTray
+    });
+  });
+
+  // src/push.ts's lines: the title, the chat's address, then the text.
+  const push = (data: string) => cdp.send("ServiceWorker.deliverPushMessage", { origin: new URL(page.url()).origin, registrationId, data });
+
+  await push("ky\n/\nThe pharmacy closes at six today.");
+  await expect.poll(() => worker.evaluate(() => globalThis.kyBadges)).toEqual([1]);
+  await push("ky\n/\nAnd the bakery at five.");
+  await expect.poll(() => worker.evaluate(() => globalThis.kyBadges)).toEqual([1, 2]);
+  expect(await worker.evaluate(() => globalThis.kyTray)).toEqual(["ky: The pharmacy closes at six today.", "ky: And the bakery at five."]);
+
+  // Coming back to ky reads them.
+  await switchAway(page, 1_000);
+  await expect.poll(() => page.evaluate(() => globalThis.kyCleared)).toBe(2);
+  await page.evaluate(async () => void (await navigator.serviceWorker.getRegistration())?.unregister());
 });
 
 /** Hide the page, let `awayMs` pass on its clock, and show it again, as switching apps on a phone does. */
