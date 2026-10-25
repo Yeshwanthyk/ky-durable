@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
@@ -337,7 +336,11 @@ describe("stored skills", () => {
     try {
       const parsed: unknown = JSON.parse(column);
 
-      return Schema.is(Schema.Record(Schema.String, Schema.String))(parsed) ? parsed : {};
+      // JSON gives an object, an array or a primitive; only a plain object of strings is answers.
+      if (!(parsed instanceof Object) || Array.isArray(parsed)) return {};
+      const entries = Object.entries(parsed);
+
+      return entries.every(([, value]) => value === String(value)) ? Object.fromEntries(entries) : {};
     } catch {
       return {};
     }
