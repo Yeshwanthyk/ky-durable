@@ -1,5 +1,5 @@
 /**
- * `node --experimental-strip-types test/visual/diff.ts <a> <b> [--threshold 0.001]`: compares two sets of
+ * `node --experimental-strip-types test/visual/diff.ts <a> <b> [--threshold 0.0001]`: compares two sets of
  * screenshots test/visual/capture.ts wrote, page by page, and exits 1 when any page differs too much.
  *
  * `a` and `b` are labels under test-results/visual/, or directories. A page's ratio is the share of its
@@ -131,10 +131,10 @@ export function print(rows: readonly Row[], title: string, threshold: number): n
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const at = args.indexOf("--threshold");
-  const threshold = at === -1 ? 0.001 : Number(args[at + 1]);
+  const threshold = at === -1 ? 0.0001 : Number(args[at + 1]);
   const [a, b] = args.filter((_, index) => at === -1 || (index !== at && index !== at + 1));
 
-  if (a === undefined || b === undefined || !Number.isFinite(threshold)) throw new Error("Usage: diff.ts <a> <b> [--threshold 0.001]");
+  if (a === undefined || b === undefined || !Number.isFinite(threshold)) throw new Error("Usage: diff.ts <a> <b> [--threshold 0.0001]");
   process.exitCode = print(await diff(a, b, threshold), `${a} vs ${b}`, threshold);
 }
 

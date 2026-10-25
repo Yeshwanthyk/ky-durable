@@ -1,5 +1,5 @@
 /**
- * `node --experimental-strip-types test/visual/run.ts [--base effect-baseline] [--threshold 0.001]`: the
+ * `node --experimental-strip-types test/visual/run.ts [--base effect-baseline] [--threshold 0.0001]`: the
  * Visual step. Captures every page at `--base` and in this checkout, compares them with diff.ts, and
  * exits 1 when any page differs beyond the threshold; test-results/visual/report.json names them and
  * test-results/visual/diff/ shows where.
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const flag = (name: string, fallback: string) => (args.includes(name) ? (args[args.indexOf(name) + 1] ?? fallback) : fallback);
   const base = flag("--base", "effect-baseline");
-  const threshold = Number(flag("--threshold", "0.001"));
+  const threshold = Number(flag("--threshold", "0.0001"));
   const tree = path.join(mkdtempSync(path.join(tmpdir(), "ky-visual-")), "base");
 
   run("git", ["worktree", "add", "--detach", tree, base], REPO);
