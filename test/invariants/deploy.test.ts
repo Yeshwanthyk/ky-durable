@@ -9,12 +9,15 @@
  *         deploy does.
  *   I-D4  the Worker's migration tag only moves forward, and no migration is uploaded twice.
  *   I-D5  the Worker's secrets (`wrangler secret put`, the dashboard) survive every deploy.
+ *   I-D6  a deploy after the overlay changed leaves the Worker running it, even of the same release.
+ *   I-D7  a bucket named as ky's that ky didn't mark is adopted only when it's empty and no other Worker
+ *         binds it; otherwise the deploy refuses and leaves the bucket as it was.
  *
  * I-D3 is checked for every k of a first deploy and of an upgrade; the generated runs mix deploys of
  * three releases, cuts at any request, and the owner adding secrets, and hold all five after each.
  * `pnpm parity deploy` runs them at the bar: KY_RUNS (500), KY_SEED.
  */
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import fc from "fast-check";
@@ -137,6 +140,16 @@ function difference(expected: string, actual: string): string {
 
   return `after ${around.join(" ")}: expected ${want[line]?.trim() ?? "(end)"}, got ${got[line]?.trim() ?? "(end)"}`;
 }
+
+/** Someone else's Worker that binds the bucket ky's deploy would name `ky-files`. */
+const archive = (): FakeScript => ({
+  tags: ["archive"],
+  migrations: [],
+  metadata: { main_module: "index.js", bindings: [{ type: "r2_bucket", name: "FILES", bucket_name: "ky-files" }] },
+  modules: ["index.js"],
+  secrets: new Map(),
+  workersDev: false
+});
 
 /** A Cloudflare account behind the fake, and the overlay `ky init` wrote for it. */
 type World = { fake: FakeCloudflare; account: FakeAccount; release: Release };
@@ -281,6 +294,55 @@ describe("ky deploy, on any account", () => {
     }
 
     expect([...writes].sort()).toEqual([]);
+  });
+
+  it("I-D6: a deploy after the overlay changed leaves the Worker running it, even of the same release", async () => {
+    const at = await after(["now"]);
+    const saved = overlay;
+    const { rawConfig } = experimental_readRawConfig({ config: saved });
+    const emails = `${EMAIL},friend@example.com`;
+
+    overlay = path.join(path.dirname(saved), "wrangler.changed.jsonc");
+    await writeFile(overlay, JSON.stringify({ ...rawConfig, vars: { ...rawConfig.vars, ACCESS_EMAILS: emails } }));
+
+    try {
+      expect((await deploy(at, "now")).ok).toBe(true);
+    } finally {
+      overlay = saved;
+      await at.fake.close();
+    }
+
+    const bindings = at.account.scripts.get("ky")?.metadata.bindings ?? [];
+
+    expect(bindings.find((binding) => binding.name === "ACCESS_EMAILS")).toMatchObject({ type: "plain_text", text: emails });
+  });
+
+  it("I-D7: a bucket ky didn't mark is adopted only when it's empty and unbound; else the deploy refuses and leaves it", async () => {
+    for (const [keys, bound] of [
+      [[], false],
+      [["notes.txt"], false],
+      [[], true],
+      [["notes.txt"], true]
+    ] satisfies [string[], boolean][]) {
+      const at = await world();
+      const where = `a bucket with ${keys.length} objects, ${bound ? "" : "not "}bound by another Worker`;
+
+      at.account.buckets.set("ky-files", new Set(keys));
+
+      if (bound) at.account.scripts.set("archive", archive());
+      const { ok } = await deploy(at, "now");
+      const now = sorted(at.account.buckets.get("ky-files") ?? []);
+
+      await at.fake.close();
+
+      if (keys.length === 0 && !bound) {
+        expect(ok, where).toBe(true);
+        expect(now, where).toEqual([".ky"]);
+      } else {
+        expect(ok, where).toBe(false);
+        expect(now, where).toEqual(keys);
+      }
+    }
   });
 
   it("I-D3: a deploy cut off after any request, then run again, ends where a clean deploy does", async () => {
