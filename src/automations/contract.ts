@@ -276,6 +276,12 @@ export function summarize(text: string): string {
 
 export type LastRun = Pick<TaskRow, "id" | "status" | "summary" | "finished_at">;
 
+/** One run for an automation's history: how it went, when, how long and what it cost. */
+export type RunInfo = Pick<TaskRow, "id" | "status" | "summary" | "created_at" | "started_at" | "finished_at" | "cost_usd">;
+
+/** How many runs an automation's history shows. */
+export const RUN_HISTORY = 14;
+
 /** An automation as the Activity view and the tool show it. */
 export type AutomationView = Omit<AutomationRow, "schedule_id" | "zone"> & {
   /** The zone its cron's times are in: its own, else the user's, else UTC. */
@@ -283,12 +289,14 @@ export type AutomationView = Omit<AutomationRow, "schedule_id" | "zone"> & {
   /** When it fires next, in epoch ms; null when nothing is booked. */
   readonly next_run: number | null;
   readonly last_run: LastRun | null;
+  /** Its newest RUN_HISTORY runs, newest first. */
+  readonly runs: readonly RunInfo[];
 };
 
 // The automation tool and the user's actions.
 
 /** The actions on one automation by its id, each an Automations method of the same name. */
-export const BY_ID_ACTIONS = ["pause", "resume", "archive", "unarchive", "run", "delete"] as const;
+export const BY_ID_ACTIONS = ["pause", "resume", "archive", "unarchive", "run", "stop", "delete"] as const;
 
 export type ByIdAction = (typeof BY_ID_ACTIONS)[number];
 

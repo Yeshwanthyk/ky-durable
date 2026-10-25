@@ -281,9 +281,11 @@ export function subagentExtension(
 
           return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined, posted);
         }, context);
-        feed.update(feedId, outcome);
+        // Stopped while it answered: it stays stopped, as its report is not posted.
+        const wantedStill = wanted(feedId);
+        feed.update(feedId, wantedStill ? outcome : { status: "stopped", summary: "Stopped" });
 
-        if (report) feed.describe(feedId, report);
+        if (report && wantedStill) feed.describe(feedId, report);
       },
       report: async (reporter, runtime, context) => {
         const { report, line, kind, cards } = reporter.state.checkpoint;

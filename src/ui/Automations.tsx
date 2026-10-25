@@ -45,7 +45,7 @@ import {
 import { ago } from "./time";
 
 /** When it runs: a cron in words, or a one-off's local time. */
-function scheduleOf(automation: AutomationInfo): string {
+export function scheduleOf(automation: AutomationInfo): string {
   if (automation.cron !== null) return cronInWords(automation.cron);
 
   const at = new Date(automation.at ?? 0).toLocaleString(undefined, {
@@ -823,16 +823,22 @@ type FieldProps = { form: Form; set: (patch: Partial<Form>) => void };
 
 // The routine's title as the header and how its last run went; its prompt; its schedule; where it runs and
 // reports; the rarely changed under More; then leaving it, running it and saving.
-function AutomationForm({
+export function AutomationForm({
   automation,
   zone,
   now,
   onClose,
+  onSaved = onClose,
+  page = false,
 }: {
   automation?: AutomationInfo | undefined;
   zone: string;
   now: number;
   onClose: () => void;
+  /** After a save; closes the form unless the form is a page that stays. */
+  onSaved?: () => void;
+  /** On a routine's own page, which shows the last run and Run now itself. */
+  page?: boolean;
 }) {
   const { providers, onSave, onAction } = useContext(AutomationsContext);
   const [form, setForm] = useState(() => formOf(automation, now, zone));
@@ -847,7 +853,7 @@ function AutomationForm({
 
     setRefused(why);
 
-    if (why === undefined) onClose();
+    if (why === undefined) onSaved();
   };
 
   const escape = (event: KeyboardEvent) => {
@@ -866,9 +872,9 @@ function AutomationForm({
           value={form.title}
           onChange={(event) => set({ title: event.target.value })}
         />
-        <IconButton label="Cancel" icon="x" onClick={onClose} />
+        {page ? null : <IconButton label="Cancel" icon="x" onClick={onClose} />}
       </div>
-      {automation ? <LastRun automation={automation} now={now} /> : null}
+      {automation && !page ? <LastRun automation={automation} now={now} /> : null}
       <div className="card routine-prompt-card">
         <textarea
           className="automation-prompt"
@@ -891,7 +897,7 @@ function AutomationForm({
       )}
       <div className="automation-foot">
         {automation && <EndMenu id={automation.id} onClose={onClose} />}
-        {automation && automation.status !== "archived" ? (
+        {automation && !page && automation.status !== "archived" ? (
           <button type="button" className="pill pressable routine-run" onClick={() => onAction(automation.id, "run")}>
             Run now
           </button>

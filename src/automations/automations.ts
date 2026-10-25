@@ -42,6 +42,8 @@ import {
   type Delivery,
   EXTENSIONS,
   type LastRun,
+  RUN_HISTORY,
+  type RunInfo,
   GateFoundRow,
   StoredCheckIns,
   type TaskFeed,
@@ -240,6 +242,12 @@ function slotOf(fire: Fire, schedule: Schedule<Fire>, row: AutomationRow): numbe
 
 function lastOf(task: TaskRow | undefined): LastRun | null {
   return task ? { id: task.id, status: task.status, summary: task.summary, finished_at: task.finished_at } : null;
+}
+
+function runOf(task: TaskRow): RunInfo {
+  const { id, status, summary, created_at, started_at, finished_at, cost_usd } = task;
+
+  return { id, status, summary, created_at, started_at, finished_at, cost_usd };
 }
 
 export class Automations {
@@ -535,6 +543,15 @@ export class Automations {
     return `Paused "${row.title}".`;
   }
 
+  /** Stop the run in progress and leave the automation on its schedule. */
+  async stop(id: string): Promise<string> {
+    const row = this.get(id);
+
+    if (!row) return `No automation ${id}.`;
+
+    return (await this.#stopRun(row.id)) ? `Stopped "${row.title}"'s run.` : `"${row.title}" has no run going.`;
+  }
+
   async archive(id: string): Promise<string> {
     const row = this.get(id);
 
@@ -615,9 +632,13 @@ export class Automations {
 
   /** Whether a task's report should still reach the chat: not for a paused or archived automation. */
   wanted(feedId: string): boolean {
-    const source = this.#deps.feed.get(feedId)?.source ?? "";
+    const task = this.#deps.feed.get(feedId);
+    const source = task?.source ?? "";
 
     if (!source.startsWith(SOURCE)) return true;
+
+    // Stopped by the user: it neither starts nor reports, though the automation runs on.
+    if (task?.status === "stopped") return false;
     const status = this.get(source.slice(SOURCE.length))?.status;
 
     return status === "active" || status === "done";
@@ -984,16 +1005,27 @@ export class Automations {
     this.#set(row.id, { status, schedule_id: null });
 
     if (booked !== null) await this.scheduler.cancel(booked);
-    const run = this.#deps.feed.latestFrom(sourceOf(row.id));
+    await this.#stopRun(row.id);
+  }
 
-    if (!run || !isLive(run.status)) return;
+  /** Stop the automation's live run, if it has one; whether it had. */
+  async #stopRun(id: string): Promise<boolean> {
+    const run = this.#deps.feed.latestFrom(sourceOf(id));
 
-    if (run.kind === "machine") return this.#deps.machines.stop(run);
+    if (!run || !isLive(run.status)) return false;
 
-    // Not started yet: its reporter sees the automation is not wanted and stops before it begins.
-    if (run.session === null) return this.#deps.feed.update(run.id, { status: "stopped", summary: "Stopped" });
+    if (run.kind === "machine") {
+      await this.#deps.machines.stop(run);
 
-    return this.#deps.runtime.abort(run.session);
+      return true;
+    }
+
+    // Marked first: its reporter then sees it is not wanted, so it neither begins nor reports what an abort cut short.
+    this.#deps.feed.update(run.id, { status: "stopped", summary: "Stopped" });
+
+    if (run.session !== null) await this.#deps.runtime.abort(run.session);
+
+    return true;
   }
 
   /** The automation's model while it can run, else the worker's. */
@@ -1114,12 +1146,14 @@ export class Automations {
   async #view(row: AutomationRow): Promise<AutomationView> {
     const { schedule_id: scheduleId, ...rest } = row;
     const next = scheduleId === null ? undefined : await this.scheduler.get(scheduleId);
+    const runs = this.#deps.feed.recentFrom(sourceOf(row.id), RUN_HISTORY);
 
     return {
       ...rest,
       zone: row.zone ?? this.checkIns().zone ?? "UTC",
       next_run: next ? next.time * 1000 : null,
-      last_run: lastOf(this.#deps.feed.latestFrom(sourceOf(row.id)))
+      last_run: lastOf(runs[0]),
+      runs: runs.map(runOf)
     };
   }
 
@@ -1328,6 +1362,7 @@ const BY_ID = {
   archive: (automations, id) => automations.archive(id),
   unarchive: (automations, id) => automations.unarchive(id),
   run: (automations, id) => automations.run(id),
+  stop: (automations, id) => automations.stop(id),
   delete: (automations, id) => automations.delete(id)
 } satisfies { readonly [Action in ByIdAction]: (automations: Automations, id: string) => Promise<string> | string };
 
@@ -1389,7 +1424,7 @@ export function automationExtension(
           "A cloud run has the ui tool: a card it shows (a status, stats, a chart, facts, a table) is posted in its chat as ky's own, just before its report, once the run succeeds; " +
           "ask for one in the prompt when the report reads better as a card, like a daily forecast. It may ask the user something (a choice, buttons): their answer comes to you here as their next message. A machine run has none. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
-          "pause, resume, archive, unarchive, run, delete (id): run fires it now; delete only when the user asks. " +
+          "pause, resume, archive, unarchive, run, stop, delete (id): run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed. " +
           "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
           "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +

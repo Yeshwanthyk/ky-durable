@@ -230,7 +230,7 @@ export type {
   PiToolInfo as ToolInfo
 };
 
-export type { TaskLogStep, TaskRow, ZoneView } from "./automations/contract";
+export type { RunInfo, TaskLogStep, TaskRow, ZoneView } from "./automations/contract";
 
 export type { ChatRow } from "./chats";
 

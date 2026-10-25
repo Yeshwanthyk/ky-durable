@@ -1,5 +1,5 @@
 import { type ReactNode, useRef, useState } from "react";
-import type { ChatRow } from "../protocol";
+import type { AutomationInfo, ChatRow } from "../protocol";
 import { ago } from "./time";
 import { Icon } from "./Icon";
 import { useChanges } from "./use-changes";
@@ -201,6 +201,9 @@ export function Sidebar({
   onArtifacts,
   skills,
   onSkills,
+  automations,
+  routine,
+  onRoutine,
 }: {
   chats: readonly ChatRow[];
   session: string;
@@ -222,6 +225,11 @@ export function Sidebar({
   /** Whether the Skills page is open, over the chat. */
   skills: boolean;
   onSkills: () => void;
+  /** The routines, for the footer's live dot while one runs. */
+  automations: readonly AutomationInfo[];
+  /** Whether the Routines page is open, over the chat. */
+  routine: boolean;
+  onRoutine: () => void;
 }) {
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
@@ -253,7 +261,7 @@ export function Sidebar({
           <button
             type="button"
             className="chat-item pressable pressable-row"
-            aria-current={session === main && !artifacts && !skills ? "page" : undefined}
+            aria-current={session === main && !artifacts && !skills && !routine ? "page" : undefined}
             data-unread={mainUnread}
             data-news={mainNews}
             onClick={() => onOpen(main)}
@@ -293,6 +301,13 @@ export function Sidebar({
         <button type="button" className="chat-item pressable pressable-row" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
           <Icon name="grid" size={14} />
           <span className="chat-title">Artifacts</span>
+        </button>
+        <button type="button" className="chat-item pressable pressable-row" aria-current={routine ? "page" : undefined} onClick={onRoutine}>
+          <Icon name="clock" size={14} />
+          <span className="chat-title">Routines</span>
+          {automations.some((automation) => automation.runs[0]?.status === "working" || automation.runs[0]?.status === "queued") ? (
+            <span className="sidebar-live" role="status" aria-label="A routine is running" />
+          ) : null}
         </button>
       </div>
     </nav>

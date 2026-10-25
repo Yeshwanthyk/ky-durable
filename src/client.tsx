@@ -30,6 +30,7 @@ import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
 import { backgroundLine, isLive } from "./ui/task-progress";
 import type { PendingImage } from "./ui/pick-images";
+import { RoutineList } from "./ui/RoutineList";
 import { Sidebar } from "./ui/Sidebar";
 import { Topbar } from "./ui/Topbar";
 import { sentTexts } from "./ui/turns";
@@ -452,16 +453,11 @@ function Stage(parts: Parts) {
   );
 }
 
-// ky's panel, activity, skills, soul and memory, and settings, in its slot. It keeps its own
-// clock, so a running task's timer ticks the panel each second and not the whole page.
-function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
-  const now = useNow(panel.open && ky.tasks.some(clockRunning));
+/** The automations' context: the list, what a form offers, and the actions; for the panel and a routine's page. */
+function useAutomations(ky: Ky) {
   const providers = ky.settings?.providers ?? NONE;
-  const { setOpen, openSection, setPage } = panel;
-  const onClose = useCallback(() => setOpen(false), [setOpen]);
-  const running = useMemo(() => toolLabels(ky.tools, ky.messages), [ky.tools, ky.messages]);
 
-  const automations = useMemo(
+  return useMemo(
     () => ({
       automations: ky.automations,
       providers,
@@ -474,6 +470,32 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
     }),
     [ky.automations, providers, ky.machines, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
   );
+}
+
+// The Routines page over the chat, with its own clock: a live run's time ticks each second.
+function RoutineStage({ open, ky, onOpen, onChats }: { open: string; ky: Ky; onOpen: (id: string) => void; onChats: () => void }) {
+  const automations = useAutomations(ky);
+  const going = ky.automations.some((each) => each.runs[0]?.status === "working" || each.runs[0]?.status === "queued");
+  const now = useNow(going);
+
+  return (
+    <AutomationsContext.Provider value={automations}>
+      <ProactivityContext.Provider value={ky.proactivityActions}>
+        <RoutineList open={open} tasks={ky.tasks} now={now} onOpen={onOpen} onChats={onChats} />
+      </ProactivityContext.Provider>
+    </AutomationsContext.Provider>
+  );
+}
+
+// ky's panel, activity, skills, soul and memory, and settings, in its slot. It keeps its own
+// clock, so a running task's timer ticks the panel each second and not the whole page.
+function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
+  const now = useNow(panel.open && ky.tasks.some(clockRunning));
+  const { setOpen, openSection, setPage } = panel;
+  const onClose = useCallback(() => setOpen(false), [setOpen]);
+  const running = useMemo(() => toolLabels(ky.tools, ky.messages), [ky.tools, ky.messages]);
+
+  const automations = useAutomations(ky);
 
   const executor = useMemo(() => ({ view: ky.executor, actions: ky.executorActions }), [ky.executor, ky.executorActions]);
   const nav = useMemo(() => ({ page: panel.page, go: setPage, openSection }), [panel.page, setPage, openSection]);
@@ -667,6 +689,12 @@ function App() {
                     shell.setDrawerOpen(false);
                     route.showSkills("all");
                   }}
+                  automations={ky.automations}
+                  routine={route.routine !== null}
+                  onRoutine={() => {
+                    shell.setDrawerOpen(false);
+                    route.showRoutine("");
+                  }}
                 />
               </div>
               {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
@@ -676,6 +704,8 @@ function App() {
                 <ArtifactsPage kind={route.artifacts} tasks={ky.tasks} onKind={route.showArtifacts} onChats={shell.showChats} />
               ) : route.skills !== null ? (
                 <SkillsPage filter={route.skills} ky={ky} onFilter={route.showSkills} onChats={shell.showChats} />
+              ) : route.routine !== null ? (
+                <RoutineStage open={route.routine} ky={ky} onOpen={route.showRoutine} onChats={shell.showChats} />
               ) : (
                 <Stage {...parts} />
               )}
