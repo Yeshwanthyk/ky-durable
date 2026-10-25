@@ -109,10 +109,11 @@ describe("executor approvals in model mode", () => {
     expect(saved).toBe(BROWSER);
   });
 
-  it("passes a decline to Executor unchanged", async () => {
+  it("passes a decline of this conversation's request for input to Executor unchanged", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
-    const args = { requestId: "request-9", response: { action: "decline" } };
+    await prompt(name, 'tool executor_execute {"code":"ask which label"}');
+    const args = { requestId: "request-1", response: { action: "decline" } };
 
     await prompt(name, `tool executor_resume ${JSON.stringify(args)}`);
 

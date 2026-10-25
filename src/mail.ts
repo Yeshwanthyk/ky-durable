@@ -359,8 +359,6 @@ export type MailDesk = {
   readonly tell: (session: string | null, content: string, requestId: string) => Promise<void>;
   /** Read a mail in a triage conversation of its own, whose session `started` is given first: what it said. */
   readonly triage: (mail: MailRow, content: string, started: (session: string) => void) => Promise<string | undefined>;
-  /** A mail was held for the user: its approval is asked (src/approvals/mail.ts). */
-  readonly held?: (mail: MailRow) => void;
 };
 
 /** Why a mail action stopped, in words for ky or the user. */
@@ -470,8 +468,6 @@ async function write(desk: MailDesk, session: string, draft: { to: string; subje
 
   if (!mayWrite(desk, to)) {
     const row = desk.box.wrote(kept, "held");
-
-    desk.held?.(row);
 
     return `Held for the user: ky hasn't written to ${to} before, so they send or discard it in Settings › Mail (mail ${row.id}). Tell them it waits there; you'll hear here what they chose.`;
   }

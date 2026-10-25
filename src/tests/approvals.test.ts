@@ -46,6 +46,22 @@ const resumes = (name: string) => inside(name, (instance) => instance.boundary.e
 
 const pending = (name: string) => inside(name, (instance) => instance.approvals.pending());
 
+type Push = { session: string; text: string };
+
+/** The pushes `name`'s ky sends from now on that ask for the user's OK. */
+async function okPushes(name: string): Promise<Push[]> {
+  const sent: Push[] = [];
+  await inside(name, (instance) => {
+    instance.pushes.notify = async (session, text) => {
+      if (text.startsWith("Waiting for your OK")) sent.push({ session, text });
+    };
+  });
+
+  return sent;
+}
+
+const ASK = { kind: "executor", subject: "gmail.send", summary: "send the old mail", payload: { tool: "gmail.send", message: "send the old mail" }, conversation: ROOT_SESSION } as const;
+
 describe("an approval is the user's tap", () => {
   it("shows a card for a paused program; a tap approves it, the program finishes, and a second tap does nothing", async () => {
     const name = crypto.randomUUID();
@@ -104,12 +120,7 @@ describe("with nobody there to approve", () => {
   it("a routine that hits an approval leaves it waiting as a card in its chat, with a push, and approves nothing", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
-    const pushes: Array<{ session: string; text: string }> = [];
-    await inside(name, (instance) => {
-      instance.pushes.notify = async (session, text) => {
-        pushes.push({ session, text });
-      };
-    });
+    const pushes = await okPushes(name);
 
     const created = await prompt(name, `tool automation ${JSON.stringify({ action: "create", title: "Mail sam", prompt: PAUSE, cron: "0 9 * * *" })}`);
     const id = /Created automation (\w+),/.exec(created.text ?? "")?.[1];
@@ -123,7 +134,7 @@ describe("with nobody there to approve", () => {
 
     expect(await pending(name)).toEqual([expect.objectContaining({ kind: "executor", subject: "gmail.send", chat: ROOT_SESSION })]);
     // Besides the routine's own result, one push asks for the OK.
-    expect(pushes.filter((push) => push.text.startsWith("Waiting for your OK"))).toEqual([{ session: ROOT_SESSION, text: "Waiting for your OK: send mail to sam" }]);
+    expect(pushes).toEqual([{ session: ROOT_SESSION, text: "Waiting for your OK: send mail to sam" }]);
     expect(await resumes(name)).toEqual([]);
   });
 });
@@ -160,34 +171,134 @@ describe("a request Executor no longer has", () => {
     await connectExecutor(name);
     const { ask } = await page(name);
 
-    const id = await inside(name, (instance) =>
-      instance.approvals.requestApproval({
-        kind: "executor",
-        subject: "gmail.send",
-        summary: "send the old mail",
-        payload: { requestId: "request-404", tool: "gmail.send", message: "send the old mail" },
-        conversation: ROOT_SESSION
-      })
-    );
+    const id = await inside(name, (instance) => instance.approvals.requestApproval({ ...ASK, ref: "request-404" }));
 
-    expect(await ask({ type: "approval-decide", id: "", approval: id, action: "accept" })).toEqual({
-      refused: "Executor no longer has that request, so it expired. ky told the chat."
-    });
+    expect(await ask({ type: "approval-decide", id: "", approval: id, action: "accept" })).toEqual({});
     await said(name, "Executor no longer has request request-404: it expired");
     expect(await inside(name, (instance) => instance.approvals.get(id)?.status)).toBe("expired");
   });
 
-  it("from before approval cards, can't be answered by the model; cancelling it reaches Executor", async () => {
+  it("from before approval cards, or another conversation's, can't be answered or cancelled by the model", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
 
     const answered = await promptTool(name, 'tool executor_resume {"requestId":"request-7","response":{"action":"answer","content":{}}}');
     expect(answered.failed).toBe(true);
-    expect(answered.text).toContain("can't be approved any more: cancel it");
+    expect(answered.text).toContain("can't be approved or cancelled any more");
+
+    const cancelled = await promptTool(name, 'tool executor_resume {"requestId":"request-7","response":{"action":"cancel"}}');
+    expect(cancelled.failed).toBe(true);
+    expect(cancelled.text).toContain("ky has no request request-7 from this conversation, so it can't cancel it");
+
+    // An approval a routine asked for waits in main, whose user may turn it down; another chat may not.
+    await inside(name, (instance) => instance.approvals.requestApproval({ ...ASK, ref: "request-8", conversation: "a-routine" }));
+    expect(await inside(name, (instance) => instance.executorApprovals.beforeResume("request-8", "decline", "a-side-chat"))).toBe("Request request-8 belongs to another conversation.");
+    expect(await resumes(name)).toEqual([]);
+    expect(await pending(name)).toHaveLength(1);
+  });
+});
+
+describe("a turn the user didn't start", () => {
+  // Each runs in a chat of the user's, but a notice started it, not the user: gmail.send set to Allow still asks.
+  const STARTERS: Array<[string, (name: string) => Promise<void>]> = [
+    [
+      "a report delivered to main",
+      (name) => inside(name, (instance) => instance.deliveries.deliver({ id: "report-1", session: ROOT_SESSION, content: PAUSE, line: "Report", ref: "task:x", kind: "event" }))
+    ],
+    ["a peer's question escalated to main", (name) => inside(name, (instance) => instance.peerDesk.tell(null, PAUSE, "peer-escalate:ana:1"))],
+    [
+      "a side chat the model opened",
+      async (name) => {
+        await prompt(name, `tool chats ${JSON.stringify({ action: "create", message: PAUSE, title: "Mail" })}`);
+      }
+    ]
+  ];
+
+  for (const [what, start] of STARTERS) {
+    it(`started by ${what}, asks with a card and a push even for a tool set to Allow`, async () => {
+      const name = crypto.randomUUID();
+      await connectExecutor(name);
+      await inside(name, (instance) => instance.executorApprovals.setPolicy("gmail.send", "allow"));
+      const pushes = await okPushes(name);
+
+      await start(name);
+      await until(async () => (await pending(name)).length === 1, "the card");
+
+      const [card] = await pending(name);
+      expect(card).toMatchObject({ kind: "executor", subject: "gmail.send", summary: "send mail to sam" });
+      expect(pushes).toEqual([{ session: card!.chat, text: "Waiting for your OK: send mail to sam" }]);
+      expect(await resumes(name)).toEqual([]);
+    });
+  }
+
+  it("a side chat's card waits in that chat, not main", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+
+    await prompt(name, `tool chats ${JSON.stringify({ action: "create", message: PAUSE, title: "Mail" })}`);
+    await until(async () => (await pending(name)).length === 1, "the card");
+
+    const [card] = await pending(name);
+    expect(card!.chat).not.toBe(ROOT_SESSION);
+    expect(await inside(name, (instance) => instance.chats.list().some((chat) => chat.session === card!.chat))).toBe(true);
+  });
+});
+
+describe("a tap is answered at once", () => {
+  it("while a slow resume runs, and the chat hears the result after", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { ask } = await page(name);
+    await prompt(name, PAUSE);
+    const [card] = await pending(name);
+
+    await inside(name, (instance) => {
+      instance.boundary.executorFake.holdResumes = true;
+    });
+
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await until(async () => (await resumes(name)).length === 1, "the resume to reach Executor");
+    expect(await inside(name, (instance) => instance.approvals.get(card!.id)?.status)).toBe("accepted");
+
+    await inside(name, (instance) => {
+      instance.boundary.executorFake.holdResumes = false;
+    });
+    await said(name, '{"status":"completed","result":"did send mail to sam"}');
+  });
+
+  it("when the resume never reaches Executor, puts the card back and tells the chat; a second tap carries it out", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { ask } = await page(name);
+    await prompt(name, PAUSE);
+    const [card] = await pending(name);
+
+    await inside(name, (instance) => {
+      instance.boundary.executorFake.refuseConnects = 2;
+    });
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await said(name, "ky couldn't reach Executor (Executor call failed: Network connection lost.), so nothing was sent. The card is back");
+    expect(await pending(name)).toEqual([expect.objectContaining({ id: card!.id })]);
     expect(await resumes(name)).toEqual([]);
 
-    expect((await prompt(name, 'tool executor_resume {"requestId":"request-7","response":{"action":"cancel"}}')).text).toBe(
-      'tool said: {"status":"unavailable","reason":"not-found"}'
-    );
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await said(name, '{"status":"completed","result":"did send mail to sam"}');
+    expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "accept" } }]);
+  });
+});
+
+describe("asking again for the same request", () => {
+  it("finds the approval already there: one row, one push", async () => {
+    const name = crypto.randomUUID();
+    const pushes = await okPushes(name);
+
+    const ids = await inside(name, (instance) => [
+      instance.approvals.requestApproval({ ...ASK, ref: "request-5", conversation: "a-routine" }),
+      instance.approvals.requestApproval({ ...ASK, ref: "request-5", conversation: "a-routine" })
+    ]);
+
+    expect(ids[0]).toBe(ids[1]);
+    expect(await inside(name, (_instance, state) => state.storage.sql.exec("SELECT id FROM ky_approvals WHERE ref = 'request-5'").toArray())).toHaveLength(1);
+    expect(pushes).toHaveLength(1);
   });
 });

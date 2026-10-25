@@ -50,6 +50,8 @@ export class FakeExecutor {
   readonly connectedUrls: string[] = [];
   /** Each `resume`'s arguments, as they arrived. */
   readonly resumes: unknown[] = [];
+  /** While true, a `resume` that arrived waits before it answers, as a slow program does. A flag, not a promise: one made in another request wouldn't wake it. */
+  holdResumes = false;
   /** What each paused request will do once accepted, and the session that made it. */
   readonly #paused = new Map<string, { does: string; session: string | undefined }>();
   /** Requests paused so far, for the next one's id. */
@@ -178,6 +180,8 @@ export class FakeExecutor {
       },
       async (args, extra) => {
         this.resumes.push(args);
+
+        while (this.holdResumes) await new Promise((resolve) => setTimeout(resolve, 10));
         const paused = this.#paused.get(args.requestId);
         const browser = paused !== undefined && this.#modes.get(paused.session ?? "") === "browser";
 

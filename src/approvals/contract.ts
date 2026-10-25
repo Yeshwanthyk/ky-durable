@@ -6,8 +6,15 @@
  */
 import Type, { type Static } from "typebox";
 
-/** What an approval is for: an Executor app action, a mail held for its address, and soon a webhook's action or a secret asked for. */
-export type ApprovalKind = "executor" | "mail" | "webhook-action" | "secret-request";
+/** What an approval is for: an Executor app action. Each kind has its row in APPROVAL_KINDS and one handler (src/server.ts). */
+export const ApprovalKindSchema = Type.Union([Type.Literal("executor")]);
+
+export type ApprovalKind = Static<typeof ApprovalKindSchema>;
+
+/** How each kind shows: the card's title. Every kind's approvals show as cards in their chat, and a push tells the user when they aren't there. */
+export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: string }>> = {
+  executor: { title: "Approve this app action?" }
+};
 
 /**
  * The tables approvals keep, which a restore puts back (src/tables.ts): the approvals (approvals.ts), and
@@ -16,13 +23,27 @@ export type ApprovalKind = "executor" | "mail" | "webhook-action" | "secret-requ
  */
 export const APPROVAL_TABLES = { approvals: "ky_approvals", policies: "ky_tool_policies", inputs: "ky_executor_inputs" } as const;
 
-/** Where an approval stands: waiting on the user, decided by them, or gone before they could. */
-export type ApprovalStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
+/**
+ * Where an approval stands: waiting on the user, decided by them, or gone before what it asked for could happen.
+ * Every write names the status it moves from, so none overwrites another.
+ */
+export const ApprovalStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("accepted"),
+  Type.Literal("declined"),
+  Type.Literal("cancelled"),
+  Type.Literal("expired")
+]);
+
+export type ApprovalStatus = Static<typeof ApprovalStatusSchema>;
 
 /** The user's answer: accept, decline this one, or cancel what asked altogether. */
 export const ApprovalActionSchema = Type.Union([Type.Literal("accept"), Type.Literal("decline"), Type.Literal("cancel")]);
 
 export type ApprovalAction = Static<typeof ApprovalActionSchema>;
+
+/** What a tap on one that isn't waiting any more is told. */
+export const GONE = "That approval isn't waiting any more.";
 
 /** How ky treats an Executor tool that needs approval, as the user sets it in Settings › Executor. */
 export const ToolPolicySchema = Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("block")]);
@@ -33,7 +54,7 @@ export type ToolPolicy = Static<typeof ToolPolicySchema>;
 export type ApprovalView = {
   readonly id: string;
   readonly kind: ApprovalKind;
-  /** What it acts on: an app tool's path, an address. */
+  /** What it acts on: an app tool's path. */
   readonly subject: string;
   /** What will happen, in the asker's own words. */
   readonly summary: string;

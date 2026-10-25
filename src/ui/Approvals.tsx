@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from "react";
-import type { ApprovalAction, ApprovalView, ToolPolicy, ToolPolicyView } from "../approvals/contract";
+import { type ApprovalAction, APPROVAL_KINDS, type ApprovalView } from "../approvals/contract";
 import type { UiCard } from "../ui-blocks";
 import { BlockCard, ReplyContext } from "./Blocks";
 import { Problem } from "./Subscriptions";
@@ -9,37 +9,27 @@ import { Problem } from "./Subscriptions";
  * card in its chat, made of the same blocks as a card ky composes: what will
  * happen, and Approve or Decline. A tap goes over the user's own socket as an
  * approval-decide, never as a chat message, so nothing the model writes can
- * stand in for it; the card goes once the server settles it.
+ * stand in for it; the card goes once the server claims it, and the chat
+ * hears what came of it.
  */
 
-type ApprovalActions = {
-  /** Resolves with why the tap was refused, if it was. */
-  readonly onDecide: (approval: string, action: ApprovalAction) => Promise<string | undefined>;
-  readonly onPolicy: (tool: string, policy: ToolPolicy) => Promise<string | undefined>;
-};
-
-/** The approvals waiting on the user and each Executor tool's policy, with what a tap does; provided around the chat and Settings. */
-export const ApprovalsContext = createContext<{ approvals: readonly ApprovalView[]; policies: readonly ToolPolicyView[]; actions: ApprovalActions }>({
-  approvals: [],
-  policies: [],
-  actions: { onDecide: async () => undefined, onPolicy: async () => undefined }
-});
-
-const APPROVE = "Approve";
-
-const DECLINE = "Decline";
+/** The approvals waiting on the user, and what a tap does: it resolves with why the tap was refused, if it was. Provided around the chat. */
+export const ApprovalsContext = createContext<{
+  approvals: readonly ApprovalView[];
+  onDecide: (approval: string, action: ApprovalAction) => Promise<string | undefined>;
+}>({ approvals: [], onDecide: async () => undefined });
 
 /** The card an approval shows as: its blocks are the ui tool's own, so it looks and taps like any card. */
 function cardOf(approval: ApprovalView): UiCard {
   const card: UiCard = {
-    title: approval.kind === "executor" ? "Approve this app action?" : "Approve this?",
+    title: APPROVAL_KINDS[approval.kind].title,
     blocks: [
       { type: "text", text: approval.summary },
       {
         type: "buttons",
         buttons: [
-          { label: APPROVE, tone: "primary" },
-          { label: DECLINE, tone: "danger" }
+          { label: "Approve", reply: "accept", tone: "primary" },
+          { label: "Decline", reply: "decline", tone: "danger" }
         ]
       }
     ],
@@ -63,12 +53,13 @@ export function ApprovalCards({ chat }: { chat: string }) {
 }
 
 function ApprovalCard({ approval }: { approval: ApprovalView }) {
-  const { actions } = useContext(ApprovalsContext);
+  const { onDecide } = useContext(ApprovalsContext);
   const [refused, setRefused] = useState<string>();
   const ui = useMemo(() => cardOf(approval), [approval]);
 
-  const decide = (text: string) => {
-    void actions.onDecide(approval.id, text === APPROVE ? "accept" : "decline").then(setRefused);
+  // Each button replies with its answer; any other reply does nothing.
+  const decide = (reply: string) => {
+    if (reply === "accept" || reply === "decline") void onDecide(approval.id, reply).then(setRefused);
   };
 
   return (

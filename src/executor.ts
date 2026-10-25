@@ -47,6 +47,9 @@ export type ExecutorConfig = ExecutorConnection & {
 /** An Executor tool's answer, as pi tool output. */
 export type CallResult = { output: Array<{ type: "text"; text: string }>; isError?: boolean };
 
+/** An Executor tool's answer as one text. */
+export const resultText = (result: CallResult): string => result.output.map((part) => part.text).join("\n");
+
 /** A call to one of Executor's MCP tools on a session already open. */
 export type ExecutorCall = (name: string, args: Record<string, JsonValue | undefined>) => Promise<CallResult>;
 
@@ -232,7 +235,7 @@ export async function executeOnce(
 ): Promise<{ text: string; error: boolean }> {
   const result = await callOnce(config, "execute", { code }, signal);
 
-  return { text: result.output.map((part) => part.text).join("\n"), error: result.isError === true };
+  return { text: resultText(result), error: result.isError === true };
 }
 
 const GUIDE = `Executor connects the user's accounts and apps (calendar, email, GitHub, Vercel and whatever else they added). Use it for anything that touches their services.
@@ -249,7 +252,7 @@ A result with \`status: "input-required"\` asks for information: ask the user, t
 
 - Never claim you approved anything, and never ask anyone but the user to approve.
 - Never re-run a program after a refusal, after a decline, or after an approval that got lost. Earlier calls in it may already have taken effect.
-- A request from before ky's approval cards has no card and can't be approved any more: cancel it, then do as for a request that is gone.
+- A request from before ky's approval cards has no card and can't be approved or cancelled any more: Executor lets it lapse. Do as for a request that is gone.
 - If a resume answers not-found or expired, the request is gone. First check with a read-only program whether the action happened, for example by looking in Sent. Then tell the user, and ask again before you try anything new.
 - executor_connection: show or change the URL ky reaches Executor at, keeping the token.`;
 
@@ -419,7 +422,7 @@ export class ExecutorLink {
     return this.#fetch ? { ...connection, fetch: this.#fetch } : connection;
   }
 
-  async view(): Promise<ExecutorView> {
+  async view(): Promise<Pick<ExecutorView, "url">> {
     const secret = (await this.#vault().status()).find((each) => each.kind === "executor" && each.id === this.#id);
     const url = secret?.meta?.url;
 

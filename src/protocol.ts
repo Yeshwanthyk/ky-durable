@@ -112,7 +112,11 @@ export type PeerView = {
 export type PeerInvite = { readonly address: string; readonly code: string };
 
 /** Executor as Settings shows it: the URL ky reaches it at, or null when it isn't connected. Never its token. */
-export type ExecutorView = { readonly url: string | null };
+export type ExecutorView = {
+  readonly url: string | null;
+  /** Each app tool that asked for approval or has a policy, and the user's policy for it (src/approvals/executor.ts). */
+  readonly policies: readonly ToolPolicyView[];
+};
 
 /** A subscription as Settings shows it: never its token. */
 export type SubscriptionView = {
@@ -215,8 +219,8 @@ export type PiServerMessage =
   | { readonly type: "executor"; readonly executor: ExecutorView }
   /** The tools ky has, as in hello; sent when they change, as when Executor is connected or removed. */
   | { readonly type: "tools"; readonly tools: readonly PiToolInfo[] }
-  /** The approvals waiting on the user's tap, each shown as a card in its chat, and each Executor tool's policy; sent on connect and on change. */
-  | { readonly type: "approvals"; readonly approvals: readonly ApprovalView[]; readonly policies: readonly ToolPolicyView[] }
+  /** The approvals waiting on the user's tap, each shown as a card in its chat; sent on connect and on change. */
+  | { readonly type: "approvals"; readonly approvals: readonly ApprovalView[] }
   | { readonly type: "result"; readonly id: string; readonly result: JsonValue }
   | { readonly type: "error"; readonly id?: string; readonly message: string };
 

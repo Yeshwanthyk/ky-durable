@@ -417,10 +417,7 @@ function Stage(parts: Parts) {
 
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
-  const approvals = useMemo(
-    () => ({ approvals: ky.approvals, policies: ky.policies, actions: ky.approvalActions }),
-    [ky.approvals, ky.policies, ky.approvalActions]
-  );
+  const approvals = useMemo(() => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide }), [ky.approvals, ky.approvalActions]);
 
   return (
     <section className="stage" aria-label="Chat">
@@ -479,12 +476,6 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
   );
 
   const executor = useMemo(() => ({ view: ky.executor, actions: ky.executorActions }), [ky.executor, ky.executorActions]);
-
-  const approvals = useMemo(
-    () => ({ approvals: ky.approvals, policies: ky.policies, actions: ky.approvalActions }),
-    [ky.approvals, ky.policies, ky.approvalActions]
-  );
-
   const nav = useMemo(() => ({ page: panel.page, go: setPage, openSection }), [panel.page, setPage, openSection]);
 
   const memoryActions = useMemo(
@@ -513,7 +504,6 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
     <PanelSlot panel={panel}>
       <AutomationsContext.Provider value={automations}>
         <ExecutorContext.Provider value={executor}>
-          <ApprovalsContext.Provider value={approvals}>
           <PeerContext.Provider value={ky.peerActions}>
           <MailContext.Provider value={ky.mailActions}>
           <ProactivityContext.Provider value={ky.proactivityActions}>
@@ -561,7 +551,6 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           </ProactivityContext.Provider>
           </MailContext.Provider>
           </PeerContext.Provider>
-          </ApprovalsContext.Provider>
         </ExecutorContext.Provider>
       </AutomationsContext.Provider>
     </PanelSlot>

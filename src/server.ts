@@ -23,7 +23,7 @@ import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
 import { uploadMedia } from "./media-upload";
-import { History } from "./history";
+import { History, startedByUser } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -43,7 +43,6 @@ import { type NotSetUp, Setup } from "./setup";
 import { Pushes } from "./push";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
-import { handleMail, mailHeld } from "./approvals/mail";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
@@ -136,8 +135,7 @@ export class PiAgent extends DurableObject<Env> {
     limits: mailLimits(this.env),
     owners: () => (this.env.ACCESS_EMAILS ?? "").split(",").map(addressOf).filter((address) => address !== ""),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
-    triage: (mail, content, started) => this.#triageMail(mail.id, mail.party, content, started),
-    held: (mail) => mailHeld(this.approvals, mail)
+    triage: (mail, content, started) => this.#triageMail(mail.id, mail.party, content, started)
   };
   readonly workspace = new Workspace({
     // SAFETY: this is the storage DurableObjectStorageLike describes; the typings only disagree on sql.exec's row generic.
@@ -267,15 +265,16 @@ export class PiAgent extends DurableObject<Env> {
   });
   /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
   readonly approvals = new Approvals(this.ctx.storage.sql, {
-    chat: (session) => this.isChat(session),
+    present: (session) => this.userHere(session),
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
-    owner: (session) => this.feed.working(session)?.chat || ROOT_SESSION,
-    notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text))
+    home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
+    notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
+    defer: (work) => this.ctx.waitUntil(work)
   });
   /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
   readonly executorApprovals = new ExecutorApprovals(this.ctx.storage.sql, this.approvals, {
     config: () => this.executor.config(),
-    chat: (session) => this.isChat(session),
+    present: (session) => this.userHere(session),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
@@ -549,7 +548,8 @@ export class PiAgent extends DurableObject<Env> {
     // When the providers change, the chats move to what main resolves to now.
     this.models.onChange(() => this.ctx.waitUntil(this.applyMain()));
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
-    handleMail(this.approvals, () => this.mailDesk);
+    // Each kind of approval and who decides it.
+    this.approvals.handle("executor", this.executorApprovals);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -573,6 +573,19 @@ export class PiAgent extends DurableObject<Env> {
   /** The main chat or a side chat, as against a subagent, a review or a dream. */
   isChat(session: string): boolean {
     return session === ROOT_SESSION || this.chats.has(session);
+  }
+
+  /**
+   * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
+   * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
+   * question or another chat started has nobody there to approve anything.
+   */
+  userHere(session: string): boolean {
+    return this.isChat(session) && !this.#archived(session) && this.chats.openedBy(session) === null && startedByUser(this.ctx.storage.sql, session);
+  }
+
+  #archived(session: string): boolean {
+    return (this.chats.list().find((chat) => chat.session === session)?.archived_at ?? null) !== null;
   }
 
   /** The sandboxes, on a deploy `ky deploy` gave containers (KY_CLOUD); tests replace their containers. */

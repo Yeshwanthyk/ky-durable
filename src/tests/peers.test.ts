@@ -182,7 +182,7 @@ describe("asking a peer", () => {
     expect((await tasks(ana)).filter((task) => task.worker === "benky")).toEqual([]);
   });
 
-  it("never lets a peer's question approve an app action: accept is refused, nothing reaches Executor, and the card waits for Ben", async () => {
+  it("never lets a peer's question approve an app action: accept is refused, nothing reaches Executor, and the card waits for Ben's tap", async () => {
     const { ana, ben } = await paired();
     await connectExecutor(ben);
     const pause = { code: "approve gmail.send send mail to eve" };
@@ -194,7 +194,13 @@ describe("asking a peer", () => {
     await until(async () => (await tasks(ben)).filter((task) => task.status === "done").length === 2, "Ben's ky answered both questions");
 
     expect(await inside(ben, (instance) => instance.boundary.executorFake.resumes)).toEqual([]);
-    expect(await inside(ben, (instance) => instance.approvals.pending())).toEqual([expect.objectContaining({ kind: "executor", subject: "gmail.send", chat: ROOT_SESSION })]);
+    const [card] = await inside(ben, (instance) => instance.approvals.pending());
+    expect(card).toMatchObject({ kind: "executor", subject: "gmail.send", chat: ROOT_SESSION });
+
+    // Ben's tap on the card in his chat carries it out, and his chat hears the result.
+    expect(await inside(ben, (instance) => instance.approvals.onDecision(card!.id, "accept"))).toEqual({});
+    await said(ben, '{"status":"completed","result":"did send mail to eve"}');
+    expect(await inside(ben, (instance) => instance.boundary.executorFake.resumes)).toEqual([{ requestId: "request-1", response: { action: "accept" } }]);
   });
 
   it("takes each question once, at most 3 open and 10 an hour from one peer", async () => {

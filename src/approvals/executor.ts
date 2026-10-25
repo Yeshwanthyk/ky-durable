@@ -1,8 +1,8 @@
 import Type from "typebox";
 import { decode, decodeOr, parseOr } from "../core/decode";
-import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, callOnce } from "../executor";
-import type { ApprovalRequest, Approvals } from "./approvals";
-import { type ToolPolicy, ToolPolicySchema, type ToolPolicyView } from "./contract";
+import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, callOnce, resultText } from "../executor";
+import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
+import { type ApprovalAction, APPROVAL_TABLES, type ToolPolicy, ToolPolicySchema, type ToolPolicyView } from "./contract";
 
 /**
  * Executor's approvals belong to the user. A tool that needs approval pauses
@@ -13,13 +13,18 @@ import { type ToolPolicy, ToolPolicySchema, type ToolPolicyView } from "./contra
  * a request and answer one that asked for input, but it has no way to accept
  * one: in a peer's conversation, a routine or the user's own chat alike.
  *
- * The policy, as in bdots: `policyFor` reads the user's setting for the tool
- * (ask unless they set it), and `decide` weighs it against who is there.
- * Block declines. Allow accepts only while the user is in the chat; with
- * nobody there it asks, so nothing approves itself. Ask always shows a card;
- * with nobody there the turn can't wait for it, so it goes on without, and the
- * user is notified (src/approvals/approvals.ts).
+ * The policy: `policyFor` reads the user's setting for the tool, ask until
+ * they set one, and `verdict` weighs it against whether the user is there.
+ * Block declines. Allow accepts only in a turn the user started in their
+ * chat; in any other turn it asks, so nothing approves itself with nobody
+ * there. Ask always shows a card; with nobody there the turn can't wait for
+ * it, so it goes on without, and the user is notified
+ * (src/approvals/approvals.ts).
  */
+
+const POLICIES = APPROVAL_TABLES.policies;
+
+const INPUTS = APPROVAL_TABLES.inputs;
 
 /** A paused program as Executor answers in model mode, by the fields ky reads. */
 const Paused = Type.Object({
@@ -31,90 +36,111 @@ const Paused = Type.Object({
   tool: Type.Optional(Type.String())
 });
 
-const PolicyTool = Type.Object({ tool: Type.String() });
+const PolicyRow = Type.Object({ tool: Type.String(), policy: ToolPolicySchema });
 
 /** Executor's answer to a resume of a request it no longer has. */
 const Unavailable = Type.Object({ status: Type.Literal("unavailable"), reason: Type.Optional(Type.String()) });
 
-/** What an approval row of kind executor keeps: enough to resume it. */
-const Payload = Type.Object({ requestId: Type.String(), tool: Type.String(), message: Type.String() });
-
-const textOf = (result: CallResult) => result.output.map((part) => part.text).join("\n");
+/** What an approval row of kind executor keeps besides its requestId (its ref). */
+const Payload = Type.Object({ tool: Type.String(), message: Type.String() });
 
 const note = (result: CallResult, text: string): CallResult => ({ output: [...result.output, { type: "text", text: `\n\n${text}` }], isError: result.isError === true });
 
 /** Whether a resume found the request gone: Executor's `unavailable`, or a failure that says not found or expired. */
 function gone(result: CallResult): boolean {
-  const text = textOf(result);
+  const text = resultText(result);
 
   if (parseOr(Unavailable, text, undefined)) return true;
 
   return result.isError === true && /not[ _-]?found|expired/i.test(text);
 }
 
-/** bdots' decide: the user's policy for a tool, weighed against whether the user is there to answer. */
-function decide(policy: ToolPolicy, present: boolean): ToolPolicy {
+/** The user's policy for a tool, weighed against whether the user is there to answer: Allow with nobody there asks. */
+function verdict(policy: ToolPolicy, present: boolean): ToolPolicy {
   if (policy === "allow" && !present) return "ask";
 
   return policy;
 }
 
+const BEFORE_CARDS =
+  "A request from before ky's approval cards has no card, and can't be approved or cancelled any more: Executor lets it lapse. Check with a read-only program whether anything happened, tell the user, and run the program again only once they say so; then it asks with a card.";
+
+const CHOSE: Record<ApprovalAction, string> = { accept: "approved", decline: "declined", cancel: "cancelled" };
+
 export type ExecutorApprovalDeps = {
   /** Executor's connection now, or null once it is gone. */
   readonly config: () => Promise<ExecutorConfig | null>;
-  /** Whether a session is a chat the user is in. */
-  readonly chat: (session: string) => boolean;
+  /** Whether the user is in the turn running in `session` (src/server.ts userHere). */
+  readonly present: (session: string) => boolean;
   /** Tell a chat what came of its approval, between turns. */
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
 };
 
-export class ExecutorApprovals implements ExecutorGate {
+export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
   readonly #sql: SqlStorage;
-  readonly #approvals: Approvals;
+  readonly #approvals: Asker;
   readonly #deps: ExecutorApprovalDeps;
+  readonly #listeners = new Set<() => void>();
 
-  constructor(sql: SqlStorage, approvals: Approvals, deps: ExecutorApprovalDeps) {
+  constructor(sql: SqlStorage, approvals: Asker, deps: ExecutorApprovalDeps) {
     this.#sql = sql;
     this.#approvals = approvals;
     this.#deps = deps;
-    sql.exec("CREATE TABLE IF NOT EXISTS ky_tool_policies (tool TEXT PRIMARY KEY, policy TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    // Each tool that asked, with the user's policy for it: ask until they set another.
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${POLICIES} (tool TEXT PRIMARY KEY, policy TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
     // The requests that asked for input, which the model may answer; an approval is never among them.
-    sql.exec("CREATE TABLE IF NOT EXISTS ky_executor_inputs (request_id TEXT PRIMARY KEY, conversation TEXT NOT NULL, created_at INTEGER NOT NULL)");
-    approvals.handle("executor", { decide: (approval, action) => this.#decided(approval.id, action) });
+    sql.exec(`CREATE TABLE IF NOT EXISTS ${INPUTS} (request_id TEXT PRIMARY KEY, conversation TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+  }
+
+  /** Called when a tool's policy is set, or a tool asks for the first time. */
+  onPolicies(listener: () => void): void {
+    this.#listeners.add(listener);
+  }
+
+  #changed(): void {
+    for (const listener of this.#listeners) listener();
   }
 
   /** The user's policy for an app tool: ask unless they set one. */
   policyFor(tool: string): ToolPolicy {
-    const [row] = this.#sql.exec("SELECT policy FROM ky_tool_policies WHERE tool = ?", tool).toArray();
+    const [row] = this.#sql.exec(`SELECT tool, policy FROM ${POLICIES} WHERE tool = ?`, tool).toArray();
 
-    return decodeOr(ToolPolicySchema, row?.policy, "ask");
+    return decodeOr(PolicyRow, row, undefined)?.policy ?? "ask";
   }
 
-  /** Set a tool's policy; ask is the default, so setting it back forgets the tool's row. */
   setPolicy(tool: string, policy: ToolPolicy): void {
-    if (policy === "ask") this.#sql.exec("DELETE FROM ky_tool_policies WHERE tool = ?", tool);
-    else this.#sql.exec("INSERT OR REPLACE INTO ky_tool_policies (tool, policy, updated_at) VALUES (?, ?, ?)", tool, policy, Date.now());
+    this.#sql.exec(`INSERT OR REPLACE INTO ${POLICIES} (tool, policy, updated_at) VALUES (?, ?, ?)`, tool, policy, Date.now());
+    this.#changed();
   }
 
   /** Each tool that has asked for approval or has a policy, as Settings › Executor lists them. */
   policies(): ToolPolicyView[] {
-    const set = this.#sql
-      .exec("SELECT tool FROM ky_tool_policies ORDER BY tool")
+    return this.#sql
+      .exec(`SELECT tool, policy FROM ${POLICIES} ORDER BY tool`)
       .toArray()
-      .map((row) => decode(PolicyTool, row, "A stored tool policy").tool);
-
-    const tools = [...new Set([...this.#approvals.subjects("executor"), ...set])];
-
-    return tools.map((tool) => ({ tool, policy: this.policyFor(tool) }));
+      .map((row) => decode(PolicyRow, row, "A stored tool policy"));
   }
 
-  async replied(result: CallResult, conversation: string, call: ExecutorCall): Promise<CallResult> {
-    const paused = result.isError === true ? undefined : parseOr(Paused, textOf(result), undefined);
+  /** A tool asked: Settings lists it from now on, at ask. */
+  #asked(tool: string): void {
+    if (tool === "") return;
+
+    const added = this.#sql.exec(`INSERT INTO ${POLICIES} (tool, policy, updated_at) VALUES (?, 'ask', ?) ON CONFLICT (tool) DO NOTHING RETURNING tool`, tool, Date.now()).toArray();
+
+    if (added.length > 0) this.#changed();
+  }
+
+  replied(result: CallResult, conversation: string, call: ExecutorCall): Promise<CallResult> {
+    return this.#paused(result, conversation, call, this.#deps.present(conversation));
+  }
+
+  async #paused(result: CallResult, conversation: string, call: ExecutorCall, present: boolean): Promise<CallResult> {
+    const paused = result.isError === true ? undefined : parseOr(Paused, resultText(result), undefined);
 
     if (paused === undefined) return result;
 
     if (paused.status === "input-required") {
-      this.#sql.exec("INSERT OR REPLACE INTO ky_executor_inputs (request_id, conversation, created_at) VALUES (?, ?, ?)", paused.requestId, conversation, Date.now());
+      this.#sql.exec(`INSERT OR REPLACE INTO ${INPUTS} (request_id, conversation, created_at) VALUES (?, ?, ?)`, paused.requestId, conversation, Date.now());
 
       return result;
     }
@@ -122,32 +148,29 @@ export class ExecutorApprovals implements ExecutorGate {
     const tool = paused.toolPath ?? paused.tool ?? "";
     const message = paused.message?.trim() || "an action in your apps";
 
-    const request: ApprovalRequest = {
-      kind: "executor",
-      subject: tool,
-      summary: message,
-      payload: { requestId: paused.requestId, tool, message },
-      conversation
-    };
+    this.#asked(tool);
+    const decided = verdict(tool === "" ? "ask" : this.policyFor(tool), present);
 
-    const present = this.#deps.chat(conversation);
-    const verdict = decide(tool === "" ? "ask" : this.policyFor(tool), present);
-
-    if (verdict === "block") {
-      this.#approvals.recordDecided(request, "decline");
+    if (decided === "block") {
       const declined = await call("resume", { requestId: paused.requestId, response: { action: "decline" } });
 
-      return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${textOf(declined)}\nTell the user it was blocked, and don't try it another way.`);
+      return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${resultText(declined)}\nTell the user it was blocked, and don't try it another way.`);
     }
 
-    if (verdict === "allow") {
-      this.#approvals.recordDecided(request, "accept");
-      const accepted = await this.replied(await call("resume", { requestId: paused.requestId, response: { action: "accept" } }), conversation, call);
+    if (decided === "allow") {
+      const accepted = await this.#paused(await call("resume", { requestId: paused.requestId, response: { action: "accept" } }), conversation, call, present);
 
       return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);
     }
 
-    const id = this.#approvals.requestApproval(request);
+    const id = this.#approvals.requestApproval({
+      kind: "executor",
+      ref: paused.requestId,
+      subject: tool,
+      summary: message,
+      payload: { tool, message },
+      conversation
+    });
 
     return note(
       result,
@@ -157,67 +180,92 @@ export class ExecutorApprovals implements ExecutorGate {
     );
   }
 
+  /** Whether `conversation` holds Executor's request for input `requestId`. */
+  #ownsInput(requestId: string, conversation: string): boolean {
+    return this.#sql.exec(`SELECT request_id FROM ${INPUTS} WHERE request_id = ? AND conversation = ?`, requestId, conversation).toArray().length > 0;
+  }
+
   beforeResume(requestId: string, action: ResumeAction, conversation: string): string | undefined {
-    const waiting = this.#approvals.pendingBy("executor", "requestId", requestId);
+    const asked = this.#approvals.byRef("executor", requestId);
 
-    if (waiting && waiting.conversation !== conversation && waiting.chat !== conversation) return `Request ${requestId} belongs to another conversation.`;
+    if (asked && asked.conversation !== conversation && asked.chat !== conversation) return `Request ${requestId} belongs to another conversation.`;
 
-    if (action !== "answer") {
-      // The model may turn an approval down on the user's word; the card goes with it, unless the user tapped first.
-      if (waiting && !this.#approvals.withdraw(waiting.id, action)) return "The user already decided this request on its card.";
+    if (action === "answer") {
+      if (this.#ownsInput(requestId, conversation)) return undefined;
 
-      return undefined;
+      return asked
+        ? `Request ${requestId} is an approval: only the user's tap on its card approves it. Tell them it waits there.`
+        : `ky has no input request ${requestId} from this conversation. An approval is only ever approved by the user's tap on its card. ${BEFORE_CARDS}`;
     }
 
-    const inputs = this.#sql.exec("SELECT request_id FROM ky_executor_inputs WHERE request_id = ?", requestId).toArray();
+    // The model may turn an approval down on the user's word; the card goes with it, unless the user tapped first.
+    if (asked) return this.#approvals.withdraw(asked.id, action) ? undefined : "The user already decided this request on its card, or it expired.";
 
-    if (inputs.length > 0) return undefined;
+    if (this.#ownsInput(requestId, conversation)) return undefined;
 
-    return waiting
-      ? `Request ${requestId} is an approval: only the user's tap on its card approves it. Tell them it waits there.`
-      : `ky has no input request ${requestId}. An approval is only ever approved by the user's tap on its card. One from before ky's approval cards has no card and can't be approved any more: cancel it, check with a read-only program whether anything happened, tell the user, and run the program again only once they say so; then it asks with a card.`;
+    return `ky has no request ${requestId} from this conversation, so it can't ${action} it. ${BEFORE_CARDS}`;
   }
 
   resumed(requestId: string): void {
-    this.#sql.exec("DELETE FROM ky_executor_inputs WHERE request_id = ?", requestId);
+    this.#sql.exec(`DELETE FROM ${INPUTS} WHERE request_id = ?`, requestId);
   }
 
-  /** The user's tap: ky resumes the program at Executor itself, and the chat hears what came of it. */
-  async #decided(id: string, action: "accept" | "decline" | "cancel"): Promise<{ refused: string } | Record<string, never>> {
-    const approval = this.#approvals.get(id);
-    const payload = decodeOr(Payload, approval?.payload, undefined);
-
-    if (!approval || !payload) return { refused: "That approval isn't waiting any more." };
+  /**
+   * The user's tap, after it was answered: ky resumes the program at Executor itself, and the chat hears what came of
+   * it. A request Executor no longer has expires. A resume that didn't reach Executor puts the card back, so the user
+   * can tap again: Executor takes a request once, so a resume that did reach it after all finds it gone the next time.
+   */
+  async decide(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
+    const payload = decodeOr(Payload, approval.payload, { tool: approval.subject, message: approval.summary });
     const what = `"${payload.message}"${payload.tool ? ` (${payload.tool})` : ""}`;
-    const chose = action === "accept" ? "approved" : action === "decline" ? "declined" : "cancelled";
-    const config = await this.#deps.config();
+    // Each attempt is its own notice: a card put back and tapped again is told again.
+    const tell = (text: string) => this.#deps.tell(approval.chat, `[the user ${CHOSE[action]} ${what}${text}`, `approval:${approval.id}:${crypto.randomUUID()}`);
+
+    try {
+      await this.#carry(approval, action, settle, tell);
+    } catch (error) {
+      // It may have reached Executor before it threw, so the card stays decided.
+      await tell(`, but carrying it out failed: ${error instanceof Error ? error.message : String(error)}. Check with a read-only program whether it happened, and tell the user]`);
+    }
+  }
+
+  async #carry(approval: Approval, action: ApprovalAction, settle: Settle, tell: (text: string) => Promise<void>): Promise<void> {
+
+    const retry = async (why: string) => {
+      settle.reopen();
+      await tell(`, but ky couldn't reach Executor (${why}), so nothing was sent. The card is back: they can tap it again]`);
+    };
+
+    let config: ExecutorConfig | null;
+
+    try {
+      config = await this.#deps.config();
+    } catch (error) {
+      return retry(error instanceof Error ? error.message : String(error));
+    }
 
     if (!config) {
-      this.#approvals.expire(id);
-      await this.#deps.tell(approval.chat, `[the user ${chose} ${what}, but Executor isn't connected any more, so nothing was sent to it]`, `approval:${id}`);
+      settle.expire();
 
-      return { refused: "Executor isn't connected, so nothing was sent." };
+      return tell(", but Executor isn't connected any more, so nothing was sent to it]");
     }
 
     const call: ExecutorCall = (name, args) => callOnce(config, name, args);
-    const result = await call("resume", { requestId: payload.requestId, response: { action } });
+    const result = await call("resume", { requestId: approval.ref, response: { action } });
 
     if (gone(result)) {
-      this.#approvals.expire(id);
-      await this.#deps.tell(
-        approval.chat,
-        `[the user ${chose} ${what}, but Executor no longer has request ${payload.requestId}: it expired. If they approved it, check with a read-only program whether the action happened anyway, for example by looking in Sent. Then tell the user, and ask again before you try anything new]`,
-        `approval:${id}`
-      );
+      settle.expire();
 
-      return { refused: "Executor no longer has that request, so it expired. ky told the chat." };
+      return tell(
+        `, but Executor no longer has request ${approval.ref}: it expired. If they approved it, check with a read-only program whether the action happened anyway, for example by looking in Sent. Then tell the user, and ask again before you try anything new]`
+      );
     }
 
-    // What comes next, as another pause, is asked in the chat where the user just tapped.
-    const after = await this.replied(result, approval.chat, call);
+    if (result.isError === true) return retry(resultText(result).slice(0, 300));
 
-    await this.#deps.tell(approval.chat, `[the user ${chose} ${what} with a tap. Executor answered:]\n${textOf(after)}`, `approval:${id}`);
+    // What comes next, as another pause, is asked in the chat where the user just tapped; they are there.
+    const after = await this.#paused(result, approval.chat, call, true);
 
-    return {};
+    await tell(` with a tap. Executor answered:]\n${resultText(after)}`);
   }
 }
