@@ -14,7 +14,7 @@ against B, never against the PR before it.
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
 | U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` (settled) | `effect/lane-screenshot-diff` | done, integrated (2bacb35, 4136158, 65d0921) | `pnpm visual`: B vs HEAD 0 on 8 pages |
 | U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | done, settled (9c066ba) | its thread |
-| U1 | Deploy (pilot) | launching | `effect/u1-deploy` (from `effect/foundation`) | Wave 1 go 2026-10-25 | — |
+| U1 | Deploy (pilot) | `mcp:8758b1bd-ad05-4614-a90c-5aabb146c3af` | `effect/u1-deploy` (from `effect/foundation`) | running (Wave 1 go 2026-10-25) | its thread |
 | H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
 | U3 | Skills | — | — | waits for Wave 2 "go" | — |
