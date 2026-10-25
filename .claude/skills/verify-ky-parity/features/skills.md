@@ -35,14 +35,15 @@ Provable: `prove.sh skills` passes on the port alone (U3, legacy flipped out).
 - **Parity (check 2):** ran B against the port until the flip; the evidence of that run is
   `test-results/parity/skills-pre-flip/`. There is no parity side now.
 - **Invariants (check 3):** `test/invariants/skills.test.ts` holds the storage round-trip,
-  allowlist, pin guard, stale sweep and kept answers as properties; five mutants in
-  `test/parity/skills/mutants/`, each caught.
+  allowlist, pin guard, stale sweep and kept answers as properties, and specialists' ids, saves
+  and attaches; nine mutants in `test/parity/skills/mutants/`, each caught.
 - **Stored data (check 4):** `test/parity/skills/at-b.test.ts` opens rows B wrote
   (`at-b.json`, with B's own reads of them) under the port; on real data, `real-data.ts`.
-- **Not ported yet:** `specialists.ts` and `subagents.ts` still read `rows.ts` (typebox) over raw
-  `sql.exec`; the proof above doesn't cover them.
+  `at-b.json` includes B's specialist tables (sessions, brief versions, a damaged model column).
+- `subagents.ts` keeps no Durable Object storage, so it has nothing to port. Specialists have no harness
+  scenario; their real surface is verify-ky-web (Soul's specialist sheet, group-chat seats).
 
 ## Gotchas
 
-- `contracts.test.ts` › storage is red at B on its automations line (`model`), not skills':
-  skills' lines pass. U2 owns that fix; skills holds corrupt columns decoding to null as a property.
+- A specialist's stored model keeps B's parsed object once `Schema.is(StoredModel)` passes: decoding it
+  rebuilds the keys in field order and rewrites the stored bytes on a save that leaves the model out.
