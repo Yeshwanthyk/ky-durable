@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { keyOf, ledgerProblems, readLedger } from "../../../../test/ledger.ts";
+import { GOOD, keyOf, ledgerProblems, readLedger, regressions } from "../../../../test/ledger.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../../../..");
 
@@ -23,8 +23,6 @@ const CHECKS = [
   { check: "invariants", prefix: "test/invariants/", config: "test/invariants/vitest.config.ts" },
   { check: "invariants", prefix: "test/parity/", config: "test/invariants/vitest.config.ts" }
 ];
-
-const GOOD = new Set(["passed", "PASS", "XFAIL"]);
 
 const domain = process.argv[2];
 
@@ -70,18 +68,8 @@ for (const { check, prefix, config } of CHECKS) {
 const ledger = readLedger();
 const unfit = ledgerProblems(ledger, baseline);
 const pruned = new Set(ledger.map(keyOf));
-const current = new Map(now.map((item) => [keyOf(item), item.outcome]));
 const held = baseline.items.filter((item) => item.file !== undefined && files.includes(item.file) && GOOD.has(item.outcome));
-
-const lost = held.flatMap((item) => {
-  const outcome = current.get(keyOf(item));
-
-  if (outcome === "passed" || outcome === item.outcome) return [];
-
-  if (outcome === undefined && pruned.has(keyOf(item))) return [];
-
-  return [`${item.check} ${item.file}: "${item.name}" was ${item.outcome}, now ${outcome ?? "missing"}`];
-});
+const lost = regressions(baseline.items.filter((item) => item.file !== undefined && files.includes(item.file)), now, pruned);
 
 const atB = baseline.items.filter((item) => item.file !== undefined && files.includes(item.file));
 const redAtB = atB.filter((item) => !GOOD.has(item.outcome)).map((item) => `${item.file}: ${item.name}`);

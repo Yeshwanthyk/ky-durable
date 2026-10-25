@@ -35,7 +35,11 @@ a routine, and the Scheduler's alarm.
 Not provable yet: verified-unreachable until U2.
 
 - **Parity (check 2):** needs `src/automations/legacy/` and a `contract.ts` the kit can drive, with
-  clock advances for the Scheduler. U2 builds them.
+  clock advances for the Scheduler. U2 builds them, and first extends the kit (Fable's U0 review):
+  one clock the kit owns and both sides read, not an `advance` per side, so a fake-timer clock can't
+  move the port along with legacy; a `pending()` view (next alarm, what's due) compared after each
+  step; and an advance that jumps to the next alarm, since hourly slots never fire in 30 steps of
+  seconds.
 - **Invariants (check 3):** the three quint invariants above as a fast-check property, with mutants
   (a second spawn per slot, a post after pause). U2 builds them.
 - **Stored data (check 4):** rows seeded at B in each `AUTOMATION_TABLES` table, loaded by the port.
