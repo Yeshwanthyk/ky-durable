@@ -410,3 +410,80 @@ describe("a background run's tools", () => {
     );
   });
 });
+
+describe("a skill's guards", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const MACHINES = ["review", "dream"];
+  const steep = { description: "When the user wants tea.", body: "Steep for three minutes." };
+
+  it("leaves a pinned skill as it is, whatever a background run asks", () => {
+    const aChange = fc.constantFrom<SkillChange>(
+      { action: "edit", name: "tea", body: "Steep again." },
+      { action: "patch", name: "tea", old: "two", new: "four" },
+      { action: "archive", name: "tea", absorbed_into: "coffee" },
+      { action: "revert", name: "tea", version: 1 }
+    );
+
+    fc.assert(
+      fc.property(aChange, fc.constantFrom(...MACHINES), (change, machine) => {
+        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+
+        skills.apply({ action: "create", name: "tea", ...steep }, "agent");
+        skills.apply({ action: "edit", name: "tea", body: "Steep for two minutes." }, "agent");
+        skills.apply({ action: "create", name: "coffee", ...steep }, "agent");
+        skills.apply({ action: "pin", name: "tea" }, "user");
+        const was = { skill: skills.get("tea"), history: skills.history("tea") };
+
+        expect(() => skills.apply(change, machine)).toThrow("tea is pinned");
+        expect({ skill: skills.get("tea"), history: skills.history("tea") }).toEqual(was);
+      })
+    );
+  });
+
+  it("sweeps as stale exactly the unpinned skills ky made that nobody opened in 60 days", () => {
+    const aSkill = fc.record({ actor: fc.constantFrom("user", "ky", "agent", ...MACHINES), pinned: fc.boolean(), opened: fc.boolean() });
+
+    fc.assert(
+      fc.property(fc.array(aSkill, { maxLength: 6 }), fc.integer({ min: 0, max: 120 }), (made, days) => {
+        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+
+        made.forEach(({ actor, pinned, opened }, at) => {
+          skills.apply({ action: "create", name: `skill-${at}`, ...steep }, actor);
+
+          if (pinned) skills.apply({ action: "pin", name: `skill-${at}` }, "user");
+
+          if (opened) skills.view(`skill-${at}`);
+        });
+
+        const stale = made.flatMap(({ actor, pinned }, at) => (!pinned && ["agent", ...MACHINES].includes(actor) && days >= 60 ? [`skill-${at}`] : []));
+
+        expect(skills.stale("run-1", Date.now() + days * DAY)).toEqual(stale);
+        expect(skills.list("archived").map((skill) => skill.name)).toEqual(stale);
+      })
+    );
+  });
+
+  it("keeps a skill's other answers when the user answers one, and clears one answered blank", () => {
+    const anAnswer = fc.dictionary(fc.constantFrom("city", "budget"), fc.constantFrom("paris", " rome ", "10", "", " "), { minKeys: 1 });
+
+    fc.assert(
+      fc.property(fc.array(anAnswer, { maxLength: 5 }), (replies) => {
+        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+        const kept: Record<string, string> = {};
+
+        skills.apply({ action: "create", name: "plan-trip", description: "When planning a trip.", body: "## Needs\n- city: Which city?\n- budget: How much?\n\nBook it." }, "user");
+
+        for (const reply of replies) {
+          skills.apply({ action: "answer", name: "plan-trip", answers: reply }, "user");
+
+          for (const [key, value] of Object.entries(reply)) {
+            if (value.trim() === "") delete kept[key];
+            else kept[key] = value.trim();
+          }
+        }
+
+        expect(skills.get("plan-trip")?.answers).toEqual(kept);
+      })
+    );
+  });
+});
