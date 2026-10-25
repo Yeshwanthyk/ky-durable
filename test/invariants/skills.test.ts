@@ -589,6 +589,22 @@ describe("stored specialists", () => {
 
   const anAttach = fc.record({ session: fc.constantFrom("s1", "s2"), id: fc.constantFrom("engineer", "researcher", "gone"), kind: fc.constantFrom(...KINDS) });
 
+  type Attach = { readonly session: string; readonly id: string; readonly kind: SessionKind };
+
+  /** What a run of attaches leaves: each conversation's specialist and kind, from its last attach to one that exists, and each specialist's last home. */
+  function recorded(attaches: readonly Attach[]) {
+    const owner = new Map<string, { id: string; kind: SessionKind } | undefined>();
+    const home = new Map<string, string>();
+
+    for (const { session, id, kind } of attaches) {
+      owner.set(session, id === "gone" ? undefined : { id, kind });
+
+      if (kind === "home") home.set(id, session);
+    }
+
+    return { owner, home };
+  }
+
   it("answers for a conversation with its last attach, and makes only a home one its specialist's shared conversation", () => {
     fc.assert(
       fc.property(fc.array(anAttach, { maxLength: 8 }), (attaches) => {
@@ -596,21 +612,17 @@ describe("stored specialists", () => {
 
         for (const id of ["engineer", "researcher"]) specialists.create(id, NEW, "user");
 
-        const last = new Map<string, { id: string; kind: SessionKind }>();
-        const home = new Map<string, string>();
+        for (const { session, id, kind } of attaches) specialists.attach(session, id, kind);
 
-        for (const { session, id, kind } of attaches) {
-          specialists.attach(session, id, kind);
-          last.set(session, { id, kind });
+        const { owner, home } = recorded(attaches);
 
-          if (kind === "home") home.set(id, session);
-        }
-
-        for (const session of ["s1", "s2", "none"]) {
+        const seen = (session: string) => {
           const found = specialists.bySession(session);
-          const at = last.get(session);
-          expect(found && { id: found.specialist.id, kind: found.kind }).toEqual(at?.id === "gone" ? undefined : at);
-        }
+
+          return found && { id: found.specialist.id, kind: found.kind };
+        };
+
+        for (const session of ["s1", "s2", "none"]) expect(seen(session)).toEqual(owner.get(session));
 
         for (const id of ["engineer", "researcher"]) expect(specialists.get(id)?.session).toBe(home.get(id) ?? null);
       })
