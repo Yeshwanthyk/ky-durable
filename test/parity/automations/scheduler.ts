@@ -17,7 +17,7 @@ const MOST_FIRES = 200;
 
 const nextCron = (cron: string, now: number) => Math.floor(parseCronExpression(cron).getNextDate(new Date(now)).getTime() / 1000);
 
-type Job = Schedule<unknown> & { readonly type: "scheduled" | "cron" };
+export type Job = Schedule<unknown> & { readonly type: "scheduled" | "cron" };
 
 export class Bookings<Callbacks extends SchedulerHandlers = SchedulerHandlers> {
   readonly #callbacks: Callbacks;
@@ -62,10 +62,10 @@ export class Bookings<Callbacks extends SchedulerHandlers = SchedulerHandlers> {
     return this.#jobs.delete(id);
   }
 
-  /** Take over `other`'s bookings, as an object started again over the same storage finds them. */
-  adopt(other: Bookings): void {
-    for (const job of other.#jobs.values()) this.#jobs.set(job.id, job);
-    this.#made = other.#made;
+  /** Take `jobs` as booked, as an object started again over storage that holds them finds them. */
+  restore(jobs: readonly Job[]): void {
+    for (const job of jobs) this.#jobs.set(job.id, job);
+    this.#made = Math.max(this.#made, ...jobs.map((job) => Number(job.id.slice(1))));
   }
 
   /** When the next fire is due, in ms; null with nothing booked. */

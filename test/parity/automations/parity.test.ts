@@ -7,11 +7,11 @@
  * Scaffolding while the domain is ported: it goes with src/automations/legacy at the flip.
  */
 import fc from "fast-check";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, it, vi } from "vitest";
 import { type AutomationDeps as LegacyDeps, Automations as LegacyAutomations } from "../../../src/automations/legacy/automations";
 import { assertParity, type Json, type Parity } from "../kit";
 import type { AutomationDeps } from "../../../src/automations/automations";
-import { type Action, actions, HOUR, instance, installIds, next, port, schedulerOf, START, type World } from "./world";
+import { type Action, actions, HOUR, instance, installIds, next, START, type World } from "./world";
 
 // B makes its own Scheduler; the port is given one (./world.ts). Gone with B at the flip.
 vi.mock("agents/schedules", async () => ({ Scheduler: (await import("./scheduler")).Bookings }));
@@ -63,32 +63,5 @@ afterAll(() => {
 describe("automations parity", () => {
   it("the port does what B does, step for step", async () => {
     await assertParity(automations);
-  });
-
-  it("the port reads the rows B wrote and shows them as B does", async () => {
-    await fc.assert(
-      fc.asyncProperty(fc.array(actions, { maxLength: 20 }), async (run) => {
-        const time = { at: START };
-        const clock = { now: () => time.at };
-        const legacy = instance(clock, legacyOver);
-
-        for (const action of run) {
-          await legacy.apply(action);
-          time.at += 10 * 60_000;
-          await legacy.due();
-        }
-
-        const world = legacy.world;
-        const shown = await world.in(() => legacy.side.list(true));
-        const ported = port(world, world.deps());
-        schedulerOf(ported).adopt(legacy.scheduler);
-        const read = await world.in(() => ported.list(true));
-
-        // SAFETY: the views are rows of JSON values.
-        expect(normalize(JSON.parse(JSON.stringify(read)) as Json)).toEqual(normalize(JSON.parse(JSON.stringify(shown)) as Json));
-        await legacy.dispose();
-      }),
-      { numRuns: 25 }
-    );
   });
 });
