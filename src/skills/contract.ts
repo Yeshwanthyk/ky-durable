@@ -132,17 +132,17 @@ export const SkillViewInput = Type.Object({
   history: Type.Optional(Type.Boolean())
 });
 
-/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. */
+/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. Fields in the table's column order, which a decoded row keeps. */
 export const SkillStored = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
   body: Schema.String,
   status: SkillStatus,
   uses: Schema.Number,
-  /** When skill_view last opened it; null if never. */
-  last_used_at: Schema.NullOr(Schema.Number),
   created_at: Schema.Number,
   updated_at: Schema.Number,
+  /** When skill_view last opened it; null if never. */
+  last_used_at: Schema.NullOr(Schema.Number),
   pinned: Schema.Number,
   created_by: SkillOrigin,
   /** The user's answers to its Needs as a JSON object; null until the first. */
@@ -294,12 +294,12 @@ export const SkillVersion = Schema.Struct({
   action: Schema.String,
   /** "agent", "review", "dream", "user" or "ky". */
   actor: Schema.String,
-  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
-  conversation: Schema.NullOr(Schema.String),
   description: Schema.String,
   body: Schema.String,
   status: SkillStatus,
-  created_at: Schema.Number
+  created_at: Schema.Number,
+  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
+  conversation: Schema.NullOr(Schema.String)
 });
 
 export type SkillVersion = typeof SkillVersion.Type;
