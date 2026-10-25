@@ -376,8 +376,8 @@ const sandboxOf = (url: URL) => url.searchParams.get("sandbox") ?? CLOUD;
 
 /**
  * The Vault, with a clock the harness can move ahead (`POST /test/vault-clock?ahead=<ms>`), to expire codes
- * and tokens, machine mints it can slow (`slowMachineMints`), to make two pairings race, and the fake OpenAI
- * for ChatGPT's sign-in.
+ * and tokens, machine mints it can slow (`slowMachineMints`), to make two pairings race, the fake OpenAI
+ * for ChatGPT's sign-in, and a fake API for HTTP credentials (`fakeCredentialApi`).
  */
 export class Vault extends ProductionVault {
   #slow = { count: 0, ms: 0 };
@@ -385,6 +385,8 @@ export class Vault extends ProductionVault {
   override openai = fakeOpenAi(() => this.now()).fetch;
 
   override github = fakeGithubApi();
+
+  override http = fakeCredentialApi;
 
   ahead(ms: number): void {
     this.now = () => Date.now() + ms;
@@ -449,6 +451,8 @@ export class Vault extends ProductionVault {
  *   rowid. Then it answers "Dreamt."
  * - A relayed mail whose subject is `tool NAME JSON` asks ky's turn for that call,
  *   which ky says it is trying before it calls.
+ * - A webhook whose body is `tool NAME JSON` asks ky's turn for that call, which ky says it is trying; an approval's
+ *   "Make the call again" line makes it again.
  * - A prompt containing `model-refuses` gets a 400, which no retry or stand-in mends.
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
@@ -794,6 +798,10 @@ const FORWARDS: Array<[RegExp, string?]> = [
   [/^(tool \S+ \{.*\})\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble\.$/],
   // A mail ky relays into the chat (src/mail.ts arrived) whose summary is a `tool` line: the chat's model says so, then tries it.
   [/^\[mail [^\n]*\]\n\nMail says: (tool \S+ \{.*\})$/m, "Trying what the mail asks."],
+  // A webhook's post (src/inbound/inbound.ts told) whose body is a `tool` line: the chat says so, then tries it.
+  [/^\[a webhook to ky, [^\n]*\]\n\n(tool \S+ \{.*\})$/s, "Trying what the webhook asks."],
+  // A webhook's call the user approved (src/inbound/inbound.ts hookAction): the chat makes it, as it was asked.
+  [/^\[on a webhook's data, the user approved: [^\n]*\]\n\nMake that call now, exactly as asked: (tool \S+ \{.*\})$/s],
   // A chat another chat opened answers the message after the header naming the opener (src/chats-tool.ts fromOpener).
   [/^\[chat "[^"]*": [^\]]*\] ([\s\S]*)$/],
   // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).
@@ -1293,3 +1301,42 @@ const kys = {
 } satisfies ExportedHandler<Env>;
 
 export default kys;
+
+/** The origin the fake credential API answers at. */
+export const CREDENTIAL_API = "https://api.example.test";
+
+/**
+ * A fake API for HTTP credentials: it echoes the credential it was sent, raw, URL-encoded (either case) and in base64, and a basic one's halves, so a test
+ * sees whether the Vault cut every form of it out. `/moved` redirects elsewhere, `/big` answers 30,000 characters.
+ */
+async function fakeCredentialApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const request = new Request(input, init);
+  const url = new URL(request.url);
+
+  if (url.origin !== CREDENTIAL_API) return new Response("The fake credential API is only at its own origin.", { status: 599 });
+
+  if (url.pathname === "/moved") return new Response(null, { status: 302, headers: { Location: "https://elsewhere.test/" } });
+
+  if (url.pathname === "/big") return new Response("x".repeat(30_000), { headers: { "Content-Type": "text/plain" } });
+  const authorization = request.headers.get("Authorization") ?? "";
+
+  const sent = authorization.startsWith("Bearer ")
+    ? authorization.slice(7)
+    : authorization.startsWith("Basic ")
+      ? atob(authorization.slice(6))
+      : (request.headers.get("X-Api-Key") ?? "");
+
+  return Response.json({
+    method: request.method,
+    path: url.pathname,
+    body: request.body ? await request.text() : null,
+    authorization,
+    raw: sent,
+    encoded: encodeURIComponent(sent),
+    lowered: encodeURIComponent(sent).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
+    base64: btoa(sent),
+    // A basic credential's user and password, each as an API greeting its user would echo it.
+    halves: sent.split(":"),
+    note: `you sent ${sent}`
+  });
+}

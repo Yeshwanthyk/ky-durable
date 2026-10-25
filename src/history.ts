@@ -544,6 +544,31 @@ export function runOpener(sql: SqlStorage, conversation: string, before = Number
   return decodeOr(NewestRow, row ?? { id: null }, { id: null }).id ?? undefined;
 }
 
+/** A user entry placed in a run, and the request id of the submission that placed it. */
+export type RunInput = { readonly entry: number; readonly request: string | undefined };
+
+/**
+ * The user entries placed in the run `conversation` has going, oldest first, each with the request id that placed it:
+ * what opened the run, then every steer pi placed between its tool rounds (a message the user typed meanwhile, a
+ * report, a notice). pi keeps each of a run's inputs placed until the run ends, at its answer or a reset, and settles
+ * them all then, so a run that isn't going has none, and a run's newest user entry need not be what opened it. Read
+ * from the submissions themselves, never by a window of ids, so a run of any length reads whole.
+ */
+export function runInputs(sql: SqlStorage, conversation: string): readonly RunInput[] {
+  return sql
+    .exec(
+      `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
+       WHERE conversation_id = ? AND status = 'placed' ORDER BY entry`,
+      Number(conversation)
+    )
+    .toArray()
+    .flatMap((raw) => {
+      const row = decodeOr(PlacedRow, raw, undefined);
+
+      return row === undefined ? [] : [{ entry: row.entry, request: row.request ?? undefined }];
+    });
+}
+
 /** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */
 const WROTE_SINCE = 20;
 

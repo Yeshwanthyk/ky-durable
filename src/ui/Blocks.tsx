@@ -383,10 +383,19 @@ function AnsweredInput({ label, value }: { label: string; value: string }) {
   );
 }
 
-type InputProps = { input: Input; value: string; live: boolean; alone: boolean; onChange: (value: string) => void; onDone: () => void };
+type InputProps = {
+  input: Input;
+  value: string;
+  live: boolean;
+  alone: boolean;
+  /** Typed as dots, for a credential (src/ui/InboundCards.tsx). */
+  masked?: boolean;
+  onChange: (value: string) => void;
+  onDone: () => void;
+};
 
 /** A field to type in; alone on its card it has its own ✓, which Enter presses. */
-function InputBlock({ input, value, live, alone, onChange, onDone }: InputProps) {
+export function InputBlock({ input, value, live, alone, masked = false, onChange, onDone }: InputProps) {
   return (
     <form
       className="ui-input"
@@ -397,15 +406,15 @@ function InputBlock({ input, value, live, alone, onChange, onDone }: InputProps)
     >
       <label className="ui-question">{input.label}</label>
       <div className="ui-field">
-        <Field input={input} value={value} live={live} onChange={onChange} />
+        <Field input={input} value={value} live={live} masked={masked} onChange={onChange} />
         {alone ? <DoneButton ready={live && Boolean(value.trim())} /> : null}
       </div>
     </form>
   );
 }
 
-/** The field itself: a line, or a few for a multiline input. */
-function Field({ input, value, live, onChange }: { input: Input; value: string; live: boolean; onChange: (value: string) => void }) {
+/** The field itself: a line, or a few for a multiline input; a masked one is a line of dots the browser doesn't fill or keep. */
+function Field({ input, value, live, masked, onChange }: { input: Input; value: string; live: boolean; masked: boolean; onChange: (value: string) => void }) {
   const field = {
     value,
     disabled: !live,
@@ -413,6 +422,8 @@ function Field({ input, value, live, onChange }: { input: Input; value: string; 
     "aria-label": input.label,
     onChange: (event: { target: { value: string } }) => onChange(event.target.value)
   };
+
+  if (masked) return <input type="password" autoComplete="off" spellCheck={false} {...field} />;
 
   return input.multiline ? <textarea rows={3} {...field} /> : <input type="text" {...field} />;
 }

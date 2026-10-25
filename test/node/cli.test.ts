@@ -227,7 +227,8 @@ describe("ky init and deploy", () => {
         { type: "r2_bucket", name: "FILES", bucket_name: "ky-files" },
         { type: "durable_object_namespace", name: "PiAgent", class_name: "PiAgent" },
         { type: "durable_object_namespace", name: "Vault", class_name: "Vault" },
-        { type: "ratelimit", name: "PAIR_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } }
+        { type: "ratelimit", name: "PAIR_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } },
+        { type: "ratelimit", name: "HOOK_LIMIT", namespace_id: "1002", simple: { limit: 60, period: 60 } }
       ])
     );
     expect([text("ACCESS_TEAM_DOMAIN"), text("ACCESS_EMAILS")]).toEqual(["test.cloudflareaccess.com", EMAIL]);
@@ -269,7 +270,7 @@ describe("ky init and deploy", () => {
       })
     ]);
     expect(account.tags).toEqual(new Set(["ky"]));
-    expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*"]);
+    expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*", "/p/*", "/hooks/*"]);
   });
 
   it("finds ky's Access apps by what they guard and their tag, not by name", async () => {
@@ -555,7 +556,7 @@ describe("ky doctor", () => {
       "✓ Release: r1",
       "✓ Migrations: v3",
       `✓ Access for the owner: ${HOST}`,
-      "✓ Access bypass: 6 paths",
+      "✓ Access bypass: 8 paths",
       `✓ workers.dev: https://${HOST}`,
       "✓ Cloud machine: off, so tasks run on your computers: this ky's release has no cloud machine image"
     ]);

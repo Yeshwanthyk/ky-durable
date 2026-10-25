@@ -6,14 +6,20 @@
  */
 import Type, { type Static } from "typebox";
 
-/** What an approval is for: an Executor app action. Each kind has its row in APPROVAL_KINDS and one handler (src/server.ts). */
-export const ApprovalKindSchema = Type.Union([Type.Literal("executor")]);
+/**
+ * What an approval is for: an Executor app action, a call a run on a webhook's data asks to make
+ * (src/inbound/inbound.ts), or an API call with a credential that isn't a GET or HEAD. Each kind has its row in
+ * APPROVAL_KINDS and one handler (src/server.ts).
+ */
+export const ApprovalKindSchema = Type.Union([Type.Literal("executor"), Type.Literal("webhook-action"), Type.Literal("secret-request")]);
 
 export type ApprovalKind = Static<typeof ApprovalKindSchema>;
 
 /** How each kind shows: the card's title. Every kind's approvals show as cards in their chat, and a push tells the user when they aren't there. */
 export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: string }>> = {
-  executor: { title: "Approve this app action?" }
+  executor: { title: "Approve this app action?" },
+  "webhook-action": { title: "Approve this, on a webhook's data?" },
+  "secret-request": { title: "Approve this call with a credential?" }
 };
 
 /**

@@ -6,6 +6,7 @@
 import { APPROVAL_TABLES } from "./approvals/contract";
 import { AUTOMATION_TABLES } from "./automations/contract";
 import { DREAMING_TABLES } from "./dreaming/contract";
+import { INBOUND_TABLES } from "./inbound/contract";
 import { PEERS_TABLES } from "./peers/contract";
 import { SKILL_TABLES } from "./skills/contract";
 
@@ -38,6 +39,7 @@ const LIBRARY_PREFIXES = ["pi_", "vfs_", "_vfs_"] as const;
 const RESTORED: ReadonlySet<string> = new Set([
   ...CORE_TABLES,
   ...Object.values(APPROVAL_TABLES),
+  ...Object.values(INBOUND_TABLES),
   ...Object.values(AUTOMATION_TABLES),
   ...Object.values(DREAMING_TABLES),
   ...Object.values(PEERS_TABLES),
