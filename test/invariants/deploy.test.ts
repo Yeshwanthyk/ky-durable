@@ -9,6 +9,9 @@
  *         deploy does.
  *   I-D4  the Worker's migration tag only moves forward, and no migration is uploaded twice.
  *   I-D5  the Worker's secrets (`wrangler secret put`, the dashboard) survive every deploy.
+ *   I-D6  a deploy after the overlay changed leaves the Worker running it, even of the same release.
+ *   I-D7  a bucket named as ky's that ky didn't mark is adopted only when it's empty and no other Worker
+ *         binds it; otherwise the deploy refuses and leaves the bucket as it was.
  *
  * I-D3 is checked for every k of a first deploy and of an upgrade; the generated runs mix deploys of
  * three releases, cuts at any request, and the owner adding secrets, and hold all five after each.
@@ -22,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
 import { Cloudflare } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand } from "../../cli/commands.ts";
+import { overlayFor, readOverlay, writeOverlay } from "../../cli/config.ts";
 import { initCommand } from "../../cli/init.ts";
 import type { Release } from "../../cli/release.ts";
 import { type FakeAccount, type FakeApp, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare } from "../fakes/cloudflare.ts";
@@ -69,25 +73,6 @@ type Version = keyof typeof RELEASES;
 const ORDER = RELEASES.next.config.migrations?.map((migration) => migration.tag) ?? [];
 
 const EMAIL = "owner@example.com";
-
-/**
- * Where B's deployer breaks an invariant, exactly as these tests observe it. The tests fail on a
- * breach not listed (a port broke deploy) and on a listed one that's gone (a port fixed it): move a
- * fixed one to docs/migration/effect/divergences/deploy.md, with the test that holds it.
- */
-const B_BREACHES = {
-  // A second deploy rewrites what's already there: the same content, but a new Worker version each time.
-  "I-D2": ["PUT access/apps/:id", "POST workers/scripts/ky/assets-upload-session", "PUT workers/scripts/ky", "POST workers/scripts/ky/subdomain"],
-  // Cut between making the bucket and writing its marker, ky refuses the bucket it made, forever.
-  "I-D3": ["now after nothing, cut after POST r2/buckets: the rerun fails"]
-};
-
-/** The requests a cut may follow that B is known to break, for the generated runs to step around. */
-const KNOWN_CUTS = new Set(["POST r2/buckets"]);
-
-/** What a failing comparison with B_BREACHES means. */
-const breaches = (invariant: keyof typeof B_BREACHES) =>
-  `${invariant} breaches differ from B's: a new one means the change broke deploy; a listed one gone means it fixed one, so move it to the divergence list`;
 
 /** What's on an account before ky ever deploys there: someone else's Worker, bucket and Access app. */
 function foreign(account: FakeAccount, squatter: boolean): FakeAccount {
@@ -156,6 +141,16 @@ function difference(expected: string, actual: string): string {
 
   return `after ${around.join(" ")}: expected ${want[line]?.trim() ?? "(end)"}, got ${got[line]?.trim() ?? "(end)"}`;
 }
+
+/** Someone else's Worker that binds the bucket ky's deploy would name `ky-files`. */
+const archive = (): FakeScript => ({
+  tags: ["archive"],
+  migrations: [],
+  metadata: { main_module: "index.js", bindings: [{ type: "r2_bucket", name: "FILES", bucket_name: "ky-files" }] },
+  modules: ["index.js"],
+  secrets: new Map(),
+  workersDev: false
+});
 
 /** A Cloudflare account behind the fake, and the overlay `ky init` wrote for it. */
 type World = { fake: FakeCloudflare; account: FakeAccount; release: Release };
@@ -299,7 +294,56 @@ describe("ky deploy, on any account", () => {
       await at.fake.close();
     }
 
-    expect([...writes].sort(), breaches("I-D2")).toEqual([...B_BREACHES["I-D2"]].sort());
+    expect([...writes].sort()).toEqual([]);
+  });
+
+  it("I-D6: a deploy after the overlay changed leaves the Worker running it, even of the same release", async () => {
+    const at = await after(["now"]);
+    const saved = overlay;
+    const emails = `${EMAIL},friend@example.com`;
+
+    // The owner lets one more person in: the overlay changes, the release doesn't.
+    overlay = path.join(path.dirname(saved), "wrangler.changed.jsonc");
+    await writeOverlay(overlay, overlayFor((await readOverlay(saved)) ?? {}, "acc", "ky", emails));
+
+    try {
+      expect((await deploy(at, "now")).ok).toBe(true);
+    } finally {
+      overlay = saved;
+      await at.fake.close();
+    }
+
+    const bindings = at.account.scripts.get("ky")?.metadata.bindings ?? [];
+
+    expect(bindings.find((binding) => binding.name === "ACCESS_EMAILS")).toMatchObject({ type: "plain_text", text: emails });
+  });
+
+  it("I-D7: a bucket ky didn't mark is adopted only when it's empty and unbound; else the deploy refuses and leaves it", async () => {
+    for (const [keys, bound] of [
+      [[], false],
+      [["notes.txt"], false],
+      [[], true],
+      [["notes.txt"], true]
+    ] satisfies [string[], boolean][]) {
+      const at = await world();
+      const where = `a bucket with ${keys.length} objects, ${bound ? "" : "not "}bound by another Worker`;
+
+      at.account.buckets.set("ky-files", new Set(keys));
+
+      if (bound) at.account.scripts.set("archive", archive());
+      const { ok } = await deploy(at, "now");
+      const now = sorted(at.account.buckets.get("ky-files") ?? []);
+
+      await at.fake.close();
+
+      if (keys.length === 0 && !bound) {
+        expect(ok, where).toBe(true);
+        expect(now, where).toEqual([".ky"]);
+      } else {
+        expect(ok, where).toBe(false);
+        expect(now, where).toEqual(keys);
+      }
+    }
   });
 
   it("I-D3: a deploy cut off after any request, then run again, ends where a clean deploy does", async () => {
@@ -334,7 +378,7 @@ describe("ky deploy, on any account", () => {
       }
     }
 
-    expect([...broken].sort(), breaches("I-D3")).toEqual([...B_BREACHES["I-D3"]].sort());
+    expect([...broken].sort()).toEqual([]);
   });
 
   it("I-D1, I-D3, I-D4, I-D5 hold through any run of deploys, cuts and secrets", async () => {
@@ -365,13 +409,7 @@ describe("ky deploy, on any account", () => {
       run: async (model, real) => {
         const tagBefore = ORDER.indexOf(real.at.account.scripts.get("ky")?.migrationTag ?? "");
 
-        if (cut !== undefined) {
-          const { last } = await deploy(real.at, version, cut);
-
-          // A cut in a window B is known to break is checked, exactly, by the I-D3 test above. It leaves
-          // the account where every later deploy refuses, so the whole run is discarded, not the step.
-          fc.pre(!KNOWN_CUTS.has(last));
-        }
+        if (cut !== undefined) await deploy(real.at, version, cut);
 
         const done = await deploy(real.at, version);
         const shadow = await deploy(real.shadow, version);

@@ -1,0 +1,13 @@
+diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
+index 6fa366d..e4932d0 100644
+--- a/cli/deploy/deployer.ts
++++ b/cli/deploy/deployer.ts
+@@ -250,7 +250,7 @@ const bucketState = (accountId: string, bucketName: string, script: string) =>
+     if (marked.some((object) => object.key === MARKER)) return "ours" as const;
+     const [first] = yield* list(Stream.take(R2.listObjects.items({ accountId, bucketName }), 1));
+ 
+-    if (first || (yield* bindersOf(accountId, bucketName, script)).length > 0) return "theirs" as const;
++    if ((yield* bindersOf(accountId, bucketName, script)).length > 0) return "theirs" as const;
+ 
+     return "orphan" as const;
+   });

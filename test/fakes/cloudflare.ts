@@ -1,5 +1,5 @@
 /**
- * A fake Cloudflare API for the `ky` CLI: the routes cli/deployer.ts and cli/init.ts call, in
+ * A fake Cloudflare API for the `ky` CLI: the routes cli/deploy/deployer.ts and cli/init.ts call, in
  * Cloudflare's wire format (the v4 envelope, snake_case, page-mode lists, multipart uploads), over
  * a little account kept in memory. The CLI reaches it as it would the real one, through
  * @distilled.cloud/cloudflare with CLOUDFLARE_API_BASE_URL pointed here.
@@ -452,7 +452,20 @@ const ROUTES = new Map<string, Handler>([
   ["POST workers/scripts/:name/assets-upload-session", assetSession],
   ["GET workers/scripts/:name/subdomain", (call) => ({ enabled: scriptNamed(call).workersDev, previews_enabled: false })],
   ["POST workers/scripts/:name/subdomain", setWorkersDev],
-  ["GET workers/scripts/:name/settings", (call) => ({ bindings: scriptNamed(call).metadata.bindings ?? [] })],
+  [
+    "GET workers/scripts/:name/settings",
+    (call) => {
+      const { metadata, secrets } = scriptNamed(call);
+
+      return {
+        bindings: [...(metadata.bindings ?? []).filter((binding) => binding.type !== "secret_text"), ...[...secrets.keys()].map((name) => ({ type: "secret_text", name }))],
+        compatibility_date: metadata.compatibility_date,
+        compatibility_flags: metadata.compatibility_flags ?? [],
+        tags: metadata.tags ?? [],
+        observability: metadata.observability
+      };
+    }
+  ],
   ["GET workers/scripts/:name/secrets", (call) => [...scriptNamed(call).secrets.keys()].map((secret) => ({ name: secret, type: "secret_text" }))],
   ["GET r2/buckets", ({ account }) => ({ buckets: [...account.buckets.keys()].map((bucket) => ({ name: bucket })) })],
   ["POST r2/buckets", createBucket],

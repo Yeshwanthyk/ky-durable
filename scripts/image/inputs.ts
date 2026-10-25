@@ -3,7 +3,7 @@
  * one commit is still current for another: whether any of those files changed between them.
  * .github/workflows/release.yml asks scripts/image/current.ts, and builds a new image only when
  * the last one is stale. A new image is a new digest, and a new digest makes `ky upgrade` roll the
- * cloud machine out (cli/deployer.ts), so an image is rebuilt only when what it runs changed.
+ * cloud machine out (cli/deploy/deployer.ts), so an image is rebuilt only when what it runs changed.
  *
  * The list is checked against the code itself: Bun's own module graph of cli/binary.ts, the
  * compiled `ky`'s entry, following what the cloud machine's commands load (cli/ky.ts).
