@@ -43,7 +43,8 @@ const BASELINE = path.join(REPO, "gate-baseline.json");
 
 const FALLOW = ["pnpm", "exec", "fallow"];
 
-const Item = Type.Object({ check: Type.String(), name: Type.String(), outcome: Type.String() });
+/** One test or scenario; `file` (a vitest test's, from the repo root) lets a domain find its own. */
+const Item = Type.Object({ check: Type.String(), name: Type.String(), outcome: Type.String(), file: Type.Optional(Type.String()) });
 
 type Item = Static<typeof Item>;
 
@@ -54,7 +55,7 @@ type Baseline = Static<typeof Baseline>;
 /** The part of vitest's JSON report the gate reads. */
 const VitestReport = Type.Object({
   testResults: Type.Array(
-    Type.Object({ assertionResults: Type.Array(Type.Object({ fullName: Type.String(), status: Type.String() })) })
+    Type.Object({ name: Type.String(), assertionResults: Type.Array(Type.Object({ fullName: Type.String(), status: Type.String() })) })
   )
 });
 
@@ -87,7 +88,7 @@ function vitestItems(check: string, file: string): Item[] {
   if (!report) throw new Error(`${file} is missing or not vitest's JSON report`);
 
   return report.testResults.flatMap((each) =>
-    each.assertionResults.map((test) => ({ check, name: test.fullName, outcome: test.status }))
+    each.assertionResults.map((test) => ({ check, name: test.fullName, outcome: test.status, file: path.relative(REPO, each.name) }))
   );
 }
 
