@@ -15,7 +15,9 @@ type Reminders = ReturnType<typeof legacyReminders>;
 function instance(reminders: Reminders): Instance<Action> {
   return {
     apply: async (action) => ("add" in action ? reminders.add(action.add, action.inMs) : reminders.cancel(action.cancel)),
-    advance: async (ms) => reminders.advance(ms),
+    due: async () => reminders.due(),
+    pending: async () => ({ next: reminders.nextAlarm() }),
+    nextAlarm: async () => reminders.nextAlarm(),
     tables: async () => ({ reminders: reminders.rows() }),
     effects: async () => ({ sent: reminders.sent() }),
     dispose: async () => {}
@@ -30,8 +32,8 @@ const toy: Parity<Action> = {
     { arbitrary: fc.record({ cancel: fc.integer({ min: 0, max: 6 }) }), weight: 2 }
   ),
   advances: fc.integer({ min: 0, max: 3_000 }),
-  legacy: async () => instance(legacyReminders()),
-  next: async () => instance(nextReminders()),
+  legacy: async (clock) => instance(legacyReminders(clock)),
+  next: async (clock) => instance(nextReminders(clock)),
   divergences: [
     {
       name: "refuses a reminder in the past",
@@ -49,7 +51,7 @@ describe("parity kit", () => {
   it("refuses a reminder in the past", () => {
     fc.assert(
       fc.property(fc.integer({ min: -100_000, max: -1 }), (inMs) => {
-        const reminders = nextReminders();
+        const reminders = nextReminders({ now: () => 0 });
 
         expect(reminders.add("tea", inMs)).toEqual({ refused: "That time has passed." });
         expect(reminders.rows()).toEqual([]);
@@ -60,8 +62,8 @@ describe("parity kit", () => {
   it("catches a port that differs from B, with the step where it does", async () => {
     const broken: Parity<Action> = {
       ...toy,
-      next: async () => {
-        const reminders = nextReminders();
+      next: async (clock) => {
+        const reminders = nextReminders(clock);
 
         return instance({ ...reminders, sent: () => reminders.sent().slice(1) });
       }
@@ -71,6 +73,30 @@ describe("parity kit", () => {
 
     expect(result.failed).toBe(true);
     expect(String(result.errorInstance)).toContain("effects differ");
+  });
+
+  it("jumps to the next alarm, so a port that loses a reminder an hour off is caught", async () => {
+    const hourly: Parity<Action> = { ...toy, actions: fc.record({ add: fc.constantFrom("tea"), inMs: fc.integer({ min: 3_600_000, max: 7_200_000 }) }), divergences: [] };
+    const late: Parity<Action> = {
+      ...hourly,
+      next: async (clock) => {
+        const reminders = nextReminders(clock);
+
+        return instance({ ...reminders, due: () => (clock.now() > 3_600_000 ? undefined : reminders.due()) });
+      }
+    };
+
+    await assertParity(hourly);
+    const result = await fc.check(parityProperty(late), { numRuns: 100, seed: 1 });
+
+    expect(result.failed).toBe(true);
+  });
+
+  it("gives both sides one clock, so a port that keeps its own time is caught", async () => {
+    const own: Parity<Action> = { ...toy, next: async () => instance(nextReminders({ now: () => 0 })) };
+    const result = await fc.check(parityProperty(own), { numRuns: 200, seed: 1 });
+
+    expect(result.failed).toBe(true);
   });
 
   it("refuses divergences that would hollow out the comparison", () => {
@@ -87,7 +113,7 @@ describe("parity kit", () => {
   it("refuses to compare what JSON can't show", async () => {
     const mapped: Parity<Action> = {
       ...toy,
-      next: async () => ({ ...(await toy.next()), // SAFETY: a side that breaks the Json type at runtime is what this test feeds the kit.
+      next: async (clock) => ({ ...(await toy.next(clock)), // SAFETY: a side that breaks the Json type at runtime is what this test feeds the kit.
       tables: async () => new Map() as never })
     };
 
