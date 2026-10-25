@@ -10,9 +10,9 @@ against B, never against the PR before it.
 
 | Unit | What | Owner (thread) | Branch / worktree | State | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| U0 | Foundation: pin, baselines, `core/edge.ts`, parity kit, census, ledger, screenshot diff, `verify-ky-parity`, Effect skills | chief of staff (this thread) | `effect/foundation` | in progress | below |
+| U0 | Foundation: pin, baselines, `core/edge.ts`, parity kit, census, ledger, screenshot diff, `verify-ky-parity`, Effect skills | chief of staff (this thread) | `effect/foundation` | done; end-of-wave recap sent | below |
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
-| U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` | `effect/lane-screenshot-diff` | running | its thread |
+| U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` (settled) | `effect/lane-screenshot-diff` | done, integrated (2bacb35, 4136158, 65d0921) | `pnpm visual`: B vs HEAD 0 on 8 pages |
 | U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | done, settled (9c066ba) | its thread |
 | U1 | Deploy (pilot) | — | — | waits for Wave 1 "go" | — |
 | H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
@@ -38,9 +38,12 @@ against B, never against the PR before it.
 | `verify-ky-parity` skill: doctor, ratchet, prove, one feature file per domain | done: `prove.sh deploy` passes end to end in 1m37s (ratchet 69 held, 0 lost; 500 runs, seed 1941735122; 4/4 mutants); the ratchet goes red on a skipped B test and on a new red test | `.claude/skills/verify-ky-parity/`; `test-results/parity/deploy/` |
 | `divergences/deploy.md` | done: I-D2, I-D3 open for U1 | `docs/migration/effect/divergences/deploy.md` |
 | Fable 5.1 review of U0, round 1 (foundation) | done: 7 findings; 1, 2, 3, 5 (weighting), 6, 7 (one `regressions`) fixed; 4 (one clock, `pending()`) goes to U2; 5's `fc.pre` kept (a cut in a known-broken window poisons the run, so it must be discarded); `vendor/effect` kept (owner asked for it) | `test/ledger.ts` `regressions`; `test/parity/run.ts`; `test/parity/kit.ts`; `src/core/edge.ts`; deploy `--mutant all` at 100 runs: 4/4 caught by tests that held clean |
-| Lane B skill drafts | done, settled: six drafts at 9c066ba, snippets typecheck; to review and move into `.claude/skills/` | `effect/lane-skill-drafts` |
+| Lane B skill drafts | done: six skills moved into `.claude/skills/` with the foundation's rules (092c738) | `.claude/skills/{modeling-effect-errors,decoding-effect-boundaries,deriving-schema-types,modeling-effect-domain,effect-do-storage,testing-effect-domains}` |
+| Screenshot diff integrated | done: `pnpm visual` / `visual:capture` / `visual:diff`; threshold 0.0001; B vs HEAD 0 on 8 pages from foundation; `pnpm check` red only on B's 9 | `test/visual/`; `fallow/health.json` |
 
 ## Decisions
+
+- **2026-10-25:** GPT-6 Astra is now listed on T3's pi provider (`openai-codex/gpt-6-astra`); later reviews run Fable 5.1 and Astra both, falling back to Fable alone if Astra fails to start.
 
 - **Owner, 2026-10-25:** U0 splits into lanes A (screenshot diff) and B (skill drafts) as T3 threads;
   U0's review is Fable 5.1 alone (GPT-6 Astra isn't available).
