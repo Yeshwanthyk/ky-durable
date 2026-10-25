@@ -36,7 +36,7 @@ Provable: `prove.sh skills` passes on the port alone (U3, legacy flipped out).
   `test-results/parity/skills-pre-flip/`. There is no parity side now.
 - **Invariants (check 3):** `test/invariants/skills.test.ts` holds the storage round-trip,
   allowlist, pin guard, stale sweep and kept answers as properties, and specialists' ids, saves
-  and attaches; nine mutants in `test/parity/skills/mutants/`, each caught.
+  and attaches, with refusals in B's words and times from Clock; twelve mutants in `test/parity/skills/mutants/`, each caught.
 - **Stored data (check 4):** `test/parity/skills/at-b.test.ts` opens rows B wrote
   (`at-b.json`, with B's own reads of them) under the port; on real data, `real-data.ts`.
   `at-b.json` includes B's specialist tables (sessions, brief versions, a damaged model column).
