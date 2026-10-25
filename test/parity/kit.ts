@@ -10,10 +10,13 @@
  * A difference made on purpose (a B bug the port fixes) is a `Divergence`: the actions it covers are
  * left out of the generated runs, since what one did would differ on every step after, and the
  * divergence names the invariant test that holds the port's behavior instead. Anything else that
- * differs is a regression.
+ * differs is a regression. Divergences may cover at most a quarter of the generated actions, so they
+ * can't hollow out the comparison.
  *
  * `pnpm parity <domain>` runs it at the bar (500 runs); `--mutant <name>` proves it can fail.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
 import fc from "fast-check";
 
 /** What a side shows: a result, a refusal, its rows, its effects, as JSON. */
@@ -62,6 +65,41 @@ export function budget() {
 
 type Pair<Action> = { legacy: Instance<Action>; next: Instance<Action> };
 
+/** Kinds JSON shows as they are; a Map, a Set, a Date or a class would all compare as `{}`. */
+const SHOWN = new Set(["[object Object]", "[object Array]", "[object String]", "[object Number]", "[object Boolean]", "[object Null]", "[object Undefined]"]);
+
+/** `observed` as JSON, or a throw when part of it is a value JSON can't show. */
+function show(observed: Json, where: string): string {
+  return JSON.stringify(observed, (_key: string, value: Json) => {
+    const kind = Object.prototype.toString.call(value);
+
+    if (!SHOWN.has(kind) || (kind === "[object Object]" && Object.getPrototypeOf(value) !== Object.prototype)) throw new Error(`${where} holds a ${kind}, which compares as {}: turn it into plain JSON`);
+
+    return value;
+  });
+}
+
+/** How much of the domain's actions divergences may take out of the comparison. */
+const MOST_COVERED = 0.25;
+
+/** Refuses divergences that cover too much, or that don't name an invariant test in a file that exists. */
+function checkDivergences<Action>(parity: Parity<Action>): void {
+  const divergences = parity.divergences ?? [];
+
+  if (divergences.length === 0) return;
+
+  for (const { name, heldBy } of divergences) {
+    const [file, test] = heldBy.split(" > ");
+
+    if (!file || !test || !existsSync(path.resolve(file))) throw new Error(`${parity.domain}: divergence ${name} is held by "${heldBy}", which isn't \`<existing file> > <test name>\``);
+  }
+
+  const sample = fc.sample(parity.actions, { numRuns: 400, seed: 1 });
+  const covered = sample.filter((action) => divergences.some((divergence) => divergence.covers(action))).length / sample.length;
+
+  if (covered > MOST_COVERED) throw new Error(`${parity.domain}: divergences cover ${Math.round(covered * 100)}% of the actions, more than ${MOST_COVERED * 100}%: narrow them, or the comparison checks little`);
+}
+
 /** Where the two sides first differ after a step, or undefined when they agree. */
 async function compare<Action>(parity: Parity<Action>, pair: Pair<Action>, results: [Json, Json]): Promise<string | undefined> {
   const normalize = parity.normalize ?? ((observed: Json) => observed);
@@ -73,7 +111,7 @@ async function compare<Action>(parity: Parity<Action>, pair: Pair<Action>, resul
   ];
 
   for (const [view, legacy, next] of views) {
-    const [a, b] = [JSON.stringify(normalize(legacy)), JSON.stringify(normalize(next))];
+    const [a, b] = [show(normalize(legacy), `legacy's ${view}`), show(normalize(next), `next's ${view}`)];
 
     if (a !== b) return `${view} differ:\n  legacy ${a?.slice(0, 400)}\n  next   ${b?.slice(0, 400)}`;
   }
@@ -83,6 +121,8 @@ async function compare<Action>(parity: Parity<Action>, pair: Pair<Action>, resul
 
 /** The generated runs, as a fast-check property: a failure is a counterexample of steps. */
 export function parityProperty<Action>(parity: Parity<Action>, maxCommands = budget().maxCommands) {
+  checkDivergences(parity);
+
   const Apply = (action: Action): fc.AsyncCommand<object, Pair<Action>> => ({
     check: () => true,
     run: async (_, pair) => {

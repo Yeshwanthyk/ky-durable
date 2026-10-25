@@ -9,7 +9,14 @@
  * domain first. A defect is a bug, and throws here, as a bug throws in the rest of ky.
  *
  * One edge per owner, built from the domain's Layer: the Durable Object holds it as long as it lives,
- * so the Layer is built once, on the first run, and `dispose` releases what it acquired.
+ * so the Layer is built once, on the first run, and `dispose` releases what it acquired. Three limits
+ * follow from where it lives:
+ * - A Layer that waits can't be built by `run`, which is synchronous: the owner awaits one `runPromise`
+ *   first (in the constructor's `blockConcurrencyWhile`), or `run` throws `AsyncFiberError`.
+ * - Eviction and hibernation never call `dispose`, so a Layer's release is best effort: nothing that
+ *   must be written belongs there.
+ * - At a Worker's module scope, an I/O object the Layer made is reused across requests, which the
+ *   runtime refuses; edges live in a Durable Object or a single request.
  */
 import * as Cause from "effect/Cause";
 import type * as Effect from "effect/Effect";
@@ -17,6 +24,7 @@ import * as Exit from "effect/Exit";
 import type * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
+import * as EffectResult from "effect/Result";
 import { type Refusal, type Result, refused } from "./refusal";
 
 /** A domain failure the user is told about: a tagged error that says why ky won't, in their words. */
@@ -38,6 +46,11 @@ export interface Edge<R> {
 /** The value of `exit`, the refusal its failure carries, or a throw for a defect or an interruption. */
 function settle<A extends object, E extends Refusable>(exit: Exit.Exit<A, E>): A | Refusal {
   if (Exit.isSuccess(exit)) return exit.value;
+
+  // A bug beside a failure is still a bug: the refusal would hide it.
+  const defect = Cause.findDefect(exit.cause);
+
+  if (EffectResult.isSuccess(defect)) throw defect.success;
 
   const failure = Cause.findErrorOption(exit.cause);
 

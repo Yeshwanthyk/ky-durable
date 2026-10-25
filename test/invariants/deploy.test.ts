@@ -358,7 +358,8 @@ describe("ky deploy, on any account", () => {
         if (cut !== undefined) {
           const { last } = await deploy(real.at, version, cut);
 
-          // A cut in a window B is known to break is checked, exactly, by the I-D3 test above.
+          // A cut in a window B is known to break is checked, exactly, by the I-D3 test above. It leaves
+          // the account where every later deploy refuses, so the whole run is discarded, not the step.
           fc.pre(!KNOWN_CUTS.has(last));
         }
 
@@ -404,7 +405,9 @@ describe("ky deploy, on any account", () => {
     const { numRuns, seed } = budget();
 
     await fc.assert(
-      fc.asyncProperty(fc.boolean(), commands, async (squatter, run) => {
+      // A squatter makes ky refuse every deploy, which checks I-D1 alone: one run in eight, so the rest
+      // reach I-D3, I-D4 and I-D5.
+      fc.asyncProperty(fc.oneof({ arbitrary: fc.constant(false), weight: 7 }, { arbitrary: fc.constant(true), weight: 1 }), commands, async (squatter, run) => {
         const at = await world(squatter);
         const shadow = await world(squatter);
         const real = { at, shadow, start: copy(at.account) };

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -72,6 +73,21 @@ describe("edge", () => {
 
     expect(() => edge.run(Effect.die(bug))).toThrow(bug);
     await expect(edge.runPromise(Effect.die(bug))).rejects.toThrow(bug);
+  });
+
+  it("throws a defect that came beside a failure, rather than refusing", () => {
+    const edge = makeEdge(Layer.empty);
+    const bug = new Error("a broken invariant");
+
+    expect(() => edge.run(Effect.failCause(Cause.combine(Cause.fail(new NoSuchThing({ words: "Not here." })), Cause.die(bug))))).toThrow(bug);
+  });
+
+  it("builds a Layer that waits only from runPromise; run works once it's built", async () => {
+    const edge = makeEdge(Layer.effect(Counter)(Effect.promise(async () => ({ built: 1 }))));
+
+    expect(() => edge.run(Effect.service(Counter))).toThrow(/AsyncFiberError|asynchronous/);
+    expect(await edge.runPromise(Effect.service(Counter))).toEqual({ built: 1 });
+    expect(edge.run(Effect.service(Counter))).toEqual({ built: 1 });
   });
 
   it("throws when run synchronously on an Effect that waits", () => {

@@ -25,9 +25,9 @@ function instance(reminders: Reminders): Instance<Action> {
 const toy: Parity<Action> = {
   domain: "toy",
   actions: fc.oneof(
-    fc.record({ add: fc.constantFrom("", "tea", "call mum"), inMs: fc.integer({ min: 0, max: 5_000 }) }),
-    fc.record({ add: fc.constantFrom("tea"), inMs: fc.integer({ min: -5_000, max: -1 }) }),
-    fc.record({ cancel: fc.integer({ min: 0, max: 6 }) })
+    { arbitrary: fc.record({ add: fc.constantFrom("", "tea", "call mum"), inMs: fc.integer({ min: 0, max: 5_000 }) }), weight: 4 },
+    { arbitrary: fc.record({ add: fc.constantFrom("tea"), inMs: fc.integer({ min: -5_000, max: -1 }) }), weight: 1 },
+    { arbitrary: fc.record({ cancel: fc.integer({ min: 0, max: 6 }) }), weight: 2 }
   ),
   advances: fc.integer({ min: 0, max: 3_000 }),
   legacy: async () => instance(legacyReminders()),
@@ -71,5 +71,28 @@ describe("parity kit", () => {
 
     expect(result.failed).toBe(true);
     expect(String(result.errorInstance)).toContain("effects differ");
+  });
+
+  it("refuses divergences that would hollow out the comparison", () => {
+    const [past] = toy.divergences ?? [];
+
+    expect(past).toBeDefined();
+
+    if (!past) return;
+
+    expect(() => parityProperty({ ...toy, divergences: [{ ...past, covers: (action) => "add" in action }] })).toThrow(/divergences cover \d+% of the actions/);
+    expect(() => parityProperty({ ...toy, divergences: [{ ...past, heldBy: "test/parity/toy/gone.test.ts > refuses" }] })).toThrow(/isn't `<existing file> > <test name>`/);
+  });
+
+  it("refuses to compare what JSON can't show", async () => {
+    const mapped: Parity<Action> = {
+      ...toy,
+      next: async () => ({ ...(await toy.next()), // SAFETY: a side that breaks the Json type at runtime is what this test feeds the kit.
+      tables: async () => new Map() as never })
+    };
+
+    const result = await fc.check(parityProperty(mapped), { numRuns: 50, seed: 1 });
+
+    expect(String(result.errorInstance)).toContain("compares as {}");
   });
 });

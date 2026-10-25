@@ -3,10 +3,10 @@
  * bar, or with a known-bad patch applied, which must fail it.
  *
  * The proof is the domain's tests below: its invariants, and its parity runs while it's being ported.
- * Without --mutant, every test must pass at 500 runs of up to 30 steps. With --mutant, the patch
- * `test/parity/<domain>/mutants/<name>.patch` is applied to the working tree, the proof runs, the
- * patch is taken back out, and the run passes only if the proof failed: a proof no mutant can break
- * proves nothing. `--mutant all` runs every mutant of the domain.
+ * Every test must pass at 500 runs of up to 30 steps. With --mutant, after that clean proof the patch
+ * `test/parity/<domain>/mutants/<name>.patch` is applied to the working tree, the proof runs again, the
+ * patch is taken back out, and the mutant counts as caught only if a test that held clean failed: a
+ * proof no mutant can break proves nothing. `--mutant all` runs every mutant of the domain.
  *
  * Each run writes test-results/parity/<domain>/<run>.json: the seed, the tool versions, the outcome
  * and the first counterexample, so a failure can be replayed with --seed.
@@ -76,7 +76,7 @@ function version(name: string): string {
   return manifest.version;
 }
 
-type Outcome = { passed: boolean; failures: { test: string; message: string }[] };
+type Outcome = { passed: boolean; held: string[]; failures: { test: string; message: string }[] };
 
 /** Runs the domain's proof at the budget; whether it passed, and each failing test's first lines. */
 function prove(label: string): Outcome {
@@ -97,7 +97,9 @@ function prove(label: string): Outcome {
     file.assertionResults.flatMap((test) => (test.status === "failed" ? [{ test: test.fullName, message: (test.failureMessages[0] ?? "").split("\n").slice(0, 12).join("\n") }] : []))
   );
 
-  return { passed: success && run.status === 0, failures };
+  const held = testResults.flatMap((file) => file.assertionResults.flatMap((test) => (test.status === "passed" ? [test.fullName] : [])));
+
+  return { passed: success && run.status === 0, held, failures };
 }
 
 /** The proof with `mutant` applied; the working tree is put back however the run ends. */
@@ -129,19 +131,28 @@ const tools = { node: process.version, vitest: version("vitest"), "fast-check": 
 
 let failed = false;
 
-for (const each of mutants.length > 0 ? mutants : [undefined]) {
-  const outcome = each ? withMutant(each) : prove("proof");
-  // A mutant run holds when the proof fails.
-  const holds = each ? !outcome.passed : outcome.passed;
-  const label = each ? `mutant-${each}` : "proof";
+// A mutant is caught only by a test that held without it, so a mutant run starts with the clean proof:
+// a compile error, a flake or a test already red can't pass for a catch.
+const clean = prove("proof");
 
-  writeFileSync(path.join(OUT, `${label}.json`), `${JSON.stringify({ domain, mutant: each ?? null, runs, steps, seed, tools, at: new Date().toISOString(), holds, failures: outcome.failures }, null, 2)}\n`);
+writeFileSync(path.join(OUT, "proof.json"), `${JSON.stringify({ domain, mutant: null, runs, steps, seed, tools, at: new Date().toISOString(), holds: clean.passed, failures: clean.failures }, null, 2)}\n`);
 
-  if (each) console.log(`${holds ? "PASS" : "FAIL"}  ${domain} --mutant ${each}: ${holds ? `caught by ${outcome.failures.map((failure) => failure.test).join("; ")}` : "the proof passed with the mutant in: it can't see this break"}`);
-  else console.log(`${holds ? "PASS" : "FAIL"}  ${domain}: ${runs} runs of up to ${steps} steps, seed ${seed}`);
+console.log(`${clean.passed ? "PASS" : "FAIL"}  ${domain}: ${runs} runs of up to ${steps} steps, seed ${seed}`);
 
-  if (!holds && !each) for (const failure of outcome.failures) console.log(`\n${failure.test}\n${failure.message}`);
+if (!clean.passed) {
+  for (const failure of clean.failures) console.log(`\n${failure.test}\n${failure.message}`);
 
+  if (mutants.length > 0) console.log("No mutant runs: a mutant can only be caught by a proof that holds without it.");
+  failed = true;
+}
+
+for (const each of clean.passed ? mutants : []) {
+  const outcome = withMutant(each);
+  const caughtBy = outcome.failures.filter((failure) => clean.held.includes(failure.test));
+  const holds = caughtBy.length > 0;
+
+  writeFileSync(path.join(OUT, `mutant-${each}.json`), `${JSON.stringify({ domain, mutant: each, runs, steps, seed, tools, at: new Date().toISOString(), holds, caughtBy: caughtBy.map((failure) => failure.test), failures: outcome.failures }, null, 2)}\n`);
+  console.log(`${holds ? "PASS" : "FAIL"}  ${domain} --mutant ${each}: ${holds ? `caught by ${caughtBy.map((failure) => failure.test).join("; ")}` : "no test that held without it failed with it: the proof can't see this break"}`);
   failed ||= !holds;
 }
 

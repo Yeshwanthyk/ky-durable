@@ -33,7 +33,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import path from "node:path";
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
-import { keyOf, ledgerProblems, readLedger } from "./ledger.ts";
+import { keyOf, ledgerProblems, readLedger, regressions } from "./ledger.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 
@@ -145,11 +145,6 @@ const CHECKS: Check[] = [
   vitest("invariants", "test:invariants")
 ];
 
-/** Outcomes that count as the check holding. */
-const GOOD = new Set(["passed", "PASS", "XFAIL"]);
-
-const PASSING = new Set(["passed", "PASS"]);
-
 function run(command: string[], log: string): Promise<number> {
   return new Promise((resolve) => {
     const out = createWriteStream(log, { flags: "a" });
@@ -171,26 +166,6 @@ function run(command: string[], log: string): Promise<number> {
 
 function tail(log: string, lines = 40): string {
   return readFileSync(log, "utf8").trimEnd().split("\n").slice(-lines).join("\n");
-}
-
-/** Baseline items that held then and do not now, but for the ones the prune ledger deleted on purpose. */
-function regressions(baseline: Baseline, now: Item[], pruned: Set<string>): string[] {
-  const current = new Map(now.map((item) => [keyOf(item), item.outcome]));
-  const found: string[] = [];
-
-  for (const item of baseline.items) {
-    if (!GOOD.has(item.outcome)) continue;
-
-    const outcome = current.get(keyOf(item));
-
-    if (outcome === item.outcome || (outcome !== undefined && PASSING.has(outcome))) continue;
-
-    if (outcome === undefined && pruned.has(keyOf(item))) continue;
-
-    found.push(`${item.check}: "${item.name}" was ${item.outcome}, now ${outcome ?? "missing"}`);
-  }
-
-  return found;
 }
 
 const record = process.argv.includes("--record");
@@ -266,10 +241,10 @@ if (unfit.length > 0) {
   process.exit(1);
 }
 
-const lost = regressions(saved, items, new Set(ledger.map(keyOf)));
+const lost = regressions(saved.items, items, new Set(ledger.map(keyOf)));
 
 if (lost.length > 0) {
-  console.log(`FAIL  baseline     ${lost.length} regressed against gate-baseline.json:`);
+  console.log(`FAIL  baseline     ${lost.length} regressed against gate-baseline.json, or are new and red:`);
 
   for (const line of lost) console.log(`  ${line}`);
   process.exit(1);

@@ -73,6 +73,48 @@ export function ledgerProblems(ledger: Entry[], baseline: { items: { check: stri
   return problems;
 }
 
+type Outcome = { check: string; name: string; outcome: string };
+
+/** Outcomes that held at B: a pass, or a failure the harness expects. */
+export const GOOD = new Set(["passed", "PASS", "XFAIL"]);
+
+const PASSING = new Set(["passed", "PASS"]);
+
+/** Outcomes that are red now: a failure, or a harness XFAIL that started passing and needs its entry. */
+const RED = new Set(["failed", "FAIL", "timedOut", "interrupted", "XPASS"]);
+
+/**
+ * What the ratchet refuses: an item that held at B and doesn't now, unless the ledger pruned it, and a
+ * red item B never had, since a new test that fails is as red as an old one.
+ */
+export function regressions(baseline: Outcome[], now: Outcome[], pruned: Set<string>): string[] {
+  const atB = new Set(baseline.map(keyOf));
+  const current = new Map(now.map((item) => [keyOf(item), item.outcome]));
+  const found: string[] = [];
+
+  for (const item of baseline) {
+    if (!GOOD.has(item.outcome)) continue;
+
+    const outcome = current.get(keyOf(item));
+
+    if (outcome === item.outcome || (outcome !== undefined && PASSING.has(outcome))) continue;
+
+    if (outcome === undefined && pruned.has(keyOf(item))) continue;
+
+    found.push(`${item.check}: "${item.name}" was ${item.outcome}, now ${outcome ?? "missing"}`);
+  }
+
+  for (const [key, outcome] of current) {
+    if (atB.has(key) || !RED.has(outcome)) continue;
+
+    const [check, name] = key.split("\u0000");
+
+    found.push(`${check}: "${name}" is new since B and ${outcome}`);
+  }
+
+  return found;
+}
+
 if (import.meta.main) {
   const ledger = readLedger();
   const problems = ledgerProblems(ledger, parseAs(Baseline, readFileSync(BASELINE, "utf8"), "gate-baseline.json"));
