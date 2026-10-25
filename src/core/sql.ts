@@ -15,7 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 /** A statement SQLite refused, or a row it gave that isn't the shape asked for. */
-export class SqlError extends Schema.TaggedError<SqlError>()("SqlError", { query: Schema.String, cause: Schema.Defect() }) {}
+class SqlError extends Schema.TaggedError<SqlError>()("SqlError", { query: Schema.String, cause: Schema.Defect() }) {}
 
 type Row = Record<string, SqlStorageValue>;
 
