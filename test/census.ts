@@ -101,7 +101,7 @@ const all = ROOTS.flatMap(files).map((file) => ({ file, text: readFileSync(path.
 mkdirSync(path.join(REPO, "test-results/census"), { recursive: true });
 
 for (const domain of domains) {
-  const imports = (text: string) => [...text.matchAll(/from "([^"]+)"/g)].map((match) => match[1] ?? "").join("\n");
+  const imports = (text: string) => [...text.matchAll(/from "(\.[^"]+)"/g)].map((match) => match[1] ?? "").join("\n");
   const rows = all.flatMap(({ file, text }) => (DOMAINS[domain].test(file) || DOMAINS[domain].test(imports(text)) ? [classify(file, text)] : []));
   const tally = Object.fromEntries([...CLASSES, "UNKNOWN"].map((each) => [each, rows.filter((row) => row.verdict === each).length]));
   const out = path.join(REPO, "test-results/census", `${domain}.json`);
