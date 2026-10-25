@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="20">
+<title>ky → Effect v4: progress</title>
+<style>
+  body { font-family: var(--font-sans, system-ui); color: var(--foreground, #222); margin: 0; }
+  .wrap { display: grid; gap: 18px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground, #777); margin: 0 0 8px; font-weight: 600; }
+  .meta { font-size: 12px; color: var(--muted-foreground, #777); }
+  .waves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .wave { border: 1px solid var(--border, #ddd); border-radius: var(--radius, 8px); padding: 12px; }
+  .wave.now { border-color: var(--accent, #36c); box-shadow: 0 0 0 1px var(--accent, #36c) inset; }
+  .wave .t { font-weight: 650; font-size: 14px; }
+  .wave .s { font-size: 12px; color: var(--muted-foreground, #777); margin: 2px 0 8px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--muted, #eee); overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--success, #2a2); }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; font-size: 13px; line-height: 1.35; }
+  li .ev { display: block; font-size: 11.5px; color: var(--muted-foreground, #777); font-family: var(--font-mono, monospace); }
+  .d::before { content: "✓"; color: var(--success, #2a2); font-weight: 700; }
+  .w::before { content: "●"; color: var(--warning, #c90); }
+  .p::before { content: "○"; color: var(--muted-foreground, #999); }
+  .b::before { content: "!"; color: var(--destructive, #c33); font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { border-bottom: 1px solid var(--border, #ddd); padding: 6px 6px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: var(--muted-foreground, #777); font-size: 11.5px; }
+  td.c { text-align: center; }
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+  .ok { border: 1px solid var(--success, #2a2); color: var(--success, #2a2); }
+  .part { background: var(--warning-surface, #fe9); color: var(--foreground, #222); }
+  .todo { background: var(--muted, #eee); color: var(--muted-foreground, #777); }
+  .decide { border-left: 3px solid var(--accent, #36c); padding: 6px 10px; font-size: 13px; background: var(--accent-surface, transparent); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="meta">Updated 2026-10-25 12:15 · branch effect/foundation · baseline B = b658a6e (tag effect-baseline) · nothing pushed</div>
+
+  <section>
+    <h2>Waves</h2>
+    <div class="waves">
+      <div class="wave now">
+        <div class="t">Wave 0: foundation</div>
+        <div class="s">U0 + S1 · approved · 9 of 10 done</div>
+        <div class="bar"><i style="width:90%"></i></div>
+      </div>
+      <div class="wave">
+        <div class="t">Wave 1: deploy</div>
+        <div class="s">U1 Deploy → H1 · needs your “go”</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+      <div class="wave">
+        <div class="t">Wave 2: automations + skills</div>
+        <div class="s">U2, U3 in parallel → H2 · needs your “go”</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wave 0 checklist</h2>
+    <ul>
+      <li class="d"><span>B pinned, gate baseline re-recorded<span class="ev">1170 items · 9 invariants + 1 web test red at B, held as red</span></span></li>
+      <li class="d"><span>effect 4.0.6 + vendor/effect submodule, pin check in pnpm check<span class="ev">effect pin: lockfile and vendor/effect agree</span></span></li>
+      <li class="d"><span>src/core/edge.ts: ManagedRuntime, tagged error → Refusal<span class="ev">defect beats failure · waiting Layer needs runPromise first</span></span></li>
+      <li class="d"><span>Parity kit, test-census, prune ledger, ratchet<span class="ev">new red tests fail the gate · ratchet rules now tested (092c738)</span></span></li>
+      <li class="d"><span>verify-ky-parity skill, proven end to end on deploy<span class="ev">500 runs, seed 1943263484 · 4/4 mutants caught · 69 held, 0 lost</span></span></li>
+      <li class="d"><span>Six Effect skills in .claude/skills<span class="ev">errors, boundaries, schema types, domain, DO storage, testing</span></span></li>
+      <li class="d"><span>S1 DO storage spike<span class="ev">decision: wrap ctx.storage.sql in a sync-first service, not sqlite-do</span></span></li>
+      <li class="d"><span>Fable review round 1, fixes applied<span class="ev">6185128</span></span></li>
+      <li class="d"><span>Screenshot diff built (lane A)<span class="ev">HEAD vs HEAD 0 on 8 pages ×3 · B vs HEAD 0 · planted change flagged on skills only</span></span></li>
+      <li class="w"><span>Screenshot diff integrated into foundation<span class="ev">cherry-picked + pnpm visual scripts · fixing 3 fallow complexity findings, then pnpm visual from foundation</span></span></li>
+      <li class="p"><span>End-of-Wave-0 recap + your decisions</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Five checks by domain</h2>
+    <table>
+      <tr><th></th><th>1 Ratchet</th><th>2 Parity + mutants</th><th>3 Invariants</th><th>4 Stored data</th><th>5 Real surface</th></tr>
+      <tr><td><b>Deploy</b> (U1)</td>
+        <td class="c"><span class="chip ok">69 held</span></td>
+        <td class="c"><span class="chip part">mutants 4/4 · legacy in U1</span></td>
+        <td class="c"><span class="chip part">I-D1,4,5 hold · I-D2,3 B bugs</span></td>
+        <td class="c"><span class="chip todo">U1</span></td>
+        <td class="c"><span class="chip todo">statechart in U1</span></td></tr>
+      <tr><td><b>Automations</b> (U2)</td>
+        <td class="c"><span class="chip ok">mapped</span></td>
+        <td class="c"><span class="chip todo">U2 (kit clock first)</span></td>
+        <td class="c"><span class="chip todo">quint ×3 in U2 · 7 red at B</span></td>
+        <td class="c"><span class="chip todo">U2</span></td>
+        <td class="c"><span class="chip todo">U2</span></td></tr>
+      <tr><td><b>Skills</b> (U3)</td>
+        <td class="c"><span class="chip ok">mapped</span></td>
+        <td class="c"><span class="chip todo">U3</span></td>
+        <td class="c"><span class="chip todo">U3</span></td>
+        <td class="c"><span class="chip todo">U3</span></td>
+        <td class="c"><span class="chip todo">U3</span></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Waiting on you</h2>
+    <div class="decide">“go” for Wave 1 (deploy port), after the Wave 0 recap. Nothing else is blocked on you.</div>
+  </section>
+</div>
+</body>
+</html>

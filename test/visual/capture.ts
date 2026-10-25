@@ -157,6 +157,27 @@ async function settle(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
+/** Seed the stack, then screenshot each page; on a failure, saves what the page showed beside the stack's log. */
+async function shoot(page: Page, { label, out, logs }: { label: string; out: string; logs: string }): Promise<void> {
+  page.setDefaultTimeout(TIMEOUT);
+
+  try {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^ky: Connected/ }).waitFor();
+    await seed(page);
+
+    for (const shot of SHOTS) {
+      await shot.take(page);
+      await settle(page);
+      await page.screenshot({ path: path.join(out, `${shot.name}.png`), animations: "disabled", caret: "hide", mask: MASK(page), maskColor: "#ff00ff" });
+      console.log(`${label}: ${shot.name}.png`);
+    }
+  } catch (error) {
+    await page.screenshot({ path: path.join(logs, "failed.png") });
+    throw error;
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const label = args[0];
@@ -185,24 +206,7 @@ async function main(): Promise<void> {
     });
 
     await context.addCookies([await accessCookie(stack.url)]);
-    const page = await context.newPage();
-    page.setDefaultTimeout(TIMEOUT);
-
-    try {
-      await page.goto("/");
-      await page.getByRole("button", { name: /^ky: Connected/ }).waitFor();
-      await seed(page);
-
-      for (const shot of SHOTS) {
-        await shot.take(page);
-        await settle(page);
-        await page.screenshot({ path: path.join(out, `${shot.name}.png`), animations: "disabled", caret: "hide", mask: MASK(page), maskColor: "#ff00ff" });
-        console.log(`${label}: ${shot.name}.png`);
-      }
-    } catch (error) {
-      await page.screenshot({ path: path.join(logs, "failed.png") });
-      throw error;
-    }
+    await shoot(await context.newPage(), { label, out, logs });
   } finally {
     await browser.close();
     await stack.stop();

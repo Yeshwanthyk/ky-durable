@@ -11,7 +11,7 @@
  * The pixels are compared in Chromium's canvas, which Playwright already ships, so it needs no image
  * library of its own.
  */
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { REPO } from "../harness/stack.ts";
@@ -47,38 +47,50 @@ async function compare({ a, b, tolerance }: { a: string; b: string; tolerance: n
   const [left, right] = await Promise.all([decode(a), decode(b)]);
 
   if (left.width !== right.width || left.height !== right.height) return { ratio: 1, size: false, image: null };
+
   const out = new ImageData(left.width, left.height);
+  const at = (index: number) => [left.data[index] ?? 0, right.data[index] ?? 0] as const;
+  const differs = (pixel: number) => [0, 1, 2, 3].some((channel) => Math.abs(at(pixel + channel)[0] - at(pixel + channel)[1]) > tolerance);
+
+  // The unchanged page, faded toward white, so the red reads against it.
+  const faded = (pixel: number) => Math.round(255 - (255 - (at(pixel)[0] + at(pixel + 1)[0] + at(pixel + 2)[0]) / 3) * 0.25);
   let differ = 0;
 
-  for (let at = 0; at < left.data.length; at += 4) {
-    let same = true;
+  for (let pixel = 0; pixel < left.data.length; pixel += 4) {
+    const changed = differs(pixel);
 
-    for (let channel = at; channel < at + 4; channel += 1) {
-      if (Math.abs((left.data[channel] ?? 0) - (right.data[channel] ?? 0)) > tolerance) same = false;
-    }
-
-    if (same) {
-      // The unchanged page, faded toward white, so the red reads against it.
-      const grey = ((left.data[at] ?? 0) + (left.data[at + 1] ?? 0) + (left.data[at + 2] ?? 0)) / 3;
-      out.data.fill(Math.round(255 - (255 - grey) * 0.25), at, at + 3);
-    } else {
-      differ += 1;
-      out.data.set([255, 0, 0], at);
-    }
-
-    out.data[at + 3] = 255;
+    differ += changed ? 1 : 0;
+    out.data.set(changed ? [255, 0, 0, 255] : [faded(pixel), faded(pixel), faded(pixel), 255], pixel);
   }
 
   if (differ === 0) return { ratio: 0, size: true, image: null };
+
   const canvas = new OffscreenCanvas(left.width, left.height);
+
   canvas.getContext("2d")?.putImageData(out, 0, 0);
-  const blob = await canvas.convertToBlob({ type: "image/png" });
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
+  const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
 
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return { ratio: differ / (left.width * left.height), size: true, image: btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join("")) };
+}
 
-  return { ratio: differ / (left.width * left.height), size: true, image: btoa(binary) };
+type Sets = { a: string; b: string; left: string; right: string; out: string; threshold: number };
+
+const dataUrl = (file: string) => `data:image/png;base64,${readFileSync(file, "base64")}`;
+
+/** One page's row; writes its diff PNG when it differs. */
+async function pageRow(page: Page, file: string, { a, b, left, right, out, threshold }: Sets): Promise<Row> {
+  const name = file.replace(/\.png$/, "");
+  const [x, y] = [path.join(left, file), path.join(right, file)];
+
+  if (!existsSync(x) || !existsSync(y)) return { page: name, ratio: 1, over: true, note: `only in ${existsSync(x) ? a : b}` };
+
+  const { ratio, size, image } = await page.evaluate(compare, { a: dataUrl(x), b: dataUrl(y), tolerance: TOLERANCE });
+
+  if (image !== null) writeFileSync(path.join(out, file), Buffer.from(image, "base64"));
+
+  const row: Row = { page: name, ratio, over: ratio > threshold };
+
+  return size ? row : { ...row, note: "sizes differ" };
 }
 
 /** Compare every page in either set; the rows, in page order. */
@@ -93,23 +105,8 @@ export async function diff(a: string, b: string, threshold: number): Promise<Row
 
   try {
     const page = await browser.newPage();
-    const url = (file: string) => `data:image/png;base64,${readFileSync(file, "base64")}`;
 
-    for (const file of pages) {
-      const name = file.replace(/\.png$/, "");
-      const [x, y] = [path.join(left, file), path.join(right, file)];
-
-      if (!existsSync(x) || !existsSync(y)) {
-        rows.push({ page: name, ratio: 1, over: true, note: `only in ${existsSync(x) ? a : b}` });
-        continue;
-      }
-
-      const { ratio, size, image } = await page.evaluate(compare, { a: url(x), b: url(y), tolerance: TOLERANCE });
-
-      if (image !== null) writeFileSync(path.join(out, file), Buffer.from(image, "base64"));
-      const row: Row = { page: name, ratio, over: ratio > threshold };
-      rows.push(size ? row : { ...row, note: "sizes differ" });
-    }
+    for (const file of pages) rows.push(await pageRow(page, file, { a, b, left, right, out, threshold }));
   } finally {
     await browser.close();
   }

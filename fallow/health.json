@@ -489,6 +489,19 @@
         "count": 1
       }
     },
+    "test/visual/capture.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/visual/diff.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts": {
       "crap_high": {
         "count": 1
