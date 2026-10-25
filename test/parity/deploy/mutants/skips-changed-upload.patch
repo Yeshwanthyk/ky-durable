@@ -1,9 +1,9 @@
 diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
-index 6fa366d..b9e44b0 100644
+index fe2a4cc..2638b14 100644
 --- a/cli/deploy/deployer.ts
 +++ b/cli/deploy/deployer.ts
-@@ -720,7 +720,7 @@ const uploaded = (upload: Omit<Upload, "bindings" | "migrations">) => ({
- function sameBindings(found: readonly Binding[] | undefined, wanted: readonly Binding[]): boolean {
+@@ -729,7 +729,7 @@ const uploaded = (upload: UploadSettings) => ({
+ function sameBindings(found: readonly Bound[] | null | undefined, wanted: readonly Binding[]): boolean {
    const bound = (found ?? []).filter((binding) => binding.type !== "secret_text");
  
 -  return bound.length === wanted.length && wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
