@@ -7,7 +7,7 @@ it's paused.
 
 From `explainers/ky-architecture/quint/automations.qnt`:
 
-- **OneRunPerSlot** each scheduled slot spawns at most one run and posts at most one report.
+- **OneRunPerSlot** a slot starts one run, however often it fires; the one report a run posts is delivery's to hold.
 - **NoOverlap** at most one run of a routine is live.
 - **NothingAfterPause** nothing starts or posts once the routine is off.
 
