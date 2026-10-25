@@ -103,7 +103,7 @@ export type GateAnswer = { readonly text: string; readonly error: boolean };
 
 export type AutomationDeps = {
   readonly feed: TaskFeed;
-  readonly machines: Pick<MachineHub, "machines" | "machine" | "defaultAgent" | "start" | "stop" | "recheck">;
+  readonly machines: MachineHub;
   readonly chats: ChatList;
   readonly models: Pick<Models, "worker" | "valid" | "choices">;
   readonly runtime: AutomationRuntime;
@@ -333,7 +333,9 @@ function refusal(id: string, row: AutomationRow | undefined, wanted: string, nex
 const make = Effect.gen(function* () {
   const sql = yield* Sql;
   const host = yield* Host;
-  const { feed, machines, chats, models, runtime } = host;
+  const { machines, chats, models, runtime } = host;
+  // Named by its type, so fallow, which reads no types, sees TaskFeed's members used.
+  const feed: TaskFeed = host.feed;
   const now = Clock.currentTimeMillis;
   const exec = (query: string, ...bindings: SqlStorageValue[]) => sql.exec(query, ...bindings).pipe(Effect.orDie);
   const rows = (query: string, ...bindings: string[]) => Effect.map(exec(query, ...bindings), automationRows);

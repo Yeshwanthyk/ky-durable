@@ -1,5 +1,5 @@
 /**
- * The automations domain's world, for parity and for its invariants: a Durable Object's SQLite (node:sqlite),
+ * The automations domain's world, for its invariants: a Durable Object's SQLite (node:sqlite),
  * the real TaskFeed and ChatList over it, and fakes for everything else a fire reaches: pi (a commit with its
  * Runs doc, a spawn, a delivery, an abort), the machines, the models, the gate's Executor, the dream, the looks
  * and peers. Every fake writes what it was asked to do to the world's effects, which is what the domain did
@@ -8,8 +8,7 @@
  * Time and ids are the world's: before each call the system time is set to the clock's and `crypto.randomUUID`
  * counts from the world's own counter, so two worlds driven alike make the same ids at the same times.
  *
- * The port books on ./scheduler.ts's Bookings, through the Scheduler it is given; the parity file mocks
- * `agents/schedules` with them for B, which makes its own.
+ * The port books on ./scheduler.ts's Bookings, through the Scheduler it is given.
  */
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from "node:sqlite";
 import fc from "fast-check";
@@ -21,6 +20,7 @@ import type { AutomationAuthor, AutomationDraft, TaskStatus } from "../../../src
 import { Automations } from "../../../src/automations/wiring";
 import { TaskFeed } from "../../../src/automations/tasks";
 import type { AutomationDeps, Callbacks, GateAnswer } from "../../../src/automations/automations";
+import type { MachineHub } from "../../../src/machines/contract";
 import type { MachineInfo } from "../../../src/protocol";
 import type { ModelChoice } from "../../../src/settings";
 import type { Spawn } from "../../../src/skills/contract";
@@ -149,7 +149,7 @@ const MOVES = new Map<TaskStatus, readonly TaskStatus[]>([
 
 export class World {
   readonly db = new DatabaseSync(":memory:");
-  /** The Durable Object's storage over `db`, and its SQL, as the domain, the feed, the chats and B take them. */
+  /** The Durable Object's storage over `db`, and its SQL, as the domain, the feed and the chats take them. */
   readonly durable = openStorage(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
   readonly chats = new ChatList(this.durable.sql());
@@ -203,7 +203,7 @@ export class World {
   deps(): AutomationDeps {
     const info = (): MachineInfo => ({ name: MACHINE, online: true, seenAt: 0, reason: null, active: 0, state: this.machineState, note: "", facts: null, login: "own", cloud: null, sandbox: null });
 
-    const machines: AutomationDeps["machines"] = {
+    const machines: Pick<MachineHub, "machines" | "machine" | "defaultAgent" | "start" | "stop" | "recheck"> = {
       machines: () => [info()],
       machine: (name) => (name === MACHINE ? info() : undefined),
       defaultAgent: () => "claude",
@@ -229,7 +229,8 @@ export class World {
 
     return {
       feed: this.feed,
-      machines,
+      // SAFETY: automations call only these six of MachineHub.
+      machines: machines as MachineHub,
       chats: this.chats,
       models: {
         worker: (own) => own ?? WORKER,
@@ -282,8 +283,8 @@ export class World {
     };
   }
 
-  /** A world action: what goes on around the domain, the same on both sides. */
-  async world(action: WorldAction, scheduler: Bookings, side: Side): Promise<Json> {
+  /** A world action: what goes on around the domain. */
+  async world(action: WorldAction, scheduler: Bookings, side: Automations): Promise<Json> {
     switch (action.world) {
       case "progress":
         return this.#progress(action.id, action.status);
@@ -319,7 +320,7 @@ export class World {
   }
 
   /** The run's reporter: a run that ended reports once, by its task id, if the automation still wants it. */
-  #report(id: string, side: Side): boolean {
+  #report(id: string, side: Automations): boolean {
     const task = this.feed.latestFrom(`automation:${id}`);
 
     if (task?.status !== "done" || this.posted.some((seen) => seen.task === task.id) || !side.wanted(task.id)) return false;
@@ -328,38 +329,6 @@ export class World {
     return true;
   }
 }
-
-/** The facade both sides keep: B's Automations and the port's edge. */
-type Side = Pick<
-  Automations,
-  | "list"
-  | "watches"
-  | "checkIns"
-  | "setCheckIns"
-  | "setZone"
-  | "pinZone"
-  | "unpinZone"
-  | "checkInRun"
-  | "create"
-  | "update"
-  | "pause"
-  | "stop"
-  | "archive"
-  | "resume"
-  | "delete"
-  | "retire"
-  | "unarchive"
-  | "run"
-  | "wanted"
-  | "recheckMachinesAt"
-  | "sweepPeersAt"
-  | "dreamAt"
-  | "recover"
-  | "bookLooks"
-  | "checkGate"
-  | "chatLabel"
-  | "onChange"
-> & { readonly scheduler: object };
 
 const DRAFT: AutomationDraft = { title: "Digest", prompt: "digest the news", cron: null, at: null, model: null, machine: null, chat: "1", gate: null };
 
@@ -405,20 +374,20 @@ class Booked extends Scheduler<Callbacks> {
   }
 }
 
-/** A side's Bookings: the port's, given to it; B's, which it made through the mocked agents/schedules. */
-export function schedulerOf(side: { readonly scheduler: object }): Bookings {
-  if (side.scheduler instanceof Booked) return side.scheduler.bookings;
+/** The Bookings the port was given. */
+export function schedulerOf(side: Automations): Bookings<Callbacks> {
+  if (!(side.scheduler instanceof Booked)) throw new Error("The port's Scheduler is not the world's.");
 
-  if (!(side.scheduler instanceof Bookings)) throw new Error("A side's Scheduler is not the world's.");
-
-  // SAFETY: B's Bookings were made over its own callbacks, which nothing here calls but `due` and `redeliver`.
-  return side.scheduler as Bookings;
+  return side.scheduler.bookings;
 }
 
-/** One side over a fresh world: `make` builds B's Automations or the port's over its storage. */
-export function instance(clock: Clock, make: (world: World, deps: AutomationDeps) => Side): Instance<Action> & { world: World; side: Side; scheduler: Bookings; due(): Promise<void> } {
+/** The port's Automations over the world's storage, booking on Bookings. */
+export const port = (world: World, deps: AutomationDeps) => new Automations(world.durable.storage(), deps, (callbacks) => new Booked(callbacks));
+
+/** The port over a fresh world. */
+export function next(clock: Clock): Instance<Action> & { world: World; side: Automations; scheduler: Bookings<Callbacks>; due(): Promise<void> } {
   const world = new World(clock);
-  const side = make(world, world.deps());
+  const side = port(world, world.deps());
   const scheduler = schedulerOf(side);
   side.onChange(() => {
     world.emits += 1;
@@ -476,12 +445,6 @@ export function instance(clock: Clock, make: (world: World, deps: AutomationDeps
     dispose: async () => world.db.close()
   };
 }
-
-/** The port's Automations over the world's storage, booking on Bookings. */
-export const port = (world: World, deps: AutomationDeps) => new Automations(world.durable.storage(), deps, (callbacks) => new Booked(callbacks));
-
-/** The port, over a fresh world. */
-export const next = (clock: Clock) => instance(clock, port);
 
 /** Ids the world's counter makes, and one it never does. */
 const id = fc.constantFrom("00000001", "00000001", "00000001", "00000002", "00000002", "00000003", "0000000f");

@@ -22,12 +22,12 @@ const DOMAIN = path.join(SRC, "automations");
 
 const read = (file: string) => readFileSync(file, "utf8");
 
-/** Every .ts file under `dir`, tests and B's frozen copy (parity scaffolding, gone at the flip) left out. */
+/** Every .ts file under `dir`, tests left out. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
 
-    if (entry.isDirectory()) return entry.name === "tests" || entry.name === "legacy" ? [] : sources(full);
+    if (entry.isDirectory()) return entry.name === "tests" ? [] : sources(full);
 
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });

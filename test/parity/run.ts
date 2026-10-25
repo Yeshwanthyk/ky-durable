@@ -23,7 +23,7 @@ const REPO = path.resolve(import.meta.dirname, "../..");
 const PROOFS = {
   toy: ["test/parity/toy/toy.test.ts"],
   deploy: ["test/invariants/deploy.test.ts"],
-  automations: ["test/invariants/automations.test.ts", "test/parity/automations/parity.test.ts", "test/parity/automations/at-b.test.ts"],
+  automations: ["test/invariants/automations.test.ts", "test/parity/automations/at-b.test.ts"],
   skills: ["test/invariants/skills.test.ts", "test/parity/skills/at-b.test.ts"]
 } satisfies Record<string, string[]>;
 

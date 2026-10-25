@@ -4,7 +4,7 @@
  * its time in seconds) and a string a cron; an idempotent one-shot finds the booking with the same callback and
  * payload whatever its time, and a cron finds one with the same cron, unless `idempotent: false`. `due` runs what
  * is due at `Date.now()`, oldest first: a callback that throws is tried again, three times in all, then a one-shot
- * is dropped and a cron moves to its next time. The parity world and the invariants run both sides on it.
+ * is dropped and a cron moves to its next time. The world books the port on it.
  */
 import type { Schedule, ScheduleOptions, SchedulerHandlers, SchedulerPayload } from "agents/schedules";
 import { parseCronExpression } from "cron-schedule";
