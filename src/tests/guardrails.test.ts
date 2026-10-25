@@ -1,8 +1,9 @@
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { Type } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
+import { canonical } from "../core/canonical";
 import { decode, parseAs } from "../core/decode";
-import { canonical, LOOP_LIMIT, loopBlock, preview, PREVIEW_HEAD, PREVIEW_TAIL, prune, repeats, SPILL_CHARS, spillPath, WRAP_CHARS, wrapped } from "../guardrails";
+import { LOOP_LIMIT, loopBlock, preview, PREVIEW_HEAD, PREVIEW_TAIL, prune, repeats, SPILL_CHARS, spillPath, WRAP_CHARS, wrapped } from "../guardrails";
 import { SKILL_TABLES } from "../skills/contract";
 import { agent, connectExecutor, gateStarted, inside, prompt, submit, wait } from "./drive";
 import { bulkText, Page, SPILLED, wideText } from "./stack";

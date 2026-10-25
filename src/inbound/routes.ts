@@ -1,7 +1,7 @@
 import Type, { type Static, type TSchema } from "typebox";
 import { parseOr } from "../core/decode";
 import { badInfo, type Credential, HTTP_KIND, MAX_VALUE_CHARS, MIN_VALUE_CHARS } from "./credentials";
-import { type Delivery, type Hook, HOOK_ID, type Received } from "./inbound";
+import { type HookDelivery, type Hook, HOOK_ID, type Received } from "./inbound";
 
 /**
  * Inbound's routes. `/hooks/<id>/<token>` is open to anyone, as the one path under `/hooks/` in Access's BYPASS
@@ -84,7 +84,7 @@ const label = (request: Request, name: string) => request.headers.get(name)?.sli
 /** The headers a sender names each delivery by, sent again with a redelivery: GitHub's, GitLab's, and Standard Webhooks'. */
 const DELIVERY_HEADERS = ["X-GitHub-Delivery", "X-Gitlab-Event-UUID", "Webhook-Id"];
 
-function deliveryOf(request: Request, url: URL, body: string, signature: string | null): Delivery {
+function deliveryOf(request: Request, url: URL, body: string, signature: string | null): HookDelivery {
   return {
     body,
     source: (url.searchParams.get("source") ?? label(request, "User-Agent") ?? "unknown").slice(0, 80),

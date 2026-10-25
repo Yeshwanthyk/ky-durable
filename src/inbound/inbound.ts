@@ -39,7 +39,7 @@ export type InboundDesk = {
 };
 
 /** A post to a hook, once the route has checked its token, size and signature. */
-export type Delivery = {
+export type HookDelivery = {
   readonly body: string;
   /** Who sent it, as `?source=` or its User-Agent says: a label, not a proof. */
   readonly source: string;
@@ -214,7 +214,7 @@ export class Inbound {
   }
 
   /** Tell the hook's chat what was posted, once per delivery: the run it starts is guarded, by its mark. */
-  async received(id: string, delivery: Delivery): Promise<Received> {
+  async received(id: string, delivery: HookDelivery): Promise<Received> {
     const hook = this.hook(id);
 
     if (!hook || !this.desk.chat(hook.session)) return "gone";
@@ -443,7 +443,7 @@ async function sha256(text: string): Promise<string> {
 }
 
 /** What the chat is told of a post: whose words they are, then the body, cut to TOLD_CHARS. */
-function told(hook: Hook, delivery: Delivery): string {
+function told(hook: Hook, delivery: HookDelivery): string {
   const event = delivery.event === null ? "" : `, event ${delivery.event}`;
   const body = delivery.body.length > TOLD_CHARS ? `${delivery.body.slice(0, TOLD_CHARS)}\n[cut: ${delivery.body.length - TOLD_CHARS} more characters]` : delivery.body;
 

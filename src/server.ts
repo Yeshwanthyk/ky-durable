@@ -41,7 +41,7 @@ import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
-import { type Delivery, type Hook, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
+import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
 import { hookGuard, inboundTools } from "./inbound/tools";
@@ -419,6 +419,9 @@ export class PiAgent extends DurableObject<Env> {
         ],
         tools: workspaceTools
       });
+      // First of all the tool hooks, and the first block wins: a call a webhook's run may not make is asked of the user
+      // (src/inbound/tools.ts), never told as a repeat to change approach on, as the guardrails below would.
+      this.registry.install(hookGuard(this.inbound));
       // Before every other tool hook: a blocked call then starts no progress step, and those after see the preview.
       this.registry.install(
         guardrailsExtension({
@@ -490,9 +493,6 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(peer);
       this.registry.install(mail);
       this.registry.install(inboundTools(this.inbound));
-      // Before any other guard on tool calls (src/guardrails.ts, once it lands): a call a webhook's run may not make
-      // is asked of the user, and never counted as a repeat the model must change approach on.
-      this.registry.install(hookGuard(this.inbound));
 
       return Harness.open(
         storage,
@@ -1034,7 +1034,7 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /** A post to a hook, its token, size and signature checked by the Worker (src/inbound/routes.ts). */
-  hookReceived(id: string, delivery: Delivery): Promise<Received> {
+  hookReceived(id: string, delivery: HookDelivery): Promise<Received> {
     return this.inbound.received(id, delivery);
   }
 

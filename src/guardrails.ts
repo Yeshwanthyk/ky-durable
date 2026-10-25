@@ -9,7 +9,7 @@ import {
   type ToolHookCall,
   ToolTask
 } from "@earendil-works/pi-durable";
-import { Guard } from "typebox/guard";
+import { canonical } from "./core/canonical";
 import { decodeOr, parseOr } from "./core/decode";
 import { runOpener } from "./history";
 
@@ -258,25 +258,6 @@ function streak(earlier: readonly string[], results: ReadonlyMap<string, Settled
   }
 
   return count;
-}
-
-/** JSON with every object's keys sorted, so arguments the model wrote in another order still compare equal. */
-export function canonical(value: JsonValue): string {
-  return JSON.stringify(sorted(value));
-}
-
-const isList = (value: JsonValue): value is readonly JsonValue[] => Array.isArray(value);
-
-function sorted(value: JsonValue): JsonValue {
-  if (isList(value)) return value.map(sorted);
-
-  if (value === null || !Guard.IsObject(value)) return value;
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, item]) => [key, sorted(item)])
-  );
 }
 
 /** `result` with its text in the file `path` and a preview in its place, when the text is over SPILL_CHARS; otherwise undefined. */
