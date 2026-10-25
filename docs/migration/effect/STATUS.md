@@ -14,7 +14,7 @@ against B, never against the PR before it.
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
 | U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` (settled) | `effect/lane-screenshot-diff` | done, integrated (2bacb35, 4136158, 65d0921) | `pnpm visual`: B vs HEAD 0 on 8 pages |
 | U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | done, settled (9c066ba) | its thread |
-| U1 | Deploy (pilot) | — | — | waits for Wave 1 "go" | — |
+| U1 | Deploy (pilot) | launching | `effect/u1-deploy` (from `effect/foundation`) | Wave 1 go 2026-10-25 | — |
 | H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
 | U3 | Skills | — | — | waits for Wave 2 "go" | — |
@@ -43,7 +43,7 @@ against B, never against the PR before it.
 
 ## Decisions
 
-- **2026-10-25:** GPT-6 Astra is now listed on T3's pi provider (`openai-codex/gpt-6-astra`); later reviews run Fable 5.1 and Astra both, falling back to Fable alone if Astra fails to start.
+- **Owner, 2026-10-25:** reviews stay Fable 5.1 only for the whole migration (no Astra on this machine). Wave 1 approved as drawn: U1 writer + chief of staff builds the kit clock and DO storage service alongside.
 
 - **Owner, 2026-10-25:** U0 splits into lanes A (screenshot diff) and B (skill drafts) as T3 threads;
   U0's review is Fable 5.1 alone (GPT-6 Astra isn't available).
