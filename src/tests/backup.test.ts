@@ -6,7 +6,7 @@ import { ASSERTION } from "../access";
 import { CLOUD } from "../cloud-facts";
 import { saveKey } from "../sandboxes";
 import { restores } from "../tables";
-import { agent, call, connect, inside, pairing, prompt, until } from "./drive";
+import { agent, call, connect, connectExecutor, inside, pairing, prompt, said, until } from "./drive";
 
 /**
  * B1: `ky backup` and `ky restore`, through the Worker's routes and the
@@ -225,6 +225,27 @@ describe("backup and restore", () => {
     expect(await rows(target, "ky_purposes")).toContain("{broken");
     expect(await inside(target, (instance) => instance.models.settings.get("main") ?? null)).toBeNull();
     expect(await rows(target, "memo_log")).toContain("Kept through the restore.");
+  });
+
+  it("restores the user's tool policies, and a pending approval that expires cleanly on its tap", async () => {
+    const name = `approvals-${crypto.randomUUID().slice(0, 8)}`;
+    await connectExecutor(name);
+    await prompt(name, 'tool executor_execute {"code":"approve gmail.send send mail to sam"}');
+    await inside(name, (instance) => instance.executorApprovals.setPolicy("drive.delete", "block"));
+
+    const response = await routeTo(name)("/api/backup", { method: "GET" });
+    const archive = readArchive(readTar(new Uint8Array(await new Response(response.body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())));
+    const target = `${name}-restored`;
+    await restoreArchive(archive, restoreInto(target), false);
+
+    // The new deploy's Executor never had the request: the tap expires it, and the chat is told.
+    await connectExecutor(target);
+    const [card] = await inside(target, (instance) => instance.approvals.pending());
+    expect(card).toMatchObject({ kind: "executor", subject: "gmail.send", summary: "send mail to sam" });
+    expect(await inside(target, (instance) => instance.approvals.onDecision(card!.id, "accept"))).toEqual({});
+    await said(target, "Executor no longer has request request-1: it expired");
+    expect(await inside(target, (instance) => instance.approvals.pending())).toEqual([]);
+    expect(await inside(target, (instance) => instance.executorApprovals.policyFor("drive.delete"))).toBe("block");
   });
 
   it("refuses to restore over a ky with chats or memory, unless forced", async () => {

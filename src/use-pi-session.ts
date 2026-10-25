@@ -38,6 +38,7 @@ import type {
   SessionView,
   ToolInfo
 } from "./protocol";
+import type { ApprovalAction, ApprovalView, ToolPolicy } from "./approvals/contract";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -81,6 +82,8 @@ type State = SessionView & {
   readonly subscriptions: readonly SubscriptionView[];
   /** Whether Executor is connected; null until the server says. */
   readonly executor: ExecutorView | null;
+  /** The approvals waiting on the user's tap, each a card in its chat. */
+  readonly approvals: readonly ApprovalView[];
   /** A newer deploy is serving than the one this page loaded from. */
   readonly updated: boolean;
 };
@@ -140,6 +143,7 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     setup: ({ setup }) => replace({ setup }),
     subscriptions: ({ subscriptions }) => replace({ subscriptions }),
     executor: ({ executor }) => replace({ executor }),
+    approvals: ({ approvals }) => replace({ approvals }),
     tools: ({ tools }) => replace({ catalog: tools }),
     // A Worker from before group chats sends no groups while a deploy settles.
     chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
@@ -192,6 +196,7 @@ const INITIAL_STATE: State = {
   setup: null,
   subscriptions: [],
   executor: null,
+  approvals: [],
   updated: false
 };
 
@@ -286,6 +291,7 @@ export function usePiSession(session: string) {
       setup: current.setup,
       subscriptions: current.subscriptions,
       executor: current.executor,
+      approvals: current.approvals,
       updated: current.updated
     }));
   }
@@ -433,7 +439,7 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  const { executorActions, peerActions, mailActions } = useSettingsActions(ask, send);
+  const { executorActions, peerActions, mailActions, approvalActions } = useSettingsActions(ask, send);
 
   /** Settings › Proactivity's. New on each connect, so a page that asked while the socket was closed asks again. */
   const proactivityActions = useMemo(() => proactivityActionsOf(ask, state.status === "open"), [ask, state.status]);
@@ -570,6 +576,7 @@ export function usePiSession(session: string) {
     executorActions,
     peerActions,
     mailActions,
+    approvalActions,
     proactivityActions,
     ledgerActions,
     newChat,
@@ -697,10 +704,14 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
     () => ({
       executorActions: {
         onConnect: (url: string, token: string) => ask("set-executor", { url, token }).then(refusal, why),
-        onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() })
+        onRemove: () => send({ type: "remove-executor", id: crypto.randomUUID() }),
+        onPolicy: (tool: string, policy: ToolPolicy) => ask("set-tool-policy", { tool, policy }).then(() => undefined, why)
       },
       peerActions: peerActions(ask),
-      mailActions: mailActions(ask)
+      mailActions: mailActions(ask),
+      approvalActions: {
+        onDecide: (approval: string, action: ApprovalAction) => ask("approval-decide", { approval, action }).then(refusal, why)
+      }
     }),
     [ask, send]
   );

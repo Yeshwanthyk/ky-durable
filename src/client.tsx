@@ -16,6 +16,7 @@ import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
+import { ApprovalsContext } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext } from "./ui/Proactivity";
 import { LedgerContext } from "./ui/LastNight";
@@ -416,13 +417,17 @@ function Stage(parts: Parts) {
 
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
+  const approvals = useMemo(() => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide }), [ky.approvals, ky.approvalActions]);
+
   return (
     <section className="stage" aria-label="Chat">
       <StageTop {...parts} />
 
       <div className="chat chat-surface">
         <RoutinesContext.Provider value={routines}>
+          <ApprovalsContext.Provider value={approvals}>
           <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+          </ApprovalsContext.Provider>
         </RoutinesContext.Provider>
         <DraftDock
           handle={composer}

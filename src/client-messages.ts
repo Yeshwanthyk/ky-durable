@@ -8,6 +8,7 @@
  */
 import Type, { type TSchema } from "typebox";
 import { parseOr } from "./core/decode";
+import { ApprovalActionSchema, ToolPolicySchema } from "./approvals/contract";
 import { AutomationActionSchema, AutomationDraftSchema } from "./automations/contract";
 import { ProactivityLevelSchema, RIGHT_AWAY_MOST, SoulChangeSchema } from "./dreaming/contract";
 import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
@@ -100,6 +101,10 @@ export const ClientMessageSchema = Type.Union([
   message("mail-discard", { mail: Text }),
   /** Forget an allowed address: ky asks again before writing to it. */
   message("mail-disallow", { address: Text }),
+  /** The user's tap on an approval's card; the result is `{ refused }` when it isn't waiting any more or what it asked for is gone. */
+  message("approval-decide", { approval: Text, action: ApprovalActionSchema }),
+  /** How ky treats an Executor tool that needs approval: allow, ask (the default) or block. */
+  message("set-tool-policy", { tool: Text, policy: ToolPolicySchema }),
   /** Start a side chat; the result is `{ session }`. */
   message("new-chat", {}),
   /** Archive a side chat, or unarchive it with `archived: false`. */

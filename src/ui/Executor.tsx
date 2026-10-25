@@ -1,6 +1,7 @@
 import { createContext, type FormEvent, useContext, useState } from "react";
+import type { ToolPolicy } from "../approvals/contract";
 import type { ExecutorView } from "../protocol";
-import { VaultBadge } from "./Controls";
+import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";
 
@@ -8,12 +9,14 @@ type ExecutorActions = {
   /** Resolves with why the connection was refused, if it was. */
   readonly onConnect: (url: string, token: string) => Promise<string | undefined>;
   readonly onRemove: () => void;
+  /** Resolves with why the policy wasn't set, if it wasn't. */
+  readonly onPolicy: (tool: string, policy: ToolPolicy) => Promise<string | undefined>;
 };
 
 /** What Settings › Executor shows, and what it does; provided around the panel. */
 export const ExecutorContext = createContext<{ view: ExecutorView | null; actions: ExecutorActions }>({
   view: null,
-  actions: { onConnect: async () => undefined, onRemove: () => undefined }
+  actions: { onConnect: async () => undefined, onRemove: () => undefined, onPolicy: async () => undefined }
 });
 
 const filled = (...values: string[]) => values.every((value) => value.trim() !== "");
@@ -26,6 +29,45 @@ export function Executor() {
     <section className="group" id="settings-executor">
       <h3 className="group-label">Executor</h3>
       {view?.url ? <ConnectedExecutor url={view.url} actions={actions} /> : <ConnectExecutor onConnect={actions.onConnect} />}
+      {view?.url ? <ToolPolicies policies={view.policies} onPolicy={actions.onPolicy} /> : null}
+    </section>
+  );
+}
+
+const POLICIES: ReadonlyArray<[ToolPolicy, string]> = [
+  ["allow", "Allow"],
+  ["ask", "Ask"],
+  ["block", "Block"]
+];
+
+/**
+ * Each app tool that has asked for approval, and what ky does next time: ask
+ * with a card (the default), allow it while the user is in the chat, or block
+ * it. With nobody in the chat, Allow asks too.
+ */
+function ToolPolicies({ policies, onPolicy }: { policies: ExecutorView["policies"]; onPolicy: ExecutorActions["onPolicy"] }) {
+  const [refused, setRefused] = useState<string>();
+
+  if (policies.length === 0) return null;
+
+  return (
+    <section className="card" aria-label="Approvals">
+      {policies.map(({ tool, policy }) => (
+        <div className="row" key={tool}>
+          <span className="row-text">
+            <span className="row-label">{tool}</span>
+          </span>
+          <Segmented small role="radiogroup" aria-label={`Approvals for ${tool}`} chosen={policy}>
+            {POLICIES.map(([each, label]) => (
+              <SegmentedOption key={each} checked={policy === each} onChoose={() => void onPolicy(tool, each).then(setRefused)}>
+                {label}
+              </SegmentedOption>
+            ))}
+          </Segmented>
+        </div>
+      ))}
+      <Problem text={refused} />
+      <p className="card-foot quiet">Allow approves only while you're in the chat; in a routine or a peer's question it asks you.</p>
     </section>
   );
 }

@@ -191,10 +191,11 @@ describe("the tools", () => {
     expect(ran.text).toBe("tool said: ran 1");
 
     const paused = await prompt(name, 'tool executor_execute {"code":"approve send mail"}');
-    expect(paused.text).toBe('tool said: {"status":"approval-required","requestId":"request-1","message":"send mail"}');
+    expect(paused.text).toMatch(/^tool said: \{"status":"approval-required","requestId":"request-1","message":"send mail"\}/);
 
-    const resumed = await prompt(name, 'tool executor_resume {"requestId":"request-1","response":{"action":"accept"}}');
-    expect(resumed.text).toBe('tool said: {"status":"completed","result":"did send mail"}');
+    // Only the user's tap approves (src/tests/approvals.test.ts); the model can decline.
+    const declined = await prompt(name, 'tool executor_resume {"requestId":"request-1","response":{"action":"decline"}}');
+    expect(declined.text).toBe('tool said: {"status":"declined"}');
   });
 });
 

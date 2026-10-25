@@ -20,8 +20,9 @@ import { parsed } from "./frames";
  * - `throw TEXT` runs a program that throws TEXT: the envelope with
  *   `execution: { ok: false, error: TEXT }`;
  * - `fail TEXT` fails the call itself with TEXT (`isError`);
- * - `approve TEXT` pauses for an approval to do TEXT, as a Gmail send does,
- *   and `ask TEXT` pauses for input;
+ * - `approve TEXT` pauses for an approval to do TEXT, as a Gmail send does
+ *   (`approve app.tool TEXT` names the tool that asks, as `toolPath`), and
+ *   `ask TEXT` pauses for input;
  * - anything else runs and answers `ran <n>`.
  *
  * `skills` lists two apps. `resume` answers a paused request as Executor does:
@@ -49,8 +50,16 @@ export class FakeExecutor {
   readonly connectedUrls: string[] = [];
   /** Each `resume`'s arguments, as they arrived. */
   readonly resumes: unknown[] = [];
+  /** While set, a resume carries out the request and then fails with this text, as a program that acted and threw after. */
+  failResumes: string | undefined;
+  /** Resumes still to run whose answer is then lost on the way back, as a dropped connection or a timeout after the send. */
+  loseResumeAnswers = 0;
+  /** While true, a `resume` that arrived waits before it answers, as a slow program does. A flag, not a promise: one made in another request wouldn't wake it. */
+  holdResumes = false;
   /** What each paused request will do once accepted, and the session that made it. */
   readonly #paused = new Map<string, { does: string; session: string | undefined }>();
+  /** Requests paused so far, for the next one's id. */
+  #pauses = 0;
   /** Each session's elicitation mode, from its `initialize` URL. */
   readonly #modes = new Map<string, string>();
 
@@ -85,7 +94,11 @@ export class FakeExecutor {
 
     const response = await transport.handleRequest(request);
 
-    if (body.method === "tools/call" && body.params?.arguments?.code === "lose-response") {
+    const lost = body.params?.name === "resume" && this.loseResumeAnswers > 0;
+
+    if (lost) this.loseResumeAnswers--;
+
+    if (body.method === "tools/call" && (lost || body.params?.arguments?.code === "lose-response")) {
       await response.text();
       throw new TypeError("Network connection lost.");
     }
@@ -141,12 +154,13 @@ export class FakeExecutor {
         if (command === "throw") return envelope({ ok: false, error: rest, toolCalls: [] });
 
         if (command === "approve" || command === "ask") {
-          const requestId = `request-${this.#paused.size + 1}`;
+          const requestId = `request-${++this.#pauses}`;
           const status = command === "approve" ? "approval-required" : "input-required";
+          const [, toolPath, message = rest] = command === "approve" ? (/^(\w+\.[\w.]+) (.*)$/s.exec(rest) ?? []) : [];
 
-          this.#paused.set(requestId, { does: rest, session: extra.sessionId });
+          this.#paused.set(requestId, { does: message, session: extra.sessionId });
 
-          return { content: [{ type: "text", text: JSON.stringify({ status, requestId, message: rest }) }] };
+          return { content: [{ type: "text", text: JSON.stringify(toolPath ? { status, requestId, message, toolPath } : { status, requestId, message }) }] };
         }
 
         if (command === "fail") return { content: [{ type: "text", text: rest }], isError: true };
@@ -174,6 +188,8 @@ export class FakeExecutor {
       },
       async (args, extra) => {
         this.resumes.push(args);
+
+        while (this.holdResumes) await new Promise((resolve) => setTimeout(resolve, 10));
         const paused = this.#paused.get(args.requestId);
         const browser = paused !== undefined && this.#modes.get(paused.session ?? "") === "browser";
 
@@ -183,6 +199,8 @@ export class FakeExecutor {
         }
 
         this.#paused.delete(args.requestId);
+
+        if (this.failResumes !== undefined) return { content: [{ type: "text", text: this.failResumes }], isError: true };
         const done = args.response.action === "accept" ? { status: "completed", result: `did ${paused.does}` } : { status: "declined" };
 
         return { content: [{ type: "text", text: JSON.stringify(done) }] };
@@ -206,7 +224,7 @@ function envelope(execution: Execution) {
 const McpRequest = Type.Object({
   method: Type.Optional(Type.String()),
   params: Type.Optional(
-    Type.Object({ arguments: Type.Optional(Type.Object({ code: Type.Optional(Type.String()) })) })
+    Type.Object({ name: Type.Optional(Type.String()), arguments: Type.Optional(Type.Object({ code: Type.Optional(Type.String()) })) })
   )
 });
 

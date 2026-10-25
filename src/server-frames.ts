@@ -10,6 +10,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
+import { ApprovalKindSchema, type ApprovalView, ToolPolicySchema, type ToolPolicyView } from "./approvals/contract.ts";
 import { BloubSpecSchema } from "./avatar-spec.ts";
 import type {
   AutomationInfo,
@@ -91,6 +92,10 @@ const MemoryItemSchema = Type.Unsafe<MemoryItem>(
 
 const Tools = Type.Array(Type.Object({ name: Text, description: Text }));
 
+const Approval = Type.Unsafe<ApprovalView>(Type.Object({ id: Text, kind: ApprovalKindSchema, subject: Text, summary: Text, chat: Text, createdAt: Type.Number() }));
+
+const ToolPolicy = Type.Unsafe<ToolPolicyView>(Type.Object({ tool: Text, policy: ToolPolicySchema }));
+
 export const ServerFrameSchema = Type.Union([
   Type.Object({ type: Type.Literal("hello"), session: Text, tools: Tools, version: Text }),
   Type.Object({ type: Type.Literal("events"), session: Text, events: Type.Array(Event) }),
@@ -109,8 +114,9 @@ export const ServerFrameSchema = Type.Union([
   Type.Object({ type: Type.Literal("settings"), settings: Settings }),
   Type.Object({ type: Type.Literal("setup"), setup: Setup }),
   Type.Object({ type: Type.Literal("subscriptions"), subscriptions: Type.Array(Subscription) }),
-  Type.Object({ type: Type.Literal("executor"), executor: Type.Object({ url: Type.Union([Text, Type.Null()]) }) }),
+  Type.Object({ type: Type.Literal("executor"), executor: Type.Object({ url: Type.Union([Text, Type.Null()]), policies: Type.Array(ToolPolicy) }) }),
   Type.Object({ type: Type.Literal("tools"), tools: Tools }),
+  Type.Object({ type: Type.Literal("approvals"), approvals: Type.Array(Approval) }),
   Type.Object({ type: Type.Literal("result"), id: Text, result: Json }),
   Type.Object({ type: Type.Literal("error"), id: Type.Optional(Text), message: Text })
 ]);
@@ -199,6 +205,8 @@ export const ANSWERS = {
   ),
   "mail-approve": Refusable,
   "mail-discard": Refusable,
+  "approval-decide": Refusable,
+  "set-tool-policy": Type.Null(),
   "mail-disallow": Refusable,
   proactivity: Proactivity,
   "set-proactivity": Proactivity,

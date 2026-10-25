@@ -12,6 +12,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
+import { toolReply } from "./core/reply";
 import type { ExecutorView } from "./protocol";
 import type { Vault } from "./vault";
 
@@ -19,12 +20,15 @@ import type { Vault } from "./vault";
  * Executor (v2.executor.sh) over MCP. Executor holds the accounts and turns
  * apps into tools behind three MCP tools: `skills` reads what an app ships,
  * `execute` runs a JavaScript program over the apps (`tools.<app>.<tool>()`),
- * and `resume` continues a program that paused for an approval.
+ * and `resume` continues a program that paused for an approval or for input.
  *
  * The connection uses a personal access token, so ky never needs a browser
  * sign-in, and always runs in model elicitation mode: a tool that needs
- * approval pauses with `status: "approval-required"`, the agent asks the user
- * in the chat, and answers with `resume`. Browser mode can't work for ky,
+ * approval pauses with `status: "approval-required"`. The approval is the
+ * user's, never the model's: every reply passes through the gate
+ * (src/approvals/executor.ts), which shows the user a card, and their tap
+ * resumes the program from the server. The model's executor_resume can only
+ * decline, cancel, or answer a request for input. Browser mode can't work for ky,
  * because there a request belongs to the MCP session that made it, and ky's
  * session lives in the Durable Object's memory: it is gone after the object
  * hibernates while the user approves, and `resume` then finds nothing. In model
@@ -40,9 +44,27 @@ export type ExecutorConfig = ExecutorConnection & {
   readonly fetch?: typeof fetch;
 };
 
-/** What Settings shows of Executor: its address once connected, never the token. */
+/** An Executor tool's answer, as pi tool output. */
+export type CallResult = { output: Array<{ type: "text"; text: string }>; isError?: boolean };
 
-type CallResult = { output: Array<{ type: "text"; text: string }>; isError?: boolean };
+/** An Executor tool's answer as one text. */
+export const resultText = (result: CallResult): string => result.output.map((part) => part.text).join("\n");
+
+/** A call to one of Executor's MCP tools on a session already open. */
+export type ExecutorCall = (name: string, args: Record<string, JsonValue | undefined>) => Promise<CallResult>;
+
+/** What the model may answer a paused request with: never accept, which is the user's tap. */
+export type ResumeAction = "answer" | "decline" | "cancel";
+
+/** Where ky takes Executor's pauses from the model: src/approvals/executor.ts. */
+export interface ExecutorGate {
+  /** Executor's reply to execute or resume in `conversation`, after ky took any pause it holds. */
+  replied(result: CallResult, conversation: string, call: ExecutorCall): Promise<CallResult>;
+  /** Why the model may not resume `requestId` so, or undefined when it may; a decline or cancel of an approval is claimed here. */
+  beforeResume(requestId: string, action: ResumeAction, conversation: string): string | undefined;
+  /** A resume the model sent reached Executor. */
+  resumed(requestId: string): void;
+}
 
 const REQUEST_TIMEOUT_MS = 6 * 60_000;
 
@@ -51,8 +73,8 @@ const failed = (error: Error): CallResult => ({
   isError: true
 });
 
-/** One try at a call, and whether it provably never reached Executor, so it may be tried again. */
-type Attempt = { result: CallResult; neverRan: boolean };
+/** A call's answer, and whether it provably never reached Executor: then nothing it asked for happened. */
+export type Attempt = { result: CallResult; neverRan: boolean };
 
 /** Whether Executor answered with one of these HTTP statuses. */
 function answered(error: Error, ...codes: number[]): boolean {
@@ -146,11 +168,20 @@ class ExecutorClient {
     args: Record<string, JsonValue | undefined>,
     signal: AbortSignal | undefined
   ): Promise<CallResult> {
+    return (await this.attempt(name, args, signal)).result;
+  }
+
+  /** A call as `call` makes it, with whether it never reached Executor after all. */
+  async attempt(
+    name: string,
+    args: Record<string, JsonValue | undefined>,
+    signal: AbortSignal | undefined
+  ): Promise<Attempt> {
     for (let attempt = 0; ; attempt++) {
       const retry = attempt === 0 && signal?.aborted !== true;
-      const { result, neverRan } = await this.#attempt(name, args, signal);
+      const tried = await this.#attempt(name, args, signal);
 
-      if (!retry || !neverRan) return result;
+      if (!retry || !tried.neverRan) return tried;
     }
   }
 
@@ -189,21 +220,31 @@ class ExecutorClient {
   }
 }
 
-/** Run one program outside a turn, as an automation's gate does, on a session of its own that closes after. */
+/** One call outside a turn, as the user's tap on an approval resumes a program, on a session of its own that closes after. */
+export async function callOnce(
+  config: ExecutorConfig,
+  name: string,
+  args: Record<string, JsonValue | undefined>,
+  signal?: AbortSignal
+): Promise<Attempt> {
+  const executor = new ExecutorClient(config);
+
+  try {
+    return await executor.attempt(name, args, signal);
+  } finally {
+    executor.close();
+  }
+}
+
+/** Run one program outside a turn, as an automation's gate does. */
 export async function executeOnce(
   config: ExecutorConfig,
   code: string,
   signal: AbortSignal
 ): Promise<{ text: string; error: boolean }> {
-  const executor = new ExecutorClient(config);
+  const { result } = await callOnce(config, "execute", { code }, signal);
 
-  try {
-    const result = await executor.call("execute", { code }, signal);
-
-    return { text: result.output.map((part) => part.text).join("\n"), error: result.isError === true };
-  } finally {
-    executor.close();
-  }
+  return { text: resultText(result), error: result.isError === true };
 }
 
 const GUIDE = `Executor connects the user's accounts and apps (calendar, email, GitHub, Vercel and whatever else they added). Use it for anything that touches their services.
@@ -211,20 +252,23 @@ const GUIDE = `Executor connects the user's accounts and apps (calendar, email, 
 - executor_skills: read what apps are available and the instructions they ship. Start here when you do not know what is connected.
 - executor_execute: run a short JavaScript program. Inside it, \`await tools.search({ query: "..." })\` returns callable paths and TypeScript signatures, and app tools are async functions like \`await tools.vercel.listProjects({})\`. Join and filter results in the program and return only what you need. There is no fetch, no filesystem and no imports. Limits: 100 tool calls, 5 minutes, 64 KB of output.
 
-Approvals happen in this chat. A tool that needs approval pauses the program, and the result has \`status: "approval-required"\` (or \`"input-required"\` when it needs information), a requestId, and what the tool is about to do.
+Approvals are the user's, and you can't give one. A tool that needs approval pauses the program, and the result has \`status: "approval-required"\`, a requestId, and what the tool is about to do. ky shows the user a card for it, and only their tap on the card approves it; ky then resumes the program and tells you here what came of it.
 1. Tell the user in plain words what will happen: what is sent, changed or deleted, where, and to whom. Decode what they can't read. For a Gmail send, decode the base64url \`raw\` and show the recipient, the subject and the body. Don't show the encoded text.
-2. Stop and wait for the user's answer in the chat.
-3. Only after the user explicitly says yes to this request, call executor_resume with \`{ requestId, response: { action: "accept" } }\`. A no is \`action: "decline"\`. If they want to stop altogether, use \`action: "cancel"\`. For input, put their answers in \`response.content\`.
+2. Stop. Don't ask them to say yes in the chat: a yes in words approves nothing. Point them to the card.
+3. If they say no or want to stop, call executor_resume with \`action: "decline"\` or \`action: "cancel"\`.
 
-- Never approve on the user's behalf, and never accept without a yes to this exact request. An earlier yes, or a yes to a different request, does not count.
+A result with \`status: "input-required"\` asks for information: ask the user, then call executor_resume with \`{ requestId, response: { action: "answer", content: { ...their answers } } }\`.
+
+- Never claim you approved anything, and never ask anyone but the user to approve.
 - Never re-run a program after a refusal, after a decline, or after an approval that got lost. Earlier calls in it may already have taken effect.
+- A request from before ky's approval cards has no card and can't be approved or cancelled any more: Executor lets it lapse. Do as for a request that is gone.
 - If a resume answers not-found or expired, the request is gone. First check with a read-only program whether the action happened, for example by looking in Sent. Then tell the user, and ask again before you try anything new.
 - executor_connection: show or change the URL ky reaches Executor at, keeping the token.`;
 
 /** How the agent changes where ky reaches Executor, on the same origin and with the token already connected. */
 export type ExecutorRetarget = (url: string) => Promise<{ refused?: string }>;
 
-export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRetarget): Extension {
+export function executorExtension(config: ExecutorConfig, gate: ExecutorGate, retarget?: ExecutorRetarget): Extension {
   const executor = new ExecutorClient(config);
 
   return defineExtension({
@@ -251,17 +295,21 @@ export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRet
         }),
         // A program can have side effects in the user's accounts.
         replay: "unsafe",
-        execute: async (args, _api, context) => executor.call("execute", args, context.abortSignal)
+        execute: async (args, api, context) => {
+          const call: ExecutorCall = (name, more) => executor.call(name, more, context.abortSignal);
+
+          return gate.replied(await call("execute", args), String(api.conversationId), call);
+        }
       }),
       defineTool({
         name: "executor_resume",
         description:
-          "Continue an Executor program that paused for an approval or for input, with the user's answer from the chat. accept only after the user explicitly said yes to this request.",
+          "Answer an Executor program that paused for input, or decline or cancel one that paused for approval, on the user's word. You can't approve: only the user's tap on ky's card does.",
         parameters: Type.Object({
           requestId: Type.String(),
           response: Type.Object({
-            action: Type.Union([Type.Literal("accept"), Type.Literal("decline"), Type.Literal("cancel")], {
-              description: "accept on the user's yes, decline on their no, cancel to stop altogether."
+            action: Type.Union([Type.Literal("answer"), Type.Literal("decline"), Type.Literal("cancel")], {
+              description: "answer a request for input with the user's answers, decline on their no, cancel to stop altogether."
             }),
             content: Type.Optional(
               Type.Record(
@@ -274,7 +322,20 @@ export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRet
           })
         }),
         replay: "unsafe",
-        execute: async (args, _api, context) => executor.call("resume", args, context.abortSignal)
+        execute: async ({ requestId, response }, api, context) => {
+          const conversation = String(api.conversationId);
+          const refused = gate.beforeResume(requestId, response.action, conversation);
+
+          if (refused) return toolReply(`Not sent: ${refused}`, true);
+          const call: ExecutorCall = (name, more) => executor.call(name, more, context.abortSignal);
+          // Executor takes an answer to a request for input as accept with its content.
+          const action = response.action === "answer" ? "accept" : response.action;
+          const result = await call("resume", { requestId, response: response.content ? { action, content: response.content } : { action } });
+
+          gate.resumed(requestId);
+
+          return gate.replied(result, conversation, call);
+        }
       }),
       ...(retarget ? [connectionTool(config.url, retarget)] : [])
     ]
@@ -289,7 +350,7 @@ export function executorExtension(config: ExecutorConfig, retarget?: ExecutorRet
 function connectionTool(current: string, retarget: ExecutorRetarget) {
   return defineTool({
     name: "executor_connection",
-    description: `Show or change the URL ky reaches Executor at (now ${current}), keeping the connected token. Only the path and query can change, on the same origin. Approvals are always asked in the chat, and ky ignores any elicitation_mode in the URL. ky tests the new URL before keeping it. Change it only when the user asks.`,
+    description: `Show or change the URL ky reaches Executor at (now ${current}), keeping the connected token. Only the path and query can change, on the same origin. Approvals are always the user's tap on a card in the chat, and ky ignores any elicitation_mode in the URL. ky tests the new URL before keeping it. Change it only when the user asks.`,
     parameters: Type.Object({ url: Type.Optional(Type.String({ description: "The new URL. Leave out to only show the current one." })) }),
     replay: "safe",
     execute: async (args) => {
@@ -370,7 +431,7 @@ export class ExecutorLink {
     return this.#fetch ? { ...connection, fetch: this.#fetch } : connection;
   }
 
-  async view(): Promise<ExecutorView> {
+  async view(): Promise<Pick<ExecutorView, "url">> {
     const secret = (await this.#vault().status()).find((each) => each.kind === "executor" && each.id === this.#id);
     const url = secret?.meta?.url;
 
