@@ -17,6 +17,8 @@ export default defineConfig({
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
     "dist/**",
+    // Effect's source at the pinned tag, read for reference, never built.
+    "vendor/**",
     // The gate's outputs: Playwright reports, traces and harness logs.
     "test-results/**",
     "env.d.ts",

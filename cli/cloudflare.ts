@@ -29,7 +29,7 @@ import * as Layer from "effect/Layer";
 import * as S from "effect/Schema";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { parseOr } from "../src/core/decode.ts";

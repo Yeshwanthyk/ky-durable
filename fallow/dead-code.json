@@ -10,7 +10,14 @@
   },
   "identity": "dc1",
   "unused_files": [],
-  "unused_exports": [],
+  "unused_exports": [
+    "unused-export:src/skills/contract.ts:SkillKind",
+    "unused-export:src/ui/schedule.ts:clockOf",
+    "unused-export:src/ui/schedule.ts:daysInWords",
+    "unused-export:src/ui/schedule.ts:parseCron",
+    "unused-export:src/ui/schedule.ts:timeAt",
+    "unused-export:src/ui/schedule.ts:wallIn"
+  ],
   "unused_types": [],
   "private_type_leaks": [],
   "deprecated_exports_in_use": [],
@@ -21,7 +28,9 @@
   "package_cycles": [],
   "unused_optional_dependencies": [],
   "unused_enum_members": [],
-  "unused_class_members": [],
+  "unused_class_members": [
+    "unused-class-member:src/models.ts:Models:choices"
+  ],
   "unused_store_members": [],
   "unprovided_injects": [],
   "unrendered_components": [],
@@ -35,7 +44,10 @@
   "unused_load_data_keys": [],
   "unresolved_imports": [],
   "unlisted_dependencies": [],
-  "duplicate_exports": [],
+  "duplicate_exports": [
+    "duplicate-export:Need:src/models.ts|src/skills/contract.ts",
+    "duplicate-export:Timeline:src/ui/Automations.tsx|src/ui/Timeline.tsx"
+  ],
   "type_only_dependencies": [],
   "test_only_dependencies": [],
   "dev_dependencies_in_production": [],

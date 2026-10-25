@@ -9,12 +9,14 @@
     "test/web/global-setup.ts",
     "test/web/outcomes.ts",
     "test/gate.ts",
-    "test/gate-live.ts"
+    "test/gate-live.ts",
+    "test/effect-pin.ts"
   ],
   "ignorePatterns": [
     "explainers/**",
     "test-results/**",
-    "tools/oxlint/anti-slop/vendor/**"
+    "tools/oxlint/anti-slop/vendor/**",
+    "vendor/**"
   ],
   "ignoreUnresolvedImports": [
     "../dist/release.pack"
