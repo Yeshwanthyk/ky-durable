@@ -19,10 +19,14 @@ against B, never against the PR before it.
 | W1-S | `src/core/sql.ts`: sync-first `Sql` service over `ctx.storage.sql` | chief of staff | `effect/foundation` | done (4e8d6b5, 70ce4f8) | 5/5 on a real DO; no-rollback mutant red |
 | W1-R | Real data: squarey's backup restored at B and on the branch | chief of staff | `effect/foundation` | done for foundation | `real-data.ts`: HEAD = B (47 skills, 16 routines; same 2 runtime tables emptied on both) |
 | H1 | Harvest after U1 | chief of staff | `effect/foundation` | done: `scripts/mutant.sh` (open, then save) regenerates a moved mutant (round-tripped unmarked-bucket, still caught); doctor fails on stale `node_modules`; the skill's scripts turn off fsmonitor (the IPC noise); SKILL.md says read exit codes, not piped output. Temp-path normalization already lives in the deploy proof | `doctor.sh deploy` all ok |
-| U2 | Automations | — | — | waits for Wave 2 "go" | — |
-| U3 | Skills | — | — | waits for Wave 2 "go" | — |
+| U2 | Automations | `mcp:a60c26c0-d744-4bc6-b9e3-62c6f5a27b69` | `effect/u2-automations` (from foundation 4d79519) | running | its thread |
+| U3 | Skills | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3-skills` (from foundation 4d79519) | running | its thread |
 
-## Paused here (2026-10-25)
+## Resumed (2026-10-25)
+
+Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branches kept). Next: each unit reports, then real-data restore, Fable 5.1 review, merge.
+
+## Paused here (2026-10-25, superseded)
 
 - **Objective:** move ky to Effect v4, domain by domain, each proven against B; Wave 1 (deploy) is closed.
 - **State:** foundation clean at b1a8aa1 plus this note; nothing pushed; no thread or agent running.
@@ -61,6 +65,8 @@ against B, never against the PR before it.
 | Screenshot diff integrated | done: `pnpm visual` / `visual:capture` / `visual:diff`; threshold 0.0001; B vs HEAD 0 on 8 pages from foundation; `pnpm check` red only on B's 9 | `test/visual/`; `fallow/health.json` |
 
 ## Decisions
+
+- **Owner, 2026-10-25:** Wave 2 go as drawn: U2 automations and U3 skills in parallel, Opus 5.5 writers in their own worktrees, a Fable 5.1 review each; `contracts.test.ts`, `boundaries.test.ts`, `features.test.ts` and `kit.ts` stay the chief of staff's.
 
 - **Owner, 2026-10-25:** no legacy code reaches main. `legacy/` is scaffolding on an area's branch for the parity run;
   the flip deletes it, the code it replaced and the prunable tests, then reproves on the port alone. Code stays tight:
