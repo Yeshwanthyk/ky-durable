@@ -801,7 +801,7 @@ const FORWARDS: Array<[RegExp, string?]> = [
   // A webhook's post (src/inbound/inbound.ts told) whose body is a `tool` line: the chat says so, then tries it.
   [/^\[a webhook to ky, [^\n]*\]\n\n(tool \S+ \{.*\})$/s, "Trying what the webhook asks."],
   // A webhook's call the user approved (src/inbound/inbound.ts hookAction): the chat makes it, as it was asked.
-  [/^\[on a webhook's data, the user approved call [\w-]+: [^\n]*\]\n\nMake that call now, exactly as asked: (tool \S+ \{.*\})$/s],
+  [/^\[on a webhook's data, the user approved: [^\n]*\]\n\nMake that call now, exactly as asked: (tool \S+ \{.*\})$/s],
   // A chat another chat opened answers the message after the header naming the opener (src/chats-tool.ts fromOpener).
   [/^\[chat "[^"]*": [^\]]*\] ([\s\S]*)$/],
   // A peer conversation answers the question after the rules it answers by (src/peers/peers.ts peerQuestion).

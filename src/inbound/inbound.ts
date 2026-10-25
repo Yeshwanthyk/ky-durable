@@ -2,6 +2,7 @@ import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import Type, { type Static } from "typebox";
 import { Guard } from "typebox/guard";
 import { decode, decodeOr } from "../core/decode";
+import { placedBy } from "../history";
 import type { Vault } from "../vault";
 // Approvals' stand-in, until the approvals PR: its names and shapes are that module's (src/inbound/approvals.ts).
 import type { Approval, ApprovalAction, ApprovalHandler, ApprovalRequest, Approvals } from "./approvals";
@@ -17,7 +18,8 @@ export type { Hook, SecretAsk } from "./shapes";
  *
  * - A hook belongs to a chat. What is posted to it is told to that chat as outside data, not instructions, and
  *   the run that post starts is guarded: a tool that may change something waits for the user's approval. The guard
- *   is read from the conversation itself, never kept (`guarded`), so no restart can leave a chat blocked.
+ *   is read from who placed the message that opened the run (`guarded`), never kept, so no restart can leave a
+ *   chat blocked, and no words in a post or typed by the user change it.
  * - A credential ky asks for is an ask kept for the chat, which shows a masked field for it; the user's value goes
  *   from that field to the Vault, and the chat hears only that it was saved.
  * - What waits for the user's OK is an approval (src/inbound/approvals.ts), decided here, on the server. An
@@ -81,31 +83,23 @@ const SEEN_MS = 7 * 24 * 60 * 60_000;
 const PASS_MS = 15 * 60_000;
 
 /**
- * How a run that works on outside data starts: the user entry opening it begins with one of these. A webhook's post
- * (`told`), and what the user decided about a call such a run asked for (`outcome`). The text is ky's, put in front
- * of whatever came in, so outside data can't start a run without it; a user who types one only guards their own run.
+ * What a run that works on outside data opens with, as the request id of the submission that placed its first entry
+ * (src/history.ts placedBy): a webhook's post (`received`), or what the user decided about a call such a run asked
+ * for (`decided`). The id is ky's, kept by pi beside the entry, never in its text, so nothing a post says can start a
+ * guarded run or stop one being guarded, and nothing the user types guards their own.
  */
-const GUARDED_MARKS = ["[a webhook to ky, ", "[on a webhook's data, "] as const;
+const HOOK_REQUEST = "hook:";
 
-/**
- * How the run an approved webhook action's message opens begins, naming its approval before any text that came from
- * outside, so a pass is matched to that run alone (`passed`).
- */
-const APPROVED_CALL = `${GUARDED_MARKS[1]}the user approved call `;
+const DECIDED_REQUEST = "hook-approval:";
 
-const APPROVED_RUN = /^\[on a webhook's data, the user approved call ([\w-]+): /;
+/** How the model is told a message is about outside data: words for it, not what the guard reads. */
+const ON_HOOK_DATA = "[on a webhook's data, ";
 
-/**
- * The entry that opens the conversation's current run, its latest user or reset entry, as src/guardrails.ts reads a
- * run, and its text: a message's text parts.
- */
-const RUN_OPENER = `SELECT json_extract(record, '$.kind') AS kind,
-    CASE WHEN json_type(record, '$.model[0].content') = 'text' THEN json_extract(record, '$.model[0].content')
-      ELSE (SELECT group_concat(json_extract(part.value, '$.text'), char(10)) FROM json_each(record, '$.model[0].content') AS part
-            WHERE json_extract(part.value, '$.type') = 'text') END AS text
-  FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.reset') ORDER BY id DESC LIMIT 1`;
+/** The entry that opens the conversation's current run: its latest user or reset entry, as src/guardrails.ts reads a run. */
+const RUN_OPENER = `SELECT id, json_extract(record, '$.kind') AS kind FROM pi_entries
+  WHERE conversation_id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.reset') ORDER BY id DESC LIMIT 1`;
 
-const Opener = Type.Object({ kind: Type.String(), text: Type.Union([Type.String(), Type.Null()]) });
+const Opener = Type.Object({ id: Type.Number(), kind: Type.String() });
 
 const HookRow = Type.Object({
   id: Type.String(),
@@ -234,7 +228,7 @@ export class Inbound {
     }
 
     this.#sql.exec("UPDATE ky_hooks SET last_at = ? WHERE id = ?", now, id);
-    await this.#desk.tell(hook.session, told(hook, delivery), `hook:${id}:${key ?? crypto.randomUUID()}`);
+    await this.#desk.tell(hook.session, told(hook, delivery), `${HOOK_REQUEST}${id}:${key ?? crypto.randomUUID()}`);
 
     return "accepted";
   }
@@ -288,14 +282,14 @@ export class Inbound {
   // --- The guard, and what waits for the user's OK ---
 
   /**
-   * Whether the conversation's current run works on outside data: the user entry that opened it carries a guarded
-   * mark. Read from the conversation's committed entries, so a restart, a crash in the middle of the run, or a run
+   * Whether the conversation's current run works on outside data: ky placed the user entry that opened it for a
+   * webhook. Read from what pi keeps of the conversation, so a restart, a crash in the middle of the run, or a run
    * never finished reads the same, and the user's next message opens a run of their own.
    */
   guarded(conversation: string): boolean {
-    const text = this.#openedBy(conversation);
+    const request = this.#openedBy(conversation);
 
-    return GUARDED_MARKS.some((mark) => text?.startsWith(mark) === true);
+    return request?.startsWith(HOOK_REQUEST) === true || request?.startsWith(DECIDED_REQUEST) === true;
   }
 
   /**
@@ -303,9 +297,11 @@ export class Inbound {
    * message opened and the pass hasn't lapsed. A pass left unused lets nothing through in any other run.
    */
   passed(conversation: string, tool: string, args: JsonObject): boolean {
-    const approval = APPROVED_RUN.exec(this.#openedBy(conversation) ?? "")?.[1];
+    const request = this.#openedBy(conversation);
 
-    if (approval === undefined) return false;
+    if (request?.startsWith(DECIDED_REQUEST) !== true) return false;
+
+    const approval = request.slice(DECIDED_REQUEST.length);
 
     this.#sql.exec("DELETE FROM ky_passes WHERE at < ?", Date.now() - PASS_MS);
 
@@ -315,11 +311,11 @@ export class Inbound {
     );
   }
 
-  /** The text of the user entry that opened the conversation's current run; null when a reset opened it, or none did. */
-  #openedBy(conversation: string): string | null {
+  /** The request id that placed the user entry opening the conversation's current run; undefined when a reset opened it, or none did. */
+  #openedBy(conversation: string): string | undefined {
     const opener = decodeOr(Opener, this.#sql.exec(RUN_OPENER, Number(conversation)).toArray()[0], null);
 
-    return opener?.kind === "pi.user" ? opener.text : null;
+    return opener?.kind === "pi.user" ? placedBy(this.#sql, [opener.id]).get(opener.id) : undefined;
   }
 
   /** Ask the user's OK: the approval's id, or why it can't be asked. */
@@ -340,14 +336,14 @@ export class Inbound {
     if (action !== "accept") return this.#declined(approval, call.guarded);
     const answer = await this.#desk.vault().httpRequest(call.name, { url: call.url, method: call.method, headers: call.headers, body: call.body });
 
-    await this.#desk.tell(approval.conversation, `${outcome(call.guarded, "approved", approval.summary)}\n\n${replyText(answer)}`, `approval:${approval.id}`);
+    await this.#desk.tell(approval.conversation, `${outcome(call.guarded, "approved", approval.summary)}\n\n${replyText(answer)}`, decided(approval, call.guarded));
 
     return {};
   }
 
   /**
    * An approved webhook action: a pass for exactly that call, and the chat told to make it, in a run still guarded
-   * that names the approval, so the pass is all it gets: a call with other arguments, the same one again, or one in
+   * whose request id names the approval, so the pass is all it gets: a call with other arguments, the same one again, or one in
    * any other run, waits once more.
    */
   async #hookAction(approval: Approval, action: ApprovalAction): Promise<{ refused: string } | Record<string, never>> {
@@ -367,15 +363,15 @@ export class Inbound {
     );
     await this.#desk.tell(
       approval.conversation,
-      `${APPROVED_CALL}${approval.id}: ${approval.summary}]\n\nMake that call now, exactly as asked: tool ${call.tool} ${JSON.stringify(call.arguments)}`,
-      `approval:${approval.id}`
+      `${outcome(true, "approved", approval.summary)}\n\nMake that call now, exactly as asked: tool ${call.tool} ${JSON.stringify(call.arguments)}`,
+      decided(approval, true)
     );
 
     return {};
   }
 
   async #declined(approval: Approval, guarded: boolean): Promise<Record<string, never>> {
-    await this.#desk.tell(approval.conversation, `${outcome(guarded, "declined", approval.summary)} Don't make that call.`, `approval:${approval.id}`);
+    await this.#desk.tell(approval.conversation, `${outcome(guarded, "declined", approval.summary)} Don't make that call.`, decided(approval, guarded));
 
     return {};
   }
@@ -383,7 +379,15 @@ export class Inbound {
 
 /** What the user decided, as the chat is told it; marked guarded when the run that asked was. */
 function outcome(guarded: boolean, decided: "approved" | "declined", summary: string): string {
-  return `${guarded ? GUARDED_MARKS[1] : "["}the user ${decided}: ${summary}]`;
+  return `${guarded ? ON_HOOK_DATA : "["}the user ${decided}: ${summary}]`;
+}
+
+/**
+ * The request id the chat is told a decision with: one a guarded run asked keeps the run it opens guarded, and names
+ * its approval, which is the only run its pass lets a call through in (`passed`).
+ */
+function decided(approval: Approval, guarded: boolean): string {
+  return `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}`;
 }
 
 /** `value` as JSON with every object's keys sorted, so two calls with the same arguments compare equal; as src/guardrails.ts does. */
