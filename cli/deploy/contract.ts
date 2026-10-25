@@ -1,8 +1,7 @@
 /**
  * The deploy domain's outside: what a caller may ask of it, what it answers, and why it won't, in
  * B's words. The domain (deployer.ts) fails with these refusals in its typed channel; the edge,
- * `Cloudflare.run` in cli/cloudflare.ts, throws each as an Error whose message is its refusal, as B
- * threw them.
+ * wiring.ts, throws each as `Refused`, whose message is its refusal, as B threw them.
  */
 import * as Schema from "effect/Schema";
 
@@ -14,20 +13,7 @@ export const RELEASE_TAG = "ky-release-";
 /** The object every bucket the CLI makes holds, so a bucket without it is never adopted unless it's empty and unbound. */
 export const MARKER = ".ky";
 
-/** What a caller may ask: the parity runs generate these, and both deployers take them. */
-export const DeployAction = Schema.Union([
-  Schema.TaggedStruct("deploy", { version: Schema.String }),
-  Schema.TaggedStruct("claim", {}),
-  Schema.TaggedStruct("address", {}),
-  Schema.TaggedStruct("deployedRelease", {}),
-  Schema.TaggedStruct("inspect", { version: Schema.String }),
-  Schema.TaggedStruct("teardown", {}),
-  Schema.TaggedStruct("leftovers", {})
-]);
-
-export type DeployAction = typeof DeployAction.Type;
-
-export const Deployed = Schema.Struct({
+const Deployed = Schema.Struct({
   url: Schema.String,
   /** The release the Worker ran before, or undefined when this deploy created it. */
   from: Schema.optional(Schema.String)
@@ -36,7 +22,7 @@ export const Deployed = Schema.Struct({
 export type Deployed = typeof Deployed.Type;
 
 /** One piece `ky doctor` checks, and what fixes it. */
-export const Check = Schema.Struct({ name: Schema.String, ok: Schema.Boolean, detail: Schema.String, next: Schema.optional(Schema.String) });
+const Check = Schema.Struct({ name: Schema.String, ok: Schema.Boolean, detail: Schema.String, next: Schema.optional(Schema.String) });
 
 export type Check = typeof Check.Type;
 
@@ -49,7 +35,7 @@ export function zeroTrustPage(accountId: string): string {
 }
 
 /** Where the user turns Email Routing on for a domain. */
-export const emailRoutingPage = (accountId: string, domain: string) => `https://dash.cloudflare.com/${accountId}/${domain}/email/routing/overview`;
+const emailRoutingPage = (accountId: string, domain: string) => `https://dash.cloudflare.com/${accountId}/${domain}/email/routing/overview`;
 
 /** What renaming the deploy takes. */
 export function rename(settings: string): string {
@@ -162,21 +148,24 @@ export class AppsLost extends Schema.TaggedError<AppsLost>()("AppsLost", { scrip
   }
 }
 
-/** Every reason the deploy domain won't. */
-export type DeployRefusal =
-  | NoConfig
-  | BucketName
-  | NoSubdomain
-  | Taken
-  | ZeroTrustOff
-  | OlderThanWorker
-  | CantDeployKey
-  | NoAudience
-  | NoRegistryLogin
-  | NoCloudNamespace
-  | MailDomainMissing
-  | MailRoutingOff
-  | MailRuleElsewhere
-  | MailScopes
-  | NotOurWorker
-  | AppsLost;
+/** Every refusal the deploy domain fails with. */
+export const DeployRefusal = Schema.Union([
+  NoConfig,
+  BucketName,
+  NoSubdomain,
+  Taken,
+  ZeroTrustOff,
+  OlderThanWorker,
+  CantDeployKey,
+  NoAudience,
+  NoRegistryLogin,
+  NoCloudNamespace,
+  MailDomainMissing,
+  MailRoutingOff,
+  MailRuleElsewhere,
+  MailScopes,
+  NotOurWorker,
+  AppsLost
+]);
+
+export type DeployRefusal = typeof DeployRefusal.Type;

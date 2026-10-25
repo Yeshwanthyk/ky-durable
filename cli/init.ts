@@ -14,11 +14,11 @@ import * as Accounts from "@distilled.cloud/cloudflare/accounts";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { isCancel, password, select, text } from "@clack/prompts";
 import type { Unstable_RawConfig } from "wrangler";
-import { Cloudflare, Refused, refused, tokenPage } from "./cloudflare.ts";
+import { Cloudflare, refused, tokenPage } from "./cloudflare.ts";
 import type { Context } from "./commands.ts";
 import { emails, mailAddress, merged, overlayFor, readOverlay, writeOverlay } from "./config.ts";
 import { type Deployed, Taken, zeroTrustPage } from "./deploy/contract.ts";
-import { claim, deploy, teamDomain } from "./deploy/wiring.ts";
+import { claim, deploy, Refused, teamDomain } from "./deploy/wiring.ts";
 import { bold, cancelled, dim, green, open, type Output, output, qr, terminal } from "./output.ts";
 
 export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string; mail?: string };

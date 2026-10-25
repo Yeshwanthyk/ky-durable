@@ -1,18 +1,38 @@
 /**
- * The deploy domain's edge: each action runs the Deployer through the login's `Cloudflare.run`,
- * which throws a refusal as `Refused` in its own words, Cloudflare's error as itself, and a defect
+ * The deploy domain's edge: each action runs the Deployer through the login's `Cloudflare.run`; a
+ * refusal throws as `Refused` in its own words, Cloudflare's error as a CloudflareError, and a defect
  * as it was thrown.
  */
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { Cloudflare, Services } from "../cloudflare.ts";
 import type { Release } from "../release.ts";
-import { Deployer, type DeployerShape, type Site } from "./deployer.ts";
+import { DeployRefusal } from "./contract.ts";
+import { Deployer, type Deploys, type Site } from "./deployer.ts";
 
 /** One deploy target: an account, the config to deploy there, and the overlay it came from. */
 export type Target = Site & { readonly cloudflare: Cloudflare };
 
-const run = <A, E>(cloudflare: Cloudflare, action: (deployer: DeployerShape) => Effect.Effect<A, E, Services>) =>
-  cloudflare.run(Deployer.use(action).pipe(Effect.provide(Deployer.layer)));
+/** Why the deploy won't, thrown in B's words: the message is what the user reads. */
+export class Refused extends Error {
+  /** The refusal itself, such as `Taken`. */
+  readonly reason: DeployRefusal;
+
+  constructor(reason: DeployRefusal) {
+    super(reason.refusal);
+    this.reason = reason;
+  }
+}
+
+const isRefusal = Schema.is(DeployRefusal);
+
+const run = <A, E>(cloudflare: Cloudflare, action: (deployer: Deploys) => Effect.Effect<A, E, Services>) =>
+  cloudflare.run(
+    Deployer.use(action).pipe(
+      Effect.provide(Deployer.layer),
+      Effect.catchIf(isRefusal, (refusal) => Effect.die(new Refused(refusal)))
+    )
+  );
 
 /** The deploy's Worker, when there is one, and its address, once nothing of its names is one ky didn't make; it writes nothing. */
 export const claim = (target: Target) => run(target.cloudflare, (deployer) => deployer.claim(target));

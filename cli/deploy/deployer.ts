@@ -26,8 +26,12 @@ import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
 import * as Zones from "@distilled.cloud/cloudflare/zones";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Record from "effect/Record";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -131,8 +135,6 @@ type Binding = Workers.PutScriptBinding;
 
 type Migrations = NonNullable<Unstable_RawConfig["migrations"]>;
 
-type AccessApp = Parameters<typeof ZeroTrust.createAccessApplicationForAccount>[0];
-
 type Out<T> = T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
 
 type Script = Out<ReturnType<typeof scripts>>[number];
@@ -156,22 +158,11 @@ const find = <A, E extends Failure, R>(operation: Effect.Effect<A, E, R>, ...mis
 /** Whether Cloudflare refused the login. */
 const refused = (error: Failure) => REFUSALS.has(error._tag);
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+/** `value` without the fields it leaves undefined, to compare with what Cloudflare answers, which has none. */
+const defined = <A>(value: Readonly<Record<string, A>>) => Record.filter(value, (each) => each !== undefined);
 
-/** Whether `found` holds everything `wanted` says: each field it sets, lists the same length, extra fields in `found` ignored. */
-function covers(found: unknown, wanted: unknown): boolean {
-  if (wanted === undefined) return true;
-
-  if (Array.isArray(wanted)) return Array.isArray(found) && found.length === wanted.length && wanted.every((each, index) => covers(found[index], each));
-
-  if (isRecord(wanted)) return isRecord(found) && Object.entries(wanted).every(([key, each]) => covers(found[key], each));
-
-  return found === wanted;
-}
-
-const field = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
-
-const items = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+/** Whether two lists of names hold the same names. */
+const sameNames = (a: readonly string[] | null | undefined, b: readonly string[] | null | undefined) => Equal.equals([...(a ?? [])].sort(), [...(b ?? [])].sort());
 
 function required<T>(value: T | undefined, what: string): Effect.Effect<T, NoConfig> {
   return value === undefined || value === "" ? Effect.fail(new NoConfig({ what })) : Effect.succeed(value);
@@ -201,6 +192,9 @@ const names = (config: Unstable_RawConfig) =>
 function releaseOf(script: Script): string | undefined {
   return script.tags?.find((tag) => tag.startsWith(RELEASE_TAG))?.slice(RELEASE_TAG.length);
 }
+
+/** The release the Worker runs, as said to the user; undefined when there's no Worker. */
+const ranRelease = (script: Script | undefined) => script && (releaseOf(script) ?? "an unknown release");
 
 function scripts(accountId: string) {
   return list(Workers.listScripts.items({ accountId }));
@@ -351,15 +345,15 @@ function newer(migrations: Migrations, applied: string | undefined): boolean {
   return applied !== undefined && !migrations.some((migration) => migration.tag === applied);
 }
 
-/** The config's migrations the Worker hasn't run, as one upload: all of them on the first deploy. */
+/** The config's migrations the Worker hasn't run, as one upload: all of them on the first deploy; refused when the Worker ran one this release doesn't have. */
 function pendingMigrations(migrations: Migrations, applied: string | undefined) {
-  if (applied !== undefined && newer(migrations, applied)) return Effect.fail(new OlderThanWorker({ applied }));
+  if (applied !== undefined && newer(migrations, applied)) return new OlderThanWorker({ applied });
   const from = applied ? migrations.findIndex((migration) => migration.tag === applied) : -1;
   const pending = migrations.slice(from + 1);
 
-  if (pending.length === 0) return Effect.succeed(undefined);
+  if (pending.length === 0) return undefined;
 
-  return Effect.succeed({
+  return {
     oldTag: applied,
     newTag: pending.at(-1)?.tag,
     steps: pending.map((migration) => ({
@@ -369,7 +363,7 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
       renamedClasses: migration.renamed_classes,
       transferredClasses: migration.transferred_classes?.map((moved) => ({ from: moved.from, fromScript: moved.from_script, to: moved.to }))
     }))
-  });
+  };
 }
 
 /** The config's `send_email` bindings: ky's mail, sent from its own address. */
@@ -463,33 +457,41 @@ const ensureTag = (accountId: string) =>
     yield* ZeroTrust.createAccessTag({ accountId, name: TAG });
   });
 
-/** What an Access app is, as ky writes it: compared to see whether the found app is already that. */
-function appShape(app: unknown) {
-  return {
-    name: field(app, "name"),
-    type: field(app, "type"),
-    tags: items(field(app, "tags")).map(String).sort(),
-    destinations: items(field(app, "destinations")).map((destination) => ({ type: field(destination, "type"), uri: normal(String(field(destination, "uri") ?? "")) })),
-    policies: items(field(app, "policies")).map((policy) => ({ name: field(policy, "name"), decision: field(policy, "decision"), include: field(policy, "include") }))
-  };
-}
+/** Who an Access policy lets in, as ky writes it: listed emails, or everyone. */
+const Rule = Schema.Union([Schema.Struct({ email: Schema.Struct({ email: Schema.String }) }), Schema.Struct({ everyone: Schema.Struct({}) })]);
 
-/** The found app's audience tag when it's already `app`: nothing to write. */
-function unchanged(found: FoundApp | undefined, app: AccessApp): string | undefined {
-  const aud = found && "aud" in found ? found.aud : undefined;
+/** What ky sets on an Access app; a found app is read as this, its other fields left out. */
+const AppSettings = Schema.Struct({
+  name: Schema.String,
+  destinations: Schema.Array(Schema.Struct({ type: Schema.Literal("public"), uri: Schema.String })),
+  policies: Schema.Array(Schema.Struct({ name: Schema.String, decision: Schema.Literals(["allow", "bypass"]), include: Schema.Array(Rule) }))
+});
 
-  return aud && covers(appShape(found), appShape(app)) ? aud : undefined;
+type AppSettings = typeof AppSettings.Type;
+
+/** A found app that is ky's self-hosted one, with an audience tag. */
+const readApp = Schema.decodeUnknownOption(
+  Schema.Struct({ ...AppSettings.fields, aud: Schema.NonEmptyString, type: Schema.Literal("self_hosted"), tags: Schema.Tuple([Schema.Literal(TAG)]) })
+);
+
+/** What two apps' settings compare by: their destinations' addresses as Cloudflare normalizes them. */
+const compared = (app: AppSettings) => ({ ...app, destinations: app.destinations.map((destination) => normal(destination.uri)) });
+
+/** The found app's audience tag when it's already ky's app with these settings: nothing to write. */
+function unchanged(found: FoundApp | undefined, settings: AppSettings): string | undefined {
+  return Option.getOrUndefined(Option.filter(readApp(found), (app) => Equal.equals(compared({ name: app.name, destinations: app.destinations, policies: app.policies }), compared(settings))))?.aud;
 }
 
 /** Creates the Access app, updates the one found, or leaves it when it's already `app`; returns its audience tag. */
-const saveApp = (found: FoundApp | undefined, app: AccessApp) =>
+const saveApp = (accountId: string, found: FoundApp | undefined, settings: AppSettings) =>
   Effect.gen(function* () {
-    const current = unchanged(found, app);
+    const current = unchanged(found, settings);
 
     if (current) return current;
-    const saved = found?.id ? yield* ZeroTrust.updateAccessApplicationForAccount({ ...app, appId: found.id }) : yield* ZeroTrust.createAccessApplicationForAccount(app);
+    const app = { accountId, type: "self_hosted", tags: [TAG], ...settings };
+    const saved = found?.id ? yield* ZeroTrust.updateAccessApplicationForAccount({ appId: found.id, ...app }) : yield* ZeroTrust.createAccessApplicationForAccount(app);
 
-    if (!("aud" in saved) || !saved.aud) return yield* new NoAudience({ app: app.name ?? "" });
+    if (!("aud" in saved) || !saved.aud) return yield* new NoAudience({ app: settings.name });
 
     return saved.aud;
   });
@@ -502,20 +504,14 @@ const ensureAccess = (name: Names, address: string, allowed: string[]) =>
 
     yield* ensureTag(accountId);
 
-    const aud = yield* saveApp(found.owner, {
-      accountId,
-      type: "self_hosted",
+    const aud = yield* saveApp(accountId, found.owner, {
       name: name.access,
-      tags: [TAG],
       destinations: [{ type: "public", uri: address }],
       policies: [{ name: "owner", decision: "allow", include: allowed.map((email) => ({ email: { email } })) }]
     });
 
-    yield* saveApp(found.bypass, {
-      accountId,
-      type: "self_hosted",
+    yield* saveApp(accountId, found.bypass, {
       name: name.bypass,
-      tags: [TAG],
       destinations: BYPASS.map((path) => ({ type: "public", uri: `${address}${path}` })),
       policies: [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
     });
@@ -692,29 +688,40 @@ const ensureMailRoute = (accountId: string, script: string, address: string) => 
 };
 
 /** What the Worker's upload would write, as the settings Cloudflare answers compare it. */
-type Upload = { compatibilityDate?: string; compatibilityFlags?: string[]; bindings: Binding[]; observability?: { enabled: boolean } };
+type Upload = {
+  compatibilityDate?: string;
+  compatibilityFlags?: string[];
+  bindings: Binding[];
+  observability?: { enabled: boolean };
+  migrations: Exclude<ReturnType<typeof pendingMigrations>, OlderThanWorker>;
+};
 
 /**
  * Whether the Worker already runs this upload: ky's tags for this release (whose version doesn't name a
  * commit), no migration to run, and settings holding the same bindings (its secrets aside), compatibility
  * and observability. Anything unsure uploads.
  */
-const deployedAlready = (accountId: string, script: Script | undefined, version: string, migrating: boolean, upload: Upload) =>
+const deployedAlready = (accountId: string, script: Script | undefined, version: string, upload: Upload) =>
   Effect.gen(function* () {
-    if (!script?.id || migrating || COMMIT.test(version)) return false;
-
-    if (!covers([...(script.tags ?? [])].sort(), [TAG, `${RELEASE_TAG}${version}`].sort())) return false;
+    if (!script?.id || upload.migrations || COMMIT.test(version) || !sameNames(script.tags, [TAG, `${RELEASE_TAG}${version}`])) return false;
     const settings = yield* Workers.getScriptScriptAndVersionSetting({ accountId, scriptName: script.id });
-    const bound = (settings.bindings ?? []).filter((binding) => binding.type !== "secret_text");
 
-    return (
-      settings.compatibilityDate === upload.compatibilityDate &&
-      covers([...(settings.compatibilityFlags ?? [])].sort(), [...(upload.compatibilityFlags ?? [])].sort()) &&
-      (settings.observability?.enabled ?? false) === (upload.observability?.enabled ?? false) &&
-      bound.length === upload.bindings.length &&
-      upload.bindings.every((wanted) => bound.some((found) => covers(found, wanted)))
-    );
+    return Equal.equals(uploaded(settings), uploaded(upload)) && sameBindings(settings.bindings, upload.bindings);
   });
+
+/** What an upload and the settings it left compare by, its bindings aside. */
+const uploaded = (upload: Omit<Upload, "bindings" | "migrations">) => ({
+  date: upload.compatibilityDate,
+  flags: [...(upload.compatibilityFlags ?? [])].sort(),
+  observed: upload.observability?.enabled ?? false
+});
+
+/** Whether the Worker holds exactly the bindings wanted, its secrets aside. */
+function sameBindings(found: readonly Binding[] | undefined, wanted: readonly Binding[]): boolean {
+  const bound = (found ?? []).filter((binding) => binding.type !== "secret_text");
+
+  return bound.length === wanted.length && wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
+}
 
 /** Turns workers.dev on for the Worker, unless it's on already with previews off. */
 const ensureWorkersDev = (accountId: string, scriptName: string) =>
@@ -723,6 +730,81 @@ const ensureWorkersDev = (accountId: string, scriptName: string) =>
 
     if (now.enabled && !now.previewsEnabled) return;
     yield* Workers.createScriptSubdomain({ accountId, scriptName, enabled: true, previewsEnabled: false });
+  });
+
+/** The cloud machine's image, copied to the account's registry; undefined, said why, when the cloud machine is off. */
+const cloudImage = (accountId: string, release: Release, tell: (step: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const cloud = yield* cloudState(accountId, release);
+
+    if (!("image" in cloud)) {
+      yield* tell(`Skipping the cloud machine: ${cloud.off}`);
+
+      return undefined;
+    }
+
+    yield* tell("Copying the cloud machine's image");
+    const login = yield* registryLogin(accountId);
+
+    return yield* Effect.promise(() => copyImage({ source: cloud.image, account: accountId, repository: CLOUD_REPOSITORY, login }));
+  });
+
+/**
+ * The settings the Worker's upload writes from the config, with the Access vars and, when the cloud machine runs, `KY_CLOUD`;
+ * or why B's upload refused: its bindings first, then its migrations.
+ */
+function upload(
+  config: Unstable_RawConfig,
+  buckets: Names["buckets"],
+  { access, image, applied }: { access: Record<string, string>; image: string | undefined; applied: string | undefined }
+): { upload: Upload } | { refused: CantDeployKey | OlderThanWorker } {
+  const bound = bindings(config, buckets, { ...access, ...(image && { KY_CLOUD: "1" }) });
+  const migrations = pendingMigrations(config.migrations ?? [], applied);
+
+  if (!Array.isArray(bound)) return { refused: bound };
+
+  if (migrations instanceof OlderThanWorker) return { refused: migrations };
+
+  return {
+    upload: {
+      compatibilityDate: config.compatibility_date,
+      compatibilityFlags: config.compatibility_flags,
+      bindings: bound,
+      observability: config.observability && { enabled: config.observability.enabled ?? false },
+      migrations
+    }
+  };
+}
+
+/** Uploads the Worker's modules with these settings, the web app's upload token, its container and its migrations. */
+const putWorker = (
+  name: Names,
+  config: Unstable_RawConfig,
+  release: Release,
+  { jwt, image, ...settings }: Upload & { jwt: string; image: string | undefined }
+) =>
+  Workers.putScript({
+    accountId: name.account,
+    scriptName: name.script,
+    metadata: {
+      ...settings,
+      mainModule: config.main,
+      assets: { jwt, config: { notFoundHandling: config.assets?.not_found_handling, runWorkerFirst: config.assets?.run_worker_first } },
+      containers: image ? [{ className: CLOUD_CLASS }] : undefined,
+      keepBindings: ["secret_text"],
+      tags: [TAG, `${RELEASE_TAG}${release.version}`]
+    },
+    files: [...release.modules].map(([module, content]) => new File([Buffer.from(content)], module, { type: "application/javascript+module" }))
+  });
+
+/** Routes the config's mail address, when it has one, to the Worker. */
+const routeMail = (config: Unstable_RawConfig, name: Names, tell: (step: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const mail = mailAddress(config);
+
+    if (!mail) return;
+    yield* tell(`Routing ${mail} to ky`);
+    yield* ensureMailRoute(name.account, name.script, mail);
   });
 
 /**
@@ -741,75 +823,36 @@ const deploy = (site: Site, release: Release, say: Say) =>
     if (!team) return yield* new ZeroTrustOff({ accountId });
     const { script, address } = yield* claim(site);
     const applied = script ? yield* migrationTag(accountId, name.script) : undefined;
-    const cloud = yield* cloudState(accountId, release);
-    let image: string | undefined;
-
-    if ("image" in cloud) {
-      yield* tell("Copying the cloud machine's image");
-      const login = yield* registryLogin(accountId);
-
-      image = yield* Effect.promise(() => copyImage({ source: cloud.image, account: accountId, repository: CLOUD_REPOSITORY, login }));
-    } else yield* tell(`Skipping the cloud machine: ${cloud.off}`);
+    const image = yield* cloudImage(accountId, release, tell);
 
     yield* tell("Setting up the bucket");
     yield* ensureBuckets(name);
     yield* tell("Setting up Access");
     const aud = yield* ensureAccess(name, address, allowed);
-    const migrations = yield* pendingMigrations(config.migrations ?? [], applied);
-    const bound = bindings(config, name.buckets, { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(","), ...(image && { KY_CLOUD: "1" }) });
-    const observability = config.observability ? { enabled: config.observability.enabled ?? false } : undefined;
-
-    const current =
-      Array.isArray(bound) &&
-      (yield* deployedAlready(accountId, script, release.version, migrations !== undefined, {
-        compatibilityDate: config.compatibility_date,
-        compatibilityFlags: config.compatibility_flags,
-        bindings: bound,
-        observability
-      }));
+    const worker = upload(config, name.buckets, { access: { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }, image, applied });
+    const current = "upload" in worker && (yield* deployedAlready(accountId, script, release.version, worker.upload));
+    const from = ranRelease(script);
 
     yield* tell("Uploading the web app");
     const jwt = current ? "" : yield* uploadAssets(accountId, name.script, release.assets);
 
-    yield* tell(script ? `Upgrading the Worker from ${releaseOf(script) ?? "an unknown release"} to ${release.version}` : "Uploading the Worker");
+    yield* tell(from ? `Upgrading the Worker from ${from} to ${release.version}` : "Uploading the Worker");
 
-    if (!Array.isArray(bound)) return yield* bound;
+    // Refused where B's upload refused, after the web app is up.
+    if ("refused" in worker) return yield* worker.refused;
 
-    if (!current)
-      yield* Workers.putScript({
-        accountId,
-        scriptName: name.script,
-        metadata: {
-          mainModule: config.main,
-          compatibilityDate: config.compatibility_date,
-          compatibilityFlags: config.compatibility_flags,
-          assets: { jwt, config: { notFoundHandling: config.assets?.not_found_handling, runWorkerFirst: config.assets?.run_worker_first } },
-          bindings: bound,
-          containers: image ? [{ className: CLOUD_CLASS }] : undefined,
-          keepBindings: ["secret_text"],
-          migrations,
-          observability,
-          tags: [TAG, `${RELEASE_TAG}${release.version}`]
-        },
-        files: [...release.modules].map(([module, content]) => new File([Buffer.from(content)], module, { type: "application/javascript+module" }))
-      });
+    if (!current) yield* putWorker(name, config, release, { ...worker.upload, jwt, image });
 
     if (image) yield* ensureCloudApp(name, image, say);
 
     yield* tell("Turning on workers.dev");
     yield* ensureWorkersDev(accountId, name.script);
-
-    const mail = mailAddress(config);
-
-    if (mail) {
-      yield* tell(`Routing ${mail} to ky`);
-      yield* ensureMailRoute(accountId, name.script, mail);
-    }
+    yield* routeMail(config, name, tell);
 
     // So ky backup and ky restore find it with no Cloudflare login, only cloudflared's.
     yield* Effect.promise(() => writeDeployed(site.settings, { account: accountId, name: name.script, url: `https://${address}` }));
 
-    const deployed: Deployed = { url: `https://${address}`, from: script ? (releaseOf(script) ?? "an unknown release") : undefined };
+    const deployed: Deployed = { url: `https://${address}`, from };
 
     return deployed;
   });
@@ -819,7 +862,7 @@ const deployedRelease = ({ config, settings }: Site) =>
   Effect.gen(function* () {
     const script = yield* findScript(settings, yield* names(config));
 
-    return script && (releaseOf(script) ?? "an unknown release");
+    return ranRelease(script);
   });
 
 type Checker = (check: Check) => Effect.Effect<boolean>;
@@ -1012,6 +1055,37 @@ const removable = (name: Names) =>
     return { apps: access?.apps ?? [], buckets, kept: [...kept, ...(access?.kept ?? [])], lost: !access };
   });
 
+/** Removes the Worker with its data, after its container app, which holds on to the Worker's namespace. */
+const removeWorker = (name: Names, tell: (step: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const app = yield* cloudApp(name);
+
+    if (app) {
+      yield* tell("Removing the cloud machine");
+      yield* find(Containers.deleteContainerApplication({ accountId: name.account, applicationId: app.id }), "ContainerApplicationNotFound");
+    }
+
+    yield* tell("Removing the Worker and its data");
+    yield* Workers.deleteScript({ accountId: name.account, scriptName: name.script, force: true });
+  });
+
+/** Removes ky's Access apps, saying so when there are any. */
+const removeApps = (accountId: string, apps: readonly FoundApp[], tell: (step: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    if (apps.length > 0) yield* tell("Removing the Access apps");
+
+    for (const each of apps) if (each.id) yield* ZeroTrust.deleteAccessApplicationForAccount({ accountId, appId: each.id });
+  });
+
+/** Empties the bucket, a thousand objects at a time, then removes it. */
+const removeBucket = (accountId: string, bucketName: string) =>
+  Effect.gen(function* () {
+    const keys = (yield* list(R2.listObjects.items({ accountId, bucketName, perPage: 1000 }))).flatMap((object) => (object.key ? [object.key] : []));
+
+    for (let i = 0; i < keys.length; i += 1000) yield* R2.deleteObjects({ accountId, bucketName, body: keys.slice(i, i + 1000) });
+    yield* R2.deleteBucket({ accountId, bucketName });
+  });
+
 /**
  * Removes the Worker (its Durable Objects' data and secrets go with it), then its Access apps and
  * buckets; when the Access apps can't be found, it says so and the overlay stays.
@@ -1025,31 +1099,14 @@ const teardown = ({ config, settings }: Site, say: Say) =>
 
     if (script && !ours(script)) return yield* new NotOurWorker({ script: name.script, settings });
 
-    // The container app first: it holds on to the Worker's namespace.
-    const app = script ? yield* cloudApp(name) : undefined;
-
-    if (app) {
-      yield* tell("Removing the cloud machine");
-      yield* find(Containers.deleteContainerApplication({ accountId, applicationId: app.id }), "ContainerApplicationNotFound");
-    }
-
-    if (script) {
-      yield* tell("Removing the Worker and its data");
-      yield* Workers.deleteScript({ accountId, scriptName: name.script, force: true });
-    }
-
+    if (script) yield* removeWorker(name, tell);
     const { apps, buckets, kept, lost } = yield* removable(name);
 
-    if (apps.length > 0) yield* tell("Removing the Access apps");
-
-    for (const each of apps) if (each.id) yield* ZeroTrust.deleteAccessApplicationForAccount({ accountId, appId: each.id });
+    yield* removeApps(accountId, apps, tell);
 
     for (const bucketName of buckets) {
       yield* tell(`Emptying and removing the bucket ${bucketName}`);
-      const keys = (yield* list(R2.listObjects.items({ accountId, bucketName, perPage: 1000 }))).flatMap((object) => (object.key ? [object.key] : []));
-
-      for (let i = 0; i < keys.length; i += 1000) yield* R2.deleteObjects({ accountId, bucketName, body: keys.slice(i, i + 1000) });
-      yield* R2.deleteBucket({ accountId, bucketName });
+      yield* removeBucket(accountId, bucketName);
     }
 
     for (const left of kept) yield* tell(`Leaving ${left}`);
@@ -1063,6 +1120,7 @@ const leftovers = ({ config }: Site) =>
     const name = yield* names(config);
     const worker = yield* existing(name.account, name.script);
     const { apps, buckets } = yield* removable(name);
+
     const containers = (yield* runsContainers(name.account))
       ? (yield* Containers.listContainerApplications({ accountId: name.account })).filter((app) => app.name === name.cloud)
       : [];
@@ -1075,7 +1133,7 @@ const leftovers = ({ config }: Site) =>
     ];
   });
 
-export interface DeployerShape {
+export interface Deploys {
   readonly claim: (site: Site) => Op<{ script: Script | undefined; address: string }>;
   readonly address: (site: Site) => Op<string>;
   readonly teamDomain: (accountId: string) => Op<string | undefined>;
@@ -1086,7 +1144,7 @@ export interface DeployerShape {
   readonly leftovers: (site: Site) => Op<string[]>;
 }
 
-export class Deployer extends Context.Service<Deployer, DeployerShape>()("ky/deploy/Deployer") {
+export class Deployer extends Context.Service<Deployer, Deploys>()("ky/deploy/Deployer") {
   /** Needs nothing but distilled's login, which each action asks for and the edge provides. */
   static readonly layer = Layer.succeed(Deployer)({
     claim,

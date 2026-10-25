@@ -139,6 +139,8 @@ export type FakeCloudflare = {
    * changes nothing, as if the computer running `ky` lost power there.
    */
   cut?: number;
+  /** When set, the fake goes dark once it has answered a request (`METHOD path`) this matches. */
+  cutAfter?: RegExp;
   close: () => Promise<void>;
 };
 
@@ -649,6 +651,8 @@ async function respond(fake: FakeCloudflare, request: Request) {
     if (fake.cut !== undefined && fake.served >= fake.cut) throw DARK;
 
     const result = await route(fake, request);
+
+    if (fake.cutAfter?.test(fake.requests.at(-1) ?? "")) fake.cut = fake.served + 1;
 
     // A page carries its own result_info.
     return { status: 200, envelope: { success: true, errors: [], messages: [], ...(result instanceof Page ? result : { result }) } };
