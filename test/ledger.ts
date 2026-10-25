@@ -31,7 +31,7 @@ export const CLASSES = ["MOCK", "SCAN", "SLEEP", "COPY", "UNIT"] as const;
 const Entry = Type.Object({
   check: Type.String({ minLength: 1 }),
   name: Type.String({ minLength: 1 }),
-  class: Type.Union(CLASSES.map((each) => Type.Literal(each))),
+  class: Type.Union([Type.Literal("MOCK"), Type.Literal("SCAN"), Type.Literal("SLEEP"), Type.Literal("COPY"), Type.Literal("UNIT")]),
   replacedBy: Type.String({ minLength: 1 })
 });
 
@@ -55,20 +55,24 @@ export function readLedger(): Entry[] {
 export function ledgerProblems(ledger: Entry[], baseline: { items: { check: string; name: string }[] }): string[] {
   const known = new Set(baseline.items.map(keyOf));
   const seen = new Set<string>();
+
+  return ledger.flatMap((entry) => entryProblems(entry, known, seen));
+}
+
+/** What's wrong with one entry; adds it to `seen`. */
+function entryProblems(entry: Entry, known: Set<string>, seen: Set<string>): string[] {
+  const key = keyOf(entry);
+  const where = `${entry.check}: "${entry.name}"`;
+  const [target] = entry.replacedBy.split(" > ");
   const problems: string[] = [];
 
-  for (const entry of ledger) {
-    const key = keyOf(entry);
-    const where = `${entry.check}: "${entry.name}"`;
+  if (!known.has(key)) problems.push(`${where} isn't in gate-baseline.json, so it can't have been pruned from B`);
 
-    if (!known.has(key)) problems.push(`${where} isn't in gate-baseline.json, so it can't have been pruned from B`);
+  if (seen.has(key)) problems.push(`${where} is listed twice`);
 
-    if (seen.has(key)) problems.push(`${where} is listed twice`);
-    seen.add(key);
-    const [target] = entry.replacedBy.split(" > ");
+  if (target && !/^(lint|parity):/.test(target) && !existsSync(path.join(REPO, target))) problems.push(`${where} is replaced by ${target}, which doesn't exist`);
 
-    if (target && !/^(lint|parity):/.test(target) && !existsSync(path.join(REPO, target))) problems.push(`${where} is replaced by ${target}, which doesn't exist`);
-  }
+  seen.add(key);
 
   return problems;
 }
@@ -88,31 +92,28 @@ const RED = new Set(["failed", "FAIL", "timedOut", "interrupted", "XPASS"]);
  * red item B never had, since a new test that fails is as red as an old one.
  */
 export function regressions(baseline: Outcome[], now: Outcome[], pruned: Set<string>): string[] {
-  const atB = new Set(baseline.map(keyOf));
   const current = new Map(now.map((item) => [keyOf(item), item.outcome]));
-  const found: string[] = [];
+  const atB = new Set(baseline.map(keyOf));
 
-  for (const item of baseline) {
-    if (!GOOD.has(item.outcome)) continue;
+  return [...baseline.flatMap((item) => lost(item, current.get(keyOf(item)), pruned)), ...[...current].flatMap(([key, outcome]) => newRed(key, outcome, atB))];
+}
 
-    const outcome = current.get(keyOf(item));
+/** Why `item`, which had its baseline outcome at B, regressed to `outcome` now, if it did. */
+function lost(item: Outcome, outcome: string | undefined, pruned: Set<string>): string[] {
+  if (!GOOD.has(item.outcome) || outcome === item.outcome || (outcome !== undefined && PASSING.has(outcome))) return [];
 
-    if (outcome === item.outcome || (outcome !== undefined && PASSING.has(outcome))) continue;
+  if (outcome === undefined && pruned.has(keyOf(item))) return [];
 
-    if (outcome === undefined && pruned.has(keyOf(item))) continue;
+  return [`${item.check}: "${item.name}" was ${item.outcome}, now ${outcome ?? "missing"}`];
+}
 
-    found.push(`${item.check}: "${item.name}" was ${item.outcome}, now ${outcome ?? "missing"}`);
-  }
+/** A red item B never had. */
+function newRed(key: string, outcome: string, atB: Set<string>): string[] {
+  if (atB.has(key) || !RED.has(outcome)) return [];
 
-  for (const [key, outcome] of current) {
-    if (atB.has(key) || !RED.has(outcome)) continue;
+  const [check, name] = key.split("\u0000");
 
-    const [check, name] = key.split("\u0000");
-
-    found.push(`${check}: "${name}" is new since B and ${outcome}`);
-  }
-
-  return found;
+  return [`${check}: "${name}" is new since B and ${outcome}`];
 }
 
 if (import.meta.main) {

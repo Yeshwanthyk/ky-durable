@@ -1,5 +1,5 @@
 /** The toy domain at "B": reminders on a clock. It takes a reminder in the past, which the port refuses. */
-export type Reminder = { id: number; text: string; at: number };
+type Reminder = { id: number; text: string; at: number };
 
 export function legacyReminders() {
   let now = 0;

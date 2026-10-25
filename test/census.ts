@@ -62,29 +62,29 @@ function files(root: string): string[] {
 
 type Row = { file: string; tests: number; verdict: Class | "UNKNOWN"; signals: { class: Class; line: number; quote: string }[] };
 
+/** Where `file` shows `each`'s signal: the file's own path, or its first matching line. */
+function signalOf(each: Class, file: string, lines: string[]): Row["signals"][number] | undefined {
+  const signal = SIGNALS[each](file);
+
+  if (signal === false) return undefined;
+
+  if (signal === true) return { class: each, line: 0, quote: file };
+
+  const at = lines.findIndex((line) => signal.test(line));
+
+  return at === -1 ? undefined : { class: each, line: at + 1, quote: lines[at]!.trim().slice(0, 160) };
+}
+
+/** A keep class wins over a prune class; a file with no signal is UNKNOWN. */
+function verdictOf(signals: Row["signals"]): Row["verdict"] {
+  return (signals.find((signal) => KEEP.has(signal.class)) ?? signals[0])?.class ?? "UNKNOWN";
+}
+
 function classify(file: string, text: string): Row {
   const lines = text.split("\n");
-  const signals: Row["signals"] = [];
+  const signals = CLASSES.flatMap((each) => signalOf(each, file, lines) ?? []);
 
-  for (const each of CLASSES) {
-    const signal = SIGNALS[each](file);
-
-    if (signal === false) continue;
-
-    if (signal === true) {
-      signals.push({ class: each, line: 0, quote: file });
-      continue;
-    }
-
-    const at = lines.findIndex((line) => signal.test(line));
-
-    if (at !== -1) signals.push({ class: each, line: at + 1, quote: lines[at]!.trim().slice(0, 160) });
-  }
-
-  const kept = signals.find((signal) => KEEP.has(signal.class));
-  const verdict = kept?.class ?? signals[0]?.class ?? "UNKNOWN";
-
-  return { file, tests: text.match(TEST)?.length ?? 0, verdict, signals };
+  return { file, tests: (text.match(TEST) ?? []).length, verdict: verdictOf(signals), signals };
 }
 
 const wanted = process.argv[2] ?? "all";

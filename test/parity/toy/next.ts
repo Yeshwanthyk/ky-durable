@@ -1,5 +1,5 @@
 /** The toy domain's port: the same reminders, but one in the past is refused (a divergence from B). */
-export type Reminder = { id: number; text: string; at: number };
+type Reminder = { id: number; text: string; at: number };
 
 export function nextReminders() {
   let now = 0;

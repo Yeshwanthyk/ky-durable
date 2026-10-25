@@ -233,24 +233,34 @@ async function after(before: Version[]): Promise<World> {
 
 /** The I-D1 breaches in `now`: a foreign resource changed, or a resource ky left untagged. */
 function trespasses(start: FakeAccount, now: FakeAccount): string[] {
-  const found: string[] = [];
+  return [...foreignChanged(start, now), ...untaggedMade(start, now)];
+}
 
-  for (const [name, script] of start.scripts) {
-    const after = now.scripts.get(name);
+const same = <T,>(a: T, b: T | undefined) => JSON.stringify(a) === JSON.stringify(b);
 
-    if (!script.tags.includes("ky") && JSON.stringify(scriptData(script)) !== JSON.stringify(after && scriptData(after))) found.push(`changed someone else's Worker ${name}`);
-  }
+/** Someone else's Worker, bucket or Access app that ky changed or deleted. */
+function foreignChanged(start: FakeAccount, now: FakeAccount): string[] {
+  const workers = [...start.scripts].filter(([name, script]) => !script.tags.includes("ky") && !same(scriptData(script), mapOr(now.scripts.get(name), scriptData)));
+  const buckets = [...start.buckets].filter(([name, keys]) => !keys.has(".ky") && !same(sorted(keys), sorted(now.buckets.get(name) ?? ["(gone)"])));
+  const apps = [...start.apps].filter(([id, app]) => !app.tags?.includes("ky") && !same(app, now.apps.get(id)));
 
-  for (const [name, keys] of start.buckets)
-    if (!keys.has(".ky") && sorted(keys).join("\n") !== sorted(now.buckets.get(name) ?? ["(gone)"]).join("\n")) found.push(`changed someone else's bucket ${name}`);
+  return [
+    ...workers.map(([name]) => `changed someone else's Worker ${name}`),
+    ...buckets.map(([name]) => `changed someone else's bucket ${name}`),
+    ...apps.map(([id]) => `changed someone else's Access app ${id}`)
+  ];
+}
 
-  for (const [id, app] of start.apps) if (!app.tags?.includes("ky") && JSON.stringify(app) !== JSON.stringify(now.apps.get(id))) found.push(`changed someone else's Access app ${id}`);
+/** A Worker or Access app ky made without its tag. */
+function untaggedMade(start: FakeAccount, now: FakeAccount): string[] {
+  const workers = [...now.scripts].filter(([name, script]) => !start.scripts.has(name) && !script.tags.includes("ky"));
+  const apps = [...now.apps].filter(([id, app]) => !start.apps.has(id) && !app.tags?.includes("ky"));
 
-  for (const [name, script] of now.scripts) if (!start.scripts.has(name) && !script.tags.includes("ky")) found.push(`made Worker ${name} without the ky tag`);
+  return [...workers.map(([name]) => `made Worker ${name} without the ky tag`), ...apps.map(([id]) => `made Access app ${id} without the ky tag`)];
+}
 
-  for (const [id, app] of now.apps) if (!start.apps.has(id) && !app.tags?.includes("ky")) found.push(`made Access app ${id} without the ky tag`);
-
-  return found;
+function mapOr<T, U>(value: T | undefined, f: (value: T) => U): U | undefined {
+  return value === undefined ? undefined : f(value);
 }
 
 /** An account's state, deep-copied, to compare against later. */
