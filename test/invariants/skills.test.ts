@@ -628,4 +628,85 @@ describe("stored specialists", () => {
       })
     );
   });
+
+  const DESCRIPTION = "A specialist's description is one line under 200 characters.";
+
+  const aDescription = fc.oneof(fc.constantFrom("Builds things.", "  Finds sources.  ", "a".repeat(200)), fc.constantFrom("", " ", "a\nb", "a".repeat(201)));
+
+  const aNewDraft = fc.record({ description: aDescription, brief: fc.constantFrom("Be terse.", "  ") }, { requiredKeys: [] });
+
+  /** One line under 200 characters once trimmed: the description rule. */
+  const oneLine = (text: string | undefined) => {
+    const line = (text ?? "").trim();
+
+    return line !== "" && !line.includes("\n") && line.length <= 200;
+  };
+
+  /** B's refusal for creating `id` from `draft`, in the order B checks, or none. */
+  function createRefusal(id: string, { description, brief }: SpecialistDraft): string | undefined {
+    if (brief === undefined) return "A new specialist needs a brief.";
+
+    if (!oneLine(description)) return DESCRIPTION;
+
+    return brief.trim() === "" ? `@${id}'s brief cannot be empty.` : undefined;
+  }
+
+  it("refuses a new specialist without a brief, with an empty one, or with a description that isn't one line under 200, and stamps the one it makes with the time", () => {
+    fc.assert(
+      fc.property(fc.array(aNewDraft, { minLength: 1, maxLength: 5 }), (drafts) => {
+        const specialists = made();
+
+        for (const [step, draft] of drafts.entries()) {
+          const id = `eng-${step}`;
+          const refusal = createRefusal(id, draft);
+          const before = Date.now();
+
+          const create = () => specialists.create(id, draft, "user");
+
+          if (refusal === undefined) {
+            expect(create()).toBe(`Created @${id}.`);
+            expect(specialists.get(id)?.created_at).toBeGreaterThanOrEqual(before);
+            expect(specialists.get(id)?.created_at).toBeLessThanOrEqual(Date.now());
+          } else {
+            expect(create).toThrow(refusal);
+            expect(specialists.has(id)).toBe(false);
+          }
+        }
+      })
+    );
+  });
+
+  it("refuses to save a description that isn't one line under 200, or a specialist that doesn't exist", () => {
+    fc.assert(
+      fc.property(fc.array(fc.record({ id: fc.constantFrom("engineer", "nobody"), description: aDescription }), { minLength: 1, maxLength: 5 }), (saves) => {
+        const specialists = made();
+        specialists.create("engineer", NEW, "user");
+
+        for (const { id, description } of saves) {
+          const save = () => specialists.set(id, { description });
+
+          if (id === "nobody") expect(save).toThrow("No specialist @nobody.");
+          else if (oneLine(description)) expect(save()).toBe("Saved @engineer.");
+          else expect(save).toThrow(DESCRIPTION);
+        }
+      })
+    );
+  });
+
+  it("stamps each attached conversation with the time it was attached", () => {
+    fc.assert(
+      fc.property(fc.array(anAttach, { minLength: 1, maxLength: 5 }), (attaches) => {
+        const db = new DatabaseSync(":memory:");
+        const specialists = new Specialists(storageOf(db));
+
+        for (const { session, id, kind } of attaches) {
+          const before = Date.now();
+          specialists.attach(session, id, kind);
+          const [row] = db.prepare(`SELECT created_at FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`).all(session);
+          expect(row?.created_at).toBeGreaterThanOrEqual(before);
+          expect(row?.created_at).toBeLessThanOrEqual(Date.now());
+        }
+      })
+    );
+  });
 });
