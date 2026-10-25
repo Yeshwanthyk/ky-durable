@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
@@ -18,14 +17,16 @@ import {
   SubagentAction,
   SubagentInput,
   parse,
+  type SessionKind,
   type SkillRow,
   SKILL_TABLES,
+  type SpecialistDraft,
   TOOLS
 } from "../../src/skills/contract";
 import { CHANGES, skillsExtension, viewText } from "../../src/skills/skills";
 import { MANAGE } from "../../src/skills/specialists";
 import { ACTIONS } from "../../src/skills/subagents";
-import { Reviews, Skills } from "../../src/skills/wiring";
+import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
 import { specialistDraft } from "../../src/ui/Soul";
 import { blockOf, HOST, storageOf } from "../parity/skills/storage";
 
@@ -337,7 +338,11 @@ describe("stored skills", () => {
     try {
       const parsed: unknown = JSON.parse(column);
 
-      return Schema.is(Schema.Record(Schema.String, Schema.String))(parsed) ? parsed : {};
+      // JSON gives an object, an array or a primitive; only a plain object of strings is answers.
+      if (!(parsed instanceof Object) || Array.isArray(parsed)) return {};
+      const entries = Object.entries(parsed);
+
+      return entries.every(([, value]) => value === String(value)) ? Object.fromEntries(entries) : {};
     } catch {
       return {};
     }
@@ -440,25 +445,60 @@ describe("a skill's guards", () => {
     );
   });
 
-  it("sweeps as stale exactly the unpinned skills ky made that nobody opened in 60 days", () => {
-    const aSkill = fc.record({ actor: fc.constantFrom("user", "ky", "agent", ...MACHINES), pinned: fc.boolean(), opened: fc.boolean() });
+  it("sweeps as stale exactly the active, unpinned skills ky made, older than 14 days, that nobody opened or the user changed in 60", () => {
+    const NOW = Date.UTC(2026, 6, 1);
+    const anAge = fc.oneof(fc.integer({ min: 0, max: 120 * DAY }), fc.constantFrom(14 * DAY - 1, 14 * DAY, 60 * DAY - 1, 60 * DAY));
+
+    const aSkill = fc.record({
+      created_by: fc.constantFrom("user", "agent", ...MACHINES),
+      status: fc.constantFrom("active", "active", "archived"),
+      pinned: fc.constantFrom(0, 0, 1),
+      created: anAge,
+      opened: fc.option(anAge, { nil: null }),
+      uses: fc.constantFrom(0, 0, 3),
+      version: fc.option(fc.record({ actor: fc.constantFrom("user", "agent", "dream"), age: anAge }), { nil: null })
+    });
+
+    type Made = typeof aSkill extends fc.Arbitrary<infer T> ? T : never;
+
+    /** What the sweep may archive at all: an active, unpinned skill ky made, at least 14 days old. */
+    const sweepable = ({ status, pinned, created_by, created }: Made) => status === "active" && pinned === 0 && created_by !== "user" && created >= 14 * DAY;
+
+    /** Its last sign of life, opened or else made, or the user's change when later, is 60 days gone; a use before ky kept when is unknown. */
+    const quiet = ({ opened, uses, created, version }: Made) => {
+      if (opened === null && uses > 0) return false;
+
+      return Math.min(opened ?? created, version?.actor === "user" ? version.age : Infinity) >= 60 * DAY;
+    };
 
     fc.assert(
-      fc.property(fc.array(aSkill, { maxLength: 6 }), fc.integer({ min: 0, max: 120 }), (made, days) => {
-        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+      fc.property(fc.array(aSkill, { maxLength: 6 }), (made) => {
+        const db = new DatabaseSync(":memory:");
+        const skills = new Skills(storageOf(db));
 
-        made.forEach(({ actor, pinned, opened }, at) => {
-          skills.apply({ action: "create", name: `skill-${at}`, ...steep }, actor);
+        made.forEach(({ created_by, status, pinned, created, opened, uses, version }, at) => {
+          const name = `skill-${at}`;
+          db.prepare(
+            `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, uses, created_at, updated_at, last_used_at, pinned, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(name, steep.description, steep.body, status, uses, NOW - created, NOW - created, opened === null ? null : NOW - opened, pinned, created_by);
 
-          if (pinned) skills.apply({ action: "pin", name: `skill-${at}` }, "user");
-
-          if (opened) skills.view(`skill-${at}`);
+          if (version !== null) {
+            db.prepare(`INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, description, body, status, created_at) VALUES (?, 'edit', ?, ?, ?, ?, ?)`).run(
+              name,
+              version.actor,
+              steep.description,
+              steep.body,
+              status,
+              NOW - version.age
+            );
+          }
         });
 
-        const stale = made.flatMap(({ actor, pinned }, at) => (!pinned && ["agent", ...MACHINES].includes(actor) && days >= 60 ? [`skill-${at}`] : []));
+        const stale = made.flatMap((skill, at) => (sweepable(skill) && quiet(skill) ? [`skill-${at}`] : []));
 
-        expect(skills.stale("run-1", Date.now() + days * DAY)).toEqual(stale);
-        expect(skills.list("archived").map((skill) => skill.name)).toEqual(stale);
+        expect(skills.stale("run-1", NOW)).toEqual(stale);
+        expect(made.map((_, at) => skills.get(`skill-${at}`)?.status)).toEqual(made.map(({ status }, at) => (stale.includes(`skill-${at}`) ? "archived" : status)));
+        db.close();
       })
     );
   });
@@ -483,6 +523,108 @@ describe("a skill's guards", () => {
         }
 
         expect(skills.get("plan-trip")?.answers).toEqual(kept);
+      })
+    );
+  });
+});
+
+describe("stored specialists", () => {
+  const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+  const anId = fc.oneof(fc.stringMatching(ID), fc.string({ maxLength: 8 }), fc.constantFrom("a".repeat(32), "a".repeat(33), `${"a-".repeat(16)}a`, "engineer"));
+
+  const made = () => new Specialists(storageOf(new DatabaseSync(":memory:")));
+
+  const NEW: SpecialistDraft = { description: "Builds things.", brief: "Be terse." };
+
+  it("makes a specialist exactly when its id is lowercase-with-hyphens, at most 32 characters, and not taken", () => {
+    fc.assert(
+      fc.property(fc.array(anId, { maxLength: 6 }), (ids) => {
+        const specialists = made();
+        const have = new Set<string>();
+
+        for (const id of ids) {
+          const create = () => specialists.create(id, NEW, "user");
+
+          if (!ID.test(id) || id.length > 32) expect(create).toThrow("A specialist's id is lowercase-with-hyphens, at most 32 characters, like engineer.");
+          else if (have.has(id)) expect(create).toThrow(`@${id} already exists.`);
+          else expect(create()).toBe(`Created @${id}.`);
+
+          if (ID.test(id) && id.length <= 32) have.add(id);
+        }
+
+        expect(specialists.list().map(({ id }) => id)).toEqual([...have].sort());
+      })
+    );
+  });
+
+  const MODEL = { provider: "anthropic", modelId: "opus", thinkingLevel: "high" as const };
+
+  const aDraft = fc.record({ description: fc.constantFrom("Builds things.", "  Finds sources.  "), model: fc.constantFrom(MODEL, null), machine: fc.constantFrom("mac", "", null) }, { requiredKeys: [] });
+
+  /** What a field reads after a save: the draft's, as stored, or what it was when the draft leaves it out. */
+  const kept = <T>(given: T | undefined, was: T, stored: (value: T) => T): T => (given === undefined ? was : stored(given));
+
+  it("saves each field a draft gives, a blank machine as none, and keeps each it leaves out", () => {
+    fc.assert(
+      fc.property(fc.array(aDraft, { minLength: 1, maxLength: 5 }), (drafts) => {
+        const specialists = made();
+        specialists.create("engineer", { ...NEW, model: MODEL, machine: "mac" }, "user");
+        let expected: Pick<SpecialistDraft, "description" | "model" | "machine"> = { description: NEW.description, model: MODEL, machine: "mac" };
+
+        for (const draft of drafts) {
+          expect(specialists.set("engineer", draft)).toBe("Saved @engineer.");
+          expected = {
+            description: kept(draft.description, expected.description, (text) => text?.trim()),
+            model: kept(draft.model, expected.model, (model) => model),
+            machine: kept(draft.machine, expected.machine, (machine) => (machine === "" ? null : machine))
+          };
+          expect(specialists.get("engineer")).toMatchObject(expected);
+        }
+      })
+    );
+  });
+
+  const KINDS: SessionKind[] = ["home", "consult", "discuss", "group"];
+
+  const anAttach = fc.record({ session: fc.constantFrom("s1", "s2"), id: fc.constantFrom("engineer", "researcher", "gone"), kind: fc.constantFrom(...KINDS) });
+
+  type Attach = { readonly session: string; readonly id: string; readonly kind: SessionKind };
+
+  /** What a run of attaches leaves: each conversation's specialist and kind, from its last attach to one that exists, and each specialist's last home. */
+  function recorded(attaches: readonly Attach[]) {
+    const owner = new Map<string, { id: string; kind: SessionKind } | undefined>();
+    const home = new Map<string, string>();
+
+    for (const { session, id, kind } of attaches) {
+      owner.set(session, id === "gone" ? undefined : { id, kind });
+
+      if (kind === "home") home.set(id, session);
+    }
+
+    return { owner, home };
+  }
+
+  it("answers for a conversation with its last attach, and makes only a home one its specialist's shared conversation", () => {
+    fc.assert(
+      fc.property(fc.array(anAttach, { maxLength: 8 }), (attaches) => {
+        const specialists = made();
+
+        for (const id of ["engineer", "researcher"]) specialists.create(id, NEW, "user");
+
+        for (const { session, id, kind } of attaches) specialists.attach(session, id, kind);
+
+        const { owner, home } = recorded(attaches);
+
+        const seen = (session: string) => {
+          const found = specialists.bySession(session);
+
+          return found && { id: found.specialist.id, kind: found.kind };
+        };
+
+        for (const session of ["s1", "s2", "none"]) expect(seen(session)).toEqual(owner.get(session));
+
+        for (const id of ["engineer", "researcher"]) expect(specialists.get(id)?.session).toBe(home.get(id) ?? null);
       })
     );
   });

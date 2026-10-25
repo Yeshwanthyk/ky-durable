@@ -1,13 +1,14 @@
 /**
  * Rows B wrote load under the port: at-b.json holds the skill tables as B made and filled them (a pinned
- * skill a background run edited, one with answers, a kit, an archived merge, two forks), and what B's own
- * reads gave over them. The port opens those tables as they are and reads the same.
+ * skill a background run edited, one with answers, a kit, an archived merge, two forks), the specialist tables
+ * (a model stored out of the settings' order, a brief edited, a home, a consult and a group conversation, a
+ * model a restore damaged), and what B's own reads gave over them. The port opens those tables as they are and reads the same.
  */
 import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { Reviews, Skills } from "../../../src/skills/wiring";
+import { Reviews, Skills, Specialists } from "../../../src/skills/wiring";
 import { storageOf, StoredRow } from "./storage";
 
 const AtB = Schema.Struct({ schema: Schema.Array(Schema.String), tables: Schema.Record(Schema.String, Schema.Array(StoredRow)), reads: Schema.Unknown });
@@ -31,7 +32,9 @@ describe("skill rows written at B", () => {
 
     const skills = new Skills(storageOf(db));
     const reviews = new Reviews(storageOf(db));
+    const specialists = new Specialists(storageOf(db));
     const names = ["tea", "plan-trip", "ship-change", "old-lint"];
+    const ids = ["engineer", "researcher", "old-bot"];
 
     const reads = {
       get: names.map((name) => skills.get(name)),
@@ -41,7 +44,14 @@ describe("skill rows written at B", () => {
       index: skills.index(),
       since: skills.versionsSince(0, 100),
       reviews: ["1", "2", "3"].map((conversation) => ({ kind: reviews.kind(conversation) ?? null, run: reviews.run(conversation), window: reviews.window(conversation) ?? null })),
-      reached: reviews.reached("1", "review") ?? null
+      reached: reviews.reached("1", "review") ?? null,
+      specialists: {
+        list: specialists.list(),
+        views: specialists.views(),
+        get: [...ids, "none"].map((id) => specialists.get(id) ?? null),
+        bySession: ["s1", "s2", "s3", "none"].map((session) => specialists.bySession(session) ?? null),
+        briefs: ids.map((id) => specialists.brief(id).history())
+      }
     };
 
     // As text: key order is part of what a caller sees.

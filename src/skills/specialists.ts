@@ -12,8 +12,14 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { MEMORY_WRITE_TOOLS, Versioned, versionLine } from "../dreaming/contract";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import { MEMORY_WRITE_TOOLS, type Versioned, versionLine } from "../dreaming/contract";
 import { summarize, type TaskFeed } from "../automations/contract";
+import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import {
   type SessionKind,
@@ -23,13 +29,13 @@ import {
   SpecialistSession,
   SpecialistStored,
   type SpecialistRow,
-  type SpecialistView,
   specialistOf,
   SKILL_TABLES,
   textOf,
   TOOLS
 } from "./contract";
-import { rows } from "./rows";
+import { storage } from "./skills";
+import type { Specialists } from "./wiring";
 import { toolReply as reply } from "../core/reply";
 
 /**
@@ -87,142 +93,143 @@ const CREATE = [
     created_at INTEGER NOT NULL)`
 ];
 
-export class Specialists {
-  readonly #sql: SqlStorage;
-  readonly #briefs = new Map<string, Versioned>();
-  readonly #listeners = new Set<() => void>();
-
-  constructor(sql: SqlStorage) {
-    this.#sql = sql;
-
-    for (const table of CREATE) sql.exec(table);
+class BadId extends Schema.TaggedError<BadId>()("BadId", {}) implements Refusable {
+  get refusal(): string {
+    return `A specialist's id is lowercase-with-hyphens, at most ${ID_CHARS} characters, like engineer.`;
   }
+}
 
-  onChange(listener: () => void): () => void {
-    this.#listeners.add(listener);
-
-    return () => this.#listeners.delete(listener);
+class Taken extends Schema.TaggedError<Taken>()("Taken", { id: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `@${this.id} already exists.`;
   }
+}
 
-  list(): SpecialistRow[] {
-    return rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.specialists} ORDER BY id`), SpecialistStored, "a stored specialist").map(specialistOf);
+class NoBrief extends Schema.TaggedError<NoBrief>()("NoBrief", {}) implements Refusable {
+  get refusal(): string {
+    return "A new specialist needs a brief.";
   }
+}
 
-  get(id: string): SpecialistRow | undefined {
-    const row = rows(this.#sql.exec(`SELECT * FROM ${SKILL_TABLES.specialists} WHERE id = ?`, id), SpecialistStored, "a stored specialist")[0];
-
-    return row && specialistOf(row);
+class BadDescription extends Schema.TaggedError<BadDescription>()("BadDescription", {}) implements Refusable {
+  get refusal(): string {
+    return `A specialist's description is one line under ${DESCRIPTION_CHARS} characters.`;
   }
+}
 
-  has(id: string): boolean {
-    return this.get(id) !== undefined;
+class NoSpecialist extends Schema.TaggedError<NoSpecialist>()("NoSpecialist", { id: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `No specialist @${this.id}.`;
   }
+}
 
-  views(): SpecialistView[] {
-    return this.list().map((row) => ({ ...row, brief: this.brief(row.id).view() }));
-  }
+/** A description as stored: trimmed, one line, under the limit. */
+function descriptionOf(text: string | undefined): Effect.Effect<string, BadDescription> {
+  const line = (text ?? "").trim();
 
-  /** A specialist's brief, versioned like SOUL.md. */
-  brief(id: string): Versioned {
-    let brief = this.#briefs.get(id);
+  return line === "" || line.includes("\n") || line.length > DESCRIPTION_CHARS ? Effect.fail(new BadDescription()) : Effect.succeed(line);
+}
 
-    if (!brief) {
-      brief = new Versioned(this.#sql, `specialist:${id}`, `@${id}'s brief`);
-      brief.onChange(() => this.#emit());
-      this.#briefs.set(id, brief);
-    }
+/** Who hears of the roster's changes, and where each brief is kept: the facade (wiring.ts) owns both. */
+type Hooks = { readonly listeners: ReadonlySet<() => void>; readonly brief: (id: string) => Versioned };
 
-    return brief;
-  }
-
-  create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
-    if (!ID.test(id) || id.length > ID_CHARS) {
-      throw new Error(`A specialist's id is lowercase-with-hyphens, at most ${ID_CHARS} characters, like engineer.`);
-    }
-
-    if (this.has(id)) throw new Error(`@${id} already exists.`);
-
-    if (draft.brief === undefined) throw new Error("A new specialist needs a brief.");
-    const description = this.#description(draft.description);
-    this.brief(id).apply({ action: "edit", body: draft.brief }, actor, conversation);
-    this.#sql.exec(
-      `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
-      id,
-      description,
-      draft.model ? JSON.stringify(draft.model) : null,
-      draft.machine || null,
-      Date.now()
-    );
-    this.#emit();
-
-    return `Created @${id}.`;
-  }
-
-  /** Change a specialist's description, model or machine; its brief changes through brief(). */
-  set(id: string, draft: SpecialistDraft): string {
-    const row = this.#need(id);
-    this.#sql.exec(
-      `UPDATE ${SKILL_TABLES.specialists} SET description = ?, model = ?, machine = ? WHERE id = ?`,
-      draft.description === undefined ? row.description : this.#description(draft.description),
-      draft.model === undefined ? (row.model && JSON.stringify(row.model)) : draft.model && JSON.stringify(draft.model),
-      draft.machine === undefined ? row.machine : draft.machine || null,
-      id
-    );
-    this.#emit();
-
-    return `Saved @${id}.`;
-  }
-
+interface SpecialistRoster {
+  readonly list: Effect.Effect<SpecialistRow[]>;
+  readonly get: (id: string) => Effect.Effect<SpecialistRow | undefined>;
+  /** A new specialist, its brief the first version. */
+  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription>;
+  /** Change a specialist's description, model or machine; its brief changes through the facade's brief(). */
+  readonly set: (id: string, draft: SpecialistDraft) => Effect.Effect<string, NoSpecialist | BadDescription>;
   /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
-  attach(session: string, id: string, kind: SessionKind): void {
-    this.#sql.exec(
-      `INSERT OR REPLACE INTO ${SKILL_TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`,
-      session,
-      id,
-      kind,
-      Date.now()
-    );
-
-    if (kind === "home") {
-      this.#sql.exec(`UPDATE ${SKILL_TABLES.specialists} SET session = ? WHERE id = ?`, session, id);
-      this.#emit();
-    }
-  }
-
+  readonly attach: (session: string, id: string, kind: SessionKind) => Effect.Effect<void>;
   /** The specialist a conversation belongs to, and how it is used. */
-  bySession(session: string): { specialist: SpecialistRow; kind: SessionKind } | undefined {
-    const found = rows(
-      this.#sql.exec(`SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, session),
-      SpecialistSession,
-      "a specialist's conversation"
-    )[0];
+  readonly bySession: (session: string) => Effect.Effect<{ specialist: SpecialistRow; kind: SessionKind } | undefined>;
+}
 
-    const specialist = found && this.get(found.specialist);
+/** The specialists in the Durable Object's SQLite. */
+export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skills/Roster") {
+  /** Needs Sql, which the edge provides, and the facade's hooks. Makes its tables, as B's constructor did. */
+  static readonly layer = (hooks: Hooks) =>
+    Layer.effect(Roster)(
+      Effect.gen(function* () {
+        const { exec, rows } = yield* storage;
 
-    return specialist && { specialist, kind: found.kind };
-  }
+        for (const table of CREATE) yield* exec(table);
 
-  #need(id: string): SpecialistRow {
-    const row = this.get(id);
+        const list = Effect.map(rows(SpecialistStored, `SELECT * FROM ${SKILL_TABLES.specialists} ORDER BY id`), (stored) => stored.map(specialistOf));
+        const get = (id: string) => Effect.map(rows(SpecialistStored, `SELECT * FROM ${SKILL_TABLES.specialists} WHERE id = ?`, id), ([row]) => row && specialistOf(row));
 
-    if (!row) throw new Error(`No specialist @${id}.`);
+        const changed = Effect.sync(() => {
+          for (const listener of hooks.listeners) listener();
+        });
 
-    return row;
-  }
+        return {
+          list,
+          get,
+          create: (id, draft, actor, conversation) =>
+            Effect.gen(function* () {
+              if (!ID.test(id) || id.length > ID_CHARS) return yield* Effect.fail(new BadId());
 
-  #description(text: string | undefined): string {
-    const line = (text ?? "").trim();
+              if ((yield* get(id)) !== undefined) return yield* Effect.fail(new Taken({ id }));
 
-    if (line === "" || line.includes("\n") || line.length > DESCRIPTION_CHARS) {
-      throw new Error(`A specialist's description is one line under ${DESCRIPTION_CHARS} characters.`);
-    }
+              const body = draft.brief;
 
-    return line;
-  }
+              if (body === undefined) return yield* Effect.fail(new NoBrief());
+              const description = yield* descriptionOf(draft.description);
+              // The brief refuses by throwing, as at B: the edge rethrows it as it was.
+              yield* Effect.sync(() => hooks.brief(id).apply({ action: "edit", body }, actor, conversation));
+              const now = yield* Clock.currentTimeMillis;
+              yield* exec(
+                `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
+                id,
+                description,
+                draft.model ? JSON.stringify(draft.model) : null,
+                draft.machine || null,
+                now
+              );
+              yield* changed;
 
-  #emit(): void {
-    for (const listener of this.#listeners) listener();
-  }
+              return `Created @${id}.`;
+            }),
+          set: (id, draft) =>
+            Effect.gen(function* () {
+              const row = yield* get(id);
+
+              if (row === undefined) return yield* Effect.fail(new NoSpecialist({ id }));
+              const description = draft.description === undefined ? row.description : yield* descriptionOf(draft.description);
+              yield* exec(
+                `UPDATE ${SKILL_TABLES.specialists} SET description = ?, model = ?, machine = ? WHERE id = ?`,
+                description,
+                draft.model === undefined ? (row.model && JSON.stringify(row.model)) : draft.model && JSON.stringify(draft.model),
+                draft.machine === undefined ? row.machine : draft.machine || null,
+                id
+              );
+              yield* changed;
+
+              return `Saved @${id}.`;
+            }),
+          attach: (session, id, kind) =>
+            Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis;
+              yield* exec(`INSERT OR REPLACE INTO ${SKILL_TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`, session, id, kind, now);
+
+              if (kind === "home") {
+                yield* exec(`UPDATE ${SKILL_TABLES.specialists} SET session = ? WHERE id = ?`, session, id);
+                yield* changed;
+              }
+            }),
+          bySession: (session) =>
+            Effect.gen(function* () {
+              const [found] = yield* rows(SpecialistSession, `SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, session);
+
+              if (found === undefined) return undefined;
+              const specialist = yield* get(found.specialist);
+
+              return specialist && { specialist, kind: found.kind };
+            })
+        };
+      })
+    );
 }
 
 const roster = (specialists: readonly SpecialistRow[], except?: string) =>

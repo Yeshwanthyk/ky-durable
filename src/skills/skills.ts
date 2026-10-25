@@ -115,21 +115,31 @@ const ReviewRow = Schema.Struct({ kind: ReviewKind });
 /** A review log row, as `run` reads it: a dream's run token, null for a review, whose run is its conversation. */
 const ReviewRunRow = Schema.Struct({ run: Schema.NullOr(Schema.String) });
 
-/** Add the columns a table was first made without; returns the ones it added. */
-const addColumns = (table: string, columns: ReadonlyArray<readonly [string, string]>) =>
-  Effect.gen(function* () {
-    const sql = yield* Sql;
-    const have = yield* sql.rows(ColumnRow, `PRAGMA table_info(${table})`);
-    const added: string[] = [];
+/**
+ * The skill tables' storage. Storage failing is a defect, as a throwing exec was at B, so nothing here fails
+ * typed; `addColumns` adds the columns a table was first made without and returns the ones it added.
+ */
+export const storage = Effect.gen(function* () {
+  const sql = yield* Sql;
+  const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+  const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
 
-    for (const [name, type] of columns) {
-      if (have.some((column) => column.name === name)) continue;
-      yield* sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
-      added.push(name);
-    }
+  const addColumns = (table: string, columns: ReadonlyArray<readonly [string, string]>) =>
+    Effect.gen(function* () {
+      const have = yield* rows(ColumnRow, `PRAGMA table_info(${table})`);
+      const added: string[] = [];
 
-    return added;
-  });
+      for (const [name, type] of columns) {
+        if (have.some((column) => column.name === name)) continue;
+        yield* exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+        added.push(name);
+      }
+
+      return added;
+    });
+
+  return { exec, rows, addColumns };
+});
 
 /** The body with one exact passage replaced; the passage must appear exactly once. */
 function patched(skill: SkillRow, old: string, replacement: string): Effect.Effect<string, NotInBody | Ambiguous> {
@@ -259,11 +269,7 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
   static readonly layer = (hooks: Hooks) =>
     Layer.effect(Library)(
       Effect.gen(function* () {
-        const sql = yield* Sql;
-
-        // Storage failing is a defect, as a throwing exec was at B.
-        const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
-        const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
+        const { exec, rows, addColumns } = yield* storage;
 
         yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skills} (
           name TEXT PRIMARY KEY,
@@ -285,17 +291,15 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
           created_at INTEGER NOT NULL
         )`);
 
-        const added = yield* Effect.orDie(
-          addColumns(SKILL_TABLES.skills, [
-            ["last_used_at", "INTEGER"],
-            ["pinned", "INTEGER NOT NULL DEFAULT 0"],
-            ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-            ["answers", "TEXT"],
-            ["kind", "TEXT NOT NULL DEFAULT 'skill'"]
-          ])
-        );
+        const added = yield* addColumns(SKILL_TABLES.skills, [
+          ["last_used_at", "INTEGER"],
+          ["pinned", "INTEGER NOT NULL DEFAULT 0"],
+          ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+          ["answers", "TEXT"],
+          ["kind", "TEXT NOT NULL DEFAULT 'skill'"]
+        ]);
 
-        yield* Effect.orDie(addColumns(SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]));
+        yield* addColumns(SKILL_TABLES.skillVersions, [["conversation", "TEXT"]]);
 
         // Skills from before provenance was kept: who made each is its first version's actor, and the user's when unknown.
         if (added.includes("created_by")) {
@@ -518,22 +522,18 @@ export class ReviewLog extends Context.Service<ReviewLog, BackgroundLog>()("ky/s
   /** Needs Sql, which the edge provides. Makes its table, as B's constructor did. */
   static readonly layer = Layer.effect(ReviewLog)(
     Effect.gen(function* () {
-      const sql = yield* Sql;
-      const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
-      const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
+      const { exec, rows, addColumns } = yield* storage;
 
       yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.skillReviews} (
         conversation TEXT PRIMARY KEY,
         parent TEXT NOT NULL,
         created_at INTEGER NOT NULL
       )`);
-      yield* Effect.orDie(
-        addColumns(SKILL_TABLES.skillReviews, [
-          ["kind", "TEXT NOT NULL DEFAULT 'review'"],
-          ["upto", "INTEGER"],
-          ["run", "TEXT"]
-        ])
-      );
+      yield* addColumns(SKILL_TABLES.skillReviews, [
+        ["kind", "TEXT NOT NULL DEFAULT 'review'"],
+        ["upto", "INTEGER"],
+        ["run", "TEXT"]
+      ]);
       // reached and window read a chat's rows of one kind on every turn's end.
       yield* exec(`CREATE INDEX IF NOT EXISTS skill_reviews_by_parent ON ${SKILL_TABLES.skillReviews} (parent, kind)`);
 

@@ -6,12 +6,11 @@ import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import { isRefusal } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { Models } from "../models";
-import type { ReviewHost, ReviewKind, SkillChange, SkillStatus } from "./contract";
+import { Versioned } from "../dreaming/contract";
+import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
-import { type Specialists, specialistExtension } from "./specialists";
+import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
-
-export { Specialists } from "./specialists";
 
 /** What `effect` answers, or B's throw: an Error whose message is the refusal. A defect throws as it was thrown. */
 function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, E, S>): A {
@@ -20,6 +19,81 @@ function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, 
   if (isRefusal(result)) throw new Error(result.refused);
 
   return result.value;
+}
+
+/** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
+export class Specialists {
+  readonly #edge: Edge<Roster>;
+  readonly #sql: SqlStorage;
+  readonly #briefs = new Map<string, Versioned>();
+  readonly #listeners = new Set<() => void>();
+
+  /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
+  constructor(storage: DurableObjectStorage) {
+    this.#sql = storage.sql;
+    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners, brief: (id) => this.brief(id) }).pipe(Layer.provide(Sql.layer(storage))));
+    this.#run(() => Effect.void);
+  }
+
+  #run<A, E extends Refusable>(action: (roster: Roster["Service"]) => Effect.Effect<A, E>): A {
+    return run(this.#edge, Roster.use(action));
+  }
+
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+
+    return () => this.#listeners.delete(listener);
+  }
+
+  list(): SpecialistRow[] {
+    return this.#run((roster) => roster.list);
+  }
+
+  get(id: string): SpecialistRow | undefined {
+    return this.#run((roster) => roster.get(id));
+  }
+
+  has(id: string): boolean {
+    return this.get(id) !== undefined;
+  }
+
+  views(): SpecialistView[] {
+    return this.list().map((row) => ({ ...row, brief: this.brief(row.id).view() }));
+  }
+
+  /** A specialist's brief, versioned like SOUL.md. */
+  brief(id: string): Versioned {
+    let brief = this.#briefs.get(id);
+
+    if (!brief) {
+      brief = new Versioned(this.#sql, `specialist:${id}`, `@${id}'s brief`);
+      brief.onChange(() => {
+        for (const listener of this.#listeners) listener();
+      });
+      this.#briefs.set(id, brief);
+    }
+
+    return brief;
+  }
+
+  create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
+    return this.#run((roster) => roster.create(id, draft, actor, conversation));
+  }
+
+  /** Change a specialist's description, model or machine; its brief changes through brief(). */
+  set(id: string, draft: SpecialistDraft): string {
+    return this.#run((roster) => roster.set(id, draft));
+  }
+
+  /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
+  attach(session: string, id: string, kind: SessionKind): void {
+    this.#run((roster) => roster.attach(session, id, kind));
+  }
+
+  /** The specialist a conversation belongs to, and how it is used. */
+  bySession(session: string): { specialist: SpecialistRow; kind: SessionKind } | undefined {
+    return this.#run((roster) => roster.bySession(session));
+  }
 }
 
 /** The skill library, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
