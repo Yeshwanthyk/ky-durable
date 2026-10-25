@@ -27,7 +27,8 @@
     "effect:pin": "node --experimental-strip-types --no-warnings test/effect-pin.ts",
     "check": "pnpm -s effect:pin && pnpm -s ledger && pnpm -s typecheck && pnpm -s lint && pnpm -s knip && pnpm -s fallow && pnpm -s test:invariants",
     "test:invariants": "vitest run --config test/invariants/vitest.config.ts",
-    "ledger": "node --experimental-strip-types --no-warnings test/ledger.ts"
+    "ledger": "node --experimental-strip-types --no-warnings test/ledger.ts",
+    "census": "node --experimental-strip-types --no-warnings test/census.ts"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
