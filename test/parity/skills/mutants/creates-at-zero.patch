@@ -1,0 +1,13 @@
+diff --git a/src/skills/specialists.ts b/src/skills/specialists.ts
+index 8213236..3a96d7f 100644
+--- a/src/skills/specialists.ts
++++ b/src/skills/specialists.ts
+@@ -191,7 +191,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
+                 description,
+                 draft.model ? JSON.stringify(draft.model) : null,
+                 draft.machine || null,
+-                now
++                0
+               );
+               yield* changed;
+ 
