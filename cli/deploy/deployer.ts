@@ -27,7 +27,6 @@ import * as Zones from "@distilled.cloud/cloudflare/zones";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
-import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -542,8 +541,15 @@ const ensureBuckets = (name: Names) =>
     }
   });
 
-/** Whether the account runs containers: Workers Paid, and a login that may use them. Any failure says no. */
-const runsContainers = (accountId: string) => Effect.map(Effect.exit(Containers.getContainerIdentity({ accountId })), Exit.isSuccess);
+/** Whether the account runs containers: Workers Paid, and a login that may use them. Cloudflare answering with an error says no; not reaching it fails. */
+const runsContainers = (accountId: string) =>
+  Containers.getContainerIdentity({ accountId }).pipe(
+    Effect.as(true),
+    Effect.catchIf(
+      (error: Failure) => error._tag !== "HttpClientError",
+      () => Effect.succeed(false)
+    )
+  );
 
 /** Whether the cloud machine deploys: the release has its image, and the account runs containers. */
 const cloudState = (accountId: string, release: Release) =>
