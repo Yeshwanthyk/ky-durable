@@ -1,19 +1,19 @@
 /**
- * The skills domain over a real SQLite, for its parity runs and its invariants: a Durable Object's storage made
- * from node:sqlite, and the skills extension's tool and hook called as pi calls them.
+ * The skills domain over a real SQLite, for its invariants and the rows written at B: a Durable Object's storage
+ * made from node:sqlite, and the skills extension's hook called as pi calls it.
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Extension, HookApi, ToolExecutionApi, ToolHookCall, ToolHooks } from "@earendil-works/pi-durable";
+import type { Extension, HookApi, ToolHookCall, ToolHooks } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import type { ReviewHost, SkillChange } from "../../../src/skills/contract";
+import type { ReviewHost } from "../../../src/skills/contract";
 import type { Skills } from "../../../src/skills/wiring";
 
 /** A Durable Object's storage, as the port takes it. */
 type Storage = ConstructorParameters<typeof Skills>[0];
 
 /** A real SQLite as a Durable Object's `sql`: `exec` with `toArray` and `one`. */
-export function sqlOf(db: DatabaseSync) {
+function sqlOf(db: DatabaseSync) {
   return {
     exec: (query: string, ...bindings: SQLInputValue[]) => {
       const rows = db
@@ -57,28 +57,11 @@ export function storageOf(db: DatabaseSync): Storage {
 /** A stored row: the skill tables hold only numbers, strings and nulls. */
 export const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
 
-/** Each row of `table`, in the order it was written. */
-export const rowsOf = (db: DatabaseSync, table: string) =>
-  db
-    .prepare(`SELECT * FROM ${table} ORDER BY rowid`)
-    .all()
-    .map((row) => Schema.decodeUnknownSync(StoredRow)({ ...row }));
 
 /** The extension's host is used only by a review it starts after a busy turn, which no caller here reaches. */
 // SAFETY: see above; nothing here calls a member of it.
 export const HOST = {} as ReviewHost;
 
-/** Runs a skill tool as conversation `from` calls it: its text, and whether it failed. */
-export async function callTool(extension: Extension, name: string, args: SkillChange | { readonly name: string; readonly history: boolean }, from: string) {
-  const tool = extension.tools?.find((each) => each.name === name);
-
-  if (!tool) throw new Error(`No tool ${name}`);
-  // SAFETY: the skill tools read only the calling conversation from their api.
-  const api = { conversationId: Number(from), taskId: 1, callId: "call-1" } as ToolExecutionApi;
-  const result = await tool.execute(args, api, BACKGROUND_CONTEXT);
-
-  return { text: (result.output ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), failed: result.isError === true };
-}
 
 /** The allowlist's verdict on conversation `from` calling `name`: the block's words, or null. */
 export async function blockOf(extension: Extension, name: string, from: string): Promise<string | null> {
