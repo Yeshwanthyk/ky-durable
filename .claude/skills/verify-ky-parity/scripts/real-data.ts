@@ -12,6 +12,7 @@
  * Never pointed at a live ky: the stack is local and signed in with the fake Access.
  */
 import { chromium, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -114,7 +115,7 @@ async function side(file: string, out: string): Promise<void> {
     const problems = compare(backup, unpack(new Uint8Array(await again.arrayBuffer())));
     const shown = await shoot(stack.url, out);
 
-    writeFileSync(path.join(out, "report.json"), `${JSON.stringify({ backup: path.basename(file), summary: backup.manifest.summary, restored: restored.summary, shown, problems }, null, 2)}\n`);
+    writeFileSync(path.join(out, "report.json"), `${JSON.stringify({ backup: path.basename(file), commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim(), summary: backup.manifest.summary, restored: restored.summary, shown, problems }, null, 2)}\n`);
   } finally {
     await stack.stop();
   }

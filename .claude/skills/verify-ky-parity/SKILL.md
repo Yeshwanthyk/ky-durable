@@ -64,7 +64,9 @@ The five checks, and what runs each:
    It restores the backup into a fresh local stack at B and on this checkout, backs each up again,
    and fails when HEAD loses other rows than B does or a page shows other counts. At B every restore
    empties `workspace_runtime_events` and `workspace_runtime_executions` (the sandbox runtime starts
-   fresh), so both sides list them. Look at the screenshots too.
+   fresh), so both sides list them. Look at the screenshots too. A domain's own stored-data test
+   (`test/parity/<domain>/at-b.test.ts`) opens rows recorded at B (`at-b.json`) with B's reads of
+   them; record them from a checkout of `effect-baseline`, never from the port.
 5. **Real surface.** The domain's recipes in verify-ky-cli, verify-ky-web and verify-ky-machines,
    on the local stack, and `test/visual/` screenshots of its pages at B and on the branch.
 
@@ -80,7 +82,9 @@ a pipe hides the exit code.
 - `test-results/parity/<domain>/proof.json`: runs, steps, seed, tool versions (node, vitest,
   fast-check, effect, commit), and the first counterexample on failure.
 - `test-results/parity/<domain>/mutant-<name>.json`: `holds: true` when the mutant was caught.
-- `test-results/parity/real-data/{base,head}/`: `report.json` and a screenshot per page. They hold
+- `test-results/parity/<domain>-pre-flip/`: the same files from the last `prove.sh` while
+  `src/<domain>/legacy/` existed, the parity run against B; the flip's run leaves it alone.
+- `test-results/parity/real-data/{base,head}/`: `report.json` (with the commit it ran on) and a screenshot per page. They hold
   the owner's chats; `test-results/` is ignored by git, and they never leave this machine.
 - `test-results/census/<domain>.json`; `test-results/gate/*.log` for a full gate.
 
