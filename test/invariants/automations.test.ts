@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import fc from "fast-check";
 import { Value } from "typebox/value";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   AUTOMATION_TOOL,
   automationRows,
@@ -12,6 +13,10 @@ import {
   taskRows,
   TOOL_ACTIONS
 } from "../../src/automations/contract";
+import { budget } from "../parity/kit";
+import { type Action, actions, HOUR, installIds, next, port, START, World } from "../parity/automations/world";
+
+vi.mock("agents/harness/pi", () => ({ ROOT_SESSION: "1" }));
 
 const SRC = path.join(import.meta.dirname, "../../src");
 
@@ -92,6 +97,10 @@ describe("stored rows", () => {
     expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [] }]);
   });
 
+  it("keeps a row stored without its zone column, which reads as the user's zone", () => {
+    expect(automationRows([automation])).toEqual([{ ...automation, post: false }]);
+  });
+
   it("leaves out a row damaged past reading, keeping the rest", () => {
     expect(automationRows([{ ...automation, status: "lost" }, automation])).toHaveLength(1);
     expect(taskRows([{ ...task, kind: 3 }, null, task])).toHaveLength(1);
@@ -145,5 +154,130 @@ describe("actions", () => {
     expect(read(path.join(DOMAIN, "tool.ts"))).toMatch(new RegExp(`^\\s+${action}: \\(automations, id\\) => automations\\.${action}\\(id\\)`, "m"));
     expect(read(path.join(DOMAIN, "wiring.ts"))).toMatch(new RegExp(`^  (async )?${action}\\(id: string\\)`, "m"));
     expect(read(path.join(SRC, "sockets.ts"))).toMatch(new RegExp(`^\\s+${action}: \\(id\\) => this\\.#automations\\.${action}\\(id\\)`, "m"));
+  });
+});
+
+/** A step of a generated run: an action, or the clock moving on and the Scheduler firing what's due. */
+type Step = Action | { readonly advance: number } | { readonly advance: "alarm" };
+
+const steps: fc.Arbitrary<Step[]> = fc.array(
+  fc.oneof(
+    { weight: 3, arbitrary: actions },
+    { weight: 1, arbitrary: fc.record({ advance: fc.integer({ min: 1_000, max: 2 * HOUR }) }) },
+    { weight: 1, arbitrary: fc.record({ advance: fc.constant("alarm" as const) }) }
+  ),
+  { minLength: 5, maxLength: 40 }
+);
+
+/** The automations with more than one run still going (queued or working), by their task rows. */
+function overlapping(world: World): string[] {
+  return world.rows("SELECT source FROM ky_tasks WHERE status IN ('queued', 'working') GROUP BY source HAVING COUNT(*) > 1").map((row) => String(row.source));
+}
+
+/** The task ids in `seen` more than once. */
+const twice = (seen: readonly { task: string }[]) => seen.flatMap(({ task }, at) => (seen.findIndex((each) => each.task === task) === at ? [] : [task]));
+
+/**
+ * explainers/ky-architecture/quint/automations.qnt's three invariants, on the port over generated runs: every
+ * facade action, the clock and the Scheduler, a fire delivered again, runs moving on and reporting, a commit that
+ * fails and a machine turned off. A run starts once it is spawned or its machine takes it; a report posts once its
+ * run is done and the automation still wants it.
+ */
+describe("runs", () => {
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    installIds();
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** The port through `run`, with `check` after every step. */
+  const holds = (check: (world: World) => void) =>
+    fc.assert(
+      fc.asyncProperty(steps, async (run) => {
+        const time = { at: START };
+        const side = next({ now: () => time.at });
+
+        try {
+          for (const step of run) {
+            if (!("advance" in step)) await side.apply(step);
+            else {
+              const to = step.advance === "alarm" ? side.scheduler.nextAlarm() : time.at + step.advance;
+
+              if (to !== null && to >= time.at) {
+                time.at = to;
+                await side.due();
+              }
+            }
+
+            check(side.world);
+          }
+        } finally {
+          await side.dispose();
+        }
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
+    );
+
+  it("OneRunPerSlot: a slot starts one run and posts one report, however often it fires", async () => {
+    await holds((world) => {
+      expect(twice(world.started)).toEqual([]);
+      expect(twice(world.posted)).toEqual([]);
+    });
+  });
+
+  it("NoOverlap: an automation has at most one run going", async () => {
+    await holds((world) => {
+      expect(overlapping(world)).toEqual([]);
+    });
+  });
+
+  it("NothingAfterPause: no run starts unless its automation is active, and none reports once it is paused, archived or gone", async () => {
+    await holds((world) => {
+      expect(world.started.filter((seen) => seen.status !== "active")).toEqual([]);
+      expect(world.posted.filter((seen) => seen.status !== "active" && seen.status !== "done")).toEqual([]);
+    });
+  });
+});
+
+/** ky_automations as an early B made it, before gates, watches, posts and zones. */
+const EARLY_AUTOMATIONS = `CREATE TABLE ky_automations (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, prompt TEXT NOT NULL, cron TEXT, at INTEGER, model TEXT, machine TEXT,
+  chat TEXT NOT NULL, created_by TEXT NOT NULL, status TEXT NOT NULL, schedule_id TEXT, created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL)`;
+
+describe("stored data", () => {
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads what an early B stored: its automations take the new columns' defaults, and its check-ins keep their zone", async () => {
+    const world = new World({ now: () => START });
+    world.db.exec(EARLY_AUTOMATIONS);
+    world.db.exec("CREATE TABLE ky_check_ins (id INTEGER PRIMARY KEY CHECK (id = 1), off INTEGER NOT NULL, zone TEXT)");
+    world.db.exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, 1, 'Europe/London')");
+    world.rows(
+      "INSERT INTO ky_automations VALUES ('a1', 'Digest', 'digest', '0 9 * * *', NULL, ?, NULL, '1', 'user', 'active', NULL, 1, 1), ('a2', 'Call', 'call', NULL, ?, NULL, 'mini', '1', 'ky', 'done', NULL, 2, 2)",
+      JSON.stringify({ provider: "workers-ai", modelId: "glm", thinkingLevel: "off" }),
+      START + HOUR
+    );
+    world.feed.create({ id: "a-a2-1", kind: "machine", source: "automation:a2", worker: "mini", title: "Call", status: "done", session: null });
+
+    const automations = port(world, world.deps());
+
+    expect(automations.checkIns()).toEqual({ on: false, zone: "Europe/London", pinned: false });
+    expect((await automations.list(true)).map(({ id, zone, gate, gate_errors, post, watch, model, last_run }) => ({ id, zone, gate, gate_errors, post, watch, model, last: last_run?.status ?? null }))).toEqual([
+      { id: "a2", zone: "UTC", gate: null, gate_errors: 0, post: false, watch: null, model: null, last: "done" },
+      { id: "a1", zone: "UTC", gate: null, gate_errors: 0, post: false, watch: null, model: { provider: "workers-ai", modelId: "glm", thinkingLevel: "off" }, last: null }
+    ]);
+    world.db.close();
   });
 });

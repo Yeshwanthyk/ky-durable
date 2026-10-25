@@ -16,8 +16,6 @@ import { type AutomationDeps, Automator, type Callbacks, type Fire, type GateChe
 import { AUTOMATION_SOURCE, type AutomationAuthor, type AutomationDraft, type AutomationRow, type AutomationStatus, type AutomationView, type CheckIns } from "./contract";
 import { automationExtension, checkInGuardExtension } from "./tool";
 
-export type { AutomationDeps, AutomationRuntime, GateAnswer, GateCheck } from "./automations";
-
 export { Deliveries, deliveryExtension } from "./delivery";
 
 export { TaskFeed } from "./tasks";
@@ -33,8 +31,14 @@ export class Automations {
   readonly #listeners = new Set<() => void>();
   readonly #deps: AutomationDeps;
   /** Install with `Lifecycle.use()`; its alarm fires the automations. */
-  readonly scheduler: Scheduler<Callbacks> = new Scheduler<Callbacks>({
-    callbacks: {
+  readonly scheduler: Scheduler<Callbacks>;
+
+  readonly #edge;
+
+  /** `booker` makes the Scheduler over the callbacks; the invariants pass one that books in memory. */
+  constructor(storage: DurableObjectStorage, deps: AutomationDeps, booker = (callbacks: Callbacks) => new Scheduler<Callbacks>({ callbacks })) {
+    this.#deps = deps;
+    this.scheduler = booker({
       automation: (fire: Fire, schedule: Schedule<Fire>) => this.#void(Automator.use((automator) => automator.fire(fire, schedule))),
       // It only starts the dream, so it never holds up the alarm.
       dream: async () => this.#deps.dream.run(),
@@ -42,13 +46,7 @@ export class Automations {
       peers: () => this.#deps.peers(),
       // A runner silent past ONLINE_WITHIN_MS shows offline though its socket looks open.
       machines: async () => this.#deps.machines.recheck()
-    }
-  });
-
-  readonly #edge;
-
-  constructor(storage: DurableObjectStorage, deps: AutomationDeps) {
-    this.#deps = deps;
+    });
 
     const host = Layer.succeed(Host)({
       ...deps,

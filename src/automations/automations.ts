@@ -103,7 +103,7 @@ export type GateAnswer = { readonly text: string; readonly error: boolean };
 
 export type AutomationDeps = {
   readonly feed: TaskFeed;
-  readonly machines: MachineHub;
+  readonly machines: Pick<MachineHub, "machines" | "machine" | "defaultAgent" | "start" | "stop" | "recheck">;
   readonly chats: ChatList;
   readonly models: Pick<Models, "worker" | "valid" | "choices">;
   readonly runtime: AutomationRuntime;
@@ -156,7 +156,7 @@ export class Host extends Context.Service<
 >()("ky/automations/Host") {}
 
 /** A check-in's run, or a watch's: read only, and saying nothing when nothing is new. */
-export const isCheckIn = (row: AutomationRow) => row.created_by === "dream" || row.watch !== null;
+const isCheckIn = (row: AutomationRow) => row.created_by === "dream" || row.watch !== null;
 
 /** Check-ins booked in one day, and waiting at once. */
 const CHECK_INS_A_DAY = 2;
