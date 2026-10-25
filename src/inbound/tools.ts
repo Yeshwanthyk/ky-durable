@@ -1,6 +1,7 @@
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
 import Type from "typebox";
+import { decodeOr } from "../core/decode";
 import { toolReply as reply } from "../core/reply";
 import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SECRET_NAME } from "./credentials";
 import { SchemeSchema } from "./shapes";
@@ -117,10 +118,16 @@ export function inboundTools(inbound: Inbound): Extension {
   });
 }
 
-/** A call with a credential that changes something: asked of the user, and the turn ends until they decide. */
+/**
+ * A call with a credential that changes something: asked of the user, and the turn ends until they decide. The card
+ * shows what goes with it, the headers and body the model wrote, so a run can't carry what it read out in a body the
+ * user doesn't see; and, from a webhook's run, says so.
+ */
 async function askToCall(inbound: Inbound, call: SecretCall, conversation: string, args: JsonObject) {
+  const summary = `${call.method} ${call.url} with ${call.name}${await sentWith(inbound, call)}${call.guarded ? WHILE_ON_HOOK : ""}`;
+
   const asked = await inbound.requestApproval(
-    { kind: "secret-request", subject: call.name, summary: `${call.method} ${call.url} with ${call.name}`, payload: call, conversation },
+    { kind: "secret-request", subject: call.name, summary, payload: call, conversation },
     "secret_request",
     args
   );
@@ -153,7 +160,7 @@ export function hookGuard(inbound: Inbound): Extension {
             {
               kind: "webhook-action",
               subject: call.name,
-              summary: `${call.name} ${brief(call.arguments)}, while working on a webhook`,
+              summary: `${call.name} ${brief(call.arguments)}${WHILE_ON_HOOK}`,
               payload: { tool: call.name, arguments: call.arguments },
               conversation
             },
@@ -180,6 +187,29 @@ export function hookGuard(inbound: Inbound): Extension {
 
 /** A call's arguments as its card shows them: enough of them to judge what the user is saying yes to. */
 const BRIEF_CHARS = 600;
+
+/** The header a kept credential goes in, as its Vault meta says: null for bearer and basic, which use Authorization. */
+const KeptHeader = Type.Object({ header: Type.Union([Type.String(), Type.Null()]) });
+
+/** What a card asked from a run on a webhook's data adds to its summary. */
+const WHILE_ON_HOOK = ", while working on a webhook";
+
+/**
+ * The headers and body a call sends besides the credential, briefly; empty when it sends none. Any header the model
+ * named as the credential's own is left out: the Vault puts the credential there in its place.
+ */
+async function sentWith(inbound: Inbound, call: SecretCall): Promise<string> {
+  const meta = (await inbound.desk.vault().status()).find((secret) => secret.kind === HTTP_KIND && secret.id === call.name)?.meta;
+  const own = (decodeOr(KeptHeader, meta, null)?.header ?? "Authorization").toLowerCase();
+  const headers = Object.fromEntries(Object.entries(call.headers).filter(([key]) => key.toLowerCase() !== own));
+  const sent: JsonObject = {};
+
+  if (Object.keys(headers).length > 0) sent.headers = headers;
+
+  if (call.body !== null) sent.body = call.body;
+
+  return Object.keys(sent).length > 0 ? ` ${brief(sent)}` : "";
+}
 
 function brief(args: JsonObject): string {
   const text = JSON.stringify(args);
