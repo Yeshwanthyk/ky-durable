@@ -1,0 +1,13 @@
+diff --git a/src/skills/skills.ts b/src/skills/skills.ts
+index 630cff7..7fa5bc2 100644
+--- a/src/skills/skills.ts
++++ b/src/skills/skills.ts
+@@ -467,7 +467,7 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
+               );
+ 
+               const stale = (yield* list()).filter((skill) => {
+-                if (skill.pinned || skill.created_by === "user" || skill.created_at > now - STALE_MIN_AGE_MS) return false;
++                if (skill.created_by === "user" || skill.created_at > now - STALE_MIN_AGE_MS) return false;
+ 
+                 if (skill.last_used_at === null && skill.uses > 0) return false;
+ 
