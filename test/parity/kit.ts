@@ -172,7 +172,8 @@ export function parityProperty<Action>(parity: Parity<Action>, maxCommands = bud
   const advances = parity.advances ? [parity.advances.map(Advance), fc.constant("alarm" as const).map(Advance)] : [];
   const steps = [agreed.map(Apply), ...advances];
 
-  return fc.asyncProperty(fc.commands(steps, { maxCommands }), async (run) => {
+  // fast-check's default size averages about two steps a run, too shallow to reach states like pin-then-edit.
+  return fc.asyncProperty(fc.commands(steps, { maxCommands, size: "large" }), async (run) => {
     const time = { at: parity.start ?? 0 };
     const clock: Clock = { now: () => time.at };
     const pair = { legacy: await parity.legacy(clock), next: await parity.next(clock), time };

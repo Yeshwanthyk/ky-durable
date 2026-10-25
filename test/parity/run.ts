@@ -135,7 +135,8 @@ let failed = false;
 // a compile error, a flake or a test already red can't pass for a catch.
 const clean = prove("proof");
 
-writeFileSync(path.join(OUT, "proof.json"), `${JSON.stringify({ domain, mutant: null, runs, steps, seed, tools, at: new Date().toISOString(), holds: clean.passed, failures: clean.failures }, null, 2)}\n`);
+// A mutant run checks its clean proof at the mutant budget; only the proof run itself writes the evidence at the bar.
+if (mutants.length === 0) writeFileSync(path.join(OUT, "proof.json"), `${JSON.stringify({ domain, mutant: null, runs, steps, seed, tools, at: new Date().toISOString(), holds: clean.passed, failures: clean.failures }, null, 2)}\n`);
 
 console.log(`${clean.passed ? "PASS" : "FAIL"}  ${domain}: ${runs} runs of up to ${steps} steps, seed ${seed}`);
 
