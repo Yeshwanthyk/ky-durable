@@ -36,7 +36,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="meta">Updated 2026-10-25 13:25 · branch effect/foundation · baseline B = b658a6e (tag effect-baseline) · nothing pushed</div>
+  <div class="meta">Updated 2026-10-25 · foundation b7a9692 · branch effect/foundation · baseline B = b658a6e (tag effect-baseline) · nothing pushed</div>
 
   <section>
     <h2>Waves</h2>
@@ -48,8 +48,8 @@
       </div>
       <div class="wave now">
         <div class="t">Wave 1: deploy</div>
-        <div class="s">DAG: deploy port in its thread · kit clock, Sql, squarey restore here · 3 of 7</div>
-        <div class="bar"><i style="width:45%"></i></div>
+        <div class="s">DAG: deploy port in its thread · kit clock, Sql, squarey restore here · 6 of 7</div>
+        <div class="bar"><i style="width:85%"></i></div>
       </div>
       <div class="wave">
         <div class="t">Wave 2: automations + skills</div>
@@ -82,9 +82,9 @@
       <li class="d"><span>Kit: one clock per run both sides read<span class="ev">3c162ba · toy 7/7 · a port keeping its own time is caught</span></span></li>
       <li class="d"><span>src/core/sql.ts: sync-first Sql over the DO's storage<span class="ev">4e8d6b5, 70ce4f8 · 5/5 on a real DO · rollback on fail, die or wait</span></span></li>
       <li class="d"><span>Squarey comes up as usual on the new code<span class="ev">backup 107 MB (56 chats, 47 skills, 49 automations) · B and HEAD restore alike · same 2 runtime tables reset on both</span></span></li>
-      <li class="w"><span>Deploy ported, I-D2 + I-D3 fixed<span class="ev">f1ebace · parity green 4 seeds × 100 · 500-run bar next</span></span></li>
-      <li class="p"><span>Flip: delete cli/deploy/legacy/, replaced code, prunable tests; reprove on the port alone</span></li>
-      <li class="p"><span>Fable review of the deploy branch · deploy statechart for you</span></li>
+      <li class="d"><span>Deploy ported, I-D2 + I-D3 fixed, merged into foundation<span class="ev">dbb56e4 · 500 runs · 6/6 mutants · 69 held, 0 lost</span></span></li>
+      <li class="d"><span>Flip: cli/deploy/legacy/ deleted, reproved on the port alone<span class="ev">942c147 · boundaries fence: cli/deploy entered only via contract or wiring (e51c888)</span></span></li>
+      <li class="w"><span>Fable review of deploy · statechart shown to you<span class="ev">review running</span></span></li>
       <li class="p"><span>Harvest repeated steps into scripts · recap · ask for Wave 2 go</span></li>
     </ul>
   </section>
@@ -95,10 +95,10 @@
       <tr><th></th><th>1 Ratchet</th><th>2 Parity + mutants</th><th>3 Invariants</th><th>4 Stored data</th><th>5 Real surface</th></tr>
       <tr><td><b>Deploy</b> (U1)</td>
         <td class="c"><span class="chip ok">69 held</span></td>
-        <td class="c"><span class="chip part">green 4×100 · 500 next</span></td>
-        <td class="c"><span class="chip part">I-D1..5 hold on the port</span></td>
+        <td class="c"><span class="chip ok">500 runs · 6/6 mutants</span></td>
+        <td class="c"><span class="chip ok">I-D1..7 hold</span></td>
         <td class="c"><span class="chip part">squarey: HEAD = B · upgrade check in U1</span></td>
-        <td class="c"><span class="chip todo">statechart in U1</span></td></tr>
+        <td class="c"><span class="chip ok">statechart</span></td></tr>
       <tr><td><b>Automations</b> (U2)</td>
         <td class="c"><span class="chip ok">mapped</span></td>
         <td class="c"><span class="chip todo">U2 (kit clock first)</span></td>
