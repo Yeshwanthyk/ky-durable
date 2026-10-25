@@ -45,14 +45,14 @@ import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
 import { Titler } from "./titles";
 import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
-import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
+import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
 import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
 import type { Vault } from "./vault";
@@ -404,12 +404,12 @@ export class PiAgent extends DurableObject<Env> {
         tools: workspaceTools
       });
       // Before every other tool hook: a blocked call then starts no progress step, and those after see the preview.
-      // The workspace's file tools page through files already; exec's output is a program's, so it can spill.
       this.registry.install(
         guardrailsExtension({
           sql: this.ctx.storage.sql,
           workspace: this.workspace,
-          unspilled: new Set(workspaceTools.map((tool) => tool.name).filter((name) => name !== "exec"))
+          unspilled: pagedTools(workspaceTools),
+          readsFiles: (conversation) => this.readsFiles(String(conversation))
         })
       );
 
@@ -580,6 +580,18 @@ export class PiAgent extends DurableObject<Env> {
 
     if (config) this.registry.install(executorExtension(config, this.executorApprovals, (url) => this.executor.retarget(url)));
     else if (installed) this.registry.uninstall(installed);
+  }
+
+  /**
+   * Whether the run in `session` may call `read`, so a tool result spilled to a file (src/guardrails.ts) can be read
+   * back: not a check-in's, nor a review's of a kind that may not (a look's, a dream's).
+   */
+  readsFiles(session: string): boolean {
+    if (this.automations.checkInRun(session)) return false;
+
+    const kind = this.reviews.kind(session);
+
+    return kind === undefined || REVIEW_ALLOWED[kind].includes("read");
   }
 
   /** The main chat or a side chat, as against a subagent, a review or a dream. */

@@ -526,6 +526,23 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
   return newest !== null && ownMessages(sql, [newest]).has(newest);
 }
 
+/**
+ * The entry that opened the chat's run holding entry `before` (its newest run, without one): the latest user or reset
+ * entry before it, where a run's count of anything starts. Undefined when the chat has none before it.
+ */
+export function runOpener(sql: SqlStorage, conversation: string, before = Number.MAX_SAFE_INTEGER): number | undefined {
+  const row = sql
+    .exec(
+      `SELECT id FROM pi_entries WHERE conversation_id = ? AND id < ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.reset')
+       ORDER BY id DESC LIMIT 1`,
+      Number(conversation),
+      before
+    )
+    .toArray()[0];
+
+  return decodeOr(NewestRow, row ?? { id: null }, { id: null }).id ?? undefined;
+}
+
 /** User entries of a chat read for whether the user wrote since: notices placed since are passed over. */
 const WROTE_SINCE = 20;
 

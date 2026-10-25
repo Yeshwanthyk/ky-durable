@@ -482,6 +482,14 @@ export function bulkText(lines: number): string {
   return Array.from({ length: lines }, (_, index) => `line ${String(index + 1).padStart(5, "0")} `.padEnd(60, "abcdefghij".at(index % 10)!)).join("\n");
 }
 
+/** The `wide` tool's answer: one line of `chars` digits. */
+export function wideText(chars: number): string {
+  return Array.from({ length: chars }, (_, index) => String(index % 10)).join("");
+}
+
+/** A spilled result's path (src/guardrails.ts), where a result names it. */
+export const SPILLED = /\/workspace\/\.tool-results\/\d+\/[\w-]+\.txt/;
+
 /** Whether the fake VibeProxy answers (the Mac is online). */
 const MAC_UP_KEY = "test:mac-up";
 
@@ -704,7 +712,7 @@ function rounds(messages: readonly WireMessage[]): Reply | undefined {
 }
 
 /** A page of `read`: its text, and where the next starts when there is more. */
-const Page = Type.Object({ content: Type.String(), truncated: Type.Boolean(), nextOffset: Type.Optional(Type.Number()), nextByteOffset: Type.Optional(Type.Number()) });
+export const Page = Type.Object({ content: Type.String(), truncated: Type.Boolean(), nextOffset: Type.Optional(Type.Number()), nextByteOffset: Type.Optional(Type.Number()) });
 
 /** A file `read` gave back whole, in one page: its bare text. */
 const whole = (content: string): Static<typeof Page> => ({ content, truncated: false });
@@ -724,7 +732,7 @@ function readback(messages: readonly WireMessage[]): Reply | undefined {
     return call(asked[1]!, JSON.parse(asked[2]!) as Record<string, JsonValue>);
   }
 
-  const path = /\/workspace\/\.tool-results\/[\w-]+\.txt/.exec(results[0]!)?.[0];
+  const path = SPILLED.exec(results[0]!)?.[0];
 
   // Counts, not the text: the fake streams its answers slowly, three characters at a time.
   if (path === undefined) return { text: `nothing spilled: ${results[0]!.length} characters` };
@@ -914,6 +922,15 @@ export class PiAgent extends ProductionAgent {
       execute: async ({ lines }) => ({ output: [{ type: "text", text: bulkText(lines) }] })
     });
 
+    // One long line, as a minified page or a base64 field is.
+    const wide = defineTool({
+      name: "wide",
+      description: "Answer with one long line.",
+      parameters: Type.Object({ chars: Type.Number() }),
+      replay: "safe",
+      execute: async ({ chars }) => ({ output: [{ type: "text", text: wideText(chars) }] })
+    });
+
     // A poll whose answer changes every call.
     const tick = defineTool({
       name: "tick",
@@ -976,7 +993,7 @@ export class PiAgent extends ProductionAgent {
         return kys.fetch(request, this.env);
       },
       seeds: this.ctx.id.name?.startsWith(FRESH) === true,
-      extensions: [defineExtension({ name: "test-tools", tools: [multiply, bulk, tick, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
+      extensions: [defineExtension({ name: "test-tools", tools: [multiply, bulk, wide, tick, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       mail: this.ctx.id.name?.startsWith(NO_MAIL) === true ? undefined : mail,
       executorFake,
       calls,
