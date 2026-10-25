@@ -79,6 +79,13 @@ const askedOf = (summary: string, value: number) =>
     })
   );
 
+/** Leave approval `id` as a restart leaves it: the user's `status` claimed a while ago, never marked carried out; then start over. */
+const restarted = (id: string, status: "accepted" | "declined") =>
+  inside("me", (instance, state) => {
+    state.storage.sql.exec("UPDATE ky_approvals SET status = ?, decided_at = ?, carried_at = NULL WHERE id = ?", status, Date.now() - 5 * 60_000, id);
+    instance.approvals.recover();
+  });
+
 /** Prompt the main chat and wait: its answer, and its last tool result whole, as the model read it. */
 async function run(text: string): Promise<{ text: string; failed: boolean; result: string }> {
   return inside("me", async (instance) => {
@@ -277,6 +284,19 @@ describe("Webhooks", () => {
     await said("me", "[on a webhook's data, the user declined: multiply");
     expect(await statusOf(id)).toBe("declined");
     expect(await inside("me", (instance) => instance.inbound.passed(ROOT_SESSION, "multiply", { value: 5 }))).toBe(false);
+  });
+
+  it("takes back the pass of a yes a restart cut off, and tells the chat the card is back", async () => {
+    const id = await askedOf('multiply {"value":11}', 11);
+    const passes = () => inside("me", (_instance, state) => state.storage.sql.exec("SELECT approval FROM ky_passes WHERE approval = ?", id).toArray().length);
+
+    await inside("me", (_instance, state) => state.storage.sql.exec("INSERT INTO ky_passes (approval, at) VALUES (?, ?)", id, Date.now()));
+    await restarted(id, "accepted");
+
+    await said("me", "ky restarted before it finished, so the card is back in the chat. Don't make that call unless they approve it again.");
+    expect(await statusOf(id)).toBe("pending");
+    expect(await passes()).toBe(0);
+    expect(await inside("me", (instance) => instance.inbound.passed(ROOT_SESSION, "multiply", { value: 11 }))).toBe(false);
   });
 
   it("asks once for the same call in a run, and anew in a later run", async () => {
@@ -534,6 +554,28 @@ describe("Credentials", () => {
     expect((await call("/api/inbound/secrets/REMOVED", { method: "DELETE" })).status).toBe(204);
     expect(await decide(asking.id, "accept")).toEqual({});
     await said("me", "Nothing was sent:");
+    expect(await statusOf(asking.id)).toBe("pending");
+  });
+
+  it("tells the chat to check before the user approves again a call a restart cut off", async () => {
+    await saved("CUT");
+    await run(`tool secret_request ${JSON.stringify({ name: "CUT", url: `${CREDENTIAL_API}/things`, method: "POST", body: "x" })}`);
+    const asking = await card("CUT");
+
+    await restarted(asking.id, "accepted");
+
+    await said("me", "The call may have been made before the restart: check whether it was before the user approves it again");
+    expect(await statusOf(asking.id)).toBe("pending");
+  });
+
+  it("tells the chat a no a restart cut off, and the card waits again", async () => {
+    await saved("CUTNO");
+    await run(`tool secret_request ${JSON.stringify({ name: "CUTNO", url: `${CREDENTIAL_API}/things`, method: "DELETE" })}`);
+    const asking = await card("CUTNO");
+
+    await restarted(asking.id, "declined");
+
+    await said("me", "ky restarted before it finished, so the card is back in the chat. Don't make that call.");
     expect(await statusOf(asking.id)).toBe("pending");
   });
 

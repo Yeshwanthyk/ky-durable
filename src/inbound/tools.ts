@@ -106,22 +106,7 @@ export function inboundTools(inbound: Inbound): Extension {
 
           const call: SecretCall = { name: args.name, url: args.url, method, headers: args.headers ?? {}, body: args.body ?? null, guarded: inbound.guarded(conversation) };
 
-          if (!READS.has(method)) {
-            const asked = await inbound.requestApproval(
-              { kind: "secret-request", subject: args.name, summary: `${method} ${args.url} with ${args.name}`, payload: call, conversation },
-              "secret_request",
-              { ...args, method }
-            );
-
-            if ("refused" in asked) return reply(asked.refused, true);
-
-            if (asked.asked.status !== "pending") return reply(`The user already ${asked.asked.status === "accepted" ? "approved" : "turned down"} that call in this run. Don't ask again.`, true);
-
-            return {
-              ...reply(`${method} ${args.url} waits for the user's approval, asked for in the chat. Your turn ends here; ky makes the call if they approve, and tells you what came back.`),
-              control: { terminate: true }
-            };
-          }
+          if (!READS.has(method)) return askToCall(inbound, call, conversation, { ...args, method });
 
           const answer = await desk.vault().httpRequest(call.name, { url: call.url, method, headers: call.headers, body: call.body });
 
@@ -130,6 +115,24 @@ export function inboundTools(inbound: Inbound): Extension {
       })
     ]
   });
+}
+
+/** A call with a credential that changes something: asked of the user, and the turn ends until they decide. */
+async function askToCall(inbound: Inbound, call: SecretCall, conversation: string, args: JsonObject) {
+  const asked = await inbound.requestApproval(
+    { kind: "secret-request", subject: call.name, summary: `${call.method} ${call.url} with ${call.name}`, payload: call, conversation },
+    "secret_request",
+    args
+  );
+
+  if ("refused" in asked) return reply(asked.refused, true);
+
+  if (asked.asked.status !== "pending") return reply(`The user already ${asked.asked.status === "accepted" ? "approved" : "turned down"} that call, and ky is carrying it out. Don't ask again.`, true);
+
+  return {
+    ...reply(`${call.method} ${call.url} waits for the user's approval, asked for in the chat. Your turn ends here; ky makes the call if they approve, and tells you what came back.`),
+    control: { terminate: true }
+  };
 }
 
 /**
@@ -161,7 +164,7 @@ export function hookGuard(inbound: Inbound): Extension {
           if ("refused" in asked) return { block: `This chat is working on a webhook's outside data, so ${call.name} isn't made: ${asked.refused}` };
 
           if (asked.asked.status !== "pending") {
-            return { block: `This chat is working on a webhook's outside data. The user already ${asked.asked.status === "accepted" ? "approved that call once" : "turned that call down"} in this run: don't make it again.` };
+            return { block: `This chat is working on a webhook's outside data. The user already ${asked.asked.status === "accepted" ? "approved" : "turned down"} that call, and ky is carrying it out: don't make it again.` };
           }
 
           return {

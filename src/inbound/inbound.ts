@@ -135,8 +135,14 @@ export class Inbound {
   readonly desk: InboundDesk;
   /** What each kind of approval inbound asks does with the user's answer; the agent registers them with Approvals. */
   readonly handlers = {
-    "secret-request": { decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#secretCall(approval, action, settle) },
-    "webhook-action": { decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#hookAction(approval, action, settle) }
+    "secret-request": {
+      decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#secretCall(approval, action, settle),
+      lost: (approval: Approval, action: ApprovalAction) => this.#secretLost(approval, action)
+    },
+    "webhook-action": {
+      decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#hookAction(approval, action, settle),
+      lost: (approval: Approval, action: ApprovalAction) => this.#hookLost(approval, action)
+    }
   } satisfies Readonly<Record<"secret-request" | "webhook-action", ApprovalHandler>>;
 
   constructor(sql: SqlStorage, desk: InboundDesk) {
@@ -383,6 +389,30 @@ export class Inbound {
     );
   }
 
+  /**
+   * A restart cut off the user's answer on a call with a credential, and the card waits again. An approved one may
+   * have reached the API before the restart, and the Vault takes a call as often as it is asked, so the chat is told
+   * to check before the user approves it again.
+   */
+  #secretLost(approval: Approval, action: ApprovalAction): Promise<void> {
+    // A payload past reading can't say whether its run was guarded; told as guarded, the run that hears it stays so.
+    const guarded = decodeOr(SecretCall, approval.payload, null)?.guarded ?? true;
+
+    const after =
+      action === "accept"
+        ? "The call may have been made before the restart: check whether it was before the user approves it again, which makes it again."
+        : "Don't make that call.";
+
+    return this.#told(approval, guarded, `${outcome(guarded, CHOSE[action], approval.summary)} ${RESTARTED} ${after}`);
+  }
+
+  /** A restart cut off the user's answer on a webhook action, and the card waits again: any pass it gave goes with it. */
+  #hookLost(approval: Approval, action: ApprovalAction): Promise<void> {
+    this.#sql.exec("DELETE FROM ky_passes WHERE approval = ?", approval.id);
+
+    return this.#told(approval, true, `${outcome(true, CHOSE[action], approval.summary)} ${RESTARTED} Don't make that call unless they approve it again.`);
+  }
+
   #declined(approval: Approval, action: ApprovalAction, guarded: boolean): Promise<void> {
     return this.#told(approval, guarded, `${outcome(guarded, CHOSE[action], approval.summary)} Don't make that call.`);
   }
@@ -395,6 +425,9 @@ export class Inbound {
     return this.desk.tell(approval.conversation, content, `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}:${crypto.randomUUID()}`);
   }
 }
+
+/** What the chat hears of an answer a restart cut off (Approvals.recover). */
+const RESTARTED = "ky restarted before it finished, so the card is back in the chat.";
 
 const CHOSE: Readonly<Record<ApprovalAction, string>> = { accept: "approved", decline: "declined", cancel: "cancelled" };
 
