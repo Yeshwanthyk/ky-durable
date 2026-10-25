@@ -73,8 +73,8 @@ const failed = (error: Error): CallResult => ({
   isError: true
 });
 
-/** One try at a call, and whether it provably never reached Executor, so it may be tried again. */
-type Attempt = { result: CallResult; neverRan: boolean };
+/** A call's answer, and whether it provably never reached Executor: then nothing it asked for happened. */
+export type Attempt = { result: CallResult; neverRan: boolean };
 
 /** Whether Executor answered with one of these HTTP statuses. */
 function answered(error: Error, ...codes: number[]): boolean {
@@ -168,11 +168,20 @@ class ExecutorClient {
     args: Record<string, JsonValue | undefined>,
     signal: AbortSignal | undefined
   ): Promise<CallResult> {
+    return (await this.attempt(name, args, signal)).result;
+  }
+
+  /** A call as `call` makes it, with whether it never reached Executor after all. */
+  async attempt(
+    name: string,
+    args: Record<string, JsonValue | undefined>,
+    signal: AbortSignal | undefined
+  ): Promise<Attempt> {
     for (let attempt = 0; ; attempt++) {
       const retry = attempt === 0 && signal?.aborted !== true;
-      const { result, neverRan } = await this.#attempt(name, args, signal);
+      const tried = await this.#attempt(name, args, signal);
 
-      if (!retry || !neverRan) return result;
+      if (!retry || !tried.neverRan) return tried;
     }
   }
 
@@ -217,11 +226,11 @@ export async function callOnce(
   name: string,
   args: Record<string, JsonValue | undefined>,
   signal?: AbortSignal
-): Promise<CallResult> {
+): Promise<Attempt> {
   const executor = new ExecutorClient(config);
 
   try {
-    return await executor.call(name, args, signal);
+    return await executor.attempt(name, args, signal);
   } finally {
     executor.close();
   }
@@ -233,7 +242,7 @@ export async function executeOnce(
   code: string,
   signal: AbortSignal
 ): Promise<{ text: string; error: boolean }> {
-  const result = await callOnce(config, "execute", { code }, signal);
+  const { result } = await callOnce(config, "execute", { code }, signal);
 
   return { text: resultText(result), error: result.isError === true };
 }

@@ -760,6 +760,8 @@ export class PiAgent extends DurableObject<Env> {
     await this.automations.recover();
     // Reports a restart left waiting for their chat's turn to end.
     this.deliveries.recover();
+    // Taps a restart cut off before they were carried out: their cards come back, told once the start is over.
+    this.approvals.recover();
 
     if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.

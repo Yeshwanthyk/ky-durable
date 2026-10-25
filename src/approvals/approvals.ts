@@ -1,6 +1,6 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import Type, { type Static } from "typebox";
-import { decode, parseOr } from "../core/decode";
+import { decode, decodeOr, parseOr } from "../core/decode";
 import { must } from "../core/must";
 import {
   type ApprovalAction,
@@ -27,7 +27,14 @@ import {
  * The tap is answered as soon as it is claimed; the handler carries it out
  * after, in the background, and tells the chat what came of it. When nothing
  * reached its target, the handler puts the row back to pending, so the user
- * can tap again.
+ * can tap again. A row is marked carried once its handler is done; one a
+ * restart cut off between the claim and that goes back to pending on start
+ * (recover), and the chat is told: what it asked for takes the answer once,
+ * so a second tap can't do it twice.
+ *
+ * Asked for a `ref` whose row is decided and carried, as when Executor pauses
+ * on a request id again, the row waits on the user again: a new card, told as
+ * a new one is.
  *
  * Who is there decides who hears of it. Its card waits in the chat the asking
  * conversation belongs to. When the user didn't start the turn that asked (a
@@ -78,6 +85,8 @@ export type Settle = {
 /** What a kind does with the user's answer, after the tap was answered: it tells the chat what came of it, a failure included. */
 export type ApprovalHandler = {
   readonly decide: (approval: Approval, action: ApprovalAction, settle: Settle) => Promise<void>;
+  /** A restart cut off carrying out the user's `action` on `approval`, which waits on them again: tell its chat. */
+  readonly lost: (approval: Approval, action: ApprovalAction) => Promise<void>;
 };
 
 export type ApprovalDeps = {
@@ -94,6 +103,15 @@ export type ApprovalDeps = {
 const TABLE = APPROVAL_TABLES.approvals;
 
 const STATUS: Record<ApprovalAction, ApprovalStatus> = { accept: "accepted", decline: "declined", cancel: "cancelled" };
+
+/** The answer that left an approval in `status`, if one did. */
+const actionOf = (status: ApprovalStatus): ApprovalAction | undefined =>
+  status === "accepted" ? "accept" : status === "declined" ? "decline" : status === "cancelled" ? "cancel" : undefined;
+
+/** How long a claimed row may go uncarried before a start takes it for one a restart cut off. */
+const CARRY_MS = 60_000;
+
+const Column = Type.Object({ name: Type.String() });
 
 const Row = Type.Object({
   id: Type.String(),
@@ -149,8 +167,14 @@ export class Approvals implements Asker {
       chat TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       decided_at INTEGER,
+      carried_at INTEGER,
       UNIQUE (kind, ref))`);
     sql.exec(`CREATE INDEX IF NOT EXISTS ${TABLE}_pending ON ${TABLE} (status, created_at)`);
+
+    // Carrying came after the table, in a build that never shipped: a local object from then has no column for it.
+    if (!sql.exec(`PRAGMA table_info(${TABLE})`).toArray().some((column) => decodeOr(Column, column, undefined)?.name === "carried_at")) {
+      sql.exec(`ALTER TABLE ${TABLE} ADD COLUMN carried_at INTEGER`);
+    }
   }
 
   /** Who decides each kind; a kind with no handler can't be decided, so it stays pending and shows no card. */
@@ -174,10 +198,12 @@ export class Approvals implements Asker {
       .map((row) => decode(Row, row, "A stored approval"));
   }
 
-  /** Move approval `id` from status `from` to `to`; false when it wasn't in `from` any more. */
-  #move(id: string, from: ApprovalStatus, to: ApprovalStatus): boolean {
+  /** Move approval `id` from status `from` to `to`, carried at `carriedAt` (null while there is still something to carry out); false when it wasn't in `from` any more. */
+  #move(id: string, from: ApprovalStatus, to: ApprovalStatus, carriedAt: number | null = null): boolean {
     const decidedAt = to === "pending" ? null : Date.now();
-    const moved = this.#sql.exec(`UPDATE ${TABLE} SET status = ?, decided_at = ? WHERE id = ? AND status = ? RETURNING id`, to, decidedAt, id, from).toArray().length > 0;
+
+    const moved =
+      this.#sql.exec(`UPDATE ${TABLE} SET status = ?, decided_at = ?, carried_at = ? WHERE id = ? AND status = ? RETURNING id`, to, decidedAt, carriedAt, id, from).toArray().length > 0;
 
     if (moved) this.#changed();
 
@@ -187,10 +213,15 @@ export class Approvals implements Asker {
   requestApproval(request: ApprovalRequest): string {
     const chat = this.#deps.home(request.conversation);
 
+    // A row decided and carried out is asked again from scratch; one pending, or still being carried out, stays as it is.
     const [inserted] = this.#sql
       .exec(
         `INSERT INTO ${TABLE} (id, kind, ref, subject, summary, payload, status, conversation, chat, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-         ON CONFLICT (kind, ref) DO NOTHING RETURNING id`,
+         ON CONFLICT (kind, ref) DO UPDATE SET
+           subject = excluded.subject, summary = excluded.summary, payload = excluded.payload, status = 'pending',
+           conversation = excluded.conversation, chat = excluded.chat, created_at = excluded.created_at, decided_at = NULL, carried_at = NULL
+         WHERE ${TABLE}.status != 'pending' AND ${TABLE}.carried_at IS NOT NULL
+         RETURNING id`,
         crypto.randomUUID(),
         request.kind,
         request.ref,
@@ -204,7 +235,7 @@ export class Approvals implements Asker {
       .toArray()
       .map((row) => decode(Id, row, "A new approval's id").id);
 
-    // Asked again for the same thing: the approval already there, and nobody is told twice.
+    // Asked again for one still waiting: the approval already there, and nobody is told twice.
     if (inserted === undefined) return must(this.byRef(request.kind, request.ref), "The approval asked for this is gone.").id;
 
     if (!this.#deps.present(request.conversation)) this.#deps.notify(chat, `Waiting for your OK: ${request.summary}`.slice(0, 200));
@@ -223,8 +254,11 @@ export class Approvals implements Asker {
 
     if (!asked || !handler) return { refused: GONE };
 
+    // The claim's time names it, so a handler that finishes late can't mark a later tap's claim carried out.
+    const decidedAt = Date.now();
+
     const [claimed] = this.#sql
-      .exec(`UPDATE ${TABLE} SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending' RETURNING ${COLUMNS}`, STATUS[action], Date.now(), id)
+      .exec(`UPDATE ${TABLE} SET status = ?, decided_at = ?, carried_at = NULL WHERE id = ? AND status = 'pending' RETURNING ${COLUMNS}`, STATUS[action], decidedAt, id)
       .toArray()
       .map((row) => decode(Row, row, "A stored approval"));
 
@@ -233,7 +267,7 @@ export class Approvals implements Asker {
     const approval = approvalOf(claimed);
 
     const settle: Settle = {
-      expire: () => void this.#move(id, approval.status, "expired"),
+      expire: () => void this.#move(id, approval.status, "expired", Date.now()),
       reopen: () => this.#move(id, approval.status, "pending")
     };
 
@@ -242,13 +276,38 @@ export class Approvals implements Asker {
       Promise.resolve()
         .then(() => handler.decide(approval, action, settle))
         .catch((error) => console.warn("approval not carried out", id, error))
+        .finally(() => this.#carried(id, decidedAt))
     );
 
     return {};
   }
 
+  /** The handler is done with the claim of approval `id` decided at `decidedAt`: unless it waits on the user again, or a later tap claimed it since, nothing is left to carry out. */
+  #carried(id: string, decidedAt: number): void {
+    this.#sql.exec(
+      `UPDATE ${TABLE} SET carried_at = ? WHERE id = ? AND decided_at = ? AND status != 'pending' AND carried_at IS NULL`,
+      Date.now(),
+      id,
+      decidedAt
+    );
+  }
+
+  /** On start: an answer a restart cut off before its handler was done waits on the user again, and its chat is told. */
+  recover(now = Date.now()): void {
+    const cut = this.#rows("status IN ('accepted', 'declined', 'cancelled') AND carried_at IS NULL AND decided_at < ?", now - CARRY_MS);
+
+    for (const row of cut) {
+      const handler = this.#handlers.get(row.kind);
+      const action = actionOf(row.status);
+
+      if (!handler || !action || !this.#move(row.id, row.status, "pending")) continue;
+      this.#deps.defer(handler.lost({ ...approvalOf(row), status: "pending" }, action).catch((error) => console.warn("approval not told", row.id, error)));
+    }
+  }
+
   withdraw(id: string, action: "decline" | "cancel"): boolean {
-    return this.#move(id, "pending", STATUS[action]);
+    // Nothing is carried out for an approval turned down without its handler.
+    return this.#move(id, "pending", STATUS[action], Date.now());
   }
 
   get(id: string): Approval | undefined {

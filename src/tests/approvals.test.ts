@@ -1,5 +1,5 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { ApprovalView } from "../approvals/contract";
@@ -287,6 +287,85 @@ describe("a tap is answered at once", () => {
   });
 });
 
+describe("a resume that reached Executor and failed", () => {
+  it("whose answer was lost on the way back stays decided, and the chat is told to check whether it happened", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { ask } = await page(name);
+    await prompt(name, PAUSE);
+    const [card] = await pending(name);
+
+    await inside(name, (instance) => {
+      instance.boundary.executorFake.loseResumeAnswers = 1;
+    });
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await said(name, "but Executor answered with an error: Executor call failed: Network connection lost.. It may have happened anyway");
+    expect(await inside(name, (instance) => instance.approvals.get(card!.id)?.status)).toBe("accepted");
+    expect(await pending(name)).toEqual([]);
+    expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "accept" } }]);
+  });
+
+  it("with an error after it acted stays decided, even when the error says expired", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { ask } = await page(name);
+    await prompt(name, PAUSE);
+    const [card] = await pending(name);
+
+    await inside(name, (instance) => {
+      instance.boundary.executorFake.failResumes = "The Gmail session expired after sending.";
+    });
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await said(name, "but Executor answered with an error: The Gmail session expired after sending.. It may have happened anyway");
+    expect(await inside(name, (instance) => instance.approvals.get(card!.id)?.status)).toBe("accepted");
+  });
+});
+
+describe("a tap a restart cut off", () => {
+  it("comes back as its card on start, the chat is told, and a second tap is carried out and stays decided", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    await prompt(name, PAUSE);
+    const [card] = await pending(name);
+
+    // The tap claimed the row, and the object was evicted before its handler ran.
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("UPDATE ky_approvals SET status = 'accepted', decided_at = ?, carried_at = NULL WHERE id = ?", Date.now() - 120_000, card!.id);
+    });
+    await evictDurableObject(agent(name));
+
+    // The page reconnecting starts the object again.
+    const { ask, client } = await page(name);
+    await client.until(() => cards(client).some((each) => each.id === card!.id));
+    await said(name, "ky restarted before it finished, so the tap may not have gone through. The card is back");
+    expect(await resumes(name)).toEqual([]);
+
+    // The stack's fake Executor starts over with the object, so it no longer has the request: the tap expires it, never resending.
+    expect(await ask({ type: "approval-decide", id: "", approval: card!.id, action: "accept" })).toEqual({});
+    await said(name, "Executor no longer has request request-1: it expired");
+    expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "accept" } }]);
+
+    // Carried out, it stays decided across the next start.
+    await until(async () => (await inside(name, (_instance, state) => state.storage.sql.exec("SELECT carried_at FROM ky_approvals WHERE carried_at IS NOT NULL").toArray().length)) === 1, "the tap to be carried");
+    await evictDurableObject(agent(name));
+    await page(name);
+    expect(await inside(name, (instance) => instance.approvals.get(card!.id)?.status)).toBe("expired");
+    expect(await pending(name)).toEqual([]);
+  });
+
+  it("leaves a tap claimed under a minute ago to its handler", async () => {
+    const name = crypto.randomUUID();
+    const id = await inside(name, (instance) => instance.approvals.requestApproval({ ...ASK, ref: "request-6", conversation: "a-routine" }));
+
+    await inside(name, (instance, state) => {
+      state.storage.sql.exec("UPDATE ky_approvals SET status = 'accepted', decided_at = ?, carried_at = NULL WHERE id = ?", Date.now(), id);
+      instance.approvals.recover();
+    });
+
+    expect(await inside(name, (instance) => instance.approvals.get(id)?.status)).toBe("accepted");
+  });
+});
+
 describe("asking again for the same request", () => {
   it("finds the approval already there: one row, one push", async () => {
     const name = crypto.randomUUID();
@@ -300,5 +379,27 @@ describe("asking again for the same request", () => {
     expect(ids[0]).toBe(ids[1]);
     expect(await inside(name, (_instance, state) => state.storage.sql.exec("SELECT id FROM ky_approvals WHERE ref = 'request-5'").toArray())).toHaveLength(1);
     expect(pushes).toHaveLength(1);
+  });
+
+  it("once it was decided and carried out, waits on the user again as a new card; while it is being carried out, stays as it is", async () => {
+    const name = crypto.randomUUID();
+    const pushes = await okPushes(name);
+    const ask = { ...ASK, ref: "request-5", conversation: "a-routine" };
+
+    const id = await inside(name, (instance) => instance.approvals.requestApproval(ask));
+    expect(await inside(name, (instance) => instance.approvals.withdraw(id, "decline"))).toBe(true);
+
+    expect(await inside(name, (instance) => instance.approvals.requestApproval({ ...ask, summary: "send the new mail" }))).toBe(id);
+    expect(await inside(name, (instance) => instance.approvals.get(id))).toMatchObject({ status: "pending", summary: "send the new mail" });
+    expect(await pending(name)).toEqual([expect.objectContaining({ id, summary: "send the new mail" })]);
+    expect(pushes.map((push) => push.text)).toEqual(["Waiting for your OK: send the old mail", "Waiting for your OK: send the new mail"]);
+
+    // A tap claimed it and its handler hasn't finished: asking again doesn't undo the tap.
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("UPDATE ky_approvals SET status = 'accepted', decided_at = ?, carried_at = NULL WHERE id = ?", Date.now(), id);
+    });
+    expect(await inside(name, (instance) => instance.approvals.requestApproval(ask))).toBe(id);
+    expect(await inside(name, (instance) => instance.approvals.get(id)?.status)).toBe("accepted");
+    expect(pushes).toHaveLength(2);
   });
 });

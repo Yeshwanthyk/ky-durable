@@ -46,14 +46,8 @@ const Payload = Type.Object({ tool: Type.String(), message: Type.String() });
 
 const note = (result: CallResult, text: string): CallResult => ({ output: [...result.output, { type: "text", text: `\n\n${text}` }], isError: result.isError === true });
 
-/** Whether a resume found the request gone: Executor's `unavailable`, or a failure that says not found or expired. */
-function gone(result: CallResult): boolean {
-  const text = resultText(result);
-
-  if (parseOr(Unavailable, text, undefined)) return true;
-
-  return result.isError === true && /not[ _-]?found|expired/i.test(text);
-}
+/** Whether a resume found the request gone: Executor answers `{"status":"unavailable"}` for a request it no longer has. */
+const gone = (result: CallResult): boolean => parseOr(Unavailable, resultText(result), undefined) !== undefined;
 
 /** The user's policy for a tool, weighed against whether the user is there to answer: Allow with nobody there asks. */
 function verdict(policy: ToolPolicy, present: boolean): ToolPolicy {
@@ -210,16 +204,22 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     this.#sql.exec(`DELETE FROM ${INPUTS} WHERE request_id = ?`, requestId);
   }
 
-  /**
-   * The user's tap, after it was answered: ky resumes the program at Executor itself, and the chat hears what came of
-   * it. A request Executor no longer has expires. A resume that didn't reach Executor puts the card back, so the user
-   * can tap again: Executor takes a request once, so a resume that did reach it after all finds it gone the next time.
-   */
-  async decide(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
+  /** Tell `approval`'s chat that the user's `action` on it came to `text`. Each is its own notice: a card put back and tapped again is told again. */
+  #tell(approval: Approval, action: ApprovalAction, text: string): Promise<void> {
     const payload = decodeOr(Payload, approval.payload, { tool: approval.subject, message: approval.summary });
     const what = `"${payload.message}"${payload.tool ? ` (${payload.tool})` : ""}`;
-    // Each attempt is its own notice: a card put back and tapped again is told again.
-    const tell = (text: string) => this.#deps.tell(approval.chat, `[the user ${CHOSE[action]} ${what}${text}`, `approval:${approval.id}:${crypto.randomUUID()}`);
+
+    return this.#deps.tell(approval.chat, `[the user ${CHOSE[action]} ${what}${text}`, `approval:${approval.id}:${crypto.randomUUID()}`);
+  }
+
+  /**
+   * The user's tap, after it was answered: ky resumes the program at Executor itself, and the chat hears what came of
+   * it. A request Executor no longer has expires. Only a resume that provably never reached Executor puts the card
+   * back, so the user can tap again; one that reached it and failed may have acted, so it stays decided, and the chat
+   * is told to check.
+   */
+  async decide(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
+    const tell = (text: string) => this.#tell(approval, action, text);
 
     try {
       await this.#carry(approval, action, settle, tell);
@@ -229,8 +229,16 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     }
   }
 
-  async #carry(approval: Approval, action: ApprovalAction, settle: Settle, tell: (text: string) => Promise<void>): Promise<void> {
+  /** A restart cut off the tap on `approval` before it was carried out; it waits for a tap again. Executor takes a request once, so a second tap can't do it twice. */
+  lost(approval: Approval, action: ApprovalAction): Promise<void> {
+    return this.#tell(
+      approval,
+      action,
+      ", but ky restarted before it finished, so the tap may not have gone through. The card is back: if they tap it again and Executor no longer has the request, check with a read-only program whether it happened]"
+    );
+  }
 
+  async #carry(approval: Approval, action: ApprovalAction, settle: Settle, tell: (text: string) => Promise<void>): Promise<void> {
     const retry = async (why: string) => {
       settle.reopen();
       await tell(`, but ky couldn't reach Executor (${why}), so nothing was sent. The card is back: they can tap it again]`);
@@ -250,8 +258,10 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return tell(", but Executor isn't connected any more, so nothing was sent to it]");
     }
 
-    const call: ExecutorCall = (name, args) => callOnce(config, name, args);
-    const result = await call("resume", { requestId: approval.ref, response: { action } });
+    const call: ExecutorCall = async (name, args) => (await callOnce(config, name, args)).result;
+    const { result, neverRan } = await callOnce(config, "resume", { requestId: approval.ref, response: { action } });
+
+    if (neverRan) return retry(resultText(result).slice(0, 300));
 
     if (gone(result)) {
       settle.expire();
@@ -261,7 +271,10 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       );
     }
 
-    if (result.isError === true) return retry(resultText(result).slice(0, 300));
+    // It reached Executor, so the program may have gone on and acted before the error: the card stays decided.
+    if (result.isError === true) {
+      return tell(`, but Executor answered with an error: ${resultText(result).slice(0, 300)}. It may have happened anyway: check with a read-only program, and tell the user]`);
+    }
 
     // What comes next, as another pause, is asked in the chat where the user just tapped; they are there.
     const after = await this.#paused(result, approval.chat, call, true);
