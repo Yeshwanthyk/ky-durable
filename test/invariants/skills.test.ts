@@ -440,25 +440,56 @@ describe("a skill's guards", () => {
     );
   });
 
-  it("sweeps as stale exactly the unpinned skills ky made that nobody opened in 60 days", () => {
-    const aSkill = fc.record({ actor: fc.constantFrom("user", "ky", "agent", ...MACHINES), pinned: fc.boolean(), opened: fc.boolean() });
+  it("sweeps as stale exactly the active, unpinned skills ky made, older than 14 days, that nobody opened or the user changed in 60", () => {
+    const NOW = Date.UTC(2026, 6, 1);
+    const anAge = fc.oneof(fc.integer({ min: 0, max: 120 * DAY }), fc.constantFrom(14 * DAY - 1, 14 * DAY, 60 * DAY - 1, 60 * DAY));
+
+    const aSkill = fc.record({
+      created_by: fc.constantFrom("user", "agent", ...MACHINES),
+      status: fc.constantFrom("active", "active", "archived"),
+      pinned: fc.constantFrom(0, 0, 1),
+      created: anAge,
+      opened: fc.option(anAge, { nil: null }),
+      uses: fc.constantFrom(0, 0, 3),
+      version: fc.option(fc.record({ actor: fc.constantFrom("user", "agent", "dream"), age: anAge }), { nil: null })
+    });
 
     fc.assert(
-      fc.property(fc.array(aSkill, { maxLength: 6 }), fc.integer({ min: 0, max: 120 }), (made, days) => {
-        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+      fc.property(fc.array(aSkill, { maxLength: 6 }), (made) => {
+        const db = new DatabaseSync(":memory:");
+        const skills = new Skills(storageOf(db));
 
-        made.forEach(({ actor, pinned, opened }, at) => {
-          skills.apply({ action: "create", name: `skill-${at}`, ...steep }, actor);
+        made.forEach(({ created_by, status, pinned, created, opened, uses, version }, at) => {
+          const name = `skill-${at}`;
+          db.prepare(
+            `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, uses, created_at, updated_at, last_used_at, pinned, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(name, steep.description, steep.body, status, uses, NOW - created, NOW - created, opened === null ? null : NOW - opened, pinned, created_by);
 
-          if (pinned) skills.apply({ action: "pin", name: `skill-${at}` }, "user");
-
-          if (opened) skills.view(`skill-${at}`);
+          if (version !== null) {
+            db.prepare(`INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, description, body, status, created_at) VALUES (?, 'edit', ?, ?, ?, ?, ?)`).run(
+              name,
+              version.actor,
+              steep.description,
+              steep.body,
+              status,
+              NOW - version.age
+            );
+          }
         });
 
-        const stale = made.flatMap(({ actor, pinned }, at) => (!pinned && ["agent", ...MACHINES].includes(actor) && days >= 60 ? [`skill-${at}`] : []));
+        // Its last sign of life: opened, else made; or the user's change, when later. A use before ky kept when is unknown.
+        const stale = made.flatMap(({ created_by, status, pinned, created, opened, uses, version }, at) => {
+          if (status !== "active" || pinned === 1 || created_by === "user" || created < 14 * DAY) return [];
 
-        expect(skills.stale("run-1", Date.now() + days * DAY)).toEqual(stale);
-        expect(skills.list("archived").map((skill) => skill.name)).toEqual(stale);
+          if (opened === null && uses > 0) return [];
+          const quiet = Math.min(opened ?? created, version?.actor === "user" ? version.age : Infinity);
+
+          return quiet >= 60 * DAY ? [`skill-${at}`] : [];
+        });
+
+        expect(skills.stale("run-1", NOW)).toEqual(stale);
+        expect(made.map((_, at) => skills.get(`skill-${at}`)?.status)).toEqual(made.map(({ status }, at) => (stale.includes(`skill-${at}`) ? "archived" : status)));
+        db.close();
       })
     );
   });
