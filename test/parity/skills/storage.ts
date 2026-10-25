@@ -55,7 +55,7 @@ export function storageOf(db: DatabaseSync): Storage {
 }
 
 /** A stored row: the skill tables hold only numbers, strings and nulls. */
-const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
+export const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
 
 /** Each row of `table`, in the order it was written. */
 export const rowsOf = (db: DatabaseSync, table: string) =>
