@@ -27,7 +27,7 @@ against B, never against the PR before it.
 | effect 4.0.6, @effect/vitest 4.0.6 | done | `package.json`; `pnpm -s effect:pin` |
 | `vendor/effect` at effect@4.0.6 (3b28bf6) + pin check in `pnpm check` | done | `test/effect-pin.ts`; red on a range, a split version, a vendor version |
 | Fallow baselines re-saved at B | done | `fallow/dead-code.json`, `fallow/health.json` |
-| `gate-baseline.json` re-recorded at B | in progress | `test-results/gate/` in the B checkout |
+| `gate-baseline.json` re-recorded at B | done: 1170 items with files; red at B: 9 invariants, 1 web (the Send locator flake) | `gate-baseline.json` |
 | Gate runs `invariants`, judged by the baseline only (B fails 9 of them) | done | `test/gate.ts` `ratchetOnly` |
 | Prune ledger + check in `pnpm check` and the gate | done | `test/ledger.ts`, `docs/migration/effect/prune-ledger.json` |
 | Cloudflare fake can cut power after request k | done | `test/fakes/cloudflare.ts` `cut`, `served` |
@@ -35,7 +35,7 @@ against B, never against the PR before it.
 | Deploy mutants (4) | done: all four caught by `pnpm parity deploy --mutant all` | `test-results/parity/deploy/mutant-*.json` |
 | Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant caught (add, then cancel) | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
 | `pnpm census <domain>` (keep: INVARIANT, E2E; prune: MOCK, SCAN, SLEEP, COPY, UNIT) | done | `test/census.ts`; `test-results/census/*.json` |
-| `verify-ky-parity` skill: doctor, ratchet, prove, one feature file per domain | written; end-to-end proof on deploy waits for the B baseline | `.claude/skills/verify-ky-parity/` |
+| `verify-ky-parity` skill: doctor, ratchet, prove, one feature file per domain | done: `prove.sh deploy` passes end to end in 1m37s (ratchet 69 held, 0 lost; 500 runs, seed 1941735122; 4/4 mutants); the ratchet goes red on a skipped B test and on a new red test | `.claude/skills/verify-ky-parity/`; `test-results/parity/deploy/` |
 | `divergences/deploy.md` | done: I-D2, I-D3 open for U1 | `docs/migration/effect/divergences/deploy.md` |
 | Fable 5.1 review of U0, round 1 (foundation) | done: 7 findings; 1, 2, 3, 5 (weighting), 6, 7 (one `regressions`) fixed; 4 (one clock, `pending()`) goes to U2; 5's `fc.pre` kept (a cut in a known-broken window poisons the run, so it must be discarded); `vendor/effect` kept (owner asked for it) | `test/ledger.ts` `regressions`; `test/parity/run.ts`; `test/parity/kit.ts`; `src/core/edge.ts`; deploy `--mutant all` at 100 runs: 4/4 caught by tests that held clean |
 | Lane B skill drafts | done, settled: six drafts at 9c066ba, snippets typecheck; to review and move into `.claude/skills/` | `effect/lane-skill-drafts` |
