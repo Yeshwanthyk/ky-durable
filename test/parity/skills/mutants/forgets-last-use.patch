@@ -1,0 +1,13 @@
+diff --git a/src/skills/skills.ts b/src/skills/skills.ts
+index 0f29a13..37109ce 100644
+--- a/src/skills/skills.ts
++++ b/src/skills/skills.ts
+@@ -471,7 +471,7 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
+ 
+                 if (skill.last_used_at === null && skill.uses > 0) return false;
+ 
+-                return Math.max(skill.last_used_at ?? skill.created_at, touched.get(skill.name) ?? 0) <= now - STALE_UNUSED_MS;
++                return Math.max(skill.created_at, touched.get(skill.name) ?? 0) <= now - STALE_UNUSED_MS;
+               });
+ 
+               for (const skill of stale) {
