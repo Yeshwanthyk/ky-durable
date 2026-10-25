@@ -1,8 +1,9 @@
-import { type JsonValue, Type } from "@earendil-works/pi-ai";
+import { type JsonValue, type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { DreamLedgerRow } from "../dreaming/contract";
 import type { TaskTokens } from "../machines/contract";
 import { Access } from "../access";
+import { parseOr } from "../core/decode";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
@@ -453,6 +454,11 @@ export class Vault extends ProductionVault {
  *   its "What to look at:" line, as if it were the prompt.
  * - `slowly tool NAME JSON` makes the same call, its arguments streamed in
  *   pieces 120ms apart.
+ * - `calls [[NAME, JSON], ...]` makes those calls one a round, then answers
+ *   `results: ` and their results, joined by ` | `.
+ * - `readback tool NAME JSON` makes the call, then, when its result names a
+ *   spilled file (src/guardrails.ts), reads the file page by page with `read`
+ *   and answers how many pages and characters it read.
  * - After a tool result it answers `tool said: <result>`; anything else is
  *   echoed as `echo: <prompt>`.
  * - Titles are answered `Title: "Named: <first line>"` and a second line,
@@ -468,6 +474,21 @@ export class Vault extends ProductionVault {
 const RELEASED_KEY = "test:gate:released";
 
 const GATE_RUNS_KEY = "test:gate:runs";
+
+const TICKS_KEY = "test:ticks";
+
+/** The `bulk` tool's answer: `lines` numbered lines of 60 characters each. */
+export function bulkText(lines: number): string {
+  return Array.from({ length: lines }, (_, index) => `line ${String(index + 1).padStart(5, "0")} `.padEnd(60, "abcdefghij".at(index % 10)!)).join("\n");
+}
+
+/** The `wide` tool's answer: one line of `chars` digits. */
+export function wideText(chars: number): string {
+  return Array.from({ length: chars }, (_, index) => String(index % 10)).join("");
+}
+
+/** A spilled result's path (src/guardrails.ts), where a result names it. */
+export const SPILLED = /\/workspace\/\.tool-results\/\d+\/[\w-]+\.txt/;
 
 /** Whether the fake VibeProxy answers (the Mac is online). */
 const MAC_UP_KEY = "test:mac-up";
@@ -666,6 +687,70 @@ function looked(messages: readonly WireMessage[]): Reply | undefined {
   return { text: `[${rows.join(",")}]` };
 }
 
+/** The results of the tool calls after the turn's prompt, the last user message, in order; and the prompt. */
+function turnResults(messages: readonly WireMessage[]) {
+  const at = messages.findLastIndex((message) => message.role === "user");
+
+  return {
+    prompt: at < 0 ? "" : wireText(messages[at]!.content),
+    results: messages.slice(at + 1).flatMap((message) => (message.role === "tool" ? [wireText(message.content)] : []))
+  };
+}
+
+/** `calls [[NAME, JSON], ...]`: those calls one a round, then their results; undefined for any other turn. */
+function rounds(messages: readonly WireMessage[]): Reply | undefined {
+  const { prompt, results } = turnResults(messages);
+  const list = /^calls (\[.*\])$/s.exec(prompt);
+
+  if (!list) return undefined;
+
+  // SAFETY: the tests write an array of [name, arguments] pairs.
+  const calls = JSON.parse(list[1]!) as Array<[string, Record<string, JsonValue>]>;
+  const next = calls[results.length];
+
+  return next ? call(next[0], next[1]) : { text: `results: ${results.join(" | ")}` };
+}
+
+/** A page of `read`: its text, and where the next starts when there is more. */
+export const Page = Type.Object({ content: Type.String(), truncated: Type.Boolean(), nextOffset: Type.Optional(Type.Number()), nextByteOffset: Type.Optional(Type.Number()) });
+
+/** A file `read` gave back whole, in one page: its bare text. */
+const whole = (content: string): Static<typeof Page> => ({ content, truncated: false });
+
+/**
+ * `readback tool NAME JSON`: the call, then each page of the spilled file its result names, read as the model is
+ * told to, with `read`; then what was read. Undefined for any other turn.
+ */
+function readback(messages: readonly WireMessage[]): Reply | undefined {
+  const { prompt, results } = turnResults(messages);
+  const asked = /^readback tool (\S+) (\{.*\})$/s.exec(prompt);
+
+  if (!asked) return undefined;
+
+  if (results.length === 0) {
+    // SAFETY: as for `tool NAME JSON`, the test writes a JSON object after the tool name.
+    return call(asked[1]!, JSON.parse(asked[2]!) as Record<string, JsonValue>);
+  }
+
+  const path = SPILLED.exec(results[0]!)?.[0];
+
+  // Counts, not the text: the fake streams its answers slowly, three characters at a time.
+  if (path === undefined) return { text: `nothing spilled: ${results[0]!.length} characters` };
+
+  if (results.length === 1) return call("read", { path });
+
+  const pages = results.slice(1).map((page) => parseOr(Page, page, whole(page)));
+  const last = pages.at(-1)!;
+
+  if (last.truncated && last.nextOffset !== undefined) {
+    const offset = last.nextOffset;
+
+    return call("read", last.nextByteOffset === undefined ? { path, offset } : { path, offset, byteOffset: last.nextByteOffset });
+  }
+
+  return { text: `read back in ${pages.length} pages: ${pages.map((page) => page.content).join("\n").length} characters` };
+}
+
 /** The answer to a turn's last message: the user's input, or a tool's result. */
 function reply(last: WireMessage | undefined): Reply {
   // The wire does not say whether a tool failed; its result is its text either way.
@@ -794,7 +879,7 @@ export class PiAgent extends ProductionAgent {
     const answering = (messages: readonly WireMessage[]) => {
       asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
 
-      return dreamt(messages) ?? looked(messages) ?? script(unrecalled(messages));
+      return dreamt(messages) ?? looked(messages) ?? rounds(messages) ?? readback(messages) ?? script(unrecalled(messages));
     };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
@@ -826,6 +911,38 @@ export class PiAgent extends ProductionAgent {
         output: [{ type: "text", text: String(value * 3) }],
         details: { result: value * 3 }
       })
+    });
+
+    // Numbered lines of 60 characters, so a test knows a long result's text exactly.
+    const bulk = defineTool({
+      name: "bulk",
+      description: "Answer with numbered lines.",
+      parameters: Type.Object({ lines: Type.Number() }),
+      replay: "safe",
+      execute: async ({ lines }) => ({ output: [{ type: "text", text: bulkText(lines) }] })
+    });
+
+    // One long line, as a minified page or a base64 field is.
+    const wide = defineTool({
+      name: "wide",
+      description: "Answer with one long line.",
+      parameters: Type.Object({ chars: Type.Number() }),
+      replay: "safe",
+      execute: async ({ chars }) => ({ output: [{ type: "text", text: wideText(chars) }] })
+    });
+
+    // A poll whose answer changes every call.
+    const tick = defineTool({
+      name: "tick",
+      description: "Count the calls.",
+      parameters: NoParameters,
+      replay: "safe",
+      async execute() {
+        const ticks = ((await storage.get<number>(TICKS_KEY)) ?? 0) + 1;
+        await storage.put(TICKS_KEY, ticks);
+
+        return { output: [{ type: "text", text: `tick ${ticks}` }] };
+      }
     });
 
     const bare = this.ctx.id.name?.startsWith(BARE) === true;
@@ -876,7 +993,7 @@ export class PiAgent extends ProductionAgent {
         return kys.fetch(request, this.env);
       },
       seeds: this.ctx.id.name?.startsWith(FRESH) === true,
-      extensions: [defineExtension({ name: "test-tools", tools: [multiply, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
+      extensions: [defineExtension({ name: "test-tools", tools: [multiply, bulk, wide, tick, gate("gate", "safe"), gate("gate_unsafe", "unsafe")] })],
       mail: this.ctx.id.name?.startsWith(NO_MAIL) === true ? undefined : mail,
       executorFake,
       calls,

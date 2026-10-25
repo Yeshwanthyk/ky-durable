@@ -17,6 +17,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./ui-tool";
 import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
+import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
@@ -36,7 +37,7 @@ import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, 
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { ASK_TTL_MS } from "./peers/contract";
+import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
@@ -45,14 +46,15 @@ import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { BACKGROUND_SOURCE, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
 import { Titler } from "./titles";
 import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings";
-import { createWorkspaceTools, JAVASCRIPT_BACKEND } from "./workspace";
+import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
+import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
 import type { Vault } from "./vault";
 
@@ -382,6 +384,8 @@ export class PiAgent extends DurableObject<Env> {
         deliver: (item) => this.deliveries.deliver(item)
       };
 
+      const workspaceTools = createWorkspaceTools(this.workspace, { read: { maxBytes: READ_MAX_BYTES } });
+
       // SOUL.md comes first, so the preamble's rules follow the persona and win over it.
       this.registry.install(soul);
       this.registry.install({
@@ -398,8 +402,17 @@ export class PiAgent extends DurableObject<Env> {
             tag: false
           }
         ],
-        tools: createWorkspaceTools(this.workspace)
+        tools: workspaceTools
       });
+      // Before every other tool hook: a blocked call then starts no progress step, and those after see the preview.
+      this.registry.install(
+        guardrailsExtension({
+          sql: this.ctx.storage.sql,
+          workspace: this.workspace,
+          unspilled: pagedTools(workspaceTools),
+          readsFiles: (conversation) => this.mayCall(String(conversation), "read")
+        })
+      );
 
       await this.#installExecutor();
       this.registry.install(this.browse);
@@ -568,6 +581,22 @@ export class PiAgent extends DurableObject<Env> {
 
     if (config) this.registry.install(executorExtension(config, this.executorApprovals, (url) => this.executor.retarget(url)));
     else if (installed) this.registry.uninstall(installed);
+  }
+
+  /**
+   * Whether the run in `session` may call `tool`, by the allow-lists the blocking hooks hold runs to: a check-in's
+   * (src/automations), a review's of its kind (src/skills) and a peer's question's (src/peers; its `peer escalate`, which
+   * turns on the arguments, aside). Any other run may call any tool. The spill (src/guardrails.ts) asks it of `read`,
+   * so a result goes to a file only where it can be read back.
+   */
+  mayCall(session: string, tool: string): boolean {
+    const kind = this.reviews.kind(session);
+
+    return (
+      (!this.automations.checkInRun(session) || CHECK_IN_TOOLS.includes(tool)) &&
+      (kind === undefined || REVIEW_ALLOWED[kind].includes(tool)) &&
+      (!this.peerAsks.peerConversation(session) || PEER_TOOLS.some((name) => name === tool))
+    );
   }
 
   /** The main chat or a side chat, as against a subagent, a review or a dream. */

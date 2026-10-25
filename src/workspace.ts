@@ -89,6 +89,14 @@ function describeExec(tool: PiTool): PiTool {
 }
 
 /**
+ * Of the Workspace tools `tools`, the ones that page through files already, so their results are never spilled to one
+ * (src/guardrails.ts): every one but `exec`, whose output is a program's. `read` of a spilled file would only spill again.
+ */
+export function pagedTools(tools: readonly ToolRegistration[]): ReadonlySet<string> {
+  return new Set(tools.flatMap((tool) => (tool.name === "exec" ? [] : [tool.name])));
+}
+
+/**
  * The Workspace tools from `@cloudflare/computer/tools/pi-ai`, as
  * pi-durable `ToolRegistration`s.
  *
