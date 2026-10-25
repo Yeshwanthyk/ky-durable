@@ -19,12 +19,12 @@ const DOMAIN = path.join(SRC, "automations");
 
 const read = (file: string) => readFileSync(file, "utf8");
 
-/** Every .ts file under `dir`, tests left out. */
+/** Every .ts file under `dir`, tests and B's frozen copy (parity scaffolding, gone at the flip) left out. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
 
-    if (entry.isDirectory()) return entry.name === "tests" ? [] : sources(full);
+    if (entry.isDirectory()) return entry.name === "tests" || entry.name === "legacy" ? [] : sources(full);
 
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
@@ -109,7 +109,7 @@ describe("tools", () => {
   });
 
   it("registers the automation tool by the contract's name, which no other tool takes", () => {
-    expect(read(path.join(DOMAIN, "automations.ts"))).toMatch(/defineTool\(\{\s*name: AUTOMATION_TOOL,/);
+    expect(read(path.join(DOMAIN, "tool.ts"))).toMatch(/defineTool\(\{\s*name: AUTOMATION_TOOL,/);
     expect(registered).not.toContain(AUTOMATION_TOOL);
   });
 });
@@ -142,10 +142,8 @@ describe("actions", () => {
   });
 
   it.each(BY_ID_ACTIONS)("handles %s: a tool handler, an Automations method and a socket case", (action) => {
-    const automations = read(path.join(DOMAIN, "automations.ts"));
-
-    expect(automations).toMatch(new RegExp(`^\\s+${action}: \\(automations, id\\) => automations\\.${action}\\(id\\)`, "m"));
-    expect(automations).toMatch(new RegExp(`^  (async )?${action}\\(id: string\\)`, "m"));
+    expect(read(path.join(DOMAIN, "tool.ts"))).toMatch(new RegExp(`^\\s+${action}: \\(automations, id\\) => automations\\.${action}\\(id\\)`, "m"));
+    expect(read(path.join(DOMAIN, "wiring.ts"))).toMatch(new RegExp(`^  (async )?${action}\\(id: string\\)`, "m"));
     expect(read(path.join(SRC, "sockets.ts"))).toMatch(new RegExp(`^\\s+${action}: \\(id\\) => this\\.#automations\\.${action}\\(id\\)`, "m"));
   });
 });
