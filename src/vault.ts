@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import Type from "typebox";
-import { decode, parseAs } from "./core/decode";
+import { decode, decodeOr, parseAs } from "./core/decode";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
 import type { ExecutorConnection } from "./executor";
 import { type GithubLogin, listRepos } from "./github";
@@ -9,7 +9,7 @@ import type { ChatGptCode, ChatGptState } from "./protocol";
 import { base64url, fromBase64url, vapidToken } from "./push";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
-import { type Credential, credentialFetch, type CredentialReply, type CredentialRequest, HTTP_KIND, signedWith } from "./inbound/credentials";
+import { credentialFetch, type CredentialReply, type CredentialRequest, CredentialSchema, HTTP_KIND, signedWith } from "./inbound/credentials";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -364,20 +364,22 @@ export class Vault extends DurableObject<Env> {
 
   /** Call an API with the HTTP credential `name`: only its own origin, the answer redacted (src/inbound/credentials.ts). */
   httpRequest(name: string, request: CredentialRequest): Promise<CredentialReply> {
-    // SAFETY: only the secret route (src/inbound/routes.ts) writes this kind, each value a Credential.
-    const credential = this.#current(HTTP_KIND, name) as Credential | null;
+    const credential = decodeOr(CredentialSchema, this.#current(HTTP_KIND, name), null);
 
-    if (!credential) return Promise.resolve({ refused: `There is no credential ${name}. list_secrets shows the ones there are.` });
+    if (!credential) return Promise.resolve({ refused: `There is no credential ${name}. list_secrets shows the ones there are.`, sent: false });
 
     return credentialFetch(this.http, credential, request);
   }
 
-  /** Whether a post's body passes the hook's signature check: any body for a hook without a signing secret. */
-  async hookSigned(id: string, body: string, signature: string | null): Promise<boolean> {
-    // SAFETY: only the hook routes (src/inbound/routes.ts) write this kind, each value a string.
-    const secret = this.#current("hook-signing", id) as string | null;
+  /**
+   * Whether a post's body passes the hook's signature check: any body for a hook that isn't `signed`. A signed hook
+   * whose secret isn't here (a restore brings no Vault, or its write failed) passes nothing, until it is rotated.
+   */
+  async hookSigned(id: string, signed: boolean, body: string, signature: string | null): Promise<boolean> {
+    if (!signed) return true;
+    const secret = decodeOr(Type.String(), this.#current("hook-signing", id), null);
 
-    return secret === null || signedWith(secret, body, signature);
+    return secret !== null && signedWith(secret, body, signature);
   }
 
   /** The repos a GitHub token reaches, for Settings to pick from, or why GitHub refused it. */

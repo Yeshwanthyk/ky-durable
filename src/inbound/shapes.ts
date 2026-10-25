@@ -5,7 +5,8 @@ import Type, { type Static } from "typebox";
  * describes: schemas the page decodes the routes' answers with, and the agent its rows.
  */
 
-const SchemeSchema = Type.Union([Type.Literal("bearer"), Type.Literal("basic"), Type.Literal("header")]);
+/** How a credential's value goes on a request: `Authorization: Bearer`, `Authorization: Basic` of `user:password`, or a header of its own. */
+export const SchemeSchema = Type.Union([Type.Literal("bearer"), Type.Literal("basic"), Type.Literal("header")]);
 
 const HookSchema = Type.Object({
   id: Type.String(),
@@ -44,7 +45,7 @@ export type HooksView = Static<typeof HooksViewSchema>;
 const SecretSchema = Type.Object({
   name: Type.String(),
   origin: Type.String(),
-  scheme: Type.String(),
+  scheme: SchemeSchema,
   header: Type.Union([Type.String(), Type.Null()]),
   purpose: Type.String(),
   updatedAt: Type.Number()
@@ -59,4 +60,5 @@ export const AsksSchema = Type.Object({ asks: Type.Array(SecretAskSchema) });
 /** A hook as it is made: its URL, and its signing secret when signed, shown this once. */
 export const MadeHookSchema = Type.Object({ hook: HookSchema, url: Type.String(), signing: Type.Union([Type.String(), Type.Null()]) });
 
-export const RotatedSchema = Type.Object({ url: Type.String() });
+/** A rotated hook's new URL, and its new signing secret when signed, shown this once. */
+export const RotatedSchema = Type.Object({ url: Type.String(), signing: Type.Union([Type.String(), Type.Null()]) });

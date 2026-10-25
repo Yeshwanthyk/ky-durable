@@ -41,7 +41,6 @@ import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
-import { Approvals } from "./inbound/approvals";
 import { type Delivery, type Hook, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
@@ -313,22 +312,16 @@ export class PiAgent extends DurableObject<Env> {
     idle: async (session) => (await this.harness.conversation(session)).waitForIdle(BACKGROUND_CONTEXT),
     later: (work) => this.ctx.waitUntil(work)
   });
-  /** What waits for the user's OK. A stand-in until the approvals PR, which brings the real one (src/inbound/approvals.ts). */
-  readonly approvals = new Approvals(this.ctx.storage.sql, {
-    chat: (session) => this.isChat(session),
-    owner: () => ROOT_SESSION,
-    notify: (session, text) => void this.pushes.notify(session, text).catch(() => undefined)
-  });
   /** Webhooks, and the credentials ky asked for (src/inbound/inbound.ts). */
   readonly inbound = new Inbound(this.ctx.storage.sql, {
     vault: () => this.env.Vault.getByName("owner"),
-    approvals: this.approvals,
+    asker: this.approvals,
     chat: (session) => this.isChat(session),
     // After the turn running there, so outside data never lands in the middle of the user's own turn.
     tell: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session);
       await conversation.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
-    },
+    }
   });
   readonly dreaming = new Dreaming(this.ctx.storage.sql, {
     history: this.history,
@@ -496,7 +489,9 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(deliveryExtension(this.deliveries));
       this.registry.install(peer);
       this.registry.install(mail);
-      this.registry.install(inboundTools(this.inbound, { vault: () => this.env.Vault.getByName("owner"), chat }));
+      this.registry.install(inboundTools(this.inbound));
+      // Before any other guard on tool calls (src/guardrails.ts, once it lands): a call a webhook's run may not make
+      // is asked of the user, and never counted as a repeat the model must change approach on.
       this.registry.install(hookGuard(this.inbound));
 
       return Harness.open(
@@ -587,6 +582,8 @@ export class PiAgent extends DurableObject<Env> {
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
     // Each kind of approval and who decides it.
     this.approvals.handle("executor", this.executorApprovals);
+    this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
+    this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -631,10 +628,17 @@ export class PiAgent extends DurableObject<Env> {
   /**
    * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
    * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
-   * question or another chat started has nobody there to approve anything.
+   * question or another chat started has nobody there to approve anything. Nor does a run that works on a webhook's
+   * data (src/inbound/inbound.ts guarded), even once the user steers it: their message doesn't make the post theirs.
    */
   userHere(session: string): boolean {
-    return this.isChat(session) && !this.#archived(session) && this.chats.openedBy(session) === null && startedByUser(this.ctx.storage.sql, session);
+    return (
+      this.isChat(session) &&
+      !this.#archived(session) &&
+      this.chats.openedBy(session) === null &&
+      startedByUser(this.ctx.storage.sql, session) &&
+      !this.inbound.guarded(session)
+    );
   }
 
   #archived(session: string): boolean {
@@ -1015,6 +1019,10 @@ export class PiAgent extends DurableObject<Env> {
     const chats = this.chats.list().filter((chat) => chat.archived_at === null);
 
     return { hooks: this.inbound.hooks(), chats: [{ session: ROOT_SESSION, title: "ky" }, ...chats.map(({ session, title }) => ({ session, title: title || "New chat" }))] };
+  }
+
+  inboundHook(id: string): Hook | null {
+    return this.inbound.hook(id) ?? null;
   }
 
   addHook(id: string, session: string, label: string, signed: boolean): Hook | { refused: string } {

@@ -1,11 +1,12 @@
-import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
+import type { JsonObject } from "@earendil-works/pi-ai";
 import Type, { type Static } from "typebox";
-import { Guard } from "typebox/guard";
+import type { Approval, ApprovalHandler, ApprovalRequest, Asker, Settle } from "../approvals/approvals";
+import type { ApprovalAction } from "../approvals/contract";
+import { canonical } from "../core/canonical";
 import { decode, decodeOr } from "../core/decode";
-import { placedBy } from "../history";
+import { must } from "../core/must";
+import { runInputs } from "../history";
 import type { Vault } from "../vault";
-// Approvals' stand-in, until the approvals PR: its names and shapes are that module's (src/inbound/approvals.ts).
-import type { Approval, ApprovalAction, ApprovalHandler, ApprovalRequest, Approvals } from "./approvals";
 import { type CredentialInfo, replyText } from "./credentials";
 import { type Hook, type SecretAsk, SecretAskSchema } from "./shapes";
 
@@ -17,12 +18,12 @@ export type { Hook, SecretAsk } from "./shapes";
  * credential's value, are the Vault's (src/vault.ts), and its routes (src/inbound/routes.ts) hand them over.
  *
  * - A hook belongs to a chat. What is posted to it is told to that chat as outside data, not instructions, and
- *   the run that post starts is guarded: a tool that may change something waits for the user's approval. The guard
- *   is read from who placed the message that opened the run (`guarded`), never kept, so no restart can leave a
- *   chat blocked, and no words in a post or typed by the user change it.
+ *   the run that takes it in is guarded: a tool that may change something waits for the user's approval. The guard
+ *   is read from who placed the run's messages (`guarded`), never kept, so no restart can leave a chat blocked, and
+ *   no words in a post, or typed by the user into the run meanwhile, lift it.
  * - A credential ky asks for is an ask kept for the chat, which shows a masked field for it; the user's value goes
  *   from that field to the Vault, and the chat hears only that it was saved.
- * - What waits for the user's OK is an approval (src/inbound/approvals.ts), decided here, on the server. An
+ * - What waits for the user's OK is an approval (src/approvals/approvals.ts), carried out here, on the server. An
  *   approved call with a credential is made by the Vault, exactly as asked, and its answer told to the chat. An
  *   approved webhook action can't run outside a turn, so it gets a pass: one call of that tool with exactly those
  *   arguments, in the run the approval's message opens, within a quarter hour. Anything else waits again.
@@ -31,7 +32,7 @@ export type { Hook, SecretAsk } from "./shapes";
 /** What the routes, the tools and the guard reach the rest of ky through. */
 export type InboundDesk = {
   readonly vault: () => DurableObjectStub<Vault>;
-  readonly approvals: Approvals;
+  readonly asker: Asker;
   readonly chat: (session: string) => boolean;
   /** Tell a chat `content` as a background input, after the turn running there, if any. */
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
@@ -45,7 +46,7 @@ export type Delivery = {
   readonly event: string | null;
   /** Its X-Hub-Signature-256, which the route has checked for a signed hook. */
   readonly signature: string | null;
-  /** Its X-GitHub-Delivery: the sender's id for it, sent again with a redelivery. */
+  /** The sender's id for it (X-GitHub-Delivery and the like), sent again with a redelivery. */
   readonly delivery: string | null;
 };
 
@@ -61,10 +62,12 @@ export const HOOK_TURN_TOOLS: ReadonlySet<string> = new Set([
   "memory_zoom",
   "chat_search",
   "skill_view",
-  "ui",
+  "executor_skills",
   "list_secrets",
   // It asks for the user's OK itself for anything but a GET or HEAD.
   "secret_request"
+  // Not ui: a tap on its buttons, choices or fields is sent as the user's own message, so a card a post wrote would
+  // put the post's words in the user's mouth. It waits for the user like any other call.
 ]);
 
 export const HOOK_ID = /^[0-9a-f]{32}$/;
@@ -83,23 +86,22 @@ const SEEN_MS = 7 * 24 * 60 * 60_000;
 const PASS_MS = 15 * 60_000;
 
 /**
- * What a run that works on outside data opens with, as the request id of the submission that placed its first entry
- * (src/history.ts placedBy): a webhook's post (`received`), or what the user decided about a call such a run asked
- * for (`decided`). The id is ky's, kept by pi beside the entry, never in its text, so nothing a post says can start a
- * guarded run or stop one being guarded, and nothing the user types guards their own.
+ * What marks a message as outside data, as the request id of the submission that placed it in a run
+ * (src/history.ts runInputs): a webhook's post (`received`), or what the user decided about a call such a run asked
+ * for (`decided`). The id is ky's, kept by pi beside the entry, never in its text, so nothing a post says can mark a
+ * message or unmark one, and nothing the user types guards their own run.
  */
 const HOOK_REQUEST = "hook:";
 
 const DECIDED_REQUEST = "hook-approval:";
 
+/** A tap on a card a guarded run showed, once the chat's page sends it marked so (src/ui-blocks.ts, not yet). */
+const CARD_REQUEST = "hook-card:";
+
+const isHookData = (request: string | undefined) => [HOOK_REQUEST, DECIDED_REQUEST, CARD_REQUEST].some((prefix) => request?.startsWith(prefix) === true);
+
 /** How the model is told a message is about outside data: words for it, not what the guard reads. */
 const ON_HOOK_DATA = "[on a webhook's data, ";
-
-/** The entry that opens the conversation's current run: its latest user or reset entry, as src/guardrails.ts reads a run. */
-const RUN_OPENER = `SELECT id, json_extract(record, '$.kind') AS kind FROM pi_entries
-  WHERE conversation_id = ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.reset') ORDER BY id DESC LIMIT 1`;
-
-const Opener = Type.Object({ id: Type.Number(), kind: Type.String() });
 
 const HookRow = Type.Object({
   id: Type.String(),
@@ -129,18 +131,17 @@ export type SecretCall = Static<typeof SecretCall>;
 
 export class Inbound {
   readonly #sql: SqlStorage;
-  readonly #desk: InboundDesk;
-  /** What each kind of approval inbound asks does with the user's answer; registered with Approvals in the constructor. */
+  /** What the tools reach the Vault and the chats through, too. */
+  readonly desk: InboundDesk;
+  /** What each kind of approval inbound asks does with the user's answer; the agent registers them with Approvals. */
   readonly handlers = {
-    "secret-request": { decide: (approval: Approval, action: ApprovalAction) => this.#secretCall(approval, action) },
-    "webhook-action": { decide: (approval: Approval, action: ApprovalAction) => this.#hookAction(approval, action) }
+    "secret-request": { decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#secretCall(approval, action, settle) },
+    "webhook-action": { decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#hookAction(approval, action, settle) }
   } satisfies Readonly<Record<"secret-request" | "webhook-action", ApprovalHandler>>;
 
   constructor(sql: SqlStorage, desk: InboundDesk) {
     this.#sql = sql;
-    this.#desk = desk;
-    desk.approvals.handle("secret-request", this.handlers["secret-request"]);
-    desk.approvals.handle("webhook-action", this.handlers["webhook-action"]);
+    this.desk = desk;
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_hooks (
       id TEXT PRIMARY KEY,
       session TEXT NOT NULL,
@@ -162,14 +163,10 @@ export class Inbound {
       purpose TEXT NOT NULL,
       at INTEGER NOT NULL,
       PRIMARY KEY (session, name))`);
-    // One call an approved webhook action lets through: its tool, and its arguments canonical. Used once, by
-    // `passed`, in the run that names its approval. Its own table: an approval's row is the approvals module's, and
-    // it has no state for "used".
+    // The one call an accepted webhook action lets through, by its approval, whose payload is the call; used up by
+    // `passed`. Its own table: an approval's row is the approvals module's, and it has no state for "used".
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_passes (
       approval TEXT PRIMARY KEY,
-      conversation TEXT NOT NULL,
-      tool TEXT NOT NULL,
-      arguments TEXT NOT NULL,
       at INTEGER NOT NULL)`);
   }
 
@@ -194,7 +191,7 @@ export class Inbound {
   addHook(id: string, session: string, label: string, signed: boolean): Hook | { refused: string } {
     if (!HOOK_ID.test(id)) return { refused: "A hook's id is 32 hex digits." };
 
-    if (!this.#desk.chat(session)) return { refused: "A hook posts to a chat: the main one or a side chat." };
+    if (!this.desk.chat(session)) return { refused: "A hook posts to a chat: the main one or a side chat." };
     const name = label.trim().slice(0, 80) || "Webhook";
     const now = Date.now();
 
@@ -214,10 +211,10 @@ export class Inbound {
   async received(id: string, delivery: Delivery): Promise<Received> {
     const hook = this.hook(id);
 
-    if (!hook || !this.#desk.chat(hook.session)) return "gone";
+    if (!hook || !this.desk.chat(hook.session)) return "gone";
     const now = Date.now();
-    // Signed, a delivery is told apart only by what its signature covers: a replay can change any header.
-    const key = hook.signed ? `signature:${delivery.signature}` : delivery.delivery === null ? null : `delivery:${delivery.delivery}`;
+    // By the sender's id for it, which a redelivery keeps; signed and without one, by what its signature covers.
+    const key = delivery.delivery !== null ? `delivery:${delivery.delivery}` : hook.signed ? `signature:${delivery.signature}` : null;
 
     this.#sql.exec("DELETE FROM ky_hook_seen WHERE at < ?", now - SEEN_MS);
 
@@ -228,7 +225,7 @@ export class Inbound {
     }
 
     this.#sql.exec("UPDATE ky_hooks SET last_at = ? WHERE id = ?", now, id);
-    await this.#desk.tell(hook.session, told(hook, delivery), `${HOOK_REQUEST}${id}:${key ?? crypto.randomUUID()}`);
+    await this.desk.tell(hook.session, told(hook, delivery), `${HOOK_REQUEST}${id}:${key ?? crypto.randomUUID()}`);
 
     return "accepted";
   }
@@ -270,7 +267,7 @@ export class Inbound {
 
     if (!ask) return false;
     this.#sql.exec("DELETE FROM ky_secret_asks WHERE session = ? AND name = ?", session, name);
-    await this.#desk.tell(
+    await this.desk.tell(
       session,
       `[the user saved the credential ${name} for ${ask.origin} in ky's Vault. Call ${ask.origin} with it through secret_request; its value never shows to you.]`,
       `secret:${session}:${name}:${ask.at}`
@@ -282,131 +279,134 @@ export class Inbound {
   // --- The guard, and what waits for the user's OK ---
 
   /**
-   * Whether the conversation's current run works on outside data: ky placed the user entry that opened it for a
-   * webhook. Read from what pi keeps of the conversation, so a restart, a crash in the middle of the run, or a run
-   * never finished reads the same, and the user's next message opens a run of their own.
+   * Whether the conversation's current run works on outside data: ky placed any of its messages for a webhook, the
+   * one that opened it or one steered in since. Read from what pi keeps of the run, so a restart, a crash in the
+   * middle of the run, or a run never finished reads the same; a message the user types into the run leaves it
+   * guarded, and only a run their own message opens is theirs. Not read from pi's entries: a run a tool ends
+   * (`terminate`) closes on its tool result, and the next run's first message follows it just as a steer would.
    */
   guarded(conversation: string): boolean {
-    const request = this.#openedBy(conversation);
-
-    return request?.startsWith(HOOK_REQUEST) === true || request?.startsWith(DECIDED_REQUEST) === true;
+    return runInputs(this.#sql, conversation).some((input) => isHookData(input.request));
   }
 
   /**
-   * Use up the pass an approved webhook action gave for exactly this call, if this run is the one its approval's
-   * message opened and the pass hasn't lapsed. A pass left unused lets nothing through in any other run.
+   * Use up the pass an accepted webhook action gave for exactly this call, if this run took in what the user decided
+   * and the pass hasn't lapsed. A pass left unused lets nothing through in any other run.
    */
   passed(conversation: string, tool: string, args: JsonObject): boolean {
-    const request = this.#openedBy(conversation);
-
-    if (request?.startsWith(DECIDED_REQUEST) !== true) return false;
-
-    const approval = request.slice(DECIDED_REQUEST.length);
-
     this.#sql.exec("DELETE FROM ky_passes WHERE at < ?", Date.now() - PASS_MS);
 
-    return (
-      this.#sql.exec("DELETE FROM ky_passes WHERE approval = ? AND conversation = ? AND tool = ? AND arguments = ?", approval, conversation, tool, canonical(args))
-        .rowsWritten > 0
-    );
+    return runInputs(this.#sql, conversation).some((input) => {
+      const accepted = this.#accepted(input.request);
+
+      return (
+        accepted !== null &&
+        accepted.approval.conversation === conversation &&
+        accepted.call.tool === tool &&
+        canonical(accepted.call.arguments) === canonical(args) &&
+        this.#sql.exec("DELETE FROM ky_passes WHERE approval = ?", accepted.approval.id).rowsWritten > 0
+      );
+    });
   }
 
-  /** The request id that placed the user entry opening the conversation's current run; undefined when a reset opened it, or none did. */
-  #openedBy(conversation: string): string | undefined {
-    const opener = decodeOr(Opener, this.#sql.exec(RUN_OPENER, Number(conversation)).toArray()[0], null);
+  /** The accepted webhook action a run's input told the decision on, and its call; null for any other input. */
+  #accepted(request: string | undefined): { approval: Approval; call: Static<typeof HookCall> } | null {
+    if (request?.startsWith(DECIDED_REQUEST) !== true) return null;
+    const approval = this.desk.asker.get(request.slice(DECIDED_REQUEST.length).split(":")[0] ?? "");
 
-    return opener?.kind === "pi.user" ? placedBy(this.#sql, [opener.id]).get(opener.id) : undefined;
+    if (approval?.kind !== "webhook-action" || approval.status !== "accepted") return null;
+    const call = decodeOr(HookCall, approval.payload, null);
+
+    return call === null ? null : { approval, call };
   }
 
-  /** Ask the user's OK: the approval's id, or why it can't be asked. */
-  requestApproval(request: ApprovalRequest): { asked: string } | { refused: string } {
+  /**
+   * Ask the user's OK for `tool` called with `args`: the approval's id, or why it can't be asked. The same call asked
+   * again in the same run is the same approval, so a retry shows no second card; the same call in a later run asks anew.
+   */
+  async requestApproval(request: Omit<ApprovalRequest, "ref">, tool: string, args: JsonObject): Promise<{ asked: Approval } | { refused: string }> {
+    const opener = runInputs(this.#sql, request.conversation)[0]?.entry ?? "none";
+    const ref = await sha256(JSON.stringify([request.conversation, opener, tool, canonical(args)]));
+
     try {
-      return { asked: this.#desk.approvals.requestApproval(request) };
+      const id = this.desk.asker.requestApproval({ ...request, ref });
+
+      return { asked: must(this.desk.asker.get(id), "The approval asked for this is gone.") };
     } catch (error) {
       return { refused: error instanceof Error ? error.message : String(error) };
     }
   }
 
   /** An approved call with a credential: the Vault makes it, and the chat hears what came back, redacted. */
-  async #secretCall(approval: Approval, action: ApprovalAction): Promise<{ refused: string } | Record<string, never>> {
+  async #secretCall(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
     const call = decodeOr(SecretCall, approval.payload, null);
 
-    if (call === null) return { refused: "That approval's call isn't one ky can make." };
+    if (call === null) {
+      settle.expire();
 
-    if (action !== "accept") return this.#declined(approval, call.guarded);
-    const answer = await this.#desk.vault().httpRequest(call.name, { url: call.url, method: call.method, headers: call.headers, body: call.body });
+      return this.#told(approval, false, `[ky couldn't make the call the user ${CHOSE[action]}: ${approval.summary}. It isn't one ky can make.]`);
+    }
 
-    await this.#desk.tell(approval.conversation, `${outcome(call.guarded, "approved", approval.summary)}\n\n${replyText(answer)}`, decided(approval, call.guarded));
+    if (action !== "accept") return this.#declined(approval, action, call.guarded);
+    const answer = await this.desk.vault().httpRequest(call.name, { url: call.url, method: call.method, headers: call.headers, body: call.body });
 
-    return {};
+    // Nothing left ky: the card waits again, for the user to tap once whatever stopped it is fixed.
+    if ("refused" in answer && !answer.sent && settle.reopen()) {
+      return this.#told(approval, call.guarded, `${outcome(call.guarded, "approved", approval.summary)}\n\nNothing was sent: ${answer.refused} The card is back in the chat.`);
+    }
+
+    return this.#told(approval, call.guarded, `${outcome(call.guarded, "approved", approval.summary)}\n\n${replyText(answer)}`);
   }
 
   /**
-   * An approved webhook action: a pass for exactly that call, and the chat told to make it, in a run still guarded
+   * An accepted webhook action: a pass for exactly that call, and the chat told to make it, in a run still guarded
    * whose request id names the approval, so the pass is all it gets: a call with other arguments, the same one again, or one in
    * any other run, waits once more.
    */
-  async #hookAction(approval: Approval, action: ApprovalAction): Promise<{ refused: string } | Record<string, never>> {
+  async #hookAction(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
     const call = decodeOr(HookCall, approval.payload, null);
 
-    if (call === null) return { refused: "That approval's call isn't one ky can make." };
+    if (call === null) {
+      settle.expire();
 
-    if (action !== "accept") return this.#declined(approval, true);
+      return this.#told(approval, true, `[ky couldn't make the call the user ${CHOSE[action]}: ${approval.summary}. It isn't one ky can make.]`);
+    }
 
-    this.#sql.exec(
-      "INSERT OR IGNORE INTO ky_passes (approval, conversation, tool, arguments, at) VALUES (?, ?, ?, ?, ?)",
-      approval.id,
-      approval.conversation,
-      call.tool,
-      canonical(call.arguments),
-      Date.now()
+    if (action !== "accept") return this.#declined(approval, action, true);
+
+    this.#sql.exec("INSERT OR REPLACE INTO ky_passes (approval, at) VALUES (?, ?)", approval.id, Date.now());
+
+    return this.#told(
+      approval,
+      true,
+      `${outcome(true, "approved", approval.summary)}\n\nMake that call now, exactly as asked: tool ${call.tool} ${JSON.stringify(call.arguments)}`
     );
-    await this.#desk.tell(
-      approval.conversation,
-      `${outcome(true, "approved", approval.summary)}\n\nMake that call now, exactly as asked: tool ${call.tool} ${JSON.stringify(call.arguments)}`,
-      decided(approval, true)
-    );
-
-    return {};
   }
 
-  async #declined(approval: Approval, guarded: boolean): Promise<Record<string, never>> {
-    await this.#desk.tell(approval.conversation, `${outcome(guarded, "declined", approval.summary)} Don't make that call.`, decided(approval, guarded));
+  #declined(approval: Approval, action: ApprovalAction, guarded: boolean): Promise<void> {
+    return this.#told(approval, guarded, `${outcome(guarded, CHOSE[action], approval.summary)} Don't make that call.`);
+  }
 
-    return {};
+  /**
+   * Tell the chat what came of approval `approval`. A guarded run's is marked, so the run it is taken into stays
+   * guarded, and names the approval, the only one whose pass that run may use (`passed`); each telling is its own.
+   */
+  #told(approval: Approval, guarded: boolean, content: string): Promise<void> {
+    return this.desk.tell(approval.conversation, content, `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}:${crypto.randomUUID()}`);
   }
 }
+
+const CHOSE: Readonly<Record<ApprovalAction, string>> = { accept: "approved", decline: "declined", cancel: "cancelled" };
 
 /** What the user decided, as the chat is told it; marked guarded when the run that asked was. */
-function outcome(guarded: boolean, decided: "approved" | "declined", summary: string): string {
-  return `${guarded ? ON_HOOK_DATA : "["}the user ${decided}: ${summary}]`;
+function outcome(guarded: boolean, chose: string, summary: string): string {
+  return `${guarded ? ON_HOOK_DATA : "["}the user ${chose}: ${summary}]`;
 }
 
-/**
- * The request id the chat is told a decision with: one a guarded run asked keeps the run it opens guarded, and names
- * its approval, which is the only run its pass lets a call through in (`passed`).
- */
-function decided(approval: Approval, guarded: boolean): string {
-  return `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}`;
-}
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
 
-/** `value` as JSON with every object's keys sorted, so two calls with the same arguments compare equal; as src/guardrails.ts does. */
-function canonical(value: JsonValue): string {
-  return JSON.stringify(sorted(value));
-}
-
-const isList = (value: JsonValue): value is readonly JsonValue[] => Array.isArray(value);
-
-function sorted(value: JsonValue): JsonValue {
-  if (isList(value)) return value.map(sorted);
-
-  if (value === null || !Guard.IsObject(value)) return value;
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, item]) => [key, sorted(item)])
-  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** What the chat is told of a post: whose words they are, then the body, cut to TOLD_CHARS. */

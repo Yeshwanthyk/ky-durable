@@ -45,7 +45,7 @@ export function Inbound() {
 
     const rotated = response?.ok ? parseOr(RotatedSchema, await response.text(), null) : null;
 
-    if (rotated) setShown({ hook, url: rotated.url, signing: null });
+    if (rotated) setShown({ hook, url: rotated.url, signing: rotated.signing });
   };
 
   const remove = async (hook: string) => {
@@ -99,7 +99,7 @@ export function Inbound() {
   );
 }
 
-// A hook's URL and signing secret, just made: the only time either shows.
+// A hook's URL and signing secret, just made or rotated: the only time either shows.
 function ShownOnce({ shown, onClose }: { shown: Shown; onClose: () => void }) {
   return (
     <div className="card code-card inbound-shown" data-hook={shown.hook}>

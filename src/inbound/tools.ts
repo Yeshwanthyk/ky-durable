@@ -2,8 +2,9 @@ import type { JsonObject } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
 import Type from "typebox";
 import { toolReply as reply } from "../core/reply";
-import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SCHEMES, SECRET_NAME } from "./credentials";
-import { HOOK_TURN_TOOLS, type Inbound, type InboundDesk, type SecretCall } from "./inbound";
+import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SECRET_NAME } from "./credentials";
+import { SchemeSchema } from "./shapes";
+import { HOOK_TURN_TOOLS, type Inbound, type SecretCall } from "./inbound";
 
 /**
  * The credential tools, and the guard on a chat working on a webhook. ky asks for a credential (request_secret),
@@ -14,10 +15,9 @@ import { HOOK_TURN_TOOLS, type Inbound, type InboundDesk, type SecretCall } from
 const RequestSecret = Type.Object({
   name: Type.String({ pattern: SECRET_NAME.source, description: "What to call it, like GITHUB_TOKEN: a letter, then letters, digits, _ and -." }),
   origin: Type.String({ description: "The only https origin it may be sent to, like https://api.github.com." }),
-  scheme: Type.Union(
-    SCHEMES.map((scheme) => Type.Literal(scheme)),
-    { description: "bearer: Authorization: Bearer <value>. basic: Authorization: Basic of user:password. header: the value in a header of its own." }
-  ),
+  scheme: Type.Union(SchemeSchema.anyOf, {
+    description: "bearer: Authorization: Bearer <value>. basic: Authorization: Basic of user:password. header: the value in a header of its own."
+  }),
   header: Type.Optional(Type.String({ description: "The header's name, for a header credential only, like X-Api-Key." })),
   purpose: Type.String({ maxLength: 200, description: "What it's for, in a few words the user reads before they enter it." })
 });
@@ -33,13 +33,12 @@ const SecretRequest = Type.Object({
 /** The methods secret_request makes without asking: they read, and change nothing. */
 const READS = new Set(["GET", "HEAD"]);
 
-/** What the tools reach besides the chat's own state: the Vault, and which conversations are chats with the user. */
-type ToolDesk = Pick<InboundDesk, "vault" | "chat">;
-
 /** Credentials are only a chat's: elsewhere no user sees the field or the approval, so the tools refuse. */
 const NOT_A_CHAT = "Only a chat with the user can use credentials.";
 
-export function inboundTools(inbound: Inbound, desk: ToolDesk): Extension {
+export function inboundTools(inbound: Inbound): Extension {
+  const { desk } = inbound;
+
   return defineExtension({
     name: "credentials",
     tools: [
@@ -108,15 +107,15 @@ export function inboundTools(inbound: Inbound, desk: ToolDesk): Extension {
           const call: SecretCall = { name: args.name, url: args.url, method, headers: args.headers ?? {}, body: args.body ?? null, guarded: inbound.guarded(conversation) };
 
           if (!READS.has(method)) {
-            const asked = inbound.requestApproval({
-              kind: "secret-request",
-              subject: args.name,
-              summary: `${method} ${args.url} with ${args.name}`,
-              payload: call,
-              conversation
-            });
+            const asked = await inbound.requestApproval(
+              { kind: "secret-request", subject: args.name, summary: `${method} ${args.url} with ${args.name}`, payload: call, conversation },
+              "secret_request",
+              { ...args, method }
+            );
 
             if ("refused" in asked) return reply(asked.refused, true);
+
+            if (asked.asked.status !== "pending") return reply(`The user already ${asked.asked.status === "accepted" ? "approved" : "turned down"} that call in this run. Don't ask again.`, true);
 
             return {
               ...reply(`${method} ${args.url} waits for the user's approval, asked for in the chat. Your turn ends here; ky makes the call if they approve, and tells you what came back.`),
@@ -142,20 +141,28 @@ export function hookGuard(inbound: Inbound): Extension {
     name: "hook-guard",
     hooks: [
       hook(ToolTask, {
-        beforeTool: (call, api) => {
+        beforeTool: async (call, api) => {
           const conversation = String(api.conversationId);
 
           if (HOOK_TURN_TOOLS.has(call.name) || !inbound.guarded(conversation) || inbound.passed(conversation, call.name, call.arguments)) return undefined;
 
-          const asked = inbound.requestApproval({
-            kind: "webhook-action",
-            subject: call.name,
-            summary: `${call.name} ${brief(call.arguments)}, while working on a webhook`,
-            payload: { tool: call.name, arguments: call.arguments },
-            conversation
-          });
+          const asked = await inbound.requestApproval(
+            {
+              kind: "webhook-action",
+              subject: call.name,
+              summary: `${call.name} ${brief(call.arguments)}, while working on a webhook`,
+              payload: { tool: call.name, arguments: call.arguments },
+              conversation
+            },
+            call.name,
+            call.arguments
+          );
 
           if ("refused" in asked) return { block: `This chat is working on a webhook's outside data, so ${call.name} isn't made: ${asked.refused}` };
+
+          if (asked.asked.status !== "pending") {
+            return { block: `This chat is working on a webhook's outside data. The user already ${asked.asked.status === "accepted" ? "approved that call once" : "turned that call down"} in this run: don't make it again.` };
+          }
 
           return {
             block:
@@ -168,9 +175,11 @@ export function hookGuard(inbound: Inbound): Extension {
   });
 }
 
-/** A call's arguments, short enough for a card's line. */
+/** A call's arguments as its card shows them: enough of them to judge what the user is saying yes to. */
+const BRIEF_CHARS = 600;
+
 function brief(args: JsonObject): string {
   const text = JSON.stringify(args);
 
-  return text.length > 160 ? `${text.slice(0, 159)}…` : text;
+  return text.length > BRIEF_CHARS ? `${text.slice(0, BRIEF_CHARS - 1)}…` : text;
 }

@@ -1306,7 +1306,7 @@ export default kys;
 export const CREDENTIAL_API = "https://api.example.test";
 
 /**
- * A fake API for HTTP credentials: it echoes the credential it was sent, raw, URL-encoded and in base64, so a test
+ * A fake API for HTTP credentials: it echoes the credential it was sent, raw, URL-encoded (either case) and in base64, and a basic one's halves, so a test
  * sees whether the Vault cut every form of it out. `/moved` redirects elsewhere, `/big` answers 30,000 characters.
  */
 async function fakeCredentialApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -1333,7 +1333,10 @@ async function fakeCredentialApi(input: RequestInfo | URL, init?: RequestInit): 
     authorization,
     raw: sent,
     encoded: encodeURIComponent(sent),
+    lowered: encodeURIComponent(sent).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
     base64: btoa(sent),
+    // A basic credential's user and password, each as an API greeting its user would echo it.
+    halves: sent.split(":"),
     note: `you sent ${sent}`
   });
 }

@@ -1,7 +1,7 @@
 import Type, { type Static, type TSchema } from "typebox";
 import { parseOr } from "../core/decode";
 import { badInfo, type Credential, HTTP_KIND, MAX_VALUE_CHARS, MIN_VALUE_CHARS } from "./credentials";
-import { type Delivery, HOOK_ID, type Received } from "./inbound";
+import { type Delivery, type Hook, HOOK_ID, type Received } from "./inbound";
 
 /**
  * Inbound's routes. `/hooks/<id>/<token>` is open to anyone, as the one path under `/hooks/` in Access's BYPASS
@@ -36,9 +36,9 @@ export function hookRoute(request: Request, env: Env, url: URL): Promise<Respons
  * against floods, not guessing. A wrong id or token is a 404 like any missing page, so a guess learns nothing.
  */
 async function posted(request: Request, env: Env, url: URL): Promise<Response> {
-  const id = await admitted(request, env, url);
+  const hook = await admitted(request, env, url);
 
-  if (id instanceof Response) return id;
+  if (hook instanceof Response) return hook;
 
   const body = await capped(request.body, MAX_HOOK_BYTES);
 
@@ -46,22 +46,24 @@ async function posted(request: Request, env: Env, url: URL): Promise<Response> {
 
   const signature = request.headers.get("X-Hub-Signature-256");
 
-  if (!(await vault(env).hookSigned(id, body, signature))) return new Response("The signature doesn't match the body.", { status: 401 });
+  if (!(await vault(env).hookSigned(hook.id, hook.signed, body, signature))) return new Response("The signature doesn't match the body.", { status: 401 });
 
-  return RECEIVED[await agent(env).hookReceived(id, deliveryOf(request, url, body, signature))]();
+  return RECEIVED[await agent(env).hookReceived(hook.id, deliveryOf(request, url, body, signature))]();
 }
 
 /** The hook a post is for, once it is under the limit, addressed right, and its token the hook's; or why not. */
-async function admitted(request: Request, env: Env, url: URL): Promise<string | Response> {
+async function admitted(request: Request, env: Env, url: URL): Promise<Hook | Response> {
   const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
 
   if (!(await env.HOOK_LIMIT.limit({ key: `hook:${address}` })).success) return new Response("Too many posts; wait a minute.", { status: 429 });
 
-  const hook = addressed(request, url);
+  const addressee = addressed(request, url);
 
-  if (hook instanceof Response) return hook;
+  if (addressee instanceof Response) return addressee;
 
-  return (await vault(env).check("hook", hook.token)) === hook.id ? hook.id : notFound();
+  if ((await vault(env).check("hook", addressee.token)) !== addressee.id) return notFound();
+
+  return (await agent(env).inboundHook(addressee.id)) ?? notFound();
 }
 
 /** The id and token a post names, once it is a POST small enough by what it says; or why not. */
@@ -79,13 +81,16 @@ function addressed(request: Request, url: URL): { id: string; token: string } | 
 /** A header's value, cut to a label's length; null when it isn't sent. */
 const label = (request: Request, name: string) => request.headers.get(name)?.slice(0, 80) ?? null;
 
+/** The headers a sender names each delivery by, sent again with a redelivery: GitHub's, GitLab's, and Standard Webhooks'. */
+const DELIVERY_HEADERS = ["X-GitHub-Delivery", "X-Gitlab-Event-UUID", "Webhook-Id"];
+
 function deliveryOf(request: Request, url: URL, body: string, signature: string | null): Delivery {
   return {
     body,
     source: (url.searchParams.get("source") ?? label(request, "User-Agent") ?? "unknown").slice(0, 80),
     event: label(request, "X-GitHub-Event"),
     signature,
-    delivery: label(request, "X-GitHub-Delivery")
+    delivery: DELIVERY_HEADERS.map((name) => label(request, name)).find((value) => value !== null) ?? null
   };
 }
 
@@ -189,21 +194,40 @@ async function addHook(request: Request, env: Env, url: URL): Promise<Response> 
   if (body === null) return refused("Send { session, label, signed }.");
 
   const id = hex(16);
-  const added = await agent(env).addHook(id, body.session, body.label ?? "", body.signed === true);
+  // In the Vault before the hook is kept: a signed hook is never there without its secret.
+  const signing = body.signed === true ? await newSigning(env, id) : null;
+  const added = await agent(env).addHook(id, body.session, body.label ?? "", signing !== null);
 
-  if ("refused" in added) return refused(added.refused);
-  const signing = added.signed ? hex(32) : null;
+  if ("refused" in added) {
+    if (signing !== null) await vault(env).remove("hook-signing", id);
 
-  if (signing !== null) await vault(env).put("hook-signing", id, signing, { hook: id });
+    return refused(added.refused);
+  }
 
   return Response.json({ hook: added, url: await hookUrl(env, url, id), signing });
 }
 
-/** A new token for the hook: its old URL stops working. Its signing secret stays. */
-async function rotate(env: Env, url: URL, id: string): Promise<Response> {
-  if (!(await agent(env).inboundHooks()).hooks.some((hook) => hook.id === id)) return notFound();
+/** A signing secret for hook `id`, kept in the Vault in place of any it had. */
+async function newSigning(env: Env, id: string): Promise<string> {
+  const signing = hex(32);
 
-  return Response.json({ url: await hookUrl(env, url, id) });
+  await vault(env).put("hook-signing", id, signing, { hook: id });
+
+  return signing;
+}
+
+/**
+ * A new token for the hook, and a new signing secret if it is signed: the old URL and secret stop working, and a signed
+ * hook whose secret was lost (a restore brings no Vault) works again.
+ */
+async function rotate(env: Env, url: URL, id: string): Promise<Response> {
+  const hook = await agent(env).inboundHook(id);
+
+  if (hook === null) return notFound();
+
+  const signing = hook.signed ? await newSigning(env, id) : null;
+
+  return Response.json({ url: await hookUrl(env, url, id), signing });
 }
 
 async function hookUrl(env: Env, url: URL, id: string): Promise<string> {

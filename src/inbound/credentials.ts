@@ -1,4 +1,6 @@
+import Type, { type Static } from "typebox";
 import type { Fetch } from "../chatgpt";
+import { SchemeSchema } from "./shapes";
 
 /**
  * HTTP credentials: an API's token, which ky calls that API with and never sees. The Vault keeps each under
@@ -6,8 +8,7 @@ import type { Fetch } from "../chatgpt";
  * for, and is cut out of whatever comes back before the agent reads it.
  */
 
-/** How the value goes on a request: `Authorization: Bearer`, `Authorization: Basic` of `user:password`, or a header of its own. */
-export type Scheme = "bearer" | "basic" | "header";
+type Scheme = Static<typeof SchemeSchema>;
 
 /** What a credential is, besides its value: where it may be sent, how, and what the user said it's for. */
 export type CredentialInfo = {
@@ -19,7 +20,15 @@ export type CredentialInfo = {
 };
 
 /** A credential as the Vault keeps it: the value, and what it is for. */
-export type Credential = CredentialInfo & { readonly value: string };
+export const CredentialSchema = Type.Object({
+  origin: Type.String(),
+  scheme: SchemeSchema,
+  header: Type.Union([Type.String(), Type.Null()]),
+  purpose: Type.String(),
+  value: Type.String()
+});
+
+export type Credential = Static<typeof CredentialSchema>;
 
 /** A call ky asks the Vault to make with a credential. */
 export type CredentialRequest = {
@@ -29,14 +38,17 @@ export type CredentialRequest = {
   readonly body: string | null;
 };
 
-/** What came back, cut to MAX_RESPONSE_CHARS with the value redacted; or why the Vault made no call. */
+/**
+ * What came back, cut to MAX_RESPONSE_CHARS with the value redacted; or why the call failed, and whether anything was
+ * sent: `sent` is false only when no request left the Vault.
+ */
 export type CredentialReply =
   | { readonly status: number; readonly type: string | null; readonly body: string; readonly truncated: boolean }
-  | { readonly refused: string };
+  | { readonly refused: string; readonly sent: boolean };
 
 export const HTTP_KIND = "http";
 
-export const SCHEMES: readonly Scheme[] = ["bearer", "basic", "header"];
+const SCHEMES: readonly Scheme[] = SchemeSchema.anyOf.map((literal) => literal.const);
 
 /** A credential's name: a letter, then letters, digits, `_` and `-`, up to 64. */
 export const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
@@ -100,19 +112,31 @@ function base64(text: string): string {
   return btoa(String.fromCharCode(...encoder.encode(text)));
 }
 
-/** `value` as it can come back: raw, URL-encoded, JSON-escaped and base64, padded or not, standard or URL-safe. */
-function forms(value: string): string[] {
+/**
+ * `value` as it can come back: raw, URL-encoded with upper or lower case escapes, JSON-escaped and base64, padded or
+ * not, standard or URL-safe.
+ */
+function encodings(value: string): string[] {
   const padded = base64(value);
   const bare = padded.replace(/=+$/, "");
-  const all = [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1), padded, bare, bare.replaceAll("+", "-").replaceAll("/", "_")];
+  const encoded = encodeURIComponent(value);
+
+  return [value, encoded, encoded.replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()), JSON.stringify(value).slice(1, -1), padded, bare, bare.replaceAll("+", "-").replaceAll("/", "_")];
+}
+
+/** Every form the credential's value can come back in; a basic one's user and password each on their own too, as an API can echo either. */
+function forms(credential: Credential): string[] {
+  const split = credential.value.indexOf(":");
+  const halves = credential.scheme === "basic" && split >= 0 ? [credential.value.slice(0, split), credential.value.slice(split + 1)] : [];
+  const all = [credential.value, ...halves].flatMap(encodings);
 
   // The longest first, so a form that holds a shorter one is cut whole.
   return [...new Set(all)].filter((form) => form.length >= MIN_VALUE_CHARS).sort((a, b) => b.length - a.length);
 }
 
-/** `text` with every form of `value` in it replaced by REDACTED. */
-function redact(text: string, value: string): string {
-  return forms(value).reduce((redacted, form) => redacted.replaceAll(form, REDACTED), text);
+/** `text` with every form of the credential's value in it replaced by REDACTED. */
+function redact(text: string, credential: Credential): string {
+  return forms(credential).reduce((redacted, form) => redacted.replaceAll(form, REDACTED), text);
 }
 
 /**
@@ -121,7 +145,7 @@ function redact(text: string, value: string): string {
  * credential's. What comes back, and any error, is redacted and cut to MAX_RESPONSE_CHARS.
  */
 export async function credentialFetch(fetcher: Fetch, credential: Credential, request: CredentialRequest): Promise<CredentialReply> {
-  if (httpsOrigin(request.url) !== credential.origin) return { refused: `This credential is only sent to ${credential.origin}, and not to any other origin.` };
+  if (httpsOrigin(request.url) !== credential.origin) return { refused: `This credential is only sent to ${credential.origin}, and not to any other origin.`, sent: false };
   const [name, value] = credentialHeader(credential);
   const headers = new Headers();
 
@@ -141,16 +165,17 @@ export async function credentialFetch(fetcher: Fetch, credential: Credential, re
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
   } catch (error) {
-    return { refused: redact(`The request failed: ${error instanceof Error ? error.message : String(error)}`, credential.value) };
+    // It may have reached the API before it failed.
+    return { refused: redact(`The request failed: ${error instanceof Error ? error.message : String(error)}`, credential), sent: true };
   }
 
   if (response.status >= 300 && response.status < 400) {
     await response.body?.cancel();
 
-    return { refused: `${credential.origin} answered ${response.status}, a redirect, which ky doesn't follow with a credential.` };
+    return { refused: `${credential.origin} answered ${response.status}, a redirect, which ky doesn't follow with a credential.`, sent: true };
   }
 
-  const text = redact(await response.text(), credential.value);
+  const text = redact(await response.text(), credential);
 
   return {
     status: response.status,
