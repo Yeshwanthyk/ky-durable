@@ -34,6 +34,10 @@ against B, never against the PR before it.
 | Deploy invariants I-D1..I-D5 | done: 500 runs of up to 30 steps, seed 1940260227 | `test-results/parity/deploy/proof.json` |
 | Deploy mutants (4) | done: all four caught by `pnpm parity deploy --mutant all` | `test-results/parity/deploy/mutant-*.json` |
 | Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant caught (add, then cancel) | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
+| `pnpm census <domain>` (keep: INVARIANT, E2E; prune: MOCK, SCAN, SLEEP, COPY, UNIT) | done | `test/census.ts`; `test-results/census/*.json` |
+| `verify-ky-parity` skill: doctor, ratchet, prove, one feature file per domain | written; end-to-end proof on deploy waits for the B baseline | `.claude/skills/verify-ky-parity/` |
+| `divergences/deploy.md` | done: I-D2, I-D3 open for U1 | `docs/migration/effect/divergences/deploy.md` |
+| Fable 5.1 review of U0 | running (foundation diff; lanes in a second round) | — |
 
 ## Decisions
 
