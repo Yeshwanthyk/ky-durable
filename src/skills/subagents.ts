@@ -20,7 +20,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { agentModel, type Models, parseModel } from "../models";
 import type { ModelChoice } from "../settings";
-import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, type Specialist, type Specialists } from "./specialists";
+import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, type Specialist } from "./specialists";
+import type { Specialists } from "./wiring";
 import { toolReply as reply } from "../core/reply";
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";

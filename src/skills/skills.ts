@@ -119,7 +119,7 @@ const ReviewRunRow = Schema.Struct({ run: Schema.NullOr(Schema.String) });
  * The skill tables' storage. Storage failing is a defect, as a throwing exec was at B, so nothing here fails
  * typed; `addColumns` adds the columns a table was first made without and returns the ones it added.
  */
-const storage = Effect.gen(function* () {
+export const storage = Effect.gen(function* () {
   const sql = yield* Sql;
   const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
   const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));

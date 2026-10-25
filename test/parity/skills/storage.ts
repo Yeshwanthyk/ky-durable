@@ -13,7 +13,7 @@ import type { Skills } from "../../../src/skills/wiring";
 type Storage = ConstructorParameters<typeof Skills>[0];
 
 /** A real SQLite as a Durable Object's `sql`: `exec` with `toArray` and `one`. */
-function sqlOf(db: DatabaseSync) {
+export function sqlOf(db: DatabaseSync) {
   return {
     exec: (query: string, ...bindings: SQLInputValue[]) => {
       const rows = db

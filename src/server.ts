@@ -167,7 +167,7 @@ export class PiAgent extends DurableObject<Env> {
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage.sql);
   /** The user's standing bots, like @engineer. */
-  readonly specialists = new Specialists(this.ctx.storage.sql);
+  readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
   readonly avatars = new Avatars(this.ctx.storage.sql);
   /** Which specialists are in which chats, and their seats there. */

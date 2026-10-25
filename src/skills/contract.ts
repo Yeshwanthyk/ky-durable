@@ -11,7 +11,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contract";
-import { parseOr } from "../core/decode";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../models";
@@ -19,7 +18,7 @@ import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../set
 
 export type { Reviews, Skills } from "./wiring";
 
-export type { Specialists } from "./specialists";
+export type { Specialists } from "./wiring";
 
 export type { Spawn } from "./subagents";
 
@@ -451,47 +450,41 @@ export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = O
 
 // Specialists.
 
-const SessionKind = Type.Union([Type.Literal("home"), Type.Literal("consult"), Type.Literal("discuss"), Type.Literal("group")]);
+const SessionKind = Schema.Literals(["home", "consult", "discuss", "group"]);
 
-export type SessionKind = Static<typeof SessionKind>;
+export type SessionKind = typeof SessionKind.Type;
 
 /** A model choice as a specialist stores it, JSON in ky_specialists.model. */
-const StoredModel = Type.Object({
-  provider: Type.String(),
-  modelId: Type.String(),
-  thinkingLevel: Type.Union([
-    Type.Literal("off"),
-    Type.Literal("minimal"),
-    Type.Literal("low"),
-    Type.Literal("medium"),
-    Type.Literal("high"),
-    Type.Literal("xhigh"),
-    Type.Literal("max")
-  ])
+const StoredModel = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  thinkingLevel: Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
 });
+
+const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
 /** A row of ky_specialists as SQLite holds it: the model as JSON text. */
-export const SpecialistStored = Type.Object({
-  id: Type.String(),
-  description: Type.String(),
-  model: Type.Union([Type.String(), Type.Null()]),
-  machine: Type.Union([Type.String(), Type.Null()]),
-  session: Type.Union([Type.String(), Type.Null()]),
-  created_at: Type.Number()
+export const SpecialistStored = Schema.Struct({
+  id: Schema.String,
+  description: Schema.String,
+  model: Schema.NullOr(Schema.String),
+  machine: Schema.NullOr(Schema.String),
+  session: Schema.NullOr(Schema.String),
+  created_at: Schema.Number
 });
 
-export type SpecialistRow = Omit<Static<typeof SpecialistStored>, "model"> & {
+export type SpecialistRow = Omit<typeof SpecialistStored.Type, "model"> & {
   /** Its model; the worker's when null or no longer available. */
   readonly model: ModelChoice | null;
 };
 
-/** A stored specialist, its model decoded; a damaged model reads as none, so the worker's runs. */
-export function specialistOf({ model, ...row }: Static<typeof SpecialistStored>): SpecialistRow {
-  return { ...row, model: model === null ? null : parseOr(StoredModel, model, null) };
+/** A stored specialist, its model checked and kept as stored; a damaged model reads as none, so the worker's runs. */
+export function specialistOf({ model, ...row }: typeof SpecialistStored.Type): SpecialistRow {
+  return { ...row, model: model === null ? null : Option.getOrNull(Option.filter(parseJson(model), Schema.is(StoredModel))) };
 }
 
 /** A row of ky_specialist_sessions, as `bySession` reads it. */
-export const SpecialistSession = Type.Object({ specialist: Type.String(), kind: SessionKind });
+export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind: SessionKind });
 
 /** A specialist's brief as the panel shows it (src/dreaming/soul.ts's SoulView). */
 type BriefView = { readonly body: string; readonly version: number; readonly updated_at: number };
