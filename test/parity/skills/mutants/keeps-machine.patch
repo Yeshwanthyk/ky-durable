@@ -1,0 +1,13 @@
+diff --git a/src/skills/specialists.ts b/src/skills/specialists.ts
+index 5cc6ecb..106578a 100644
+--- a/src/skills/specialists.ts
++++ b/src/skills/specialists.ts
+@@ -201,7 +201,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
+                 `UPDATE ${SKILL_TABLES.specialists} SET description = ?, model = ?, machine = ? WHERE id = ?`,
+                 description,
+                 draft.model === undefined ? (row.model && JSON.stringify(row.model)) : draft.model && JSON.stringify(draft.model),
+-                draft.machine === undefined ? row.machine : draft.machine || null,
++                row.machine,
+                 id
+               );
+               yield* changed;
