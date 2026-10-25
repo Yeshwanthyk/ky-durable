@@ -34,6 +34,13 @@ function skillsFromUrl(search = location.search): SkillFilter | null {
   return SKILL_FILTERS.find((each) => each === filter) ?? null;
 }
 
+declare global {
+  interface Window {
+    /** The installed app's launches (Chromium): the manifest's launch_handler brings an open ky forward instead of opening another. */
+    readonly launchQueue?: { setConsumer(consume: (params: { readonly targetURL?: string }) => void): void };
+  }
+}
+
 const urlOf = (session: string, artifacts: ArtifactKind | null = null, skills: SkillFilter | null = null) => {
   const query = new URLSearchParams();
 
@@ -84,6 +91,23 @@ export function useSessionRoute(): Route {
       setArtifacts(null);
       setSkills(null);
     };
+
+    // An installed ky launched again, from a shortcut say, opens where it was launched at here, as a tapped
+    // notification's chat does. Its first launch is the address already open.
+    window.launchQueue?.setConsumer(({ targetURL }) => {
+      const target = targetURL === undefined ? null : new URL(targetURL);
+
+      if (target === null || target.origin !== location.origin) return;
+      const [next, kind] = [sessionFromUrl(target.search), artifactsFromUrl(target.search)];
+      const filter = kind === null ? skillsFromUrl(target.search) : null;
+      const url = urlOf(next, kind, filter);
+
+      if (url === location.pathname + location.search) return;
+      history.pushState(null, "", url);
+      setSession(next);
+      setArtifacts(kind);
+      setSkills(filter);
+    });
 
     const worker = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
     addEventListener("popstate", onPop);

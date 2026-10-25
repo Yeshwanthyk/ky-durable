@@ -91,8 +91,27 @@ self.addEventListener("push", (event) => {
   // src/push.ts sends lines: the title, the chat's address, then the text.
   const [title = "ky", url = "/", ...text] = (event.data?.text() ?? "").split("\n");
 
-  event.waitUntil(self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } }));
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } });
+      await badge(true);
+    })()
+  );
 });
+
+// The app icon's badge counts ky's notifications in the tray, recounted as each is shown, tapped or swiped away.
+// Opening ky closes them and clears it (src/client.tsx). A browser that can't list them gets a plain dot for a push,
+// which is told apart from an empty tray by `justShown`.
+async function badge(justShown = false) {
+  if (!("setAppBadge" in navigator)) return;
+  const count = (await self.registration.getNotifications()).length;
+
+  if (count > 0) await navigator.setAppBadge(count).catch(() => {});
+  else if (justShown) await navigator.setAppBadge().catch(() => {});
+  else await navigator.clearAppBadge().catch(() => {});
+}
+
+self.addEventListener("notificationclose", (event) => event.waitUntil(badge()));
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
@@ -100,6 +119,7 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     (async () => {
+      await badge();
       const windows = await self.clients.matchAll({ type: "window" });
       const open = windows.find((each) => new URL(each.url).origin === self.location.origin);
 

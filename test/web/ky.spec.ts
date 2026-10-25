@@ -2208,6 +2208,9 @@ test("serves the web app manifest and icons to the Home Screen without signing i
     const manifest = await stranger.get("/manifest.webmanifest", { maxRedirects: 0 });
     expect(manifest.status()).toBe(200);
     expect(await manifest.json()).toMatchObject({ name: "ky", display: "standalone" });
+    // Each shortcut opens a page the app has an address for.
+    const { shortcuts } = Value.Parse(Type.Object({ shortcuts: Type.Array(Type.Object({ url: Type.String() })) }), await manifest.json());
+    expect(shortcuts.map((each) => each.url)).toEqual(["/", "/?skills=all", "/?artifacts=all"]);
 
     const icon = await stranger.get("/icons/icon-512.png", { maxRedirects: 0 });
     expect(icon.status()).toBe(200);
@@ -2219,6 +2222,141 @@ test("serves the web app manifest and icons to the Home Screen without signing i
     expect(await home.text()).toBe(REFUSED);
   } finally {
     await stranger.dispose();
+  }
+});
+
+test("opens the page each app shortcut names", async ({ page }) => {
+  // Each page covers the chat, so there's no connected chat to wait for.
+  await signIn(page);
+  await page.goto("/?skills=all");
+  await expect(page.getByRole("region", { name: "Skills" })).toBeVisible();
+  await page.goto("/?artifacts=all");
+  await expect(page.getByRole("region", { name: "Artifacts" })).toBeVisible();
+});
+
+/** What the PWA tests' stand-ins hold: the launch consumer ky set, and the badge and tray as each side saw them. */
+declare global {
+  var kyLaunch: (params: { readonly targetURL?: string }) => void;
+  var kyCleared: number;
+  var kyClosed: string[];
+  var kyBadges: (number | "dot" | "clear")[];
+  var kyTray: { title: string; body: string; close(): void }[];
+  /** public/sw.js's own registration, as its global scope has it. */
+  var registration: ServiceWorkerRegistration;
+}
+
+test("opens a shortcut launched into an open ky there, without reloading it", async ({ page }) => {
+  // Chromium hands an installed app's launch to its open window (the manifest's launch_handler) through launchQueue.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "launchQueue", { configurable: true, value: { setConsumer: (consume: typeof globalThis.kyLaunch) => (globalThis.kyLaunch = consume) } });
+  });
+  await open(page);
+  await page.evaluate(() => Object.assign(window, { notReloaded: true }));
+
+  // Another site's address, and the one already open, change nothing.
+  await page.evaluate(() => globalThis.kyLaunch({ targetURL: "https://example.com/?skills=all" }));
+  await page.evaluate(() => globalThis.kyLaunch({ targetURL: location.href }));
+  await expect(page).toHaveURL(/\/$/);
+
+  await page.evaluate(() => globalThis.kyLaunch({ targetURL: `${location.origin}/?skills=all` }));
+  await expect(page.getByRole("region", { name: "Skills" })).toBeVisible();
+  await expect(page).toHaveURL(/\/\?skills=all$/);
+
+  await page.evaluate(() => globalThis.kyLaunch({ targetURL: `${location.origin}/` }));
+  await expect(page.getByRole("region", { name: "Skills" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
+  expect(await page.evaluate(() => "notReloaded" in window)).toBe(true);
+});
+
+test("badges the app icon with ky's notifications in the tray, and opening ky reads them", async ({ page, context }) => {
+  // The page's side: the badge it clears and the notifications it closes, as headless Chromium shows none.
+  await page.addInitScript(() => {
+    globalThis.kyCleared = 0;
+    globalThis.kyClosed = [];
+    Object.defineProperty(navigator, "clearAppBadge", { configurable: true, value: async () => void globalThis.kyCleared++ });
+    Object.defineProperty(ServiceWorkerRegistration.prototype, "getNotifications", {
+      configurable: true,
+      value: async () => ["The pharmacy", "The bakery"].map((title) => ({ close: () => void globalThis.kyClosed.push(title) }))
+    });
+  });
+  await open(page);
+  await expect.poll(() => page.evaluate(() => globalThis.kyCleared)).toBe(1);
+
+  // The stack runs Vite's dev server, where ky doesn't register public/sw.js itself.
+  const cdp = await context.newCDPSession(page);
+
+  try {
+    const registered = new Promise<string>((resolve) =>
+      cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+        const ours = registrations.find((each) => each.scopeURL === new URL("/", page.url()).href && !each.isDeleted);
+
+        if (ours) resolve(ours.registrationId);
+      })
+    );
+
+    await cdp.send("ServiceWorker.enable");
+    await page.evaluate(async () => void (await navigator.serviceWorker.register("/sw.js")));
+    const registrationId = await registered;
+    const worker = context.serviceWorkers().find((each) => each.url().endsWith("/sw.js")) ?? (await context.waitForEvent("serviceworker"));
+
+    // The worker's side: a stand-in tray for what it shows, and the badge it sets.
+    await worker.evaluate(() => {
+      globalThis.kyBadges = [];
+      globalThis.kyTray = [];
+      Object.defineProperty(navigator, "setAppBadge", { configurable: true, value: async (count?: number) => void globalThis.kyBadges.push(count ?? "dot") });
+      Object.defineProperty(navigator, "clearAppBadge", { configurable: true, value: async () => void globalThis.kyBadges.push("clear") });
+      Object.assign(globalThis.registration, {
+        showNotification: async (title: string, options: NotificationOptions) => {
+          const shown = { title, body: options.body ?? "", close: () => (globalThis.kyTray = globalThis.kyTray.filter((each) => each !== shown)) };
+
+          globalThis.kyTray.push(shown);
+        },
+        getNotifications: async () => globalThis.kyTray
+      });
+    });
+
+    const badges = () => worker.evaluate(() => globalThis.kyBadges);
+    // src/push.ts's lines: the title, the chat's address, then the text.
+    const push = (data: string) => cdp.send("ServiceWorker.deliverPushMessage", { origin: new URL(page.url()).origin, registrationId, data });
+
+    /** What the browser does when the user taps or swipes away the tray's first notification. */
+    const userCloses = (type: "notificationclick" | "notificationclose") =>
+      worker.evaluate((kind) => {
+        const [first] = globalThis.kyTray;
+
+        if (kind === "notificationclick") first?.close();
+        else globalThis.kyTray = globalThis.kyTray.slice(1);
+        const waits: Promise<unknown>[] = [];
+
+        // A plain event standing in for the NotificationEvent, which a page or worker can't make.
+        self.dispatchEvent(Object.assign(new Event(kind), { notification: first ?? { close: () => {}, data: { url: "/" } }, waitUntil: (wait: Promise<unknown>) => waits.push(wait) }));
+
+        return Promise.allSettled(waits).then(() => undefined);
+      }, type);
+
+    await push("ky\n/\nThe pharmacy closes at six today.");
+    await expect.poll(badges).toEqual([1]);
+    await push("ky\n/\nAnd the bakery at five.");
+    await expect.poll(badges).toEqual([1, 2]);
+    await push("ky\n/\nAnd the post office at four.");
+    await expect.poll(badges).toEqual([1, 2, 3]);
+
+    // Swiped away, tapped: each recounts what is left, and the last one gone clears the badge.
+    await userCloses("notificationclose");
+    await expect.poll(badges).toEqual([1, 2, 3, 2]);
+    await userCloses("notificationclick");
+    await expect.poll(badges).toEqual([1, 2, 3, 2, 1]);
+    await userCloses("notificationclose");
+    await expect.poll(badges).toEqual([1, 2, 3, 2, 1, "clear"]);
+
+    // Coming back to ky reads what is in the tray: the badge goes and so do ky's notifications.
+    await switchAway(page, 1_000);
+    await expect.poll(() => page.evaluate(() => globalThis.kyCleared)).toBe(2);
+    // The first load had no worker registered yet, so nothing to close then.
+    await expect.poll(() => page.evaluate(() => globalThis.kyClosed)).toEqual(["The pharmacy", "The bakery"]);
+  } finally {
+    await page.evaluate(async () => void (await navigator.serviceWorker.getRegistration())?.unregister());
+    await cdp.detach();
   }
 });
 

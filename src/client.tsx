@@ -703,3 +703,19 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   // Without one (private browsing, say) ky works as it did, from the network.
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
+
+// Once ky is open, what its pushes left in the tray and on the app icon's badge (public/sw.js) has been read, so
+// both go.
+const readNotifications = async () => {
+  if (document.visibilityState !== "visible") return;
+  navigator.clearAppBadge?.().catch(() => {});
+  const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+
+  for (const shown of (await registration?.getNotifications()) ?? []) shown.close();
+};
+
+const read = () => void readNotifications().catch(() => {});
+
+read();
+
+document.addEventListener("visibilitychange", read);
