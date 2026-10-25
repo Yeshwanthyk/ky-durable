@@ -5,6 +5,7 @@
  * and the tools. Other folders import automations and the task feed from here, never from the
  * files behind it.
  */
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type, { type Static, type TSchema } from "typebox";
@@ -44,8 +45,19 @@ export const AUTOMATION_SOURCE = "automation:";
 
 const Level = ThinkingLevelSchema;
 
-/** A model choice as the `model` column holds it, JSON. */
-const ModelColumn = ModelChoiceSchema;
+/**
+ * The `model` column: a model choice as JSON text, or null for the worker's. Text that is not one, corrupt JSON
+ * or another shape, reads as null too, so a damaged model runs on the worker's and the row still reads.
+ */
+const ModelColumn = Schema.NullOr(
+  Schema.fromJsonString(
+    Schema.Struct({
+      provider: Schema.String,
+      modelId: Schema.String,
+      thinkingLevel: Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
+    }) satisfies Schema.Codec<ModelChoice, unknown>
+  )
+).pipe(Schema.catchDecoding(() => Effect.succeed(Option.some(null))));
 
 const AutomationStatus = Schema.Literals(["active", "paused", "done", "archived"]);
 
@@ -67,7 +79,7 @@ const StoredAutomation = Schema.Struct({
   /** Missing from a row restored without the column, which reads as null: the user's zone. */
   zone: Schema.optionalKey(Schema.NullOr(Schema.String)),
   at: Schema.NullOr(Schema.Number),
-  model: Schema.NullOr(Schema.String),
+  model: ModelColumn,
   machine: Schema.NullOr(Schema.String),
   chat: Schema.String,
   gate: Schema.NullOr(Schema.String),
@@ -95,7 +107,7 @@ const StoredAutomation = Schema.Struct({
  * anticipation a look booked it for (src/dreaming/looks.ts), which retires it when that closes; null for any other.
  * `post` puts each run's report in its chat as ky's own message, as written, instead of giving it to the chat's agent.
  */
-export type AutomationRow = Readonly<Omit<typeof StoredAutomation.Type, "model" | "post"> & { model: ModelChoice | null; post: boolean }>;
+export type AutomationRow = Readonly<Omit<typeof StoredAutomation.Type, "post"> & { post: boolean }>;
 
 /** What a schedule is and does: everything create and update set. */
 export const AutomationDraftSchema = Type.Object({
@@ -344,9 +356,7 @@ export function automationRows(rows: readonly unknown[]): AutomationRow[] {
 
     if (Option.isNone(stored)) return [];
 
-    const { model, post } = stored.value;
-
-    return [{ ...stored.value, model: model === null ? null : parseOr(ModelColumn, model, null), post: post === 1 }];
+    return [{ ...stored.value, post: stored.value.post === 1 }];
   });
 }
 
