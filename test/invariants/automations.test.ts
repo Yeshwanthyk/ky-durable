@@ -169,6 +169,20 @@ const steps: fc.Arbitrary<Step[]> = fc.array(
   { minLength: 5, maxLength: 40 }
 );
 
+/**
+ * A run that ended before its automation was paused, then its reporter asking: a run long enough that the random
+ * ones seldom build it, so every property starts with it.
+ */
+const PAUSED_AFTER_DONE: Step[] = [
+  { create: { title: "Digest", prompt: "digest", cron: "0 9 * * *", at: null }, author: "user", watch: null },
+  { act: "run", id: "00000001" },
+  { advance: "alarm" },
+  { world: "progress", id: "00000001", status: "working" },
+  { world: "progress", id: "00000001", status: "done" },
+  { act: "pause", id: "00000001" },
+  { world: "report", id: "00000001" }
+];
+
 /** The automations with more than one run still going (queued or working), by their task rows. */
 function overlapping(world: World): string[] {
   return world.rows("SELECT source FROM ky_tasks WHERE status IN ('queued', 'working') GROUP BY source HAVING COUNT(*) > 1").map((row) => String(row.source));
@@ -219,7 +233,7 @@ describe("runs", () => {
           await side.dispose();
         }
       }),
-      { numRuns: budget().numRuns * 4, seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed, examples: [[PAUSED_AFTER_DONE]] }
     );
 
   it("OneRunPerSlot: a slot starts one run and posts one report, however often it fires", async () => {
