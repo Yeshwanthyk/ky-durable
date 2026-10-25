@@ -704,28 +704,18 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
-// What ky's pushes put on the app icon's badge (public/sw.js) is read once ky is open, so it goes.
-const clearBadge = () => {
-  if (document.visibilityState === "visible") navigator.clearAppBadge?.().catch(() => {});
+// Once ky is open, what its pushes left in the tray and on the app icon's badge (public/sw.js) has been read, so
+// both go.
+const readNotifications = async () => {
+  if (document.visibilityState !== "visible") return;
+  navigator.clearAppBadge?.().catch(() => {});
+  const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+
+  for (const shown of (await registration?.getNotifications()) ?? []) shown.close();
 };
 
-clearBadge();
+const read = () => void readNotifications().catch(() => {});
 
-document.addEventListener("visibilitychange", clearBadge);
+read();
 
-declare global {
-  interface Window {
-    /** The installed app's launches (Chromium): the manifest's launch_handler brings an open ky forward instead of opening another. */
-    readonly launchQueue?: { setConsumer(consume: (params: { readonly targetURL?: string }) => void): void };
-  }
-}
-
-// So the address it was launched at, a shortcut's say, opens here as going back or forward to it would
-// (src/ui/use-session-route.ts).
-window.launchQueue?.setConsumer(({ targetURL }) => {
-  const target = targetURL === undefined ? null : new URL(targetURL);
-
-  if (target === null || target.origin !== location.origin || target.pathname + target.search === location.pathname + location.search) return;
-  history.pushState(null, "", target.pathname + target.search);
-  dispatchEvent(new PopStateEvent("popstate"));
-});
+document.addEventListener("visibilitychange", read);

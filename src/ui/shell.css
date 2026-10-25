@@ -16,23 +16,6 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* The installed app with its title bar folded into the page (the manifest's window-controls-overlay,
-   Chromium on a computer): keep the window's own buttons' strip clear, and let it drag the window. */
-@media (display-mode: window-controls-overlay) {
-  .shell {
-    padding-top: env(titlebar-area-height, 0px);
-  }
-
-  .shell::before {
-    content: "";
-    position: fixed;
-    inset: 0 0 auto;
-    height: env(titlebar-area-height, 0px);
-    app-region: drag;
-    -webkit-app-region: drag;
-  }
-}
-
 .shell[data-panel="true"] {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--panel-width);
 }
