@@ -14,8 +14,11 @@ against B, never against the PR before it.
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
 | U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` (settled) | `effect/lane-screenshot-diff` | done, integrated (2bacb35, 4136158, 65d0921) | `pnpm visual`: B vs HEAD 0 on 8 pages |
 | U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | done, settled (9c066ba) | its thread |
-| U1 | Deploy (pilot) | `mcp:8758b1bd-ad05-4614-a90c-5aabb146c3af` | `effect/u1-deploy` (from `effect/foundation`) | running (Wave 1 go 2026-10-25) | its thread |
-| H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
+| U1 | Deploy (pilot) | `mcp:8758b1bd-ad05-4614-a90c-5aabb146c3af` | `effect/u1-deploy` (from `effect/foundation`) | running: ported (f1ebace), I-D2/I-D3 hold, parity green 4 seeds × 100; next: 500-run bar, flip (delete `cli/deploy/legacy/`), report | its thread |
+| W1-K | Kit: one clock per run, `due`/`pending`/`nextAlarm` | chief of staff | `effect/foundation` | done (3c162ba) | toy 7/7; `--mutant all` caught at 500 runs |
+| W1-S | `src/core/sql.ts`: sync-first `Sql` service over `ctx.storage.sql` | chief of staff | `effect/foundation` | done (4e8d6b5, 70ce4f8) | 5/5 on a real DO; no-rollback mutant red |
+| W1-R | Real data: squarey's backup restored at B and on the branch | chief of staff | `effect/foundation` | done for foundation | `real-data.ts`: HEAD = B (47 skills, 16 routines; same 2 runtime tables emptied on both) |
+| H1 | Harvest after U1 | chief of staff | — | after U1 reports | — |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
 | U3 | Skills | — | — | waits for Wave 2 "go" | — |
 
@@ -42,6 +45,14 @@ against B, never against the PR before it.
 | Screenshot diff integrated | done: `pnpm visual` / `visual:capture` / `visual:diff`; threshold 0.0001; B vs HEAD 0 on 8 pages from foundation; `pnpm check` red only on B's 9 | `test/visual/`; `fallow/health.json` |
 
 ## Decisions
+
+- **Owner, 2026-10-25:** no legacy code reaches main. `legacy/` is scaffolding on an area's branch for the parity run;
+  the flip deletes it, the code it replaced and the prunable tests, then reproves on the port alone. Code stays tight:
+  no new lint or fallow baseline entries, no suppressions, no wrappers kept for old shapes.
+- **Owner, 2026-10-25:** squarey must come up as usual. Its backup (`ky backup`, read-only, kept in `~/ky-backups/`,
+  never in git) is restored into local stacks at B and on each branch (`verify-ky-parity/scripts/real-data.ts`);
+  nothing is ever restored into a live ky.
+- **Owner, 2026-10-25:** Wave 1 runs as a DAG: U1 in its thread, kit clock, `Sql` and the real-data check here in parallel.
 
 - **Owner, 2026-10-25:** reviews stay Fable 5.1 only for the whole migration (no Astra on this machine). Wave 1 approved as drawn: U1 writer + chief of staff builds the kit clock and DO storage service alongside.
 

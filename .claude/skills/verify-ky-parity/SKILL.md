@@ -41,7 +41,8 @@ The five checks, and what runs each:
    (`docs/migration/effect/prune-ledger.json`) deleted it with a reason and what replaced it.
    `scripts/ratchet.ts <domain>`; the whole repo's version is `pnpm gate`, which runs every check
    and judges tests only by `gate-baseline.json`, since B fails some of its own.
-2. **Parity.** While a domain is ported, B's code (`src/<domain>/legacy/`) and the port sit behind
+2. **Parity.** While a domain is ported, B's code (`<domain>/legacy/`, deleted at the flip before
+   merge: nothing legacy reaches main) and the port sit behind
    one `contract.ts`; `test/parity/kit.ts` drives both with the same generated actions and clock
    advances and compares results, refusals, tables and effects after each step. A bug fixed on
    purpose is a `Divergence`, listed in `docs/migration/effect/divergences/<domain>.md` with the
@@ -50,7 +51,17 @@ The five checks, and what runs each:
    `pnpm parity <domain>` runs them at the bar, and `--mutant all` applies each
    `test/parity/<domain>/mutants/*.patch` and must go red, or the proof can't see that break.
 4. **Stored data.** A database written at B loads under the port, and `ky_restore__<table>` names
-   don't change. Per domain; see its feature file.
+   don't change. Per domain; see its feature file. On real data, once per area before merge, from a
+   backup the owner has okayed (`pnpm ky backup` is a read-only GET; never restore into a live ky):
+
+   ```sh
+   node --experimental-strip-types --no-warnings .claude/skills/verify-ky-parity/scripts/real-data.ts ~/ky-backups/<ky>-<time>.tar.gz
+   ```
+
+   It restores the backup into a fresh local stack at B and on this checkout, backs each up again,
+   and fails when HEAD loses other rows than B does or a page shows other counts. At B every restore
+   empties `workspace_runtime_events` and `workspace_runtime_executions` (the sandbox runtime starts
+   fresh), so both sides list them. Look at the screenshots too.
 5. **Real surface.** The domain's recipes in verify-ky-cli, verify-ky-web and verify-ky-machines,
    on the local stack, and `test/visual/` screenshots of its pages at B and on the branch.
 
@@ -63,6 +74,8 @@ SLEEP, COPY and UNIT tests may go, each with a ledger entry.
 - `test-results/parity/<domain>/proof.json`: runs, steps, seed, tool versions (node, vitest,
   fast-check, effect, commit), and the first counterexample on failure.
 - `test-results/parity/<domain>/mutant-<name>.json`: `holds: true` when the mutant was caught.
+- `test-results/parity/real-data/{base,head}/`: `report.json` and a screenshot per page. They hold
+  the owner's chats; `test-results/` is ignored by git, and they never leave this machine.
 - `test-results/census/<domain>.json`; `test-results/gate/*.log` for a full gate.
 
 Report the seed with every result. A red run is replayed with `--seed`.
