@@ -77,6 +77,7 @@ describe("parity kit", () => {
 
   it("jumps to the next alarm, so a port that loses a reminder an hour off is caught", async () => {
     const hourly: Parity<Action> = { ...toy, actions: fc.record({ add: fc.constantFrom("tea"), inMs: fc.integer({ min: 3_600_000, max: 7_200_000 }) }), divergences: [] };
+
     const late: Parity<Action> = {
       ...hourly,
       next: async (clock) => {

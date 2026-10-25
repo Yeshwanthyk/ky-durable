@@ -17,7 +17,7 @@ export class SqlError extends Schema.TaggedError<SqlError>()("SqlError", { query
 
 type Row = Record<string, SqlStorageValue>;
 
-export interface SqlShape {
+export interface SqlStatements {
   /** Runs one statement: its rows as SQLite gives them. */
   readonly exec: (query: string, ...params: SqlStorageValue[]) => Effect.Effect<ReadonlyArray<Row>, SqlError>;
   /** Runs one statement: each row decoded by `row`; a row that isn't one fails. */
@@ -29,11 +29,11 @@ export interface SqlShape {
 /** Thrown inside `transactionSync` to make it roll back; never escapes. */
 const ROLLBACK = Symbol("rollback");
 
-export function makeSql(storage: DurableObjectStorage): SqlShape {
+export function makeSql(storage: DurableObjectStorage): SqlStatements {
   const exec = (query: string, ...params: SqlStorageValue[]) =>
     Effect.try({
       // toArray inside the try: the cursor is lazy, and a row can fail as it's read.
-      try: () => storage.sql.exec<Row>(query, ...params).toArray(),
+      try: () => storage.sql.exec(query, ...params).toArray(),
       catch: (cause) => new SqlError({ query, cause })
     });
 
@@ -62,7 +62,7 @@ export function makeSql(storage: DurableObjectStorage): SqlShape {
   };
 }
 
-export class Sql extends Context.Service<Sql, SqlShape>()("ky/core/Sql") {
+export class Sql extends Context.Service<Sql, SqlStatements>()("ky/core/Sql") {
   static readonly layer = (storage: DurableObjectStorage) => Layer.succeed(Sql)(makeSql(storage));
 }
 ```

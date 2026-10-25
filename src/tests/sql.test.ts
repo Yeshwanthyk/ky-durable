@@ -75,6 +75,7 @@ describe("Sql", () => {
   it("runs behind a domain's edge, synchronously", async () => {
     await inside((storage) => {
       const edge = makeEdge(Sql.layer(storage));
+
       const read = Effect.gen(function* () {
         const sql = yield* Sql;
 
