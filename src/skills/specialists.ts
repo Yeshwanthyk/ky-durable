@@ -123,6 +123,9 @@ class NoSpecialist extends Schema.TaggedError<NoSpecialist>()("NoSpecialist", { 
   }
 }
 
+/** The brief refused its first version, in Versioned's words: empty, or too long. */
+class BriefRefused extends Schema.TaggedError<BriefRefused>()("BriefRefused", { refusal: Schema.String }) implements Refusable {}
+
 /** A description as stored: trimmed, one line, under the limit. */
 function descriptionOf(text: string | undefined): Effect.Effect<string, BadDescription> {
   const line = (text ?? "").trim();
@@ -137,7 +140,7 @@ interface SpecialistRoster {
   readonly list: Effect.Effect<SpecialistRow[]>;
   readonly get: (id: string) => Effect.Effect<SpecialistRow | undefined>;
   /** A new specialist, its brief the first version. */
-  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription>;
+  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription | BriefRefused>;
   /** Change a specialist's description, model or machine; its brief changes through the facade's brief(). */
   readonly set: (id: string, draft: SpecialistDraft) => Effect.Effect<string, NoSpecialist | BadDescription>;
   /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
@@ -176,8 +179,11 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
 
               if (body === undefined) return yield* Effect.fail(new NoBrief());
               const description = yield* descriptionOf(draft.description);
-              // The brief refuses by throwing, as at B: the edge rethrows it as it was.
-              yield* Effect.sync(() => hooks.brief(id).apply({ action: "edit", body }, actor, conversation));
+              // Versioned refuses by throwing, as at B; its words are the refusal.
+              yield* Effect.try({
+                try: () => hooks.brief(id).apply({ action: "edit", body }, actor, conversation),
+                catch: (cause) => new BriefRefused({ refusal: cause instanceof Error ? cause.message : String(cause) })
+              });
               const now = yield* Clock.currentTimeMillis;
               yield* exec(
                 `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
