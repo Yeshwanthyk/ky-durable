@@ -16,8 +16,6 @@ import { type Action, actions, HOUR, instance, installIds, next, port, scheduler
 // B makes its own Scheduler; the port is given one (./world.ts). Gone with B at the flip.
 vi.mock("agents/schedules", async () => ({ Scheduler: (await import("./scheduler")).Bookings }));
 
-vi.mock("agents/harness/pi", () => ({ ROOT_SESSION: "1" }));
-
 /**
  * The port's views leave out what a gate last found, which only a fire reads, where B's carried it along; and
  * keys are compared sorted, since B's rows put `zone` last.

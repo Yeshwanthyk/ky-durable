@@ -16,8 +16,6 @@ import {
 import { budget } from "../parity/kit";
 import { type Action, actions, HOUR, installIds, next, port, START, World } from "../parity/automations/world";
 
-vi.mock("agents/harness/pi", () => ({ ROOT_SESSION: "1" }));
-
 const SRC = path.join(import.meta.dirname, "../../src");
 
 const DOMAIN = path.join(SRC, "automations");

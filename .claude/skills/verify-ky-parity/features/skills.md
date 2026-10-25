@@ -30,15 +30,19 @@ the group/guardrail paths that load skills.
 
 ## Proof
 
-Not provable yet: verified-unreachable until U3.
+Provable: `prove.sh skills` passes on the port alone (U3, legacy flipped out).
 
-- **Parity (check 2):** needs `src/skills/legacy/` and a `contract.ts` the kit drives (create,
-  edit, allow, run, delete). U3 builds them.
-- **Invariants (check 3):** the behaviors above exist as examples; U3 turns the storage and
-  allowlist ones into properties and adds mutants.
-- **Stored data (check 4):** skill and kit rows seeded at B, loaded by the port.
+- **Parity (check 2):** ran B against the port until the flip; the evidence of that run is
+  `test-results/parity/skills-pre-flip/`. There is no parity side now.
+- **Invariants (check 3):** `test/invariants/skills.test.ts` holds the storage round-trip,
+  allowlist, pin guard, stale sweep and kept answers as properties; five mutants in
+  `test/parity/skills/mutants/`, each caught.
+- **Stored data (check 4):** `test/parity/skills/at-b.test.ts` opens rows B wrote
+  (`at-b.json`, with B's own reads of them) under the port; on real data, `real-data.ts`.
+- **Not ported yet:** `specialists.ts` and `subagents.ts` still read `rows.ts` (typebox) over raw
+  `sql.exec`; the proof above doesn't cover them.
 
 ## Gotchas
 
-- `contracts.test.ts` › storage is red at B: a corrupt JSON column from a restore decodes to
-  undefined where the test expects null. Held as red at B.
+- `contracts.test.ts` › storage is red at B on its automations line (`model`), not skills':
+  skills' lines pass. U2 owns that fix; skills holds corrupt columns decoding to null as a property.

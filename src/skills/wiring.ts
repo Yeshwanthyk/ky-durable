@@ -1,14 +1,136 @@
 import type { Extension } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import type { Automations, Delivery, TaskFeed } from "../automations/contract";
+import { type Edge, makeEdge, type Refusable } from "../core/edge";
+import { isRefusal } from "../core/refusal";
+import { Sql } from "../core/sql";
 import type { Models } from "../models";
-import type { ReviewHost } from "./contract";
-import { type Reviews, type Skills, skillsExtension } from "./skills";
+import type { ReviewHost, ReviewKind, SkillChange, SkillStatus } from "./contract";
+import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { type Specialists, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 
-export { Reviews, Skills } from "./skills";
-
 export { Specialists } from "./specialists";
+
+/** What `effect` answers, or B's throw: an Error whose message is the refusal. A defect throws as it was thrown. */
+function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, E, S>): A {
+  const result = edge.run(Effect.map(effect, (value) => ({ value })));
+
+  if (isRefusal(result)) throw new Error(result.refused);
+
+  return result.value;
+}
+
+/** The skill library, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
+export class Skills {
+  readonly #edge: Edge<Library>;
+  readonly #listeners = new Set<() => void>();
+  readonly #writes = new Set<Watcher>();
+  /** A turn with at least this many tool calls is reviewed. */
+  reviewAfter = REVIEW_AFTER;
+
+  /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
+  constructor(storage: DurableObjectStorage) {
+    this.#edge = makeEdge(Library.layer({ writes: this.#writes, listeners: this.#listeners }).pipe(Layer.provide(Sql.layer(storage))));
+    this.#run(() => Effect.void);
+  }
+
+  #run<A, E extends Refusable>(action: (library: Library["Service"]) => Effect.Effect<A, E>): A {
+    return run(this.#edge, Library.use(action));
+  }
+
+  /**
+   * Called just before each change is written; a watcher that throws refuses the change. One that returns a
+   * function hears the id of the version the change made, once it is written.
+   */
+  onWrite(watcher: Watcher): () => void {
+    this.#writes.add(watcher);
+
+    return () => this.#writes.delete(watcher);
+  }
+
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+
+    return () => this.#listeners.delete(listener);
+  }
+
+  get(name: string) {
+    return this.#run((library) => library.get(name));
+  }
+
+  list(status?: SkillStatus) {
+    return this.#run((library) => library.list(status));
+  }
+
+  all() {
+    return this.#run((library) => library.all);
+  }
+
+  history(name: string) {
+    return this.#run((library) => library.history(name));
+  }
+
+  index() {
+    return this.#run((library) => library.index);
+  }
+
+  view(name: string) {
+    return this.#run((library) => library.view(name));
+  }
+
+  versionsSince(at: number, limit: number, exceptActor?: string) {
+    return this.#run((library) => library.versionsSince(at, limit, exceptActor));
+  }
+
+  apply(change: SkillChange, actor: string, conversation?: string | null) {
+    return this.#run((library) => library.apply(change, actor, conversation));
+  }
+
+  stale(run: string, now?: number) {
+    return this.#run((library) => library.stale(run, now));
+  }
+}
+
+/** The background conversations' log, with B's methods. */
+export class Reviews {
+  readonly #edge: Edge<ReviewLog>;
+
+  /** One edge for the Durable Object's life; its first run makes the table, as B's constructor did. */
+  constructor(storage: DurableObjectStorage) {
+    this.#edge = makeEdge(ReviewLog.layer.pipe(Layer.provide(Sql.layer(storage))));
+    this.#run(() => Effect.void);
+  }
+
+  #run<A>(action: (log: ReviewLog["Service"]) => Effect.Effect<A>): A {
+    return run(this.#edge, ReviewLog.use(action));
+  }
+
+  kind(conversation: string) {
+    return this.#run((log) => log.kind(conversation));
+  }
+
+  has(conversation: string): boolean {
+    return this.kind(conversation) !== undefined;
+  }
+
+  run(conversation: string) {
+    return this.#run((log) => log.run(conversation));
+  }
+
+  add(conversation: string, parent: string, kind?: ReviewKind, mark?: { readonly upto?: number; readonly run?: string; readonly at?: number }): void {
+    this.#run((log) => log.add(conversation, parent, kind, mark));
+  }
+
+  reached(parent: string, kind: ReviewKind) {
+    return this.#run((log) => log.reached(parent, kind));
+  }
+
+  window(conversation: string) {
+    return this.#run((log) => log.window(conversation));
+  }
+}
 
 /** What the skills domain's tools are made from, on the agent (src/server.ts). */
 export type SkillsWiring = {

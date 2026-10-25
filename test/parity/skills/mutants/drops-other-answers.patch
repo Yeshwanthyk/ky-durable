@@ -1,0 +1,13 @@
+diff --git a/src/skills/skills.ts b/src/skills/skills.ts
+index 630cff7..308d661 100644
+--- a/src/skills/skills.ts
++++ b/src/skills/skills.ts
+@@ -392,7 +392,7 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
+             if (unknown.length > 0) return yield* new NotAsked({ name, unknown, asked });
+ 
+             if (Object.keys(answers).length === 0) return yield* new NoAnswers();
+-            const kept = new Map(Object.entries(skill.answers));
++            const kept = new Map<string, string>();
+ 
+             for (const [key, value] of Object.entries(answers)) {
+               if (value.trim() === "") kept.delete(key);

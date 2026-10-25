@@ -3,6 +3,8 @@ import { defineConfig } from "vitest/config";
 
 /** What must stay true of ky's contracts however the code around them changes. `pnpm test:invariants`, part of `pnpm check`. */
 export default defineConfig({
+  // agents/harness/pi loads only in workerd (it imports cloudflare:*); node-run invariants reach only its ROOT_SESSION.
+  resolve: { alias: { "agents/harness/pi": path.join(import.meta.dirname, "pi.ts") } },
   test: {
     name: "invariants",
     environment: "node",
