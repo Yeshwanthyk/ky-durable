@@ -228,9 +228,9 @@ function archiveRefusal(was: SkillRow, into: SkillRow | undefined): UsersOwn | N
 export type Watcher = (write: SkillWrite) => ((version: number) => void) | undefined;
 
 /** Who hears of the library's writes: the facade (wiring.ts) owns both sets. */
-export type Hooks = { readonly writes: ReadonlySet<Watcher>; readonly listeners: ReadonlySet<() => void> };
+type Hooks = { readonly writes: ReadonlySet<Watcher>; readonly listeners: ReadonlySet<() => void> };
 
-export interface SkillLibrary {
+interface SkillLibrary {
   readonly get: (name: string) => Effect.Effect<SkillRow | undefined>;
   readonly list: (status?: SkillStatus) => Effect.Effect<ReadonlyArray<SkillRow>>;
   /** Every skill, active ones first, for the panel. */
@@ -486,7 +486,7 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
     );
 }
 
-export interface BackgroundLog {
+interface BackgroundLog {
   readonly kind: (conversation: string) => Effect.Effect<ReviewKind | undefined>;
   /**
    * The run `conversation`'s changes belong to, for the dream's ledger: a dream's token, which its stale pass
