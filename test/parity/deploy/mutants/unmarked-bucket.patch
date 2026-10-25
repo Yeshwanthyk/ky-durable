@@ -1,8 +1,8 @@
 diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
-index 6fa366d..229ee9f 100644
+index fe2a4cc..e1d3c7a 100644
 --- a/cli/deploy/deployer.ts
 +++ b/cli/deploy/deployer.ts
-@@ -533,7 +533,7 @@ const ensureBuckets = (name: Names) =>
+@@ -535,7 +535,7 @@ const ensureBuckets = (name: Names) =>
        yield* R2.putObject({
          accountId,
          bucketName: bucket.name,

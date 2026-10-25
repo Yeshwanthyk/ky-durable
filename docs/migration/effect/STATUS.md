@@ -18,7 +18,7 @@ against B, never against the PR before it.
 | W1-K | Kit: one clock per run, `due`/`pending`/`nextAlarm` | chief of staff | `effect/foundation` | done (3c162ba) | toy 7/7; `--mutant all` caught at 500 runs |
 | W1-S | `src/core/sql.ts`: sync-first `Sql` service over `ctx.storage.sql` | chief of staff | `effect/foundation` | done (4e8d6b5, 70ce4f8) | 5/5 on a real DO; no-rollback mutant red |
 | W1-R | Real data: squarey's backup restored at B and on the branch | chief of staff | `effect/foundation` | done for foundation | `real-data.ts`: HEAD = B (47 skills, 16 routines; same 2 runtime tables emptied on both) |
-| H1 | Harvest after U1: mutant regen, git IPC noise filter, stale node_modules check, temp-path normalization, exit codes through pipes | chief of staff | `effect/foundation` | next, after the review fixes | — |
+| H1 | Harvest after U1 | chief of staff | `effect/foundation` | done: `scripts/mutant.sh open|save` regenerates a moved mutant (round-tripped unmarked-bucket, still caught); doctor fails on stale `node_modules`; the skill's scripts turn off fsmonitor (the IPC noise); SKILL.md says read exit codes, not piped output. Temp-path normalization already lives in the deploy proof | `doctor.sh deploy` all ok |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
 | U3 | Skills | — | — | waits for Wave 2 "go" | — |
 

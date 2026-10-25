@@ -4,6 +4,7 @@
 # Usage: .claude/skills/verify-ky-parity/scripts/prove.sh <domain> [--runs N] [--seed S]
 # Evidence: test-results/parity/<domain>/{ratchet,proof,mutant-*}.json and test-results/census/<domain>.json
 set -euo pipefail
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
 cd "$(git rev-parse --show-toplevel)"
 domain=${1:?usage: prove.sh <domain> [--runs N] [--seed S]}
 shift

@@ -2,6 +2,7 @@
 # Read-only preflight for verify-ky-parity: is this checkout safe and ready to prove a domain?
 # Usage: .claude/skills/verify-ky-parity/scripts/doctor.sh [domain]
 set -u
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
 cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
 ok() { printf 'ok    %s\n' "$1"; }
@@ -10,6 +11,7 @@ bad() { printf 'FAIL  %s\n' "$1"; fail=1; }
 major=$(node -p 'process.versions.node.split(".")[0]')
 [ "$major" -ge 22 ] && ok "node $(node --version)" || bad "node 22+ needed for --experimental-strip-types (have $(node --version))"
 test -x node_modules/.bin/vitest && ok "dependencies installed" || bad "node_modules missing: pnpm install --offline"
+cmp -s pnpm-lock.yaml node_modules/.pnpm/lock.yaml && ok "node_modules settled to pnpm-lock.yaml" || bad "node_modules is stale (a merge or checkout moved the lockfile): pnpm install --offline --frozen-lockfile"
 [ "$(git rev-parse effect-baseline 2>/dev/null)" = "$(git rev-parse b658a6e 2>/dev/null)" ] && ok "B = effect-baseline = b658a6e" || bad "tag effect-baseline missing or not b658a6e"
 pnpm -s effect:pin >/dev/null 2>&1 && ok "effect pinned (package.json, lockfile, vendor/effect agree)" || bad "pnpm effect:pin fails"
 pnpm -s ledger >/dev/null 2>&1 && ok "prune ledger holds against gate-baseline.json" || bad "pnpm ledger fails"

@@ -22,7 +22,7 @@ by the recipes it borrows (verify-ky-cli, verify-ky-web, verify-ky-machines). Th
 .claude/skills/verify-ky-parity/scripts/doctor.sh <domain>
 ```
 
-Checks node 22+, dependencies, the `effect-baseline` tag on b658a6e, the effect pin, the prune
+Checks node 22+, dependencies and that `node_modules` is settled to the lockfile (a merge can move it), the `effect-baseline` tag on b658a6e, the effect pin, the prune
 ledger, that `gate-baseline.json` items carry their files, that `src/` and `cli/` are clean (a mutant
 run patches them), and that no `CLOUDFLARE_API_TOKEN` is set. Every line must read `ok`.
 
@@ -50,6 +50,9 @@ The five checks, and what runs each:
 3. **Invariants.** Oracles that don't read the implementation, in `test/invariants/<domain>.test.ts`.
    `pnpm parity <domain>` runs them at the bar, and `--mutant all` applies each
    `test/parity/<domain>/mutants/*.patch` and must go red, or the proof can't see that break.
+   When a port moves the code a mutant breaks, the run says it "no longer applies"; regenerate it
+   rather than rewriting it: `scripts/mutant.sh <domain> <name> open`, fix any conflict by hand,
+   `scripts/mutant.sh <domain> <name> save`, then `pnpm parity <domain> --mutant <name>`.
 4. **Stored data.** A database written at B loads under the port, and `ky_restore__<table>` names
    don't change. Per domain; see its feature file. On real data, once per area before merge, from a
    backup the owner has okayed (`pnpm ky backup` is a read-only GET; never restore into a live ky):
@@ -67,6 +70,9 @@ The five checks, and what runs each:
 
 What to keep and prune comes from `pnpm census <domain>`: INVARIANT and E2E files stay; MOCK, SCAN,
 SLEEP, COPY and UNIT tests may go, each with a ledger entry.
+
+Read `prove.sh`'s result from its exit code or the evidence files, not through `| head` or `| tail`:
+a pipe hides the exit code.
 
 ## Evidence
 
