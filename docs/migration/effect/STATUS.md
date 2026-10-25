@@ -29,9 +29,9 @@ against B, never against the PR before it.
 | Gate runs `invariants`, judged by the baseline only (B fails 9 of them) | done | `test/gate.ts` `ratchetOnly` |
 | Prune ledger + check in `pnpm check` and the gate | done | `test/ledger.ts`, `docs/migration/effect/prune-ledger.json` |
 | Cloudflare fake can cut power after request k | done | `test/fakes/cloudflare.ts` `cut`, `served` |
-| Deploy invariants I-D1..I-D5 | done at 60 runs; 500 pending | `test/invariants/deploy.test.ts` |
-| Deploy mutants (4) | red by hand; `pnpm parity deploy --mutant all` pending | `test/parity/deploy/mutants/` |
-| Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant run pending | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
+| Deploy invariants I-D1..I-D5 | done: 500 runs of up to 30 steps, seed 1940260227 | `test-results/parity/deploy/proof.json` |
+| Deploy mutants (4) | done: all four caught by `pnpm parity deploy --mutant all` | `test-results/parity/deploy/mutant-*.json` |
+| Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant caught (add, then cancel) | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
 
 ## Decisions
 
