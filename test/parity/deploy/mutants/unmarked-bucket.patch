@@ -1,0 +1,13 @@
+diff --git a/cli/deployer.ts b/cli/deployer.ts
+index d2e8026..4e95aed 100644
+--- a/cli/deployer.ts
++++ b/cli/deployer.ts
+@@ -454,7 +454,7 @@ async function ensureBuckets(cloudflare: Cloudflare, name: Names): Promise<void>
+       R2.putObject({
+         accountId,
+         bucketName: bucket.name,
+-        objectName: MARKER,
++        objectName: "readme",
+         body: `ky made this bucket for the ${name.script} Worker; \`ky teardown\` removes it.`,
+         contentType: "text/plain"
+       })

@@ -1,0 +1,13 @@
+diff --git a/cli/deployer.ts b/cli/deployer.ts
+index d2e8026..0261790 100644
+--- a/cli/deployer.ts
++++ b/cli/deployer.ts
+@@ -251,7 +251,7 @@ function newer(migrations: Migrations, applied: string | undefined): boolean {
+ function pendingMigrations(migrations: Migrations, applied: string | undefined) {
+   if (newer(migrations, applied)) throw new Error(`The Worker ran migration ${applied}, which this release doesn't have: this ky is older than the Worker; ${NEWER}`);
+   const from = applied ? migrations.findIndex((migration) => migration.tag === applied) : -1;
+-  const pending = migrations.slice(from + 1);
++  const pending = migrations.slice(0);
+ 
+   if (pending.length === 0) return undefined;
+ 

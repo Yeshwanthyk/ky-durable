@@ -11,7 +11,7 @@ against B, never against the PR before it.
 | Unit | What | Owner (thread) | Branch / worktree | State | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | U0 | Foundation: pin, baselines, `core/edge.ts`, parity kit, census, ledger, screenshot diff, `verify-ky-parity`, Effect skills | chief of staff (this thread) | `effect/foundation` | in progress | below |
-| S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` | `spike/effect-do-storage` (throwaway) | running | `docs/spike/effect-do-storage.md` on its branch |
+| S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
 | U1 | Deploy (pilot) | — | — | waits for Wave 1 "go" | — |
 | H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
@@ -26,6 +26,12 @@ against B, never against the PR before it.
 | `vendor/effect` at effect@4.0.6 (3b28bf6) + pin check in `pnpm check` | done | `test/effect-pin.ts`; red on a range, a split version, a vendor version |
 | Fallow baselines re-saved at B | done | `fallow/dead-code.json`, `fallow/health.json` |
 | `gate-baseline.json` re-recorded at B | in progress | `test-results/gate/` in the B checkout |
+| Gate runs `invariants`, judged by the baseline only (B fails 9 of them) | done | `test/gate.ts` `ratchetOnly` |
+| Prune ledger + check in `pnpm check` and the gate | done | `test/ledger.ts`, `docs/migration/effect/prune-ledger.json` |
+| Cloudflare fake can cut power after request k | done | `test/fakes/cloudflare.ts` `cut`, `served` |
+| Deploy invariants I-D1..I-D5 | done at 60 runs; 500 pending | `test/invariants/deploy.test.ts` |
+| Deploy mutants (4) | red by hand; `pnpm parity deploy --mutant all` pending | `test/parity/deploy/mutants/` |
+| Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant run pending | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
 
 ## Decisions
 
@@ -42,12 +48,36 @@ against B, never against the PR before it.
 - **`pnpm fallow` uses the dead-code baseline**, as the gate already did; without it `pnpm check`
   fails at B.
 
+## Found at B
+
+- **I-D3, deploy:** a crash between `POST r2/buckets` and the `.ky` marker's PUT leaves a bucket
+  `claim()` refuses forever ("ky didn't create it"); the owner's ky can't deploy until the bucket is
+  deleted by hand.
+- **I-D2, deploy:** a repeat deploy re-PUTs both Access apps, opens an assets upload session,
+  re-uploads the Worker (a new version each time) and re-POSTs the subdomain.
+- Both are pinned as exact `B_BREACHES` in `test/invariants/deploy.test.ts`: the test fails if either
+  goes away unnoticed or a new breach appears. U1 fixes them and moves them to
+  `divergences/deploy.md`.
+- **B fails 9 of its own `pnpm test:invariants`:** 7 in `automations.test.ts` › stored rows (model
+  column reads undefined), 1 in `boundaries.test.ts` (`src/ui/Automations.tsx` imports automations'
+  `zoned`), 1 in `contracts.test.ts` › storage (corrupt JSON decodes to undefined, not null). The
+  gate never ran invariants, so it went unseen. `pnpm check` is red at B for this.
+
 ## Known flakes at B
 
 - `worker-e2e` · `src/tests/chats-tool.test.ts` › "steers a working chat into the turn it is in…":
   `inspect` sometimes reads the chat's auto-title ("Named: gate") instead of its name. 1 failure in 5
   isolated runs at B (`pnpm -s test src/tests/chats-tool.test.ts -t "steers a working chat"`), and it
   failed the first full gate run at B. Product race in chat titles, not a migration regression.
+
+- **Owner, 2026-10-25:** B's deploy bugs are fixed in U1, as divergences, not on main first.
+- **Owner, 2026-10-25:** B's 9 red invariants are fixed by each owning domain's port; until then the
+  gate holds them as failing at B.
+- **Owner, 2026-10-25:** DO storage wraps raw `ctx.storage.sql` in a sync-first Effect service
+  (`Effect.try`, tagged `SqlError`, `transactionSync`, Schema rows); `@effect/sql-sqlite-do` waits
+  until a domain has no sync callers (S1).
+- **`lint-baseline.json` gained `test/invariants/deploy.test.ts`'s 6 unsafe-* findings:** wrangler's
+  `experimental_readRawConfig` is error-typed to oxlint, as in `cli/compile.ts` already.
 
 ## Environment notes
 

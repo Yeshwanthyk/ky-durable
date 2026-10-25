@@ -271,6 +271,11 @@
   "test/harness/vibeproxy.ts": {
     "typescript(no-unsafe-argument)": 1
   },
+  "test/invariants/deploy.test.ts": {
+    "typescript(no-unsafe-assignment)": 3,
+    "typescript(no-unsafe-call)": 1,
+    "typescript(no-unsafe-member-access)": 2
+  },
   "test/lint-ratchet.ts": {
     "anti-slop(require-readable-spacing)": 1
   },

@@ -1,0 +1,13 @@
+diff --git a/cli/deployer.ts b/cli/deployer.ts
+index d2e8026..8966167 100644
+--- a/cli/deployer.ts
++++ b/cli/deployer.ts
+@@ -169,7 +169,7 @@ async function existing(cloudflare: Cloudflare, accountId: string, name: string)
+ }
+ 
+ function ours(script: Script): boolean {
+-  return script.tags?.includes(TAG) ?? false;
++  return true;
+ }
+ 
+ /** The Worker of this name, refusing one the CLI didn't deploy. */

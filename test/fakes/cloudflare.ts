@@ -132,6 +132,13 @@ export type FakeCloudflare = {
   accounts: Map<string, FakeAccount>;
   /** Every call to an account, in order: its method and the path under the account. */
   requests: string[];
+  /** How many requests the fake has answered, of any kind. */
+  served: number;
+  /**
+   * When set, the fake goes dark once it has answered this many requests: every later one fails and
+   * changes nothing, as if the computer running `ky` lost power there.
+   */
+  cut?: number;
   close: () => Promise<void>;
 };
 
@@ -620,9 +627,14 @@ async function route(fake: FakeCloudflare, request: Request): Promise<object | n
   return handlerFor(request.method, path)({ account, request, url, name: path[2] ?? "", key: decodeURIComponent(path[4] ?? "") });
 }
 
+/** The failure every request gets once the fake has gone dark. */
+const DARK = new Failure(400, 99999, "The fake Cloudflare went dark (cut)");
+
 /** The route's response, in Cloudflare's envelope. */
 async function respond(fake: FakeCloudflare, request: Request) {
   try {
+    if (fake.cut !== undefined && fake.served >= fake.cut) throw DARK;
+
     const result = await route(fake, request);
 
     // A page carries its own result_info.
@@ -645,6 +657,8 @@ export async function fakeCloudflare(...accounts: FakeAccount[]): Promise<FakeCl
 
     const { status, envelope } = await respond(fake, request);
 
+    fake.served++;
+
     response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(envelope));
   });
 
@@ -657,6 +671,7 @@ export async function fakeCloudflare(...accounts: FakeAccount[]): Promise<FakeCl
     url: `http://127.0.0.1:${address.port}`,
     accounts: new Map(accounts.map((account) => [account.id, account])),
     requests: [],
+    served: 0,
     close: () => new Promise((resolve) => server.close(() => resolve()))
   };
 
