@@ -1,5 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { Value } from "typebox/value";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -13,6 +15,7 @@ import {
   taskRows,
   TOOL_ACTIONS
 } from "../../src/automations/contract";
+import { ModelChoiceSchema } from "../../src/settings";
 import { budget } from "../parity/kit";
 import { type Action, actions, HOUR, installIds, next, port, START, World } from "../parity/automations/world";
 
@@ -77,6 +80,8 @@ const task = {
   cost_usd: null
 };
 
+const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
 describe("stored rows", () => {
   it("reads a model column", () => {
     const model = { provider: "p", modelId: "m", thinkingLevel: "high" };
@@ -90,6 +95,23 @@ describe("stored rows", () => {
       expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: null, post: false }]);
     }
   );
+
+  it("reads any model text as the choice it holds, or the worker's, and keeps the row", () => {
+    const level = fc.constantFrom("off", "minimal", "low", "medium", "high", "xhigh", "max", "loud");
+    const choice = fc.record({ provider: fc.string(), modelId: fc.string(), thinkingLevel: level }, { requiredKeys: [] });
+    const text = fc.oneof(fc.string(), fc.json(), choice.map((each) => JSON.stringify(each)), fc.tuple(choice, fc.dictionary(fc.string(), fc.jsonValue())).map(([each, extra]) => JSON.stringify({ ...extra, ...each })));
+
+    fc.assert(
+      fc.property(text, (model) => {
+        const parsed = Option.getOrUndefined(parseJson(model));
+
+        // settings' own schema says what a model choice is.
+        const expected = Value.Check(ModelChoiceSchema, parsed) ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
+
+        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, model: expected, post: false }]);
+      })
+    );
+  });
 
   it.each(["{", "null", `{"at":1}`, `[{"at":"x","text":"y"}]`])("reads the corrupt steps column %j as none", (steps) => {
     expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [] }]);
