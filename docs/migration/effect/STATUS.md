@@ -12,6 +12,8 @@ against B, never against the PR before it.
 | --- | --- | --- | --- | --- | --- |
 | U0 | Foundation: pin, baselines, `core/edge.ts`, parity kit, census, ledger, screenshot diff, `verify-ky-parity`, Effect skills | chief of staff (this thread) | `effect/foundation` | in progress | below |
 | S1 | DO storage spike: `@effect/sql-sqlite-do` in PiAgent (hibernation, alarms, bundle, cold start) | `mcp:ae07114b-dc22-45b7-9443-4f482c0320c9` (settled) | `spike/effect-do-storage` (throwaway, never merges) | done: wrap raw `ctx.storage.sql` | `docs/spike/effect-do-storage.md` on its branch |
+| U0-A | Screenshot diff script (`test/visual/**`) | `mcp:b4638a39-81a8-48f9-97f7-7385a7a84a2f` | `effect/lane-screenshot-diff` | running | its thread |
+| U0-B | Effect skill drafts (`drafts/effect-skills/**`; chief of staff moves them into `.claude/skills`) | `mcp:50c88100-ebe8-4eb1-afad-0ba94b28c4b6` | `effect/lane-skill-drafts` | running | its thread |
 | U1 | Deploy (pilot) | — | — | waits for Wave 1 "go" | — |
 | H1 | Harvest after U1 | — | — | waits for Wave 1 "go" | — |
 | U2 | Automations | — | — | waits for Wave 2 "go" | — |
@@ -34,6 +36,9 @@ against B, never against the PR before it.
 | Parity kit + toy self-test + `pnpm parity` runner | done; toy mutant caught (add, then cancel) | `test/parity/kit.ts`, `test/parity/toy/`, `test/parity/run.ts` |
 
 ## Decisions
+
+- **Owner, 2026-10-25:** U0 splits into lanes A (screenshot diff) and B (skill drafts) as T3 threads;
+  U0's review is Fable 5.1 alone (GPT-6 Astra isn't available).
 
 - **@distilled.cloud 1.0.0-rc.12 → rc.13.** rc.12 imports `effect/unstable/http/*`, which effect 4.0
   moved to `effect/http/*`, so the effect bump forces a distilled bump. rc.13 (peer `effect ^4.0.0`)
