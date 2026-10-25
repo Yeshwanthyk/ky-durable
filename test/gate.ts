@@ -12,9 +12,12 @@
  *   worker-e2e  vitest-pool-workers on the real PiAgent (`pnpm test`)
  *   harness     the CLI harness with a real runner (`pnpm harness all`)
  *   web         Playwright on the real web app (`pnpm test:web`)
- *   invariants  the property and contract tests (`pnpm test:invariants`),
- *               judged by the baseline alone: some failed at the baseline
- *               already, so its exit code can't stop the gate
+ *   invariants  the property and contract tests (`pnpm test:invariants`)
+ *
+ * The checks that report tests (node through invariants) are judged by the
+ * baseline alone, not their exit code: B already fails some of its own tests
+ * (flakes, a web locator, 9 invariants), so a red test that was red at B can't
+ * stop the gate, and one that passed at B must still pass.
  *
  * Then it compares each test and scenario with gate-baseline.json: one that
  * passed (or, for a trap, was XFAIL) at the baseline must still be there and
@@ -26,7 +29,7 @@
  * Logs go to test-results/gate/<check>.log.
  */
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
@@ -64,6 +67,8 @@ type Check = {
   items?: () => Item[];
   /** A nonzero exit doesn't stop the gate; the baseline comparison of its items judges it. */
   ratchetOnly?: boolean;
+  /** The report `items` reads, deleted before the run so a stale one can't stand in for a crash. */
+  report?: string;
 };
 
 /** The JSON file `file` if it exists and matches `schema`. */
@@ -87,14 +92,15 @@ function vitestItems(check: string, file: string): Item[] {
 }
 
 /** The vitest run `script`, reporting to test-results/<name>.json. */
-function vitest(name: string, script: string, ratchetOnly = false): Check {
+function vitest(name: string, script: string): Check {
   const file = `test-results/${name}.json`;
 
   return {
     name,
     commands: [["pnpm", "-s", script, "--reporter=default", "--reporter=json", `--outputFile.json=${file}`]],
     items: () => vitestItems(name, file),
-    ratchetOnly
+    ratchetOnly: true,
+    report: file
   };
 }
 
@@ -124,14 +130,18 @@ const CHECKS: Check[] = [
   {
     name: "harness",
     commands: [["pnpm", "-s", "harness", "all"]],
-    items: () => outcomesOf("harness", path.join(REPO, "test-results/harness/results.json"))
+    items: () => outcomesOf("harness", path.join(REPO, "test-results/harness/results.json")),
+    ratchetOnly: true,
+    report: "test-results/harness/results.json"
   },
   {
     name: "web",
     commands: [["pnpm", "-s", "test:web"]],
-    items: () => outcomesOf("web", path.join(REPO, "test-results/web-outcomes.json"))
+    items: () => outcomesOf("web", path.join(REPO, "test-results/web-outcomes.json")),
+    ratchetOnly: true,
+    report: "test-results/web-outcomes.json"
   },
-  vitest("invariants", "test:invariants", true)
+  vitest("invariants", "test:invariants")
 ];
 
 /** Outcomes that count as the check holding. */
@@ -194,6 +204,8 @@ for (const check of CHECKS) {
 
   writeFileSync(log, "");
 
+  if (check.report) rmSync(path.join(REPO, check.report), { force: true });
+
   let code = 0;
 
   for (const command of check.commands) {
@@ -210,9 +222,18 @@ for (const check of CHECKS) {
     process.exit(1);
   }
 
-  const ran = check.items?.() ?? [];
+  let ran: Item[];
+
+  try {
+    ran = check.items?.() ?? [];
+  } catch (error) {
+    console.log(`FAIL  ${check.name.padEnd(11)} ${seconds}s  (exit ${code}, no report: ${String(error)}; ${path.relative(REPO, log)})`);
+    console.log(tail(log));
+    process.exit(1);
+  }
 
   items.push(...ran);
+
   const verdict = code === 0 ? "PASS" : "RAN ";
 
   console.log(`${verdict}  ${check.name.padEnd(11)} ${seconds}s${ran.length > 0 ? `  ${ran.length} checks` : ""}${code === 0 ? "" : `  (exit ${code}: judged by the baseline)`}`);

@@ -70,6 +70,13 @@ against B, never against the PR before it.
 
 ## Known flakes at B
 
+- `web` · `ky.spec.ts:2112` "refuses an image the stand-in model can't read…": `getByRole("button",
+  { name: "Send" })` also matches a chat an earlier test auto-titled "…gmail.send…", so the locator
+  resolves to 4 elements. Failed the first B record. A test bug at B (needs `exact: true`).
+- **Gate change:** every check that reports tests (node, worker-e2e, harness, web, invariants) is
+  judged by the baseline only, not its exit code; a check that writes no fresh report still fails.
+  B's gate couldn't record otherwise: its own flakes stopped it 2 of 3 tries.
+
 - `worker-e2e` · `src/tests/chats-tool.test.ts` › "steers a working chat into the turn it is in…":
   `inspect` sometimes reads the chat's auto-title ("Named: gate") instead of its name. 1 failure in 5
   isolated runs at B (`pnpm -s test src/tests/chats-tool.test.ts -t "steers a working chat"`), and it
