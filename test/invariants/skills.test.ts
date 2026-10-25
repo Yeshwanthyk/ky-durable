@@ -17,14 +17,16 @@ import {
   SubagentAction,
   SubagentInput,
   parse,
+  type SessionKind,
   type SkillRow,
   SKILL_TABLES,
+  type SpecialistDraft,
   TOOLS
 } from "../../src/skills/contract";
 import { CHANGES, skillsExtension, viewText } from "../../src/skills/skills";
 import { MANAGE } from "../../src/skills/specialists";
 import { ACTIONS } from "../../src/skills/subagents";
-import { Reviews, Skills } from "../../src/skills/wiring";
+import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
 import { specialistDraft } from "../../src/ui/Soul";
 import { blockOf, HOST, storageOf } from "../parity/skills/storage";
 
@@ -521,6 +523,96 @@ describe("a skill's guards", () => {
         }
 
         expect(skills.get("plan-trip")?.answers).toEqual(kept);
+      })
+    );
+  });
+});
+
+describe("stored specialists", () => {
+  const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+  const anId = fc.oneof(fc.stringMatching(ID), fc.string({ maxLength: 8 }), fc.constantFrom("a".repeat(32), "a".repeat(33), `${"a-".repeat(16)}a`, "engineer"));
+
+  const made = () => new Specialists(storageOf(new DatabaseSync(":memory:")));
+
+  const NEW: SpecialistDraft = { description: "Builds things.", brief: "Be terse." };
+
+  it("makes a specialist exactly when its id is lowercase-with-hyphens, at most 32 characters, and not taken", () => {
+    fc.assert(
+      fc.property(fc.array(anId, { maxLength: 6 }), (ids) => {
+        const specialists = made();
+        const have = new Set<string>();
+
+        for (const id of ids) {
+          const create = () => specialists.create(id, NEW, "user");
+
+          if (!ID.test(id) || id.length > 32) expect(create).toThrow("A specialist's id is lowercase-with-hyphens, at most 32 characters, like engineer.");
+          else if (have.has(id)) expect(create).toThrow(`@${id} already exists.`);
+          else expect(create()).toBe(`Created @${id}.`);
+
+          if (ID.test(id) && id.length <= 32) have.add(id);
+        }
+
+        expect(specialists.list().map(({ id }) => id)).toEqual([...have].sort());
+      })
+    );
+  });
+
+  const MODEL = { provider: "anthropic", modelId: "opus", thinkingLevel: "high" as const };
+
+  const aDraft = fc.record({ description: fc.constantFrom("Builds things.", "  Finds sources.  "), model: fc.constantFrom(MODEL, null), machine: fc.constantFrom("mac", "", null) }, { requiredKeys: [] });
+
+  /** What a field reads after a save: the draft's, as stored, or what it was when the draft leaves it out. */
+  const kept = <T>(given: T | undefined, was: T, stored: (value: T) => T): T => (given === undefined ? was : stored(given));
+
+  it("saves each field a draft gives, a blank machine as none, and keeps each it leaves out", () => {
+    fc.assert(
+      fc.property(fc.array(aDraft, { minLength: 1, maxLength: 5 }), (drafts) => {
+        const specialists = made();
+        specialists.create("engineer", { ...NEW, model: MODEL, machine: "mac" }, "user");
+        let expected: Pick<SpecialistDraft, "description" | "model" | "machine"> = { description: NEW.description, model: MODEL, machine: "mac" };
+
+        for (const draft of drafts) {
+          expect(specialists.set("engineer", draft)).toBe("Saved @engineer.");
+          expected = {
+            description: kept(draft.description, expected.description, (text) => text?.trim()),
+            model: kept(draft.model, expected.model, (model) => model),
+            machine: kept(draft.machine, expected.machine, (machine) => (machine === "" ? null : machine))
+          };
+          expect(specialists.get("engineer")).toMatchObject(expected);
+        }
+      })
+    );
+  });
+
+  const KINDS: SessionKind[] = ["home", "consult", "discuss", "group"];
+
+  const anAttach = fc.record({ session: fc.constantFrom("s1", "s2"), id: fc.constantFrom("engineer", "researcher", "gone"), kind: fc.constantFrom(...KINDS) });
+
+  it("answers for a conversation with its last attach, and makes only a home one its specialist's shared conversation", () => {
+    fc.assert(
+      fc.property(fc.array(anAttach, { maxLength: 8 }), (attaches) => {
+        const specialists = made();
+
+        for (const id of ["engineer", "researcher"]) specialists.create(id, NEW, "user");
+
+        const last = new Map<string, { id: string; kind: SessionKind }>();
+        const home = new Map<string, string>();
+
+        for (const { session, id, kind } of attaches) {
+          specialists.attach(session, id, kind);
+          last.set(session, { id, kind });
+
+          if (kind === "home") home.set(id, session);
+        }
+
+        for (const session of ["s1", "s2", "none"]) {
+          const found = specialists.bySession(session);
+          const at = last.get(session);
+          expect(found && { id: found.specialist.id, kind: found.kind }).toEqual(at?.id === "gone" ? undefined : at);
+        }
+
+        for (const id of ["engineer", "researcher"]) expect(specialists.get(id)?.session).toBe(home.get(id) ?? null);
       })
     );
   });
