@@ -18,7 +18,8 @@ import { runOpener } from "./history";
  *
  * - **Loop guard** (`beforeTool`): the fifth call of one tool with the same arguments in one run is blocked when the
  *   four before it answered alike, and the block tells the model to change approach. A run is the entries after the
- *   conversation's latest user (or reset) entry (`runOpener`), so a new message starts the count over. The count is
+ *   conversation's latest user-role entry of any origin, or reset (`runOpener`), so a new message starts the count
+ *   over, and so does a steer, a notice or a subagent's report: each is new input the model may act on. The count is
  *   read from the committed entries, never from memory: a call's own entry is committed before its `beforeTool` runs,
  *   so an eviction, restart or replay reads the same entries and reaches the same answer. A repeat counts only when it
  *   changed nothing: a call whose answer differs from the one before it (a poll that saw progress) starts the streak
@@ -27,8 +28,9 @@ import { runOpener } from "./history";
  *   `.tool-results/<conversation>/<call id>.txt`, and the model gets its start and end, the path, and a line saying to
  *   `read` it for the rest. The path is the call's, so a replayed call writes the same file again. Tools whose output
  *   is already a file, the workspace's own, are left alone, and so are runs that may not call `read` (a check-in's, a
- *   look's), which keep the whole result as pi bounds it. Each spill prunes the folder: a file older than a week goes,
- *   and the oldest go while the folder is over 32 MiB, since it is kept in the object's storage and every backup.
+ *   look's, a peer's question's), which keep the whole result as pi bounds it. Each spill prunes the folder: a file
+ *   older than a week goes, and the oldest go while the folder is over 32 MiB, since it is kept in the object's storage
+ *   and every backup.
  *
  * Nested calls (code mode's `executeTool`) are left alone by both: their output is a program's value, not the model's.
  */
@@ -304,12 +306,13 @@ async function spill(workspace: Workspace, path: string, result: ToolExecutionRe
   }
 
   const lines = file.split("\n").length;
+  const reindented = indented === text ? "" : " The file holds it re-indented as JSON, two spaces a level, so search it in that shape, not the result's own.";
   const broken = file === indented ? "" : ` Its lines over ${WRAP_CHARS} characters are broken into lines of ${WRAP_CHARS} there.`;
 
   const notice: ToolDiagnostic = {
     severity: "info",
     code: "spilled",
-    message: `This result was ${file.length} characters (${lines} lines), so only its start and end are shown. The whole text is in ${path}: read it with \`read\` (offset and limit page by line) or search it with \`grep\`.${broken}`
+    message: `This result was ${file.length} characters (${lines} lines), so only its start and end are shown. The whole text is in ${path}: read it with \`read\` (offset and limit page by line) or search it with \`grep\`.${reindented}${broken}`
   };
 
   return {

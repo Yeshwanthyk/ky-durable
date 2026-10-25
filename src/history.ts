@@ -527,8 +527,9 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
 }
 
 /**
- * The entry that opened the chat's run holding entry `before` (its newest run, without one): the latest user or reset
- * entry before it, where a run's count of anything starts. Undefined when the chat has none before it.
+ * The entry that opened the chat's run holding entry `before` (its newest run, without one): the latest user-role entry
+ * before it, of any origin (the person's message, a steer, a notice, a subagent's report), or reset. Not "the person's
+ * last message": anything entered as the user opens a run. Undefined when the chat has none before it.
  */
 export function runOpener(sql: SqlStorage, conversation: string, before = Number.MAX_SAFE_INTEGER): number | undefined {
   const row = sql

@@ -17,6 +17,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./ui-tool";
 import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
+import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
@@ -36,7 +37,7 @@ import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, 
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
-import { ASK_TTL_MS } from "./peers/contract";
+import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
 import { type NotSetUp, Setup } from "./setup";
@@ -409,7 +410,7 @@ export class PiAgent extends DurableObject<Env> {
           sql: this.ctx.storage.sql,
           workspace: this.workspace,
           unspilled: pagedTools(workspaceTools),
-          readsFiles: (conversation) => this.readsFiles(String(conversation))
+          readsFiles: (conversation) => this.mayCall(String(conversation), "read")
         })
       );
 
@@ -583,15 +584,19 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /**
-   * Whether the run in `session` may call `read`, so a tool result spilled to a file (src/guardrails.ts) can be read
-   * back: not a check-in's, nor a review's of a kind that may not (a look's, a dream's).
+   * Whether the run in `session` may call `tool`, by the allow-lists the blocking hooks hold runs to: a check-in's
+   * (src/automations), a review's of its kind (src/skills) and a peer's question's (src/peers; its `peer escalate`, which
+   * turns on the arguments, aside). Any other run may call any tool. The spill (src/guardrails.ts) asks it of `read`,
+   * so a result goes to a file only where it can be read back.
    */
-  readsFiles(session: string): boolean {
-    if (this.automations.checkInRun(session)) return false;
-
+  mayCall(session: string, tool: string): boolean {
     const kind = this.reviews.kind(session);
 
-    return kind === undefined || REVIEW_ALLOWED[kind].includes("read");
+    return (
+      (!this.automations.checkInRun(session) || CHECK_IN_TOOLS.includes(tool)) &&
+      (kind === undefined || REVIEW_ALLOWED[kind].includes(tool)) &&
+      (!this.peerAsks.peerConversation(session) || PEER_TOOLS.some((name) => name === tool))
+    );
   }
 
   /** The main chat or a side chat, as against a subagent, a review or a dream. */

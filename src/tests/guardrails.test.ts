@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { decode, parseAs } from "../core/decode";
 import { canonical, LOOP_LIMIT, loopBlock, preview, PREVIEW_HEAD, PREVIEW_TAIL, prune, repeats, SPILL_CHARS, spillPath, WRAP_CHARS, wrapped } from "../guardrails";
 import { SKILL_TABLES } from "../skills/contract";
-import { agent, gateStarted, inside, prompt, submit, wait } from "./drive";
+import { agent, connectExecutor, gateStarted, inside, prompt, submit, wait } from "./drive";
 import { bulkText, Page, SPILLED, wideText } from "./stack";
 
 const multiply = (value: number | string) => ["multiply", { value }];
@@ -17,6 +17,15 @@ const CallRow = Type.Object({ id: Type.String(), conversation: Type.Number() });
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const ConversationRow = Type.Object({ conversation: Type.Number() });
+
+/** A turn that runs an Executor program answering `rows` rows of JSON, one line over SPILL_CHARS, then reads it back. */
+function bigAnswer(rows: number): string {
+  const value = Array.from({ length: rows }, (_, id) => ({ id, note: "abcdefghij".repeat(6) }));
+
+  return `readback tool executor_execute ${JSON.stringify({ code: `answer ${JSON.stringify(value)}` })}`;
+}
 
 /** The calls of the tool `name`, in order: each one's id and its conversation. */
 function callsOf(sql: SqlStorage, name: string) {
@@ -147,6 +156,7 @@ describe("a big result", () => {
     expect(bulk.text).toContain(text.slice(-PREVIEW_TAIL / 2));
     expect(bulk.text).toContain(`left out: read ${path} for them`);
     expect(bulk.text).toContain(`<harness>\n[info] This result was ${text.length} characters (1000 lines), so only its start and end are shown. The whole text is in ${path}`);
+    expect(bulk.text).not.toContain("re-indented");
 
     // The file holds the whole result, and the model's reads, never spilled themselves, put it back together.
     expect(await inside(name, (instance) => instance.workspace.fs.readFile(path, { encoding: "utf8" }))).toBe(text);
@@ -177,12 +187,27 @@ describe("a big result", () => {
     expect(answer).toBe(`read back in ${pages.length} pages: ${file.length} characters`);
   });
 
+  it("of one line of JSON goes to the file re-indented, and the model is told the file's shape", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+
+    const { shown, conversation } = await said(name, bigAnswer(300));
+    const result = shown[0]!;
+    expect(result.tool).toBe("executor_execute");
+    expect(result.text.length).toBeLessThan(SPILL_CHARS);
+    expect(result.text).toContain("The file holds it re-indented as JSON, two spaces a level, so search it in that shape, not the result's own.");
+
+    const file = await inside(name, (instance) => instance.workspace.fs.readFile(spillPath(conversation, result.id), { encoding: "utf8" }));
+    expect(file).toContain('\n  "execution": {\n    "ok": true,\n    "value": [\n      {\n        "id": 0,\n');
+    expect(file).toContain('\n        "id": 299,\n');
+  });
+
   it("is left as it is up to the limit", async () => {
     const result = await prompt(crypto.randomUUID(), 'readback tool bulk {"lines":200}');
     expect(result.text).toBe(`nothing spilled: ${bulkText(200).length} characters`);
   });
 
-  it("is left as it is in a run that may not call read: a check-in's, a look's, a dream's", async () => {
+  it("is left as it is in a run that may not call read: a check-in's, a look's, a dream's, a peer's question's", async () => {
     const name = crypto.randomUUID();
 
     const reads = await inside(name, (instance, state) => {
@@ -190,32 +215,38 @@ describe("a big result", () => {
         state.storage.sql.exec(`INSERT INTO ${SKILL_TABLES.skillReviews} (conversation, parent, created_at, kind) VALUES (?, '1', 0, ?)`, conversation, kind);
       }
 
+      instance.peerAsks.received("anaky", "q1", "?");
+      instance.peerAsks.answering("anaky", "q1", "906");
+
       const checkIn = vi.spyOn(instance.automations, "checkInRun").mockImplementation((session) => session === "905");
 
       try {
-        return ["1", "901", "902", "903", "904", "905"].map((session) => instance.readsFiles(session));
+        return ["1", "901", "902", "903", "904", "905", "906"].map((session) => instance.mayCall(session, "read"));
       } finally {
         checkIn.mockRestore();
       }
     });
 
-    expect(reads).toEqual([true, false, false, false, false, false]);
+    expect(reads).toEqual([true, false, false, false, false, false, false]);
+  });
 
-    // Where it may not, the model keeps the whole result, as pi bounds any other, and no file is written.
-    const kept = bulkText(400);
-    expect(kept.length).toBeGreaterThan(SPILL_CHARS);
+  it("is left whole in a peer's question: its executor's big answer reaches the model, and no file is written", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    await prompt(name, "hello");
 
-    const answer = await inside(name, async (instance) => {
-      const readsFiles = vi.spyOn(instance, "readsFiles").mockReturnValue(false);
+    // The main chat answers a peer's question from here on, so it may call only PEER_TOOLS, never read.
+    await inside(name, (instance, state) => {
+      const { conversation } = decode(ConversationRow, state.storage.sql.exec("SELECT max(conversation_id) AS conversation FROM pi_entries").one(), "the chat");
 
-      try {
-        return (await instance.harness.prompt('readback tool bulk {"lines":400}')).text;
-      } finally {
-        readsFiles.mockRestore();
-      }
+      instance.peerAsks.received("anaky", "q1", "?");
+      instance.peerAsks.answering("anaky", "q1", String(conversation));
     });
 
-    expect(answer).toBe(`nothing spilled: ${kept.length} characters`);
+    const answer = (await prompt(name, bigAnswer(300))).text!;
+    const kept = Number(/^nothing spilled: (\d+) characters$/.exec(answer)?.[1]);
+    expect(kept).toBeGreaterThan(SPILL_CHARS);
+    expect(await inside(name, (instance) => instance.workspace.fs.stat("/workspace/.tool-results").then((stat) => stat !== null, () => false))).toBe(false);
   });
 
   it("files are pruned past a week, and the oldest past the size cap; never the one just written", async () => {
