@@ -202,7 +202,7 @@ export class PiAgent extends DurableObject<Env> {
   #executorGeneration = 0;
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
-  readonly automations = new Automations(this.ctx.storage.sql, {
+  readonly automations = new Automations(this.ctx.storage, {
     feed: this.feed,
     machines: this.machines,
     chats: this.chats,

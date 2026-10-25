@@ -1,0 +1,12 @@
+diff --git a/src/automations/automations.ts b/src/automations/automations.ts
+index e23bee6..ebf91f9 100644
+--- a/src/automations/automations.ts
++++ b/src/automations/automations.ts
+@@ -926,7 +926,6 @@ const make = Effect.gen(function* () {
+       const slot = slotOf(fired, schedule, row);
+       const task = `a-${row.id}-${slot}`;
+ 
+-      if (overlaps(row.id, task)) return;
+ 
+       // Delivered again after its run started, it starts nothing; a one-off still ends done.
+       if (!ran(task)) {

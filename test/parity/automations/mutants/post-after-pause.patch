@@ -1,0 +1,13 @@
+diff --git a/src/automations/automations.ts b/src/automations/automations.ts
+index e23bee6..df11921 100644
+--- a/src/automations/automations.ts
++++ b/src/automations/automations.ts
+@@ -1244,7 +1244,7 @@ const make = Effect.gen(function* () {
+         if (task?.status === "stopped") return false;
+         const status = (yield* get(source.slice(SOURCE.length)))?.status;
+ 
+-        return status === "active" || status === "done";
++        return status !== undefined;
+       }),
+ 
+     /** Book a callback that takes no payload at `at`, epoch ms: the machines' recheck (MachineHub.recheck), or peers' sweep. */
