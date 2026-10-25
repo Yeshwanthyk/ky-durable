@@ -5802,42 +5802,6 @@
     },
     {
       "check": "invariants",
-      "name": "stored rows reads a model column",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows reads the corrupt model column \"{\" as the worker's",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows reads the corrupt model column \"null\" as the worker's",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows reads the corrupt model column \"[]\" as the worker's",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows reads the corrupt model column \"{\\\"provider\\\":\\\"p\\\"}\" as the worker's",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows reads the corrupt model column \"{\\\"provider\\\":\\\"p\\\",\\\"modelId\\\":\\\"m\\\",\\\"thinkingLevel\\\":\\\"loud\\\"}\" as the worker's",
-      "outcome": "failed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
       "name": "stored rows reads the corrupt steps column \"{\" as none",
       "outcome": "passed",
       "file": "test/invariants/automations.test.ts"
@@ -5858,12 +5822,6 @@
       "check": "invariants",
       "name": "stored rows reads the corrupt steps column \"[{\\\"at\\\":\\\"x\\\",\\\"text\\\":\\\"y\\\"}]\" as none",
       "outcome": "passed",
-      "file": "test/invariants/automations.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "stored rows leaves out a row damaged past reading, keeping the rest",
-      "outcome": "failed",
       "file": "test/invariants/automations.test.ts"
     },
     {
@@ -5952,12 +5910,6 @@
     },
     {
       "check": "invariants",
-      "name": "enters a domain only through its contract or its wiring",
-      "outcome": "failed",
-      "file": "test/invariants/boundaries.test.ts"
-    },
-    {
-      "check": "invariants",
       "name": "lets the CLI, which runs in Node, take only contracts",
       "outcome": "passed",
       "file": "test/invariants/boundaries.test.ts"
@@ -5990,12 +5942,6 @@
       "check": "invariants",
       "name": "the socket edge asks settles every ask on its answer, an error frame, the socket closing or a timeout",
       "outcome": "passed",
-      "file": "test/invariants/contracts.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "storage decodes a corrupt JSON column from a restore to its default",
-      "outcome": "failed",
       "file": "test/invariants/contracts.test.ts"
     },
     {

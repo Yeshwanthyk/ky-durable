@@ -32,24 +32,22 @@ a routine, and the Scheduler's alarm.
 
 ## Proof
 
-Not provable yet: verified-unreachable until U2.
+Provable: `prove.sh automations` passes on the port alone (U2, legacy flipped out).
 
-- **Parity (check 2):** needs `src/automations/legacy/` and a `contract.ts` the kit can drive, with
-  clock advances for the Scheduler. U2 builds them, and first extends the kit (Fable's U0 review):
-  one clock the kit owns and both sides read, not an `advance` per side, so a fake-timer clock can't
-  move the port along with legacy; a `pending()` view (next alarm, what's due) compared after each
-  step; and an advance that jumps to the next alarm, since hourly slots never fire in 30 steps of
-  seconds.
-- **Invariants (check 3):** the three quint invariants above as a fast-check property, with mutants
-  (a second spawn per slot, a post after pause). U2 builds them.
-- **Stored data (check 4):** rows seeded at B in each `AUTOMATION_TABLES` table, loaded by the port.
+- **Parity (check 2):** ran B against the port, with one clock the kit owns and the Scheduler as a
+  fake, until the flip; that run's evidence is `test-results/parity/automations-preflip/`. There is
+  no parity side now.
+- **Invariants (check 3):** the quint invariants (no overlap, one run per slot, nothing after pause)
+  as properties in `test/invariants/automations.test.ts`, over `test/parity/automations/world.ts`;
+  four mutants in `test/parity/automations/mutants/`, each caught. Every runs property starts with a
+  fixed run (done, paused, reported), or post-after-pause slips past.
+- **Stored data (check 4):** `test/parity/automations/at-b.test.ts` opens B's tables, bookings and
+  reads (`at-b.json`, recorded from B) under the port; on real data, `real-data.ts`.
 
 ## Gotchas
 
-- **B fails 7 of its own invariant tests** in `test/invariants/automations.test.ts` › stored rows:
-  `automationRows` reads the model column as undefined, and the corrupt-model cases fail with it. The
-  gate holds them as red at B; the owner decided U2 fixes them.
-- `boundaries.test.ts` is red at B too: `src/ui/Automations.tsx` imports automations' `zoned`
-  outside its contract.
-- Real timers in `src/tests/automations.test.ts` (census SLEEP signal) make it slow; the port moves
-  them to TestClock.
+- B's 7 red stored-rows tests, `boundaries.test.ts` and `contracts.test.ts` › storage pass on the
+  port; they left `gate-baseline.json`, so going red again fails the gate as new since B.
+- Fallow reads no types: a member reached only through a destructured Host service looks dead.
+  Name the service's type at the binding (`const feed: TaskFeed = host.feed`), not an exemption.
+- Real timers in `src/tests/automations.test.ts` (census SLEEP signal) make it slow.
