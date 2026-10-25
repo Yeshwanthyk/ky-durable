@@ -33,18 +33,24 @@ export interface Refusable {
   readonly refusal: string;
 }
 
+type RunOptions = { readonly signal?: AbortSignal };
+
 /** A domain behind its Layer, run from code that isn't Effect. */
 export interface Edge<R> {
+  /** Runs a synchronous Effect that can't fail: its value. A defect throws. */
+  run<A>(effect: Effect.Effect<A, never, R>): A;
   /** Runs a synchronous Effect: its value, or the refusal its failure carries. A defect throws. */
   run<A extends object, E extends Refusable>(effect: Effect.Effect<A, E, R>): Result<A>;
+  /** Runs an Effect that may wait and can't fail: its value. A defect rejects. */
+  runPromise<A>(effect: Effect.Effect<A, never, R>, options?: RunOptions): Promise<A>;
   /** Runs an Effect that may wait: its value, or the refusal its failure carries. A defect rejects. */
-  runPromise<A extends object, E extends Refusable>(effect: Effect.Effect<A, E, R>, options?: { readonly signal?: AbortSignal }): Promise<Result<A>>;
+  runPromise<A extends object, E extends Refusable>(effect: Effect.Effect<A, E, R>, options?: RunOptions): Promise<Result<A>>;
   /** Releases what the Layer acquired. The edge can't run after. */
   dispose(): Promise<void>;
 }
 
 /** The value of `exit`, the refusal its failure carries, or a throw for a defect or an interruption. */
-function settle<A extends object, E extends Refusable>(exit: Exit.Exit<A, E>): A | Refusal {
+function settle<A, E extends Refusable>(exit: Exit.Exit<A, E>): A | Refusal {
   if (Exit.isSuccess(exit)) return exit.value;
 
   // A bug beside a failure is still a bug: the refusal would hide it.
@@ -63,9 +69,17 @@ function settle<A extends object, E extends Refusable>(exit: Exit.Exit<A, E>): A
 export function makeEdge<R>(layer: Layer.Layer<R>): Edge<R> {
   const runtime = ManagedRuntime.make(layer);
 
-  return {
-    run: (effect) => settle(runtime.runSyncExit(effect)),
-    runPromise: async (effect, options) => settle(await runtime.runPromiseExit(effect, options)),
-    dispose: () => runtime.dispose()
-  };
+  function run<A>(effect: Effect.Effect<A, never, R>): A;
+  function run<A extends object, E extends Refusable>(effect: Effect.Effect<A, E, R>): Result<A>;
+  function run(effect: Effect.Effect<unknown, Refusable, R>) {
+    return settle(runtime.runSyncExit(effect));
+  }
+
+  function runPromise<A>(effect: Effect.Effect<A, never, R>, options?: RunOptions): Promise<A>;
+  function runPromise<A extends object, E extends Refusable>(effect: Effect.Effect<A, E, R>, options?: RunOptions): Promise<Result<A>>;
+  async function runPromise(effect: Effect.Effect<unknown, Refusable, R>, options?: RunOptions) {
+    return settle(await runtime.runPromiseExit(effect, options));
+  }
+
+  return { run, runPromise, dispose: () => runtime.dispose() };
 }
