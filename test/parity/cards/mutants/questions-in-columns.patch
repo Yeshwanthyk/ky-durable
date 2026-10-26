@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index b04076b..a8b3628 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -59,7 +59,7 @@ const Shown = Schema.Union([Text, List, Facts, Media("image"), Media("audio"), M
+ 
+ const Tabs = Schema.Struct({ type: Schema.Literal("tabs"), tabs: Many(Schema.Struct({ label: Schema.String, blocks: Many(Shown, 1, 8) }), 2, 6) });
+ 
+-const Columns = Schema.Struct({ type: Schema.Literal("columns"), columns: Many(Many(Schema.Union([Shown, Tabs]), 1, 8), 2, 3) });
++const Columns = Schema.Struct({ type: Schema.Literal("columns"), columns: Many(Many(Schema.Union([Shown, Tabs, Schema.Struct({ type: Schema.Literal("input"), label: Schema.String })]), 1, 8), 2, 3) });
+ 
+ const Choice = Schema.Struct({
+   type: Schema.Literal("choice"),

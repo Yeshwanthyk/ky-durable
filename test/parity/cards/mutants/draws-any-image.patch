@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index b04076b..fd2fad8 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -15,7 +15,7 @@ const Flag = Schema.optionalKey(Schema.Boolean);
+ const Tone = Schema.optionalKey(Schema.Literals(["info", "success", "warning", "error"]));
+ 
+ const Media = <K extends string>(type: K) =>
+-  Schema.Struct({ type: Schema.Literal(type), src: Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{32}|https:\/\/[^\s]+)$/)), caption: Words });
++  Schema.Struct({ type: Schema.Literal(type), src: Schema.String, caption: Words });
+ 
+ const Text = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
+ 

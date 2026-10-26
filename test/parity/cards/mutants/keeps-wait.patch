@@ -1,0 +1,19 @@
+diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+index 59a83f0..712fb94 100644
+--- a/src/cards/tool.ts
++++ b/src/cards/tool.ts
+@@ -32,12 +32,12 @@ function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAns
+   return Effect.succeed({ ...reply("Shown to the user. Your turn ends here; their answer arrives as their next message."), control: { terminate: true } });
+ }
+ 
+-function keep(doc: RunCardsDoc, call: string, { wait, ...card }: UiCardArgs): Effect.Effect<ToolExecutionResult, NoOneToShow> {
++function keep(doc: RunCardsDoc, call: string, card: UiCardArgs): Effect.Effect<ToolExecutionResult, NoOneToShow> {
+   if (!doc.run) return Effect.fail(new NoOneToShow());
+ 
+   if (!doc.cards.some((each) => each.call === call)) doc.cards.push({ call, card: JSON.stringify(card) });
+   const answers = asks(card) ? " The user answers it in that chat, later, not to this run." : "";
+-  const waits = wait === true ? " wait does nothing in a run: your turn goes on; finish with your report." : "";
++  const waits = card.wait === true ? " wait does nothing in a run: your turn goes on; finish with your report." : "";
+ 
+   return Effect.succeed(reply(`Kept: the card is posted to the user before your report once this run succeeds.${answers}${waits}`));
+ }
