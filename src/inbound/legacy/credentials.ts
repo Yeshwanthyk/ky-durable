@@ -20,7 +20,7 @@ export type CredentialInfo = {
 };
 
 /** A credential as the Vault keeps it: the value, and what it is for. */
-export const CredentialSchema = Type.Object({
+const CredentialSchema = Type.Object({
   origin: Type.String(),
   scheme: SchemeSchema,
   header: Type.Union([Type.String(), Type.Null()]),
@@ -51,7 +51,7 @@ export const HTTP_KIND = "http";
 const SCHEMES: readonly Scheme[] = SchemeSchema.anyOf.map((literal) => literal.const);
 
 /** A credential's name: a letter, then letters, digits, `_` and `-`, up to 64. */
-export const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 /** A header's name, as HTTP spells a token. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
@@ -191,11 +191,6 @@ export function replyText(answer: CredentialReply): string {
   const cut = answer.truncated ? "\n[cut at 20,000 characters]" : "";
 
   return `${answer.status}${answer.type ? ` (${answer.type})` : ""}\n\n${answer.body}${cut}`;
-}
-
-/** Whether an answer is an error to the agent: a refusal, or a status of 400 or more. */
-export function replyFailed(answer: CredentialReply): boolean {
-  return "refused" in answer || answer.status >= 400;
 }
 
 /**

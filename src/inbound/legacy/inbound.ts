@@ -52,24 +52,6 @@ export type HookDelivery = {
 
 export type Received = "accepted" | "replay" | "gone";
 
-/** The tools a chat working on a webhook may call without the user's approval: they read, or ask, and change nothing. */
-export const HOOK_TURN_TOOLS: ReadonlySet<string> = new Set([
-  "read",
-  "ls",
-  "grep",
-  "find",
-  "memory_recall",
-  "memory_zoom",
-  "chat_search",
-  "skill_view",
-  "executor_skills",
-  "list_secrets",
-  // It asks for the user's OK itself for anything but a GET or HEAD.
-  "secret_request"
-  // Not ui: a tap on its buttons, choices or fields is sent as the user's own message, so a card a post wrote would
-  // put the post's words in the user's mouth. It waits for the user like any other call.
-]);
-
 export const HOOK_ID = /^[0-9a-f]{32}$/;
 
 /** What a post's body is cut to before the chat reads it. */
@@ -127,7 +109,7 @@ const SecretCall = Type.Object({
 /** What an approved webhook action is: the tool the chat called, and its arguments. */
 const HookCall = Type.Object({ tool: Type.String(), arguments: Arguments });
 
-export type SecretCall = Static<typeof SecretCall>;
+type SecretCall = Static<typeof SecretCall>;
 
 export class Inbound {
   readonly #sql: SqlStorage;

@@ -12,7 +12,7 @@ import { type HookDelivery, type Hook, HOOK_ID, type Received } from "./inbound"
 const HOOKS_PATH = "/hooks/";
 
 /** The most a post to a hook may carry. */
-export const MAX_HOOK_BYTES = 256 * 1024;
+const MAX_HOOK_BYTES = 256 * 1024;
 
 const HOOK_URL = /^\/hooks\/([0-9a-f]{32})\/([0-9a-f]{64})$/;
 
