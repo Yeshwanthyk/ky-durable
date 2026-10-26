@@ -21,7 +21,7 @@ export const siteKey = (id: string, path: string) => `sites/${id}/${path}`;
 
 export const publicKey = (token: string) => `sites-public/${token}`;
 
-export const SiteMeta = Schema.StructWithRest(Schema.Struct({ title: Schema.String, created: Schema.Number, token: Schema.optionalKey(Schema.String) }), [Schema.Record(Schema.String, Schema.Unknown)]);
+const SiteMeta = Schema.StructWithRest(Schema.Struct({ title: Schema.String, created: Schema.Number, token: Schema.optionalKey(Schema.String) }), [Schema.Record(Schema.String, Schema.Unknown)]);
 
 export type SiteMeta = typeof SiteMeta.Type;
 
@@ -29,9 +29,12 @@ const decodeMeta = Schema.decodeUnknownOption(Schema.fromJsonString(SiteMeta));
 
 export const metaOr = (text: string): SiteMeta | undefined => Option.getOrUndefined(decodeMeta(text));
 
-export const SiteRow = Schema.Struct({ id: Schema.String, title: Schema.String, created: Schema.Number, public: Schema.Boolean });
-
-export type SiteRow = typeof SiteRow.Type;
+export interface SiteRow {
+  readonly id: string;
+  readonly title: string;
+  readonly created: number;
+  readonly public: boolean;
+}
 
 export const SiteArgs = Type.Object({
   action: Type.Union([Type.Literal("publish"), Type.Literal("list"), Type.Literal("make_public"), Type.Literal("make_private"), Type.Literal("delete")]),

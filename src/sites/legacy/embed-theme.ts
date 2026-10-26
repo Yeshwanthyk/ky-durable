@@ -8,7 +8,7 @@
 type Mode = "light" | "dark";
 
 /** scotty.css's tokens a page draws with, by mode. */
-export const PALETTE: Record<Mode, Record<string, string>> = {
+const PALETTE: Record<Mode, Record<string, string>> = {
   light: {
     surface: "#ffffff",
     raised: "#f3f3f3",

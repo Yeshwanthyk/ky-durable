@@ -3,10 +3,10 @@ import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publicSiteRoute as legacyPublicRoute, siteRoute as legacySiteRoute } from "../../src/sites/legacy/site-routes";
-import { siteExtension as legacyExtension } from "../../src/sites/legacy/sites";
+import { legacySiteExtension as legacyExtension } from "../../src/sites/legacy/sites";
 import { publicSiteRoute, siteExtension, siteRoute } from "../../src/sites/wiring";
-import { assertParity, budget, type Clock, type Instance, type Parity } from "../parity/kit";
-import { type FakeFile, fakeBucket, fakeFiles, type Json, requestOf, seededRandom, siteId, sortedMeta, toolOf } from "../parity/sites/world";
+import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
+import { type FakeFile, fakeBucket, fakeFiles, requestOf, seededRandom, siteId, sortedMeta, toolOf } from "../parity/sites/world";
 
 const ORIGIN = "https://ky.test";
 
@@ -208,21 +208,50 @@ describe("refusals", () => {
 
 const now = (at: number) => vi.spyOn(Date, "now").mockImplementation(() => at);
 
+type Port = ReturnType<typeof port>;
+
+const storedAt = async ({ bucket }: Port, id: string) => storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()));
+
+const newSite = async ({ tool }: Port, args: Record<string, string>) => /id ([0-9a-f]{32})/.exec((await tool(args)).text)?.[1] ?? "";
+
+const publicObjects = ({ bucket }: Port) => Object.fromEntries(Object.entries(bucket.dump()).flatMap(([key, id]) => (key.startsWith("sites-public/") ? [[key.slice("sites-public/".length), id]] : [])));
+
+const tokenAt = async (site: Port, id: string) => (await storedAt(site, id))?.token;
+
+const stepArgs = (action: string, id: string): Parameters<Port["tool"]>[0] => (action === "publish" ? { action, id, html: "again" } : { action, id });
+
+const RETIRES = new Set(["make_private", "delete"]);
+
+async function expectGone(site: Port, retired: Set<string>) {
+  for (const each of retired) expect([publicObjects(site)[each], await site.request("GET", `/p/${each}/`)]).toMatchObject([undefined, { status: 404 }]);
+}
+
+async function tokenStep(site: Port, action: string, id: string, retired: Set<string>) {
+  const was = await tokenAt(site, id);
+  const said = await site.tool(stepArgs(action, id));
+  const token = await tokenAt(site, id);
+
+  if (action === "make_public" && !said.failed) expect([said.text.includes(`/p/${token}/`), was ?? token]).toEqual([true, token]);
+
+  if (RETIRES.has(action) && was !== undefined) retired.add(was);
+  await expectGone(site, retired);
+}
+
 describe("stored metadata", () => {
   it("I-S10: a site was created when it was first published, however often it is published again", async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(fc.integer({ min: 0, max: 2 ** 40 }), { minLength: 1, maxLength: 5 }), async (times) => {
-        const { bucket, tool, request } = port();
+        const site = port();
         now(times[0] ?? 0);
-        const id = /id ([0-9a-f]{32})/.exec((await tool({ action: "publish", html: "x" })).text)?.[1] ?? "";
+        const id = await newSite(site, { action: "publish", html: "x" });
 
         for (const at of times.slice(1)) {
           now(at);
-          await tool({ action: "publish", id, html: String(at) });
+          await site.tool({ action: "publish", id, html: String(at) });
         }
 
-        expect(storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()))?.created).toBe(times[0]);
-        expect(await request("GET", "/api/sites")).toMatchObject({ body: JSON.stringify([{ id, title: "Untitled", created: times[0], public: false }]) });
+        expect((await storedAt(site, id))?.created).toBe(times[0]);
+        expect(await site.request("GET", "/api/sites")).toMatchObject({ body: JSON.stringify([{ id, title: "Untitled", created: times[0], public: false }]) });
       }),
       budget()
     );
@@ -233,60 +262,31 @@ describe("stored metadata", () => {
 
     await fc.assert(
       fc.asyncProperty(titles, async ([first, ...rest]) => {
-        const { bucket, tool } = port();
-        const id = /id ([0-9a-f]{32})/.exec((await tool(titled({ action: "publish", html: "x" }, first))).text)?.[1] ?? "";
+        const site = port();
+        const id = await newSite(site, titled({ action: "publish", html: "x" }, first));
 
-        for (const title of rest) await tool(titled({ action: "publish", id, html: "y" }, title));
+        for (const title of rest) await site.tool(titled({ action: "publish", id, html: "y" }, title));
         const expected = [first, ...rest].reduce<string | undefined>((last, title) => title ?? last, undefined) ?? "Untitled";
 
-        expect(storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()))?.title).toBe(expected);
+        expect((await storedAt(site, id))?.title).toBe(expected);
       }),
       budget()
     );
   });
 
   it("I-S12: a site is public exactly while its metadata names a token whose object names it, and a token made private never works again", async () => {
-    const step = fc.record({ action: fc.constantFrom("make_public", "make_private", "delete", "publish"), site: fc.constantFrom(0, 1) });
+    const step = fc.record({ action: fc.constantFrom("make_public", "make_private", "delete", "publish"), at: fc.constantFrom(0, 1) });
 
     await fc.assert(
       fc.asyncProperty(fc.array(step, { maxLength: 20 }), async (steps) => {
-        const { bucket, tool, request } = port();
-        const ids: string[] = [];
+        const site = port();
+        const ids = [await newSite(site, { action: "publish", html: "x" }), await newSite(site, { action: "publish", html: "x" })];
         const retired = new Set<string>();
 
-        for (const _ of [0, 1]) ids.push(/id ([0-9a-f]{32})/.exec((await tool({ action: "publish", html: "x" })).text)?.[1] ?? "");
+        for (const { action, at } of steps) await tokenStep(site, action, ids[at] ?? "", retired);
+        const named = await Promise.all(ids.map(async (id) => [(await storedAt(site, id))?.token, id] as const));
 
-        for (const { action, site } of steps) {
-          const id = ids[site] ?? "";
-          const was = storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()))?.token;
-          const said = await tool(action === "publish" ? { action, id, html: "again" } : { action, id });
-          const token = storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()))?.token;
-
-          if (action === "make_public" && !said.failed) {
-            expect(said.text).toContain(`/p/${token}/`);
-
-            if (was !== undefined) expect(token).toBe(was);
-          }
-
-          if ((action === "make_private" || action === "delete") && was !== undefined) retired.add(was);
-
-          for (const each of retired) {
-            expect(bucket.objects.has(`sites-public/${each}`)).toBe(false);
-            expect(await request("GET", `/p/${each}/`)).toMatchObject({ status: 404 });
-          }
-        }
-
-        const named = new Map<string, string>();
-
-        for (const id of ids) {
-          const stored = storedOf(await bucket.get(`sites/${id}/.site`).then((object) => object?.text()));
-
-          if (stored?.token !== undefined) named.set(stored.token, id);
-        }
-
-        const objects = Object.entries(bucket.dump()).filter(([key]) => key.startsWith("sites-public/"));
-
-        expect(Object.fromEntries(objects.map(([key, id]) => [key.slice("sites-public/".length), id]))).toEqual(Object.fromEntries(named));
+        expect(publicObjects(site)).toEqual(Object.fromEntries(named.filter(([token]) => token !== undefined)));
       }),
       budget()
     );

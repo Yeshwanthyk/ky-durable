@@ -3,9 +3,8 @@ import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { vi } from "vitest";
+import type { Json } from "../kit";
 import type { SiteBody, SiteBucket, SiteFiles, SiteObject } from "../../../src/sites/contract";
-
-export type Json = string | number | boolean | null | Json[] | { readonly [key: string]: Json | undefined };
 
 const text = new TextDecoder();
 

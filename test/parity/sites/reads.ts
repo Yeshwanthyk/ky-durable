@@ -1,4 +1,5 @@
-import { type FakeBucket, type Json, sortedMeta, type Tool } from "./world";
+import type { Json } from "../kit";
+import { type FakeBucket, sortedMeta, type Tool } from "./world";
 
 type Request = (method: string, path: string) => Promise<Json>;
 

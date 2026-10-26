@@ -180,7 +180,7 @@ async function gather(workspace: Workspace, { html, dir }: SiteArgs): Promise<Ga
 }
 
 /** The site tool; only a chat with the user may call it, as `uiExtension`'s. `origin` is ky's address, once a browser opened it. */
-export function siteExtension(chat: (session: string) => boolean, bucket: R2Bucket, workspace: Workspace, origin: () => string | null): Extension {
+export function legacySiteExtension(chat: (session: string) => boolean, bucket: R2Bucket, workspace: Workspace, origin: () => string | null): Extension {
   const privateUrl = (id: string) => `${origin() ?? ""}/s/${id}/`;
   const publicUrl = (token: string) => `${origin() ?? ""}/p/${token}/`;
   const ids = () => siteIds(bucket);
