@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index ecbeb4d..6ced435 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -283,7 +283,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+           const conversation = String(row.conversation_id);
+           const text = (row.text ?? "").slice(0, MESSAGE_CHARS);
+ 
+-          if (text.trim() === "" || !deps.isChat(conversation)) return Effect.void;
++          if (text.trim() === "") return Effect.void;
+ 
+           return exec(
+             `INSERT OR IGNORE INTO ${INDEX} (rowid, text, conversation, role, at) VALUES (?, ?, ?, ?, ?)`,

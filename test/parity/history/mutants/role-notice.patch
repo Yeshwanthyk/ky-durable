@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index ecbeb4d..aa9821d 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -219,7 +219,7 @@ function fit(said: readonly SaidLine[], chars: number) {
+   return { end, stopAt, shown };
+ }
+ 
+-const roleOf = (row: Entry, own: ReadonlySet<number>) => (row.kind !== "pi.user" ? "ky" : own.has(row.id) ? "user" : "notice");
++const roleOf = (row: Entry, own: ReadonlySet<number>) => (row.kind !== "pi.user" ? "ky" : "notice");
+ 
+ const day = (at: number) => (at > 0 ? new Date(at).toISOString().slice(0, 10) : "----------");
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index ecbeb4d..4de1533 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -319,7 +319,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+               for (const row of entries) yield* index(row, mine);
+ 
+               from = newest.id;
+-              last = Math.max(last, from);
++              
+             }
+ 
+             yield* exec(`INSERT OR REPLACE INTO ${MARK} (id, last, roles) VALUES (1, ?, 1)`, last);

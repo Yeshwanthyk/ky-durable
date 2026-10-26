@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index ecbeb4d..381ebb0 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -263,7 +263,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+ 
+         const [marked] = yield* exec(`SELECT roles FROM ${MARK} WHERE id = 1`);
+ 
+-        if (rolesOf(marked)?.roles === 0) {
++        if (rolesOf(marked)?.roles === -1) {
+           yield* exec(`DELETE FROM ${INDEX}`);
+           yield* exec(`DELETE FROM ${MARK}`);
+         }
