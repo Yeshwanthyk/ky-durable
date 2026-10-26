@@ -64,5 +64,35 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "what a navigation reached is a PDF by its content type or its first bytes, and otherwise the page, or a file it downloaded",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says so when the browser downloaded a file that isn't a PDF",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says a page whose navigation the browser aborted was aborted, not a download",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF refuses a PDF over 15 MB",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B5: a download over 15 MB is refused, and one of 15 MB or less is read"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF stops reading a PDF when the call is stopped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B3: a stop answers at once with its reason, and the browser closes once"
   }
 ]

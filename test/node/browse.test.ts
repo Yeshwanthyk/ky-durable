@@ -1,6 +1,6 @@
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readDocument } from "../../src/browse";
+import { readDocument } from "../../src/browse/browse";
 
 /**
  * What the browse tool reads from a page (src/browse.ts `readDocument`), run in real Chromium as

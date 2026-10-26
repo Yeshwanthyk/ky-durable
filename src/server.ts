@@ -19,7 +19,7 @@ import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
-import { browseExtension } from "./browse";
+import { browseExtension } from "./browse/browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
