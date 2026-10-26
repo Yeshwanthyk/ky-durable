@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXAMPLES as B_EXAMPLES } from "../../src/avatars/legacy/avatar-spec";
 import { preamble as legacyPreamble } from "../../src/avatars/legacy/prompt";
 import { AVATAR_TABLES, EXAMPLES } from "../../src/avatars/contract";
-import { Avatars, avatarTools, preamble, Setup } from "../../src/avatars/wiring";
+import { preamble } from "../../src/avatars/prompt";
+import { Avatars, avatarTools, Setup } from "../../src/avatars/wiring";
 import { assertParity, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
 import { legacyOf } from "../parity/avatars/legacy";
 import { storageOf, StoredRow } from "../parity/skills/storage";
@@ -271,10 +272,15 @@ function port(owners: readonly string[] = OWNERS) {
   vi.spyOn(Date, "now").mockImplementation(() => at);
   const db = new DatabaseSync(":memory:");
   const side = next(db, () => owners);
+  const heard = { avatars: 0, setup: 0 };
+
+  side.avatars.onChange(() => heard.avatars++);
+  side.setup.onChange(() => heard.setup++);
 
   return {
     ...side,
     db,
+    heard,
     say: async (input: Input) => {
       const { text } = await said(side.tool, input);
 
@@ -433,6 +439,179 @@ describe("the seeded time", () => {
 
         expect(ky.stored("seeded")).toBe(String(seeded ? before : ky.now()));
         expect(ky.setup.firstStart()).toBe(false);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+});
+
+const FOUR = ["al", "ky", "pip", "zed"];
+
+const shownRange = (spec: Schema.Json) => {
+  const { body, eyes, top, name } = Schema.decodeUnknownSync(ASpec)(spec);
+  const whole = [body.w, body.h, body.corner, eyes.size].every(Number.isInteger);
+
+  return (
+    whole &&
+    body.w >= 80 &&
+    body.w <= 124 &&
+    body.h >= 80 &&
+    body.h <= 124 &&
+    body.corner >= 0 &&
+    body.corner <= Math.round(Math.min(body.w, body.h) / 2) &&
+    eyes.size >= 8 &&
+    eyes.size <= 32 &&
+    body.color === body.color.toLowerCase() &&
+    (top.kind === "none" ? top.color === undefined : top.color === top.color?.toLowerCase()) &&
+    (name === undefined || (name !== "" && name === name.trim()))
+  );
+};
+
+describe("roll", () => {
+  it("offers one to six fitted bloubs, three when not asked, the same ones for the same seed", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.option(fc.double({ min: -20, max: 20, noNaN: true }), { nil: undefined }), fc.uuid(), async (count, seed) => {
+        const rolled = async () => {
+          using ky = port();
+
+          // SAFETY: fc.uuid makes the five-part ids randomUUID returns.
+          vi.spyOn(crypto, "randomUUID").mockImplementation(() => seed as Uuid);
+
+          return ky.say({ action: "roll", count });
+        };
+
+        const reply = await rolled();
+        const many = count === undefined ? 3 : Math.round(count) < 1 ? 1 : Math.round(count) > 6 ? 6 : Math.round(count);
+        const specs = fenced(reply);
+
+        expect(reply).toMatch(new RegExp(`^Rolled ${many}\\.`));
+        expect(specs).toHaveLength(many);
+        expect(specs.every((spec) => isSpec(spec) && shownRange(spec))).toBe(true);
+        expect(await rolled()).toBe(reply);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+
+  it("shows the examples as they are, and any spec it takes pulled into range", async () => {
+    await fc.assert(
+      fc.asyncProperty(aSpec.filter(isSpec), async (spec) => {
+        using ky = port();
+        const examples = Object.values(EXAMPLES);
+
+        expect(fenced(await ky.say({ action: "preview", specs: [...examples] }))).toEqual(examples);
+        expect(fenced(await ky.say({ action: "preview", specs: [spec] })).every(shownRange)).toBe(true);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+});
+
+describe("clear and list", () => {
+  it("clear says whether the owner had an avatar, removes only theirs, and tells only when it did", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.subarray(FOUR), fc.constantFrom(...FOUR), async (owners, cleared) => {
+        using ky = port(FOUR);
+
+        for (const owner of owners) await ky.say({ action: "set", for: owner, spec: EXAMPLES.pip });
+
+        const before = ky.heard.avatars;
+        const had = owners.includes(cleared);
+
+        expect(await ky.say({ action: "clear", for: cleared })).toBe(had ? `${cleared} looks as before again.` : `${cleared} has no avatar saved.`);
+        expect(ky.saved().map(({ owner }) => owner)).toEqual(owners.filter((owner) => owner !== cleared).sort());
+        expect(ky.heard.avatars - before).toBe(had ? 1 : 0);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+
+  it("list names every saved owner in order with their bloubs, or says there are none", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.shuffledSubarray(FOUR), async (owners) => {
+        using ky = port(FOUR);
+        const examples = Object.values(EXAMPLES);
+
+        for (const [index, owner] of owners.entries()) await ky.say({ action: "set", for: owner, spec: examples[index] });
+
+        const sorted = [...owners].sort();
+        const reply = await ky.say({ action: "list" });
+
+        if (sorted.length === 0) expect(reply).toBe("No avatars saved.");
+        else {
+          expect(reply).toMatch(new RegExp(`^Saved: ${sorted.join(", ")}\\.`));
+          expect(fenced(reply)).toEqual(sorted.map((owner) => examples[owners.indexOf(owner)]));
+        }
+
+        vi.restoreAllMocks();
+      })
+    );
+  });
+
+  it("reads past a row that isn't a spec, and keeps a spec's extra keys", async () => {
+    const aRow = fc.oneof(aSpec.map((spec) => JSON.stringify(spec)), fc.constantFrom("not json", "null", "[]", '{"body":1}'), fc.string());
+
+    await fc.assert(
+      fc.asyncProperty(fc.dictionary(fc.constantFrom(...FOUR), aRow), async (rows) => {
+        using ky = port(FOUR);
+
+        for (const [owner, spec] of Object.entries(rows)) ky.db.prepare(`INSERT INTO ${AVATAR_TABLES.avatars} (owner, spec) VALUES (?, ?)`).run(owner, spec);
+
+        const parsed = Object.entries(rows).flatMap(([owner, spec]): [string, string][] => {
+          const json = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json))(spec);
+
+          return json._tag === "Some" && isSpec(json.value) ? [[owner, JSON.stringify(json.value)]] : [];
+        });
+
+        expect(JSON.stringify(ky.avatars.all())).toBe(`{${parsed.sort(([a], [b]) => (a < b ? -1 : 1)).map(([owner, spec]) => `${JSON.stringify(owner)}:${spec}`).join(",")}}`);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+});
+
+describe("where ky lives", () => {
+  it("a restore moves the address and the origin it had, and leaves the ones it didn't", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.boolean(), fc.boolean(), fc.constantFrom("https://new.test", "http://localhost:9000"), async (repo, opened, origin) => {
+        using ky = port();
+
+        if (repo) ky.setup.setRepo("me/ky", "https://ky.test/chat");
+
+        if (opened) ky.setup.opened("https://ky.test/settings");
+        ky.setup.moved(origin);
+
+        expect([ky.stored("url"), ky.stored("origin")]).toEqual([repo ? origin : undefined, opened ? origin : undefined]);
+        vi.restoreAllMocks();
+      })
+    );
+  });
+
+  it("a blank repo forgets the repo, keeps the address, and tells", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom("", " ", "\t\n"), fc.constantFrom(null, "https://other.test/x"), async (blank, page) => {
+        using ky = port();
+        ky.setup.setRepo("me/ky", "https://ky.test/chat");
+        const before = ky.heard.setup;
+
+        expect(ky.setup.setRepo(blank, page)).toEqual({});
+        expect([ky.stored("repo"), ky.stored("url"), ky.heard.setup - before]).toEqual([undefined, "https://ky.test", 1]);
+        expect(ky.setup.selfEdit()).toBeUndefined();
+        vi.restoreAllMocks();
+      })
+    );
+  });
+
+  it("a stored value that isn't text reads as absent", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom("repo", "url", "origin", "seeded"), async (key) => {
+        using ky = port();
+        ky.db.prepare(`INSERT INTO ${AVATAR_TABLES.setup} (key, value) VALUES (?, X'00')`).run(key);
+        const at = ky.now();
+
+        expect([ky.setup.view(), ky.setup.selfEdit(), ky.setup.origin()]).toEqual([{ repo: null, url: null }, undefined, null]);
+        expect(ky.setup.firstStart()).toBe(true);
+        expect(ky.stored("seeded")).toBe(String(at));
         vi.restoreAllMocks();
       })
     );

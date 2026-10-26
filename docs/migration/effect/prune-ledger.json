@@ -208,5 +208,23 @@
     "name": "the mail caps are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number",
     "class": "UNIT",
     "replacedBy": "test/invariants/mail.test.ts > the Worker's mail settings > read an address as its bracketed part lowercased, the caps as positive whole numbers else 50 and 20, and mail up to 2,000,000 bytes"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec keeps the examples as they are",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > roll > shows the examples as they are, and any spec it takes pulled into range"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec pulls sizes into range and refuses parts that aren't on the list",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > set > refuses a spec that isn't one in B's words and saves nothing; saves one that is"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec rolls the same bloub for the same seed, and a valid one for any",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > roll > offers one to six fitted bloubs, three when not asked, the same ones for the same seed"
   }
 ]
