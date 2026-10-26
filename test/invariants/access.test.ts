@@ -99,22 +99,22 @@ const anEmail = fc.constantFrom("owner@ky.test", "OWNER@ky.test", " owner@ky.tes
 
 const anOffset = fc.oneof(fc.constantFrom(-61, -60, -1, 0, 1, 59, 60, 61, 86_400), fc.integer({ min: -200, max: 200 }));
 
-const aClaims = (good: boolean): fc.Arbitrary<Claims> =>
+const aClaims = (good: boolean, email = good ? fc.constantFrom("owner@ky.test", "OWNER@ky.test", "dev@ky.test") : anEmail): fc.Arbitrary<Claims> =>
   fc.record({
     aud: good ? fc.constantFrom("app" as const, "apps" as const) : fc.constantFrom("app" as const, "apps" as const, "other" as const),
     iss: good ? fc.constant(`https://${TEAM}`) : fc.constantFrom(`https://${TEAM}`, `https://${OTHER}`, TEAM),
-    email: good ? fc.constantFrom("owner@ky.test", "OWNER@ky.test", "dev@ky.test") : anEmail,
+    email,
     exp: good ? fc.integer({ min: 61, max: 86_400 }) : anOffset,
     nbf: good ? fc.constantFrom(null, -10, 0) : fc.oneof(fc.constant(null), anOffset),
     flaw: good ? fc.constant("plain" as const) : fc.constantFrom<Flaw>("plain", "plain", "plain", "expString", "expHuge", "nbfNull", "noEmail", "audNumber")
   });
 
-const aJwt = (good: boolean, keyAt: fc.Arbitrary<number>): fc.Arbitrary<Token> =>
+const aJwt = (good: boolean, keyAt: fc.Arbitrary<number>, claims = aClaims(good)): fc.Arbitrary<Token> =>
   fc.record({
     kind: fc.constant("jwt" as const),
     key: keyAt,
     kid: good ? fc.constant(null) : fc.option(fc.integer({ min: 0, max: POOL - 1 }), { freq: 4 }),
-    claims: aClaims(good),
+    claims,
     tamper: good ? fc.constant<Tamper>("none") : fc.constantFrom<Tamper>("none", "none", "none", "signedOther", "garbled", "extra", "alg"),
     std: fc.boolean()
   }).map(({ kid, ...token }) => ({ ...token, kid: kid ?? token.key }));
@@ -122,7 +122,7 @@ const aJwt = (good: boolean, keyAt: fc.Arbitrary<number>): fc.Arbitrary<Token> =
 const aRaw: fc.Arbitrary<Token> = fc.constantFrom("", "nope", "a.b.c", "..", "e30.e30.", "e30.e30.e30.e30").map((text) => ({ kind: "raw" as const, text }));
 
 const aToken = (keyAt = fc.integer({ min: 0, max: POOL - 1 })): fc.Arbitrary<Token> =>
-  fc.oneof({ arbitrary: aJwt(false, keyAt), weight: 8 }, { arbitrary: aRaw, weight: 1 }, { arbitrary: fc.constant<Token>({ kind: "none" }), weight: 1 });
+  fc.oneof({ arbitrary: aJwt(false, keyAt), weight: 4 }, { arbitrary: aJwt(false, keyAt, aClaims(true, anEmail)), weight: 4 }, { arbitrary: aRaw, weight: 1 }, { arbitrary: fc.constant<Token>({ kind: "none" }), weight: 1 });
 
 const encode = (text: string, std: boolean) => (std ? Buffer.from(text).toString("base64") : Buffer.from(text).toString("base64url"));
 
@@ -224,8 +224,8 @@ describe("a sign-in", () => {
     await fc.assert(
       fc.asyncProperty(
         aJwt(true, fc.constant(0)),
-        fc.integer({ min: -90, max: 90 }),
-        fc.option(fc.integer({ min: -90, max: 90 }), { nil: null }),
+        fc.oneof(fc.constantFrom(-1, 0, 1), fc.integer({ min: -90, max: 90 })),
+        fc.option(fc.oneof(fc.constantFrom(59, 60, 61), fc.integer({ min: -90, max: 90 })), { nil: null }),
         fc.constantFrom(0, 1, 500, 999),
         fc.integer({ min: 0, max: 10 * 86_400 }),
         async (token, exp, nbf, ms, seconds) => {
