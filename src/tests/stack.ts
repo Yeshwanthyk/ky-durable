@@ -2,7 +2,7 @@ import { type JsonValue, type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { DreamLedgerRow } from "../dreaming/contract";
 import { CLOUD, type TaskTokens } from "../machines/contract";
-import { Access } from "../access";
+import { Access } from "../access/wiring";
 import { parseOr } from "../core/decode";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";

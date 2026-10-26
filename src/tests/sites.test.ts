@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { ASSERTION } from "../access";
+import { ASSERTION } from "../access/contract";
 import { call, inside, prompt, promptTool } from "./drive";
 
 /**

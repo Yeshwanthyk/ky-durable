@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { evictDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { ASSERTION } from "../access";
+import { ASSERTION } from "../access/contract";
 import { decodeObjectFrame, type ObjectFrame, PROTOCOL, REVOKED, type RunCommand } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import type { Vault as TestVault } from "./stack";

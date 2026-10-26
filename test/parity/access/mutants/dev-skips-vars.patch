@@ -1,0 +1,16 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..5343e69 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -131,9 +131,9 @@ export const signedIn = (request: Request, env: AccessVars) =>
+   Effect.gen(function* () {
+     const { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: emails } = env;
+ 
+-    if (!emails) return yield* new NotSetUp();
++    if (env.KY_DEV === "1") return yield* admit(env.KY_DEV_EMAIL, emails ?? "");
+ 
+-    if (env.KY_DEV === "1") return yield* admit(env.KY_DEV_EMAIL, emails);
++    if (!emails) return yield* new NotSetUp();
+ 
+     if (!team || !aud) return yield* new NotSetUp();
+ 

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { type Archive, readArchive, readTar, restoreArchive, type Send } from "../archive";
 import { backupRoute } from "../backup";
-import { ASSERTION } from "../access";
+import { ASSERTION } from "../access/contract";
 import { CLOUD } from "../machines/contract";
 import { saveKey } from "../sandboxes";
 import { restores } from "../tables";

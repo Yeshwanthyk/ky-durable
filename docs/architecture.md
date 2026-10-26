@@ -22,7 +22,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 
 | Piece | What it does | Where |
 | --- | --- | --- |
-| Worker | Checks Access's sign-in, serves the UI assets, stores uploads in R2, routes WebSockets to the DO. | `src/server.ts` (default export), `src/access.ts`, `src/files.ts` |
+| Worker | Checks Access's sign-in, serves the UI assets, stores uploads in R2, routes WebSockets to the DO. | `src/server.ts` (default export), `src/access/`, `src/files.ts` |
 | `PiAgent` DO, named `"me"` | The agent: pi conversations, tools, the task feed, machines, settings. Everything is in its SQLite. | `src/server.ts` (`PiAgent`), `src/sockets.ts` |
 | Browser UI | React app; one WebSocket per open chat, rebuilt from a snapshot on reconnect. | `src/client.tsx`, `src/ui/*`, `src/use-pi-session.ts` |
 | exec sandbox | `exec` runs JavaScript in a fresh Dynamic Worker over the DO's workspace (`/workspace`). No network except git over HTTPS, no shell or npm. | `src/workspace.ts`, binding `LOADER` |
@@ -197,7 +197,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 ## Sign-in
 
 Cloudflare Access signs the owner in, and the Worker checks Access's JWT again on every request
-(`src/access.ts`): its signature against the team's keys, ky's app, the team and the emails in
+(`src/access/`): its signature against the team's keys, ky's app, the team and the emails in
 `ACCESS_EMAILS`. Only the paths in `BYPASS` skip it: the runner, pairing and upload routes, which check
 their own tokens, the manifest and icons, and public sites (`/p/*`). `ky deploy` sets up both Access apps and the `ACCESS_*` vars;
 for `pnpm run deploy`, set them in `wrangler.local.jsonc` and make the apps yourself. Runners never use it: each machine pairs once and gets its own

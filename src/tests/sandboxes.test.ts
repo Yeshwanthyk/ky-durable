@@ -1,7 +1,7 @@
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { ASSERTION } from "../access";
+import { ASSERTION } from "../access/contract";
 import { CLOUD, CLOUD_FACTS } from "../machines/contract";
 import type { SandboxesView } from "../protocol";
 import { SANDBOX_CAP, type Sandbox, type SandboxChange, type SandboxDraft, saveKey } from "../sandboxes";

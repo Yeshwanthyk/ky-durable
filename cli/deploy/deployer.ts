@@ -15,7 +15,7 @@ import * as Stream from "effect/Stream";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
-import { BYPASS } from "../../src/access.ts";
+import { BYPASS } from "../../src/access/contract.ts";
 import { getService, type Login, MAIL_SCOPES, SCOPES, tokenPage } from "../cloudflare.ts";
 import { emails, mailAddress, writeDeployed } from "../config.ts";
 import { copyImage, imageDigest, TARGET } from "../image.ts";
