@@ -80,6 +80,8 @@ Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branc
 
 ## Decisions
 
+- Owner, 2026-10-26: the move is also a cleanup. Ported code carries no comments; dead legacy code goes with the port; Effect patterns come from `vendor/effect`; tests census marks MOCK, SCAN, SLEEP, COPY or UNIT, or that an invariant or the parity runs already prove, are deleted through the prune ledger. Writers may change server.ts only by a separate constructor-only commit the COS takes or drops.
+
 - **Owner, 2026-10-26:** Wave 3 is the dreaming core (Versioned, Soul, ledger, and the two couplings in skills)
   and approvals then inbound, two writers in parallel. Peers and the rest of dreaming wait for Wave 4; machines
   (slim plan shipped, #94 to #111) and the flat modules later. Discovery: six Haiku scouts, one per candidate.
