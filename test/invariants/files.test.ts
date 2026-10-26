@@ -249,10 +249,10 @@ const aFrameHeavy: fc.Arbitrary<UserInput> = fc
   ]);
 
 const anImageHeavy: fc.Arbitrary<UserInput> = fc
-  .record({ count: fc.integer({ min: 1, max: 4 }), chars: fc.constantFrom(350_000, 350_004, 700_000, 1_400_004) })
-  .map(({ count, chars }) => [
+  .record({ count: fc.integer({ min: 1, max: 4 }), total: fc.constantFrom(1_400_008, 2_000_000, 2_799_000) })
+  .map(({ count, total }) => [
     { type: "text" as const, text: "look" },
-    ...Array.from({ length: count }, () => ({ type: "image" as const, data: "QUJD".repeat(chars / 4), mimeType: "image/png" }))
+    ...Array.from({ length: count }, () => ({ type: "image" as const, data: "QUJD".repeat(Math.ceil(total / count / 4)), mimeType: "image/png" }))
   ]);
 
 const aBadImage: fc.Arbitrary<UserInput> = fc
