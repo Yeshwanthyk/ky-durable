@@ -5,8 +5,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
-import type { Edge, Refusable } from "../core/edge";
-import { Sql } from "../core/sql";
+import type { Edge, Refusable } from "../core/edge.ts";
+import { Sql } from "../core/sql.ts";
 
 export const SoulChangeSchema = Type.Object({
   action: Type.Union([Type.Literal("edit"), Type.Literal("patch"), Type.Literal("revert")]),
