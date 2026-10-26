@@ -42,5 +42,14 @@ Other writers are porting the other units of your wave in parallel. Touch their 
 5. Real surface: the test/web/ky.spec.ts specs that reach your unit; `pnpm visual` 0 of 8.
 Also `pnpm typecheck`, `pnpm lint` and the ratchet clean.
 
+## Before you report (reviews keep finding these)
+- `legacy/` is B byte for byte except import paths. Carry its lint findings to the new path; they leave at the flip.
+- No test that survives the flip imports `legacy/` or a file that does. Parity lives under test/parity/<domain>/; invariants import only world and generators.
+- Every table has one row Schema, and every select picks from it. Rows B tolerated when damaged are skipped or read as absent, never `orDie`.
+- Everything parity alone proves gets a property before the flip, so the flip loses nothing. One mutant per refusal rule, Clock read, stored column, ordering and cap.
+- src/tests now proven by invariants go through the prune ledger.
+- No re-exports for convenience, no import cycles, no `Schema.mutable` without a caller that mutates, no `makeEdge` at module scope.
+- Fix rounds run prove.sh with `--runs 100`; the 500-run proof runs once, at the flip.
+
 ## Report
-Stop before the flip. Reply with: branch and commit; the prove.sh summary (runs, lost, mutants caught of total); gate items and prune-ledger entries; anything you could not do. I run a Fable review, then send the go for the fix and the flip.
+Finish in one pass: fix, rebase on effect/next-wave, flip, prove at 500, then report once. Reply with: branch and commit; the prove.sh summary (runs, lost, mutants caught of total); gate items and prune-ledger entries; server.ts or sockets.ts commits for the COS; anything you could not do. Access, mail and push get a Fable review before the flip; stop for it there.
