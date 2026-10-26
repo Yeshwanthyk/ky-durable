@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..362cede 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -58,7 +58,7 @@ const TOLD_CHARS = 32_000;
+ 
+ const SEEN_MS = 7 * 24 * 60 * 60_000;
+ 
+-const PASS_MS = 15 * 60_000;
++const PASS_MS = 30 * 60_000;
+ 
+ const HOOK_REQUEST = "hook:";
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..b738b40 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -202,7 +202,7 @@ class Store extends Context.Service<
+           const name = label.trim().slice(0, 80) || "Webhook";
+           const now = yield* Clock.currentTimeMillis;
+ 
+-          yield* exec(`INSERT INTO ${HOOKS} (id, session, label, signed, created_at) VALUES (?, ?, ?, ?, ?)`, id, session, name, signed ? 1 : 0, now);
++          yield* exec(`INSERT INTO ${HOOKS} (id, session, label, signed, created_at) VALUES (?, ?, ?, ?, ?)`, id, session, name, 1, now);
+ 
+           return { id, session, label: name, signed, createdAt: now, lastAt: null };
+         }),

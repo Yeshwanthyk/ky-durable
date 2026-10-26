@@ -1,0 +1,13 @@
+diff --git a/src/inbound/credentials.ts b/src/inbound/credentials.ts
+index 141f8a7..b98bddb 100644
+--- a/src/inbound/credentials.ts
++++ b/src/inbound/credentials.ts
+@@ -165,7 +165,7 @@ export async function signedWith(secret: string, body: string, signature: string
+ 
+   const subtle = crypto.subtle;
+ 
+-  return comparesSafely(subtle) && subtle.timingSafeEqual(made, given);
++  return given.length === made.length || (comparesSafely(subtle) && subtle.timingSafeEqual(made, given));
+ }
+ 
+ type WorkersSubtle = SubtleCrypto & { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean };

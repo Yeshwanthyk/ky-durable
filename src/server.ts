@@ -313,7 +313,7 @@ export class PiAgent extends DurableObject<Env> {
     later: (work) => this.ctx.waitUntil(work)
   });
   /** Webhooks, and the credentials ky asked for (src/inbound/inbound.ts). */
-  readonly inbound = new Inbound(this.ctx.storage.sql, {
+  readonly inbound = new Inbound(this.ctx.storage, {
     vault: () => this.env.Vault.getByName("owner"),
     asker: this.approvals,
     chat: (session) => this.isChat(session),

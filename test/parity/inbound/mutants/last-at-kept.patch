@@ -1,0 +1,12 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index de99d7f..e866fb2 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -225,7 +225,6 @@ class Store extends Context.Service<
+           if (seen.length > 0) return { received: "replay" } as const;
+ 
+           for (const key of keys) yield* exec(`INSERT INTO ${SEEN} (hook, key, at) VALUES (?, ?, ?)`, id, key, now);
+-          yield* exec(`UPDATE ${HOOKS} SET last_at = ? WHERE id = ?`, now, id);
+ 
+           return { hook: found, keys };
+         }),

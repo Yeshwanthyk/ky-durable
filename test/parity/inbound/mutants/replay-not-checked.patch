@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index de99d7f..db3b41d 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -222,7 +222,7 @@ class Store extends Context.Service<
+           yield* exec(`DELETE FROM ${SEEN} WHERE at < ?`, now - SEEN_MS);
+           const seen = keys.length > 0 ? yield* rows(Seen, `SELECT key FROM ${SEEN} WHERE hook = ? AND key IN (${keys.map(() => "?").join(", ")})`, id, ...keys) : [];
+ 
+-          if (seen.length > 0) return { received: "replay" } as const;
++          if (seen.length > 1) return { received: "replay" } as const;
+ 
+           for (const key of keys) yield* exec(`INSERT INTO ${SEEN} (hook, key, at) VALUES (?, ?, ?)`, id, key, now);
+           yield* exec(`UPDATE ${HOOKS} SET last_at = ? WHERE id = ?`, now, id);
