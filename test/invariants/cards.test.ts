@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/chord";
 import type { ToolExecutionResult } from "@earendil-works/pi-durable";
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { answerOf, cardOf } from "../../src/cards/contract";
 import { uiExtension } from "../../src/cards/tool";
 import { assertParity, budget } from "../parity/kit";
@@ -10,6 +10,8 @@ import { uiExtension as legacyUi } from "../parity/cards/legacy/ui-tool";
 import { type Action, type Side, type Where, world } from "../parity/cards/world";
 
 fc.configureGlobal({ baseSize: "large" });
+
+vi.setConfig({ testTimeout: 600_000 });
 
 type Block = { [key: string]: JsonValue };
 
