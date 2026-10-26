@@ -153,6 +153,22 @@ function world(db: DatabaseSync) {
   const side = portOf(db, deps, (session) => CHATS.has(session));
   const idAt = (pick: number) => side.recent(50)[pick]?.id ?? "none";
 
+  type Asked = Extract<Action, { readonly approve: number } | { readonly discard: number } | { readonly disallow: string } | { readonly view: true } | { readonly block: string }>;
+
+  const asked = (action: Asked): Json | Promise<Json> => {
+    if ("approve" in action) return side.approve(idAt(action.approve));
+
+    if ("discard" in action) return side.discard(idAt(action.discard));
+
+    if ("disallow" in action) return side.disallow(action.disallow);
+
+    if ("block" in action) return blocked(side.extension, action.block);
+
+    const shown = side.view();
+
+    return { ...shown, held: [...shown.held], recent: [...shown.recent], allowed: [...shown.allowed] };
+  };
+
   const apply = async (action: Action): Promise<Json> => {
     if ("receive" in action) {
       state.triage = action.triage;
@@ -169,27 +185,9 @@ function world(db: DatabaseSync) {
       return said(side.extension, minutes === null ? call : { ...call, minutes }, session);
     }
 
-    if ("approve" in action) return side.approve(idAt(action.approve));
-
-    if ("discard" in action) return side.discard(idAt(action.discard));
-
-    if ("disallow" in action) return side.disallow(action.disallow);
-
-    if ("view" in action) {
-      const shown = side.view();
-
-      return { ...shown, held: [...shown.held], recent: [...shown.recent], allowed: [...shown.allowed] };
-    }
-
-    if ("block" in action) return blocked(side.extension, action.block);
-
-    if ("setUp" in action) {
-      state.setUp = action.setUp;
-
-      return null;
-    }
-
-    state.sendFails = action.sendFails;
+    if ("setUp" in action) state.setUp = action.setUp;
+    else if ("sendFails" in action) state.sendFails = action.sendFails;
+    else return asked(action);
 
     return null;
   };
@@ -495,6 +493,19 @@ describe("expecting mail", () => {
   });
 });
 
+const kept = (name: string, body: string, start: string | null, summary: string | undefined, elapsed: number) => ({
+  direction: "in",
+  message_id: "<m1@sender.test>",
+  party: "bea@b.test",
+  party_name: name,
+  subject: "Re: Hello",
+  body: body.startsWith("<") ? "A & B" : body,
+  state: "triaged",
+  session: start ?? "",
+  note: summary?.trim() || "ky couldn't read this mail just now.",
+  at: START + elapsed
+});
+
 describe("a mail that came in", () => {
   it("is kept as read off SMTP, at the clock's time, with the mail of ky's it answers, its triage and its summary", async () => {
     await fc.assert(
@@ -513,20 +524,7 @@ describe("a mail that came in", () => {
           const [out, row] = ky.mail();
 
           expect(row?.id).toMatch(UUID);
-          expect(row).toEqual({
-            id: row?.id,
-            direction: "in",
-            message_id: "<m1@sender.test>",
-            answers: answers ? out?.id : null,
-            party: "bea@b.test",
-            party_name: name,
-            subject: "Re: Hello",
-            body: body.startsWith("<") ? "A & B" : body,
-            state: "triaged",
-            session: start ?? "",
-            note: summary?.trim() || "ky couldn't read this mail just now.",
-            at: START + elapsed
-          });
+          expect(row).toEqual({ ...kept(name, body, start, summary, elapsed), id: row?.id, answers: answers ? out?.id : null });
           expect(await blocked(ky.side.extension, start ?? "9")).toBe(start ? "Reading a mail, you call no tools: say what it says." : null);
           vi.restoreAllMocks();
         }
