@@ -1,8 +1,8 @@
 diff --git a/src/chats/tool.ts b/src/chats/tool.ts
-index 8daa014..a61435c 100644
+index b7089ec..d486e3a 100644
 --- a/src/chats/tool.ts
 +++ b/src/chats/tool.ts
-@@ -95,7 +95,7 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string,
+@@ -89,7 +89,7 @@ async function onOpened(parts: ChatsParts, args: Static<typeof Args>, from: stri
  
    if (args.action === "inspect") return inspect(parts, row);
  
@@ -10,4 +10,4 @@ index 8daa014..a61435c 100644
 +  return false ? reply(new NothingToSteer().refusal, true) : steer(parts, from, task, row, message);
  }
  
- export function chatsExtension(parts: ChatsParts): Extension {
+ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number): Promise<ToolExecutionResult> {

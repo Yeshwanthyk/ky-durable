@@ -1,11 +1,11 @@
 diff --git a/src/chats/tool.ts b/src/chats/tool.ts
-index 8daa014..ee5f610 100644
+index b7089ec..e8e55d9 100644
 --- a/src/chats/tool.ts
 +++ b/src/chats/tool.ts
-@@ -89,7 +89,7 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string,
-   const message = args.message?.trim() ?? "";
+@@ -83,7 +83,7 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
+ const callerRefusal = (parts: ChatsParts, from: string) => (!parts.chat(from) ? new NotAChat() : parts.openedBy(from) !== null ? new OpenedByAnother() : null);
  
-   if (args.action === "create") return message === "" ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
+ async function onOpened(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number, message: string): Promise<ToolExecutionResult> {
 -  const row = ownedBy(parts, from).find((each) => each.session === args.chat);
 +  const row = parts.chats.list().find((each) => each.session === args.chat);
  
