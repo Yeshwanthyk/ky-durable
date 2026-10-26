@@ -35,7 +35,7 @@ import {
 import type { RunnerPipe } from "./pipe";
 import { checkInput, imagesOf } from "./images";
 import { spokenText } from "./media";
-import { CARD_ANSWER } from "./ui-blocks";
+import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";
 import type { Avatars } from "./avatars";

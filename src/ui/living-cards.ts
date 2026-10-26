@@ -1,4 +1,4 @@
-import type { UiCard } from "../ui-blocks";
+import type { UiCard } from "../cards/contract";
 import { card } from "./card-answers";
 import type { Turn } from "./conversation";
 

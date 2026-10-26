@@ -7,7 +7,7 @@ import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext, RoutinesContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/change-review";
-import type { CardAnswer } from "./ui-blocks";
+import type { CardAnswer } from "./cards/contract";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";

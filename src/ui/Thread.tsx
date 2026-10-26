@@ -6,7 +6,7 @@ import { KY_AVATAR } from "../avatar-spec";
 import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
 import { answeredWith, isQuestion } from "./card-answers";
-import type { CardAnswer } from "../ui-blocks";
+import type { CardAnswer } from "../cards/contract";
 import type { MediaClip } from "../media";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";

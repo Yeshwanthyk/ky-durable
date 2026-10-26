@@ -15,7 +15,7 @@ import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
 import { ModelChoiceSchema, PurposeSchema } from "./settings";
 import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
 import type { PiServerMessage } from "./protocol";
-import { CardAnswerSchema } from "./ui-blocks";
+import { CardAnswerSchema } from "./cards/contract";
 
 const Text = Type.String();
 

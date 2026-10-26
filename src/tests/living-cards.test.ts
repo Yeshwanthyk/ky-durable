@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UiBlock, UiCard } from "../ui-blocks";
+import type { UiBlock, UiCard } from "../cards/contract";
 import type { Tool, Turn } from "../ui/conversation";
 import { placements } from "../ui/living-cards";
 

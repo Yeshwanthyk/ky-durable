@@ -1,7 +1,7 @@
 import { createContext, type KeyboardEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import Type from "typebox";
 import { decodeOr } from "../core/decode";
-import type { CardAnswer, ShownBlock, TabsBlock, UiBlock, UiCard } from "../ui-blocks";
+import type { CardAnswer, ShownBlock, TabsBlock, UiBlock, UiCard } from "../cards/contract";
 import { type Answered, answered, cardName, compose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { RoutineBlock } from "./Automations";
 import { Icon, type IconName } from "./Icon";
@@ -62,9 +62,9 @@ function useForm(call: string, questions: readonly Question[], answer: Answered 
   const answerWith = (text: string, chosen: readonly Value[], button?: string) => {
     if (!live || !text) return;
     setSent(true);
-    const card: CardAnswer = { call, values: chosen.map((value) => [...value]) };
+    const values = chosen.map((value) => [...value]);
+    const card: CardAnswer = button === undefined ? { call, values } : { call, values, button };
 
-    if (button !== undefined) card.button = button;
     send(text, card);
   };
 

@@ -1,5 +1,5 @@
 import { type PointerEvent, useState } from "react";
-import type { ShownBlock } from "../ui-blocks";
+import type { ShownBlock } from "../cards/contract";
 
 /**
  * A ui card's chart block, drawn from its numbers: bars, a line, or a donut.

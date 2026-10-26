@@ -7,7 +7,7 @@ import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
 import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
-import type { CardAnswer } from "./ui-blocks";
+import type { CardAnswer } from "./cards/contract";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
 import type {
