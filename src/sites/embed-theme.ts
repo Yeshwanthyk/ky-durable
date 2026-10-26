@@ -1,13 +1,5 @@
-/**
- * ky's look for a site's page shown in a card (src/site-routes.ts, `?embed`): its colors as CSS variables, a
- * base stylesheet, and the light or dark mode the chat is in, which the chat posts again when it changes
- * (src/ui/Blocks.tsx). The names are T3 Code's, so a page written for either reads the same. The colors
- * mirror src/ui/scotty.css; test/node/embed-theme.test.ts holds them to it.
- */
-
 type Mode = "light" | "dark";
 
-/** scotty.css's tokens a page draws with, by mode. */
 export const PALETTE: Record<Mode, Record<string, string>> = {
   light: {
     surface: "#ffffff",
@@ -51,7 +43,6 @@ export const PALETTE: Record<Mode, Record<string, string>> = {
   }
 };
 
-/** The variables a page reads, by the token each takes. */
 const NAMES: ReadonlyArray<[string, string]> = [
   ["background", "surface"],
   ["foreground", "ink"],
@@ -75,11 +66,6 @@ const FONTS =
   '--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",system-ui,sans-serif;' +
   '--font-mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,monospace;';
 
-/**
- * What goes at the top of the page: the variables and a base the page's own CSS overrides, and a script that
- * takes the mode from `?embed=dark` and then from the chat's messages. The page's background stays clear, so
- * it sits on the card; `color-scheme` matches the chat's, or the browser would paint the frame opaque.
- */
 export const EMBED_HEAD =
   `<style>:root{color-scheme:light dark;${FONTS}${variables("light")}}` +
   `:root[data-ky-mode="dark"]{${variables("dark")}}` +

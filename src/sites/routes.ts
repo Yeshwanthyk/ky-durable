@@ -1,11 +1,6 @@
+import { hidden, publicKey, SITE_ID, type SiteBucket, siteKey, type SiteObject } from "./contract";
 import { EMBED_HEAD } from "./embed-theme";
-import { hidden, listSites, publicKey, SITE_ID, siteKey } from "./sites";
-
-/**
- * The sites the site tool publishes (src/sites.ts), served from R2: `/s/<id>/` after the user's sign-in,
- * and `/p/<token>/` signed out while the site is public. A site's page runs sandboxed in an opaque origin,
- * so its script can't use the user's ky session.
- */
+import { listSites } from "./sites";
 
 const TYPES = new Map([
   ["html", "text/html; charset=utf-8"],
@@ -25,11 +20,6 @@ const TYPES = new Map([
   ["woff2", "font/woff2"]
 ]);
 
-/**
- * What a page opened with `?embed` (a card's page block, src/ui/Blocks.tsx) runs after its own HTML: it posts
- * its height to the chat, which sizes the frame to it. Only when it changes, so a page that fills its frame
- * settles once the chat's cap is reached.
- */
 const HEIGHT_REPORTER = `<script>(() => {
   let last = 0;
   const post = () => {
@@ -45,7 +35,6 @@ const HEIGHT_REPORTER = `<script>(() => {
   post();
 })();</script>`;
 
-/** A page as a card shows it: ky's theme ahead of its own HTML (after its doctype, which must stay first), its height reporter after. */
 const themed = (html: string) => {
   const doctype = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? "";
 
@@ -62,7 +51,6 @@ function unescaped(text: string): string | undefined {
   }
 }
 
-/** The site path `rest` (after `/s/<id>`) names; undefined for traversal, an encoded slash, or a hidden path such as the metadata. */
 function sitePath(rest: string): string | undefined {
   if (/%2f|%5c|\\/i.test(rest)) return undefined;
   const decoded = unescaped(rest.slice(1));
@@ -73,19 +61,19 @@ function sitePath(rest: string): string | undefined {
   return path.split("/").includes("") || hidden(path) ? undefined : path;
 }
 
-async function serve(request: Request, env: Env, id: string, rest: string, open: boolean, embed = false): Promise<Response> {
+async function serve(request: Request, bucket: SiteBucket, id: string, rest: string, open: boolean, embed = false): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
   const path = sitePath(rest);
 
   if (path === undefined) return notFound();
 
   if (request.method === "HEAD") {
-    const head = await env.FILES.head(siteKey(id, path));
+    const head = await bucket.head(siteKey(id, path));
 
     return head ? new Response(null, { headers: headersFor(path, head, open) }) : notFound();
   }
 
-  const object = await env.FILES.get(siteKey(id, path));
+  const object = await bucket.get(siteKey(id, path));
 
   if (!object) return notFound();
   const headers = headersFor(path, object, open);
@@ -98,11 +86,9 @@ async function serve(request: Request, env: Env, id: string, rest: string, open:
   return new Response(html, { headers });
 }
 
-/** A site file's headers: its type by the last segment's extension, size and ETag, the sandbox, and for a public site, a short cache. */
-function headersFor(path: string, object: R2Object, open: boolean): Headers {
+function headersFor(path: string, object: SiteObject, open: boolean): Headers {
   const headers = new Headers({
     "Content-Type": TYPES.get(/\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "") ?? "application/octet-stream",
-    // No allow-same-origin: the page's script runs in an opaque origin, away from the user's session.
     "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -118,9 +104,7 @@ function headersFor(path: string, object: R2Object, open: boolean): Headers {
   return headers;
 }
 
-/** A site at `/s/<id>/`, after the user's sign-in, and their list at `/api/sites`; undefined for any other path. With `?embed` (`=dark` for the dark theme), its pages wear ky's theme and report their height. */
-export function siteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
-  // The Artifacts page's list of them.
+export function siteRoute(request: Request, env: { readonly FILES: SiteBucket }, url: URL): Promise<Response> | undefined {
   if (url.pathname === "/api/sites") return request.method === "GET" ? listSites(env.FILES).then((sites) => Response.json(sites)) : Promise.resolve(new Response(null, { status: 405 }));
 
   if (!url.pathname.startsWith("/s/")) return undefined;
@@ -130,11 +114,10 @@ export function siteRoute(request: Request, env: Env, url: URL): Promise<Respons
 
   if (rest === undefined) return Promise.resolve(Response.redirect(new URL(`/s/${id}/`, url).toString(), 301));
 
-  return serve(request, env, id, rest, false, url.searchParams.has("embed"));
+  return serve(request, env.FILES, id, rest, false, url.searchParams.has("embed"));
 }
 
-/** A public site at `/p/<token>/`, signed out; undefined for any other path. */
-export function publicSiteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
+export function publicSiteRoute(request: Request, env: { readonly FILES: SiteBucket }, url: URL): Promise<Response> | undefined {
   if (!url.pathname.startsWith("/p/")) return undefined;
   const [, token, rest] = /^\/p\/([A-Za-z0-9_-]{22})(\/.*)?$/.exec(url.pathname) ?? [];
 
@@ -145,6 +128,6 @@ export function publicSiteRoute(request: Request, env: Env, url: URL): Promise<R
   return (async () => {
     const id = (await (await env.FILES.get(publicKey(token)))?.text()) ?? "";
 
-    return SITE_ID.test(id) ? serve(request, env, id, rest, true) : notFound();
+    return SITE_ID.test(id) ? serve(request, env.FILES, id, rest, true) : notFound();
   })();
 }

@@ -27,6 +27,7 @@ const ZERO = [
   "src/server-frames.ts",
   "src/settings/",
   "src/site-routes.ts",
+  "src/sites/",
   "src/sites.ts",
   "src/sockets.ts",
   "src/tables.ts"

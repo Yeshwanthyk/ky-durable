@@ -1,0 +1,939 @@
+{
+  "objects": {
+    "sites-public/AAAAAAAAAAAAAAAAAAAAAA": "00000000000000000000000000000387",
+    "sites-public/BBBBBBBBBBBBBBBBBBBBBB": "00000000000000000000000000000388",
+    "sites-public/JUpvlLneAyhNcpe84QYrUA": "00000000000000000000000000000002",
+    "sites/00000000000000000000000000000001/.site": "{\"created\":1748736060000,\"title\":\"Hello\"}",
+    "sites/00000000000000000000000000000001/index.html": "<h1>Hello</h1>",
+    "sites/00000000000000000000000000000002/.site": "{\"created\":1748736120000,\"title\":\"Untitled\",\"token\":\"JUpvlLneAyhNcpe84QYrUA\"}",
+    "sites/00000000000000000000000000000002/css/app.css": "h1 { color: red }",
+    "sites/00000000000000000000000000000002/index.html": "<!doctype html><link rel=stylesheet href=css/app.css>",
+    "sites/00000000000000000000000000000003/.site": "{\"title\":\"Gone public\",\"created\":1748736180000}",
+    "sites/00000000000000000000000000000003/index.html": "<p>gone</p>",
+    "sites/00000000000000000000000000000004/.site": "{\"created\":1748736240000,\"title\":\"Second\"}",
+    "sites/00000000000000000000000000000004/index.html": "<p>v2</p>",
+    "sites/00000000000000000000000000000385/.site": "{not json",
+    "sites/00000000000000000000000000000385/index.html": "corrupt",
+    "sites/00000000000000000000000000000386/index.html": "no meta",
+    "sites/00000000000000000000000000000387/.site": "{\"title\":\"Older\",\"created\":3,\"token\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"note\":\"from a newer ky\"}",
+    "sites/00000000000000000000000000000387/index.html": "<p>older</p>",
+    "sites/00000000000000000000000000000389/.site": "{\"title\":5,\"created\":\"yesterday\"}"
+  },
+  "reads": {
+    "listed": {
+      "sites": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "[{\"id\":\"00000000000000000000000000000004\",\"title\":\"Second\",\"created\":1748736240000,\"public\":false},{\"id\":\"00000000000000000000000000000003\",\"title\":\"Gone public\",\"created\":1748736180000,\"public\":false},{\"id\":\"00000000000000000000000000000002\",\"title\":\"Untitled\",\"created\":1748736120000,\"public\":true},{\"id\":\"00000000000000000000000000000001\",\"title\":\"Hello\",\"created\":1748736060000,\"public\":false},{\"id\":\"00000000000000000000000000000387\",\"title\":\"Older\",\"created\":3,\"public\":true}]"
+      },
+      "list": {
+        "text": "- 00000000000000000000000000000001 \"Hello\" https://ky.test/s/00000000000000000000000000000001/\n- 00000000000000000000000000000002 \"Untitled\" https://ky.test/s/00000000000000000000000000000002/, public at https://ky.test/p/JUpvlLneAyhNcpe84QYrUA/\n- 00000000000000000000000000000003 \"Gone public\" https://ky.test/s/00000000000000000000000000000003/\n- 00000000000000000000000000000004 \"Second\" https://ky.test/s/00000000000000000000000000000004/\n- 00000000000000000000000000000387 \"Older\" https://ky.test/s/00000000000000000000000000000387/, public at https://ky.test/p/AAAAAAAAAAAAAAAAAAAAAA/",
+        "failed": false
+      }
+    },
+    "pages": [
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "14"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"2611c75e\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<h1>Hello</h1>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2032"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-2611c75e\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script><h1>Hello</h1><script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "53"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"961bf65b\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<!doctype html><link rel=stylesheet href=css/app.css>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2071"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-961bf65b\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<!doctype html><style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script><link rel=stylesheet href=css/app.css><script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/css; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"9327765a\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "h1 { color: red }"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "11"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"b09f5085\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<p>gone</p>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2029"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-b09f5085\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script><p>gone</p><script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "9"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"6b6aa7da\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<p>v2</p>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2027"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-6b6aa7da\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script><p>v2</p><script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "7"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"d18a4c52\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "corrupt"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2025"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-d18a4c52\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script>corrupt<script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "7"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"9f413e53\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "no meta"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2025"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-9f413e53\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script>no meta<script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "12"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"328b214a\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<p>older</p>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "content-length",
+            "2030"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "W/\"embed-328b214a\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "body": "<style>:root{color-scheme:light dark;--radius:10px;--font-sans:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"Inter\",\"Segoe UI\",system-ui,sans-serif;--font-mono:ui-monospace,\"SF Mono\",SFMono-Regular,\"JetBrains Mono\",Menlo,monospace;--background:#ffffff;--foreground:#141414;--card:#f3f3f3;--muted:#f3f3f3;--muted-foreground:#666666;--quiet:#8a8a8a;--border:rgb(0 0 0 / 0.075);--border-strong:rgb(0 0 0 / 0.12);--accent:#2f8fdc;--success:#2f9b62;--warning:#b07a12;--destructive:#cf3b2e;--code-background:#f7f7f7;--chart-1:#2f8fdc;--chart-2:#c98a14;--chart-3:#2f9b62;--chart-4:#8a5cd6;--chart-5:#d4553f;--chart-6:#6b7785;}:root[data-ky-mode=\"dark\"]{--background:#1b1b1b;--foreground:#ededed;--card:#222222;--muted:#222222;--muted-foreground:#a3a3a3;--quiet:#7d7d7d;--border:rgb(255 255 255 / 0.07);--border-strong:rgb(255 255 255 / 0.11);--accent:#6cb6f0;--success:#62c58e;--warning:#e0b057;--destructive:#f07266;--code-background:#0d0d0d;--chart-1:#6cb6f0;--chart-2:#e0b057;--chart-3:#62c58e;--chart-4:#b39af0;--chart-5:#f07a66;--chart-6:#9aa5b1;}html{background:transparent;color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}body{margin:0}</style><script>(() => {\n  const root = document.documentElement;\n  const set = (mode) => { if (mode === \"dark\" || mode === \"light\") root.dataset.kyMode = mode; };\n  set(new URLSearchParams(location.search).get(\"embed\"));\n  addEventListener(\"message\", (event) => { if (event.source === parent && event.data) set(event.data.kyMode); });\n})();</script><p>older</p><script>(() => {\n  let last = 0;\n  const post = () => {\n    const body = document.body;\n    if (!body) return;\n    const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(body).marginBottom)));\n    if (height === last) return;\n    last = height;\n    parent.postMessage({ kySiteHeight: height }, \"*\");\n  };\n  new ResizeObserver(post).observe(document.documentElement);\n  addEventListener(\"load\", post);\n  post();\n})();</script>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      }
+    ],
+    "opened": [
+      {
+        "status": 200,
+        "headers": [
+          [
+            "cache-control",
+            "public, max-age=60"
+          ],
+          [
+            "content-length",
+            "12"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"328b214a\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ],
+          [
+            "x-robots-tag",
+            "noindex"
+          ]
+        ],
+        "body": "<p>older</p>"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 404,
+        "headers": [
+          [
+            "content-type",
+            "text/plain;charset=UTF-8"
+          ]
+        ],
+        "body": "Not found\n"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "cache-control",
+            "public, max-age=60"
+          ],
+          [
+            "content-length",
+            "53"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"961bf65b\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ],
+          [
+            "x-robots-tag",
+            "noindex"
+          ]
+        ],
+        "body": "<!doctype html><link rel=stylesheet href=css/app.css>"
+      },
+      {
+        "status": 200,
+        "headers": [
+          [
+            "cache-control",
+            "public, max-age=60"
+          ],
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-security-policy",
+            "sandbox allow-scripts allow-forms allow-popups"
+          ],
+          [
+            "content-type",
+            "text/css; charset=utf-8"
+          ],
+          [
+            "etag",
+            "\"9327765a\""
+          ],
+          [
+            "referrer-policy",
+            "no-referrer"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ],
+          [
+            "x-robots-tag",
+            "noindex"
+          ]
+        ],
+        "body": "h1 { color: red }"
+      }
+    ],
+    "rewritten": [
+      {
+        "said": {
+          "text": "Public at https://ky.test/p/JUpvlLneAyhNcpe84QYrUA/: anyone with the link can open it until it's made private.",
+          "failed": false
+        },
+        "private": {
+          "text": "Private again: its public address no longer works. It stays at https://ky.test/s/00000000000000000000000000000001/.",
+          "failed": false
+        },
+        "republished": {
+          "text": "Published at https://ky.test/s/00000000000000000000000000000001/ (id 00000000000000000000000000000001, 1 files), for the signed-in user only.",
+          "failed": false
+        }
+      },
+      {
+        "said": {
+          "text": "Public at https://ky.test/p/dZq_5AkuU3idwucMMVZ7oA/: anyone with the link can open it until it's made private.",
+          "failed": false
+        },
+        "private": {
+          "text": "Private again: its public address no longer works. It stays at https://ky.test/s/00000000000000000000000000000002/.",
+          "failed": false
+        },
+        "republished": {
+          "text": "Published at https://ky.test/s/00000000000000000000000000000002/ (id 00000000000000000000000000000002, 1 files), for the signed-in user only.",
+          "failed": false
+        }
+      },
+      {
+        "said": {
+          "text": "Public at https://ky.test/p/xeoPNFl-o8jtEjdcgabL8A/: anyone with the link can open it until it's made private.",
+          "failed": false
+        },
+        "private": {
+          "text": "Private again: its public address no longer works. It stays at https://ky.test/s/00000000000000000000000000000003/.",
+          "failed": false
+        },
+        "republished": {
+          "text": "Published at https://ky.test/s/00000000000000000000000000000003/ (id 00000000000000000000000000000003, 1 files), for the signed-in user only.",
+          "failed": false
+        }
+      },
+      {
+        "said": {
+          "text": "Public at https://ky.test/p/FTpfhKnO8xg9Yoes0fYbQA/: anyone with the link can open it until it's made private.",
+          "failed": false
+        },
+        "private": {
+          "text": "Private again: its public address no longer works. It stays at https://ky.test/s/00000000000000000000000000000004/.",
+          "failed": false
+        },
+        "republished": {
+          "text": "Published at https://ky.test/s/00000000000000000000000000000004/ (id 00000000000000000000000000000004, 1 files), for the signed-in user only.",
+          "failed": false
+        }
+      },
+      {
+        "said": {
+          "text": "No site 00000000000000000000000000000385.",
+          "failed": true
+        },
+        "private": {
+          "text": "No site 00000000000000000000000000000385.",
+          "failed": true
+        },
+        "republished": {
+          "text": "No site 00000000000000000000000000000385.",
+          "failed": true
+        }
+      },
+      {
+        "said": {
+          "text": "No site 00000000000000000000000000000386.",
+          "failed": true
+        },
+        "private": {
+          "text": "No site 00000000000000000000000000000386.",
+          "failed": true
+        },
+        "republished": {
+          "text": "No site 00000000000000000000000000000386.",
+          "failed": true
+        }
+      },
+      {
+        "said": {
+          "text": "Public at https://ky.test/p/AAAAAAAAAAAAAAAAAAAAAA/: anyone with the link can open it until it's made private.",
+          "failed": false
+        },
+        "private": {
+          "text": "Private again: its public address no longer works. It stays at https://ky.test/s/00000000000000000000000000000387/.",
+          "failed": false
+        },
+        "republished": {
+          "text": "Published at https://ky.test/s/00000000000000000000000000000387/ (id 00000000000000000000000000000387, 1 files), for the signed-in user only.",
+          "failed": false
+        }
+      },
+      {
+        "said": {
+          "text": "No site 00000000000000000000000000000389.",
+          "failed": true
+        },
+        "private": {
+          "text": "No site 00000000000000000000000000000389.",
+          "failed": true
+        },
+        "republished": {
+          "text": "No site 00000000000000000000000000000389.",
+          "failed": true
+        }
+      }
+    ],
+    "after": {
+      "sites-public/BBBBBBBBBBBBBBBBBBBBBB": "00000000000000000000000000000388",
+      "sites/00000000000000000000000000000001/.site": "{\"created\":1748736060000,\"title\":\"Hello\"}",
+      "sites/00000000000000000000000000000001/index.html": "<p>00000000000000000000000000000001</p>",
+      "sites/00000000000000000000000000000002/.site": "{\"created\":1748736120000,\"title\":\"Untitled\"}",
+      "sites/00000000000000000000000000000002/index.html": "<p>00000000000000000000000000000002</p>",
+      "sites/00000000000000000000000000000003/.site": "{\"created\":1748736180000,\"title\":\"Gone public\"}",
+      "sites/00000000000000000000000000000003/index.html": "<p>00000000000000000000000000000003</p>",
+      "sites/00000000000000000000000000000004/.site": "{\"created\":1748736240000,\"title\":\"Second\"}",
+      "sites/00000000000000000000000000000004/index.html": "<p>00000000000000000000000000000004</p>",
+      "sites/00000000000000000000000000000385/.site": "{not json",
+      "sites/00000000000000000000000000000385/index.html": "corrupt",
+      "sites/00000000000000000000000000000386/index.html": "no meta",
+      "sites/00000000000000000000000000000387/.site": "{\"created\":3,\"title\":\"Older\"}",
+      "sites/00000000000000000000000000000387/index.html": "<p>00000000000000000000000000000387</p>",
+      "sites/00000000000000000000000000000389/.site": "{\"created\":\"yesterday\",\"title\":5}"
+    }
+  }
+}

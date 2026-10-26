@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..07eebb1 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -212,7 +212,7 @@ const remove = ({ bucket }: SiteHost, id: string) =>
+ 
+ export const act = (host: SiteHost, args: SiteArgs, chat: boolean) =>
+   Effect.gen(function* () {
+-    if (!chat) return yield* new NotAChat();
++    if (!chat && args.action !== "list") return yield* new NotAChat();
+ 
+     if (args.action === "publish") return { text: yield* publish(host, args) };
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..359e6a4 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -116,7 +116,7 @@ const folder = (files: SiteFiles, dir: string) =>
+ 
+     for (const path of paths) bytes += (yield* reading(dir, () => files.stat(`${root}/${path}`))).size;
+ 
+-    if (bytes > MAX_BYTES) return yield* new TooBig({ bytes });
++    if (bytes > MAX_BYTES * 2) return yield* new TooBig({ bytes });
+     const read = new Map<string, Uint8Array>();
+ 
+     for (const path of paths) read.set(path, yield* reading(dir, async () => new Uint8Array(await new Response(await files.readFile(`${root}/${path}`)).arrayBuffer())));

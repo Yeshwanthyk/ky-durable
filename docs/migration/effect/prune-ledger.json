@@ -94,5 +94,11 @@
     "name": "Access refuses every request when Access's vars are missing",
     "class": "UNIT",
     "replacedBy": "test/invariants/access.test.ts > Access's vars > I-A2: decide before any JWT: no ACCESS_EMAILS is not set up, KY_DEV=1 signs in KY_DEV_EMAIL against them, no team or app is not set up; none of it fetches the keys"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "sites refuses past 200 files, 10 MB or 50 sites",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/sites.test.ts > refusals > I-S7: publishes a folder of at most 200 files, all of them"
   }
 ]

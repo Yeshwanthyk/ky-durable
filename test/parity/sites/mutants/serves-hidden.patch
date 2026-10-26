@@ -1,0 +1,13 @@
+diff --git a/src/sites/routes.ts b/src/sites/routes.ts
+index 7d2d5be..795eaaf 100644
+--- a/src/sites/routes.ts
++++ b/src/sites/routes.ts
+@@ -58,7 +58,7 @@ function sitePath(rest: string): string | undefined {
+   if (decoded === undefined) return undefined;
+   const path = decoded === "" || decoded.endsWith("/") ? `${decoded}index.html` : decoded;
+ 
+-  return path.split("/").includes("") || hidden(path) ? undefined : path;
++  return path.split("/").includes("") ? undefined : path;
+ }
+ 
+ async function serve(request: Request, bucket: SiteBucket, id: string, rest: string, open: boolean, embed = false): Promise<Response> {

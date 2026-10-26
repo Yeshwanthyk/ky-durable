@@ -17,7 +17,6 @@ export class Access {
     this.#layer = clock ? Layer.provideMerge(keys, Layer.succeed(Clock.Clock)(clock)) : keys;
   }
 
-  /** B's refusal for `request`, or undefined to let it through. Access lives at the Worker's module scope, so each request gets its own edge. */
   async refuse(request: Request, env: AccessVars): Promise<Response | undefined> {
     const edge = makeEdge(this.#layer);
 
