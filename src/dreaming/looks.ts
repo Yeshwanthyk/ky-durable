@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Automations, Delivery } from "../automations/contract";
 import { isRefusal } from "../core/refusal";
-import { type History, wroteSince } from "../history";
+import { type History, wroteSince } from "../history/wiring";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
 import { type Anticipation, countOf, localCron, localNow } from "./contract";

@@ -1,7 +1,8 @@
 import { type Message, Type, type UserMessage } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { type History, isOwnRequest, placedBy, startedByUser } from "../history";
+import { isOwnRequest } from "../history/contract";
+import { type History, placedBy, startedByUser } from "../history/wiring";
 import type { Anticipations } from "./anticipations";
 import { CHAT_SEARCH, countOf, entryAt, MEMORY_RECALL, type Recalled } from "./contract";
 import type { Memory } from "./memory";

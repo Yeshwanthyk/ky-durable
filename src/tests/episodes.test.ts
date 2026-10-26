@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOwnRequest } from "../history";
+import { isOwnRequest } from "../history/contract";
 import { EPISODE_COOLDOWN_MS, EPISODE_TURNS } from "../dreaming/episodes";
 import { browser, inside, type Tab } from "./drive";
 

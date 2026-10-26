@@ -1,7 +1,7 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { decodeOr } from "../core/decode";
-import { ownMessages, startedByUser } from "../history";
+import { ownMessages, startedByUser } from "../history/wiring";
 import {
   ANTICIPATE,
   ANTICIPATION_KINDS,

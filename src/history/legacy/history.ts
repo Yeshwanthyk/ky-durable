@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import Type from "typebox";
 import { decodeOr } from "../../core/decode";
-import { LOOK_POST } from "../../transcript";
+import { LOOK_POST } from "../../core/transcript";
 
 /**
  * Chat search: a full-text index over every message of the main chat and the

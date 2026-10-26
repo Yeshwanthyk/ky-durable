@@ -5,7 +5,7 @@ import fc from "fast-check";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { placedBy } from "../history";
+import { placedBy } from "../history/wiring";
 import { agent, gateStarted, inside, until } from "./drive";
 
 /**

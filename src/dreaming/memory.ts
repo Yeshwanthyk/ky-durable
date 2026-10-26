@@ -5,7 +5,8 @@ import {
   type Extension
 } from "@earendil-works/pi-durable";
 import { must } from "../core/must";
-import type { History, Span } from "../history";
+import type { Span } from "../history/contract";
+import type { History } from "../history/wiring";
 import type { anticipateTool } from "./anticipations";
 import {
   CHAT_SEARCH,

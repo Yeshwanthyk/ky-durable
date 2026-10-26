@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { canonical } from "./core/canonical";
 import { decodeOr, parseOr } from "./core/decode";
-import { runOpener } from "./history";
+import { runOpener } from "./history/wiring";
 
 /**
  * Two guards on the model's tool calls, for every tool, in one place:

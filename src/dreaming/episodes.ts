@@ -2,7 +2,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import { defineExtension, type EntryRecord, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
 import Type from "typebox";
 import { decodeOr } from "../core/decode";
-import { ownMessages } from "../history";
+import { ownMessages } from "../history/wiring";
 import { askInBackground, type ReviewHost, type Reviews, reviewFork, showEnded } from "../skills/contract";
 import { ANTICIPATE, countOf, MEMORY_RECALL } from "./contract";
 import type { Proactivity } from "./proactivity";

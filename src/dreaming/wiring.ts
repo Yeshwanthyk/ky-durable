@@ -1,4 +1,4 @@
-import type { History } from "../history";
+import type { History } from "../history/wiring";
 import type { ReviewHost, Reviews } from "../skills/contract";
 import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
 import { DreamNotes } from "./dreaming";
