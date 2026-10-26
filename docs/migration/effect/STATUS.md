@@ -40,7 +40,7 @@ against B, never against the PR before it.
 
 ## Waves 4–5 dispatched (2026-10-26)
 
-Owner: Wave 5 all in parallel. Wave 5 started alongside Wave 4: only images (settings), history (transcript) and push (dreaming/contract) touch Wave 4 or in-flight code, as import lines. Shared brief: WRITER-BRIEF.md. Cleanup merged d58c766; its worktree removed.
+Owner: Wave 5 all in parallel. Wave 5 started alongside Wave 4: only images (settings), history (transcript) and push (dreaming/contract) touch Wave 4 or in-flight code, as import lines. Shared brief: WRITER-BRIEF.md. Cleanup merged d58c766; inbound merged (3b0eeb4) after Fable review, fix round and flip. Both worktrees removed. 07:42–12:00 UTC: every writer paused on the account's 5-hour usage limit; resumed after the reset. Census knows the Wave 4–5 domains (f2d716c).
 
 | Unit | Thread | Branch | State |
 |---|---|---|---|
