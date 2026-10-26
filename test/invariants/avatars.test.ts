@@ -2,16 +2,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
-import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EXAMPLES as B_EXAMPLES } from "../../src/avatars/legacy/avatar-spec";
-import { preamble as legacyPreamble } from "../../src/avatars/legacy/prompt";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AVATAR_TABLES, EXAMPLES } from "../../src/avatars/contract";
-import { preamble } from "../../src/avatars/prompt";
 import { Avatars, avatarTools, Setup } from "../../src/avatars/wiring";
-import { assertParity, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { legacyOf } from "../parity/avatars/legacy";
-import { storageOf, StoredRow } from "../parity/skills/storage";
+import { budget, type Json } from "../parity/kit";
+import { storageOf } from "../parity/skills/storage";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -53,92 +49,18 @@ const aMadeSpec = fc.record(
 
 const aSpec: fc.Arbitrary<Json> = fc.oneof({ arbitrary: aMadeSpec, weight: 4 }, { arbitrary: fc.constantFrom(...Object.values(EXAMPLES)), weight: 1 });
 
-const aPage = fc.constantFrom("https://ky.test/chat?x=1", "http://localhost:8787/", "HTTPS://KY.TEST:443/", "not a url", "");
-
 type Input = { readonly action: string; readonly for?: string; readonly spec?: Json; readonly specs?: Json[]; readonly count?: number };
-
-type Action =
-  | { readonly tool: Input }
-  | { readonly damage: string; readonly spec: string }
-  | { readonly blob: true }
-  | { readonly setRepo: string; readonly page: string | null }
-  | { readonly opened: string }
-  | { readonly moved: string }
-  | { readonly setup: "view" | "selfEdit" | "firstStart" | "origin" }
-  | { readonly read: true };
-
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  {
-    arbitrary: fc
-      .record(
-        {
-          action: fc.constantFrom("preview", "roll", "set", "clear", "list"),
-          for: fc.constantFrom("ky", "pip", "nobody"),
-          spec: aSpec,
-          specs: fc.array(aSpec, { maxLength: 7 }),
-          count: fc.constantFrom(0, 1, 2.5, 3, 6, 9, -1, Number.NaN)
-        },
-        { requiredKeys: ["action"] }
-      )
-      .map((tool) => ({ tool })),
-    weight: 10
-  },
-  {
-    arbitrary: fc.record({
-      damage: fc.constantFrom("ky", "pip", "zed"),
-      spec: fc.constantFrom(
-        "not json",
-        "null",
-        "5",
-        '{"body":1}',
-        JSON.stringify(B_EXAMPLES.tok),
-        JSON.stringify({ ...B_EXAMPLES.pip, extra: { deep: true } }),
-        JSON.stringify({ ...B_EXAMPLES.pip, body: { ...B_EXAMPLES.pip.body, w: "1" } }),
-        '{"body":{"w":1e999,"h":100,"corner":10,"color":"#aabbcc"},"eyes":{"count":1,"size":20},"top":{"kind":"none"},"cheeks":true,"feet":true}'
-      )
-    }),
-    weight: 2
-  },
-  { arbitrary: fc.constant({ blob: true as const }), weight: 1 },
-  {
-    arbitrary: fc.record({
-      setRepo: fc.constantFrom("", "  ", "a/b", " owner/name ", "owner", "a/b/c", "o-w.n/r_e.p", "own er/name"),
-      page: fc.oneof(fc.constant(null), aPage)
-    }),
-    weight: 4
-  },
-  { arbitrary: fc.record({ opened: aPage }), weight: 2 },
-  { arbitrary: fc.record({ moved: fc.constantFrom("https://new.test", "http://localhost:9000") }), weight: 2 },
-  { arbitrary: fc.record({ setup: fc.constantFrom<"view" | "selfEdit" | "firstStart" | "origin">("view", "selfEdit", "firstStart", "origin") }), weight: 3 },
-  { arbitrary: fc.constant({ read: true as const }), weight: 1 }
-);
-
-type Side = {
-  readonly avatars: { all(): object; onChange(listener: () => void): void };
-  readonly setup: Pick<Setup, "onChange" | "view" | "selfEdit" | "firstStart" | "origin" | "opened" | "moved"> & { setRepo(repo: string, page: string | null): object };
-  readonly tool: Extension;
-};
-
-type Make = (db: DatabaseSync, owners: () => readonly string[]) => Side;
-
-const next: Make = (db, owners) => {
-  const avatars = new Avatars(storageOf(db));
-
-  return { avatars, setup: new Setup(storageOf(db)), tool: avatarTools(avatars, owners) };
-};
 
 // SAFETY: the avatar tool's execute never reads its api.
 const API = {} as ToolExecutionApi;
 
 type Uuid = `${string}-${string}-${string}-${string}-${string}`;
 
-let uuid = (): Uuid => "0-0-0-0-0";
-
 type Said = { readonly text: string; readonly isError: boolean | null };
 
 async function said(tool: Extension, input: Input): Promise<Said> {
   const [registered] = tool.tools ?? [];
-  // SAFETY: the parity feeds the tool what a model could send, B's parameters unchecked as the runtime leaves them.
+  // SAFETY: a property feeds the tool what a model could send, B's parameters unchecked as the runtime leaves them.
   const result = await registered?.execute(input as never, API, BACKGROUND_CONTEXT);
 
   return { text: (result?.output ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), isError: result?.isError ?? null };
@@ -146,121 +68,8 @@ async function said(tool: Extension, input: Input): Promise<Said> {
 
 const jsonOf = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
 
-function caught(work: () => Json | undefined | void): Json {
-  try {
-    return work() ?? null;
-  } catch (error) {
-    return { threw: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
-
-const shownValue = (value: SQLOutputValue) => (value instanceof Uint8Array ? `x'${Buffer.from(value).toString("hex")}'` : value);
-
-const rowsOf = (db: DatabaseSync, table: string): Json[] => [
-  ...rowsDecoded(
-    db
-      .prepare(`SELECT * FROM ${table} ORDER BY rowid`)
-      .all()
-      .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, shownValue(value)])))
-  )
-];
-
-function instance(db: DatabaseSync, make: Make): Instance<Action> {
-  const side = make(db, () => OWNERS);
-  const seen = { avatarChanges: 0, setupChanges: 0 };
-  let rolled = 0;
-  const ownUuid = (): Uuid => `00000000-0000-4000-8000-${String(rolled++).padStart(12, "0")}`;
-
-  side.avatars.onChange(() => seen.avatarChanges++);
-  side.setup.onChange(() => seen.setupChanges++);
-
-  const apply = async (action: Action): Promise<Json> => {
-    if ("tool" in action) {
-      uuid = ownUuid;
-
-      return said(side.tool, action.tool);
-    }
-
-    if ("damage" in action) return caught(() => void db.prepare(`INSERT OR REPLACE INTO ${AVATAR_TABLES.avatars} (owner, spec) VALUES (?, ?)`).run(action.damage, action.spec));
-
-    if ("blob" in action) return caught(() => void db.prepare(`INSERT OR REPLACE INTO ${AVATAR_TABLES.avatars} (owner, spec) VALUES (X'7A', ?)`).run(JSON.stringify(EXAMPLES.fern)));
-
-    if ("setRepo" in action) return caught(() => JSON.stringify(side.setup.setRepo(action.setRepo, action.page)));
-
-    if ("opened" in action) return caught(() => side.setup.opened(action.opened));
-
-    if ("moved" in action) return caught(() => side.setup.moved(action.moved));
-
-    if ("setup" in action) return caught(() => side.setup[action.setup]());
-
-    return caught(() => JSON.stringify(side.avatars.all()));
-  };
-
-  return {
-    apply,
-    tables: async () => ({
-      schema: db
-        .prepare("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'ky_%' ORDER BY name")
-        .all()
-        .map(({ type, name, sql }) => ({ type: String(type), name: String(name), sql: String(sql).replace(/\s+/g, " ").replace("( ", "(") })),
-      avatars: rowsOf(db, AVATAR_TABLES.avatars),
-      setup: rowsOf(db, AVATAR_TABLES.setup)
-    }),
-    effects: async () => seen,
-    dispose: async () => db.close()
-  };
-}
-
-function useClock(clock: Clock): void {
-  vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-}
-
-beforeEach(() => {
-  vi.spyOn(crypto, "randomUUID").mockImplementation(() => uuid());
-});
-
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-const avatarsParity: Parity<Action> = {
-  domain: "avatars",
-  actions,
-  start: START,
-  advances: fc.integer({ min: 0, max: 86_400_000 }),
-  legacy: async (clock) => {
-    useClock(clock);
-
-    return instance(new DatabaseSync(":memory:"), legacyOf);
-  },
-  next: async () => instance(new DatabaseSync(":memory:"), next)
-};
-
-describe("avatars parity", () => {
-  it("answers, stores and tells what B does, step for step", async () => {
-    await assertParity(avatarsParity);
-  });
-
-  it("writes the main prompt B writes, for every deploy", () => {
-    fc.assert(
-      fc.property(
-        fc.record(
-          {
-            executor: fc.boolean(),
-            cloud: fc.constantFrom("default", "box"),
-            selfEdit: fc.record({ repo: fc.constantFrom("me/ky"), url: fc.constantFrom("https://ky.test") }),
-            selfEditOn: fc.constantFrom("default", "repo-box")
-          },
-          { requiredKeys: ["executor"] }
-        ),
-        (config) => {
-          expect(preamble(config)).toBe(legacyPreamble(config));
-        }
-      )
-    );
-  });
 });
 
 const Value = Schema.Struct({ value: Schema.String });
@@ -271,7 +80,8 @@ function port(owners: readonly string[] = OWNERS) {
   let at = START;
   vi.spyOn(Date, "now").mockImplementation(() => at);
   const db = new DatabaseSync(":memory:");
-  const side = next(db, () => owners);
+  const avatars = new Avatars(storageOf(db));
+  const side = { avatars, setup: new Setup(storageOf(db)), tool: avatarTools(avatars, () => owners) };
   const heard = { avatars: 0, setup: 0 };
 
   side.avatars.onChange(() => heard.avatars++);
@@ -323,7 +133,8 @@ describe("set", () => {
         if (isSpec(spec)) expect(reply).toMatch(/^Saved as @pip's avatar\./);
         else expect([reply, ky.saved()]).toEqual([A_SPEC_IS, []]);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -337,7 +148,8 @@ describe("set", () => {
         else if (spec === undefined) expect(reply).toBe("set needs a spec.");
         else expect(reply === A_SPEC_IS).toBe(!isSpec(spec));
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -351,7 +163,8 @@ describe("set", () => {
         expect(ky.saved().map(({ owner: who, spec: stored }) => [who, jsonOf(stored)])).toEqual([[owner, shown]]);
         expect(ky.avatars.all()).toEqual({ [owner]: shown });
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -368,7 +181,8 @@ describe("preview", () => {
         else if (specs.length === 0) expect(reply).toBe("preview needs specs.");
         else expect(fenced(reply)).toHaveLength(specs.length);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -390,7 +204,8 @@ describe("setRepo", () => {
 
         if ("refused" in saved) expect([ky.stored("repo"), ky.stored("url")]).toEqual([undefined, undefined]);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -405,7 +220,8 @@ describe("setRepo", () => {
         expect([ky.stored("repo"), ky.stored("url"), ky.stored("origin")]).toEqual([repo.trim(), origin, origin]);
         expect(ky.setup.selfEdit()).toEqual({ repo: repo.trim(), url: origin });
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -423,7 +239,8 @@ describe("the seeded time", () => {
         expect(ky.setup.firstStart()).toBe(false);
         expect(ky.stored("seeded")).toBe(String(at));
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -440,7 +257,8 @@ describe("the seeded time", () => {
         expect(ky.stored("seeded")).toBe(String(seeded ? before : ky.now()));
         expect(ky.setup.firstStart()).toBe(false);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -489,7 +307,8 @@ describe("roll", () => {
         expect(specs.every((spec) => isSpec(spec) && shownRange(spec))).toBe(true);
         expect(await rolled()).toBe(reply);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -502,7 +321,8 @@ describe("roll", () => {
         expect(fenced(await ky.say({ action: "preview", specs: [...examples] }))).toEqual(examples);
         expect(fenced(await ky.say({ action: "preview", specs: [spec] })).every(shownRange)).toBe(true);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -522,7 +342,8 @@ describe("clear and list", () => {
         expect(ky.saved().map(({ owner }) => owner)).toEqual(owners.filter((owner) => owner !== cleared).sort());
         expect(ky.heard.avatars - before).toBe(had ? 1 : 0);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -544,7 +365,8 @@ describe("clear and list", () => {
         }
 
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -565,7 +387,8 @@ describe("clear and list", () => {
 
         expect(JSON.stringify(ky.avatars.all())).toBe(`{${parsed.sort(([a], [b]) => (a < b ? -1 : 1)).map(([owner, spec]) => `${JSON.stringify(owner)}:${spec}`).join(",")}}`);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -583,7 +406,8 @@ describe("where ky lives", () => {
 
         expect([ky.stored("url"), ky.stored("origin")]).toEqual([repo ? origin : undefined, opened ? origin : undefined]);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -598,7 +422,8 @@ describe("where ky lives", () => {
         expect([ky.stored("repo"), ky.stored("url"), ky.heard.setup - before]).toEqual([undefined, "https://ky.test", 1]);
         expect(ky.setup.selfEdit()).toBeUndefined();
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -613,7 +438,8 @@ describe("where ky lives", () => {
         expect(ky.setup.firstStart()).toBe(true);
         expect(ky.stored("seeded")).toBe(String(at));
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });

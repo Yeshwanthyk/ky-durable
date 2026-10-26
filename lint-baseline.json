@@ -33,9 +33,6 @@
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/avatars/legacy/setup.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
   "src/chatgpt.ts": {
     "ky(no-unchecked-parse)": 3,
     "typescript(no-non-null-assertion)": 1
