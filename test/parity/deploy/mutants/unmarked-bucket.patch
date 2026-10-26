@@ -1,0 +1,13 @@
+diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
+index fe2a4cc..e1d3c7a 100644
+--- a/cli/deploy/deployer.ts
++++ b/cli/deploy/deployer.ts
+@@ -535,7 +535,7 @@ const ensureBuckets = (name: Names) =>
+       yield* R2.putObject({
+         accountId,
+         bucketName: bucket.name,
+-        objectName: MARKER,
++        objectName: "readme",
+         body: `ky made this bucket for the ${name.script} Worker; \`ky teardown\` removes it.`,
+         contentType: "text/plain"
+       });

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { ProviderInfo, SpecialistView } from "../../src/protocol";
 import {
@@ -16,14 +17,18 @@ import {
   SubagentAction,
   SubagentInput,
   parse,
+  type SessionKind,
   type SkillRow,
   SKILL_TABLES,
+  type SpecialistDraft,
   TOOLS
 } from "../../src/skills/contract";
-import { CHANGES, viewText } from "../../src/skills/skills";
+import { CHANGES, skillsExtension, viewText } from "../../src/skills/skills";
 import { MANAGE } from "../../src/skills/specialists";
 import { ACTIONS } from "../../src/skills/subagents";
+import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
 import { specialistDraft } from "../../src/ui/Soul";
+import { blockOf, HOST, storageOf } from "../parity/skills/storage";
 
 /** What the skills domain promises, whatever its code becomes: src/skills/contract.ts. */
 
@@ -305,5 +310,403 @@ describe("a kit's Members", () => {
     expect(text.match(/## Members/g)).toHaveLength(1);
     expect(text).toContain("Ship a change.\n\n## Done when\nMerged.");
     expect(text).toContain("- plan-change (missing)");
+  });
+});
+
+describe("stored skills", () => {
+  const corrupt = fc.constantFrom("{", "", "[]", '["a"]', "null", '{"a":1}', '{"a":null}', "7");
+
+  const aStoredSkill = fc.record({
+    name: fc.stringMatching(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    description: fc.string(),
+    body: fc.string(),
+    status: fc.constantFrom("active", "archived"),
+    uses: fc.nat(),
+    created_at: fc.nat(),
+    updated_at: fc.nat(),
+    last_used_at: fc.option(fc.nat(), { nil: null }),
+    pinned: fc.constantFrom(0, 1),
+    created_by: fc.constantFrom("user", "agent", "review", "dream"),
+    answers: fc.oneof(fc.constant(null), fc.dictionary(fc.string(), fc.string()).map((answers) => JSON.stringify(answers)), corrupt),
+    kind: fc.constantFrom("skill", "kit")
+  });
+
+  /** What a row's answers column reads as: an object of strings as it is, anything else as none. */
+  function answersIn(column: string | null): Record<string, string> {
+    if (column === null) return {};
+
+    try {
+      const parsed: unknown = JSON.parse(column);
+
+      // JSON gives an object, an array or a primitive; only a plain object of strings is answers.
+      if (!(parsed instanceof Object) || Array.isArray(parsed)) return {};
+      const entries = Object.entries(parsed);
+
+      return entries.every(([, value]) => value === String(value)) ? Object.fromEntries(entries) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  it("reads back every skill row it stores, a kit as a kit, and answers that aren't an object of strings as none", () => {
+    fc.assert(
+      fc.property(fc.uniqueArray(aStoredSkill, { selector: (row) => row.name, maxLength: 5 }), (rows) => {
+        const db = new DatabaseSync(":memory:");
+        const skills = new Skills(storageOf(db));
+
+        for (const row of rows) {
+          const columns = Object.keys(row);
+          db.prepare(`INSERT INTO ${SKILL_TABLES.skills} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...Object.values(row));
+        }
+
+        const read = rows.map((row) => ({ ...row, pinned: row.pinned === 1, answers: answersIn(row.answers) }));
+
+        for (const each of read) expect(skills.get(each.name)).toEqual(each);
+        expect(skills.all()).toEqual([...read].sort((a, b) => Number(a.status === "archived") - Number(b.status === "archived") || (a.name < b.name ? -1 : 1)));
+        db.close();
+      })
+    );
+  });
+
+  it("keeps what a change saved, as the next read and the history give it", () => {
+    const aText = (max: number) => fc.string({ minLength: 1, maxLength: max }).filter((text) => text.trim() !== "");
+
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^[a-z0-9][a-z0-9-]{0,63}$/),
+        aText(200),
+        fc.string({ maxLength: 500 }),
+        fc.constantFrom("skill", "kit"),
+        fc.constantFrom("user", "agent", "review", "dream"),
+        (name, description, body, kind, actor) => {
+          const db = new DatabaseSync(":memory:");
+          const skills = new Skills(storageOf(db));
+
+          skills.apply({ action: "create", name, description, body, kind }, actor);
+
+          expect(skills.get(name)).toMatchObject({ name, description, body, kind, status: "active", created_by: actor, pinned: false, answers: {} });
+          expect(skills.history(name)).toEqual([expect.objectContaining({ name, action: "create", actor, description, body, status: "active" })]);
+          db.close();
+        }
+      )
+    );
+  });
+});
+
+describe("a background run's tools", () => {
+  const KINDS = ["review", "dream", "episode", "look"] as const;
+
+  const known = [...new Set(Object.values(REVIEW_ALLOWED).flat()), ...Object.values(TOOLS), "memory_write", "bash"];
+
+  it("lets a fork call only the tools its kind's allowlist names, and blocks nothing in a conversation that isn't one", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.option(fc.constantFrom(...KINDS), { nil: undefined }), fc.oneof(fc.constantFrom(...known), fc.string()), async (kind, name) => {
+        const db = new DatabaseSync(":memory:");
+        const skills = new Skills(storageOf(db));
+        const reviews = new Reviews(storageOf(db));
+
+        if (kind !== undefined) reviews.add("2", "1", kind);
+        const block = await blockOf(skillsExtension(skills, reviews, HOST, () => false), name, "2");
+
+        if (kind === undefined || REVIEW_ALLOWED[kind].includes(name)) expect(block).toBeNull();
+        else expect(block).toContain(`may only call ${REVIEW_ALLOWED[kind].join(", ")}.`);
+        db.close();
+      })
+    );
+  });
+});
+
+describe("a skill's guards", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const MACHINES = ["review", "dream"];
+  const steep = { description: "When the user wants tea.", body: "Steep for three minutes." };
+
+  it("leaves a pinned skill as it is, whatever a background run asks", () => {
+    const aChange = fc.constantFrom<SkillChange>(
+      { action: "edit", name: "tea", body: "Steep again." },
+      { action: "patch", name: "tea", old: "two", new: "four" },
+      { action: "archive", name: "tea", absorbed_into: "coffee" },
+      { action: "revert", name: "tea", version: 1 }
+    );
+
+    fc.assert(
+      fc.property(aChange, fc.constantFrom(...MACHINES), (change, machine) => {
+        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+
+        skills.apply({ action: "create", name: "tea", ...steep }, "agent");
+        skills.apply({ action: "edit", name: "tea", body: "Steep for two minutes." }, "agent");
+        skills.apply({ action: "create", name: "coffee", ...steep }, "agent");
+        skills.apply({ action: "pin", name: "tea" }, "user");
+        const was = { skill: skills.get("tea"), history: skills.history("tea") };
+
+        expect(() => skills.apply(change, machine)).toThrow("tea is pinned");
+        expect({ skill: skills.get("tea"), history: skills.history("tea") }).toEqual(was);
+      })
+    );
+  });
+
+  it("sweeps as stale exactly the active, unpinned skills ky made, older than 14 days, that nobody opened or the user changed in 60", () => {
+    const NOW = Date.UTC(2026, 6, 1);
+    const anAge = fc.oneof(fc.integer({ min: 0, max: 120 * DAY }), fc.constantFrom(14 * DAY - 1, 14 * DAY, 60 * DAY - 1, 60 * DAY));
+
+    const aSkill = fc.record({
+      created_by: fc.constantFrom("user", "agent", ...MACHINES),
+      status: fc.constantFrom("active", "active", "archived"),
+      pinned: fc.constantFrom(0, 0, 1),
+      created: anAge,
+      opened: fc.option(anAge, { nil: null }),
+      uses: fc.constantFrom(0, 0, 3),
+      version: fc.option(fc.record({ actor: fc.constantFrom("user", "agent", "dream"), age: anAge }), { nil: null })
+    });
+
+    type Made = typeof aSkill extends fc.Arbitrary<infer T> ? T : never;
+
+    /** What the sweep may archive at all: an active, unpinned skill ky made, at least 14 days old. */
+    const sweepable = ({ status, pinned, created_by, created }: Made) => status === "active" && pinned === 0 && created_by !== "user" && created >= 14 * DAY;
+
+    /** Its last sign of life, opened or else made, or the user's change when later, is 60 days gone; a use before ky kept when is unknown. */
+    const quiet = ({ opened, uses, created, version }: Made) => {
+      if (opened === null && uses > 0) return false;
+
+      return Math.min(opened ?? created, version?.actor === "user" ? version.age : Infinity) >= 60 * DAY;
+    };
+
+    fc.assert(
+      fc.property(fc.array(aSkill, { maxLength: 6 }), (made) => {
+        const db = new DatabaseSync(":memory:");
+        const skills = new Skills(storageOf(db));
+
+        made.forEach(({ created_by, status, pinned, created, opened, uses, version }, at) => {
+          const name = `skill-${at}`;
+          db.prepare(
+            `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, uses, created_at, updated_at, last_used_at, pinned, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(name, steep.description, steep.body, status, uses, NOW - created, NOW - created, opened === null ? null : NOW - opened, pinned, created_by);
+
+          if (version !== null) {
+            db.prepare(`INSERT INTO ${SKILL_TABLES.skillVersions} (name, action, actor, description, body, status, created_at) VALUES (?, 'edit', ?, ?, ?, ?, ?)`).run(
+              name,
+              version.actor,
+              steep.description,
+              steep.body,
+              status,
+              NOW - version.age
+            );
+          }
+        });
+
+        const stale = made.flatMap((skill, at) => (sweepable(skill) && quiet(skill) ? [`skill-${at}`] : []));
+
+        expect(skills.stale("run-1", NOW)).toEqual(stale);
+        expect(made.map((_, at) => skills.get(`skill-${at}`)?.status)).toEqual(made.map(({ status }, at) => (stale.includes(`skill-${at}`) ? "archived" : status)));
+        db.close();
+      })
+    );
+  });
+
+  it("keeps a skill's other answers when the user answers one, and clears one answered blank", () => {
+    const anAnswer = fc.dictionary(fc.constantFrom("city", "budget"), fc.constantFrom("paris", " rome ", "10", "", " "), { minKeys: 1 });
+
+    fc.assert(
+      fc.property(fc.array(anAnswer, { maxLength: 5 }), (replies) => {
+        const skills = new Skills(storageOf(new DatabaseSync(":memory:")));
+        const kept: Record<string, string> = {};
+
+        skills.apply({ action: "create", name: "plan-trip", description: "When planning a trip.", body: "## Needs\n- city: Which city?\n- budget: How much?\n\nBook it." }, "user");
+
+        for (const reply of replies) {
+          skills.apply({ action: "answer", name: "plan-trip", answers: reply }, "user");
+
+          for (const [key, value] of Object.entries(reply)) {
+            if (value.trim() === "") delete kept[key];
+            else kept[key] = value.trim();
+          }
+        }
+
+        expect(skills.get("plan-trip")?.answers).toEqual(kept);
+      })
+    );
+  });
+});
+
+describe("stored specialists", () => {
+  const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+  const anId = fc.oneof(fc.stringMatching(ID), fc.string({ maxLength: 8 }), fc.constantFrom("a".repeat(32), "a".repeat(33), `${"a-".repeat(16)}a`, "engineer"));
+
+  const made = () => new Specialists(storageOf(new DatabaseSync(":memory:")));
+
+  const NEW: SpecialistDraft = { description: "Builds things.", brief: "Be terse." };
+
+  it("makes a specialist exactly when its id is lowercase-with-hyphens, at most 32 characters, and not taken", () => {
+    fc.assert(
+      fc.property(fc.array(anId, { maxLength: 6 }), (ids) => {
+        const specialists = made();
+        const have = new Set<string>();
+
+        for (const id of ids) {
+          const create = () => specialists.create(id, NEW, "user");
+
+          if (!ID.test(id) || id.length > 32) expect(create).toThrow("A specialist's id is lowercase-with-hyphens, at most 32 characters, like engineer.");
+          else if (have.has(id)) expect(create).toThrow(`@${id} already exists.`);
+          else expect(create()).toBe(`Created @${id}.`);
+
+          if (ID.test(id) && id.length <= 32) have.add(id);
+        }
+
+        expect(specialists.list().map(({ id }) => id)).toEqual([...have].sort());
+      })
+    );
+  });
+
+  const MODEL = { provider: "anthropic", modelId: "opus", thinkingLevel: "high" as const };
+
+  const aDraft = fc.record({ description: fc.constantFrom("Builds things.", "  Finds sources.  "), model: fc.constantFrom(MODEL, null), machine: fc.constantFrom("mac", "", null) }, { requiredKeys: [] });
+
+  /** What a field reads after a save: the draft's, as stored, or what it was when the draft leaves it out. */
+  const kept = <T>(given: T | undefined, was: T, stored: (value: T) => T): T => (given === undefined ? was : stored(given));
+
+  it("saves each field a draft gives, a blank machine as none, and keeps each it leaves out", () => {
+    fc.assert(
+      fc.property(fc.array(aDraft, { minLength: 1, maxLength: 5 }), (drafts) => {
+        const specialists = made();
+        specialists.create("engineer", { ...NEW, model: MODEL, machine: "mac" }, "user");
+        let expected: Pick<SpecialistDraft, "description" | "model" | "machine"> = { description: NEW.description, model: MODEL, machine: "mac" };
+
+        for (const draft of drafts) {
+          expect(specialists.set("engineer", draft)).toBe("Saved @engineer.");
+          expected = {
+            description: kept(draft.description, expected.description, (text) => text?.trim()),
+            model: kept(draft.model, expected.model, (model) => model),
+            machine: kept(draft.machine, expected.machine, (machine) => (machine === "" ? null : machine))
+          };
+          expect(specialists.get("engineer")).toMatchObject(expected);
+        }
+      })
+    );
+  });
+
+  const KINDS: SessionKind[] = ["home", "consult", "discuss", "group"];
+
+  const anAttach = fc.record({ session: fc.constantFrom("s1", "s2"), id: fc.constantFrom("engineer", "researcher", "gone"), kind: fc.constantFrom(...KINDS) });
+
+  type Attach = { readonly session: string; readonly id: string; readonly kind: SessionKind };
+
+  /** What a run of attaches leaves: each conversation's specialist and kind, from its last attach to one that exists, and each specialist's last home. */
+  function recorded(attaches: readonly Attach[]) {
+    const owner = new Map<string, { id: string; kind: SessionKind } | undefined>();
+    const home = new Map<string, string>();
+
+    for (const { session, id, kind } of attaches) {
+      owner.set(session, id === "gone" ? undefined : { id, kind });
+
+      if (kind === "home") home.set(id, session);
+    }
+
+    return { owner, home };
+  }
+
+  it("answers for a conversation with its last attach, and makes only a home one its specialist's shared conversation", () => {
+    fc.assert(
+      fc.property(fc.array(anAttach, { maxLength: 8 }), (attaches) => {
+        const specialists = made();
+
+        for (const id of ["engineer", "researcher"]) specialists.create(id, NEW, "user");
+
+        for (const { session, id, kind } of attaches) specialists.attach(session, id, kind);
+
+        const { owner, home } = recorded(attaches);
+
+        const seen = (session: string) => {
+          const found = specialists.bySession(session);
+
+          return found && { id: found.specialist.id, kind: found.kind };
+        };
+
+        for (const session of ["s1", "s2", "none"]) expect(seen(session)).toEqual(owner.get(session));
+
+        for (const id of ["engineer", "researcher"]) expect(specialists.get(id)?.session).toBe(home.get(id) ?? null);
+      })
+    );
+  });
+
+  const DESCRIPTION = "A specialist's description is one line under 200 characters.";
+
+  const aDescription = fc.oneof(fc.constantFrom("Builds things.", "  Finds sources.  ", "a".repeat(200)), fc.constantFrom("", " ", "a\nb", "a".repeat(201)));
+
+  const aNewDraft = fc.record({ description: aDescription, brief: fc.constantFrom("Be terse.", "  ") }, { requiredKeys: [] });
+
+  /** One line under 200 characters once trimmed: the description rule. */
+  const oneLine = (text: string | undefined) => {
+    const line = (text ?? "").trim();
+
+    return line !== "" && !line.includes("\n") && line.length <= 200;
+  };
+
+  /** B's refusal for creating `id` from `draft`, in the order B checks, or none. */
+  function createRefusal(id: string, { description, brief }: SpecialistDraft): string | undefined {
+    if (brief === undefined) return "A new specialist needs a brief.";
+
+    if (!oneLine(description)) return DESCRIPTION;
+
+    return brief.trim() === "" ? `@${id}'s brief cannot be empty.` : undefined;
+  }
+
+  it("refuses a new specialist without a brief, with an empty one, or with a description that isn't one line under 200, and stamps the one it makes with the time", () => {
+    fc.assert(
+      fc.property(fc.array(aNewDraft, { minLength: 1, maxLength: 5 }), (drafts) => {
+        const specialists = made();
+
+        for (const [step, draft] of drafts.entries()) {
+          const id = `eng-${step}`;
+          const refusal = createRefusal(id, draft);
+          const before = Date.now();
+
+          const create = () => specialists.create(id, draft, "user");
+
+          if (refusal === undefined) {
+            expect(create()).toBe(`Created @${id}.`);
+            expect(specialists.get(id)?.created_at).toBeGreaterThanOrEqual(before);
+            expect(specialists.get(id)?.created_at).toBeLessThanOrEqual(Date.now());
+          } else {
+            expect(create).toThrow(refusal);
+            expect(specialists.has(id)).toBe(false);
+          }
+        }
+      })
+    );
+  });
+
+  it("refuses to save a description that isn't one line under 200, or a specialist that doesn't exist", () => {
+    fc.assert(
+      fc.property(fc.array(fc.record({ id: fc.constantFrom("engineer", "nobody"), description: aDescription }), { minLength: 1, maxLength: 5 }), (saves) => {
+        const specialists = made();
+        specialists.create("engineer", NEW, "user");
+
+        for (const { id, description } of saves) {
+          const save = () => specialists.set(id, { description });
+
+          if (id === "nobody") expect(save).toThrow("No specialist @nobody.");
+          else if (oneLine(description)) expect(save()).toBe("Saved @engineer.");
+          else expect(save).toThrow(DESCRIPTION);
+        }
+      })
+    );
+  });
+
+  it("stamps each attached conversation with the time it was attached", () => {
+    fc.assert(
+      fc.property(fc.array(anAttach, { minLength: 1, maxLength: 5 }), (attaches) => {
+        const db = new DatabaseSync(":memory:");
+        const specialists = new Specialists(storageOf(db));
+
+        for (const { session, id, kind } of attaches) {
+          const before = Date.now();
+          specialists.attach(session, id, kind);
+          const [row] = db.prepare(`SELECT created_at FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`).all(session);
+          expect(row?.created_at).toBeGreaterThanOrEqual(before);
+          expect(row?.created_at).toBeLessThanOrEqual(Date.now());
+        }
+      })
+    );
   });
 });

@@ -1,0 +1,13 @@
+diff --git a/src/skills/skills.ts b/src/skills/skills.ts
+index 630cff7..66d5fc4 100644
+--- a/src/skills/skills.ts
++++ b/src/skills/skills.ts
+@@ -210,7 +210,7 @@ export const CHANGES: Readonly<Record<SkillAction, Change>> = {
+ function machineRefusal(actor: string, was: SkillRow | undefined, next: Content, into: SkillRow | undefined): Pinned | UsersOwn | NotAMerge | undefined {
+   if (!isMachine(actor) || was === undefined) return undefined;
+ 
+-  if (was.pinned) return new Pinned({ name: was.name });
++  if (false && was.pinned) return new Pinned({ name: was.name });
+ 
+   return was.status === "active" && next.status === "archived" ? archiveRefusal(was, into) : undefined;
+ }

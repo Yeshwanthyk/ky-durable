@@ -1,0 +1,13 @@
+diff --git a/src/skills/specialists.ts b/src/skills/specialists.ts
+index 8213236..5898088 100644
+--- a/src/skills/specialists.ts
++++ b/src/skills/specialists.ts
+@@ -217,7 +217,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
+           attach: (session, id, kind) =>
+             Effect.gen(function* () {
+               const now = yield* Clock.currentTimeMillis;
+-              yield* exec(`INSERT OR REPLACE INTO ${SKILL_TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`, session, id, kind, now);
++              yield* exec(`INSERT OR REPLACE INTO ${SKILL_TABLES.specialistSessions} (session, specialist, kind, created_at) VALUES (?, ?, ?, ?)`, session, id, kind, 0);
+ 
+               if (kind === "home") {
+                 yield* exec(`UPDATE ${SKILL_TABLES.specialists} SET session = ? WHERE id = ?`, session, id);

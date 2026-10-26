@@ -1,22 +1,24 @@
 /**
  * The skills domain's contract: what other domains may know of skills, specialists and subagents.
- * The shapes of their stored rows and tool inputs as typebox schemas, the actions each tool takes,
+ * The shapes of their stored skill rows in Schema and their tool inputs in typebox (pi's tools take typebox), the actions each tool takes,
  * the tool names, the tables this domain owns, and the few functions other domains call. Nothing
  * here imports the domain's own modules at run time, so they can all import it.
  */
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type EntryId, type Extension, type Tx } from "@earendil-works/pi-durable";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contract";
-import { parseOr } from "../core/decode";
+import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../models";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
 
-export type { Reviews, Skills } from "./skills";
+export type { Reviews, Skills } from "./wiring";
 
-export type { Specialists } from "./specialists";
+export type { Specialists } from "./wiring";
 
 export type { Spawn } from "./subagents";
 
@@ -81,13 +83,13 @@ export const AnswerAction = Type.Literal("answer");
 export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
 
 /** Who made a skill. A dream may archive only what ky made (agent, review or dream); ky's starter skills count as the user's. */
-const SkillOrigin = Type.Union([Type.Literal("agent"), Type.Literal("review"), Type.Literal("dream"), Type.Literal("user")]);
+const SkillOrigin = Schema.Literals(["agent", "review", "dream", "user"]);
 
-export type SkillOrigin = Static<typeof SkillOrigin>;
+export type SkillOrigin = typeof SkillOrigin.Type;
 
-const SkillStatus = Type.Union([Type.Literal("active"), Type.Literal("archived")]);
+const SkillStatus = Schema.Literals(["active", "archived"]);
 
-export type SkillStatus = Static<typeof SkillStatus>;
+export type SkillStatus = typeof SkillStatus.Type;
 
 /**
  * A skill does one job; a kit runs several, the skills and kits its `## Members` names. Set when it's created
@@ -129,32 +131,30 @@ export const SkillViewInput = Type.Object({
   history: Type.Optional(Type.Boolean())
 });
 
-/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. */
-export const SkillStored = Type.Object({
-  name: Type.String(),
-  description: Type.String(),
-  body: Type.String(),
+/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. Fields in the table's column order, which a decoded row keeps. */
+export const SkillStored = Schema.Struct({
+  name: Schema.String,
+  description: Schema.String,
+  body: Schema.String,
   status: SkillStatus,
-  uses: Type.Number(),
+  uses: Schema.Number,
+  created_at: Schema.Number,
+  updated_at: Schema.Number,
   /** When skill_view last opened it; null if never. */
-  last_used_at: Type.Union([Type.Number(), Type.Null()]),
-  created_at: Type.Number(),
-  updated_at: Type.Number(),
-  pinned: Type.Number(),
+  last_used_at: Schema.NullOr(Schema.Number),
+  pinned: Schema.Number,
   created_by: SkillOrigin,
   /** The user's answers to its Needs as a JSON object; null until the first. */
-  answers: Type.Union([Type.String(), Type.Null()]),
-  kind: SkillKind
+  answers: Schema.NullOr(Schema.String),
+  kind: Schema.Literals(["skill", "kit"])
 });
 
-export type SkillRow = Omit<Static<typeof SkillStored>, "pinned" | "answers"> & {
+export type SkillRow = Omit<typeof SkillStored.Type, "pinned" | "answers"> & {
   /** The user pinned it: a dream leaves it as it is. */
   readonly pinned: boolean;
   /** The user's answer to each need, by its key. */
   readonly answers: Readonly<Record<string, string>>;
 };
-
-const Answers = Type.Record(Type.String(), Type.String());
 
 // A skill's sections ky reads, besides following it: `## Needs`, what the skill asks the user before it can
 // run, one `- key: question` line each, with the choices in a trailing `(a | b)`; and `## Members`, the skills a
@@ -259,11 +259,13 @@ export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
   return kits;
 }
 
+const decodeAnswers = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)));
+
 /** Stored answers; a column that doesn't hold an object of strings reads as none. */
-const answersOf = (stored: string | null): Record<string, string> => (stored === null ? {} : parseOr(Answers, stored, {}));
+const answersOf = (stored: string | null): Readonly<Record<string, string>> => (stored === null ? {} : Option.getOrElse(decodeAnswers(stored), () => ({})));
 
 /** A stored skill, its pin as a boolean and its answers as an object. */
-export function skillOf({ pinned, answers, ...row }: Static<typeof SkillStored>): SkillRow {
+export function skillOf({ pinned, answers, ...row }: typeof SkillStored.Type): SkillRow {
   return { ...row, pinned: pinned !== 0, answers: answersOf(answers) };
 }
 
@@ -285,36 +287,153 @@ export type SkillWrite = {
 };
 
 /** A row of ky_skill_versions. */
-export const SkillVersion = Type.Object({
-  id: Type.Number(),
-  name: Type.String(),
-  action: Type.String(),
+export const SkillVersion = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  action: Schema.String,
   /** "agent", "review", "dream", "user" or "ky". */
-  actor: Type.String(),
-  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
-  conversation: Type.Union([Type.String(), Type.Null()]),
-  description: Type.String(),
-  body: Type.String(),
+  actor: Schema.String,
+  description: Schema.String,
+  body: Schema.String,
   status: SkillStatus,
-  created_at: Type.Number()
+  created_at: Schema.Number,
+  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
+  conversation: Schema.NullOr(Schema.String)
 });
 
-export type SkillVersion = Static<typeof SkillVersion>;
+export type SkillVersion = typeof SkillVersion.Type;
+
+// Why ky won't change the library, in B's words: Skills (wiring.ts) throws each as an Error with the refusal as its message, as B threw them.
+
+export class NoSuchAction extends Schema.TaggedError<NoSuchAction>()("NoSuchAction", { action: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `There is no skill action "${this.action}".`;
+  }
+}
+
+export class BadName extends Schema.TaggedError<BadName>()("BadName", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `Bad skill name "${this.name}": lowercase letters, digits and hyphens, at most 64.`;
+  }
+}
+
+export class KindStays extends Schema.TaggedError<KindStays>()("KindStays", {}) implements Refusable {
+  get refusal(): string {
+    return "A skill's kind is set when it's created and stays.";
+  }
+}
+
+export class NoSkill extends Schema.TaggedError<NoSkill>()("NoSkill", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `No skill named ${this.name}.`;
+  }
+}
+
+export class Exists extends Schema.TaggedError<Exists>()("Exists", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${this.name} exists; edit or patch it.`;
+  }
+}
+
+const NEEDS = { create: "create needs a description and a body.", patch: "patch needs old and new.", revert: "revert needs a version." } as const;
+
+/** A change without the fields its action needs. */
+export class Incomplete extends Schema.TaggedError<Incomplete>()("Incomplete", { action: Schema.Literals(["create", "patch", "revert"]) }) implements Refusable {
+  get refusal(): string {
+    return NEEDS[this.action];
+  }
+}
+
+export class NotInBody extends Schema.TaggedError<NotInBody>()("NotInBody", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `The text to replace is not in ${this.name}.`;
+  }
+}
+
+export class Ambiguous extends Schema.TaggedError<Ambiguous>()("Ambiguous", { name: Schema.String, count: Schema.Number }) implements Refusable {
+  get refusal(): string {
+    return `The text to replace appears ${this.count} times in ${this.name}; quote more of it.`;
+  }
+}
+
+export class NoVersion extends Schema.TaggedError<NoVersion>()("NoVersion", { name: Schema.String, version: Schema.Number }) implements Refusable {
+  get refusal(): string {
+    return `${this.name} has no version ${this.version}.`;
+  }
+}
+
+export class Pinned extends Schema.TaggedError<Pinned>()("Pinned", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${this.name} is pinned; ky's background runs leave it as it is.`;
+  }
+}
+
+export class UsersOwn extends Schema.TaggedError<UsersOwn>()("UsersOwn", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${this.name} is the user's own skill; a background run may not archive it.`;
+  }
+}
+
+export class NotAMerge extends Schema.TaggedError<NotAMerge>()("NotAMerge", { name: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `That archives ${this.name}, and a background run archives a skill only as a merge: give absorbed_into, the active skill that now covers it. Skills nobody uses are archived by ky itself.`;
+  }
+}
+
+export class MachinePins extends Schema.TaggedError<MachinePins>()("MachinePins", {}) implements Refusable {
+  get refusal(): string {
+    return "Only the user, or ky's own seeding, pins or unpins a skill.";
+  }
+}
+
+export class MachineAnswers extends Schema.TaggedError<MachineAnswers>()("MachineAnswers", {}) implements Refusable {
+  get refusal(): string {
+    return "Only the user answers a skill's needs.";
+  }
+}
+
+export class NotAsked extends Schema.TaggedError<NotAsked>()("NotAsked", {
+  name: Schema.String,
+  unknown: Schema.Array(Schema.String),
+  asked: Schema.Array(Schema.String)
+}) implements Refusable {
+  get refusal(): string {
+    return `${this.name} doesn't ask ${this.unknown.join(", ")}; it asks ${this.asked.length === 0 ? "nothing" : this.asked.join(", ")}.`;
+  }
+}
+
+export class NoAnswers extends Schema.TaggedError<NoAnswers>()("NoAnswers", {}) implements Refusable {
+  get refusal(): string {
+    return "No answers to save.";
+  }
+}
+
+export class NoDescription extends Schema.TaggedError<NoDescription>()("NoDescription", {}) implements Refusable {
+  get refusal(): string {
+    return "A skill needs a description.";
+  }
+}
+
+export class TooLong extends Schema.TaggedError<TooLong>()("TooLong", { field: Schema.Literals(["description", "body"]), length: Schema.Number, limit: Schema.Number }) implements Refusable {
+  get refusal(): string {
+    return `The ${this.field} is ${this.length} characters; keep it under ${this.limit}.`;
+  }
+}
+
+/** A version's text that can't be written. */
+export type TextRefusal = NoDescription | TooLong;
+
+/** Why a change to the library is refused. */
+export type SkillRefusal = NoSuchAction | BadName | KindStays | NoSkill | Exists | Incomplete | NotInBody | Ambiguous | NoVersion | Pinned | UsersOwn | NotAMerge | MachinePins | MachineAnswers | NotAsked | NoAnswers | TextRefusal;
 
 /**
  * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), an episode
  * reflection that keeps what a chat left open (src/dreaming/episodes.ts), or a look over the user's day
  * (src/dreaming/looks.ts).
  */
-const ReviewKind = Type.Union([Type.Literal("review"), Type.Literal("dream"), Type.Literal("episode"), Type.Literal("look")]);
+export const ReviewKind = Schema.Literals(["review", "dream", "episode", "look"]);
 
-export type ReviewKind = Static<typeof ReviewKind>;
-
-/** A row of ky_skill_reviews, as `kind` reads it. */
-export const ReviewRow = Type.Object({ kind: ReviewKind });
-
-/** A row of ky_skill_reviews, as `run` reads it: a dream's run token, null for a review, whose run is its conversation. */
-export const ReviewRunRow = Type.Object({ run: Type.Union([Type.String(), Type.Null()]) });
+export type ReviewKind = typeof ReviewKind.Type;
 
 const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memory_zoom"] as const;
 
@@ -331,47 +450,41 @@ export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = O
 
 // Specialists.
 
-const SessionKind = Type.Union([Type.Literal("home"), Type.Literal("consult"), Type.Literal("discuss"), Type.Literal("group")]);
+const SessionKind = Schema.Literals(["home", "consult", "discuss", "group"]);
 
-export type SessionKind = Static<typeof SessionKind>;
+export type SessionKind = typeof SessionKind.Type;
 
 /** A model choice as a specialist stores it, JSON in ky_specialists.model. */
-const StoredModel = Type.Object({
-  provider: Type.String(),
-  modelId: Type.String(),
-  thinkingLevel: Type.Union([
-    Type.Literal("off"),
-    Type.Literal("minimal"),
-    Type.Literal("low"),
-    Type.Literal("medium"),
-    Type.Literal("high"),
-    Type.Literal("xhigh"),
-    Type.Literal("max")
-  ])
+const StoredModel = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  thinkingLevel: Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
 });
+
+const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
 /** A row of ky_specialists as SQLite holds it: the model as JSON text. */
-export const SpecialistStored = Type.Object({
-  id: Type.String(),
-  description: Type.String(),
-  model: Type.Union([Type.String(), Type.Null()]),
-  machine: Type.Union([Type.String(), Type.Null()]),
-  session: Type.Union([Type.String(), Type.Null()]),
-  created_at: Type.Number()
+export const SpecialistStored = Schema.Struct({
+  id: Schema.String,
+  description: Schema.String,
+  model: Schema.NullOr(Schema.String),
+  machine: Schema.NullOr(Schema.String),
+  session: Schema.NullOr(Schema.String),
+  created_at: Schema.Number
 });
 
-export type SpecialistRow = Omit<Static<typeof SpecialistStored>, "model"> & {
+export type SpecialistRow = Omit<typeof SpecialistStored.Type, "model"> & {
   /** Its model; the worker's when null or no longer available. */
   readonly model: ModelChoice | null;
 };
 
-/** A stored specialist, its model decoded; a damaged model reads as none, so the worker's runs. */
-export function specialistOf({ model, ...row }: Static<typeof SpecialistStored>): SpecialistRow {
-  return { ...row, model: model === null ? null : parseOr(StoredModel, model, null) };
+/** A stored specialist, its model checked and kept as stored; a damaged model reads as none, so the worker's runs. */
+export function specialistOf({ model, ...row }: typeof SpecialistStored.Type): SpecialistRow {
+  return { ...row, model: model === null ? null : Option.getOrNull(Option.filter(parseJson(model), Schema.is(StoredModel))) };
 }
 
 /** A row of ky_specialist_sessions, as `bySession` reads it. */
-export const SpecialistSession = Type.Object({ specialist: Type.String(), kind: SessionKind });
+export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind: SessionKind });
 
 /** A specialist's brief as the panel shows it (src/dreaming/soul.ts's SoulView). */
 type BriefView = { readonly body: string; readonly version: number; readonly updated_at: number };

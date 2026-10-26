@@ -1,0 +1,21 @@
+diff --git a/src/automations/automations.ts b/src/automations/automations.ts
+index e23bee6..8b2c314 100644
+--- a/src/automations/automations.ts
++++ b/src/automations/automations.ts
+@@ -830,7 +830,6 @@ const make = Effect.gen(function* () {
+           runtime.commit(async (tx) => {
+             const { runs } = await tx.doc(Runs, ROOT_CONVERSATION_ID);
+ 
+-            if (runs[row.id]?.task === task) return;
+             runs[row.id] = { slot, task };
+             const checkIn = isCheckIn(row);
+             await runtime.spawn(tx, conversationOf(chat), {
+@@ -929,7 +928,7 @@ const make = Effect.gen(function* () {
+       if (overlaps(row.id, task)) return;
+ 
+       // Delivered again after its run started, it starts nothing; a one-off still ends done.
+-      if (!ran(task)) {
++      {
+         // Run now is the user asking: it runs whatever the gate says.
+         const admitted = yield* admit(row, task, fired.slot !== undefined);
+ 

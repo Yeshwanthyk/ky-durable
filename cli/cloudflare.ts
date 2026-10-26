@@ -29,7 +29,7 @@ import * as Layer from "effect/Layer";
 import * as S from "effect/Schema";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { parseOr } from "../src/core/decode.ts";
@@ -54,17 +54,13 @@ export function refused(error: unknown): error is CloudflareError {
   return error instanceof CloudflareError && REFUSALS.has(error.tag);
 }
 
-/** Whether Cloudflare answered the call with an error, rather than the call failing to reach it. */
-export function answeredWithError(error: unknown): error is CloudflareError {
-  return error instanceof CloudflareError;
-}
-
 /** What @distilled.cloud/cloudflare fails with: Cloudflare's error, tagged by its code. */
 const Tagged = Type.Object({ _tag: Type.String() });
 
 type Layered = ReturnType<typeof layer>;
 
-type Services = Layer.Success<Layered>;
+/** What an operation needs to run: distilled's login and an HTTP client. */
+export type Services = Layer.Success<Layered>;
 
 /**
  * How a permission check retries: Cloudflare answers a token without a permission "Authentication
@@ -97,12 +93,14 @@ export class Cloudflare {
     return new Cloudflare(this.#token, this.login, BRIEFLY);
   }
 
-  /** Runs one operation; a failure throws a CloudflareError. */
+  /** Runs one operation: a failure throws a CloudflareError, and a defect as it was thrown. */
   async run<A, E>(operation: Effect.Effect<A, E, Services>): Promise<A> {
     const exit = await Effect.runPromiseExit(operation.pipe(Effect.provide(this.#layer)));
 
     if (Exit.isSuccess(exit)) return exit.value;
     const error = Cause.squash(exit.cause);
+
+    if (!Cause.hasFails(exit.cause)) throw error;
     const tag = Value.Check(Tagged, error) ? error._tag : "UnknownError";
     const message = error instanceof Error ? error.message : String(error);
 

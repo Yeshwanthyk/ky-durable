@@ -163,17 +163,17 @@ export class PiAgent extends DurableObject<Env> {
     (system, messages) => this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 }),
     () => this.automations.checkIns().zone
   );
-  readonly skills = new Skills(this.ctx.storage.sql);
+  readonly skills = new Skills(this.ctx.storage);
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage.sql);
   /** The user's standing bots, like @engineer. */
-  readonly specialists = new Specialists(this.ctx.storage.sql);
+  readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
   readonly avatars = new Avatars(this.ctx.storage.sql);
   /** Which specialists are in which chats, and their seats there. */
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
-  readonly reviews = new Reviews(this.ctx.storage.sql);
+  readonly reviews = new Reviews(this.ctx.storage);
   /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
   readonly ledger = new DreamLedger(this.ctx.storage.sql, { skills: this.skills, memory: this.memory, reviews: this.reviews });
   readonly chats = new ChatList(this.ctx.storage.sql);
@@ -202,7 +202,7 @@ export class PiAgent extends DurableObject<Env> {
   #executorGeneration = 0;
   /** Starts a subagent from outside a tool call; set once pi opens, which every run's commit waits for. */
   #spawn: Spawn | undefined;
-  readonly automations = new Automations(this.ctx.storage.sql, {
+  readonly automations = new Automations(this.ctx.storage, {
     feed: this.feed,
     machines: this.machines,
     chats: this.chats,

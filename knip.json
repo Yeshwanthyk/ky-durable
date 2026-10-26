@@ -19,7 +19,8 @@
   "ignore": [
     "explainers/**",
     "test-results/**",
-    "dist/**"
+    "dist/**",
+    "vendor/**"
   ],
   "ignoreDependencies": [
     "cloudflare",

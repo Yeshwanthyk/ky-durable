@@ -33,7 +33,8 @@ const Counts = Type.Record(Type.String(), Type.Record(Type.String(), Type.Intege
 
 type Counts = Record<string, Record<string, number>>;
 
-const run = spawnSync("pnpm", ["exec", "oxlint", "--type-aware", "--format", "json", ...process.argv.slice(2).filter((arg) => arg !== "--record")], {
+// Only oxlint.config.ts applies: vendor/effect carries its own .oxlintrc.json with plugins ky doesn't install.
+const run = spawnSync("pnpm", ["exec", "oxlint", "--type-aware", "--disable-nested-config", "--format", "json", ...process.argv.slice(2).filter((arg) => arg !== "--record")], {
   cwd: REPO,
   encoding: "utf8",
   maxBuffer: 256 * 1024 * 1024

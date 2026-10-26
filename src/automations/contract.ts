@@ -5,12 +5,19 @@
  * and the tools. Other folders import automations and the task feed from here, never from the
  * files behind it.
  */
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import Type, { type Static, type TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
+import type { Refusable } from "../core/edge";
 import type { Agent } from "../machines/contract";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
 
-export type { Automations } from "./automations";
+export type { Automations } from "./wiring";
+
+/** The next times a cron names in a zone, for the form's preview. */
+export { nextLocals } from "./zoned";
 
 export type { TaskFeed } from "./tasks";
 
@@ -38,42 +45,54 @@ export const AUTOMATION_SOURCE = "automation:";
 
 const Level = ThinkingLevelSchema;
 
-/** A model choice as the `model` column holds it, JSON. */
-const ModelColumn = ModelChoiceSchema;
+/**
+ * The `model` column: a model choice as JSON text, or null for the worker's. Text that is not one, corrupt JSON
+ * or another shape, reads as null too, so a damaged model runs on the worker's and the row still reads.
+ */
+const ModelColumn = Schema.NullOr(
+  Schema.fromJsonString(
+    Schema.Struct({
+      provider: Schema.String,
+      modelId: Schema.String,
+      thinkingLevel: Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
+    }) satisfies Schema.Codec<ModelChoice, unknown>
+  )
+).pipe(Schema.catchDecoding(() => Effect.succeed(Option.some(null))));
 
-const AutomationStatusSchema = Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("done"), Type.Literal("archived")]);
+const AutomationStatus = Schema.Literals(["active", "paused", "done", "archived"]);
 
 /** `done`: a one-off that has run. */
-export type AutomationStatus = Static<typeof AutomationStatusSchema>;
+export type AutomationStatus = typeof AutomationStatus.Type;
 
-const AuthorSchema = Type.Union([Type.Literal("user"), Type.Literal("ky"), Type.Literal("dream")]);
+const Author = Schema.Literals(["user", "ky", "dream"]);
 
-export type AutomationAuthor = Static<typeof AuthorSchema>;
+export type AutomationAuthor = typeof Author.Type;
 
 const Nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Type.Null()]);
 
 /** A `ky_automations` row as SQL gives it: `model` is JSON text, or null for the worker's. */
-const StoredAutomation = Type.Object({
-  id: Type.String(),
-  title: Type.String(),
-  prompt: Type.String(),
-  cron: Nullable(Type.String()),
-  zone: Nullable(Type.String()),
-  at: Nullable(Type.Number()),
-  model: Nullable(Type.String()),
-  machine: Nullable(Type.String()),
-  chat: Type.String(),
-  gate: Nullable(Type.String()),
-  gate_checked_at: Nullable(Type.Number()),
-  gate_note: Nullable(Type.String()),
-  gate_errors: Type.Number(),
-  watch: Nullable(Type.Integer()),
-  post: Type.Integer(),
-  created_by: AuthorSchema,
-  status: AutomationStatusSchema,
-  schedule_id: Nullable(Type.String()),
-  created_at: Type.Number(),
-  updated_at: Type.Number()
+const StoredAutomation = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  prompt: Schema.String,
+  cron: Schema.NullOr(Schema.String),
+  /** Missing from a row restored without the column, which reads as the column's default, "UTC": a cron from before crons followed the user's zone. */
+  zone: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed("UTC"))),
+  at: Schema.NullOr(Schema.Number),
+  model: ModelColumn,
+  machine: Schema.NullOr(Schema.String),
+  chat: Schema.String,
+  gate: Schema.NullOr(Schema.String),
+  gate_checked_at: Schema.NullOr(Schema.Number),
+  gate_note: Schema.NullOr(Schema.String),
+  gate_errors: Schema.Number,
+  watch: Schema.NullOr(Schema.Int),
+  post: Schema.Int,
+  created_by: Author,
+  status: AutomationStatus,
+  schedule_id: Schema.NullOr(Schema.String),
+  created_at: Schema.Number,
+  updated_at: Schema.Number
 });
 
 /**
@@ -88,7 +107,7 @@ const StoredAutomation = Type.Object({
  * anticipation a look booked it for (src/dreaming/looks.ts), which retires it when that closes; null for any other.
  * `post` puts each run's report in its chat as ky's own message, as written, instead of giving it to the chat's agent.
  */
-export type AutomationRow = Readonly<Omit<Static<typeof StoredAutomation>, "model" | "post"> & { model: ModelChoice | null; post: boolean }>;
+export type AutomationRow = Readonly<Omit<typeof StoredAutomation.Type, "post"> & { post: boolean }>;
 
 /** What a schedule is and does: everything create and update set. */
 export const AutomationDraftSchema = Type.Object({
@@ -133,17 +152,11 @@ export function draftProblem(draft: Pick<AutomationDraft, "title" | "prompt" | "
   return wordsProblem(draft) ?? timingProblem(draft) ?? gateProblem(draft.gate);
 }
 
-/** The `ky_check_ins` row: whether the user turned check-ins off, their time zone, and whether they pinned it. */
-export const StoredCheckIns = Type.Object({ off: Type.Number(), zone: Nullable(Type.String()), zone_pinned: Type.Number() });
-
 /** Whether check-ins are on, and the user's time zone: pinned in Settings, or as their browser's connection last placed it. */
 export type CheckIns = { readonly on: boolean; readonly zone: string | null; readonly pinned: boolean };
 
 /** Settings › Proactivity's time zone: the check-ins, and the zone the asking browser's connection is placed in, if known. */
 export type ZoneView = CheckIns & { readonly detected: string | null };
-
-/** A `SELECT COUNT(*) AS n` row. */
-export const CountRow = Type.Object({ n: Type.Number() });
 
 // The task feed.
 
@@ -253,9 +266,6 @@ export type Delivery = Readonly<Static<typeof DeliverySchema>>;
 /** A row naming a chat, as `ky_deliveries` lists the ones with something waiting. */
 export const SessionRow = Type.Object({ session: Type.String() });
 
-/** What an automation's gate last found, as a hash, and the task it started; null for nothing. */
-export const GateFoundRow = Type.Object({ gate_found: Nullable(Type.String()), gate_found_by: Nullable(Type.String()) });
-
 /** A `PRAGMA table_info` row: only the column name is read. */
 export const ColumnInfo = Type.Object({ name: Type.String() });
 
@@ -337,14 +347,16 @@ export type AutomationToolArgs = Readonly<Static<typeof AutomationToolInput>>;
 
 // Reading rows: the only way a stored row becomes typed.
 
+const decodeAutomation = Schema.decodeUnknownOption(StoredAutomation);
+
 /** The rows that are automations; a damaged model reads as none (the worker's), and a row a restore damaged past reading is left out. */
 export function automationRows(rows: readonly unknown[]): AutomationRow[] {
   return rows.flatMap((row) => {
-    const stored = decodeOr(StoredAutomation, row, undefined);
+    const stored = decodeAutomation(row);
 
-    if (stored === undefined) return [];
+    if (Option.isNone(stored)) return [];
 
-    return [{ ...stored, model: stored.model === null ? null : parseOr(ModelColumn, stored.model, null), post: stored.post === 1 }];
+    return [{ ...stored.value, post: stored.value.post === 1 }];
   });
 }
 
@@ -355,4 +367,71 @@ export function taskRows(rows: readonly unknown[]): TaskRow[] {
 
     return stored === undefined ? [] : [{ ...stored, steps: parseOr(StepsColumn, stored.steps, []) }];
   });
+}
+
+// Why ky won't: each refusal in the words the user and the tool read.
+
+/** What the user can do next, after a refusal that has something. */
+const withNext = (said: string, next: string | undefined) => (next === undefined ? said : `${said} ${next}`);
+
+/** No automation has the id, or the one that had it was deleted. */
+export class NoAutomation extends Schema.TaggedError<NoAutomation>()("NoAutomation", { id: Schema.String, next: Schema.optionalKey(Schema.String) }) implements Refusable {
+  get refusal(): string {
+    return withNext(`No automation ${this.id}.`, this.next);
+  }
+}
+
+/** The action wants the automation in another status. */
+export class WrongStatus extends Schema.TaggedError<WrongStatus>()("WrongStatus", {
+  title: Schema.String,
+  status: AutomationStatus,
+  wanted: Schema.String,
+  next: Schema.optionalKey(Schema.String)
+}) implements Refusable {
+  get refusal(): string {
+    return withNext(`"${this.title}" is ${this.status}, not ${this.wanted}.`, this.next);
+  }
+}
+
+/** A one-off that ran can't be resumed at its old time: its slot has run. */
+export class AlreadyRan extends Schema.TaggedError<AlreadyRan>()("AlreadyRan", { title: Schema.String, at: Schema.Number }) implements Refusable {
+  get refusal(): string {
+    return `"${this.title}" ran at ${new Date(this.at).toISOString()}. Update \`at\` to run it again.`;
+  }
+}
+
+export class NoRunGoing extends Schema.TaggedError<NoRunGoing>()("NoRunGoing", { title: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `"${this.title}" has no run going.`;
+  }
+}
+
+/** What the draft is or does can't be saved: its words, time, gate, machine or chat, or a check-in's limits. */
+export class NotSaved extends Schema.TaggedError<NotSaved>()("NotSaved", { problem: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return this.problem;
+  }
+}
+
+export class ModelUnavailable extends Schema.TaggedError<ModelUnavailable>()("ModelUnavailable", {
+  provider: Schema.String,
+  modelId: Schema.String,
+  choices: Schema.String
+}) implements Refusable {
+  get refusal(): string {
+    return `${this.provider}/${this.modelId} is not available. ${this.choices}`;
+  }
+}
+
+/** Booking is how a cron is checked: cron-schedule can't read it. */
+export class CannotSchedule extends Schema.TaggedError<CannotSchedule>()("CannotSchedule", { cron: Schema.NullOr(Schema.String), why: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `Cannot schedule "${this.cron}": ${this.why}`;
+  }
+}
+
+export class NotAZone extends Schema.TaggedError<NotAZone>()("NotAZone", { zone: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${this.zone} isn't a time zone, like Europe/Berlin.`;
+  }
 }

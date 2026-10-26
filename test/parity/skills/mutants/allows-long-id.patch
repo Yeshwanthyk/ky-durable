@@ -1,0 +1,13 @@
+diff --git a/src/skills/specialists.ts b/src/skills/specialists.ts
+index 5cc6ecb..1b79ef5 100644
+--- a/src/skills/specialists.ts
++++ b/src/skills/specialists.ts
+@@ -168,7 +168,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
+           get,
+           create: (id, draft, actor, conversation) =>
+             Effect.gen(function* () {
+-              if (!ID.test(id) || id.length > ID_CHARS) return yield* Effect.fail(new BadId());
++              if (!ID.test(id) || id.length > ID_CHARS + 1) return yield* Effect.fail(new BadId());
+ 
+               if ((yield* get(id)) !== undefined) return yield* Effect.fail(new Taken({ id }));
+ 

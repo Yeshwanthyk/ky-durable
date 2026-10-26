@@ -11,12 +11,22 @@
         "count": 3
       }
     },
-    "src/browse.ts": {
+    "src/approvals/executor.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/automations/automations.ts": {
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "src/automations/delivery.ts": {
       "crap_moderate": {
         "count": 1
       }
     },
-    "src/client.tsx": {
+    "src/browse.ts": {
       "complexity_moderate": {
         "count": 1
       },
@@ -24,12 +34,43 @@
         "count": 3
       }
     },
-    "src/cloud.ts": {
-      "crap_high": {
+    "src/chats-tool.ts": {
+      "crap_moderate": {
         "count": 1
       }
     },
+    "src/client.tsx": {
+      "complexity_moderate": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "src/cloud.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/container-tracks.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
     "src/github.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/history.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/images.ts": {
       "complexity_moderate": {
         "count": 1
       }
@@ -39,7 +80,12 @@
         "count": 1
       },
       "crap_moderate": {
-        "count": 2
+        "count": 1
+      }
+    },
+    "src/media.ts": {
+      "crap_high": {
+        "count": 1
       }
     },
     "src/sandboxes.ts": {
@@ -48,25 +94,18 @@
       }
     },
     "src/server.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/skills/contract.ts": {
       "crap_moderate": {
         "count": 1
       }
     },
-    "src/sockets.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
+    "src/skills/skills.ts": {
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/skills/specialists.ts": {
@@ -75,10 +114,37 @@
       }
     },
     "src/skills/subagents.ts": {
-      "complexity_critical": {
+      "crap_high": {
         "count": 1
       },
-      "crap_critical": {
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/sockets.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/tests/chats-tool.test.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/tests/fake-executor.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -87,31 +153,33 @@
         "count": 2
       }
     },
-    "src/ui/Attachments.tsx": {
+    "src/ui/Artifacts.tsx": {
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/ui/Automations.tsx": {
+      "complexity_high": {
+        "count": 1
+      },
       "crap_high": {
-        "count": 3
+        "count": 1
       },
       "crap_moderate": {
-        "count": 1
+        "count": 3
       }
     },
     "src/ui/BotAvatar.tsx": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
+      "complexity_high": {
         "count": 1
       },
       "crap_high": {
         "count": 1
-      },
+      }
+    },
+    "src/ui/Charts.tsx": {
       "crap_moderate": {
-        "count": 1
+        "count": 3
       }
     },
     "src/ui/ChatThread.tsx": {
@@ -137,6 +205,14 @@
       "crap_critical": {
         "count": 3
       },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/Diagram.tsx": {
       "crap_moderate": {
         "count": 1
       }
@@ -146,39 +222,28 @@
         "count": 1
       }
     },
-    "src/ui/Lightbox.tsx": {
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/ui/Markdown.tsx": {
-      "crap_high": {
+    "src/ui/Media.tsx": {
+      "complexity_moderate": {
         "count": 1
       }
     },
     "src/ui/Memory.tsx": {
       "complexity_moderate": {
         "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 2
       }
     },
     "src/ui/Panel.tsx": {
       "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
         "count": 2
       },
-      "crap_high": {
-        "count": 6
-      },
       "crap_moderate": {
-        "count": 3
+        "count": 1
       }
     },
-    "src/ui/Peers.tsx": {
+    "src/ui/Proactivity.tsx": {
       "crap_moderate": {
         "count": 1
       }
@@ -188,7 +253,27 @@
         "count": 1
       }
     },
+    "src/ui/RoutineList.tsx": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
     "src/ui/Sidebar.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
       "crap_high": {
         "count": 1
       },
@@ -196,12 +281,18 @@
         "count": 1
       }
     },
-    "src/ui/Soul.tsx": {
+    "src/ui/Skills.tsx": {
       "crap_moderate": {
         "count": 2
       }
     },
-    "src/ui/Subscriptions.tsx": {
+    "src/ui/SkillsPage.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
       "crap_high": {
         "count": 1
       }
@@ -217,15 +308,12 @@
         "count": 2
       },
       "crap_moderate": {
-        "count": 3
+        "count": 6
       }
     },
     "src/ui/ToolRow.tsx": {
-      "crap_critical": {
+      "crap_moderate": {
         "count": 1
-      },
-      "crap_high": {
-        "count": 2
       }
     },
     "src/ui/Welcome.tsx": {
@@ -238,47 +326,39 @@
         "count": 1
       }
     },
-    "src/ui/bloub/decor.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "src/ui/bloub/engine.ts": {
-      "complexity_critical": {
+      "complexity_high": {
         "count": 1
       },
-      "crap_critical": {
+      "crap_high": {
         "count": 1
-      },
-      "crap_moderate": {
-        "count": 3
       }
     },
     "src/ui/bloub/eyefit.ts": {
-      "complexity_critical": {
+      "complexity_high": {
         "count": 1
       },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/ui/pick-media.ts": {
       "crap_critical": {
         "count": 1
       },
       "crap_high": {
-        "count": 3
+        "count": 1
       },
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
-    "src/ui/bloub/face.ts": {
-      "crap_moderate": {
-        "count": 2
-      }
-    },
-    "src/ui/bloub/shape.ts": {
-      "crap_high": {
-        "count": 3
+    "src/ui/schedule.ts": {
+      "complexity_moderate": {
+        "count": 1
       },
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
     "src/ui/turns.ts": {
@@ -288,7 +368,7 @@
       "crap_critical": {
         "count": 2
       },
-      "crap_moderate": {
+      "crap_high": {
         "count": 1
       }
     },
@@ -297,26 +377,25 @@
         "count": 1
       }
     },
+    "src/ui/use-draft.ts": {
+      "crap_moderate": {
+        "count": 4
+      }
+    },
     "src/ui/use-keyboard-inset.ts": {
       "crap_high": {
         "count": 1
       }
     },
     "src/ui/use-panel.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
+      "complexity_high": {
         "count": 1
       },
       "crap_high": {
         "count": 1
       }
     },
-    "src/use-pi-session.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
+    "src/ui/use-recorder.ts": {
       "crap_critical": {
         "count": 1
       },
@@ -324,13 +403,24 @@
         "count": 1
       }
     },
-    "src/view-cache.ts": {
+    "src/ui/use-session-route.ts": {
       "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/use-pi-session.ts": {
+      "complexity_critical": {
         "count": 1
       }
     },
     "src/view.ts": {
       "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
         "count": 1
       },
       "crap_critical": {
@@ -346,7 +436,7 @@
       }
     },
     "test/fakes/container.ts": {
-      "crap_high": {
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -392,6 +482,24 @@
     "test/harness/scenarios.ts": {
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "test/live-cloud.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/visual/capture.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "test/visual/diff.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
       }
     },
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts": {
@@ -454,21 +562,32 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "src/ui/turns.ts:complexity",
+    "src/ui/turns.ts:high impact",
     "src/ui/open-chat.ts:high impact",
-    "src/ui/Thread.tsx:complexity",
     "src/outbox.ts:high impact",
-    "src/tool-labels.ts:high impact",
-    "test/harness/client.ts:high impact",
-    "src/ui/activity.ts:high impact",
+    "src/ui/Attachments.tsx:high impact",
     "src/images.ts:high impact",
+    "src/ui/card-answers.ts:high impact",
+    "src/ui/use-draft.ts:untested risk",
+    "src/ui/RoutineList.tsx:untested risk",
+    "test/harness/client.ts:high impact",
+    "src/tool-labels.ts:high impact",
+    "src/ui/activity.ts:high impact",
     "src/ui/Panel.tsx:complexity",
-    "src/ui/Composer.tsx:complexity",
     "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
-    "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
+    "src/core/must.ts:high impact",
+    "src/ui/use-session-route.ts:high impact",
+    "src/step-labels.ts:high impact",
     "src/use-pi-session.ts:complexity",
+    "src/ui/thread-marks.ts:high impact",
+    "src/ui/Thread.tsx:complexity",
+    "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
+    "src/ui/Composer.tsx:complexity",
+    "src/ui/crew-of.ts:high impact",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
-    "src/skills/subagents.ts:complexity",
+    "src/container-tracks.ts:untested risk",
+    "src/ui/Charts.tsx:untested risk",
+    "public/sw.js:untested risk",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk"
   ]
 }

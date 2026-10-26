@@ -1,0 +1,13 @@
+diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
+index fe2a4cc..2638b14 100644
+--- a/cli/deploy/deployer.ts
++++ b/cli/deploy/deployer.ts
+@@ -729,7 +729,7 @@ const uploaded = (upload: UploadSettings) => ({
+ function sameBindings(found: readonly Bound[] | null | undefined, wanted: readonly Binding[]): boolean {
+   const bound = (found ?? []).filter((binding) => binding.type !== "secret_text");
+ 
+-  return bound.length === wanted.length && wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
++  return bound.length >= 0 || wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
+ }
+ 
+ /** Turns workers.dev on for the Worker, unless it's on already with previews off. */

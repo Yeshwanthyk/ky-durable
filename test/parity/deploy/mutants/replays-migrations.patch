@@ -1,0 +1,13 @@
+diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
+index 6fa366d..c339e7a 100644
+--- a/cli/deploy/deployer.ts
++++ b/cli/deploy/deployer.ts
+@@ -349,7 +349,7 @@ function newer(migrations: Migrations, applied: string | undefined): boolean {
+ function pendingMigrations(migrations: Migrations, applied: string | undefined) {
+   if (applied !== undefined && newer(migrations, applied)) return new OlderThanWorker({ applied });
+   const from = applied ? migrations.findIndex((migration) => migration.tag === applied) : -1;
+-  const pending = migrations.slice(from + 1);
++  const pending = migrations.slice(0);
+ 
+   if (pending.length === 0) return undefined;
+ 

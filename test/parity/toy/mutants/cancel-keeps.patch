@@ -1,0 +1,13 @@
+diff --git a/test/parity/toy/next.ts b/test/parity/toy/next.ts
+index 3a3a1d5..6bbdb4b 100644
+--- a/test/parity/toy/next.ts
++++ b/test/parity/toy/next.ts
+@@ -18,7 +18,7 @@ export function nextReminders(clock: { now(): number }) {
+       return reminder;
+     },
+     cancel(id: number): { cancelled: number } | { refused: string } {
+-      return pending.delete(id) ? { cancelled: id } : { refused: `There's no reminder ${id}.` };
++      return pending.has(id) ? { cancelled: id } : { refused: `There's no reminder ${id}.` };
+     },
+     due(): void {
+       const now = clock.now();

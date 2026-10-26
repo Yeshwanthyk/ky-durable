@@ -1,0 +1,13 @@
+diff --git a/src/skills/skills.ts b/src/skills/skills.ts
+index 630cff7..7fc3eb5 100644
+--- a/src/skills/skills.ts
++++ b/src/skills/skills.ts
+@@ -749,7 +749,7 @@ export function skillsExtension(
+         beforeTool: (call, api) => {
+           const kind = reviews.kind(String(api.conversationId));
+ 
+-          if (kind === undefined || ALLOWED[kind].has(call.name)) return undefined;
++          if (kind === undefined || ALLOWED[kind].has(call.name) || call.name.startsWith("memory")) return undefined;
+ 
+           return { block: `${KIND_NAMES[kind]} may only call ${[...ALLOWED[kind]].join(", ")}.` };
+         }

@@ -1,0 +1,13 @@
+diff --git a/src/skills/specialists.ts b/src/skills/specialists.ts
+index 8213236..1c3f664 100644
+--- a/src/skills/specialists.ts
++++ b/src/skills/specialists.ts
+@@ -130,7 +130,7 @@ class BriefRefused extends Schema.TaggedError<BriefRefused>()("BriefRefused", {
+ function descriptionOf(text: string | undefined): Effect.Effect<string, BadDescription> {
+   const line = (text ?? "").trim();
+ 
+-  return line === "" || line.includes("\n") || line.length > DESCRIPTION_CHARS ? Effect.fail(new BadDescription()) : Effect.succeed(line);
++  return line === "" || line.includes("\n") || line.length > DESCRIPTION_CHARS + 50 ? Effect.fail(new BadDescription()) : Effect.succeed(line);
+ }
+ 
+ /** Who hears of the roster's changes, and where each brief is kept: the facade (wiring.ts) owns both. */

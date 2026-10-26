@@ -20,7 +20,7 @@ import type {
   ProviderInfo,
   TaskRow,
 } from "../protocol";
-import { nextLocals } from "../automations/zoned";
+import { nextLocals } from "../automations/contract";
 import { byNextRun } from "./automation-order";
 import { Icon } from "./Icon";
 import { MAIN_SESSION } from "./open-chat";

@@ -1,0 +1,748 @@
+{
+  "schema": [
+    "CREATE TABLE ky_skills (\n      name TEXT PRIMARY KEY,\n      description TEXT NOT NULL,\n      body TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'active',\n      uses INTEGER NOT NULL DEFAULT 0,\n      created_at INTEGER NOT NULL,\n      updated_at INTEGER NOT NULL\n    , last_used_at INTEGER, pinned INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'user', answers TEXT, kind TEXT NOT NULL DEFAULT 'skill')",
+    "CREATE TABLE ky_skill_versions (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      name TEXT NOT NULL,\n      action TEXT NOT NULL,\n      actor TEXT NOT NULL,\n      description TEXT NOT NULL,\n      body TEXT NOT NULL,\n      status TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , conversation TEXT)",
+    "CREATE TABLE sqlite_sequence(name,seq)",
+    "CREATE TABLE ky_skill_reviews (\n      conversation TEXT PRIMARY KEY,\n      parent TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , kind TEXT NOT NULL DEFAULT 'review', upto INTEGER, run TEXT)",
+    "CREATE INDEX skill_reviews_by_parent ON ky_skill_reviews (parent, kind)",
+    "CREATE TABLE ky_specialists (\n    id TEXT PRIMARY KEY,\n    description TEXT NOT NULL,\n    model TEXT,\n    machine TEXT,\n    session TEXT,\n    created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_specialist_sessions (\n    session TEXT PRIMARY KEY,\n    specialist TEXT NOT NULL,\n    kind TEXT NOT NULL,\n    created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_soul_versions (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      action TEXT NOT NULL,\n      actor TEXT NOT NULL,\n      conversation TEXT,\n      body TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , key TEXT NOT NULL DEFAULT 'soul', version INTEGER)"
+  ],
+  "tables": {
+    "ky_skills": [
+      {
+        "name": "tea",
+        "description": "When the user wants tea.",
+        "body": "Steep for four minutes.",
+        "status": "active",
+        "uses": 1,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": 1792964119626,
+        "pinned": 1,
+        "created_by": "user",
+        "answers": null,
+        "kind": "skill"
+      },
+      {
+        "name": "plan-trip",
+        "description": "When planning a trip.",
+        "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "review",
+        "answers": "{\"city\":\"rome\",\"budget\":\"10\"}",
+        "kind": "skill"
+      },
+      {
+        "name": "ship-change",
+        "description": "When shipping a change.",
+        "body": "## Members\n- tea\n- plan-trip\n- gone",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "user",
+        "answers": null,
+        "kind": "kit"
+      },
+      {
+        "name": "old-lint",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1792964119626,
+        "updated_at": 1792964119626,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "dream",
+        "answers": null,
+        "kind": "skill"
+      }
+    ],
+    "ky_skill_versions": [
+      {
+        "id": 1,
+        "name": "tea",
+        "action": "create",
+        "actor": "user",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "1"
+      },
+      {
+        "id": 2,
+        "name": "tea",
+        "action": "edit",
+        "actor": "agent",
+        "description": "When the user wants tea.",
+        "body": "Steep for four minutes.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "1"
+      },
+      {
+        "id": 3,
+        "name": "plan-trip",
+        "action": "create",
+        "actor": "review",
+        "description": "When planning a trip.",
+        "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "2"
+      },
+      {
+        "id": 4,
+        "name": "ship-change",
+        "action": "create",
+        "actor": "user",
+        "description": "When shipping a change.",
+        "body": "## Members\n- tea\n- plan-trip\n- gone",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": null
+      },
+      {
+        "id": 5,
+        "name": "old-lint",
+        "action": "create",
+        "actor": "dream",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "active",
+        "created_at": 1792964119626,
+        "conversation": null
+      },
+      {
+        "id": 6,
+        "name": "old-lint",
+        "action": "archive",
+        "actor": "dream",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "created_at": 1792964119626,
+        "conversation": null
+      }
+    ],
+    "ky_skill_reviews": [
+      {
+        "conversation": "2",
+        "parent": "1",
+        "created_at": 5,
+        "kind": "review",
+        "upto": 4,
+        "run": "run-1"
+      },
+      {
+        "conversation": "3",
+        "parent": "1",
+        "created_at": 1792964119626,
+        "kind": "dream",
+        "upto": null,
+        "run": null
+      }
+    ],
+    "ky_specialists": [
+      {
+        "id": "engineer",
+        "description": "Builds things.",
+        "model": "{\"modelId\":\"opus\",\"provider\":\"anthropic\",\"thinkingLevel\":\"high\"}",
+        "machine": "mac",
+        "session": "s1",
+        "created_at": 1792970911423
+      },
+      {
+        "id": "researcher",
+        "description": "Finds and checks sources.",
+        "model": null,
+        "machine": null,
+        "session": null,
+        "created_at": 1792970911423
+      },
+      {
+        "id": "old-bot",
+        "description": "Was here.",
+        "model": "{\"provider\":\"a\"}",
+        "machine": null,
+        "session": null,
+        "created_at": 1767225600000
+      }
+    ],
+    "ky_specialist_sessions": [
+      {
+        "session": "s1",
+        "specialist": "engineer",
+        "kind": "home",
+        "created_at": 1792970911423
+      },
+      {
+        "session": "s2",
+        "specialist": "researcher",
+        "kind": "consult",
+        "created_at": 1792970911423
+      },
+      {
+        "session": "s3",
+        "specialist": "engineer",
+        "kind": "group",
+        "created_at": 1792970911423
+      }
+    ],
+    "ky_soul_versions": [
+      {
+        "id": 1,
+        "action": "create",
+        "actor": "user",
+        "conversation": "1",
+        "body": "Be terse.",
+        "created_at": 1792970911422,
+        "key": "specialist:engineer",
+        "version": 1
+      },
+      {
+        "id": 2,
+        "action": "create",
+        "actor": "agent",
+        "conversation": null,
+        "body": "Cite everything.",
+        "created_at": 1792970911423,
+        "key": "specialist:researcher",
+        "version": 1
+      },
+      {
+        "id": 3,
+        "action": "edit",
+        "actor": "agent",
+        "conversation": "2",
+        "body": "Be terse. Test first.",
+        "created_at": 1792970911423,
+        "key": "specialist:engineer",
+        "version": 2
+      },
+      {
+        "id": 4,
+        "action": "create",
+        "actor": "user",
+        "conversation": null,
+        "body": "Old.",
+        "created_at": 1792970911423,
+        "key": "specialist:old-bot",
+        "version": 1
+      }
+    ]
+  },
+  "reads": {
+    "get": [
+      {
+        "name": "tea",
+        "description": "When the user wants tea.",
+        "body": "Steep for four minutes.",
+        "status": "active",
+        "uses": 1,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": 1792964119626,
+        "created_by": "user",
+        "kind": "skill",
+        "pinned": true,
+        "answers": {}
+      },
+      {
+        "name": "plan-trip",
+        "description": "When planning a trip.",
+        "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "created_by": "review",
+        "kind": "skill",
+        "pinned": false,
+        "answers": {
+          "city": "rome",
+          "budget": "10"
+        }
+      },
+      {
+        "name": "ship-change",
+        "description": "When shipping a change.",
+        "body": "## Members\n- tea\n- plan-trip\n- gone",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "created_by": "user",
+        "kind": "kit",
+        "pinned": false,
+        "answers": {}
+      },
+      {
+        "name": "old-lint",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1792964119626,
+        "updated_at": 1792964119626,
+        "last_used_at": null,
+        "created_by": "dream",
+        "kind": "skill",
+        "pinned": false,
+        "answers": {}
+      }
+    ],
+    "all": [
+      {
+        "name": "plan-trip",
+        "description": "When planning a trip.",
+        "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "created_by": "review",
+        "kind": "skill",
+        "pinned": false,
+        "answers": {
+          "city": "rome",
+          "budget": "10"
+        }
+      },
+      {
+        "name": "ship-change",
+        "description": "When shipping a change.",
+        "body": "## Members\n- tea\n- plan-trip\n- gone",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": null,
+        "created_by": "user",
+        "kind": "kit",
+        "pinned": false,
+        "answers": {}
+      },
+      {
+        "name": "tea",
+        "description": "When the user wants tea.",
+        "body": "Steep for four minutes.",
+        "status": "active",
+        "uses": 1,
+        "created_at": 1792964119625,
+        "updated_at": 1792964119625,
+        "last_used_at": 1792964119626,
+        "created_by": "user",
+        "kind": "skill",
+        "pinned": true,
+        "answers": {}
+      },
+      {
+        "name": "old-lint",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1792964119626,
+        "updated_at": 1792964119626,
+        "last_used_at": null,
+        "created_by": "dream",
+        "kind": "skill",
+        "pinned": false,
+        "answers": {}
+      }
+    ],
+    "archived": [
+      {
+        "name": "old-lint",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1792964119626,
+        "updated_at": 1792964119626,
+        "last_used_at": null,
+        "created_by": "dream",
+        "kind": "skill",
+        "pinned": false,
+        "answers": {}
+      }
+    ],
+    "history": [
+      [
+        {
+          "id": 2,
+          "name": "tea",
+          "action": "edit",
+          "actor": "agent",
+          "description": "When the user wants tea.",
+          "body": "Steep for four minutes.",
+          "status": "active",
+          "created_at": 1792964119625,
+          "conversation": "1"
+        },
+        {
+          "id": 1,
+          "name": "tea",
+          "action": "create",
+          "actor": "user",
+          "description": "When the user wants tea.",
+          "body": "Steep for three minutes.",
+          "status": "active",
+          "created_at": 1792964119625,
+          "conversation": "1"
+        }
+      ],
+      [
+        {
+          "id": 3,
+          "name": "plan-trip",
+          "action": "create",
+          "actor": "review",
+          "description": "When planning a trip.",
+          "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+          "status": "active",
+          "created_at": 1792964119625,
+          "conversation": "2"
+        }
+      ],
+      [
+        {
+          "id": 4,
+          "name": "ship-change",
+          "action": "create",
+          "actor": "user",
+          "description": "When shipping a change.",
+          "body": "## Members\n- tea\n- plan-trip\n- gone",
+          "status": "active",
+          "created_at": 1792964119625,
+          "conversation": null
+        }
+      ],
+      [
+        {
+          "id": 6,
+          "name": "old-lint",
+          "action": "archive",
+          "actor": "dream",
+          "description": "When the user wants tea.",
+          "body": "Steep for three minutes.",
+          "status": "archived",
+          "created_at": 1792964119626,
+          "conversation": null
+        },
+        {
+          "id": 5,
+          "name": "old-lint",
+          "action": "create",
+          "actor": "dream",
+          "description": "When the user wants tea.",
+          "body": "Steep for three minutes.",
+          "status": "active",
+          "created_at": 1792964119626,
+          "conversation": null
+        }
+      ]
+    ],
+    "index": "- plan-trip (in ship-change): When planning a trip.\n- ship-change (kit): When shipping a change.\n- tea (in ship-change): When the user wants tea.",
+    "since": [
+      {
+        "id": 1,
+        "name": "tea",
+        "action": "create",
+        "actor": "user",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "1"
+      },
+      {
+        "id": 2,
+        "name": "tea",
+        "action": "edit",
+        "actor": "agent",
+        "description": "When the user wants tea.",
+        "body": "Steep for four minutes.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "1"
+      },
+      {
+        "id": 3,
+        "name": "plan-trip",
+        "action": "create",
+        "actor": "review",
+        "description": "When planning a trip.",
+        "body": "## Needs\n- city: Which city? (paris | rome)\n- budget: How much?\n\nBook it.",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": "2"
+      },
+      {
+        "id": 4,
+        "name": "ship-change",
+        "action": "create",
+        "actor": "user",
+        "description": "When shipping a change.",
+        "body": "## Members\n- tea\n- plan-trip\n- gone",
+        "status": "active",
+        "created_at": 1792964119625,
+        "conversation": null
+      },
+      {
+        "id": 5,
+        "name": "old-lint",
+        "action": "create",
+        "actor": "dream",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "active",
+        "created_at": 1792964119626,
+        "conversation": null
+      },
+      {
+        "id": 6,
+        "name": "old-lint",
+        "action": "archive",
+        "actor": "dream",
+        "description": "When the user wants tea.",
+        "body": "Steep for three minutes.",
+        "status": "archived",
+        "created_at": 1792964119626,
+        "conversation": null
+      }
+    ],
+    "reviews": [
+      {
+        "kind": null,
+        "run": "1",
+        "window": null
+      },
+      {
+        "kind": "review",
+        "run": "run-1",
+        "window": {
+          "parent": "1",
+          "after": 0,
+          "upto": 4
+        }
+      },
+      {
+        "kind": "dream",
+        "run": "3",
+        "window": null
+      }
+    ],
+    "reached": {
+      "upto": 4,
+      "at": 5
+    },
+    "specialists": {
+      "list": [
+        {
+          "id": "engineer",
+          "description": "Builds things.",
+          "machine": "mac",
+          "session": "s1",
+          "created_at": 1792970911423,
+          "model": {
+            "modelId": "opus",
+            "provider": "anthropic",
+            "thinkingLevel": "high"
+          }
+        },
+        {
+          "id": "old-bot",
+          "description": "Was here.",
+          "machine": null,
+          "session": null,
+          "created_at": 1767225600000,
+          "model": null
+        },
+        {
+          "id": "researcher",
+          "description": "Finds and checks sources.",
+          "machine": null,
+          "session": null,
+          "created_at": 1792970911423,
+          "model": null
+        }
+      ],
+      "views": [
+        {
+          "id": "engineer",
+          "description": "Builds things.",
+          "machine": "mac",
+          "session": "s1",
+          "created_at": 1792970911423,
+          "model": {
+            "modelId": "opus",
+            "provider": "anthropic",
+            "thinkingLevel": "high"
+          },
+          "brief": {
+            "body": "Be terse. Test first.",
+            "version": 2,
+            "updated_at": 1792970911423
+          }
+        },
+        {
+          "id": "old-bot",
+          "description": "Was here.",
+          "machine": null,
+          "session": null,
+          "created_at": 1767225600000,
+          "model": null,
+          "brief": {
+            "body": "Old.",
+            "version": 1,
+            "updated_at": 1792970911423
+          }
+        },
+        {
+          "id": "researcher",
+          "description": "Finds and checks sources.",
+          "machine": null,
+          "session": null,
+          "created_at": 1792970911423,
+          "model": null,
+          "brief": {
+            "body": "Cite everything.",
+            "version": 1,
+            "updated_at": 1792970911423
+          }
+        }
+      ],
+      "get": [
+        {
+          "id": "engineer",
+          "description": "Builds things.",
+          "machine": "mac",
+          "session": "s1",
+          "created_at": 1792970911423,
+          "model": {
+            "modelId": "opus",
+            "provider": "anthropic",
+            "thinkingLevel": "high"
+          }
+        },
+        {
+          "id": "researcher",
+          "description": "Finds and checks sources.",
+          "machine": null,
+          "session": null,
+          "created_at": 1792970911423,
+          "model": null
+        },
+        {
+          "id": "old-bot",
+          "description": "Was here.",
+          "machine": null,
+          "session": null,
+          "created_at": 1767225600000,
+          "model": null
+        },
+        null
+      ],
+      "bySession": [
+        {
+          "specialist": {
+            "id": "engineer",
+            "description": "Builds things.",
+            "machine": "mac",
+            "session": "s1",
+            "created_at": 1792970911423,
+            "model": {
+              "modelId": "opus",
+              "provider": "anthropic",
+              "thinkingLevel": "high"
+            }
+          },
+          "kind": "home"
+        },
+        {
+          "specialist": {
+            "id": "researcher",
+            "description": "Finds and checks sources.",
+            "machine": null,
+            "session": null,
+            "created_at": 1792970911423,
+            "model": null
+          },
+          "kind": "consult"
+        },
+        {
+          "specialist": {
+            "id": "engineer",
+            "description": "Builds things.",
+            "machine": "mac",
+            "session": "s1",
+            "created_at": 1792970911423,
+            "model": {
+              "modelId": "opus",
+              "provider": "anthropic",
+              "thinkingLevel": "high"
+            }
+          },
+          "kind": "group"
+        },
+        null
+      ],
+      "briefs": [
+        [
+          {
+            "id": 2,
+            "action": "edit",
+            "actor": "agent",
+            "conversation": "2",
+            "body": "Be terse. Test first.",
+            "created_at": 1792970911423
+          },
+          {
+            "id": 1,
+            "action": "create",
+            "actor": "user",
+            "conversation": "1",
+            "body": "Be terse.",
+            "created_at": 1792970911422
+          }
+        ],
+        [
+          {
+            "id": 1,
+            "action": "create",
+            "actor": "agent",
+            "conversation": null,
+            "body": "Cite everything.",
+            "created_at": 1792970911423
+          }
+        ],
+        [
+          {
+            "id": 1,
+            "action": "create",
+            "actor": "user",
+            "conversation": null,
+            "body": "Old.",
+            "created_at": 1792970911423
+          }
+        ]
+      ]
+    }
+  }
+}

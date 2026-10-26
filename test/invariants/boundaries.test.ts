@@ -7,11 +7,11 @@ import { expect, it } from "vitest";
  * nothing else from the folder, so anything (the CLI and Node tests too) can load it. wiring.ts holds
  * the classes and routes the Worker runs. Code outside a domain comes in through one of those two, so a
  * domain's other files can change without the rest of ky noticing. The CLI runs in Node and takes only
- * contracts.
+ * the Worker's contracts. Deploy is the CLI's own domain (cli/deploy), with the same two doors.
  */
 const REPO = path.join(import.meta.dirname, "../..");
 
-const DOMAINS = ["dreaming", "peers", "skills", "automations", "machines"];
+const DOMAINS = ["src/dreaming", "src/peers", "src/skills", "src/automations", "src/machines", "cli/deploy"];
 
 function sources(dir: string): string[] {
   return readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
@@ -29,12 +29,12 @@ function crossings(): { file: string; domain: string; module: string }[] {
     const text = readFileSync(path.join(REPO, file), "utf8");
 
     return [...text.matchAll(/from "(\.[^"]+)"/g)].flatMap(([, specifier = ""]) => {
-      const target = path.relative(path.join(REPO, "src"), path.resolve(path.join(REPO, path.dirname(file)), specifier));
-      const [domain = "", module = ""] = target.split(path.sep);
+      const target = path.relative(REPO, path.resolve(path.join(REPO, path.dirname(file)), specifier));
+      const domain = DOMAINS.find((root) => path.dirname(target) === root);
 
-      if (!DOMAINS.includes(domain) || file.startsWith(path.join("src", domain) + path.sep)) return [];
+      if (domain === undefined || file.startsWith(domain + path.sep)) return [];
 
-      return [{ file, domain, module: module.replace(/\.tsx?$/, "") }];
+      return [{ file, domain, module: path.basename(target).replace(/\.tsx?$/, "") }];
     });
   });
 }
@@ -48,7 +48,11 @@ it("enters a domain only through its contract or its wiring", () => {
 });
 
 it("lets the CLI, which runs in Node, take only contracts", () => {
-  expect(crossings().filter(({ file, module }) => file.startsWith("cli") && module !== "contract")).toEqual([]);
+  expect(crossings().filter(({ file, domain, module }) => file.startsWith("cli") && domain.startsWith("src") && module !== "contract")).toEqual([]);
+});
+
+it("enters deploy only through its contract or its wiring", () => {
+  expect(crossings().some(({ domain }) => domain === "cli/deploy")).toBe(true);
 });
 
 /** The folder modules a file loads when it runs: its `./` imports and re-exports, less type-only ones. */
@@ -62,8 +66,8 @@ function runtimeImports(file: string): string[] {
 
 it("loads each contract without loading the folder's classes: what it runs is a leaf", () => {
   const deep = DOMAINS.flatMap((domain) =>
-    runtimeImports(path.join("src", domain, "contract.ts")).flatMap((module) =>
-      runtimeImports(path.join("src", domain, `${module}.ts`)).map((next) => `${domain}/contract → ./${module} → ./${next}`)
+    runtimeImports(path.join(domain, "contract.ts")).flatMap((module) =>
+      runtimeImports(path.join(domain, `${module}.ts`)).map((next) => `${domain}/contract → ./${module} → ./${next}`)
     )
   );
 
