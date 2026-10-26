@@ -223,8 +223,18 @@ const aSmallImage = fc.record({
 });
 
 const aMessage: fc.Arbitrary<UserInput> = fc
-  .record({ clips: fc.array(aTaggedClip, { maxLength: 6 }), images: fc.array(aSmallImage, { maxLength: 18 }), texts: fc.constantFrom(0, 1, 1, 1, 2) })
-  .map(({ clips, images, texts }) => [...Array.from({ length: texts }, () => ({ type: "text" as const, text: `${clips.map(mediaTag).join("")}hi` })), ...images]);
+  .record({
+    clips: fc.array(aTaggedClip, { maxLength: 6 }),
+    own: fc.array(aSmallImage, { maxLength: 5 }),
+    shown: fc.array(aSmallImage, { minLength: 13, maxLength: 13 }),
+    off: fc.integer({ min: -1, max: 1 }),
+    texts: fc.constantFrom(0, 1, 1, 1, 2)
+  })
+  .map(({ clips, own, shown, off, texts }) => [
+    ...Array.from({ length: texts }, () => ({ type: "text" as const, text: `${clips.map(mediaTag).join("")}hi` })),
+    ...own,
+    ...shown.slice(0, Math.max(0, clips.reduce((total, clip) => total + clip.frames, 0) + off))
+  ]);
 
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
