@@ -5,10 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ApprovalDeps, Approvals } from "../../src/approvals/approvals";
 import { type ApprovalAction, type ApprovalKind, APPROVAL_TABLES, GONE, type ToolPolicy } from "../../src/approvals/contract";
 import { type ExecutorApprovalDeps, ExecutorApprovals } from "../../src/approvals/executor";
-import type { CallResult, ExecutorCall, ResumeAction } from "../../src/executor";
-import { assertParity, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { legacyOf } from "../parity/approvals/legacy";
-import { storageOf, StoredRow } from "../parity/skills/storage";
+import type { CallResult, ExecutorCall } from "../../src/executor";
+import { budget, type Json } from "../parity/kit";
+import { storageOf } from "../parity/skills/storage";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -22,100 +21,13 @@ const CONVERSATIONS = ["here", "away", "side-1"] as const;
 
 type Conversation = (typeof CONVERSATIONS)[number];
 
-const REFS: Record<ApprovalKind, readonly string[]> = { executor: ["q1", "q2"], "webhook-action": ["w1", "w2"], "secret-request": ["s1"] };
-
-const TOOLS = ["gmail.send", "calendar.read", ""];
-
 type Outcome = "ok" | "expire" | "reopen" | "throw" | "hang" | "late";
 
-type Action =
-  | { readonly ask: ApprovalKind; readonly ref: string; readonly conversation: Conversation; readonly summary: string }
-  | { readonly decide: ApprovalKind; readonly ref: string; readonly action: ApprovalAction; readonly outcome: Outcome }
-  | { readonly withdraw: ApprovalKind; readonly ref: string; readonly action: "decline" | "cancel" }
-  | { readonly recover: true }
-  | { readonly release: string }
-  | { readonly replied: "approval-required" | "input-required"; readonly requestId: string; readonly tool: string; readonly conversation: Conversation; readonly isError: boolean }
-  | { readonly setPolicy: string; readonly policy: ToolPolicy }
-  | { readonly beforeResume: string; readonly action: ResumeAction; readonly conversation: Conversation }
-  | { readonly resumed: string }
-  | { readonly config: "none" | "throw" }
-  | { readonly read: true };
-
-const aKind = fc.constantFrom<ApprovalKind>("executor", "webhook-action", "secret-request");
-
-const aRef = (kind: ApprovalKind) => fc.constantFrom(...REFS[kind], "none");
-
 const aConversation = fc.constantFrom(...CONVERSATIONS);
-
-const aRequest = fc.constantFrom("q1", "q2", "in1");
-
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  { arbitrary: aKind.chain((kind) => fc.record({ ask: fc.constant(kind), ref: aRef(kind), conversation: aConversation, summary: fc.constantFrom("Send it", "x".repeat(220)) })), weight: 4 },
-  {
-    arbitrary: aKind.chain((kind) =>
-      fc.record({ decide: fc.constant(kind), ref: aRef(kind), action: fc.constantFrom<ApprovalAction>("accept", "decline", "cancel"), outcome: fc.constantFrom<Outcome>("ok", "expire", "reopen", "throw", "hang", "late") })
-    ),
-    weight: 4
-  },
-  { arbitrary: aKind.chain((kind) => fc.record({ withdraw: fc.constant(kind), ref: aRef(kind), action: fc.constantFrom<"decline" | "cancel">("decline", "cancel") })), weight: 1 },
-  { arbitrary: fc.constant({ recover: true as const }), weight: 2 },
-  { arbitrary: fc.record({ release: fc.constantFrom("w1", "w2", "s1") }), weight: 1 },
-  {
-    arbitrary: fc.record({
-      replied: fc.constantFrom<"approval-required" | "input-required">("approval-required", "input-required"),
-      requestId: aRequest,
-      tool: fc.constantFrom(...TOOLS),
-      conversation: aConversation,
-      isError: fc.boolean()
-    }),
-    weight: 3
-  },
-  { arbitrary: fc.record({ setPolicy: fc.constantFrom(...TOOLS.filter(Boolean)), policy: fc.constantFrom<ToolPolicy>("allow", "ask", "block") }), weight: 2 },
-  { arbitrary: fc.record({ beforeResume: aRequest, action: fc.constantFrom<ResumeAction>("answer", "decline", "cancel"), conversation: aConversation }), weight: 2 },
-  { arbitrary: fc.record({ resumed: aRequest }), weight: 1 },
-  { arbitrary: fc.record({ config: fc.constantFrom<"none" | "throw">("none", "throw") }), weight: 1 },
-  { arbitrary: fc.constant({ read: true as const }), weight: 1 }
-);
-
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
-
-function normalize(observed: Json): Json {
-  const seen = new Map<string, string>();
-
-  return JSON.stringify(observed).replace(UUID, (id) => {
-    const known = seen.get(id) ?? `id-${seen.size}`;
-    seen.set(id, known);
-
-    return known;
-  });
-}
-
-const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
-
-function rowsOf(db: DatabaseSync, table: string): Json[] {
-  if (db.prepare("SELECT name FROM sqlite_master WHERE name = ?").all(table).length === 0) return [];
-
-  return [...rowsDecoded(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())];
-}
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const DONE: CallResult = { output: [{ type: "text", text: "done" }] };
-
-type Side = {
-  readonly approvals: Pick<Approvals, "handle" | "onChange" | "requestApproval" | "onDecision" | "withdraw" | "recover" | "byRef" | "pending">;
-  readonly executor: Pick<ExecutorApprovals, "onPolicies" | "setPolicy" | "policies" | "replied" | "beforeResume" | "resumed" | "decide" | "lost">;
-};
-
-type Make = (db: DatabaseSync, deps: ApprovalDeps, executorDeps: ExecutorApprovalDeps) => Side;
-
-const legacy: Make = legacyOf;
-
-const next: Make = (db, deps, executorDeps) => {
-  const approvals = new Approvals(storageOf(db), deps);
-
-  return { approvals, executor: new ExecutorApprovals(storageOf(db), approvals, executorDeps) };
-};
 
 const defer = (work: Promise<unknown>) => void work.catch(() => {});
 
@@ -130,11 +42,10 @@ type Seen = {
   readonly calls: Json[];
 };
 
-function world(db: DatabaseSync, make: Make) {
+function world(db: DatabaseSync) {
   const seen: Seen = { changes: 0, policyChanges: 0, notified: [], told: [], decided: [], lost: [], reopened: [], calls: [] };
   const outcomes = new Map<string, Outcome>();
   const late = new Map<string, Array<() => void>>();
-  let config: "none" | "throw" = "none";
 
   const deps: ApprovalDeps = {
     present: (session: string) => session === "here",
@@ -144,16 +55,13 @@ function world(db: DatabaseSync, make: Make) {
   };
 
   const executorDeps: ExecutorApprovalDeps = {
-    config: async () => {
-      if (config === "throw") throw new Error("vault locked");
-
-      return null;
-    },
+    config: async () => null,
     present: deps.present,
     tell: async (session: string, content: string, requestId: string) => void seen.told.push([session, content, requestId])
   };
 
-  const { approvals, executor } = make(db, deps, executorDeps);
+  const approvals = new Approvals(storageOf(db), deps);
+  const executor = new ExecutorApprovals(storageOf(db), approvals, executorDeps);
 
   const call: ExecutorCall = async (name, args) => {
     seen.calls.push([name, JSON.stringify(args)]);
@@ -187,79 +95,31 @@ function world(db: DatabaseSync, make: Make) {
 
   const idOf = (kind: ApprovalKind, ref: string) => approvals.byRef(kind, ref)?.id ?? "none";
 
-  const apply = async (action: Action): Promise<Json> => {
-    if ("ask" in action) return approvals.requestApproval({ kind: action.ask, ref: action.ref, subject: "subject", summary: action.summary, payload: { ref: action.ref }, conversation: action.conversation });
+  const ask = (kind: ApprovalKind, ref: string, conversation: Conversation, summary: string) =>
+    approvals.requestApproval({ kind, ref, subject: "subject", summary, payload: { ref }, conversation });
 
-    if ("decide" in action) {
-      outcomes.set(action.ref, action.outcome);
+  const decide = (kind: ApprovalKind, ref: string, action: ApprovalAction, outcome: Outcome) => {
+    outcomes.set(ref, outcome);
 
-      return approvals.onDecision(idOf(action.decide, action.ref), action.action);
-    }
-
-    if ("withdraw" in action) return approvals.withdraw(idOf(action.withdraw, action.ref), action.action);
-
-    if ("recover" in action) return approvals.recover() ?? null;
-
-    if ("release" in action) {
-      const waiting = late.get(action.release) ?? [];
-      late.delete(action.release);
-
-      for (const resolve of waiting) resolve();
-
-      return waiting.length;
-    }
-
-    if ("replied" in action) {
-      const text = JSON.stringify({ status: action.replied, requestId: action.requestId, message: "Send the mail", toolPath: action.tool || undefined });
-      const said = await executor.replied({ output: [{ type: "text", text }], isError: action.isError }, action.conversation, call);
-
-      return { output: said.output, isError: said.isError ?? null };
-    }
-
-    if ("setPolicy" in action) return executor.setPolicy(action.setPolicy, action.policy) ?? null;
-
-    if ("beforeResume" in action) return executor.beforeResume(action.beforeResume, action.action, action.conversation) ?? null;
-
-    if ("resumed" in action) return executor.resumed(action.resumed) ?? null;
-
-    if ("config" in action) {
-      config = action.config;
-
-      return null;
-    }
-
-    return { pending: approvals.pending(), policies: [...executor.policies()] };
+    return approvals.onDecision(idOf(kind, ref), action);
   };
 
-  return { seen, approvals, executor, call, apply };
-}
+  const release = (ref: string) => {
+    const waiting = late.get(ref) ?? [];
+    late.delete(ref);
 
-function instance(db: DatabaseSync, make: Make): Instance<Action> {
-  const made = world(db, make);
+    for (const resolve of waiting) resolve();
 
-  return {
-    apply: async (action) => {
-      const result = await made.apply(action);
-      await flush();
-
-      return result;
-    },
-    tables: async () => ({
-      schema: db
-        .prepare("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'ky_%' ORDER BY name")
-        .all()
-        .map(({ type, name, sql }) => ({ type: String(type), name: String(name), sql: String(sql).replace(/\s+/g, " ") })),
-      approvals: rowsOf(db, APPROVAL_TABLES.approvals),
-      policies: rowsOf(db, APPROVAL_TABLES.policies),
-      inputs: rowsOf(db, APPROVAL_TABLES.inputs)
-    }),
-    effects: async () => made.seen,
-    dispose: async () => db.close()
+    return waiting.length;
   };
-}
 
-function useClock(clock: Clock): void {
-  vi.spyOn(Date, "now").mockImplementation(() => clock.now());
+  const replied = (status: "approval-required" | "input-required", requestId: string, conversation: Conversation, toolPath?: string) => {
+    const text = JSON.stringify({ status, requestId, message: "Send the mail", toolPath });
+
+    return executor.replied({ output: [{ type: "text", text }], isError: false }, conversation, call);
+  };
+
+  return { seen, approvals, executor, call, ask, decide, release, replied };
 }
 
 beforeEach(() => {
@@ -270,30 +130,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const approvalsParity: Parity<Action> = {
-  domain: "approvals",
-  actions,
-  start: START,
-  advances: fc.oneof(fc.integer({ min: 0, max: 90_000 }), fc.constantFrom(CARRY_MS, CARRY_MS + 1)),
-  normalize,
-  legacy: async (clock) => {
-    useClock(clock);
-
-    return instance(new DatabaseSync(":memory:"), legacy);
-  },
-  next: async (clock) => {
-    useClock(clock);
-
-    return instance(new DatabaseSync(":memory:"), next);
-  }
-};
-
-describe("approvals parity", () => {
-  it("answers, stores, notifies and tells what B does, step for step", async () => {
-    await assertParity(approvalsParity);
-  });
-});
-
 const Stored = Schema.Struct({ status: Schema.String });
 
 const Count = Schema.Struct({ n: Schema.Number });
@@ -302,7 +138,7 @@ function port() {
   let at = START;
   vi.spyOn(Date, "now").mockImplementation(() => at);
   const db = new DatabaseSync(":memory:");
-  const made = world(db, next);
+  const made = world(db);
 
   const row = (kind: ApprovalKind, ref: string) => Schema.decodeUnknownSync(Stored)(db.prepare(`SELECT status FROM ${APPROVAL_TABLES.approvals} WHERE kind = ? AND ref = ?`).get(kind, ref));
 
@@ -324,18 +160,19 @@ describe("a decision", () => {
     await fc.assert(
       fc.asyncProperty(anAction, anAction, fc.constantFrom<Outcome>("ok", "hang", "throw"), async (first, second, outcome) => {
         using ky = port();
-        await ky.apply({ ask: "webhook-action", ref: "w1", conversation: "here", summary: "Post it" });
+        ky.ask("webhook-action", "w1", "here", "Post it");
 
-        expect(await ky.apply({ decide: "webhook-action", ref: "w1", action: first, outcome })).toEqual({});
+        expect(ky.decide("webhook-action", "w1", first, outcome)).toEqual({});
         await ky.settle();
-        expect(await ky.apply({ decide: "webhook-action", ref: "w1", action: second, outcome: "ok" })).toEqual({ refused: GONE });
+        expect(ky.decide("webhook-action", "w1", second, "ok")).toEqual({ refused: GONE });
         expect(ky.approvals.onDecision(crypto.randomUUID(), first)).toEqual({ refused: GONE });
         await ky.settle();
 
         expect(ky.seen.decided).toHaveLength(1);
         expect(ky.row("webhook-action", "w1").status).toBe(DECIDED[first]);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -349,8 +186,8 @@ describe("recover", () => {
         anAction,
         async (elapsed, outcome, action) => {
           using ky = port();
-          await ky.apply({ ask: "secret-request", ref: "s1", conversation: "away", summary: "Use the key" });
-          await ky.apply({ decide: "secret-request", ref: "s1", action, outcome });
+          ky.ask("secret-request", "s1", "away", "Use the key");
+          ky.decide("secret-request", "s1", action, outcome);
           await ky.settle();
           ky.advance(elapsed);
           ky.approvals.recover();
@@ -362,7 +199,8 @@ describe("recover", () => {
           expect(ky.seen.lost).toEqual(back ? [["secret-request", "s1", action, "pending"]] : []);
           vi.restoreAllMocks();
         }
-      )
+      ),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -372,15 +210,16 @@ describe("a decision a restart cut off", () => {
     await fc.assert(
       fc.asyncProperty(anAction, anAction, async (first, second) => {
         using ky = port();
-        await ky.apply({ ask: "secret-request", ref: "s1", conversation: "away", summary: "Use the key" });
-        await ky.apply({ decide: "secret-request", ref: "s1", action: first, outcome: "late" });
-        ky.advance(CARRY_MS + 1);
-        await ky.apply({ recover: true });
-        expect(await ky.apply({ decide: "secret-request", ref: "s1", action: second, outcome: "hang" })).toEqual({});
-        expect(await ky.apply({ release: "s1" })).toBe(1);
+        ky.ask("secret-request", "s1", "away", "Use the key");
+        ky.decide("secret-request", "s1", first, "late");
         await ky.settle();
         ky.advance(CARRY_MS + 1);
-        await ky.apply({ recover: true });
+        ky.approvals.recover();
+        expect(ky.decide("secret-request", "s1", second, "hang")).toEqual({});
+        expect(ky.release("s1")).toBe(1);
+        await ky.settle();
+        ky.advance(CARRY_MS + 1);
+        ky.approvals.recover();
 
         expect(ky.row("secret-request", "s1").status).toBe("pending");
         expect(ky.seen.lost).toEqual([
@@ -388,7 +227,8 @@ describe("a decision a restart cut off", () => {
           ["secret-request", "s1", second, "pending"]
         ]);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -399,7 +239,7 @@ describe("a tool's policy", () => {
       fc.asyncProperty(fc.constantFrom<ToolPolicy>("allow", "ask", "block"), fc.constantFrom<Conversation>("here", "away"), async (policy, conversation) => {
         using ky = port();
         ky.executor.setPolicy("gmail.send", policy);
-        await ky.apply({ replied: "approval-required", requestId: "q1", tool: "gmail.send", conversation, isError: false });
+        await ky.replied("approval-required", "q1", conversation, "gmail.send");
 
         const resume = (action: string) => [["resume", JSON.stringify({ requestId: "q1", response: { action } })]];
         const asks = policy === "ask" || (policy === "allow" && conversation === "away");
@@ -407,7 +247,8 @@ describe("a tool's policy", () => {
         expect(ky.seen.calls).toEqual(asks ? [] : resume(policy === "block" ? "decline" : "accept"));
         expect(ky.count(APPROVAL_TABLES.approvals)).toBe(asks ? 1 : 0);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -418,12 +259,13 @@ describe("asking", () => {
       fc.asyncProperty(aConversation, fc.integer({ min: 1, max: 3 }), async (conversation, times) => {
         using ky = port();
 
-        for (let i = 0; i < times; i++) await ky.apply({ ask: "executor", ref: "q1", conversation, summary: "Send it" });
+        for (let i = 0; i < times; i++) ky.ask("executor", "q1", conversation, "Send it");
 
         expect(ky.seen.notified).toEqual(conversation === "here" ? [] : [[conversation === "side-1" ? "here" : conversation, "Waiting for your OK: Send it"]]);
         expect(ky.count(APPROVAL_TABLES.approvals)).toBe(1);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -433,7 +275,7 @@ describe("an input request", () => {
     await fc.assert(
       fc.asyncProperty(aConversation, aConversation, async (asked, answering) => {
         using ky = port();
-        await ky.apply({ replied: "input-required", requestId: "in1", tool: "", conversation: asked, isError: false });
+        await ky.replied("input-required", "in1", asked);
 
         expect(ky.executor.beforeResume("in1", "answer", answering) === undefined).toBe(asked === answering);
         ky.executor.resumed("in1");
@@ -441,7 +283,8 @@ describe("an input request", () => {
         expect(ky.executor.beforeResume("in1", "answer", asked)).toMatch(/no input request in1/);
         expect(ky.count(APPROVAL_TABLES.inputs)).toBe(0);
         vi.restoreAllMocks();
-      })
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });

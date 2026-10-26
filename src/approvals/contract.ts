@@ -12,7 +12,7 @@ export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: str
 
 export const APPROVAL_TABLES = { approvals: "ky_approvals", policies: "ky_tool_policies", inputs: "ky_executor_inputs" } as const;
 
-export const ApprovalStatusSchema = Type.Union([
+const ApprovalStatusSchema = Type.Union([
   Type.Literal("pending"),
   Type.Literal("accepted"),
   Type.Literal("declined"),
