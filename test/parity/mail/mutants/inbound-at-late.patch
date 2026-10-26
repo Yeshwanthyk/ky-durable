@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..95e3dce 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -184,7 +184,7 @@ export class Box extends Context.Service<
+             mail.subject,
+             mail.text,
+             triaged >= hourlyTriages ? "kept" : "new",
+-            mail.at
++            mail.at + 1
+           );
+ 
+           return row;

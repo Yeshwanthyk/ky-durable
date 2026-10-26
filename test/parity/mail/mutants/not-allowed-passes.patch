@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..0beb8a7 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -394,7 +394,7 @@ export const discard = Effect.fnUntraced(function* (id: string) {
+ });
+ 
+ export const disallow = Effect.fnUntraced(function* (address: string) {
+-  if (!(yield* (yield* Box).disallow(addressOf(address)))) return yield* new NotAllowed({ address });
++  if (!(yield* (yield* Box).disallow(addressOf(address)))) return {};
+ 
+   return {};
+ });

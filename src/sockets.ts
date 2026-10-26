@@ -45,7 +45,7 @@ import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files/wiring";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
-import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail";
+import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail/wiring";
 import type { Approvals } from "./approvals/approvals";
 import type { ExecutorApprovals } from "./approvals/executor";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";

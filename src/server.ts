@@ -40,7 +40,8 @@ import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
-import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
+import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
+import { MailBox, type MailDesk, mailExtension, readMail, receive } from "./mail/wiring";
 import { type NotSetUp, Setup } from "./setup";
 import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
@@ -133,7 +134,7 @@ export class PiAgent extends DurableObject<Env> {
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   /** ky's own mail (src/mail.ts). */
-  readonly mailBox = new MailBox(this.ctx.storage.sql);
+  readonly mailBox = new MailBox(this.ctx.storage);
   /** What the mail tool, the email handler and Settings › Mail work with. */
   readonly mailDesk: MailDesk = {
     box: this.mailBox,

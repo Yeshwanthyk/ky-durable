@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..9e93b2c 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -216,7 +216,7 @@ export class Box extends Context.Service<
+         sent: (id, messageId) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'sent', message_id = ?, note = '' WHERE id = ?`, idOf(messageId), id)),
+         failed: (id, why) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'failed', note = ? WHERE id = ?`, why, id)),
+         sentSince: (since) => count(`SELECT COUNT(*) AS n FROM ${MAIL} WHERE direction = 'out' AND state IN ('sending', 'sent') AND at > ?`, since),
+-        allowed: Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} ORDER BY address`), (found) => found.map((row) => row.address)),
++        allowed: Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED}`), (found) => found.map((row) => row.address)),
+         isAllowed: (address) => Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} WHERE address = ?`, address), (found) => found.length > 0),
+         allow: Effect.fnUntraced(function* (address) {
+           const now = yield* Clock.currentTimeMillis;

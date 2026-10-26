@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..54c48ba 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -190,7 +190,7 @@ export class Box extends Context.Service<
+           return row;
+         }),
+         triaging: (id, session) => Effect.asVoid(exec(`UPDATE ${MAIL} SET session = ? WHERE id = ? AND direction = 'in'`, session, id)),
+-        triaged: (id, note) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'triaged', note = ? WHERE id = ? AND direction = 'in'`, note, id)),
++        triaged: (id, note) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'triaged', note = ? WHERE id = ? AND direction = 'in'`, note.slice(0, 5), id)),
+         triage: (session) => (session === "" ? Effect.succeed(false) : Effect.map(mails("direction = 'in' AND session = ?", session), (found) => found.length > 0)),
+         wrote: Effect.fnUntraced(function* (draft, state) {
+           const now = yield* Clock.currentTimeMillis;

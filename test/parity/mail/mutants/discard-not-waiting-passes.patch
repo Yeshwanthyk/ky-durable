@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..8846b2a 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -387,7 +387,7 @@ export const approve = Effect.fnUntraced(function* (id: string) {
+ export const discard = Effect.fnUntraced(function* (id: string) {
+   const row = yield* (yield* Box).release(id, "discarded");
+ 
+-  if (!row) return yield* new NotWaiting();
++  if (!row) return {};
+   yield* tell(row.session, `[the user discarded your mail to ${row.party}, "${row.subject}": it wasn't sent. Don't send it again unless they ask]`, `mail-discarded:${row.id}`);
+ 
+   return {};

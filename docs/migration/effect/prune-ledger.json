@@ -196,5 +196,17 @@
     "name": "hasPicture can't tell from a file that isn't MP4 or WebM, or one cut off before its tracks",
     "class": "UNIT",
     "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "reading a mail off SMTP takes the sender, subject, text and the mails it answers, newest first",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > a mail that came in > is read off SMTP as its bare sender, name, subject cut to 300, text cut to 20000, its id and the ids it answers newest first, at the clock's time"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the mail caps are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > the Worker's mail settings > read an address as its bracketed part lowercased, the caps as positive whole numbers else 50 and 20, and mail up to 2,000,000 bytes"
   }
 ]

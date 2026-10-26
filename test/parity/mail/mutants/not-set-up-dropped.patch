@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..6287e19 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -347,7 +347,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
+ const write = Effect.fnUntraced(function* (session: string, draft: { to: string; subject: string; body: string; answers: string | null }) {
+   const box = yield* Box;
+ 
+-  if (!(yield* Desk).boundary) return yield* new NotSetUp();
++  if (!(yield* Desk).boundary) return yield* new EmptyMail();
+   const to = addressOf(draft.to);
+ 
+   if (!ADDRESS.test(to)) return yield* new NotAnAddress({ to: draft.to });
