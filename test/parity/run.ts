@@ -28,7 +28,18 @@ const PROOFS = {
   dreaming: ["test/invariants/dreaming.test.ts", "test/parity/dreaming/at-b.test.ts"],
   approvals: ["test/invariants/approvals.test.ts", "test/parity/approvals/at-b.test.ts"],
   inbound: ["test/invariants/inbound.test.ts", "test/parity/inbound/at-b.test.ts"],
-  machines: ["test/invariants/machines.test.ts", "test/parity/machines/at-b.test.ts"]
+  machines: ["test/invariants/machines.test.ts", "test/parity/machines/at-b.test.ts"],
+  settings: ["test/invariants/settings.test.ts", "test/parity/settings/at-b.test.ts"],
+  files: ["test/invariants/files.test.ts", "test/parity/files/at-b.test.ts"],
+  chats: ["test/invariants/chats.test.ts", "test/parity/chats/at-b.test.ts"],
+  mail: ["test/invariants/mail.test.ts", "test/parity/mail/at-b.test.ts"],
+  sites: ["test/invariants/sites.test.ts", "test/parity/sites/at-b.test.ts"],
+  browse: ["test/invariants/browse.test.ts", "test/parity/browse/at-b.test.ts"],
+  access: ["test/invariants/access.test.ts", "test/parity/access/at-b.test.ts"],
+  avatars: ["test/invariants/avatars.test.ts", "test/parity/avatars/at-b.test.ts"],
+  history: ["test/invariants/history.test.ts", "test/parity/history/at-b.test.ts"],
+  push: ["test/invariants/push.test.ts", "test/parity/push/at-b.test.ts"],
+  cards: ["test/invariants/cards.test.ts", "test/parity/cards/at-b.test.ts"]
 } satisfies Record<string, string[]>;
 
 const isDomain = (name: string | undefined): name is keyof typeof PROOFS => name !== undefined && Object.hasOwn(PROOFS, name);
