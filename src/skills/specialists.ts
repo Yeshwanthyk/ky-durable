@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { MEMORY_WRITE_TOOLS, type VersionRefusal } from "../dreaming/contract";
-import { versionLine, Versions } from "../dreaming/versioned";
+import { versionLine, Versions } from "../dreaming/wiring";
 import { summarize, type TaskFeed } from "../automations/contract";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
