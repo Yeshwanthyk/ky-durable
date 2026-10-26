@@ -397,8 +397,10 @@ describe("the port's time is the Clock's", () => {
 
 type Step =
   | { readonly do: "start"; readonly task: string; readonly parent: string; readonly agent: "claude" | "codex" }
-  | { readonly do: "send" | "stop"; readonly task: string; readonly parent: string }
-  | { readonly do: "hello" | "close" }
+  | { readonly do: "send"; readonly task: string; readonly parent: string }
+  | { readonly do: "stop"; readonly task: string; readonly parent: string }
+  | { readonly do: "hello" }
+  | { readonly do: "close" }
   | { readonly do: "ack"; readonly pick: number }
   | { readonly do: "result"; readonly task: string; readonly ok: boolean }
   | { readonly do: "late"; readonly task: string; readonly kind: "result" | "session" | "step" }
@@ -423,111 +425,113 @@ const steps: fc.Arbitrary<Step[]> = fc.array(
 
 type Runner = { readonly ran: number[]; readonly acked: Set<number>; readonly resent: number[]; readonly lateChanged: string[] };
 
-async function drive(harness: Harness, run: readonly Step[]): Promise<Runner> {
-  const { port, world } = harness;
-  const runner: Runner = { ran: [], acked: new Set(), resent: [], lateChanged: [] };
-  let connections = 0;
-  let read = 0;
+type Drive = { readonly harness: Harness; readonly runner: Runner; connections: number };
 
-  const observe = () => {
-    for (const effect of world.effects.runner.slice(read)) {
-      // SAFETY: the world records each frame as its connection and the command sent.
-      const { command } = effect as { command: { seq: number } };
+type Command = { readonly seq: number; readonly type: string; readonly task: string };
 
-      if (runner.acked.has(command.seq)) runner.resent.push(command.seq);
-      else if (!runner.ran.includes(command.seq)) runner.ran.push(command.seq);
-    }
+// SAFETY: the world records each frame as its connection and the command sent.
+const commandsOf = (world: World) => world.effects.runner.map((effect) => (effect as { command: Command }).command);
 
-    read = world.effects.runner.length;
-  };
+const turnsOf = (world: World, task: string) => world.rows("SELECT turn, closed, sent FROM ky_machine_turns WHERE task = ?", task)[0];
 
-  await harness.run(port.paired("mini", FACTS, "p1"));
+const closeAll = (world: World) => {
+  for (const socket of world.sockets.values()) socket.readyState = 3;
+};
 
-  for (const step of run) {
-    const row = "task" in step ? world.feed.get(step.task) : undefined;
-    const turns = "task" in step ? world.rows("SELECT turn, closed, sent FROM ky_machine_turns WHERE task = ?", step.task)[0] : undefined;
+const ack = async ({ harness, runner, connections }: Drive, seq: number) => {
+  runner.acked.add(seq);
+  await harness.run(harness.port.onReport("mini", { type: "ack", seq }, `c${connections}`));
+};
 
-    switch (step.do) {
-      case "start":
-        await harness.run(port.start("mini", "A task", "Do it", step.task, step.parent, "chat", step.agent));
-        await harness.run(port.deliver("mini"));
-        break;
-      case "send":
-        if (row) {
-          await harness.run(port.send(row, "More", step.parent));
-          await harness.run(port.deliver("mini"));
-        }
+const lateReport = (step: Extract<Step, { do: "late" }>, turn: number): TaskReport =>
+  step.kind === "result"
+    ? { type: "result", task: step.task, turn, ok: true, text: "Late.", session: "r9", agent: "claude", turns: 3, costUsd: 1 }
+    : step.kind === "session"
+      ? { type: "session", task: step.task, turn, session: "r9" }
+      : { type: "step", task: step.task, turn, text: "Late step" };
 
-        break;
-      case "stop":
-        if (row) await harness.run(port.stop(row));
-        break;
-      case "hello":
-        for (const socket of world.sockets.values()) socket.readyState = 3;
-        connections += 1;
-        await hello(harness, `c${connections}`, world.feed.open("machine", "mini").map((open) => open.id));
-        break;
-      case "close":
-        for (const socket of world.sockets.values()) socket.readyState = 3;
-        await harness.run(port.seen("mini", 1006));
-        break;
-      case "ack": {
-        const unacked = runner.ran.filter((seq) => !runner.acked.has(seq));
-        const seq = unacked[step.pick % Math.max(unacked.length, 1)];
+const STEPS = {
+  start: async ({ harness: { port, run } }, step) => {
+    await run(port.start("mini", "A task", "Do it", step.task, step.parent, "chat", step.agent));
+    await run(port.deliver("mini"));
+  },
+  send: async ({ harness: { port, run, world } }, step) => {
+    const row = world.feed.get(step.task);
 
-        if (seq !== undefined) {
-          runner.acked.add(seq);
-          await harness.run(port.onReport("mini", { type: "ack", seq }, `c${connections}`));
-        }
+    if (!row) return;
+    await run(port.send(row, "More", step.parent));
+    await run(port.deliver("mini"));
+  },
+  stop: async ({ harness: { port, run, world } }, step) => {
+    const row = world.feed.get(step.task);
 
-        break;
-      }
+    if (row) await run(port.stop(row));
+  },
+  hello: async (drive) => {
+    closeAll(drive.harness.world);
+    drive.connections += 1;
+    await hello(drive.harness, `c${drive.connections}`, drive.harness.world.feed.open("machine", "mini").map((open) => open.id));
+  },
+  close: async ({ harness: { port, run, world } }) => {
+    closeAll(world);
+    await run(port.seen("mini", 1006));
+  },
+  ack: async (drive, step) => {
+    const unacked = drive.runner.ran.filter((seq) => !drive.runner.acked.has(seq));
+    const seq = unacked[step.pick % Math.max(unacked.length, 1)];
 
-      case "result":
-        if (turns && Number(turns.sent) >= Number(turns.turn)) {
-          // SAFETY: the world records each frame as its connection and the command sent.
-          const commands = world.effects.runner.map((effect) => (effect as { command: { seq: number; type: string; task: string } }).command);
+    if (seq !== undefined) await ack(drive, seq);
+  },
+  result: async (drive, step) => {
+    const { port, run, world } = drive.harness;
+    const turns = turnsOf(world, step.task);
 
-          for (const { seq } of commands.filter((command) => command.type === "run" && command.task === step.task && !runner.acked.has(command.seq))) {
-            runner.acked.add(seq);
-            await harness.run(port.onReport("mini", { type: "ack", seq }, `c${connections}`));
-          }
+    if (!turns || Number(turns.sent) < Number(turns.turn)) return;
 
-          await harness.run(port.onReport("mini", { type: "result", task: step.task, turn: Number(turns.turn), ok: step.ok, text: "Ended.", session: "r1", agent: "claude" }, `c${connections}`));
-        }
+    for (const { seq } of commandsOf(world).filter((command) => command.type === "run" && command.task === step.task && !drive.runner.acked.has(command.seq))) await ack(drive, seq);
 
-        break;
-      case "late":
-        if (turns && Number(turns.closed) > 0) {
-          const before = JSON.stringify([world.rows("SELECT * FROM ky_tasks WHERE id = ?", step.task), world.rows("SELECT * FROM ky_task_steps"), world.effects.pi]);
-          const turn = Number(turns.closed);
+    await run(port.onReport("mini", { type: "result", task: step.task, turn: Number(turns.turn), ok: step.ok, text: "Ended.", session: "r1", agent: "claude" }, `c${drive.connections}`));
+  },
+  late: async ({ harness: { port, run, world }, runner, connections }, step) => {
+    const turns = turnsOf(world, step.task);
 
-          const late: TaskReport =
-            step.kind === "result"
-              ? { type: "result", task: step.task, turn, ok: true, text: "Late.", session: "r9", agent: "claude", turns: 3, costUsd: 1 }
-              : step.kind === "session"
-                ? { type: "session", task: step.task, turn, session: "r9" }
-                : { type: "step", task: step.task, turn, text: "Late step" };
+    if (!turns || Number(turns.closed) === 0) return;
+    const seen = () => JSON.stringify([world.rows("SELECT * FROM ky_tasks WHERE id = ?", step.task), world.rows("SELECT * FROM ky_task_steps"), world.effects.pi]);
+    const before = seen();
+    await run(port.onReport("mini", lateReport(step, Number(turns.closed)), `c${connections}`));
 
-          await harness.run(port.onReport("mini", late, `c${connections}`));
-          const after = JSON.stringify([world.rows("SELECT * FROM ky_tasks WHERE id = ?", step.task), world.rows("SELECT * FROM ky_task_steps"), world.effects.pi]);
+    if (seen() !== before) runner.lateChanged.push(`${step.kind} for ${step.task} turn ${Number(turns.closed)}`);
+  },
+  login: async ({ harness: { port, run } }, step) => {
+    await run(port.configure("mini", { login: step.login }));
+  },
+  tick: async ({ harness }, step) => {
+    await harness.at(T + step.ms);
+  }
+} satisfies { readonly [K in Step["do"]]: (drive: Drive, step: Extract<Step, { do: K }>) => Promise<void> };
 
-          if (after !== before) runner.lateChanged.push(`${step.kind} for ${step.task} turn ${turn}`);
-        }
-
-        break;
-      case "login":
-        await harness.run(port.configure("mini", { login: step.login }));
-        break;
-      case "tick":
-        await harness.at(T + step.ms);
-        break;
-    }
-
-    observe();
+const observe = (world: World, runner: Runner, read: number) => {
+  for (const { seq } of commandsOf(world).slice(read)) {
+    if (runner.acked.has(seq)) runner.resent.push(seq);
+    else if (!runner.ran.includes(seq)) runner.ran.push(seq);
   }
 
-  return runner;
+  return world.effects.runner.length;
+};
+
+async function drive(harness: Harness, run: readonly Step[]): Promise<Runner> {
+  const drive: Drive = { harness, runner: { ran: [], acked: new Set(), resent: [], lateChanged: [] }, connections: 0 };
+  let read = 0;
+
+  await harness.run(harness.port.paired("mini", FACTS, "p1"));
+
+  for (const step of run) {
+    // SAFETY: STEPS holds each step's handler under its do.
+    await (STEPS[step.do] as (drive: Drive, step: Step) => Promise<void>)(drive, step);
+    read = observe(harness.world, drive.runner, read);
+  }
+
+  return drive.runner;
 }
 
 describe("the port's inbox and tokens", () => {

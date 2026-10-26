@@ -130,36 +130,44 @@ function wrongSandbox(machines: readonly MachineInfo[], target: MachineInfo, rep
     : `${repo} is no sandbox's, and ${target.name} works only on its repos (${target.sandbox.repos.join(", ")}): name a computer for it, or the user adds it to a sandbox in Settings.`;
 }
 
-function pickMachine(machines: readonly MachineInfo[], requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
-  const ready = machines.filter((m) => m.state === "on" && m.online);
+function noMachine(machines: readonly MachineInfo[]): string {
+  return machines.some((m) => m.state === "on" && m.online)
+    ? `Name the machine for this task.\n${describeAll(machines)}`
+    : `No machine is on and online; name one to queue the task for it.\n${describeAll(machines)}`;
+}
+
+function refusalOn(machines: readonly MachineInfo[], name: string, wanted: string | undefined): string | null {
+  const target = machines.find((m) => m.name === name);
+
+  if (!target) return null;
+  const wrong = wanted === undefined ? null : wrongSandbox(machines, target, wanted);
+
+  if (wrong) return wrong;
+
+  return target.state === "on" ? null : `${name} is ${target.state}: the user is not letting it take new tasks. ${elsewhere(machines, name)}`;
+}
+
+function homeOf(machines: readonly MachineInfo[], repo: string | undefined) {
   const wanted = repo?.trim().toLowerCase() || undefined;
-  const home = wanted === undefined ? undefined : machines.find((m) => m.sandbox?.repos.includes(wanted));
 
-  if (requested === undefined && home && home.state !== "on") {
-    return { refusal: `${wanted} is the sandbox ${home.name}'s, which is ${home.state}: the user is not letting it take new tasks. Ask the user to turn it on.` };
-  }
+  return { wanted, home: wanted === undefined ? undefined : machines.find((m) => m.sandbox?.repos.includes(wanted)) };
+}
 
+function homeRefusal(home: MachineInfo | undefined, wanted: string | undefined): string | null {
+  return home && home.state !== "on" ? `${wanted} is the sandbox ${home.name}'s, which is ${home.state}: the user is not letting it take new tasks. Ask the user to turn it on.` : null;
+}
+
+function pickMachine(machines: readonly MachineInfo[], requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
+  const { wanted, home } = homeOf(machines, repo);
+  const off = requested === undefined ? homeRefusal(home, wanted) : null;
+
+  if (off) return { refusal: off };
   const name = requested ?? home?.name ?? defaultMachine(machines);
 
-  if (!name) {
-    return {
-      refusal:
-        ready.length === 0
-          ? `No machine is on and online; name one to queue the task for it.\n${describeAll(machines)}`
-          : `Name the machine for this task.\n${describeAll(machines)}`
-    };
-  }
+  if (!name) return { refusal: noMachine(machines) };
+  const refusal = refusalOn(machines, name, wanted);
 
-  const target = machines.find((m) => m.name === name);
-  const wrong = target && wanted !== undefined ? wrongSandbox(machines, target, wanted) : null;
-
-  if (wrong) return { refusal: wrong };
-
-  if (target && target.state !== "on") {
-    return { refusal: `${name} is ${target.state}: the user is not letting it take new tasks. ${elsewhere(machines, name)}` };
-  }
-
-  return { name };
+  return refusal ? { refusal } : { name };
 }
 
 function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow): string {
@@ -176,20 +184,22 @@ function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: Task
   return `${started} (${waiting}). ${elsewhere(machines, task.worker)} move sends it elsewhere.`;
 }
 
+function moveRefusal(machines: readonly MachineInfo[], task: TaskRow, target: MachineInfo): string | null {
+  if (target.state !== "on") return `${target.name} is ${target.state}: it takes no new tasks. ${elsewhere(machines, task.worker)}`;
+  const from = machines.find((m) => m.name === task.worker);
+
+  return from?.sandbox && target.sandbox && from !== target
+    ? `${task.id} is on the sandbox ${from.name}, and a task doesn't move between sandboxes: each reaches only its own repos. Start a new task with its repo, and it goes to the sandbox that owns it.`
+    : null;
+}
+
 function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, to: string | undefined): string {
   if (!to) return `move needs a machine.\n${describeAll(machines)}`;
   const target = machines.find((m) => m.name === to);
 
   if (!target) return `No machine ${to}.\n${describeAll(machines)}`;
 
-  if (target.state !== "on") return `${target.name} is ${target.state}: it takes no new tasks. ${elsewhere(machines, task.worker)}`;
-  const from = machines.find((m) => m.name === task.worker);
-
-  if (from?.sandbox && target.sandbox && from !== target) {
-    return `${task.id} is on the sandbox ${from.name}, and a task doesn't move between sandboxes: each reaches only its own repos. Start a new task with its repo, and it goes to the sandbox that owns it.`;
-  }
-
-  return hub.move(task, target.name) ?? `Moved ${task.id} to ${target.name}${target.online ? "" : " (offline: it starts when it connects)"}.`;
+  return moveRefusal(machines, task, target) ?? hub.move(task, target.name) ?? `Moved ${task.id} to ${target.name}${target.online ? "" : " (offline: it starts when it connects)"}.`;
 }
 
 type MachineArgs = {
