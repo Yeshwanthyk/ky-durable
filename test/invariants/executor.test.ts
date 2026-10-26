@@ -2,9 +2,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { assertParity, budget, type Json, type Parity } from "../parity/kit";
-import { legacy } from "../parity/executor/legacy";
-import { type Action, actions, AGENT, BASE, instanceOf, next, REFUSED_RESUME, THEIRS, TOKEN, TOKENS, URLS, World } from "../parity/executor/world";
+import { budget, type Json } from "../parity/kit";
+import { AGENT, BASE, outcomeOf as outcome, REFUSED_RESUME, THEIRS, TOKEN, TOKENS, URLS, World } from "../parity/executor/world";
 
 const words = {
   noToken: "Paste an Executor personal access token.",
@@ -15,9 +14,9 @@ const words = {
   otherOrigin: (origin: string) => `ky only changes the path and query here, on ${origin}. Change the host in Settings › Tools › Executor.`
 };
 
-const runs = () => ({ numRuns: Math.max(10, Math.round(budget().numRuns / 5)), seed: budget().seed });
+const runs = () => ({ numRuns: budget().numRuns, seed: budget().seed });
 
-const fresh = () => new World(next);
+const fresh = () => new World();
 
 async function connected(): Promise<World> {
   const world = fresh();
@@ -27,17 +26,26 @@ async function connected(): Promise<World> {
   return world;
 }
 
+const LOCAL = new Set(["localhost", "127.0.0.1"]);
+
+const REACHED = new Set(["executor.test", "localhost"]);
+
+function urlRefusal(url: string): string | undefined {
+  if (!URL.canParse(url)) return words.notAUrl;
+  const { protocol, hostname } = new URL(url);
+
+  return protocol === "https:" || (protocol === "http:" && LOCAL.has(hostname)) ? undefined : words.notHttps;
+}
+
 function expected(url: string, token: string): string | undefined {
   if (token.trim() === "") return words.noToken;
   const trimmed = url.trim();
+  const refused = urlRefusal(trimmed);
 
-  if (!URL.canParse(trimmed)) return words.notAUrl;
-  const { protocol, hostname, origin } = new URL(trimmed);
-  const local = hostname === "localhost" || hostname === "127.0.0.1";
+  if (refused !== undefined) return refused;
+  const { hostname, origin } = new URL(trimmed);
 
-  if (protocol !== "https:" && !(protocol === "http:" && local)) return words.notHttps;
-
-  if (hostname !== "executor.test" && hostname !== "localhost") return `ky couldn't reach Executor at ${origin}: `;
+  if (!REACHED.has(hostname)) return `ky couldn't reach Executor at ${origin}: `;
 
   return token.trim() === TOKEN ? undefined : words.tokenRefused;
 }
@@ -215,14 +223,14 @@ describe("Executor's tools", () => {
     const world = fresh();
 
     await world.link.connect(`${BASE}?elicitation_mode=browser&team=1`, TOKEN);
-    await world.apply({ kind: "execute", code: "hello" });
+    await world.tool("executor_execute", { code: "hello" });
     expect(world.executor.connectedUrls).toEqual([`${BASE}?team=1`, `${BASE}?team=1`]);
     expect(await world.link.view()).toEqual({ url: `${BASE}?elicitation_mode=browser&team=1` });
   });
 
   it("never retry a call whose response was lost, since the program may have run", async () => {
     const world = await connected();
-    const said = await world.apply({ kind: "execute", code: "lose-response" });
+    const said = await world.tool("executor_execute", { code: "lose-response" });
 
     expect(text(said)).toBe("Executor call failed: Network connection lost.");
     expect(world.executor.runs.get("lose-response")).toBe(1);
@@ -234,7 +242,7 @@ describe("Executor's tools", () => {
         const world = await connected();
 
         world.executor.refuseConnects = refused;
-        const said = await world.apply({ kind: "once", code: "hello", aborted: false });
+        const said = await world.once("hello");
 
         expect(world.executor.runs.get("hello") ?? 0).toBe(refused < 2 ? 1 : 0);
         expect(world.executor.refuseConnects).toBe(Math.max(0, refused - 2));
@@ -247,7 +255,7 @@ describe("Executor's tools", () => {
     const world = await connected();
 
     world.executor.refuseConnects = 1;
-    await world.apply({ kind: "once", code: "hello", aborted: true });
+    await world.once("hello", AbortSignal.abort());
     expect(world.executor.refuseConnects).toBe(0);
     expect(world.executor.sessions).toBe(1);
   });
@@ -257,7 +265,7 @@ describe("Executor's tools", () => {
     const before = world.executor.unauthorized;
 
     world.executor.token = "rotated";
-    const said = await world.apply({ kind: "once", code: "hello", aborted: false });
+    const said = await world.once("hello");
 
     expect(world.executor.unauthorized - before).toBe(1);
     expect(said).toMatchObject({ neverRan: false, result: { isError: true } });
@@ -266,28 +274,37 @@ describe("Executor's tools", () => {
   it("run again on a new session when Executor forgot the old one, which ran nothing", async () => {
     const world = await connected();
 
-    await world.apply({ kind: "execute", code: "hello" });
+    await world.tool("executor_execute", { code: "hello" });
     world.executor.open.clear();
-    const said = await world.apply({ kind: "execute", code: "hello" });
+    const said = await world.tool("executor_execute", { code: "hello" });
 
     expect(text(said)).toBe("ran 2");
     expect(world.executor.sessions).toBe(3);
   });
 
+  it("run one program outside a turn on a session of its own, giving its text and whether it failed", async () => {
+    const world = await connected();
+
+    expect(await world.executeOnce("fail nope")).toEqual({ text: "nope", error: true });
+    expect(await world.executeOnce("hello")).toEqual({ text: "ran 1", error: false });
+    expect(world.executor.sessions).toBe(3);
+    expect(world.gate).toEqual([]);
+  });
+
   it("pass Executor's answer through the gate, text as it is and anything else as JSON", async () => {
     const world = await connected();
 
-    expect(await world.apply({ kind: "execute", code: "fail nope" })).toEqual({ output: [{ type: "text", text: "nope" }], isError: true });
-    expect(await world.apply({ kind: "skills" })).toEqual({ output: [{ type: "text", text: "fake executor apps: calendar (2 skills), github (3 skills)" }], isError: false });
+    expect(await world.tool("executor_execute", { code: "fail nope" })).toEqual({ output: [{ type: "text", text: "nope" }], isError: true });
+    expect(await world.tool("executor_skills", {})).toEqual({ output: [{ type: "text", text: "fake executor apps: calendar (2 skills), github (3 skills)" }], isError: false });
     expect(world.gate).toEqual([{ replied: "7", result: { output: [{ type: "text", text: "nope" }], isError: true } }]);
   });
 
   it("resume an answer as accept, with the answers only when there are some", async () => {
     const world = await connected();
 
-    await world.apply({ kind: "execute", code: "ask which label" });
-    await world.apply({ kind: "resume", requestId: "request-1", action: "answer", content: { label: "work" } });
-    await world.apply({ kind: "resume", requestId: "request-1", action: "decline" });
+    await world.tool("executor_execute", { code: "ask which label" });
+    await world.tool("executor_resume", { requestId: "request-1", response: { action: "answer", content: { label: "work" } } });
+    await world.tool("executor_resume", { requestId: "request-1", response: { action: "decline" } });
     expect(world.executor.resumes).toEqual([
       { requestId: "request-1", response: { action: "accept", content: { label: "work" } } },
       { requestId: "request-1", response: { action: "decline" } }
@@ -296,7 +313,7 @@ describe("Executor's tools", () => {
 
   it("send no resume the gate refuses, and say so", async () => {
     const world = await connected();
-    const said = await world.apply({ kind: "resume", requestId: THEIRS, action: "cancel" });
+    const said = await world.tool("executor_resume", { requestId: THEIRS, response: { action: "cancel" } });
 
     expect(said).toEqual({ output: [{ type: "text", text: `Not sent: ${REFUSED_RESUME}` }], isError: true });
     expect(world.executor.resumes).toEqual([]);
@@ -306,11 +323,11 @@ describe("Executor's tools", () => {
   it("show the connection, or change it and say where, or say why not", async () => {
     const world = await connected();
 
-    expect(await world.apply({ kind: "connection" })).toEqual({ output: [{ type: "text", text: `Executor is connected at ${BASE}.` }] });
-    expect(await world.apply({ kind: "connection", url: " https://executor.test/v2 " })).toEqual({
+    expect(await world.tool("executor_connection", {})).toEqual({ output: [{ type: "text", text: `Executor is connected at ${BASE}.` }] });
+    expect(await world.tool("executor_connection", { url: " https://executor.test/v2 " })).toEqual({
       output: [{ type: "text", text: "Executor is now connected at https://executor.test/v2. Its tools reconnect there on their next call." }]
     });
-    expect(await world.apply({ kind: "connection", url: "https://elsewhere.test/mcp" })).toEqual({
+    expect(await world.tool("executor_connection", { url: "https://elsewhere.test/mcp" })).toEqual({
       output: [{ type: "text", text: `Not changed: ${words.otherOrigin("https://executor.test")}` }],
       isError: true
     });
@@ -318,7 +335,7 @@ describe("Executor's tools", () => {
 });
 
 describe("a program's outcome", () => {
-  const outcomeOf = (said: string) => fresh().apply({ kind: "outcome", text: said });
+  const outcomeOf = async (said: string) => outcome(said);
   const envelope = (status: string, execution: { ok: boolean; value?: Json; error?: Json }) => JSON.stringify({ status, execution });
 
   it("is paused whenever Executor waits for the user", () =>
@@ -363,24 +380,4 @@ describe("a program's outcome", () => {
       }),
       runs()
     ));
-});
-
-const executorParity: Parity<Action> = {
-  domain: "executor",
-  actions,
-  legacy: async () => instanceOf(legacy),
-  next: async () => instanceOf(next),
-  divergences: [
-    {
-      name: "a damaged vault row reads as no connection",
-      covers: (action) => action.kind === "damage",
-      heldBy: "test/invariants/executor.test.ts > reads a damaged vault row as no connection"
-    }
-  ]
-};
-
-describe("executor parity", () => {
-  it("answers as B did over generated runs", async () => {
-    await assertParity(executorParity);
-  }, 600_000);
 });

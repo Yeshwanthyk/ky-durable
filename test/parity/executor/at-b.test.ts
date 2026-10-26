@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 import { FakeExecutor } from "../../../src/tests/fake-executor";
-import { AGENT, FakeVault, next, TOKEN } from "./world";
+import { ExecutorLink } from "../../../src/executor/wiring";
+import { AGENT, FakeVault, TOKEN } from "./world";
 
 const Reads = Schema.Struct({
   config: Schema.NullOr(Schema.Struct({ url: Schema.String, token: Schema.String, fetch: Schema.Boolean })),
@@ -27,7 +28,7 @@ describe("executor connections saved at B", () => {
 
     for (const [key, row] of Object.entries(recorded.rows)) vault.rows.set(key, row);
     const reach = new FakeExecutor(TOKEN).fetch;
-    const link = next.link(vault.vault, AGENT, reach);
+    const link = new ExecutorLink(vault.vault, AGENT, reach);
     const config = await link.config();
 
     expect({ config: config === null ? null : { url: config.url, token: config.token, fetch: config.fetch === reach }, view: await link.view() }).toEqual(recorded.reads);
@@ -40,7 +41,7 @@ describe("executor connections saved at B", () => {
     vault.rows.clear();
 
     for (const [key, row] of Object.entries(saved?.rows ?? {})) vault.rows.set(key, row);
-    const link = next.link(vault.vault, AGENT, new FakeExecutor(TOKEN).fetch);
+    const link = new ExecutorLink(vault.vault, AGENT, new FakeExecutor(TOKEN).fetch);
 
     expect(await link.retarget("https://executor.test/v2/mcp")).toEqual({});
     expect(vault.writes).toEqual([{ put: "executor", id: AGENT, value: { url: "https://executor.test/v2/mcp", token: TOKEN }, meta: { url: "https://executor.test/v2/mcp" } }]);
