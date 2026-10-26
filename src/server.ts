@@ -26,7 +26,7 @@ import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring"
 import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
 import { FileStore, retype, uploadMedia } from "./files/wiring";
-import { History, startedByUser } from "./history";
+import { History, startedByUser } from "./history/wiring";
 import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
@@ -180,7 +180,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly chats = new ChatList(this.ctx.storage);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
-    this.ctx.storage.sql,
+    this.ctx.storage,
     (session) => this.isChat(session),
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
