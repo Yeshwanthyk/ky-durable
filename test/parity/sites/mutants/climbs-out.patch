@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..2c65142 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -77,7 +77,7 @@ function newToken(): string {
+ function canonical(dir: string): string | undefined {
+   const parts = dir.split("/").filter((part) => part !== "" && part !== ".");
+ 
+-  return parts.length === 0 || parts.includes("..") ? undefined : `/${parts.join("/")}`;
++  return parts.length === 0 ? undefined : `/${parts.join("/")}`;
+ }
+ 
+ async function listed(files: SiteFiles, root: string): Promise<string[]> {

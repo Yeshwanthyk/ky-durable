@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..99d24f0 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -147,7 +147,7 @@ const target = (bucket: SiteBucket, id: string | undefined) =>
+   Effect.gen(function* () {
+     if (id !== undefined) return { id, was: yield* find(bucket, id) };
+ 
+-    if ((yield* Effect.promise(() => siteIds(bucket))).length >= MAX_SITES) return yield* new TooManySites();
++    if ((yield* Effect.promise(() => siteIds(bucket))).length > MAX_SITES) return yield* new TooManySites();
+ 
+     return { id: crypto.randomUUID().replaceAll("-", ""), was: undefined };
+   });

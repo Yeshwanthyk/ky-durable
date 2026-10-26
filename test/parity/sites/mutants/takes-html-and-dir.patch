@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..9611c7b 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -126,7 +126,7 @@ const folder = (files: SiteFiles, dir: string) =>
+ 
+ const gather = (files: SiteFiles, { html, dir }: SiteArgs) =>
+   Effect.gen(function* () {
+-    if ((html === undefined) === (dir === undefined)) return yield* new HtmlOrDir();
++    if (html === undefined && dir === undefined) return yield* new HtmlOrDir();
+ 
+     if (html === undefined) return yield* folder(files, dir ?? "");
+     const page = new TextEncoder().encode(html);

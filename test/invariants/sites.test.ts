@@ -6,7 +6,7 @@ import { publicSiteRoute as legacyPublicRoute, siteRoute as legacySiteRoute } fr
 import { siteExtension as legacyExtension } from "../../src/sites/legacy/sites";
 import { publicSiteRoute, siteExtension, siteRoute } from "../../src/sites/wiring";
 import { assertParity, budget, type Clock, type Instance, type Parity } from "../parity/kit";
-import { type FakeFile, fakeBucket, fakeFiles, type Json, requestOf, seededRandom, siteId, toolOf } from "../parity/sites/world";
+import { type FakeFile, fakeBucket, fakeFiles, type Json, requestOf, seededRandom, siteId, sortedMeta, toolOf } from "../parity/sites/world";
 
 const ORIGIN = "https://ky.test";
 
@@ -378,7 +378,7 @@ function side(clock: Clock, make: (bucket: ReturnType<typeof fakeBucket>, files:
 
       return request(action.method, `/p/${token}${action.rest}`);
     },
-    tables: async () => bucket.dump(),
+    tables: async () => sortedMeta(bucket.dump()),
     effects: async (): Promise<Json> => ({ reads: [...files.reads] }),
     dispose: async () => {}
   };

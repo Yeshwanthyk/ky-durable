@@ -1,5 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { vi } from "vitest";
 import type { SiteBody, SiteBucket, SiteFiles, SiteObject } from "../../../src/sites/contract";
 
@@ -16,6 +18,13 @@ function etagOf(bytes: Uint8Array): string {
 
   return hash.toString(16).padStart(8, "0");
 }
+
+const decodeObject = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)));
+
+const sortedKeys = (text: string) =>
+  Option.match(decodeObject(text), { onNone: () => text, onSome: (object) => JSON.stringify(Object.fromEntries(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : 1)))) });
+
+export const sortedMeta = (dump: Record<string, string>) => Object.fromEntries(Object.entries(dump).map(([key, value]) => [key, key.endsWith("/.site") ? sortedKeys(value) : value]));
 
 export type FakeBucket = SiteBucket & { readonly objects: Map<string, Uint8Array>; dump(): Record<string, string> };
 
