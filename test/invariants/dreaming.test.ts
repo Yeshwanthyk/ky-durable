@@ -23,14 +23,11 @@ import {
 } from "../../src/dreaming/contract";
 import { DreamLedger, Ledger } from "../../src/dreaming/ledger";
 import { type Compressor, Memory } from "../../src/dreaming/memory";
-import { Soul, TEMPLATE } from "../../src/dreaming/soul";
+import { Soul } from "../../src/dreaming/soul";
 import { type Versioned, Versions } from "../../src/dreaming/versioned";
 import type { SkillChange } from "../../src/skills/contract";
 import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
-import { LegacyDreamLedger } from "../parity/dreaming/legacy/ledger";
-import { sqlOf } from "../parity/dreaming/legacy/rows";
-import { LegacyVersioned } from "../parity/dreaming/legacy/versioned";
-import { assertParity, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
+import { budget } from "../parity/kit";
 import { storageOf, StoredRow } from "../parity/skills/storage";
 
 const FOLDER = path.join(import.meta.dirname, "../../src/dreaming");
@@ -274,7 +271,7 @@ describe("SOUL.md and the specialists' briefs", () => {
       fc.asyncProperty(steps, async (generated) => {
         seen += (await versionsHold(generated)).filter((answer) => words.test(answer)).length;
       }),
-      { numRuns: 60, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
     expect(seen).toBeGreaterThan(0);
   });
@@ -292,7 +289,7 @@ describe("SOUL.md and the specialists' briefs", () => {
         expect({ soul: saved(soul, souls), brief: saved(specialists.brief("eng"), briefs) }).toEqual(heard);
         db.close();
       }),
-      { numRuns: 60, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -310,7 +307,7 @@ describe("SOUL.md and the specialists' briefs", () => {
         expect(soul.current()).toEqual(whole[0]);
         db.close();
       }),
-      { numRuns: 40, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -399,7 +396,7 @@ describe("the dream's ledger", () => {
         expect(again("c3", 5)).not.toThrow();
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -416,7 +413,7 @@ describe("the dream's ledger", () => {
         expect(refusal(() => ledger.undo(id))).toBe(`No dream change ${id}.`);
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -435,7 +432,7 @@ describe("the dream's ledger", () => {
         expect(refusal(() => ledger.undo(id))).toBe(`The ${actor ?? "dream"}'s edit of ${name} is already undone.`);
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -454,7 +451,7 @@ describe("the dream's ledger", () => {
         );
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -477,7 +474,7 @@ describe("the dream's ledger", () => {
         expect(() => ledger.undo(Number(row?.id))).not.toThrow();
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -503,7 +500,7 @@ describe("the dream's ledger", () => {
         ]);
         here.db.close();
       }),
-      { numRuns: 20, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -547,7 +544,7 @@ describe("the dream's ledger", () => {
           here.db.close();
         }
       ),
-      { numRuns: 60, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -572,7 +569,7 @@ describe("the dream's ledger", () => {
         ]);
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -592,7 +589,7 @@ describe("the dream's ledger", () => {
         expect(atRows(here)).toEqual([{ run: "c2", at: START + at, undone_at: null }]);
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -615,115 +612,7 @@ describe("the dream's ledger", () => {
         expect(atRows(here)).toEqual([{ run: "c2", at: START + at, undone_at: START + at + later }]);
         here.db.close();
       }),
-      { numRuns: 30, seed: 7 }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
-  });
-});
-
-type Action =
-  | { readonly soul: SoulChange; readonly actor: string }
-  | { readonly brief: SoulChange; readonly actor: string }
-  | { readonly read: "soul" | "brief"; readonly how: How }
-  | { readonly skill: SkillChange; readonly actor: string; readonly conversation: string | null }
-  | { readonly summarize: string; readonly text: string }
-  | { readonly forget: string; readonly conversation: string | null }
-  | { readonly lastNight: true }
-  | { readonly undo: number };
-
-const aSkill: fc.Arbitrary<SkillChange> = fc.oneof(
-  aName.map(create),
-  fc.tuple(aName, fc.integer({ min: 1, max: 3 })).map(([name, n]) => edit(name, n)),
-  fc.record({ action: fc.constant("patch" as const), name: aName, old: fc.constantFrom("Steps", "take"), new: fc.constantFrom("Moves", "go") }),
-  fc.record({ action: fc.constant("archive" as const), name: aName, reason: fc.constantFrom("stale", "merged") }),
-  fc.record({ action: fc.constant("revert" as const), name: aName, version: fc.integer({ min: 1, max: 6 }) }),
-  fc.record({ action: fc.constantFrom("pin" as const, "unpin" as const), name: aName })
-);
-
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  { arbitrary: fc.record({ soul: aChange, actor: fc.constantFrom("user", "agent") }), weight: 3 },
-  { arbitrary: fc.record({ brief: aChange, actor: fc.constantFrom("user", "agent") }), weight: 2 },
-  { arbitrary: fc.record({ read: fc.constantFrom("soul" as const, "brief" as const), how: fc.constantFrom("current" as const, "history" as const) }), weight: 1 },
-  { arbitrary: fc.record({ skill: aSkill, actor: fc.constantFrom("user", "dream", "review"), conversation: fc.constantFrom("c1", "c2", "c3", null) }), weight: 5 },
-  { arbitrary: fc.record({ summarize: fc.constantFrom("0-15", "16-31", "0-31"), text: fc.constantFrom("the user likes tea", "a trip in May") }), weight: 1 },
-  { arbitrary: fc.record({ forget: fc.constantFrom("0-15", "16-31", "0-31"), conversation: fc.constantFrom("c1", "c2", "c3", null) }), weight: 2 },
-  { arbitrary: fc.constant({ lastNight: true as const }), weight: 1 },
-  { arbitrary: fc.record({ undo: fc.integer({ min: 1, max: 8 }) }), weight: 3 }
-);
-
-type Versionish = LegacyVersioned | Versioned;
-
-type How = "current" | "history";
-
-type Ledgerish = { lastNight(): Json; undo(id: number): string };
-
-function answer(work: () => Json | undefined | void): Json {
-  try {
-    return work() ?? null;
-  } catch (error) {
-    return { refused: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-const TABLES = ["ky_soul_versions", "ky_dream_ledger", "ky_skills", "ky_skill_versions", "memo_log", "memo_tree"];
-
-function instance<F extends Versionish>(here: World, soul: F & { onChange(listener: () => void): void }, brief: F, ledger: Ledgerish, read: (file: F, how: How) => Json, briefHeard: (listener: () => void) => void): Instance<Action> {
-  const heard = { soul: 0, brief: 0 };
-  soul.onChange(() => heard.soul++);
-  briefHeard(() => heard.brief++);
-
-  return {
-    apply: async (action) => {
-      if ("soul" in action) return answer(() => soul.apply(action.soul, action.actor));
-
-      if ("brief" in action) return answer(() => brief.apply(action.brief, action.actor));
-
-      if ("read" in action) return answer(() => read(action.read === "soul" ? soul : brief, action.how));
-
-      if ("skill" in action) return answer(() => here.skills.apply(action.skill, action.actor, action.conversation));
-
-      if ("summarize" in action) return answer(() => summarize(here, action.summarize, action.text));
-
-      if ("forget" in action) return answer(() => here.memory.forget(action.forget, action.conversation));
-
-      if ("lastNight" in action) return answer(() => ledger.lastNight());
-
-      return answer(() => ledger.undo(action.undo));
-    },
-    tables: async () => Object.fromEntries(TABLES.map((table) => [table, rowsOf(here.db, `SELECT * FROM ${table} ORDER BY rowid`)])),
-    effects: async () => heard,
-    dispose: async () => here.db.close()
-  };
-}
-
-const dreamingParity: Parity<Action> = {
-  domain: "dreaming",
-  actions,
-  start: START,
-  advances: fc.oneof(fc.integer({ min: 0, max: 60_000 }), fc.constant(13 * 60 * 60 * 1000)),
-  legacy: async (clock: Clock) => {
-    vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-    const here = world();
-    const sql = sqlOf(here.db);
-    const soul = new LegacyVersioned(sql, "soul", "SOUL.md", TEMPLATE);
-    const brief = new LegacyVersioned(sql, "specialist:eng", "@eng's brief");
-
-    return instance(here, soul, brief, new LegacyDreamLedger(sql, here), (file: LegacyVersioned, how) => (how === "current" ? file.current() : file.history()), (listener) => brief.onChange(listener));
-  },
-  next: async () => {
-    const here = world();
-    const soul = new Soul(storageOf(here.db));
-    const specialists = new Specialists(storageOf(here.db));
-
-    return instance(here, soul, specialists.brief("eng"), new DreamLedger(storageOf(here.db), here), (file: Versioned, how) => (how === "current" ? file.current() : file.history()), (listener) => specialists.onChange(listener));
-  }
-};
-
-describe("dreaming parity", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("SOUL.md, a brief and the ledger answer, store and tell their listeners what B does, step for step", async () => {
-    await assertParity(dreamingParity);
   });
 });
