@@ -45,7 +45,7 @@ import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } 
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
 import { hookGuard, inboundTools } from "./inbound/tools";
-import { Pushes } from "./push";
+import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
 import { PiSessionSockets } from "./sockets";

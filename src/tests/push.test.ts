@@ -1,14 +1,15 @@
 import { env } from "cloudflare:workers";
 import { ROOT_SESSION } from "agents/harness/pi";
 import Type, { type TSchema } from "typebox";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseAs } from "../core/decode";
 import { localNow } from "../dreaming/contract";
-import { base64url, encrypt, fromBase64url, type PushDevice } from "../push";
+import type { PushDevice } from "../push/contract";
+import { base64url, encrypt, fromBase64url } from "../push/webpush";
 import { browser, inside, type Tab, until } from "./drive";
 
 /**
- * Web Push (src/push.ts) on ky's real Worker: the encryption against RFC 8291's own example, the Vault's VAPID key
+ * Web Push (src/push/) on ky's real Worker: the encryption against RFC 8291's own example, the Vault's VAPID key
  * and tokens, and what ky posts unasked pushed to a device the page subscribed, up to the user's right-away number
  * a local day, each push read back with the device's private key. The push service is a fake that answers each
  * push as a test says.
@@ -93,6 +94,18 @@ async function pushService(name: string, status: (endpoint: string) => number): 
 const post = (name: string, text: string) =>
   inside(name, (instance) => instance.deliveries.deliver({ id: `look:test:${crypto.randomUUID()}`, session: ROOT_SESSION, content: text, line: text, ref: "memory:1", kind: "look" }));
 
+/** `text` posted in the main chat at `now`, on ky's clock. */
+const notifyAt = (name: string, text: string, now: number) =>
+  inside(name, async (instance) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+
+    try {
+      await instance.pushes.notify(ROOT_SESSION, text);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
 /** Each text ky said in the main chat, oldest first. */
 const kySaid = (page: Tab) =>
   page
@@ -170,12 +183,12 @@ describe("pushes", () => {
     // which falls on one UTC date, only the second is a new day. From now, so the test holds on any date.
     const now = Date.now();
     const midnight = now - (now % 60_000) + (1440 - localNow("Pacific/Auckland", now).minutes) * 60_000;
-    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "Still today there.", midnight - 30 * 60_000));
-    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "A new day there.", midnight + 30 * 60_000));
+    await notifyAt(name, "Still today there.", midnight - 30 * 60_000);
+    await notifyAt(name, "A new day there.", midnight + 30 * 60_000);
     expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual([`ky\n/?session=${ROOT_SESSION}\nA new day there.`]);
 
     // A long post is cut to 120 characters, never through the middle of one.
-    await inside(name, (instance) => instance.pushes.notify(ROOT_SESSION, "🙂".repeat(200), Date.parse("2026-10-18T12:00:00Z")));
+    await notifyAt(name, "🙂".repeat(200), Date.parse("2026-10-18T12:00:00Z"));
     const cut = (await open(sent[3]!.body, keys, auth)).split("\n")[2] ?? "";
     expect(Array.from(cut)).toEqual([...Array.from({ length: 119 }, () => "🙂"), "…"]);
     page.close();

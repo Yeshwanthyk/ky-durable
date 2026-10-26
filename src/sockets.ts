@@ -52,7 +52,7 @@ import type { ExecutorApprovals } from "./approvals/executor";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
 import type { ExecutorLink } from "./executor";
 import type { NotSetUp, Setup } from "./setup";
-import type { Pushes } from "./push";
+import type { Pushes } from "./push/wiring";
 import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
