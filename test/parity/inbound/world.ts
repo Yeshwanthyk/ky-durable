@@ -1,15 +1,14 @@
 import type { JsonObject } from "@earendil-works/pi-ai";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import fc from "fast-check";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { vi } from "vitest";
 import { type ApprovalRequest, Approvals } from "../../../src/approvals/approvals";
 import type { ApprovalAction } from "../../../src/approvals/contract";
-import * as nextCredentials from "../../../src/inbound/credentials";
-import * as nextInbound from "../../../src/inbound/inbound";
-import * as nextRoutes from "../../../src/inbound/routes";
+import { type Credential, credentialFetch, type CredentialInfo, type CredentialRequest, HTTP_KIND, signedWith } from "../../../src/inbound/credentials";
+import { type HookDelivery, Inbound } from "../../../src/inbound/inbound";
+import { hookRoute, inboundRoute } from "../../../src/inbound/routes";
 import type { Json } from "../kit";
 import { storageOf } from "../skills/storage";
 
@@ -27,28 +26,7 @@ export const ORIGIN = "https://api.example.com";
 
 export const VALUE = "sk-live-0123456789:pass/word+=";
 
-type Desk = ConstructorParameters<typeof nextInbound.Inbound>[1];
-
-
-type Members = "handlers" | "hooks" | "hook" | "addHook" | "removeHook" | "received" | "ask" | "asks" | "askFor" | "saved" | "guarded" | "passed" | "requestApproval";
-
-export type Side = {
-  readonly make: (db: DatabaseSync, desk: Desk) => Pick<nextInbound.Inbound, Members>;
-  readonly hookRoute: typeof nextRoutes.hookRoute;
-  readonly inboundRoute: typeof nextRoutes.inboundRoute;
-  readonly credentialFetch: typeof nextCredentials.credentialFetch;
-  readonly signedWith: typeof nextCredentials.signedWith;
-};
-
-export const next: Side = {
-  make: (db, desk) => new nextInbound.Inbound(storageOf(db), desk),
-  hookRoute: nextRoutes.hookRoute,
-  inboundRoute: nextRoutes.inboundRoute,
-  credentialFetch: nextCredentials.credentialFetch,
-  signedWith: nextCredentials.signedWith
-};
-
-const SESSIONS = ["0", "1", "2"] as const;
+type Desk = ConstructorParameters<typeof Inbound>[1];
 
 const CHATS = new Set(["0", "1"]);
 
@@ -70,9 +48,9 @@ const ADD_BODIES = [
 
 const NAMES = ["API_KEY", "gh", "1bad"] as const;
 
-const BEARER: nextCredentials.CredentialInfo = { origin: ORIGIN, scheme: "bearer", header: null, purpose: "the API" };
+const BEARER: CredentialInfo = { origin: ORIGIN, scheme: "bearer", header: null, purpose: "the API" };
 
-const INFOS: ReadonlyArray<nextCredentials.CredentialInfo> = [
+const INFOS: ReadonlyArray<CredentialInfo> = [
   BEARER,
   { origin: ORIGIN, scheme: "basic", header: null, purpose: "basic" },
   { origin: ORIGIN, scheme: "header", header: "X-Api-Key", purpose: "a header" },
@@ -153,57 +131,6 @@ const isInput = keyed<InputAction>(["place", "newRun", "guarded"]);
 
 const isApproval = keyed<DecisionAction>(["askApproval", "decide", "passed"]);
 
-const aSession = fc.constantFrom(...SESSIONS);
-
-const anIndex = (size: number) => fc.integer({ min: 0, max: size - 1 });
-
-export const actions: fc.Arbitrary<Action> = fc.oneof(
-  { arbitrary: fc.record({ addHook: anIndex(ADD_BODIES.length) }), weight: 4 },
-  { arbitrary: fc.record({ add: anIndex(HOOK_IDS.length), session: aSession, label: anIndex(LABELS.length), signed: fc.boolean() }), weight: 2 },
-  { arbitrary: fc.record({ rotate: anIndex(3) }), weight: 1 },
-  { arbitrary: fc.record({ remove: anIndex(3) }), weight: 1 },
-  { arbitrary: fc.constant({ listHooks: true as const }), weight: 1 },
-  {
-    arbitrary: fc.record({
-      post: anIndex(3),
-      token: fc.constantFrom<"own" | "other" | "bad">("own", "own", "other", "bad"),
-      method: fc.constantFrom<"POST" | "GET">("POST", "POST", "POST", "GET"),
-      size: fc.constantFrom(...SIZES, "small", "small"),
-      lies: fc.constantFrom(false, false, false, true),
-      signature: fc.constantFrom(...SIGNATURES, "good"),
-      delivery: fc.constantFrom("d1", "d2", null),
-      body: fc.constantFrom('{"action":"opened"}', '{"action":"closed"}', "x".repeat(40_000))
-    }),
-    weight: 6
-  },
-  { arbitrary: fc.record({ limited: fc.boolean() }), weight: 1 },
-  { arbitrary: fc.record({ ask: aSession, name: fc.constantFrom(0, 0, 1, 2), info: fc.constantFrom(0, 0, 1, 2, 3, 4, 5) }), weight: 3 },
-  { arbitrary: fc.record({ save: aSession, name: anIndex(NAMES.length), value: fc.constantFrom(0, 0, 0, 1, 2, 3, 4), raw: fc.constantFrom(false, false, false, true), fresh: fc.constantFrom(true, true, true, false) }), weight: 3 },
-  { arbitrary: fc.record({ asks: fc.constantFrom<string | null>(...SESSIONS, null) }), weight: 1 },
-  { arbitrary: fc.constant({ listSecrets: true as const }), weight: 1 },
-  { arbitrary: fc.record({ removeSecret: anIndex(NAMES.length) }), weight: 1 },
-  { arbitrary: fc.record({ place: aSession, request: fc.constantFrom<"hook" | "decided" | "card" | "user" | "approval">("hook", "decided", "card", "user", "approval") }), weight: 4 },
-  { arbitrary: fc.record({ newRun: aSession }), weight: 2 },
-  { arbitrary: fc.record({ guarded: aSession }), weight: 1 },
-  {
-    arbitrary: fc.record({
-      askApproval: fc.constantFrom<"webhook-action" | "secret-request">("webhook-action", "webhook-action", "secret-request"),
-      conversation: aSession,
-      tool: anIndex(TOOLS.length),
-      args: anIndex(ARGS.length),
-      url: fc.constantFrom(0, 0, 0, 1, 2, 3, 4),
-      good: fc.constantFrom(true, true, true, false)
-    }),
-    weight: 4
-  },
-  { arbitrary: fc.record({ decide: fc.constantFrom(-1, -1, -1, 0, 1, 2), action: fc.constantFrom<ApprovalAction>("accept", "accept", "decline", "cancel") }), weight: 4 },
-  { arbitrary: fc.record({ passed: aSession, tool: anIndex(TOOLS.length), args: anIndex(ARGS.length), fresh: fc.constantFrom(true, true, true, false) }), weight: 4 },
-  { arbitrary: fc.record({ fetch: fc.constantFrom(...FETCHES) }), weight: 2 },
-  { arbitrary: fc.record({ http: anIndex(NAMES.length), url: fc.constantFrom(0, 0, 0, 1, 2, 3, 4), method: fc.constantFrom<"GET" | "POST">("GET", "POST"), fresh: fc.constantFrom(true, true, true, false) }), weight: 4 }
-);
-
-export const advances = fc.oneof(fc.integer({ min: 0, max: 120_000 }), fc.constantFrom(PASS_MS, PASS_MS + 1, SEEN_MS, SEEN_MS + 1));
-
 export function useTimingSafeEqual(): void {
   Object.defineProperty(crypto.subtle, "timingSafeEqual", {
     configurable: true,
@@ -238,18 +165,18 @@ type Seen = {
 
 type SecretName = { readonly session: string; readonly name: string };
 
-type Meta = nextCredentials.CredentialInfo | { readonly hook: string };
+type Meta = CredentialInfo | { readonly hook: string };
 
 type Posting = Extract<PostAction, { readonly post: number }>;
 
 type Shown = { readonly status: number; readonly allow: string | null; readonly body: string } | null;
 
-export function world(db: DatabaseSync, side: Side) {
+export function world(db: DatabaseSync) {
   const seen: Seen = { told: [], fetched: [], timeouts: [], vault: [] };
   const work: Array<Promise<unknown>> = [];
   const tokens = new Map<string, string>();
   const signings = new Map<string, string>();
-  const credentials = new Map<string, nextCredentials.Credential>();
+  const credentials = new Map<string, Credential>();
   const metas = new Map<string, { readonly kind: string; readonly id: string; readonly meta: Meta }>();
   const asked: string[] = [];
   let minted = 0;
@@ -285,18 +212,18 @@ export function world(db: DatabaseSync, side: Side) {
   };
 
   const vault = {
-    httpRequest: async (name: string, request: nextCredentials.CredentialRequest) => {
+    httpRequest: async (name: string, request: CredentialRequest) => {
       const credential = credentials.get(name);
 
       if (!credential) return { refused: `There is no credential ${name}. list_secrets shows the ones there are.`, sent: false };
 
-      return side.credentialFetch(fetcher, credential, request);
+      return credentialFetch(fetcher, credential, request);
     },
     hookSigned: async (id: string, signed: boolean, body: string, signature: string | null) => {
       if (!signed) return true;
       const secret = signings.get(id);
 
-      return secret !== undefined && side.signedWith(secret, body, signature);
+      return secret !== undefined && signedWith(secret, body, signature);
     },
     check: async (kind: string, token: string) => tokens.get(`${kind}:${token}`) ?? null,
     mint: async (kind: string, id: string) => {
@@ -310,14 +237,14 @@ export function world(db: DatabaseSync, side: Side) {
       for (const [key, subject] of tokens) if (key.startsWith(`${kind}:`) && subject === id) tokens.delete(key);
       seen.vault.push(["revoke", kind, id]);
     },
-    put: async (kind: string, id: string, value: string | nextCredentials.Credential, meta: Meta) => {
-      if (kind === nextCredentials.HTTP_KIND) Option.map(credentialOf(value), (credential) => credentials.set(id, credential));
+    put: async (kind: string, id: string, value: string | Credential, meta: Meta) => {
+      if (kind === HTTP_KIND) Option.map(credentialOf(value), (credential) => credentials.set(id, credential));
       else Option.map(textOf(value), (signing) => signings.set(id, signing));
       metas.set(`${kind}:${id}`, { kind, id, meta });
       seen.vault.push(["put", kind, id]);
     },
     remove: async (kind: string, id: string) => {
-      if (kind === nextCredentials.HTTP_KIND) credentials.delete(id);
+      if (kind === HTTP_KIND) credentials.delete(id);
       else signings.delete(id);
       metas.delete(`${kind}:${id}`);
       seen.vault.push(["remove", kind, id]);
@@ -336,7 +263,7 @@ export function world(db: DatabaseSync, side: Side) {
     }
   };
 
-  const inbound = side.make(db, desk);
+  const inbound = new Inbound(storageOf(db), desk);
   approvals.handle("webhook-action", inbound.handlers["webhook-action"]);
   approvals.handle("secret-request", inbound.handlers["secret-request"]);
 
@@ -345,7 +272,7 @@ export function world(db: DatabaseSync, side: Side) {
     inboundHook: async (id: string) => inbound.hook(id) ?? null,
     addHook: async (id: string, session: string, label: string, signed: boolean) => inbound.addHook(id, session, label, signed),
     removeHook: async (id: string) => inbound.removeHook(id),
-    hookReceived: async (id: string, delivery: nextInbound.HookDelivery) => inbound.received(id, delivery),
+    hookReceived: async (id: string, delivery: HookDelivery) => inbound.received(id, delivery),
     secretAsk: async (session: string, name: string) => inbound.askFor(session, name) ?? null,
     secretSaved: async (session: string, name: string) => inbound.saved(session, name),
     secretAsks: async (session: string) => inbound.asks(session)
@@ -374,7 +301,7 @@ export function world(db: DatabaseSync, side: Side) {
     const url = new URL(`https://ky.example.com${path}`);
     const request = new Request(url, { method, body, headers });
 
-    return shown(await (side.hookRoute(request, env, url) ?? side.inboundRoute(request, env, url)));
+    return shown(await (hookRoute(request, env, url) ?? inboundRoute(request, env, url)));
   };
 
   const hookAt = (index: number) => inbound.hooks()[index]?.id ?? HOOK_IDS[0];
@@ -581,20 +508,4 @@ export function world(db: DatabaseSync, side: Side) {
   };
 
   return { seen, inbound, approvals, apply, prime, settle, route, post, place, tokens, signings, asked };
-}
-
-const TABLES = ["ky_hooks", "ky_hook_seen", "ky_secret_asks", "ky_passes", "ky_approvals"] as const;
-
-export function tablesOf(db: DatabaseSync): Json {
-  return Object.fromEntries(
-    TABLES.map((table) => [
-      table,
-      db.prepare("SELECT name FROM sqlite_master WHERE name = ?").all(table).length === 0
-        ? []
-        : db
-            .prepare(`SELECT * FROM ${table} ORDER BY rowid`)
-            .all()
-            .map((row) => JSON.stringify(row))
-    ])
-  );
 }

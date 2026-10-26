@@ -3,21 +3,14 @@ import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Credential } from "../../src/inbound/credentials";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { legacy } from "../parity/inbound/legacy";
+import { type Credential, credentialFetch } from "../../src/inbound/credentials";
+import { budget } from "../parity/kit";
 import {
-  type Action,
-  actions,
-  advances,
   HOOK_CAP,
-  next,
   ORIGIN,
   PASS_MS,
   SEEN_MS,
-  type Side,
   START,
-  tablesOf,
   TIMEOUT_MS,
   VALUE,
   useTimingSafeEqual,
@@ -26,36 +19,6 @@ import {
 
 fc.configureGlobal({ baseSize: "large" });
 
-const IDS = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{64}\b|\b[0-9a-f]{32}\b/g;
-
-function normalize(observed: Json): Json {
-  const seen = new Map<string, string>();
-
-  return JSON.stringify(observed).replace(IDS, (id) => {
-    const known = seen.get(id) ?? `id-${seen.size}`;
-    seen.set(id, known);
-
-    return known;
-  });
-}
-
-async function instance(side: Side): Promise<Instance<Action>> {
-  const db = new DatabaseSync(":memory:");
-  const made = world(db, side);
-  await made.prime();
-
-  return {
-    apply: (action) => made.apply(action),
-    tables: async () => tablesOf(db),
-    effects: async () => made.seen,
-    dispose: async () => db.close()
-  };
-}
-
-function useClock(clock: Clock): void {
-  vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-}
-
 beforeEach(() => {
   useTimingSafeEqual();
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -63,30 +26,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-const inboundParity: Parity<Action> = {
-  domain: "inbound",
-  actions,
-  start: START,
-  advances,
-  normalize,
-  legacy: async (clock) => {
-    useClock(clock);
-
-    return instance(legacy);
-  },
-  next: async (clock) => {
-    useClock(clock);
-
-    return instance(next);
-  }
-};
-
-describe("inbound parity", () => {
-  it("answers, stores, tells and calls what B does, step for step", async () => {
-    await assertParity(inboundParity);
-  });
 });
 
 const runs = () => ({ numRuns: budget().numRuns * 4, seed: budget().seed });
@@ -101,7 +40,7 @@ async function primed() {
   const time = { at: START };
   vi.spyOn(Date, "now").mockImplementation(() => time.at);
   const db = new DatabaseSync(":memory:");
-  const ky = world(db, next);
+  const ky = world(db);
   await ky.prime();
   ky.seen.told.splice(0);
   const [signed, plain] = ky.inbound.hooks().map((hook) => hook.id);
@@ -347,8 +286,6 @@ describe("a run", () => {
     });
   });
 });
-
-const credentialFetch = next.credentialFetch;
 
 function fetcher(status: number) {
   const calls: RequestInit[] = [];

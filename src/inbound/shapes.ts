@@ -13,7 +13,7 @@ const HookSchema = Type.Object({
 
 export type Hook = Static<typeof HookSchema>;
 
-export const SecretAskSchema = Type.Object({
+const SecretAskSchema = Type.Object({
   session: Type.String(),
   name: Type.String(),
   origin: Type.String(),
