@@ -358,35 +358,52 @@ describe("the team's keys", () => {
     );
   });
 
-  type Step = { advance: number } | { ask: number } | "rotate";
+  type Step = { advance: number } | { ask: number; other: boolean } | "rotate" | { mode: Mode };
 
-  const aStep = (unknown: boolean): fc.Arbitrary<Step> =>
+  const aStep = (unknown: boolean, teams = false): fc.Arbitrary<Step> =>
     fc.oneof(
       fc.record({ advance: fc.constantFrom(1, MINUTE_MS - 1, MINUTE_MS, HOUR_MS - 1, HOUR_MS, 7 * MINUTE_MS) }),
-      fc.record({ ask: unknown ? fc.integer({ min: 0, max: POOL - 1 }) : fc.constant(0) }),
-      ...(unknown ? [fc.constant<Step>("rotate")] : [])
+      fc.record({ ask: unknown ? fc.integer({ min: 0, max: POOL - 1 }) : fc.constant(0), other: teams ? fc.boolean() : fc.constant(false) }),
+      ...(unknown ? [fc.constant<Step>("rotate")] : []),
+      ...(teams ? [fc.record({ mode: fc.constantFrom<Mode>("ok", "ok", "empty", "failing", "down") })] : [])
     );
+
+  /** What Access should keep: the team its keys are for, when they were fetched, how many it published then. */
+  type KeptModel = { team?: string; last: number; known: number; fetches: number };
 
   async function keptKeys(steps: Step[]) {
     const ky = fresh();
-    const model = { last: Number.NEGATIVE_INFINITY, known: 0, fetches: 0 };
+    const model: KeptModel = { last: Number.NEGATIVE_INFINITY, known: 0, fetches: 0 };
 
-    const fetch = () => {
-      model.last = ky.now();
-      model.known = ky.team.state.published;
+    const fetch = (team: string) => {
       model.fetches += 1;
+      const failed = team !== TEAM || FAILING.includes(ky.team.state.mode);
+
+      model.team = failed ? undefined : team;
+      model.last = ky.now();
+      model.known = ky.team.state.mode === "empty" ? 0 : ky.team.state.published;
+
+      return failed;
+    };
+
+    const expected = (key: number, team: string) => {
+      if ((model.team !== team || ky.now() - model.last >= HOUR_MS) && fetch(team)) return TRY_AGAIN;
+
+      if (key >= model.known && ky.now() - model.last >= MINUTE_MS && fetch(team)) return TRY_AGAIN;
+
+      return key < model.known ? null : SIGN_IN;
     };
 
     for (const step of steps) {
       if (step === "rotate") ky.team.rotate();
+      else if ("mode" in step) ky.team.state.mode = step.mode;
       else if ("advance" in step) ky.advance(step.advance);
       else {
-        if (ky.now() - model.last >= HOUR_MS) fetch();
+        const team = step.other ? OTHER : TEAM;
+        const token: Token = { kind: "jwt", key: step.ask, kid: step.ask, claims: { aud: "app", iss: `https://${team}`, email: "owner@ky.test", exp: 3600, nbf: 0, flaw: "plain" }, tamper: "none", std: false };
+        const want = expected(step.ask, team);
 
-        if (step.ask >= model.known && ky.now() - model.last >= MINUTE_MS) fetch();
-        const token: Token = { kind: "jwt", key: step.ask, kid: step.ask, claims: { aud: "app", iss: `https://${TEAM}`, email: "owner@ky.test", exp: 3600, nbf: 0, flaw: "plain" }, tamper: "none", std: false };
-
-        expect(await ky.ask(token)).toEqual(step.ask < model.known ? null : SIGN_IN);
+        expect(await ky.ask(token, { ...VARS, ACCESS_TEAM_DOMAIN: team })).toEqual(want);
         expect(ky.team.state.fetched).toHaveLength(model.fetches);
       }
     }
@@ -398,6 +415,10 @@ describe("the team's keys", () => {
 
   it("I-A6: a key id they lack fetches them again at most once a minute, so a key Access rotates in works within a minute", async () => {
     await fc.assert(fc.asyncProperty(fc.array(aStep(true), { maxLength: budget().maxCommands }), keptKeys), runs());
+  });
+
+  it("I-A8: are one team's: a JWT for another team fetches that team's certs, and keys kept are only ever the last team's; an empty key list is kept like any other", async () => {
+    await fc.assert(fc.asyncProperty(fc.array(aStep(true, true), { maxLength: budget().maxCommands }), keptKeys), runs());
   });
 });
 
