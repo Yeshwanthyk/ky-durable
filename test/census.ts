@@ -26,7 +26,12 @@ const ROOTS = ["src/tests", "test/node", "test/invariants", "test/parity", "test
 const DOMAINS = {
   deploy: /deploy|cloudflare|\binit\b|overlay|wrangler/i,
   automations: /automation|routine|schedul|check-?ins?/i,
-  skills: /skill/i
+  skills: /skill/i,
+  dreaming: /dreaming|versioned|anticipation|episode|memory|recall|soul|looks|watches/i,
+  peers: /peer|group|crew/i,
+  machines: /machine|runner/i,
+  approvals: /approval|executor/i,
+  inbound: /inbound|webhook|credential/i
 } satisfies Record<string, RegExp>;
 
 type Domain = keyof typeof DOMAINS;

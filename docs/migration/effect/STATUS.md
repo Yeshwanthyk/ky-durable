@@ -1,7 +1,15 @@
 # ky → Effect v4: status
 
-The checkpoint for the migration. One writer: the chief-of-staff thread on `effect/foundation`. Each
+The checkpoint for the migration. One writer: the chief-of-staff thread, on a branch cut from `main`
+(`effect/next-wave` from 0af806a; `effect/foundation` is retired, its history squashed into main). Each
 later wave starts only on the owner's plain "go".
+
+## Shipped (2026-10-26)
+
+Waves 1 and 2 (deploy, automations, skills) are squash-merged to main as 0af806a (#177). deploy.yml
+deployed it to squarey; `ky doctor squarey` reports all good: Release 0af806a, migrations v3, cloud machine
+on the newest release's image. Still on B's code: dreaming, peers, machines, approvals, inbound, and the
+flat `src/*.ts` modules. Next: discovery of Wave 3 (a read-only scout per candidate), then the owner picks.
 
 **Baseline B** = `origin/main` b658a6e, tagged locally `effect-baseline`. Every domain is measured
 against B, never against the PR before it.
