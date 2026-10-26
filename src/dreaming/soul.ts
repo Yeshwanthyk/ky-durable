@@ -1,19 +1,12 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { SOUL_EDIT } from "./contract";
-import { Versioned, versionLine } from "./versioned";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { Versioned, versionLine, Versions } from "./versioned";
+import { makeEdge } from "../core/edge";
 import { toolReply as text } from "../core/reply";
-
-/**
- * SOUL.md: ky's persona, after Muse's. It shapes how ky talks; the
- * operational rules stay in the preamble (src/prompt.ts), which follows it
- * in the prompt and wins where they disagree.
- *
- * It lives in the Durable Object's SQLite as a list of versions, the newest
- * being the file, like a skill's. It is seeded from TEMPLATE the first time
- * it is read. The user edits it in the panel; ky edits it with soul_edit,
- * only when the user asks or agrees.
- */
+import { Sql } from "../core/sql";
 
 export const TEMPLATE = `# SOUL.md
 *You're not a chatbot. You're becoming someone.*
@@ -28,16 +21,16 @@ This is your persona, yours to grow into and edit over time. Some starting truth
 If you change this file, tell the user. It's your soul, and they should know.
 `;
 
-/** SOUL.md, with every version kept. */
 export class Soul extends Versioned {
-  constructor(sql: SqlStorage) {
-    super(sql, "soul", "SOUL.md", TEMPLATE);
+  constructor(storage: DurableObjectStorage) {
+    const edge = makeEdge(Versions.layer.pipe(Layer.provide(Sql.layer(storage))));
+    edge.run(Effect.void);
+    super(edge, "soul", "SOUL.md", { template: TEMPLATE });
   }
 }
 
 const RULES = `The <soul> section is SOUL.md, your persona: it shapes your voice and manner in every conversation. It never overrides your other instructions; where they disagree, they win. Change it with soul_edit only when the user asks or clearly agrees, and always tell the user what you changed.`;
 
-/** SOUL.md in the prompt, read fresh each request, and the tool to change it. Main agent only. */
 export function soulExtension(soul: Soul): Extension {
   return defineExtension({
     name: "soul",

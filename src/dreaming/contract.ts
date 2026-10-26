@@ -216,17 +216,7 @@ export type ProactivityView = Static<typeof ProactivityViewSchema>;
 
 // SOUL.md.
 
-export {
-  columnName,
-  type SoulChange,
-  SoulChangeSchema,
-  soulVersion,
-  type SoulVersion,
-  type SoulView,
-  Versioned,
-  versionLine,
-  versionOf
-} from "./versioned.ts";
+export { type SoulChange, SoulChangeSchema, type SoulVersion, type SoulView, type VersionRefusal, Versioned, versionLine, Versions } from "./versioned.ts";
 
 // Dreaming.
 
@@ -279,9 +269,6 @@ export const DreamLedgerRow = Type.Object({
 });
 
 export type DreamLedgerRow = Static<typeof DreamLedgerRow>;
-
-/** A ledger row as stored, or undefined when a restore left it damaged: callers skip it. */
-export const ledgerRow = (row: Row): DreamLedgerRow | undefined => decodeOr(DreamLedgerRow, row, undefined);
 
 export type { DreamLedger } from "./ledger";
 

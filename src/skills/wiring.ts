@@ -6,7 +6,7 @@ import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import { isRefusal } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { Models } from "../models";
-import { Versioned } from "../dreaming/contract";
+import { Versioned, Versions } from "../dreaming/contract";
 import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
@@ -23,15 +23,12 @@ function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, 
 
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
-  readonly #edge: Edge<Roster>;
-  readonly #sql: SqlStorage;
-  readonly #briefs = new Map<string, Versioned>();
+  readonly #edge: Edge<Roster | Versions>;
   readonly #listeners = new Set<() => void>();
 
   /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
   constructor(storage: DurableObjectStorage) {
-    this.#sql = storage.sql;
-    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners, brief: (id) => this.brief(id) }).pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners }).pipe(Layer.provideMerge(Versions.layer), Layer.provide(Sql.layer(storage))));
     this.#run(() => Effect.void);
   }
 
@@ -61,19 +58,8 @@ export class Specialists {
     return this.list().map((row) => ({ ...row, brief: this.brief(row.id).view() }));
   }
 
-  /** A specialist's brief, versioned like SOUL.md. */
   brief(id: string): Versioned {
-    let brief = this.#briefs.get(id);
-
-    if (!brief) {
-      brief = new Versioned(this.#sql, `specialist:${id}`, `@${id}'s brief`);
-      brief.onChange(() => {
-        for (const listener of this.#listeners) listener();
-      });
-      this.#briefs.set(id, brief);
-    }
-
-    return brief;
+    return new Versioned(this.#edge, `specialist:${id}`, `@${id}'s brief`, { listeners: this.#listeners });
   }
 
   create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
