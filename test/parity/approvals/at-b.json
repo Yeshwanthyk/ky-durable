@@ -1,0 +1,560 @@
+{
+  "at": "effect-baseline b658a6e",
+  "now": 1767225729800,
+  "schema": [
+    "CREATE TABLE ky_approvals (\n      id TEXT PRIMARY KEY,\n      kind TEXT NOT NULL,\n      ref TEXT NOT NULL,\n      subject TEXT NOT NULL,\n      summary TEXT NOT NULL,\n      payload TEXT NOT NULL,\n      status TEXT NOT NULL,\n      conversation TEXT NOT NULL,\n      chat TEXT NOT NULL,\n      created_at INTEGER NOT NULL,\n      decided_at INTEGER,\n      carried_at INTEGER,\n      UNIQUE (kind, ref))",
+    "CREATE TABLE ky_executor_inputs (request_id TEXT PRIMARY KEY, conversation TEXT NOT NULL, created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_tool_policies (tool TEXT PRIMARY KEY, policy TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+    "CREATE INDEX ky_approvals_pending ON ky_approvals (status, created_at)"
+  ],
+  "tables": {
+    "ky_approvals": [
+      {
+        "id": "9dc75875-adb9-4669-89b5-98e16f7091b9",
+        "kind": "executor",
+        "ref": "r1",
+        "subject": "drive.delete",
+        "summary": "Delete report.pdf",
+        "payload": "{\"tool\":\"drive.delete\",\"message\":\"Delete report.pdf\"}",
+        "status": "pending",
+        "conversation": "here",
+        "chat": "here",
+        "created_at": 1767225601500,
+        "decided_at": null,
+        "carried_at": null
+      },
+      {
+        "id": "cbacdd10-2c46-47d1-ba14-2e92fba94f66",
+        "kind": "executor",
+        "ref": "r2",
+        "subject": "gmail.send",
+        "summary": "send r2",
+        "payload": "{\"tool\":\"gmail.send\",\"message\":\"send r2\"}",
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here",
+        "created_at": 1767225602500,
+        "decided_at": 1767225602500,
+        "carried_at": 1767225602500
+      },
+      {
+        "id": "4b1d3e14-2ee5-4f3a-bb3b-6a90c5d6a7db",
+        "kind": "executor",
+        "ref": "r3",
+        "subject": "gmail.send",
+        "summary": "send r3",
+        "payload": "{\"tool\":\"gmail.send\",\"message\":\"send r3\"}",
+        "status": "expired",
+        "conversation": "here",
+        "chat": "here",
+        "created_at": 1767225603500,
+        "decided_at": 1767225603600,
+        "carried_at": 1767225603600
+      },
+      {
+        "id": "7aaf41a7-6442-4203-9700-477afaf784fb",
+        "kind": "executor",
+        "ref": "r4",
+        "subject": "gmail.send",
+        "summary": "send r4",
+        "payload": "{",
+        "status": "pending",
+        "conversation": "side-1",
+        "chat": "side-1",
+        "created_at": 1767225604600,
+        "decided_at": null,
+        "carried_at": null
+      },
+      {
+        "id": "c8acf033-e39e-4da1-ad81-cc9177a39de3",
+        "kind": "executor",
+        "ref": "r5",
+        "subject": "gmail.send",
+        "summary": "send r5",
+        "payload": "null",
+        "status": "pending",
+        "conversation": "away",
+        "chat": "here",
+        "created_at": 1767225605600,
+        "decided_at": null,
+        "carried_at": null
+      },
+      {
+        "id": "8291c5b3-e9be-481e-8f02-bb249155fbc4",
+        "kind": "webhook-action",
+        "ref": "w1",
+        "subject": "gmail.send",
+        "summary": "send w1",
+        "payload": "{\"tool\":\"http\",\"args\":{\"url\":\"https://example.com\"}}",
+        "status": "declined",
+        "conversation": "away",
+        "chat": "here",
+        "created_at": 1767225606600,
+        "decided_at": 1767225606700,
+        "carried_at": null
+      },
+      {
+        "id": "60d5a575-7f10-47d6-bb5f-1bd8771f60b7",
+        "kind": "secret-request",
+        "ref": "s1",
+        "subject": "gmail.send",
+        "summary": "send s1",
+        "payload": "{\"tool\":\"gmail.send\",\"message\":\"send s1\"}",
+        "status": "cancelled",
+        "conversation": "here",
+        "chat": "here",
+        "created_at": 1767225607700,
+        "decided_at": 1767225607700,
+        "carried_at": 1767225607700
+      },
+      {
+        "id": "f7e7714d-6e33-4d7b-afc3-bfdcfed1d147",
+        "kind": "webhook-action",
+        "ref": "w2",
+        "subject": "gmail.send",
+        "summary": "send w2",
+        "payload": "{\"tool\":\"gmail.send\",\"message\":\"send w2\"}",
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here",
+        "created_at": 1767225728700,
+        "decided_at": 1767225728800,
+        "carried_at": null
+      }
+    ],
+    "ky_tool_policies": [
+      {
+        "tool": "gmail.send",
+        "policy": "block",
+        "updated_at": 1767225600000
+      },
+      {
+        "tool": "calendar.read",
+        "policy": "allow",
+        "updated_at": 1767225600500
+      },
+      {
+        "tool": "drive.delete",
+        "policy": "ask",
+        "updated_at": 1767225601500
+      }
+    ],
+    "ky_executor_inputs": [
+      {
+        "request_id": "in1",
+        "conversation": "here",
+        "created_at": 1767225601000
+      }
+    ]
+  },
+  "reads": {
+    "byRef": [
+      {
+        "id": "9dc75875-adb9-4669-89b5-98e16f7091b9",
+        "kind": "executor",
+        "ref": "r1",
+        "subject": "drive.delete",
+        "summary": "Delete report.pdf",
+        "payload": {
+          "tool": "drive.delete",
+          "message": "Delete report.pdf"
+        },
+        "status": "pending",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "cbacdd10-2c46-47d1-ba14-2e92fba94f66",
+        "kind": "executor",
+        "ref": "r2",
+        "subject": "gmail.send",
+        "summary": "send r2",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send r2"
+        },
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "4b1d3e14-2ee5-4f3a-bb3b-6a90c5d6a7db",
+        "kind": "executor",
+        "ref": "r3",
+        "subject": "gmail.send",
+        "summary": "send r3",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send r3"
+        },
+        "status": "expired",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "7aaf41a7-6442-4203-9700-477afaf784fb",
+        "kind": "executor",
+        "ref": "r4",
+        "subject": "gmail.send",
+        "summary": "send r4",
+        "payload": null,
+        "status": "pending",
+        "conversation": "side-1",
+        "chat": "side-1"
+      },
+      {
+        "id": "c8acf033-e39e-4da1-ad81-cc9177a39de3",
+        "kind": "executor",
+        "ref": "r5",
+        "subject": "gmail.send",
+        "summary": "send r5",
+        "payload": null,
+        "status": "pending",
+        "conversation": "away",
+        "chat": "here"
+      },
+      {
+        "id": "8291c5b3-e9be-481e-8f02-bb249155fbc4",
+        "kind": "webhook-action",
+        "ref": "w1",
+        "subject": "gmail.send",
+        "summary": "send w1",
+        "payload": {
+          "tool": "http",
+          "args": {
+            "url": "https://example.com"
+          }
+        },
+        "status": "declined",
+        "conversation": "away",
+        "chat": "here"
+      },
+      {
+        "id": "f7e7714d-6e33-4d7b-afc3-bfdcfed1d147",
+        "kind": "webhook-action",
+        "ref": "w2",
+        "subject": "gmail.send",
+        "summary": "send w2",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send w2"
+        },
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "60d5a575-7f10-47d6-bb5f-1bd8771f60b7",
+        "kind": "secret-request",
+        "ref": "s1",
+        "subject": "gmail.send",
+        "summary": "send s1",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send s1"
+        },
+        "status": "cancelled",
+        "conversation": "here",
+        "chat": "here"
+      },
+      null
+    ],
+    "get": [
+      {
+        "id": "9dc75875-adb9-4669-89b5-98e16f7091b9",
+        "kind": "executor",
+        "ref": "r1",
+        "subject": "drive.delete",
+        "summary": "Delete report.pdf",
+        "payload": {
+          "tool": "drive.delete",
+          "message": "Delete report.pdf"
+        },
+        "status": "pending",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "cbacdd10-2c46-47d1-ba14-2e92fba94f66",
+        "kind": "executor",
+        "ref": "r2",
+        "subject": "gmail.send",
+        "summary": "send r2",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send r2"
+        },
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "4b1d3e14-2ee5-4f3a-bb3b-6a90c5d6a7db",
+        "kind": "executor",
+        "ref": "r3",
+        "subject": "gmail.send",
+        "summary": "send r3",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send r3"
+        },
+        "status": "expired",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "7aaf41a7-6442-4203-9700-477afaf784fb",
+        "kind": "executor",
+        "ref": "r4",
+        "subject": "gmail.send",
+        "summary": "send r4",
+        "payload": null,
+        "status": "pending",
+        "conversation": "side-1",
+        "chat": "side-1"
+      },
+      {
+        "id": "c8acf033-e39e-4da1-ad81-cc9177a39de3",
+        "kind": "executor",
+        "ref": "r5",
+        "subject": "gmail.send",
+        "summary": "send r5",
+        "payload": null,
+        "status": "pending",
+        "conversation": "away",
+        "chat": "here"
+      },
+      {
+        "id": "8291c5b3-e9be-481e-8f02-bb249155fbc4",
+        "kind": "webhook-action",
+        "ref": "w1",
+        "subject": "gmail.send",
+        "summary": "send w1",
+        "payload": {
+          "tool": "http",
+          "args": {
+            "url": "https://example.com"
+          }
+        },
+        "status": "declined",
+        "conversation": "away",
+        "chat": "here"
+      },
+      {
+        "id": "f7e7714d-6e33-4d7b-afc3-bfdcfed1d147",
+        "kind": "webhook-action",
+        "ref": "w2",
+        "subject": "gmail.send",
+        "summary": "send w2",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send w2"
+        },
+        "status": "accepted",
+        "conversation": "here",
+        "chat": "here"
+      },
+      {
+        "id": "60d5a575-7f10-47d6-bb5f-1bd8771f60b7",
+        "kind": "secret-request",
+        "ref": "s1",
+        "subject": "gmail.send",
+        "summary": "send s1",
+        "payload": {
+          "tool": "gmail.send",
+          "message": "send s1"
+        },
+        "status": "cancelled",
+        "conversation": "here",
+        "chat": "here"
+      },
+      null
+    ],
+    "pending": [
+      {
+        "id": "9dc75875-adb9-4669-89b5-98e16f7091b9",
+        "kind": "executor",
+        "subject": "drive.delete",
+        "summary": "Delete report.pdf",
+        "chat": "here",
+        "createdAt": 1767225601500
+      },
+      {
+        "id": "7aaf41a7-6442-4203-9700-477afaf784fb",
+        "kind": "executor",
+        "subject": "gmail.send",
+        "summary": "send r4",
+        "chat": "side-1",
+        "createdAt": 1767225604600
+      },
+      {
+        "id": "c8acf033-e39e-4da1-ad81-cc9177a39de3",
+        "kind": "executor",
+        "subject": "gmail.send",
+        "summary": "send r5",
+        "chat": "here",
+        "createdAt": 1767225605600
+      }
+    ],
+    "policies": [
+      {
+        "tool": "calendar.read",
+        "policy": "allow"
+      },
+      {
+        "tool": "drive.delete",
+        "policy": "ask"
+      },
+      {
+        "tool": "gmail.send",
+        "policy": "block"
+      }
+    ],
+    "policyFor": [
+      "block",
+      "allow",
+      "ask",
+      "ask"
+    ],
+    "beforeResume": [
+      null,
+      "ky has no input request in1 from this conversation. An approval is only ever approved by the user's tap on its card. A request from before ky's approval cards has no card, and can't be approved or cancelled any more: Executor lets it lapse. Check with a read-only program whether anything happened, tell the user, and run the program again only once they say so; then it asks with a card.",
+      "Request r1 is an approval: only the user's tap on its card approves it. Tell them it waits there.",
+      "Request r1 belongs to another conversation."
+    ],
+    "recovered": {
+      "lost": [
+        {
+          "approval": {
+            "id": "8291c5b3-e9be-481e-8f02-bb249155fbc4",
+            "kind": "webhook-action",
+            "ref": "w1",
+            "subject": "gmail.send",
+            "summary": "send w1",
+            "payload": {
+              "tool": "http",
+              "args": {
+                "url": "https://example.com"
+              }
+            },
+            "status": "pending",
+            "conversation": "away",
+            "chat": "here"
+          },
+          "action": "decline"
+        }
+      ],
+      "byRef": [
+        {
+          "id": "9dc75875-adb9-4669-89b5-98e16f7091b9",
+          "kind": "executor",
+          "ref": "r1",
+          "subject": "drive.delete",
+          "summary": "Delete report.pdf",
+          "payload": {
+            "tool": "drive.delete",
+            "message": "Delete report.pdf"
+          },
+          "status": "pending",
+          "conversation": "here",
+          "chat": "here"
+        },
+        {
+          "id": "cbacdd10-2c46-47d1-ba14-2e92fba94f66",
+          "kind": "executor",
+          "ref": "r2",
+          "subject": "gmail.send",
+          "summary": "send r2",
+          "payload": {
+            "tool": "gmail.send",
+            "message": "send r2"
+          },
+          "status": "accepted",
+          "conversation": "here",
+          "chat": "here"
+        },
+        {
+          "id": "4b1d3e14-2ee5-4f3a-bb3b-6a90c5d6a7db",
+          "kind": "executor",
+          "ref": "r3",
+          "subject": "gmail.send",
+          "summary": "send r3",
+          "payload": {
+            "tool": "gmail.send",
+            "message": "send r3"
+          },
+          "status": "expired",
+          "conversation": "here",
+          "chat": "here"
+        },
+        {
+          "id": "7aaf41a7-6442-4203-9700-477afaf784fb",
+          "kind": "executor",
+          "ref": "r4",
+          "subject": "gmail.send",
+          "summary": "send r4",
+          "payload": null,
+          "status": "pending",
+          "conversation": "side-1",
+          "chat": "side-1"
+        },
+        {
+          "id": "c8acf033-e39e-4da1-ad81-cc9177a39de3",
+          "kind": "executor",
+          "ref": "r5",
+          "subject": "gmail.send",
+          "summary": "send r5",
+          "payload": null,
+          "status": "pending",
+          "conversation": "away",
+          "chat": "here"
+        },
+        {
+          "id": "8291c5b3-e9be-481e-8f02-bb249155fbc4",
+          "kind": "webhook-action",
+          "ref": "w1",
+          "subject": "gmail.send",
+          "summary": "send w1",
+          "payload": {
+            "tool": "http",
+            "args": {
+              "url": "https://example.com"
+            }
+          },
+          "status": "pending",
+          "conversation": "away",
+          "chat": "here"
+        },
+        {
+          "id": "f7e7714d-6e33-4d7b-afc3-bfdcfed1d147",
+          "kind": "webhook-action",
+          "ref": "w2",
+          "subject": "gmail.send",
+          "summary": "send w2",
+          "payload": {
+            "tool": "gmail.send",
+            "message": "send w2"
+          },
+          "status": "accepted",
+          "conversation": "here",
+          "chat": "here"
+        },
+        {
+          "id": "60d5a575-7f10-47d6-bb5f-1bd8771f60b7",
+          "kind": "secret-request",
+          "ref": "s1",
+          "subject": "gmail.send",
+          "summary": "send s1",
+          "payload": {
+            "tool": "gmail.send",
+            "message": "send s1"
+          },
+          "status": "cancelled",
+          "conversation": "here",
+          "chat": "here"
+        },
+        null
+      ]
+    }
+  }
+}

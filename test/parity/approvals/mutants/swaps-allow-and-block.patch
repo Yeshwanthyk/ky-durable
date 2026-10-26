@@ -1,0 +1,20 @@
+diff --git a/src/approvals/executor.ts b/src/approvals/executor.ts
+index 7366a89..73c4fbb 100644
+--- a/src/approvals/executor.ts
++++ b/src/approvals/executor.ts
+@@ -160,13 +160,13 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
+     if (tool !== "" && this.#edge.run(Store.use((store) => store.asked(tool)))) this.#changed();
+     const decided = verdict(tool === "" ? "ask" : this.policyFor(tool), present);
+ 
+-    if (decided === "block") {
++    if (decided === "allow") {
+       const declined = await call("resume", { requestId: paused.requestId, response: { action: "decline" } });
+ 
+       return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${resultText(declined)}\nTell the user it was blocked, and don't try it another way.`);
+     }
+ 
+-    if (decided === "allow") {
++    if (decided === "block") {
+       const accepted = await this.#paused(await call("resume", { requestId: paused.requestId, response: { action: "accept" } }), conversation, call, present);
+ 
+       return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);

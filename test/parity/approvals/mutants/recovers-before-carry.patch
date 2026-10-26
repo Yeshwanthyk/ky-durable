@@ -1,0 +1,13 @@
+diff --git a/src/approvals/approvals.ts b/src/approvals/approvals.ts
+index a06f1a0..95f24d0 100644
+--- a/src/approvals/approvals.ts
++++ b/src/approvals/approvals.ts
+@@ -220,7 +220,7 @@ class Store extends Context.Service<
+         }),
+         cut: Effect.gen(function* () {
+           const now = yield* Clock.currentTimeMillis;
+-          const cut = yield* select("status IN ('accepted', 'declined', 'cancelled') AND carried_at IS NULL AND decided_at < ?", now - CARRY_MS);
++          const cut = yield* select("status IN ('accepted', 'declined', 'cancelled') AND carried_at IS NULL AND decided_at < ?", now);
+ 
+           return cut.map(approvalOf);
+         }),

@@ -1,0 +1,13 @@
+diff --git a/src/approvals/executor.ts b/src/approvals/executor.ts
+index 7366a89..d53f7b1 100644
+--- a/src/approvals/executor.ts
++++ b/src/approvals/executor.ts
+@@ -98,7 +98,7 @@ class Store extends Context.Service<
+         }),
+         owns: (requestId, conversation) =>
+           Effect.map(exec(`SELECT request_id FROM ${INPUTS} WHERE request_id = ? AND conversation = ?`, requestId, conversation), (found) => found.length > 0),
+-        resumed: (requestId) => Effect.asVoid(exec(`DELETE FROM ${INPUTS} WHERE request_id = ?`, requestId))
++        resumed: () => Effect.void
+       });
+     })
+   );
