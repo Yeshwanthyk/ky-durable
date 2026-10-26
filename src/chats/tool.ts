@@ -80,15 +80,9 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
   return reply(`Steered "${shown(row)}"; its agent answers there.`);
 }
 
-async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number): Promise<ToolExecutionResult> {
-  if (!parts.chat(from)) return reply(new NotAChat().refusal, true);
+const callerRefusal = (parts: ChatsParts, from: string) => (!parts.chat(from) ? new NotAChat() : parts.openedBy(from) !== null ? new OpenedByAnother() : null);
 
-  if (parts.openedBy(from) !== null) return reply(new OpenedByAnother().refusal, true);
-
-  if (args.action === "inspect" && args.chat === undefined) return list(parts, from);
-  const message = args.message?.trim() ?? "";
-
-  if (args.action === "create") return message === "" ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
+async function onOpened(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number, message: string): Promise<ToolExecutionResult> {
   const row = ownedBy(parts, from).find((each) => each.session === args.chat);
 
   if (!row) return reply(new NotOpenedHere({ chat: args.chat ?? "" }).refusal, true);
@@ -96,6 +90,19 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, 
   if (args.action === "inspect") return inspect(parts, row);
 
   return message === "" ? reply(new NothingToSteer().refusal, true) : steer(parts, from, task, row, message);
+}
+
+async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number): Promise<ToolExecutionResult> {
+  const refused = callerRefusal(parts, from);
+
+  if (refused) return reply(refused.refusal, true);
+
+  if (args.action === "inspect" && args.chat === undefined) return list(parts, from);
+  const message = args.message?.trim() ?? "";
+
+  if (args.action === "create") return message === "" ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
+
+  return onOpened(parts, args, from, task, message);
 }
 
 export function chatsExtension(parts: ChatsParts): Extension {

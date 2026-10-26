@@ -126,44 +126,67 @@ class Model {
   readonly named: Json[] = [];
 
   apply(action: ListAction, now: number): void {
-    const row = this.rows.get(action.session);
+    if (this.changed(action, this.rows.get(action.session), now)) this.changes++;
+  }
 
-    if (action.op === "add") {
-      if (!row) this.rows.set(action.session, { session: action.session, title: "", created_at: now, updated_at: now, archived_at: null, opened_by: action.opener?.by ?? null, opened_request: action.opener?.request ?? null });
-      this.changes++;
+  changed(action: ListAction, row: ModelRow | undefined, now: number): boolean {
+    switch (action.op) {
+      case "add":
+        return this.add(action.session, action.opener, now);
+      case "touch":
+        return this.touch(action.session, action.text, row, now);
+      case "answered":
+        return this.answered(action.session, row, now);
+      case "retitle":
+        return this.retitle(row, action.was, action.title);
+      case "rename":
+        return this.title(row, titleFrom(action.title));
+      case "archive":
+        return this.archive(row, action.archived, now);
     }
+  }
 
-    if (action.op === "touch") {
-      const title = titleFrom(action.text);
+  add(session: string, opener: Opener | undefined, now: number): boolean {
+    if (!this.rows.has(session)) this.rows.set(session, { session, title: "", created_at: now, updated_at: now, archived_at: null, opened_by: opener?.by ?? null, opened_request: opener?.request ?? null });
 
-      if (row && row.title === "" && title !== "") this.named.push([action.session, action.text]);
+    return true;
+  }
 
-      if (row) Object.assign(row, { updated_at: now, title: row.title === "" ? title : row.title });
-      this.changes++;
-    }
+  touch(session: string, text: string, row: ModelRow | undefined, now: number): boolean {
+    const title = titleFrom(text);
 
-    if (action.op === "answered" && action.session === ROOT) {
-      this.main = now;
-      this.changes++;
-    } else if (action.op === "answered" && row) {
-      row.updated_at = now;
-      this.changes++;
-    }
+    if (row && row.title === "" && title !== "") this.named.push([session, text]);
 
-    if (action.op === "retitle" && row && row.title === action.was) {
-      row.title = action.title;
-      this.changes++;
-    }
+    if (row) Object.assign(row, { updated_at: now, title: row.title === "" ? title : row.title });
 
-    if (action.op === "rename" && row && titleFrom(action.title) !== "") {
-      row.title = titleFrom(action.title);
-      this.changes++;
-    }
+    return true;
+  }
 
-    if (action.op === "archive" && row) {
-      row.archived_at = action.archived ? now : null;
-      this.changes++;
-    }
+  answered(session: string, row: ModelRow | undefined, now: number): boolean {
+    if (session === ROOT) this.main = now;
+    else if (row) row.updated_at = now;
+
+    return session === ROOT || row !== undefined;
+  }
+
+  retitle(row: ModelRow | undefined, was: string, title: string): boolean {
+    const matches = row?.title === was;
+
+    if (row && matches) row.title = title;
+
+    return matches;
+  }
+
+  title(row: ModelRow | undefined, title: string): boolean {
+    if (row && title !== "") row.title = title;
+
+    return row !== undefined && title !== "";
+  }
+
+  archive(row: ModelRow | undefined, archived: boolean, now: number): boolean {
+    if (row) row.archived_at = archived ? now : null;
+
+    return row !== undefined;
   }
 
   tables(): Json {
