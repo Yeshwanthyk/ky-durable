@@ -26,13 +26,14 @@ const REFS: Record<ApprovalKind, readonly string[]> = { executor: ["q1", "q2"], 
 
 const TOOLS = ["gmail.send", "calendar.read", ""];
 
-type Outcome = "ok" | "expire" | "reopen" | "throw" | "hang";
+type Outcome = "ok" | "expire" | "reopen" | "throw" | "hang" | "late";
 
 type Action =
   | { readonly ask: ApprovalKind; readonly ref: string; readonly conversation: Conversation; readonly summary: string }
   | { readonly decide: ApprovalKind; readonly ref: string; readonly action: ApprovalAction; readonly outcome: Outcome }
   | { readonly withdraw: ApprovalKind; readonly ref: string; readonly action: "decline" | "cancel" }
   | { readonly recover: true }
+  | { readonly release: string }
   | { readonly replied: "approval-required" | "input-required"; readonly requestId: string; readonly tool: string; readonly conversation: Conversation; readonly isError: boolean }
   | { readonly setPolicy: string; readonly policy: ToolPolicy }
   | { readonly beforeResume: string; readonly action: ResumeAction; readonly conversation: Conversation }
@@ -52,12 +53,13 @@ const actions: fc.Arbitrary<Action> = fc.oneof(
   { arbitrary: aKind.chain((kind) => fc.record({ ask: fc.constant(kind), ref: aRef(kind), conversation: aConversation, summary: fc.constantFrom("Send it", "x".repeat(220)) })), weight: 4 },
   {
     arbitrary: aKind.chain((kind) =>
-      fc.record({ decide: fc.constant(kind), ref: aRef(kind), action: fc.constantFrom<ApprovalAction>("accept", "decline", "cancel"), outcome: fc.constantFrom<Outcome>("ok", "expire", "reopen", "throw", "hang") })
+      fc.record({ decide: fc.constant(kind), ref: aRef(kind), action: fc.constantFrom<ApprovalAction>("accept", "decline", "cancel"), outcome: fc.constantFrom<Outcome>("ok", "expire", "reopen", "throw", "hang", "late") })
     ),
     weight: 4
   },
   { arbitrary: aKind.chain((kind) => fc.record({ withdraw: fc.constant(kind), ref: aRef(kind), action: fc.constantFrom<"decline" | "cancel">("decline", "cancel") })), weight: 1 },
   { arbitrary: fc.constant({ recover: true as const }), weight: 2 },
+  { arbitrary: fc.record({ release: fc.constantFrom("w1", "w2", "s1") }), weight: 1 },
   {
     arbitrary: fc.record({
       replied: fc.constantFrom<"approval-required" | "input-required">("approval-required", "input-required"),
@@ -131,6 +133,7 @@ type Seen = {
 function world(db: DatabaseSync, make: Make) {
   const seen: Seen = { changes: 0, policyChanges: 0, notified: [], told: [], decided: [], lost: [], reopened: [], calls: [] };
   const outcomes = new Map<string, Outcome>();
+  const late = new Map<string, Array<() => void>>();
   let config: "none" | "throw" = "none";
 
   const deps: ApprovalDeps = {
@@ -175,6 +178,8 @@ function world(db: DatabaseSync, make: Make) {
         if (outcome === "throw") throw new Error("handler failed");
 
         if (outcome === "hang") await new Promise(() => {});
+
+        if (outcome === "late") await new Promise<void>((resolve) => void late.set(approval.ref, [...(late.get(approval.ref) ?? []), resolve]));
       },
       lost: async (approval, action) => void seen.lost.push([approval.kind, approval.ref, action, approval.status])
     });
@@ -195,6 +200,15 @@ function world(db: DatabaseSync, make: Make) {
 
     if ("recover" in action) return approvals.recover() ?? null;
 
+    if ("release" in action) {
+      const waiting = late.get(action.release) ?? [];
+      late.delete(action.release);
+
+      for (const resolve of waiting) resolve();
+
+      return waiting.length;
+    }
+
     if ("replied" in action) {
       const text = JSON.stringify({ status: action.replied, requestId: action.requestId, message: "Send the mail", toolPath: action.tool || undefined });
       const said = await executor.replied({ output: [{ type: "text", text }], isError: action.isError }, action.conversation, call);
@@ -214,7 +228,7 @@ function world(db: DatabaseSync, make: Make) {
       return null;
     }
 
-    return { pending: approvals.pending(), policies: executor.policies() };
+    return { pending: approvals.pending(), policies: [...executor.policies()] };
   };
 
   return { seen, approvals, executor, call, apply };
@@ -267,7 +281,11 @@ const approvalsParity: Parity<Action> = {
 
     return instance(new DatabaseSync(":memory:"), legacy);
   },
-  next: async () => instance(new DatabaseSync(":memory:"), next)
+  next: async (clock) => {
+    useClock(clock);
+
+    return instance(new DatabaseSync(":memory:"), next);
+  }
 };
 
 describe("approvals parity", () => {
@@ -345,6 +363,32 @@ describe("recover", () => {
           vi.restoreAllMocks();
         }
       )
+    );
+  });
+});
+
+describe("a decision a restart cut off", () => {
+  it("is carried only by its own handler: one that finishes after recover() and a second tap leaves the second decision to recover", async () => {
+    await fc.assert(
+      fc.asyncProperty(anAction, anAction, async (first, second) => {
+        using ky = port();
+        await ky.apply({ ask: "secret-request", ref: "s1", conversation: "away", summary: "Use the key" });
+        await ky.apply({ decide: "secret-request", ref: "s1", action: first, outcome: "late" });
+        ky.advance(CARRY_MS + 1);
+        await ky.apply({ recover: true });
+        expect(await ky.apply({ decide: "secret-request", ref: "s1", action: second, outcome: "hang" })).toEqual({});
+        expect(await ky.apply({ release: "s1" })).toBe(1);
+        await ky.settle();
+        ky.advance(CARRY_MS + 1);
+        await ky.apply({ recover: true });
+
+        expect(ky.row("secret-request", "s1").status).toBe("pending");
+        expect(ky.seen.lost).toEqual([
+          ["secret-request", "s1", first, "pending"],
+          ["secret-request", "s1", second, "pending"]
+        ]);
+        vi.restoreAllMocks();
+      })
     );
   });
 });

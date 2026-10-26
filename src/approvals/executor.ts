@@ -7,8 +7,8 @@ import * as Schema from "effect/Schema";
 import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
 import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, callOnce, resultText } from "../executor";
-import { type Approval, type ApprovalHandler, type Asker, literals, type Settle } from "./approvals";
-import { type ApprovalAction, APPROVAL_TABLES, type ToolPolicy, ToolPolicySchema, type ToolPolicyView } from "./contract";
+import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
+import { type ApprovalAction, APPROVAL_TABLES, type ToolPolicy, type ToolPolicyView } from "./contract";
 
 const POLICIES = APPROVAL_TABLES.policies;
 
@@ -26,7 +26,7 @@ const pausedOf = Schema.decodeUnknownOption(
   )
 );
 
-const PolicyRow = Schema.Struct({ tool: Schema.String, policy: literals(ToolPolicySchema) });
+const PolicyRow = Schema.Struct({ tool: Schema.String, policy: Schema.Literals(["allow", "ask", "block"]) });
 
 const policyOf = Schema.decodeUnknownOption(PolicyRow);
 
@@ -134,8 +134,8 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     this.#changed();
   }
 
-  policies(): ToolPolicyView[] {
-    return [...this.#edge.run(Store.use((store) => store.policies))];
+  policies(): ReadonlyArray<ToolPolicyView> {
+    return this.#edge.run(Store.use((store) => store.policies));
   }
 
   replied(result: CallResult, conversation: string, call: ExecutorCall): Promise<CallResult> {

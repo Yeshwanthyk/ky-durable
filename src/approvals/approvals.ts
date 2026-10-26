@@ -11,9 +11,7 @@ import { Sql } from "../core/sql";
 import {
   type ApprovalAction,
   type ApprovalKind,
-  ApprovalKindSchema,
   type ApprovalStatus,
-  ApprovalStatusSchema,
   type ApprovalView,
   APPROVAL_TABLES,
   GONE
@@ -67,16 +65,14 @@ const STATUS: Record<ApprovalAction, ApprovalStatus> = { accept: "accepted", dec
 const actionOf = (status: ApprovalStatus): ApprovalAction | undefined =>
   status === "accepted" ? "accept" : status === "declined" ? "decline" : status === "cancelled" ? "cancel" : undefined;
 
-export const literals = <const L extends string>(union: { readonly anyOf: ReadonlyArray<{ readonly const: L }> }) => Schema.Literals(union.anyOf.map((each) => each.const));
-
 const Row = Schema.Struct({
   id: Schema.String,
-  kind: literals(ApprovalKindSchema),
+  kind: Schema.Literals(["executor", "webhook-action", "secret-request"]),
   ref: Schema.String,
   subject: Schema.String,
   summary: Schema.String,
   payload: Schema.String,
-  status: literals(ApprovalStatusSchema),
+  status: Schema.Literals(["pending", "accepted", "declined", "cancelled", "expired"]),
   conversation: Schema.String,
   chat: Schema.String,
   created_at: Schema.Number
@@ -108,13 +104,13 @@ class Gone extends Schema.TaggedError<Gone>()("Gone", {}) implements Refusable {
   }
 }
 
-type Claim = { readonly approval: Approval; readonly decidedAt: number };
+type Claim<H> = { readonly approval: Approval; readonly decidedAt: number; readonly handler: H };
 
 class Store extends Context.Service<
   Store,
   {
     ask(request: ApprovalRequest, chat: string): Effect.Effect<{ readonly id: string; readonly asked: boolean }>;
-    claim(id: string, action: ApprovalAction, decidable: (kind: ApprovalKind) => boolean): Effect.Effect<Claim, Gone>;
+    claim<H>(id: string, action: ApprovalAction, handlerOf: (kind: ApprovalKind) => H | undefined): Effect.Effect<Claim<H>, Gone>;
     move(id: string, from: ApprovalStatus, to: ApprovalStatus, carried: boolean): Effect.Effect<boolean>;
     carried(id: string, decidedAt: number): Effect.Effect<void>;
     readonly cut: Effect.Effect<ReadonlyArray<Approval>>;
@@ -181,10 +177,11 @@ class Store extends Context.Service<
 
           return { id: there.id, asked: false };
         }),
-        claim: Effect.fnUntraced(function* (id, action, decidable) {
+        claim: Effect.fnUntraced(function* <H>(id: string, action: ApprovalAction, handlerOf: (kind: ApprovalKind) => H | undefined) {
           const [asked] = yield* select("id = ?", id);
+          const handler = asked && handlerOf(asked.kind);
 
-          if (!asked || !decidable(asked.kind)) return yield* new Gone();
+          if (!asked || handler === undefined) return yield* new Gone();
 
           const decidedAt = yield* Clock.currentTimeMillis;
 
@@ -198,7 +195,7 @@ class Store extends Context.Service<
 
           if (!claimed) return yield* new Gone();
 
-          return { approval: approvalOf(claimed), decidedAt };
+          return { approval: approvalOf(claimed), decidedAt, handler };
         }),
         move: Effect.fnUntraced(function* (id, from, to, carried) {
           const now = yield* Clock.currentTimeMillis;
@@ -277,14 +274,11 @@ export class Approvals implements Asker {
   }
 
   onDecision(id: string, action: ApprovalAction): Result<Record<string, never>> {
-    const claim = this.#edge.run(Store.use((store) => store.claim(id, action, (kind) => this.#handlers.has(kind))));
+    const claim = this.#edge.run(Store.use((store) => store.claim(id, action, (kind) => this.#handlers.get(kind))));
 
     if (isRefusal(claim)) return claim;
     this.#changed();
-    const { approval, decidedAt } = claim;
-    const handler = this.#handlers.get(approval.kind);
-
-    if (!handler) return {};
+    const { approval, decidedAt, handler } = claim;
 
     const settle: Settle = {
       expire: () => void this.#move(id, approval.status, "expired", true),
