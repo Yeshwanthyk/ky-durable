@@ -1,0 +1,317 @@
+{
+  "commit": "b658a6e",
+  "cases": [
+    {
+      "name": "connected",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "https://executor.test/mcp",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "https://executor.test/mcp"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "https://executor.test/mcp",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "https://executor.test/mcp"
+        }
+      }
+    },
+    {
+      "name": "connected padded",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "https://executor.test/mcp",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "https://executor.test/mcp"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "https://executor.test/mcp",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "https://executor.test/mcp"
+        }
+      }
+    },
+    {
+      "name": "connected in browser mode",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "https://executor.test/mcp?elicitation_mode=browser&team=1",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "https://executor.test/mcp?elicitation_mode=browser&team=1"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "https://executor.test/mcp?elicitation_mode=browser&team=1",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "https://executor.test/mcp?elicitation_mode=browser&team=1"
+        }
+      }
+    },
+    {
+      "name": "retargeted",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "https://executor.test/v2/mcp?team=1",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "https://executor.test/v2/mcp?team=1"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "https://executor.test/v2/mcp?team=1",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "https://executor.test/v2/mcp?team=1"
+        }
+      }
+    },
+    {
+      "name": "connected on this machine",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "http://localhost/mcp",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "http://localhost/mcp"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "http://localhost/mcp",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "http://localhost/mcp"
+        }
+      }
+    },
+    {
+      "name": "reconnected keeping the token",
+      "answer": {},
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        },
+        "executor/agent": {
+          "value": {
+            "url": "https://executor.test/v3",
+            "token": "ky-stack-executor"
+          },
+          "meta": {
+            "url": "https://executor.test/v3"
+          }
+        }
+      },
+      "reads": {
+        "config": {
+          "url": "https://executor.test/v3",
+          "token": "ky-stack-executor",
+          "fetch": true
+        },
+        "view": {
+          "url": "https://executor.test/v3"
+        }
+      }
+    },
+    {
+      "name": "refused",
+      "answer": {
+        "refused": "Executor refused that token."
+      },
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        }
+      },
+      "reads": {
+        "config": null,
+        "view": {
+          "url": null
+        }
+      }
+    },
+    {
+      "name": "disconnected",
+      "answer": null,
+      "rows": {
+        "executor/other": {
+          "value": {
+            "url": "https://other.test/mcp",
+            "token": "other-token"
+          },
+          "meta": {
+            "url": "https://other.test/mcp"
+          }
+        },
+        "github/agent": {
+          "value": {
+            "token": "gh"
+          },
+          "meta": {
+            "url": "https://github.com"
+          }
+        }
+      },
+      "reads": {
+        "config": null,
+        "view": {
+          "url": null
+        }
+      }
+    }
+  ]
+}
