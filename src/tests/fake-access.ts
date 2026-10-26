@@ -63,9 +63,7 @@ async function newKey(): Promise<Key> {
 
 export class FakeAccess {
   /** The team's keys, newest first: it signs with the first. */
-  #keys: Key[];
-  /** How many times the certs were fetched. */
-  certFetches = 0;
+  readonly #keys: Key[];
 
   constructor(keys: Key[] = [{ kid: TEST_KID, jwk: TEST_KEY }]) {
     this.#keys = keys;
@@ -79,7 +77,6 @@ export class FakeAccess {
   /** The team's certs; any other URL is a 404. */
   readonly certs = async (url: string): Promise<Response> => {
     if (url !== `https://${TEAM}/cdn-cgi/access/certs`) return new Response("Not found", { status: 404 });
-    this.certFetches += 1;
 
     return Response.json({
       keys: this.#keys.map(({ kid, jwk: { kty, n, e } }) => ({ kid, kty, alg: "RS256", use: "sig", n, e })),
@@ -87,11 +84,6 @@ export class FakeAccess {
       public_certs: []
     });
   };
-
-  /** A new signing key; the old one is still published, as Access keeps it for a while. */
-  async rotate(): Promise<void> {
-    this.#keys = [await newKey(), ...this.#keys];
-  }
 
   /** A JWT for the owner, valid for a day, as Access signs it; `claims` overrides any of it, `kid` names another key. */
   async sign(claims: Partial<Claims> = {}, kid?: string): Promise<string> {

@@ -1,9 +1,5 @@
-import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ASSERTION, BYPASS, bypassed } from "../access/contract";
-import { Access } from "../access/wiring";
-import { clockAt } from "../../test/parity/access/clock";
-import { worker } from "../server";
 import { call } from "./drive";
 import { AUD, FakeAccess, OWNER } from "./fake-access";
 
@@ -73,69 +69,6 @@ describe("Access", () => {
 
     // aud as Access sends it for one app, a string, and an email in another case.
     expect((await asked(FILE, await access.sign({ aud: AUD, email: "Owner@KY.test" }))).status).toBe(404);
-  });
-
-  it("keeps the team's keys, and fetches them again for a key it lacks at most once a minute", async () => {
-    const team = new FakeAccess();
-    let at = Date.now();
-    const ky = worker(new Access(team.certs, clockAt(() => at)));
-    const status = async (jwt: string) => (await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: jwt } }), env)).status;
-
-    const later = (ms: number) => {
-      at += ms;
-    };
-
-    expect(await status(await team.sign())).toBe(404);
-    expect(await status(await team.sign())).toBe(404);
-    expect(team.certFetches).toBe(1);
-
-    // A stranger's key id: a minute hasn't passed, so the keys aren't fetched again.
-    expect(await status(await (await FakeAccess.stranger()).sign())).toBe(401);
-    expect(team.certFetches).toBe(1);
-
-    await team.rotate();
-    later(2 * 60_000);
-    expect(await status(await team.sign())).toBe(404);
-    expect(team.certFetches).toBe(2);
-    expect(await status(await team.sign())).toBe(404);
-    expect(team.certFetches).toBe(2);
-
-    // An hour on, the keys are fetched again even for a key they have.
-    later(61 * 60_000);
-    expect(await status(await team.sign())).toBe(404);
-    expect(team.certFetches).toBe(3);
-  });
-
-  it("answers 503 while the team's certs fail, and fetches them again on the next request", async () => {
-    const team = new FakeAccess();
-    let down = true;
-    const ky = worker(new Access(async (url) => (down ? new Response("Bad gateway", { status: 502 }) : team.certs(url))));
-    const status = async () => (await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: await team.sign() } }), env)).status;
-
-    expect(await status()).toBe(503);
-    down = false;
-    expect(await status()).toBe(404);
-  });
-
-  it("signs KY_DEV_EMAIL in without a JWT under KY_DEV=1, if ACCESS_EMAILS lets it in", async () => {
-    const ky = worker(new Access(new FakeAccess().certs));
-    const status = async (vars: Partial<Env>) => (await ky.fetch(new Request(`https://ky.test${FILE}`), { ...env, ...vars })).status;
-
-    expect(await status({ KY_DEV: "1", KY_DEV_EMAIL: OWNER })).toBe(404);
-    expect(await status({ KY_DEV: "1", KY_DEV_EMAIL: "intruder@ky.test" })).toBe(401);
-    expect(await status({ KY_DEV: "1" })).toBe(401);
-    expect(await status({ KY_DEV: "0", KY_DEV_EMAIL: OWNER })).toBe(401);
-  });
-
-  it("refuses every request when Access's vars are missing", async () => {
-    const ky = worker(new Access(new FakeAccess().certs));
-    const jwt = await new FakeAccess().sign();
-
-    for (const missing of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "ACCESS_EMAILS"] as const) {
-      const response = await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: jwt } }), { ...env, [missing]: undefined });
-      expect(response.status, missing).toBe(500);
-      expect(await response.text(), missing).toContain("`ky init` sets them up");
-    }
   });
 
   // The manifest and icons, the rest of BYPASS, are the web app's files, which only the stack and Playwright have.

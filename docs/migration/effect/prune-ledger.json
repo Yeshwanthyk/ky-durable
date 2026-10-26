@@ -64,5 +64,29 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access keeps the team's keys, and fetches them again for a key it lacks at most once a minute",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > the team's keys > I-A6: a key id they lack fetches them again at most once a minute, so a key Access rotates in works within a minute"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access answers 503 while the team's certs fail, and fetches them again on the next request",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > the team's keys > I-A3: a fetch that fails, answers non-2xx, or holds no RSA keys is B's 503 and isn't kept; a JWT that can't pass without them never fetches"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access signs KY_DEV_EMAIL in without a JWT under KY_DEV=1, if ACCESS_EMAILS lets it in",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > Access's vars > I-A2: decide before any JWT: no ACCESS_EMAILS is not set up, KY_DEV=1 signs in KY_DEV_EMAIL against them, no team or app is not set up; none of it fetches the keys"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access refuses every request when Access's vars are missing",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > Access's vars > I-A2: decide before any JWT: no ACCESS_EMAILS is not set up, KY_DEV=1 signs in KY_DEV_EMAIL against them, no team or app is not set up; none of it fetches the keys"
   }
 ]
