@@ -177,7 +177,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly reviews = new Reviews(this.ctx.storage);
   /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
   readonly ledger = new DreamLedger(this.ctx.storage, { skills: this.skills, memory: this.memory, reviews: this.reviews });
-  readonly chats = new ChatList(this.ctx.storage.sql);
+  readonly chats = new ChatList(this.ctx.storage);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
     this.ctx.storage.sql,
