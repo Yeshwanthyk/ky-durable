@@ -95,17 +95,27 @@ function vint(view: DataView, at: number, end: number, id: boolean): Vint | unde
   return { value, length, unknown: !id && ones };
 }
 
+function element(view: DataView, at: number, end: number) {
+  const id = vint(view, at, end, true);
+  const size = id && vint(view, at + id.length, end, false);
+
+  return id && size ? { id: id.value, size, body: at + id.length + size.length } : undefined;
+}
+
+function tracksWithin(view: DataView, size: Vint, body: number, end: number): number[] | undefined {
+  return size.unknown || body + size.value > end ? undefined : trackTypes(view, body, body + size.value);
+}
+
 function webmTypes(view: DataView, start: number, end: number): number[] | undefined {
   for (let at = start; at < end; ) {
-    const id = vint(view, at, end, true);
-    const size = id && vint(view, at + id.length, end, false);
+    const found = element(view, at, end);
 
-    if (!id || !size || id.value === ID.CLUSTER) return undefined;
-    const body = at + id.length + size.length;
+    if (!found || found.id === ID.CLUSTER) return undefined;
+    const { id, size, body } = found;
 
-    if (id.value === ID.SEGMENT) return webmTypes(view, body, size.unknown ? end : Math.min(end, body + size.value));
+    if (id === ID.SEGMENT) return webmTypes(view, body, size.unknown ? end : Math.min(end, body + size.value));
 
-    if (id.value === ID.TRACKS) return size.unknown || body + size.value > end ? undefined : trackTypes(view, body, body + size.value);
+    if (id === ID.TRACKS) return tracksWithin(view, size, body, end);
 
     if (size.unknown) return undefined;
     at = body + size.value;
@@ -118,15 +128,14 @@ function trackTypes(view: DataView, start: number, end: number): number[] {
   const types: number[] = [];
 
   for (let at = start; at < end; ) {
-    const id = vint(view, at, end, true);
-    const size = id && vint(view, at + id.length, end, false);
+    const found = element(view, at, end);
 
-    if (!id || !size || size.unknown) break;
-    const body = at + id.length + size.length;
+    if (!found || found.size.unknown) break;
+    const { id, size, body } = found;
     const stop = Math.min(end, body + size.value);
 
-    if (id.value === ID.TRACK_ENTRY) types.push(...trackTypes(view, body, stop));
-    else if (id.value === ID.TRACK_TYPE && size.value === 1 && body < end) types.push(view.getUint8(body));
+    if (id === ID.TRACK_ENTRY) types.push(...trackTypes(view, body, stop));
+    else if (id === ID.TRACK_TYPE && size.value === 1 && body < end) types.push(view.getUint8(body));
     at = stop;
   }
 

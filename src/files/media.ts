@@ -86,31 +86,50 @@ const TAG = /<ky-media((?:\s+[a-z]+="[^"]*")*)\s*>([\s\S]*?)<\/ky-media>\n?/g;
 
 const ATTRIBUTE = /([a-z]+)="([^"]*)"/g;
 
+const secondsOf = (value: string | undefined) => {
+  const seconds = Number(value);
+
+  return value !== undefined && Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null;
+};
+
+const framesIn = (value: string | undefined) => {
+  const frames = Number(value ?? 0);
+
+  return Number.isInteger(frames) && frames >= 0 && frames <= FRAMES_PER_VIDEO ? frames : 0;
+};
+
+const peaksOf = (value = "") => (/^[0-9]{1,200}$/.test(value) ? value : null);
+
+const transcriptOf = (said: string) => (said.startsWith("(no transcript") ? "" : said);
+
+function clipOf(attributes: string, body: string): MediaClip | undefined {
+  const read = new Map([...attributes.matchAll(ATTRIBUTE)].map(([, key = "", value = ""]) => [key, unescape(value)]));
+  const kind = read.get("kind");
+  const file = read.get("file") ?? "";
+  const type = read.get("type") ?? "";
+
+  if ((kind !== "audio" && kind !== "video") || !FILE.test(file) || mediaKind(type) !== kind) return undefined;
+
+  return {
+    kind,
+    file,
+    type,
+    name: read.get("name") ?? (kind === "audio" ? "Voice note" : "Video"),
+    seconds: secondsOf(read.get("seconds")),
+    peaks: peaksOf(read.get("peaks")),
+    transcript: transcriptOf(unescape(body)),
+    frames: framesIn(read.get("frames"))
+  };
+}
+
 export function readMedia(text: string) {
   const clips: MediaClip[] = [];
 
   const rest = text.replace(TAG, (whole: string, attributes: string, body: string) => {
-    const read = new Map([...attributes.matchAll(ATTRIBUTE)].map(([, key = "", value = ""]) => [key, unescape(value)]));
-    const kind = read.get("kind");
-    const file = read.get("file") ?? "";
-    const type = read.get("type") ?? "";
-    const seconds = Number(read.get("seconds"));
-    const peaks = read.get("peaks") ?? "";
-    const frames = Number(read.get("frames") ?? 0);
+    const clip = clipOf(attributes, body);
 
-    if ((kind !== "audio" && kind !== "video") || !FILE.test(file) || mediaKind(type) !== kind) return whole;
-    const said = unescape(body);
-
-    clips.push({
-      kind,
-      file,
-      type,
-      name: read.get("name") ?? (kind === "audio" ? "Voice note" : "Video"),
-      seconds: read.has("seconds") && Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null,
-      peaks: /^[0-9]{1,200}$/.test(peaks) ? peaks : null,
-      transcript: said.startsWith("(no transcript") ? "" : said,
-      frames: Number.isInteger(frames) && frames >= 0 && frames <= FRAMES_PER_VIDEO ? frames : 0
-    });
+    if (!clip) return whole;
+    clips.push(clip);
 
     return "";
   });

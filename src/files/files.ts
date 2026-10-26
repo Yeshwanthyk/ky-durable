@@ -121,12 +121,25 @@ const label = (value: string, max: number) =>
     )
   );
 
-export const upload = (
-  request: Request,
-  bucket: R2Bucket,
-  record: (file: NewFile) => Promise<string | null>,
-  typeOf: (declared: string, bytes: Uint8Array) => Promise<string>
-) =>
+const sizeOf = (request: Request, type: string) => {
+  const size = Number(request.headers.get("Content-Length"));
+  const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
+
+  return Number.isInteger(size) && size >= 1 && size <= max ? Effect.succeed(size) : Effect.fail(new FileTooLarge({ max }));
+};
+
+const labels = (request: Request) =>
+  Effect.gen(function* () {
+    const named = request.headers.get("X-Ky-Name");
+
+    if (named === null) return yield* new BadLabel();
+    const name = yield* label(named, 255);
+    const captioned = request.headers.get("X-Ky-Caption");
+
+    return { name, caption: captioned === null ? null : yield* label(captioned, 2000) };
+  });
+
+const declared = (request: Request) =>
   Effect.gen(function* () {
     if (request.method !== "PUT") return yield* new WrongMethod();
     const task = new URL(request.url).searchParams.get("task");
@@ -135,16 +148,20 @@ export const upload = (
     const type = request.headers.get("Content-Type") ?? "";
 
     if (!FILE_TYPES.has(type)) return yield* new NotAFileType();
-    const size = Number(request.headers.get("Content-Length"));
-    const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
+    const size = yield* sizeOf(request, type);
+    const { name, caption } = yield* labels(request);
 
-    if (!Number.isInteger(size) || size < 1 || size > max) return yield* new FileTooLarge({ max });
-    const named = request.headers.get("X-Ky-Name");
+    return { task, type, size, name, caption };
+  });
 
-    if (named === null) return yield* new BadLabel();
-    const name = yield* label(named, 255);
-    const captioned = request.headers.get("X-Ky-Caption");
-    const caption = captioned === null ? null : yield* label(captioned, 2000);
+export const accept = (
+  request: Request,
+  bucket: R2Bucket,
+  record: (file: NewFile) => Promise<string | null>,
+  typeOf: (declared: string, bytes: Uint8Array) => Promise<string>
+) =>
+  Effect.gen(function* () {
+    const { task, type, size, name, caption } = yield* declared(request);
     const body = yield* Effect.promise(() => request.arrayBuffer());
 
     if (body.byteLength !== size) return yield* new ShortBody();
@@ -162,7 +179,7 @@ export const upload = (
     return Response.json({ id, url: `/files/${id}` });
   });
 
-export const uploadMedia = (request: Request, bucket: R2Bucket) =>
+export const acceptMedia = (request: Request, bucket: R2Bucket) =>
   Effect.gen(function* () {
     if (request.method !== "PUT") return yield* new WrongMethod();
     const type = baseType(request.headers.get("Content-Type") ?? "");

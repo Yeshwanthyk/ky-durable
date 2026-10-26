@@ -365,18 +365,23 @@ describe("an upload", () => {
   });
 
   it("is 1 byte to 25 MB, or 2 MB for a diff, by its Content-Length, and the body must be that long", async () => {
+    const sizeRefusal = (diff: boolean, size: number) => {
+      const megabytes = diff ? 2 : 25;
+
+      if (!Number.isInteger(size) || size < 1 || size > megabytes * MB) return refused(413, `File must be 1 byte to ${megabytes} MB`);
+
+      return size === 1 ? null : refused(400, "Body is not Content-Length bytes");
+    };
+
     await fc.assert(
       fc.asyncProperty(fc.boolean(), fc.oneof(fc.integer({ min: -2, max: 30 * MB }), fc.constantFrom(0, 1, 2 * MB, 2 * MB + 1, 25 * MB, 25 * MB + 1, 1.5)), async (diff, size) => {
         using ky = port();
-        const max = diff ? 2 * MB : 25 * MB;
-        const said = await ky.send(put({ ...good, "Content-Type": diff ? DIFF_TYPE : "image/png", "Content-Length": String(size) }));
-        const fits = Number.isInteger(size) && size >= 1 && size <= max;
+        const type = diff ? DIFF_TYPE : "image/png";
+        const said = await ky.send(put({ ...good, "Content-Type": type, "Content-Length": String(size) }));
+        const refusal = sizeRefusal(diff, size);
 
-        if (!fits) expect(said).toEqual(refused(413, `File must be 1 byte to ${diff ? 2 : 25} MB`));
-        else if (size !== 1) expect(said).toEqual(refused(400, "Body is not Content-Length bytes"));
-        else expect(said).toEqual(expect.objectContaining({ status: 200 }));
-
-        expect(ky.log).toEqual(fits && size === 1 ? [["put", expect.stringMatching(/^files\/[0-9a-f]{32}$/), diff ? DIFF_TYPE : "image/png", 1]] : []);
+        expect(said).toEqual(refusal ?? expect.objectContaining({ status: 200 }));
+        expect(ky.log).toEqual(refusal === null ? [["put", expect.stringMatching(/^files\/[0-9a-f]{32}$/), type, 1]] : []);
       }),
       runs()
     );
@@ -614,13 +619,20 @@ describe("a model's image support", () => {
 
 describe("a clip upload", () => {
   it("is a PUT of an audio or video type, 1 byte to 95 MB, with a body, or is refused with B's words", async () => {
-    const audio = AUDIO;
-    const video = VIDEO;
+    const clipRefusal = (method: string, base: string, size: number, withBody: boolean) => {
+      if (method !== "PUT") return refused(405, "Use PUT");
+
+      if (!AUDIO.includes(base) && !VIDEO.includes(base)) return refused(415, "Send an audio or video clip: webm, mp4, mov, m4a, mp3, ogg, wav or flac");
+
+      if (!Number.isInteger(size) || size < 1 || size > MAX_MEDIA) return refused(413, "A clip must be 1 byte to 95 MB");
+
+      return withBody ? null : refused(400, "Send the clip as the body");
+    };
 
     await fc.assert(
       fc.asyncProperty(
         fc.constantFrom("PUT", "PUT", "PUT", "POST", "GET", "PATCH", "DELETE"),
-        fc.oneof({ arbitrary: fc.constantFrom(...audio, ...video), weight: 3 }, fc.constantFrom("AUDIO/FLAC; x=1", " video/mp4 ", "image/png", "audio/aiff", ""), fc.string()),
+        fc.oneof({ arbitrary: fc.constantFrom(...AUDIO, ...VIDEO), weight: 3 }, fc.constantFrom("AUDIO/FLAC; x=1", " video/mp4 ", "image/png", "audio/aiff", ""), fc.string()),
         fc.oneof({ arbitrary: fc.constantFrom(0, 1, 1, 1, 1.5, 2, MAX_MEDIA, MAX_MEDIA + 1), weight: 3 }, fc.integer({ min: -1, max: 100 * MB })),
         fc.boolean(),
         async (method, type, size, withBody) => {
@@ -629,10 +641,9 @@ describe("a clip upload", () => {
           const request = requestOf(method, "https://ky.test/api/media", { "Content-Type": type, "Content-Length": String(size) }, withBody ? "one" : "none");
           const said = await answered(uploadMedia(request, bucket));
 
-          if (method !== "PUT") expect(said).toEqual(refused(405, "Use PUT"));
-          else if (!audio.includes(base) && !video.includes(base)) expect(said).toEqual(refused(415, "Send an audio or video clip: webm, mp4, mov, m4a, mp3, ogg, wav or flac"));
-          else if (!Number.isInteger(size) || size < 1 || size > MAX_MEDIA) expect(said).toEqual(refused(413, "A clip must be 1 byte to 95 MB"));
-          else if (!withBody) expect(said).toEqual(refused(400, "Send the clip as the body"));
+          const refusal = clipRefusal(method, base, size, withBody);
+
+          if (refusal) expect(said).toEqual(refusal);
           else if (size === 1) expect(log).toEqual([["put", expect.stringMatching(/^files\/[0-9a-f]{32}$/), base, 1]]);
           else expect(JSON.stringify(said)).toMatch(/^\{"threw":/);
         }

@@ -1,6 +1,10 @@
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 
+export interface Answered {
+  readonly status: number;
+}
+
 export const FILE_TABLES = Object.freeze({ files: "ky_files", typed: "ky_files_typed" } as const);
 
 export const FileRow = Schema.Struct({
@@ -21,7 +25,7 @@ export const DIFF_TYPE = "text/x-diff";
 
 export const MAX_DIFF_BYTES = 2 * 1024 * 1024;
 
-export class WrongMethod extends Schema.TaggedError<WrongMethod>()("WrongMethod", {}) implements Refusable {
+export class WrongMethod extends Schema.TaggedError<WrongMethod>()("WrongMethod", {}) implements Refusable, Answered {
   get status(): number {
     return 405;
   }
@@ -31,7 +35,7 @@ export class WrongMethod extends Schema.TaggedError<WrongMethod>()("WrongMethod"
   }
 }
 
-export class NoTask extends Schema.TaggedError<NoTask>()("NoTask", {}) implements Refusable {
+export class NoTask extends Schema.TaggedError<NoTask>()("NoTask", {}) implements Refusable, Answered {
   get status(): number {
     return 400;
   }
@@ -41,7 +45,7 @@ export class NoTask extends Schema.TaggedError<NoTask>()("NoTask", {}) implement
   }
 }
 
-export class NotAFileType extends Schema.TaggedError<NotAFileType>()("NotAFileType", {}) implements Refusable {
+export class NotAFileType extends Schema.TaggedError<NotAFileType>()("NotAFileType", {}) implements Refusable, Answered {
   get status(): number {
     return 415;
   }
@@ -51,7 +55,7 @@ export class NotAFileType extends Schema.TaggedError<NotAFileType>()("NotAFileTy
   }
 }
 
-export class FileTooLarge extends Schema.TaggedError<FileTooLarge>()("FileTooLarge", { max: Schema.Number }) implements Refusable {
+export class FileTooLarge extends Schema.TaggedError<FileTooLarge>()("FileTooLarge", { max: Schema.Number }) implements Refusable, Answered {
   get status(): number {
     return 413;
   }
@@ -61,7 +65,7 @@ export class FileTooLarge extends Schema.TaggedError<FileTooLarge>()("FileTooLar
   }
 }
 
-export class BadLabel extends Schema.TaggedError<BadLabel>()("BadLabel", {}) implements Refusable {
+export class BadLabel extends Schema.TaggedError<BadLabel>()("BadLabel", {}) implements Refusable, Answered {
   get status(): number {
     return 400;
   }
@@ -71,7 +75,7 @@ export class BadLabel extends Schema.TaggedError<BadLabel>()("BadLabel", {}) imp
   }
 }
 
-export class ShortBody extends Schema.TaggedError<ShortBody>()("ShortBody", {}) implements Refusable {
+export class ShortBody extends Schema.TaggedError<ShortBody>()("ShortBody", {}) implements Refusable, Answered {
   get status(): number {
     return 400;
   }
@@ -81,7 +85,7 @@ export class ShortBody extends Schema.TaggedError<ShortBody>()("ShortBody", {}) 
   }
 }
 
-export class NotRecorded extends Schema.TaggedError<NotRecorded>()("NotRecorded", { why: Schema.String }) implements Refusable {
+export class NotRecorded extends Schema.TaggedError<NotRecorded>()("NotRecorded", { why: Schema.String }) implements Refusable, Answered {
   get status(): number {
     return 404;
   }
@@ -91,7 +95,7 @@ export class NotRecorded extends Schema.TaggedError<NotRecorded>()("NotRecorded"
   }
 }
 
-export class NotAClip extends Schema.TaggedError<NotAClip>()("NotAClip", {}) implements Refusable {
+export class NotAClip extends Schema.TaggedError<NotAClip>()("NotAClip", {}) implements Refusable, Answered {
   get status(): number {
     return 415;
   }
@@ -101,7 +105,7 @@ export class NotAClip extends Schema.TaggedError<NotAClip>()("NotAClip", {}) imp
   }
 }
 
-export class ClipTooLarge extends Schema.TaggedError<ClipTooLarge>()("ClipTooLarge", { max: Schema.Number }) implements Refusable {
+export class ClipTooLarge extends Schema.TaggedError<ClipTooLarge>()("ClipTooLarge", { max: Schema.Number }) implements Refusable, Answered {
   get status(): number {
     return 413;
   }
@@ -111,7 +115,7 @@ export class ClipTooLarge extends Schema.TaggedError<ClipTooLarge>()("ClipTooLar
   }
 }
 
-export class NoClip extends Schema.TaggedError<NoClip>()("NoClip", {}) implements Refusable {
+export class NoClip extends Schema.TaggedError<NoClip>()("NoClip", {}) implements Refusable, Answered {
   get status(): number {
     return 400;
   }

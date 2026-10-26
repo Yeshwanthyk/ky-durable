@@ -2,8 +2,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import { Sql } from "../core/sql";
-import type { FileRow, NewFile } from "./contract";
-import { Files, reply, stored, typeOf, upload as accept, uploadMedia as acceptMedia } from "./files";
+import type { Answered, FileRow, NewFile } from "./contract";
+import { Files, reply, stored, typeOf, accept, acceptMedia } from "./files";
 
 export class FileStore {
   readonly #edge: Edge<Files>;
@@ -54,7 +54,7 @@ export class FileStore {
   }
 }
 
-const answer = <E extends Refusable & { readonly status: number }>(effect: Effect.Effect<Response, E>) =>
+const answer = <E extends Refusable & Answered>(effect: Effect.Effect<Response, E>) =>
   Effect.runPromise(effect.pipe(Effect.catch((refused) => Effect.succeed(reply(refused.status, refused.refusal)))));
 
 export const upload = (
