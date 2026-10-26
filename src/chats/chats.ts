@@ -4,6 +4,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
@@ -19,11 +20,11 @@ function titleOf(text: string): string {
 
 const Column = Schema.Struct({ name: Schema.String });
 
-const SessionOf = Schema.Struct({ session: Schema.String });
+const SessionOf = Schema.Struct({ session: ChatRow.fields.session });
 
-const OpenedBy = Schema.Struct({ opened_by: Schema.NullOr(Schema.String) });
+const OpenedBy = Schema.Struct({ opened_by: ChatRow.fields.opened_by });
 
-const MainRow = Schema.Struct({ updated_at: Schema.Number });
+const MainRow = Schema.Struct({ id: Schema.Number, updated_at: Schema.Number });
 
 interface ChatStore {
   readonly list: Effect.Effect<ReadonlyArray<ChatRow>>;
@@ -45,7 +46,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
       const sql = yield* Sql;
       const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
 
-      const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
+      const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.map(exec(query, ...params), (found) => found.flatMap((each) => Option.toArray(Schema.decodeUnknownOption(row)(each))));
 
       const first = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.map(rows(row, query, ...params), ([found]) => found);
 
@@ -71,7 +72,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
 
       return {
         list: rows(ChatRow, `SELECT * FROM ${CHAT_TABLES.chats} ORDER BY updated_at DESC`),
-        mainUpdatedAt: Effect.map(rows(MainRow, `SELECT updated_at FROM ${CHAT_TABLES.main}`), ([row]) => row?.updated_at ?? 0),
+        mainUpdatedAt: Effect.map(rows(MainRow, `SELECT * FROM ${CHAT_TABLES.main}`), ([row]) => row?.updated_at ?? 0),
         has: (session) => Effect.map(exec(`SELECT 1 FROM ${CHAT_TABLES.chats} WHERE session = ?`, session), (found) => found.length > 0),
         add: (session, opener) =>
           Effect.gen(function* () {

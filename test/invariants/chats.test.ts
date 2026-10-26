@@ -219,12 +219,32 @@ describe("the chat list", () => {
           expect(changes).toBe(model.changes);
           expect(named).toEqual(model.named);
           expect(chats.mainUpdatedAt()).toBe(model.main ?? 0);
+          expect(chats.list().map((row) => row.updated_at)).toEqual([...model.rows.values()].map((row) => row.updated_at).sort((a, b) => b - a));
         }
 
         db.close();
         vi.restoreAllMocks();
       }),
       { numRuns: budget().numRuns * 4, seed: budget().seed }
+    );
+  });
+
+  it("skips a damaged chat row: the list leaves it out and its opener reads as absent", () => {
+    fc.assert(
+      fc.property(fc.uniqueArray(aSession), fc.uniqueArray(aSession), (kept, damaged) => {
+        const db = new DatabaseSync(":memory:");
+        const chats = new ChatList(storageOf(db));
+
+        for (const session of kept) chats.add(session, { by: ROOT, request: `chat-create:1:${session}` });
+
+        for (const session of damaged) db.prepare("INSERT OR REPLACE INTO ky_chats (session, title, created_at, updated_at, opened_by) VALUES (?, '', 'x', 0, X'01')").run(session);
+
+        expect(new Set(chats.list().map((row) => row.session))).toEqual(new Set(kept.filter((session) => !damaged.includes(session))));
+
+        for (const session of damaged) expect(chats.openedBy(session)).toBeNull();
+        db.close();
+      }),
+      { numRuns: budget().numRuns, seed: budget().seed }
     );
   });
 });
@@ -329,6 +349,22 @@ describe("the chats tool", () => {
         expect(said.text === REFUSED.notOpenedHere(chat ?? "")).toBe(refused);
 
         if (refused) expect(said.failed && quiet(world.seen)).toBe(true);
+      }),
+      runs()
+    );
+  });
+
+  it("inspects a chat this chat opened: whether it is working, and ky's latest message there cut at 16,000 characters", async () => {
+    await fc.assert(
+      fc.asyncProperty(aSetup, fc.constantFrom("2", "3", "20", "21", "22"), fc.boolean(), async (setup, chat, archived) => {
+        using world = toolWorld([...setup.filter((each) => each.session !== chat), { session: chat, by: ROOT, archived }]);
+        const said = await world.call(ROOT, { action: "inspect", chat });
+        const latest = chat === "3" ? null : chat === "21" ? LONG_SAID : `said in ${chat}`;
+
+        expect(said.failed).toBe(false);
+        expect(said.text).toContain(Number(chat) % 2 === 0 ? "working" : "idle");
+
+        if (latest !== null) expect(said.text.endsWith(latest.length > 16_000 ? `${latest.slice(0, 16_000)}…[truncated; ${latest.length} chars total]` : latest)).toBe(true);
       }),
       runs()
     );
