@@ -58,6 +58,10 @@ export const MailRow = Schema.Struct({
 
 export type MailRow = typeof MailRow.Type;
 
+export const AllowedRow = Schema.Struct({ address: Schema.String, at: Schema.Number });
+
+export const ExpectRow = Schema.Struct({ session: Schema.String, sender: Schema.String, until: Schema.Number });
+
 export const NOT_SET_UP = "ky has no address yet: the user sets it up in Settings › Mail.";
 
 export class NotSetUp extends Schema.TaggedError<NotSetUp>()("NotSetUp", {}) implements Refusable {

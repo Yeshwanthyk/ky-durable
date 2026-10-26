@@ -8,13 +8,16 @@ import { Sql } from "../core/sql";
 import type { MailItem, MailView } from "../protocol";
 import {
   addressOf,
+  AllowedRow,
   DailyCap,
   EmptyMail,
+  ExpectRow,
   InboundMail,
   MAIL_TABLES,
   type MailBoundary,
   type MailLimits,
   MailRow,
+  MailTooLong,
   NoInbound,
   NoMail,
   NoSender,
@@ -24,8 +27,7 @@ import {
   NotSetUp,
   NOTHING_NEW,
   NotWaiting,
-  ServiceRefused,
-  MailTooLong
+  ServiceRefused
 } from "./contract";
 
 const BODY_CHARS = 20_000;
@@ -47,10 +49,6 @@ const { mail: MAIL, allowed: ALLOWED, expect: EXPECT } = MAIL_TABLES;
 const COLUMNS = "id, direction, message_id, answers, party, party_name, subject, body, state, session, note, at";
 
 const Count = Schema.Struct({ n: Schema.Number });
-
-const Address = Schema.Struct({ address: Schema.String });
-
-const Expecting = Schema.Struct({ session: Schema.String, sender: Schema.String });
 
 const ADDRESS = /^[^\s@<>()",;]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
@@ -218,19 +216,19 @@ export class Box extends Context.Service<
         sent: (id, messageId) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'sent', message_id = ?, note = '' WHERE id = ?`, idOf(messageId), id)),
         failed: (id, why) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'failed', note = ? WHERE id = ?`, why, id)),
         sentSince: (since) => count(`SELECT COUNT(*) AS n FROM ${MAIL} WHERE direction = 'out' AND state IN ('sending', 'sent') AND at > ?`, since),
-        allowed: Effect.map(rows(Address, `SELECT address FROM ${ALLOWED} ORDER BY address`), (found) => found.map((row) => row.address)),
-        isAllowed: (address) => Effect.map(exec(`SELECT 1 FROM ${ALLOWED} WHERE address = ?`, address), (found) => found.length > 0),
+        allowed: Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} ORDER BY address`), (found) => found.map((row) => row.address)),
+        isAllowed: (address) => Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} WHERE address = ?`, address), (found) => found.length > 0),
         allow: Effect.fnUntraced(function* (address) {
           const now = yield* Clock.currentTimeMillis;
           yield* exec(`INSERT INTO ${ALLOWED} (address, at) VALUES (?, ?) ON CONFLICT (address) DO NOTHING`, address, now);
         }),
-        disallow: (address) => Effect.map(exec(`DELETE FROM ${ALLOWED} WHERE address = ? RETURNING address`, address), (found) => found.length > 0),
+        disallow: (address) => Effect.map(rows(AllowedRow, `DELETE FROM ${ALLOWED} WHERE address = ? RETURNING address, at`, address), (found) => found.length > 0),
         expect: (session, sender, until) =>
           Effect.asVoid(exec(`INSERT INTO ${EXPECT} (session, sender, until) VALUES (?, ?, ?) ON CONFLICT (session, sender) DO UPDATE SET until = excluded.until`, session, sender, until)),
         expecting: Effect.fnUntraced(function* (sender) {
           const now = yield* Clock.currentTimeMillis;
           yield* exec(`DELETE FROM ${EXPECT} WHERE until <= ?`, now);
-          const waiting = yield* rows(Expecting, `SELECT session, sender FROM ${EXPECT}`);
+          const waiting = yield* rows(ExpectRow, `SELECT session, sender, until FROM ${EXPECT}`);
 
           return [...new Set(waiting.filter((row) => expected(sender, row.sender)).map((row) => row.session))];
         })
@@ -287,12 +285,11 @@ export const keep = Effect.fnUntraced(function* (mail: InboundMail) {
 export const triage = Effect.fnUntraced(function* (row: MailRow | undefined) {
   const box = yield* Box;
   const desk = yield* Desk;
-  const context = yield* Effect.context<Box>();
 
   if (!row || row.state === "kept") return;
   const thread = row.answers ? (yield* box.get(row.answers))?.session : undefined;
   const waiting = [...new Set([...(thread ? [thread] : []), ...(yield* box.expecting(row.party))])];
-  const started = (session: string) => Effect.runSyncWith(context)(box.triaging(row.id, session));
+  const started = (session: string) => Effect.runSync(box.triaging(row.id, session));
   const said = (yield* Effect.promise(() => desk.triage(row, mailTriage(row, waiting.length > 0), started)))?.trim();
   const summary = said || "ky couldn't read this mail just now.";
   yield* box.triaged(row.id, summary);
@@ -415,15 +412,15 @@ const itemOf = (row: MailRow): MailItem => ({
 });
 
 export const view = Effect.gen(function* () {
-    const box = yield* Box;
+  const box = yield* Box;
 
-    return {
-      address: (yield* Desk).boundary?.address ?? null,
-      held: (yield* box.held).map(itemOf),
-      recent: (yield* box.recent(20)).filter((row) => row.state !== "held").map(itemOf),
-      allowed: [...(yield* box.allowed)]
-    } satisfies MailView;
-  });
+  return {
+    address: (yield* Desk).boundary?.address ?? null,
+    held: (yield* box.held).map(itemOf),
+    recent: (yield* box.recent(20)).filter((row) => row.state !== "held").map(itemOf),
+    allowed: [...(yield* box.allowed)]
+  } satisfies MailView;
+});
 
 export type MailArgs = {
   readonly action: "send" | "reply" | "list" | "read" | "expect";
