@@ -95,7 +95,7 @@ export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] =
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
-  readonly files = new FileStore(this.ctx.storage.sql);
+  readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
   readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */

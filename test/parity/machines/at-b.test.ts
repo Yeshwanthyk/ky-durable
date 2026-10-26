@@ -52,7 +52,7 @@ describe("machine rows written at B", () => {
 
     const { storage, sql } = storageOf(db);
     const feed = new TaskFeed(sql());
-    const files = new FileStore(sql());
+    const files = new FileStore(storage());
     const sandboxes = new Sandboxes(sql());
     const sent: Schema.Json[] = [];
     const posted: Schema.Json[] = [];
