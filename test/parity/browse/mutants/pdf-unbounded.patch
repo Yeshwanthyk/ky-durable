@@ -1,0 +1,12 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index b1b509a..91e795a 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -262,7 +262,6 @@ export function pdfReply(url: string, response: Shown | null, args: Args) {
+ 
+   return pdfFile(url, response).pipe(
+     Effect.flatMap((bytes) => readPdf(url, bytes, ignored)),
+-    Effect.timeoutOrElse({ duration: OPERATION_TIMEOUT_MS, orElse: tookTooLong(OPERATION_TIMEOUT_MS, "reading the PDF") }),
+     Effect.catchTags({
+       NothingToRead: (error) => Effect.succeed(reply(error.refusal, true)),
+       NotAPdf: (error) => Effect.succeed(reply(error.refusal, true)),

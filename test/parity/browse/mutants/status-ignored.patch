@@ -1,0 +1,12 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index b1b509a..4592196 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -293,7 +293,6 @@ function fetchPdf(url: string, downloaded: boolean) {
+       catch: failed
+     });
+ 
+-    if (!response.ok) return yield* new PdfAnswered({ status: response.status });
+     const body: ReadableStream<Uint8Array> | null = response.body;
+ 
+     if (!body || response.status === 204 || response.status === 205) return yield* new NothingToRead({ url, status: response.status });

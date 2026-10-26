@@ -1,0 +1,13 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index b1b509a..2904779 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -382,7 +382,7 @@ function cut(text: string): string {
+ function closeBrowser(browser: Browser) {
+   return Effect.gen(function* () {
+     const closing = browser.close().catch(() => undefined);
+-    const closed = yield* Effect.promise(() => closing).pipe(Effect.timeoutOption(CLOSE_GRACE_MS));
++    const closed = yield* Effect.promise(() => closing).pipe(Effect.asSome);
+ 
+     if (Option.isSome(closed)) return;
+     browser._connection?.toImpl?.(browser)?._connection?._transport?.close();
