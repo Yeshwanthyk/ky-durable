@@ -1,7 +1,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from "node:sqlite";
 import { vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
-import { FileStore } from "../../../src/files";
+import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/sandboxes";
@@ -55,7 +55,7 @@ export class World {
   readonly db = new DatabaseSync(":memory:");
   readonly durable = storageOf(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
-  readonly files = new FileStore(this.durable.sql());
+  readonly files = new FileStore(this.durable.storage());
   readonly sandboxes = new Sandboxes(this.durable.sql());
   readonly effects: Effects = { vault: [], runner: [], pi: [], host: [] };
   readonly sockets = new Map<string, Socket>();

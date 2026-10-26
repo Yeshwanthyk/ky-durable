@@ -33,8 +33,7 @@ import {
   runnerTag
 } from "./machines/contract";
 import type { RunnerPipe } from "./machines/wiring";
-import { checkInput, imagesOf } from "./images";
-import { spokenText } from "./media";
+import { checkInput, imagesOf, spokenText } from "./files/media";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
@@ -43,7 +42,7 @@ import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from ".
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
-import type { FileStore } from "./files";
+import type { FileStore } from "./files/wiring";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
 import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail";

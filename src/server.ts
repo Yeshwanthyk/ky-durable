@@ -23,9 +23,9 @@ import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse/browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
-import { retype } from "./file-types";
-import { download, type FileRow, FileStore, saveImage } from "./files";
-import { uploadMedia } from "./media-upload";
+import type { FileRow } from "./files/contract";
+import { download, saveImage } from "./files/files";
+import { FileStore, retype, uploadMedia } from "./files/wiring";
 import { History, startedByUser } from "./history";
 import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
@@ -96,7 +96,7 @@ export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] =
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
-  readonly files = new FileStore(this.ctx.storage.sql);
+  readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
   readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */

@@ -1,7 +1,7 @@
 import type { UserInput } from "@earendil-works/pi-durable";
 import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ComponentProps, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
-import { imageSupport } from "./images";
+import { imageSupport } from "./files/media";
 import type { SettingsView, TaskRow } from "./protocol";
 import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";

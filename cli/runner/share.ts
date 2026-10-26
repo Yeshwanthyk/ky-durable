@@ -7,7 +7,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
-import { DIFF_TYPE, MAX_DIFF_BYTES } from "../../src/machines/contract.ts";
+import { DIFF_TYPE, MAX_DIFF_BYTES } from "../../src/files/contract.ts";
 import { captureDiff, type Git } from "./diff.ts";
 
 const git: Git = (args) => {

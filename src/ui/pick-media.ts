@@ -1,5 +1,5 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { FRAMES_PER_VIDEO, MAX_CLIPS, MAX_FRAME_CHARS, MAX_MEDIA_BYTES, type MediaClip, type MediaKind, baseType, mediaKind, soundTypeOf } from "../media";
+import { FRAMES_PER_VIDEO, MAX_CLIPS, MAX_FRAME_CHARS, MAX_MEDIA_BYTES, type MediaClip, type MediaKind, baseType, mediaKind, soundTypeOf } from "../files/media";
 import Type from "typebox";
 import { parseOr } from "../core/decode";
 import { peaksFrom } from "./Media";

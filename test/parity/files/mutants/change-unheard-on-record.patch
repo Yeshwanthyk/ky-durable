@@ -1,0 +1,12 @@
+diff --git a/src/files/wiring.ts b/src/files/wiring.ts
+index 8bde228..e7465e8 100644
+--- a/src/files/wiring.ts
++++ b/src/files/wiring.ts
+@@ -44,7 +44,6 @@ export class FileStore {
+ 
+   record(file: NewFile): FileRow {
+     const row = this.#edge.run(Files.use((files) => files.record(file)));
+-    this.#changed();
+ 
+     return row;
+   }

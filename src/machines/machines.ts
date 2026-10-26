@@ -12,7 +12,7 @@ import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
 import { must } from "../core/must";
 import { Sql } from "../core/sql";
-import type { FileRow } from "../files";
+import type { FileRow } from "../files/contract";
 import type { CloudState, MachineInfo } from "../protocol";
 import type { Sandboxes } from "../sandboxes";
 import {

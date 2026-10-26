@@ -1,0 +1,13 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..fdc00f6 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -154,7 +154,7 @@ export function spokenText(text: string): string {
+   return [...said, rest].filter((each) => each !== "").join(" ");
+ }
+ 
+-export const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
++export const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"]);
+ 
+ export const MAX_IMAGES = 4;
+ 

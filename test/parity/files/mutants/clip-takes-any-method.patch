@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..efc317a 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -181,7 +181,7 @@ export const accept = (
+ 
+ export const acceptMedia = (request: Request, bucket: R2Bucket) =>
+   Effect.gen(function* () {
+-    if (request.method !== "PUT") return yield* new WrongMethod();
++    if (request.method === "POST") return yield* new WrongMethod();
+     const type = baseType(request.headers.get("Content-Type") ?? "");
+ 
+     if (mediaKind(type) === null) return yield* new NotAClip();

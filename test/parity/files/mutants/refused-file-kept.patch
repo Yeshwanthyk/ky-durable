@@ -1,0 +1,12 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..90ae9ed 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -171,7 +171,6 @@ export const accept = (
+     const refused = yield* Effect.promise(() => record({ id, task, name, type: kept, size, caption }));
+ 
+     if (refused !== null) {
+-      yield* Effect.promise(() => bucket.delete(`files/${id}`));
+ 
+       return yield* new NotRecorded({ why: refused });
+     }

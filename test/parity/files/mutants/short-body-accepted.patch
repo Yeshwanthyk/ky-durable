@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..10b69d2 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -164,7 +164,7 @@ export const accept = (
+     const { task, type, size, name, caption } = yield* declared(request);
+     const body = yield* Effect.promise(() => request.arrayBuffer());
+ 
+-    if (body.byteLength !== size) return yield* new ShortBody();
++    if (body.byteLength > size) return yield* new ShortBody();
+     const id = fileId();
+     const kept = yield* Effect.promise(() => typeOf(type, new Uint8Array(body)));
+     yield* Effect.promise(() => bucket.put(`files/${id}`, body, { httpMetadata: { contentType: kept } }));

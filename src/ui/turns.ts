@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { Guard } from "typebox/guard";
-import { framesOf, type MediaClip, readMedia } from "../media";
+import { framesOf, type MediaClip, readMedia } from "../files/media";
 import type { PiMessage, PiMessagePart } from "../core/transcript";
 import { imageSrc } from "./pick-images";
 import type { PiRunningTool } from "../view";

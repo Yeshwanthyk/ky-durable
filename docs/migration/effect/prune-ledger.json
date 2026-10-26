@@ -160,5 +160,41 @@
     "name": "the chats tool refuses a conversation that is not a chat with the user, as a subagent's",
     "class": "COPY",
     "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs only from a chat with the user: elsewhere it refuses and opens and steers nothing"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads sound.webm's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads clip.webm's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads sound.mp4's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads clip.mp4's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture finds an MP4's index after its media by hopping box headers, not reading the media",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture can't tell from a file that isn't MP4 or WebM, or one cut off before its tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
   }
 ]

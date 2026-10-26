@@ -1,0 +1,13 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..9fad252 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -174,7 +174,7 @@ export function checkInput(input: UserInput): string | null {
+   const { clips } = readMedia(input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
+   const frames = framesOf(clips);
+ 
+-  if (clips.length > MAX_CLIPS) return `Attach at most ${MAX_CLIPS} clips.`;
++  if (clips.length >= MAX_CLIPS) return `Attach at most ${MAX_CLIPS} clips.`;
+ 
+   if (frames > images.length || frames > MAX_CLIPS * FRAMES_PER_VIDEO) return "A video's frames don't match its tag.";
+ 

@@ -42,8 +42,6 @@ export type {
 
 export type { MachineHub } from "./wiring.ts";
 
-export { DIFF_TYPE, MAX_DIFF_BYTES } from "../files.ts";
-
 export const MACHINE_TABLES = Object.freeze({
   machines: "ky_machines",
   inbox: "ky_machine_inbox",

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
-import { FileStore } from "../../../src/files";
+import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/sandboxes";
@@ -52,7 +52,7 @@ describe("machine rows written at B", () => {
 
     const { storage, sql } = storageOf(db);
     const feed = new TaskFeed(sql());
-    const files = new FileStore(sql());
+    const files = new FileStore(storage());
     const sandboxes = new Sandboxes(sql());
     const sent: Schema.Json[] = [];
     const posted: Schema.Json[] = [];

@@ -7,7 +7,7 @@ import type { AvatarsView } from "./avatar-spec";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
 import type { ChatRow } from "./chats/contract";
-import type { FileRow } from "./files";
+import type { FileRow } from "./files/contract";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
 import type { SettingsView } from "./settings/contract";
 import type { SetupView } from "./setup";
@@ -244,7 +244,7 @@ export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
 export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
-export type { FileRow } from "./files";
+export type { FileRow } from "./files/contract";
 
 export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 

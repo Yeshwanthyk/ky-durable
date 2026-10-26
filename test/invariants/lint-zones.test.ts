@@ -22,7 +22,7 @@ const ZERO = [
   "src/chats-tool.ts",
   "src/client-messages.ts",
   "src/github-tools.ts",
-  "src/images.ts",
+  "src/files/",
   "src/protocol.ts",
   "src/server-frames.ts",
   "src/settings/",

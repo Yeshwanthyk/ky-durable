@@ -47,10 +47,6 @@
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-member-access)": 2
   },
-  "src/files.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-non-null-assertion)": 2
-  },
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },

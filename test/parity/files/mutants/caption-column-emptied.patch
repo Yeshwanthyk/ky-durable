@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..84c0472 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -100,7 +100,7 @@ export class Files extends Context.Service<
+             row.name,
+             row.type,
+             row.size,
+-            row.caption,
++            row.caption ?? "",
+             row.created_at
+           );
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..5b44b79 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -95,7 +95,7 @@ export class Files extends Context.Service<
+ 
+           yield* exec(
+             `INSERT INTO ${TABLE} (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+-            row.id,
++            row.id.toUpperCase(),
+             row.task,
+             row.name,
+             row.type,
