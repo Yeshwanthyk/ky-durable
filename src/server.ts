@@ -270,7 +270,7 @@ export class PiAgent extends DurableObject<Env> {
     origin: () => this.setup.origin()
   });
   /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
-  readonly approvals = new Approvals(this.ctx.storage.sql, {
+  readonly approvals = new Approvals(this.ctx.storage, {
     present: (session) => this.userHere(session),
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
     home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
@@ -278,7 +278,7 @@ export class PiAgent extends DurableObject<Env> {
     defer: (work) => this.ctx.waitUntil(work)
   });
   /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
-  readonly executorApprovals = new ExecutorApprovals(this.ctx.storage.sql, this.approvals, {
+  readonly executorApprovals = new ExecutorApprovals(this.ctx.storage, this.approvals, {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
