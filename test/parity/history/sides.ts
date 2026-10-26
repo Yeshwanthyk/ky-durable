@@ -23,7 +23,7 @@ const readsOf = (module: Module, sql: SqlStorage) => ({
 });
 
 export const legacySide: Make = {
-  open: (db) => new legacy.History(legacySql(db), chatSide.isChat, chatSide.name),
+  open: (db) => new legacy.LegacyHistory(legacySql(db), chatSide.isChat, chatSide.name),
   reads: (db) => readsOf(legacy, legacySql(db))
 };
 

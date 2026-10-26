@@ -17,7 +17,7 @@ export const CHATS = new Map([
 
 export const CONVERSATIONS = [ROOT_SESSION, "2", "3", "9"] as const;
 
-export const UUID = "5a810bd0-46f4-43eb-8060-2a379fb357a5";
+const UUID = "5a810bd0-46f4-43eb-8060-2a379fb357a5";
 
 const LONG = `ferry ${"Lisbon tram plan ".repeat(320)}end`;
 
@@ -185,7 +185,7 @@ export type Make = { readonly open: (db: DatabaseSync) => Side; readonly reads: 
 
 const isChat = (session: string) => CHATS.has(session);
 
-export const nameOf = (session: string) => CHATS.get(session) || "untitled";
+const nameOf = (session: string) => CHATS.get(session) || "untitled";
 
 export const chatSide = { isChat, name: nameOf };
 
@@ -213,6 +213,29 @@ function piDatabase() {
   return db;
 }
 
+type Change = "say" | "search" | "since" | "latest" | "rebuild" | "reopen" | "forget";
+
+const DROP_ROLES = [
+  "CREATE TABLE ky_history_mark_old AS SELECT id, last FROM ky_history_mark",
+  "DROP TABLE ky_history_mark",
+  "CREATE TABLE ky_history_mark (id INTEGER PRIMARY KEY CHECK (id = 1), last INTEGER NOT NULL)",
+  "INSERT INTO ky_history_mark SELECT * FROM ky_history_mark_old",
+  "DROP TABLE ky_history_mark_old"
+];
+
+function submit(db: DatabaseSync, action: Say, id: number) {
+  const request = action.origin === "relay" ? `mail:${id}` : UUID;
+  const submission = action.origin === "far" ? id * 10 + 6_000 : id * 10 + 1;
+
+  db.prepare("INSERT INTO pi_submissions (id, conversation_id, request_id, status, record) VALUES (?, ?, ?, ?, ?)").run(
+    submission,
+    Number(action.conversation),
+    request,
+    action.placed ? "placed" : "done",
+    JSON.stringify({ entry: id, requestId: request })
+  );
+}
+
 export function world(make: Make, now: () => number) {
   const db = piDatabase();
 
@@ -238,64 +261,34 @@ export function world(make: Make, now: () => number) {
     db.prepare("INSERT INTO pi_entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, NULL, ?, ?)").run(id, Number(action.conversation), seq, recordOf(action, at));
     ids.push(id);
 
-    if (action.kind !== "user" || action.origin === "none") return id;
-
-    const request = action.origin === "own" ? UUID : action.origin === "relay" ? `mail:${id}` : UUID;
-    const submission = action.origin === "far" ? id * 10 + 6_000 : id * 10 + 1;
-
-    db.prepare("INSERT INTO pi_submissions (id, conversation_id, request_id, status, record) VALUES (?, ?, ?, ?, ?)").run(
-      submission,
-      Number(action.conversation),
-      request,
-      action.placed ? "placed" : "done",
-      JSON.stringify({ entry: id, requestId: request })
-    );
+    if (action.kind === "user" && action.origin !== "none") submit(db, action, id);
 
     return id;
   };
 
   const reads = make.reads(db);
 
-  const apply = (action: Action): Json => {
+  const search = (action: Extract<Action, { _tag: "search" }>) => {
+    const options: SearchOptions = { around: action.around, caller: action.caller };
+
+    if (action.batches !== null) options.batches = action.batches;
+
+    if (action.span) options.span = { ...action.span, days: `between ${action.span.from} and ${action.span.to}` };
+
+    return side.search(action.query, options);
+  };
+
+  const reopen = (downgrade: "none" | "roles" | "column") => {
+    if (downgrade === "roles") db.exec("UPDATE ky_history_mark SET roles = 0");
+
+    if (downgrade === "column") for (const statement of DROP_ROLES) db.exec(statement);
+    side = make.open(db);
+
+    return null;
+  };
+
+  const read = (action: Exclude<Action, { _tag: Change }>): Json => {
     switch (action._tag) {
-      case "say":
-        return write(action);
-      case "search": {
-        const options: SearchOptions = { around: action.around, caller: action.caller };
-
-        if (action.batches !== null) options.batches = action.batches;
-
-        if (action.span) options.span = { ...action.span, days: `between ${action.span.from} and ${action.span.to}` };
-
-        return side.search(action.query, options);
-      }
-
-      case "since":
-        return side.since({ seq: action.seq, at: now() - action.back }, action.chars, action.now === null ? undefined : now() + action.now);
-      case "latest":
-        return side.latest(action.session);
-      case "rebuild":
-        side.rebuild();
-
-        return null;
-      case "reopen":
-        if (action.downgrade === "roles") db.exec("UPDATE ky_history_mark SET roles = 0");
-
-        if (action.downgrade === "column") {
-          db.exec("CREATE TABLE ky_history_mark_old AS SELECT id, last FROM ky_history_mark");
-          db.exec("DROP TABLE ky_history_mark");
-          db.exec("CREATE TABLE ky_history_mark (id INTEGER PRIMARY KEY CHECK (id = 1), last INTEGER NOT NULL)");
-          db.exec("INSERT INTO ky_history_mark SELECT * FROM ky_history_mark_old");
-          db.exec("DROP TABLE ky_history_mark_old");
-        }
-
-        side = make.open(db);
-
-        return null;
-      case "forget":
-        db.prepare("DELETE FROM pi_entries WHERE id = ?").run(idBack(action.back));
-
-        return null;
       case "placedBy":
         return [...reads.placedBy(action.back.map(idBack))].map(([entry, request]) => [entry, request ?? null]);
       case "ownMessages":
@@ -308,6 +301,31 @@ export function world(make: Make, now: () => number) {
         return reads.runInputs(action.conversation).map(({ entry, request }) => ({ entry, request: request ?? null }));
       case "wroteSince":
         return reads.wroteSince(action.conversation, now() - action.ago);
+    }
+  };
+
+  const apply = (action: Action): Json => {
+    switch (action._tag) {
+      case "say":
+        return write(action);
+      case "search":
+        return search(action);
+      case "since":
+        return side.since({ seq: action.seq, at: now() - action.back }, action.chars, action.now === null ? undefined : now() + action.now);
+      case "latest":
+        return side.latest(action.session);
+      case "rebuild":
+        side.rebuild();
+
+        return null;
+      case "reopen":
+        return reopen(action.downgrade);
+      case "forget":
+        db.prepare("DELETE FROM pi_entries WHERE id = ?").run(idBack(action.back));
+
+        return null;
+      default:
+        return read(action);
     }
   };
 

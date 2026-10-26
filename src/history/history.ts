@@ -190,6 +190,8 @@ export function wroteSince(sql: SqlStorage, conversation: string, at: number): b
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
+const termsOf = (query: string) => (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
+
 function fit(said: readonly SaidLine[], chars: number) {
   let used = 0;
   let end = said.length;
@@ -227,12 +229,12 @@ const flat = (text: string) => text.replace(/\s+/g, " ").trim();
 
 const cut = (text: string, chars: number) => (text.length > chars ? `${text.slice(0, chars - 1)}…` : text);
 
-export type IndexDeps = {
+type IndexDeps = {
   readonly isChat: (session: string) => boolean;
   readonly name: (session: string) => string;
 };
 
-export interface ChatSearch {
+interface ChatSearch {
   readonly search: (query: string, options: SearchOptions) => Effect.Effect<string>;
   readonly since: (from: SaidMark, chars: number, now: number | undefined) => Effect.Effect<Said>;
   readonly latest: (session: string) => Effect.Effect<string | null>;
@@ -407,24 +409,30 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
             return lines;
           });
 
+        const asking = (caller: string) =>
+          Effect.map(
+            rows(Asking, `SELECT max(rowid) AS rowid FROM ${INDEX} WHERE conversation = ? AND role = 'user'`, caller),
+            ([row]) => row?.rowid ?? -1
+          );
+
         return Index.of({
           search: (query, { around = 0, caller = "", batches = Number.POSITIVE_INFINITY, span }) =>
             Effect.gen(function* () {
               yield* catchUp(batches);
 
-              const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
+              const terms = termsOf(query);
 
               if (terms.length === 0) return "Give some words to search for.";
 
-              const [asking] = yield* rows(Asking, `SELECT max(rowid) AS rowid FROM ${INDEX} WHERE conversation = ? AND role = 'user'`, caller);
-              const skip = asking?.rowid ?? -1;
+              const skip = yield* asking(caller);
               const during = span === undefined ? "" : ` ${span.days}`;
               const none = `No message matches ${query.trim()}${during}.`;
-              const every = yield* match(terms.join(" AND "), skip, span ?? ALWAYS);
+              const window = span ?? ALWAYS;
+              const every = yield* match(terms.join(" AND "), skip, window);
 
               if (every.length > 0 || terms.length === 1) return (yield* show(every, around, "")) || none;
 
-              const some = yield* match(terms.join(" OR "), skip, span ?? ALWAYS);
+              const some = yield* match(terms.join(" OR "), skip, window);
 
               return (yield* show(some, around, `No message has all those words${during}; these have some of them.\n`)) || none;
             }),

@@ -111,7 +111,7 @@ const PlacedRow = Type.Object({ entry: Type.Number(), request: Type.Union([Type.
  * The messages a search reads, by when they were sent: from `from` up to, not including, `to`, in epoch ms;
  * `days` is how a reply names them, like "between 2026-01-02 and 2026-01-03".
  */
-export type Span = { readonly from: number; readonly to: number; readonly days: string };
+type Span = { readonly from: number; readonly to: number; readonly days: string };
 
 const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
 
@@ -119,6 +119,8 @@ const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
 type SearchOptions = { readonly around?: number; readonly caller?: string; readonly batches?: number; readonly span?: Span };
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
+
+const termsOf = (query: string) => (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
 
 const Hit = Type.Object({ rowid: Type.Number(), conversation: Type.String(), role: Type.String(), at: Type.Number(), snippet: Type.String() });
 
@@ -156,7 +158,7 @@ const SeqRow = Type.Object({ seq: Type.Union([Type.Number(), Type.Null()]) });
 /** A chat's newest user entry; null before the first. */
 const NewestRow = Type.Object({ id: Type.Union([Type.Number(), Type.Null()]) });
 
-export class History {
+export class LegacyHistory {
   readonly #sql: SqlStorage;
   readonly #isChat: (session: string) => boolean;
   readonly #name: (session: string) => string;
@@ -200,18 +202,19 @@ export class History {
   search(query: string, { around = 0, caller = "", batches = Number.POSITIVE_INFINITY, span }: SearchOptions = {}): string {
     this.#catchUp(batches);
 
-    const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
+    const terms = termsOf(query);
 
     if (terms.length === 0) return "Give some words to search for.";
 
     const skip = this.#asking(caller);
     const during = span === undefined ? "" : ` ${span.days}`;
     const none = `No message matches ${query.trim()}${during}.`;
-    const every = this.#match(terms.join(" AND "), skip, span ?? ALWAYS);
+    const window = span ?? ALWAYS;
+    const every = this.#match(terms.join(" AND "), skip, window);
 
     if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || none;
 
-    const some = this.#match(terms.join(" OR "), skip, span ?? ALWAYS);
+    const some = this.#match(terms.join(" OR "), skip, window);
 
     return this.#show(some, around, `No message has all those words${during}; these have some of them.\n`) || none;
   }
