@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord";
 import { defineDoc, defineExtension, defineTool, type Extension, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { type UiCard, UiCardSchema } from "./ui-blocks";
-import { toolReply as reply } from "./core/reply";
+import { toolReply as reply } from "../../../../src/core/reply";
 
 /**
  * ui: ky shows the user a card in the chat, composed from blocks: text, a
