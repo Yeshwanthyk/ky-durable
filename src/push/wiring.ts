@@ -1,8 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { Fetch } from "../chatgpt";
-import { type Edge, makeEdge } from "../core/edge";
-import { isRefusal } from "../core/refusal";
+import { type Edge, makeEdge, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { PushDevice } from "./contract";
 import { Push, type PushParts } from "./push";
@@ -23,9 +22,7 @@ export class Pushes {
   }
 
   subscribe(device: PushDevice): void {
-    const result = this.#edge.run(Effect.as(Push.use((push) => push.subscribe(device)), {}));
-
-    if (isRefusal(result)) throw new Error(result.refused);
+    runOrThrow(this.#edge, Push.use((push) => push.subscribe(device)));
   }
 
   unsubscribe(endpoint: string): void {
