@@ -1,0 +1,12 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..423c236 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -65,7 +65,6 @@ async function store(bucket: SiteBucket, id: string, files: ReadonlyMap<string,
+   const kept = new Set([...files.keys(), META].map((path) => siteKey(id, path)));
+   const stale = (await keys(bucket, id)).filter((key) => !kept.has(key));
+ 
+-  if (stale.length > 0) await bucket.delete(stale);
+ }
+ 
+ function newToken(): string {

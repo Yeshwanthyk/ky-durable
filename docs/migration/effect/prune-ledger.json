@@ -64,5 +64,11 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "sites refuses past 200 files, 10 MB or 50 sites",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/sites.test.ts > refusals > I-S7: publishes a folder of at most 200 files, all of them"
   }
 ]

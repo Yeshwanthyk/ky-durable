@@ -2,11 +2,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publicSiteRoute as legacyPublicRoute, siteRoute as legacySiteRoute } from "../../src/sites/legacy/site-routes";
-import { legacySiteExtension as legacyExtension } from "../../src/sites/legacy/sites";
 import { publicSiteRoute, siteExtension, siteRoute } from "../../src/sites/wiring";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { type FakeFile, fakeBucket, fakeFiles, requestOf, seededRandom, siteId, sortedMeta, toolOf } from "../parity/sites/world";
+import { budget } from "../parity/kit";
+import { type FakeFile, fakeBucket, fakeFiles, requestOf, siteId, toolOf } from "../parity/sites/world";
 
 const ORIGIN = "https://ky.test";
 
@@ -293,119 +291,67 @@ describe("stored metadata", () => {
   });
 });
 
-const MANY = Object.fromEntries(Array.from({ length: 201 }, (_, at) => [`/workspace/many/${at % 9}/${at}.html`, { body: "m" }]));
+const siteKeys = ({ bucket }: Port, id: string) => [...bucket.objects.keys()].filter((key) => key.startsWith(`sites/${id}/`)).sort((a, b) => (a < b ? -1 : 1));
 
-const WORKSPACE = {
-  "/workspace/one/index.html": { body: "<h1>One</h1>" },
-  "/workspace/web/index.html": { body: "<!doctype html><link rel=stylesheet href=css/app.css>" },
-  "/workspace/web/css/app.css": { body: "h1 { color: red }" },
-  "/workspace/web/js/app.js": { body: "console.log(1)" },
-  "/workspace/web/v1.2/LICENSE": { body: "MIT" },
-  "/workspace/web/.env": { body: "KEY=secret" },
-  "/workspace/web/.git/config": { body: "[core]" },
-  "/workspace/empty/.hidden": { body: "x" },
-  "/workspace/broken/index.html": { body: "ok" },
-  "/workspace/broken/z.html": { body: "", fails: "EIO: input/output error" },
-  "/workspace/big/a.html": { body: "a", size: 6 * MB },
-  "/workspace/big/b.html": { body: "b", size: 6 * MB },
-  ...MANY
-} satisfies Record<string, FakeFile>;
+const folderOf = (root: string, names: string[]): Record<string, FakeFile> => Object.fromEntries(names.map((name) => [`${root}/${name}`, { body: root }]));
 
-const WORLD = {
-  ...fillers(44),
-  [`sites/${siteId(901)}/.site`]: "{not json",
-  [`sites/${siteId(901)}/index.html`]: "corrupt",
-  [`sites/${siteId(902)}/index.html`]: "cut off",
-  [`sites/${siteId(903)}/.site`]: JSON.stringify({ title: "Older", created: 3, token: "AAAAAAAAAAAAAAAAAAAAAA", note: "from a newer ky" }),
-  [`sites/${siteId(903)}/index.html`]: "<p>older</p>",
-  "sites-public/AAAAAAAAAAAAAAAAAAAAAA": siteId(903)
-};
+describe("stored files", () => {
+  it("I-S13: publishing again with its id replaces the site's files entirely", async () => {
+    const names = fc.uniqueArray(fc.constantFrom("index.html", "a.css", "b/c.js", "b/d/e.txt", "f.svg"), { minLength: 1 });
 
-const IDS = [siteId(1), siteId(2), siteId(3), siteId(901), siteId(902), siteId(903), "nope", ""];
+    await fc.assert(
+      fc.asyncProperty(names, names, async (first, second) => {
+        const site = port({}, { ...folderOf("/workspace/v1", first), ...folderOf("/workspace/v2", second) });
+        const id = await newSite(site, { action: "publish", dir: "/workspace/v1" });
 
-type Action =
-  | { readonly kind: "tool"; readonly chat: boolean; readonly args: Record<string, string> }
-  | { readonly kind: "request"; readonly method: string; readonly path: string }
-  | { readonly kind: "public"; readonly method: string; readonly at: number; readonly rest: string };
+        await site.tool({ action: "publish", id, dir: "/workspace/v2" });
 
-const toolAction = fc.record({
-  kind: fc.constant("tool" as const),
-  chat: fc.oneof({ weight: 9, arbitrary: fc.constant(true) }, { weight: 1, arbitrary: fc.constant(false) }),
-  args: fc.record(
-    {
-      action: fc.constantFrom("publish", "publish", "publish", "list", "make_public", "make_public", "make_private", "delete"),
-      id: fc.constantFrom(...IDS),
-      title: fc.constantFrom("Hello", ""),
-      html: fc.constantFrom("<h1>Hi</h1>", "<!DOCTYPE html><p>typed</p>"),
-      dir: fc.constantFrom("/workspace/one", "/workspace/./web/", "/", "/workspace/..", "/workspace/empty", "/workspace/broken", "/workspace/big", "/workspace/many", "/workspace/none")
-    },
-    { requiredKeys: ["action"] }
-  )
+        expect(siteKeys(site, id)).toEqual([...second, ".site"].map((name) => `sites/${id}/${name}`).sort((a, b) => (a < b ? -1 : 1)));
+      }),
+      budget()
+    );
+  });
 });
 
-const method = fc.constantFrom("GET", "GET", "GET", "HEAD", "POST");
+const TOKEN = "TTTTTTTTTTTTTTTTTTTTTT";
 
-const requestAction = fc.record({
-  kind: fc.constant("request" as const),
-  method,
-  path: fc.oneof(
-    fc.constant("/api/sites"),
-    fc.constantFrom("/s/zz/", "/p/abc/", "/p/AAAAAAAAAAAAAAAAAAAAAA/", "/elsewhere"),
-    fc
-      .tuple(fc.constantFrom(...IDS.slice(0, 6)), fc.constantFrom("/", "", "/?embed", "/?embed=dark", "/css/app.css", "/v1.2/LICENSE", "/js/app.js", "/.site", "/%2e%2e/x", "/css%2F..%2Fx", "/%E0%A4%A"))
-      .map(([id, rest]) => `/s/${id}${rest}`)
-  )
+const SERVED = {
+  [`sites/${siteId(5)}/.site`]: metaOf("Five", 5, TOKEN),
+  [`sites/${siteId(5)}/index.html`]: "five",
+  [`sites/${siteId(5)}/a.css`]: "a",
+  [`sites/${siteId(5)}/.env`]: "KEY=secret",
+  [`sites/${siteId(5)}/.git/config`]: "[core]",
+  [`sites/${siteId(5)}/sub/.x`]: "x",
+  [`sites/${siteId(7)}/secret.txt`]: "not five's",
+  [`sites-public/${TOKEN}`]: siteId(5)
+};
+
+const OUT = [".site", ".env", ".git/config", "sub/.x", "%2esite", "%2Eenv", ".git%2Fconfig", "sub%2F.x", `..%2f${siteId(7)}/secret.txt`, `..%5c${siteId(7)}/secret.txt`, "sub\\.x", "%E0%A4%A"];
+
+describe("serving", () => {
+  it("I-S14: never serves a hidden file, the metadata or a way out of the site, signed in or by its public token", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(...OUT), fc.constantFrom(`/s/${siteId(5)}/`, `/p/${TOKEN}/`), fc.constantFrom("GET", "HEAD"), fc.constantFrom("", "?embed"), async (path, at, method, query) => {
+        const { request } = port(SERVED);
+
+        expect([await request(method, `${at}a.css`), await request(method, `${at}${path}${query}`)]).toMatchObject([{ status: 200 }, { status: 404 }]);
+      }),
+      budget()
+    );
+  });
 });
 
-const publicAction = fc.record({ kind: fc.constant("public" as const), method, at: fc.nat({ max: 2 }), rest: fc.constantFrom("/", "", "/css/app.css", "/.site") });
+describe("listing", () => {
+  it("I-S15: /api/sites lists the sites newest first", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.uniqueArray(fc.integer({ min: 0, max: 2 ** 40 }), { maxLength: 8 }), async (times) => {
+        const seed = Object.fromEntries(times.map((created, at) => [`sites/${siteId(at + 1)}/.site`, metaOf(`site ${at}`, created)]));
+        const { request } = port(seed);
+        const newest = times.map((created, at) => ({ id: siteId(at + 1), created })).sort((a, b) => b.created - a.created);
 
-function side(clock: Clock, make: (bucket: ReturnType<typeof fakeBucket>, files: ReturnType<typeof fakeFiles>) => { tool: ReturnType<typeof toolOf>; request: ReturnType<typeof requestOf> }): Instance<Action> {
-  const bucket = fakeBucket(WORLD);
-  const files = fakeFiles(WORKSPACE);
-  const random = seededRandom();
-  const { tool, request } = make(bucket, files);
-
-  return {
-    apply: async (action) => {
-      random.use();
-      vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-
-      if (action.kind === "tool") return tool(action.args, action.chat ? CHAT : SIDE);
-
-      if (action.kind === "request") return request(action.method, action.path);
-      const tokens = [...bucket.objects.keys()].filter((key) => key.startsWith("sites-public/")).sort((a, b) => (a < b ? -1 : 1));
-      const token = tokens[action.at % Math.max(tokens.length, 1)]?.slice("sites-public/".length) ?? "none";
-
-      return request(action.method, `/p/${token}${action.rest}`);
-    },
-    tables: async () => sortedMeta(bucket.dump()),
-    effects: async (): Promise<Json> => ({ reads: [...files.reads] }),
-    dispose: async () => {}
-  };
-}
-
-const asB = {
-  // SAFETY: B's site tool reads only head, get, put, delete and list of the bucket and find, stat and readFile of the workspace, what the port's types name.
-  extension: legacyExtension as typeof siteExtension,
-  // SAFETY: B's routes read only FILES of the Worker's env, and of it what the port's types name.
-  siteRoute: legacySiteRoute as typeof siteRoute,
-  // SAFETY: as siteRoute's.
-  publicSiteRoute: legacyPublicRoute as typeof publicSiteRoute
-};
-
-const sites: Parity<Action> = {
-  domain: "sites",
-  actions: fc.oneof({ weight: 3, arbitrary: toolAction }, { weight: 2, arbitrary: requestAction }, { weight: 1, arbitrary: publicAction }),
-  advances: fc.integer({ min: 0, max: 10_000 }),
-  start: Date.UTC(2026, 0, 1),
-  legacy: async (clock) =>
-    side(clock, (bucket, files) => ({
-      tool: toolOf(asB.extension(isChat, bucket, { fs: files }, () => ORIGIN)),
-      request: requestOf(asB, bucket)
-    })),
-  next: async (clock) => side(clock, (bucket, files) => ({ tool: toolOf(siteExtension(isChat, bucket, { fs: files }, () => ORIGIN)), request: requestOf({ siteRoute, publicSiteRoute }, bucket) }))
-};
-
-describe("parity", () => {
-  it("answers every tool call and request as B did, and leaves the bucket as B left it", () => assertParity(sites));
+        expect(await request("GET", "/api/sites")).toMatchObject({ status: 200, body: JSON.stringify(newest.map(({ id, created }) => ({ id, title: `site ${times.indexOf(created)}`, created, public: false }))) });
+      }),
+      budget()
+    );
+  });
 });

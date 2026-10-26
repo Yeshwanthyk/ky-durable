@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..6b0160b 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -51,7 +51,7 @@ async function stored(bucket: SiteBucket): Promise<Array<{ id: string; site: Sit
+ }
+ 
+ export async function listSites(bucket: SiteBucket): Promise<SiteRow[]> {
+-  return (await stored(bucket)).map(({ id, site }) => ({ id, title: site.title, created: site.created, public: site.token !== undefined })).sort((a, b) => b.created - a.created);
++  return (await stored(bucket)).map(({ id, site }) => ({ id, title: site.title, created: site.created, public: site.token !== undefined }));
+ }
+ 
+ const putMeta = (bucket: SiteBucket, id: string, value: SiteMeta) => bucket.put(siteKey(id, META), JSON.stringify(value));
