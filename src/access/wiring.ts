@@ -2,8 +2,8 @@ import * as Clock from "effect/Clock";
 import * as Layer from "effect/Layer";
 import { makeEdge } from "../core/edge";
 import { isRefusal } from "../core/refusal";
-import { type AccessVars, type CertsFetch, Keys, signedIn } from "./access";
-import { SIGN_IN, TRY_AGAIN } from "./contract";
+import { type CertsFetch, Keys, signedIn } from "./access";
+import { type AccessVars, SIGN_IN, TRY_AGAIN } from "./contract";
 
 const status = (refused: string) => (refused === SIGN_IN ? 401 : refused === TRY_AGAIN ? 503 : 500);
 

@@ -1,5 +1,5 @@
 import Type, { type Static, type TSchema } from "typebox";
-import { Value } from "typebox/value";
+import { parseOr } from "../../core/decode";
 
 /**
  * Cloudflare Access signs the owner in (C3). It stands in front of the Worker
@@ -77,13 +77,7 @@ function bytes(base64url: string): Uint8Array<ArrayBuffer> | undefined {
 
 /** The JSON a JWT part holds, when it matches `schema`. */
 function decoded<Schema extends TSchema>(schema: Schema, part: string): Static<Schema> | undefined {
-  try {
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes(part)));
-
-    return Value.Check(schema, value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseOr(schema, new TextDecoder().decode(bytes(part)), undefined);
 }
 
 /** ACCESS_EMAILS, comma separated, matched without case. */
@@ -182,9 +176,9 @@ export class Access {
     const response = await this.#certs(`https://${team}/cdn-cgi/access/certs`);
 
     if (!response.ok) throw new Error(`Access's certs answered ${response.status}`);
-    const certs: unknown = await response.json();
+    const certs = parseOr(Certs, await response.text(), undefined);
 
-    if (!Value.Check(Certs, certs)) throw new Error("Access's certs hold no RSA keys");
+    if (!certs) throw new Error("Access's certs hold no RSA keys");
 
     return new Map(
       await Promise.all(

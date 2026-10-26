@@ -7,11 +7,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import { ASSERTION, Certs, JwtClaims, JwtHeader, KeysUnavailable, NotSetUp, SignInRefused } from "./contract";
+import { type AccessVars, ASSERTION, Certs, JwtClaims, JwtHeader, KeysUnavailable, NotSetUp, SignInRefused } from "./contract";
 
 export type CertsFetch = (url: string) => Promise<Response>;
-
-export type AccessVars = Pick<Env, "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "ACCESS_EMAILS" | "KY_DEV" | "KY_DEV_EMAIL">;
 
 const KEYS_TTL_MS = 60 * 60_000;
 

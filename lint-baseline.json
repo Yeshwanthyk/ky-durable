@@ -30,9 +30,6 @@
     "ky(no-unchecked-parse)": 1,
     "typescript(no-unsafe-assignment)": 1
   },
-  "src/access.ts": {
-    "ky(no-unchecked-parse)": 2
-  },
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },

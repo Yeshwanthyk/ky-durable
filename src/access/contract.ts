@@ -11,6 +11,8 @@ export function bypassed(pathname: string): boolean {
   );
 }
 
+export type AccessVars = Pick<Env, "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "ACCESS_EMAILS" | "KY_DEV" | "KY_DEV_EMAIL">;
+
 export const SIGN_IN = "Sign in to ky through Cloudflare Access.";
 
 export const NOT_SET_UP =
