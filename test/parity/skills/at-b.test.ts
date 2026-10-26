@@ -1,9 +1,3 @@
-/**
- * Rows B wrote load under the port: at-b.json holds the skill tables as B made and filled them (a pinned
- * skill a background run edited, one with answers, a kit, an archived merge, two forks), the specialist tables
- * (a model stored out of the settings' order, a brief edited, a home, a consult and a group conversation, a
- * model a restore damaged), and what B's own reads gave over them. The port opens those tables as they are and reads the same.
- */
 import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -19,7 +13,6 @@ describe("skill rows written at B", () => {
   it("open under the port and read as B read them", () => {
     const db = new DatabaseSync(":memory:");
 
-    // SQLite makes sqlite_sequence itself, with the first AUTOINCREMENT table.
     for (const statement of atB.schema.filter((each) => !each.includes("sqlite_sequence"))) db.exec(statement);
 
     for (const [table, rows] of Object.entries(atB.tables)) {
@@ -54,7 +47,6 @@ describe("skill rows written at B", () => {
       }
     };
 
-    // As text: key order is part of what a caller sees.
     expect(JSON.stringify(reads, null, 2)).toBe(JSON.stringify(atB.reads, null, 2));
     db.close();
   });

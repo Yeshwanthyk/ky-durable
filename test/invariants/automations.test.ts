@@ -25,7 +25,6 @@ const DOMAIN = path.join(SRC, "automations");
 
 const read = (file: string) => readFileSync(file, "utf8");
 
-/** Every .ts file under `dir`, tests left out. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -105,7 +104,6 @@ describe("stored rows", () => {
       fc.property(text, (model) => {
         const parsed = Option.getOrUndefined(parseJson(model));
 
-        // settings' own schema says what a model choice is.
         const expected = Value.Check(ModelChoiceSchema, parsed) ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
 
         expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", model: expected, post: false }]);
@@ -128,7 +126,6 @@ describe("stored rows", () => {
 });
 
 describe("tools", () => {
-  /** Every tool name a defineTool registers in src. */
   const registered = new Set(
     sources(SRC).flatMap((file) => [...read(file).matchAll(/defineTool\(\{\s*name:\s*"([^"]+)"/g)].map((match) => match[1]))
   );
@@ -177,7 +174,6 @@ describe("actions", () => {
   });
 });
 
-/** A step of a generated run: an action, or the clock moving on and the Scheduler firing what's due. */
 type Step = Action | { readonly advance: number } | { readonly advance: "alarm" };
 
 const steps: fc.Arbitrary<Step[]> = fc.array(
@@ -189,10 +185,6 @@ const steps: fc.Arbitrary<Step[]> = fc.array(
   { minLength: 5, maxLength: 40 }
 );
 
-/**
- * A run that ended before its automation was paused, then its reporter asking: a run long enough that the random
- * ones seldom build it, so every property starts with it.
- */
 const PAUSED_AFTER_DONE: Step[] = [
   { create: { title: "Digest", prompt: "digest", cron: "0 9 * * *", at: null }, author: "user", watch: null },
   { act: "run", id: "00000001" },
@@ -203,20 +195,12 @@ const PAUSED_AFTER_DONE: Step[] = [
   { world: "report", id: "00000001" }
 ];
 
-/** The automations with more than one run still going (queued or working), by their task rows. */
 function overlapping(world: World): string[] {
   return world.rows("SELECT source FROM ky_tasks WHERE status IN ('queued', 'working') GROUP BY source HAVING COUNT(*) > 1").map((row) => String(row.source));
 }
 
-/** The task ids in `seen` more than once. */
 const twice = (seen: readonly { task: string }[]) => seen.flatMap(({ task }, at) => (seen.findIndex((each) => each.task === task) === at ? [] : [task]));
 
-/**
- * explainers/ky-architecture/quint/automations.qnt's three invariants, on the port over generated runs: every
- * facade action, the clock and the Scheduler, a fire delivered again, runs moving on and reporting, a commit that
- * fails and a machine turned off. A run starts once it is spawned or its machine takes it; a report posts once its
- * run is done and the automation still wants it.
- */
 describe("runs", () => {
   beforeAll(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -228,7 +212,6 @@ describe("runs", () => {
     vi.restoreAllMocks();
   });
 
-  /** The port through `run`, with `check` after every step. */
   const holds = (check: (world: World) => void) =>
     fc.assert(
       fc.asyncProperty(steps, async (run) => {
@@ -256,7 +239,6 @@ describe("runs", () => {
       { numRuns: budget().numRuns * 4, seed: budget().seed, examples: [[PAUSED_AFTER_DONE]] }
     );
 
-  // Its report posts once by delivery's own once-per-task, which World.#report keeps, not the domain's.
   it("OneRunPerSlot: a slot starts one run, however often it fires", async () => {
     await holds((world) => {
       expect(twice(world.started)).toEqual([]);
@@ -277,7 +259,6 @@ describe("runs", () => {
   });
 });
 
-/** ky_automations as an early B made it, before gates, watches, posts and zones. */
 const EARLY_AUTOMATIONS = `CREATE TABLE ky_automations (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, prompt TEXT NOT NULL, cron TEXT, at INTEGER, model TEXT, machine TEXT,
   chat TEXT NOT NULL, created_by TEXT NOT NULL, status TEXT NOT NULL, schedule_id TEXT, created_at INTEGER NOT NULL,

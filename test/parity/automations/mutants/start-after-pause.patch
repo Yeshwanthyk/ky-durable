@@ -1,13 +1,13 @@
 diff --git a/src/automations/automations.ts b/src/automations/automations.ts
-index e23bee6..6237843 100644
+index 055b204..684f0c3 100644
 --- a/src/automations/automations.ts
 +++ b/src/automations/automations.ts
-@@ -916,7 +916,7 @@ const make = Effect.gen(function* () {
+@@ -740,7 +740,7 @@ const make = Effect.gen(function* () {
      Effect.gen(function* () {
        const row = yield* get(fired.id);
  
 -      if (row?.status !== "active") return;
 +      if (row === undefined) return;
  
-       // Each cron fire books the next before anything can skip this one; a delivery again finds it booked.
        if (row.cron !== null && fired.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id) {
+         yield* keepBooking(row.id, yield* bookNext(row, schedule.time * 1000));
