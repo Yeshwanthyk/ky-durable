@@ -1,23 +1,34 @@
 import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { makeEdge } from "../core/edge";
-import { isRefusal } from "../core/refusal";
-import { type CertsFetch, Keys, signedIn } from "./access";
-import { type AccessVars, SIGN_IN, TRY_AGAIN } from "./contract";
+import { type CertsFetch, Keys, type KeysCell, signedIn } from "./access";
+import type { AccessVars, KeysUnavailable, NotSetUp, SignInRefused } from "./contract";
 
-const status = (refused: string) => (refused === SIGN_IN ? 401 : refused === TRY_AGAIN ? 503 : 500);
+type Refused = SignInRefused | NotSetUp | KeysUnavailable;
+
+const STATUS: Record<Refused["_tag"], number> = { SignInRefused: 401, NotSetUp: 500, KeysUnavailable: 503 };
 
 export class Access {
-  readonly #edge;
+  readonly #layer;
 
   constructor(certs: CertsFetch = (url) => fetch(url), clock?: Clock.Clock) {
-    const keys = Keys.layer(certs);
-    this.#edge = makeEdge(clock ? Layer.provideMerge(keys, Layer.succeed(Clock.Clock)(clock)) : keys);
+    const keys = Keys.layer(certs, {} satisfies KeysCell);
+    this.#layer = clock ? Layer.provideMerge(keys, Layer.succeed(Clock.Clock)(clock)) : keys;
   }
 
+  /** B's refusal for `request`, or undefined to let it through. Access lives at the Worker's module scope, so each request gets its own edge. */
   async refuse(request: Request, env: AccessVars): Promise<Response | undefined> {
-    const result = await this.#edge.runPromise(signedIn(request, env));
+    const edge = makeEdge(this.#layer);
 
-    return isRefusal(result) ? new Response(result.refused, { status: status(result.refused) }) : undefined;
+    try {
+      return await edge.runPromise(
+        signedIn(request, env).pipe(
+          Effect.match({ onSuccess: () => undefined, onFailure: (refused: Refused) => new Response(refused.refusal, { status: STATUS[refused._tag] }) })
+        )
+      );
+    } finally {
+      await edge.dispose();
+    }
   }
 }

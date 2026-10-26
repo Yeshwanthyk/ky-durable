@@ -13,12 +13,12 @@ export function bypassed(pathname: string): boolean {
 
 export type AccessVars = Pick<Env, "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "ACCESS_EMAILS" | "KY_DEV" | "KY_DEV_EMAIL">;
 
-export const SIGN_IN = "Sign in to ky through Cloudflare Access.";
+const SIGN_IN = "Sign in to ky through Cloudflare Access.";
 
 const NOT_SET_UP =
   "ky's Access isn't set up: it needs ACCESS_TEAM_DOMAIN, ACCESS_AUD and ACCESS_EMAILS. `ky init` sets them up: https://github.com/Yeshwanthyk/ky-durable#quickstart";
 
-export const TRY_AGAIN = "ky couldn't check the sign-in with Cloudflare Access; try again.";
+const TRY_AGAIN = "ky couldn't check the sign-in with Cloudflare Access; try again.";
 
 export const JwtHeader = Schema.Struct({ alg: Schema.Literal("RS256"), kid: Schema.String });
 
