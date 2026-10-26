@@ -1,10 +1,6 @@
 import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import { makeEdge } from "../core/edge";
-import { isRefusal } from "../core/refusal";
 import { toolReply as reply } from "../core/reply";
 import type { ChatList } from "./chats";
 import { type ChatRow, NotAChat, NothingToStart, NothingToSteer, NotOpenedHere, OpenedByAnother, type Opener } from "./contract";
@@ -84,28 +80,25 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
   return reply(`Steered "${shown(row)}"; its agent answers there.`);
 }
 
-const call = (parts: ChatsParts, args: Static<typeof Args>, from: string, task: number) =>
-  Effect.gen(function* () {
-    if (!parts.chat(from)) return yield* new NotAChat();
+async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number): Promise<ToolExecutionResult> {
+  if (!parts.chat(from)) return reply(new NotAChat().refusal, true);
 
-    if (parts.openedBy(from) !== null) return yield* new OpenedByAnother();
+  if (parts.openedBy(from) !== null) return reply(new OpenedByAnother().refusal, true);
 
-    if (args.action === "inspect" && args.chat === undefined) return yield* Effect.promise(() => list(parts, from));
-    const message = args.message?.trim() ?? "";
+  if (args.action === "inspect" && args.chat === undefined) return list(parts, from);
+  const message = args.message?.trim() ?? "";
 
-    if (args.action === "create") return message === "" ? yield* new NothingToStart() : yield* Effect.promise(() => create(parts, from, task, message, args.title));
-    const row = ownedBy(parts, from).find((each) => each.session === args.chat);
+  if (args.action === "create") return message === "" ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
+  const row = ownedBy(parts, from).find((each) => each.session === args.chat);
 
-    if (!row) return yield* new NotOpenedHere({ chat: args.chat ?? "" });
+  if (!row) return reply(new NotOpenedHere({ chat: args.chat ?? "" }).refusal, true);
 
-    if (args.action === "inspect") return yield* Effect.promise(() => inspect(parts, row));
+  if (args.action === "inspect") return inspect(parts, row);
 
-    return message === "" ? yield* new NothingToSteer() : yield* Effect.promise(() => steer(parts, from, task, row, message));
-  });
+  return message === "" ? reply(new NothingToSteer().refusal, true) : steer(parts, from, task, row, message);
+}
 
 export function chatsExtension(parts: ChatsParts): Extension {
-  const edge = makeEdge(Layer.empty);
-
   return defineExtension({
     name: "chats",
     tools: [
@@ -119,11 +112,7 @@ export function chatsExtension(parts: ChatsParts): Extension {
           "Their answers stay there and do not come back to you: end the turn, and inspect later when the user asks.",
         parameters: Args,
         replay: "safe",
-        execute: async (args, api) => {
-          const result = await edge.runPromise(call(parts, args, String(api.conversationId), api.taskId));
-
-          return isRefusal(result) ? reply(result.refused, true) : result;
-        }
+        execute: (args, api) => call(parts, args, String(api.conversationId), api.taskId)
       })
     ]
   });

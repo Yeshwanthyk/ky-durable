@@ -4,7 +4,6 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
@@ -48,8 +47,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
 
       const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
 
-      const first = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) =>
-        Effect.map(exec(query, ...params), ([found]) => Option.getOrUndefined(Schema.decodeUnknownOption(row)(found)));
+      const first = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.map(rows(row, query, ...params), ([found]) => found);
 
       const written = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(`${query} RETURNING session`, ...params), (each) => each.length > 0);
 
@@ -118,10 +116,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
 
           return name === "" ? Effect.succeed(false) : written(`UPDATE ${CHAT_TABLES.chats} SET title = ? WHERE session = ?`, name, session);
         },
-        archive: (session, archived) =>
-          Effect.gen(function* () {
-            return yield* written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? yield* Clock.currentTimeMillis : null, session);
-          })
+        archive: (session, archived) => Effect.flatMap(Clock.currentTimeMillis, (now) => written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? now : null, session))
       };
     })
   );
