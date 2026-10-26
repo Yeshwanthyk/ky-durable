@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index d25aab1..e93ca40 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -71,7 +71,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+       updated_at INTEGER NOT NULL)`);
+ 
+       return {
+-        list: rows(ChatRow, `SELECT * FROM ${CHAT_TABLES.chats} ORDER BY updated_at DESC`),
++        list: rows(ChatRow, `SELECT * FROM ${CHAT_TABLES.chats} ORDER BY updated_at ASC`),
+         mainUpdatedAt: Effect.map(rows(MainRow, `SELECT * FROM ${CHAT_TABLES.main}`), ([row]) => row?.updated_at ?? 0),
+         has: (session) => Effect.map(exec(`SELECT 1 FROM ${CHAT_TABLES.chats} WHERE session = ?`, session), (found) => found.length > 0),
+         add: (session, opener) =>
