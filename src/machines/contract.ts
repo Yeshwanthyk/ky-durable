@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type from "typebox";
 import type { Refusable } from "../core/edge.ts";
-import { AgentSchema, type Agent, FactsSchema, Integer, type RunCreds, type TaskReport } from "./runner-protocol.ts";
+import { AgentSchema, type Agent, FactsSchema, Integer, type MachineFacts, type RunCreds, type TaskReport } from "./runner-protocol.ts";
 
 export {
   AGENT_NAMES,
@@ -56,6 +56,17 @@ export const MACHINE_TABLES = Object.freeze({
 export const MACHINE_TOOL = "machine";
 
 export const MACHINE_EXTENSION = "machines";
+
+export const CLOUD = "cloud";
+
+export const CLOUD_FACTS: MachineFacts = {
+  os: "linux",
+  chrome: false,
+  repos: [],
+  agents: { claude: { installed: true, signedIn: false }, codex: { installed: true, signedIn: false } },
+  ports: [],
+  kind: "cloud"
+};
 
 export const MACHINE_ACTIONS = ["list", "run", "send", "stop", "move", "set"] as const;
 

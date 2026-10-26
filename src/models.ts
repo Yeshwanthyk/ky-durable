@@ -19,7 +19,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/e
 import type { AgentChange } from "@earendil-works/pi-durable";
 import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
 import type { MachineHub } from "./machines/contract";
-import type { RunnerPipe } from "./pipe";
+import type { RunnerPipe } from "./machines/wiring";
 import type { Endpoint } from "./providers/endpoint";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
 import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";

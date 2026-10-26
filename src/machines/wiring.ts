@@ -12,6 +12,8 @@ import { type Harness, Host, Machines } from "./machines";
 import type { Agent, MachineFacts, TaskReport } from "./runner-protocol";
 import { machineExtension } from "./tool";
 
+export { RunnerPipe } from "./pipe";
+
 export class MachineHub {
   retryMs = 1_000;
   cloud: CloudHook | undefined;

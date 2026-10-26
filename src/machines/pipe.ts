@@ -1,36 +1,18 @@
 import type { FetchFunction } from "@earendil-works/pi-ai";
-import { fromBase64, type HttpRequest, type ObjectFrame, type PipeReport, runnerTag, toBase64 } from "./machines/contract";
+import { fromBase64, type HttpRequest, type ObjectFrame, type PipeReport, runnerTag, toBase64 } from "./contract";
 
-/**
- * The object's end of the pipe (C1): a fetch to a port on a paired machine,
- * sent over its runner's socket as an `http_request` and answered by the
- * runner's `http_*` reports. The machine must be online when the request
- * starts; its socket closing fails every request still open on it at once.
- *
- * Each request fails when nothing arrives for `timeoutMs`, waiting for
- * the head or between chunks. C1 has no flow control toward the runner, so a
- * reader that falls `MAX_UNREAD_BYTES` behind ends its request instead of
- * letting the body fill memory; the runner's own backpressure keeps the
- * socket from outrunning the network.
- */
-
-/** How long a request waits for its head, or for the next chunk, before it fails. */
 const TIMEOUT_MS = 120_000;
 
-/** How far the reader of a response may fall behind the runner before the request is cancelled. */
 const MAX_UNREAD_BYTES = 8 * 1024 * 1024;
 
 const OPEN = 1;
 
-/** Statuses whose response has no body. */
 const NO_BODY = new Set([101, 204, 205, 304]);
 
 type Open = {
   readonly machine: string;
   readonly socket: WebSocket;
-  /** Settles the fetch: on the head, or on a failure before it. */
   readonly head: { resolve(response: Response): void; reject(error: Error): void };
-  /** The body's once the head came; null for a status that has none. */
   body: ReadableStreamDefaultController<Uint8Array> | null | undefined;
   timer: ReturnType<typeof setTimeout>;
   readonly unlisten: () => void;
@@ -39,14 +21,12 @@ type Open = {
 export class RunnerPipe {
   readonly #sockets: (tag: string) => WebSocket[];
   readonly #open = new Map<string, Open>();
-  /** How long a request waits for its head, or for the next chunk; tests shorten it. */
   timeoutMs = TIMEOUT_MS;
 
   constructor(sockets: (tag: string) => WebSocket[]) {
     this.#sockets = sockets;
   }
 
-  /** A fetch to `port` on `machine`, over its runner's socket. The URL's origin is ignored: only its path goes. */
   fetcher(machine: string, port: number): FetchFunction {
     return async (input, init) => {
       const request = new Request(input, init);
@@ -82,7 +62,6 @@ export class RunnerPipe {
     };
   }
 
-  /** A runner's answer to a request; one for a request no longer open (cancelled, timed out) is dropped. */
   onReport(report: PipeReport): void {
     const open = this.#open.get(report.id);
 
@@ -109,12 +88,10 @@ export class RunnerPipe {
     }
   }
 
-  /** The head settles the fetch, with a body that the chunks fill. */
   #head(id: string, open: Open, status: number, headers: Record<string, string>): void {
     if (open.body !== undefined) return;
     open.body = null;
 
-    // Counted in bytes, so desiredSize says how far the reader is behind.
     const body = NO_BODY.has(status)
       ? null
       : new ReadableStream<Uint8Array>(
@@ -143,7 +120,6 @@ export class RunnerPipe {
     }
   }
 
-  /** A runner's socket closed: fail at once every request of `machine` that has no open socket under it now. */
   dropped(machine: string): void {
     for (const [id, open] of this.#open) {
       if (open.machine === machine && open.socket.readyState !== OPEN) this.#fail(id, new Error(`${machine} went offline.`));
@@ -159,7 +135,6 @@ export class RunnerPipe {
     }, this.timeoutMs);
   }
 
-  /** The request is over: before its head the fetch rejects, after it the body errors. */
   #fail(id: string, error: Error): void {
     const open = this.#open.get(id);
 

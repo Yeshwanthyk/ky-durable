@@ -32,7 +32,7 @@ import { sandboxRoute } from "./sandbox-routes";
 import { publicSiteRoute, siteRoute } from "./site-routes";
 import { siteExtension } from "./sites";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
-import { MachineHub, machineTools } from "./machines/wiring";
+import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
@@ -54,7 +54,6 @@ import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spa
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
 import { Titler } from "./titles";
-import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";

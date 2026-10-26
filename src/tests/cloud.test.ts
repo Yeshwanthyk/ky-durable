@@ -1,7 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { idleTimeout } from "../cloud";
-import { CLOUD, CLOUD_FACTS } from "../cloud-facts";
+import { CLOUD, CLOUD_FACTS } from "../machines/contract";
 import type { ClientMessage } from "../protocol";
 import { allowedRepos, type GithubLogin, kyRefsOnly, proxyGit } from "../github";
 import { githubTool } from "../github-tools";

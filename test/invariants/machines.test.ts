@@ -88,7 +88,7 @@ describe("the machines domain's stored JSON", () => {
 
 describe("the runner's frames", () => {
   const reports = typesOf(WIRE.report);
-  const pipeHandlers = cases(source("src/pipe.ts"));
+  const pipeHandlers = cases(source("src/machines/pipe.ts"));
 
   it("has a handler for every report type: the hub's task reports, the pipe's http_ ones", () => {
     const tasks = Object.keys(TASK_REPORT_TYPES);
