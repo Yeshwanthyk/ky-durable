@@ -78,6 +78,10 @@ Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branc
 
 ## Decisions
 
+- **Owner, 2026-10-26:** Wave 3 is the dreaming core (Versioned, Soul, ledger, and the two couplings in skills)
+  and approvals then inbound, two writers in parallel. Peers and the rest of dreaming wait for Wave 4; machines
+  (slim plan shipped, #94 to #111) and the flat modules later. Discovery: six Haiku scouts, one per candidate.
+
 - **Owner, 2026-10-25:** Effect may ship to the browser: the UI enters a domain through its contract, even when that pulls in Effect Schema (about 70 KB gzip for automations' contract alone, Fable's measure).
 
 - **Owner, 2026-10-25:** Wave 2 go as drawn: U2 automations and U3 skills in parallel, Opus 5.5 writers in their own worktrees, a Fable 5.1 review each; `contracts.test.ts`, `boundaries.test.ts`, `features.test.ts` and `kit.ts` stay the chief of staff's.
