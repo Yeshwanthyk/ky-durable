@@ -80,7 +80,7 @@ export function kySays(content: AssistantMessage["content"], timestamp: number):
   };
 }
 
-const ToSpecialistsData = Schema.Struct({ to: Schema.mutable(Schema.Array(Schema.String)) });
+const ToSpecialistsData = Schema.Struct({ to: Schema.Array(Schema.String) });
 
 export type ToSpecialistsData = typeof ToSpecialistsData.Type;
 

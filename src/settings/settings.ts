@@ -39,13 +39,12 @@ export class Purposes extends Context.Service<
             const valid = validOf(choice);
 
             if (!valid) return yield* new NotAvailable({ provider: choice.provider, modelId: choice.modelId });
-            const kept = yield* Effect.orDie(Schema.decodeUnknownEffect(Choice)(valid));
-            const value = yield* Effect.orDie(Schema.encodeEffect(Stored)(kept));
+            const value = yield* Effect.orDie(Schema.encodeEffect(Stored)(valid));
             yield* Effect.orDie(
               sql.exec(`INSERT INTO ${TABLE} (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value`, purpose, value)
             );
 
-            return kept;
+            return { provider: valid.provider, modelId: valid.modelId, thinkingLevel: valid.thinkingLevel };
           })
         });
       })

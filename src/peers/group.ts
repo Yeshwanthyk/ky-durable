@@ -459,7 +459,7 @@ export class GroupDesk {
   }
 
   async #start(conversation: Conversation, chat: string, input: UserInput, text: string, to: readonly string[], recent: string, request: string) {
-    const data: ToSpecialistsData = { to: [...to] };
+    const data = { to: [...to] } satisfies ToSpecialistsData;
 
     await conversation.submit(
       {

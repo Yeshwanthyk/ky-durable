@@ -8,23 +8,17 @@ export const SETTINGS_TABLES = Object.freeze({ purposes: "ky_purposes" } as cons
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
 
+const PURPOSES = ["main", "worker", "background", "fallback"] as const;
+
 export type Purpose = Static<typeof PurposeSchema>;
 
 export const ModelChoice = Schema.Struct({ provider: Schema.String, modelId: Schema.String, thinkingLevel: Schema.Literals(THINKING_LEVELS) });
 
 export type ModelChoice = typeof ModelChoice.Type;
 
-export const PurposeSchema = Type.Union([Type.Literal("main"), Type.Literal("worker"), Type.Literal("background"), Type.Literal("fallback")]);
+export const PurposeSchema = Type.Enum(PURPOSES);
 
-export const ThinkingLevelSchema = Type.Union([
-  Type.Literal("off"),
-  Type.Literal("minimal"),
-  Type.Literal("low"),
-  Type.Literal("medium"),
-  Type.Literal("high"),
-  Type.Literal("xhigh"),
-  Type.Literal("max")
-]);
+export const ThinkingLevelSchema = Type.Enum(THINKING_LEVELS);
 
 export const ModelChoiceSchema = Type.Object({ provider: Type.String(), modelId: Type.String(), thinkingLevel: ThinkingLevelSchema });
 

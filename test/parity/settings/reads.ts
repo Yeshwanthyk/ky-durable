@@ -8,6 +8,8 @@ export type Choice = {
 
 export type Nearest = (levels: readonly ModelThinkingLevel[], wanted: ModelThinkingLevel) => ModelThinkingLevel;
 
+export const ORDER: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 export const PURPOSES = ["main", "worker", "background", "fallback"] as const;
 
 export type PurposeName = (typeof PURPOSES)[number];
@@ -33,6 +35,12 @@ export const CATALOG = new Map<string, ReadonlyMap<string, readonly ModelThinkin
 export function levelsOf(choice: Pick<Choice, "provider" | "modelId">, connected: ReadonlySet<string>): readonly ModelThinkingLevel[] | undefined {
   return connected.has(choice.provider) ? CATALOG.get(choice.provider)?.get(choice.modelId) : undefined;
 }
+
+export const nearestAtB: Nearest = (levels, wanted) => {
+  const away = (level: ModelThinkingLevel) => Math.abs(ORDER.indexOf(level) - ORDER.indexOf(wanted));
+
+  return levels.find((level) => levels.every((other) => away(level) <= away(other))) ?? "off";
+};
 
 export function validOf(nearest: Nearest, connected: ReadonlySet<string>) {
   return (choice: Choice): Choice | undefined => {

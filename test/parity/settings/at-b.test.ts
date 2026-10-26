@@ -2,10 +2,9 @@ import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { nearestLevel } from "../../../src/settings/contract";
 import { Settings } from "../../../src/settings/wiring";
 import { storageOf } from "../skills/storage";
-import { readsOf, validOf } from "./reads";
+import { nearestAtB, readsOf, validOf } from "./reads";
 
 const AtB = Schema.Struct({
   schema: Schema.Array(Schema.String),
@@ -42,7 +41,7 @@ describe("purpose rows written at B", () => {
     for (const row of rows) db.prepare("INSERT INTO ky_purposes (purpose, value) VALUES (?, ?)").run(row.purpose, row.value);
 
     let connected: ReadonlySet<string> = new Set();
-    const settings = new Settings(storageOf(db), (choice) => validOf(nearestLevel, connected)(choice));
+    const settings = new Settings(storageOf(db), (choice) => validOf(nearestAtB, connected)(choice));
 
     expect(
       readsOf((now, purpose) => {

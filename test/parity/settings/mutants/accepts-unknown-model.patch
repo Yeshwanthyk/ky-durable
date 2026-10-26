@@ -1,5 +1,5 @@
 diff --git a/src/settings/settings.ts b/src/settings/settings.ts
-index 1f64c2e..a438234 100644
+index 0f594a4..9986a90 100644
 --- a/src/settings/settings.ts
 +++ b/src/settings/settings.ts
 @@ -36,7 +36,7 @@ export class Purposes extends Context.Service<
@@ -10,4 +10,4 @@ index 1f64c2e..a438234 100644
 +            const valid = validOf(choice) ?? choice;
  
              if (!valid) return yield* new NotAvailable({ provider: choice.provider, modelId: choice.modelId });
-             const kept = yield* Effect.orDie(Schema.decodeUnknownEffect(Choice)(valid));
+             const value = yield* Effect.orDie(Schema.encodeEffect(Stored)(valid));

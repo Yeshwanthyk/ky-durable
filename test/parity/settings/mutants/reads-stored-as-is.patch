@@ -1,0 +1,13 @@
+diff --git a/src/settings/settings.ts b/src/settings/settings.ts
+index 0f594a4..0fda22f 100644
+--- a/src/settings/settings.ts
++++ b/src/settings/settings.ts
+@@ -33,7 +33,7 @@ export class Purposes extends Context.Service<
+         return Purposes.of({
+           get: (purpose) =>
+             Effect.map(Effect.orDie(sql.exec(`SELECT value FROM ${TABLE} WHERE purpose = ?`, purpose)), ([row]) =>
+-              Option.getOrUndefined(Option.flatMapNullishOr(Schema.decodeUnknownOption(PurposeRow)(row), (stored) => validOf(stored.value)))
++              Option.getOrUndefined(Option.flatMapNullishOr(Schema.decodeUnknownOption(PurposeRow)(row), (stored) => stored.value))
+             ),
+           set: Effect.fnUntraced(function* (purpose, choice) {
+             const valid = validOf(choice);
