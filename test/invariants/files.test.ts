@@ -241,10 +241,18 @@ const aFrameShort: fc.Arbitrary<UserInput> = fc.array(aTaggedClip, { minLength: 
   ...Array.from({ length: Math.max(0, clips.reduce((total, clip) => total + clip.frames, 0) - 1) }, () => ({ type: "image" as const, data: "QUJD", mimeType: "image/png" }))
 ]);
 
+const aFrameHeavy: fc.Arbitrary<UserInput> = fc
+  .record({ clips: fc.array(aTaggedClip, { minLength: 1, maxLength: 4 }), chars: fc.constantFrom(100_000, 150_000, 150_004) })
+  .map(({ clips, chars }) => [
+    { type: "text" as const, text: clips.map(mediaTag).join("") },
+    ...Array.from({ length: clips.reduce((total, clip) => total + clip.frames, 0) }, () => ({ type: "image" as const, data: "QUJD".repeat(chars / 4), mimeType: "image/png" }))
+  ]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
   aMessage,
   aFrameShort,
+  aFrameHeavy,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
@@ -718,8 +726,8 @@ describe("a clip upload", () => {
     await fc.assert(
       fc.asyncProperty(
         fc.constantFrom<"PUT" | "POST">("PUT", "PUT", "POST"),
-        fc.oneof(fc.constantFrom(...audio, ...video), fc.constantFrom("AUDIO/FLAC; x=1", " video/mp4 ", "image/png", "audio/aiff", ""), fc.string()),
-        fc.oneof(fc.constantFrom(0, 1, 1.5, MAX_MEDIA, MAX_MEDIA + 1), fc.integer({ min: -1, max: 100 * MB })),
+        fc.oneof({ arbitrary: fc.constantFrom(...audio, ...video), weight: 3 }, fc.constantFrom("AUDIO/FLAC; x=1", " video/mp4 ", "image/png", "audio/aiff", ""), fc.string()),
+        fc.oneof({ arbitrary: fc.constantFrom(0, 1, 1, 1, 1.5, 2, MAX_MEDIA, MAX_MEDIA + 1), weight: 3 }, fc.integer({ min: -1, max: 100 * MB })),
         fc.boolean(),
         async (method, type, size, withBody) => {
           const { bucket, log } = bucketOf();
