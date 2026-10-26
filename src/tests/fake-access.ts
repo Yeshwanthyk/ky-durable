@@ -10,7 +10,7 @@
  * Worker. `rotate` brings in a new key ahead of it, as Access rotates its keys; a fresh `stranger`
  * has a key the team never published. It uses only WebCrypto, so it runs in Node and in workerd.
  */
-import { ASSERTION, bypassed } from "../access.ts";
+import { ASSERTION, bypassed } from "../access/contract.ts";
 
 /** The team, app and owner of src/tests/wrangler.jsonc's ACCESS_* vars. */
 const TEAM = "ky-test.cloudflareaccess.com";

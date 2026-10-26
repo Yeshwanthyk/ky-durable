@@ -14,7 +14,7 @@ import {
   type RunnerCommand,
   type RunnerReport
 } from "../machines/contract";
-import { ASSERTION } from "../access";
+import { ASSERTION } from "../access/contract";
 import { FakeAccess } from "./fake-access";
 import { decodeServerFrame } from "./frames";
 import { readMail } from "../mail";

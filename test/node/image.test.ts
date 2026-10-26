@@ -16,7 +16,7 @@ describe("container/image.inputs", () => {
     // The runner and what it imports; none of the commands the cloud machine never runs.
     expect(graph).toEqual(expect.arrayContaining(["cli/binary.ts", "cli/runner/cloud.ts", "cli/runner/forward.ts", "cli/runner/share.ts", "src/machines/runner-protocol.ts"]));
 
-    for (const never of ["cli/init.ts", "cli/backup.ts", "cli/deploy/deployer.ts", "cli/commands.ts", "cli/cloudflare.ts", "cli/image.ts", "src/access.ts"]) expect(graph).not.toContain(never);
+    for (const never of ["cli/init.ts", "cli/backup.ts", "cli/deploy/deployer.ts", "cli/commands.ts", "cli/cloudflare.ts", "cli/image.ts", "src/access/contract.ts"]) expect(graph).not.toContain(never);
   }, 30_000);
 
   it("is caught when the code and the list drift apart", () => {

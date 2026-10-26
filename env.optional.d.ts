@@ -2,7 +2,7 @@
  * What a deploy may leave out: the owner overlay's vars and bindings (wrangler.local.jsonc), the
  * optional secrets (.dev.vars.example), and Access's vars. `pnpm types` sees none of them, so they are
  * typed here, each one possibly missing. boundaryFor (src/server.ts) builds what they connect only when
- * they're set; without Access's vars, src/access.ts refuses every request.
+ * they're set; without Access's vars, src/access/ refuses every request.
  */
 interface Env {
   /** The Workers VPC service to VibeProxy on a computer of the user's. */
@@ -10,7 +10,7 @@ interface Env {
   /** VibeProxy's listen address on that computer, which the tunnel forwards to. */
   readonly VIBEPROXY_ORIGIN?: string;
   readonly VIBEPROXY_KEY?: string;
-  /** Cloudflare Access (src/access.ts): the team's domain, `<team>.cloudflareaccess.com`. `ky deploy` sets all three. */
+  /** Cloudflare Access (src/access/): the team's domain, `<team>.cloudflareaccess.com`. `ky deploy` sets all three. */
   readonly ACCESS_TEAM_DOMAIN?: string;
   /** The audience tag of ky's Access app. */
   readonly ACCESS_AUD?: string;

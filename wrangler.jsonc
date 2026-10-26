@@ -21,7 +21,7 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Every request goes through the Worker, which checks Access's sign-in (src/access.ts).
+    // Every request goes through the Worker, which checks Access's sign-in (src/access/).
     "run_worker_first": true
   },
   // Pairing is open to anyone: at most 10 attempts a minute from one address (src/runners.ts).

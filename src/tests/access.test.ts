@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { Access, ASSERTION, BYPASS, bypassed } from "../access";
+import { ASSERTION, BYPASS, bypassed } from "../access/contract";
+import { Access } from "../access/wiring";
+import { clockAt } from "../../test/parity/access/clock";
 import { worker } from "../server";
 import { call } from "./drive";
 import { AUD, FakeAccess, OWNER } from "./fake-access";
@@ -75,13 +77,12 @@ describe("Access", () => {
 
   it("keeps the team's keys, and fetches them again for a key it lacks at most once a minute", async () => {
     const team = new FakeAccess();
-    const access = new Access(team.certs);
-    const ky = worker(access);
+    let at = Date.now();
+    const ky = worker(new Access(team.certs, clockAt(() => at)));
     const status = async (jwt: string) => (await ky.fetch(new Request(`https://ky.test${FILE}`, { headers: { [ASSERTION]: jwt } }), env)).status;
 
     const later = (ms: number) => {
-      const was = access.now();
-      access.now = () => was + ms;
+      at += ms;
     };
 
     expect(await status(await team.sign())).toBe(404);
