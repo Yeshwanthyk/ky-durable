@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..6ad6088 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -177,7 +177,7 @@ export class Ledger extends Context.Service<
+ 
+         return Ledger.of({
+           skillWrite: Effect.fn("Ledger.skillWrite")(function* ({ name, action, actor, conversation, run, before, absorbed_into, reason }) {
+-            const at = yield* Clock.currentTimeMillis;
++            const at = Date.now();
+             const owner = run ?? (conversation === null ? `${actor}-${at}` : yield* Effect.sync(() => reviews.run(conversation)));
+ 
+             return yield* record({ run: owner, actor, kind: "skill", action, target: name, before, reason, absorbed_into }, at);

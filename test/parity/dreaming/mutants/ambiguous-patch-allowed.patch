@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..b7191e4 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -88,7 +88,6 @@ const patched = (label: string, was: string, old: string, replacement: string):
+ 
+   if (old === "" || count === 0) return Effect.fail(new NotFound({ label }));
+ 
+-  if (count > 1) return Effect.fail(new Ambiguous({ label, count }));
+ 
+   return Effect.succeed(was.replace(old, () => replacement));
+ };

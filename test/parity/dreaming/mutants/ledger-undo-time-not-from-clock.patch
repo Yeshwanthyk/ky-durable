@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..e0539d6 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -199,7 +199,7 @@ export class Ledger extends Context.Service<
+ 
+             if (row.undone_at !== null) return yield* new AlreadyUndone({ actor: row.actor, action: row.action, target: row.target });
+             const done = row.kind === "memory" ? yield* Effect.try({ try: () => memory.renote(String(row.before)), catch: refusedBy }) : yield* undoSkill(row);
+-            yield* exec("UPDATE ky_dream_ledger SET undone_at = ? WHERE id = ?", yield* Clock.currentTimeMillis, id);
++            yield* exec("UPDATE ky_dream_ledger SET undone_at = ? WHERE id = ?", Date.now(), id);
+ 
+             return done;
+           })

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..5f1d2f1 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -162,7 +162,7 @@ export class Ledger extends Context.Service<
+           const skill = yield* Effect.sync(() => skills.get(target));
+           const [newest] = yield* Effect.sync(() => skills.history(target));
+ 
+-          if (after !== null && newest !== undefined && newest.id !== after) {
++          if (after !== null && newest !== undefined && false) {
+             return yield* new ChangedSince({ target, action, version: newest.id, by: { action: newest.action, actor: newest.actor } });
+           }
+ 

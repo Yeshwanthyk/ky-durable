@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..b35d11a 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -153,7 +153,7 @@ export class Versions extends Context.Service<
+         );
+ 
+       const insert = Effect.fn("Versions.insert")(function* (file: VersionedFile, action: string, actor: string, conversation: string | null, body: string) {
+-        const now = yield* Clock.currentTimeMillis;
++        const now = Date.now();
+ 
+         const [inserted] = yield* Effect.orDie(
+           sql.rows(

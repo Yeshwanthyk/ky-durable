@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..7227f84 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -195,7 +195,7 @@ export class Ledger extends Context.Service<
+           undo: Effect.fn("Ledger.undo")(function* (id) {
+             const [row] = yield* rows("SELECT * FROM ky_dream_ledger WHERE id = ?", id);
+ 
+-            if (!row) return yield* new NoChange({ id });
++            if (!row) return "";
+ 
+             if (row.undone_at !== null) return yield* new AlreadyUndone({ actor: row.actor, action: row.action, target: row.target });
+             const done = row.kind === "memory" ? yield* Effect.try({ try: () => memory.renote(String(row.before)), catch: refusedBy }) : yield* undoSkill(row);
