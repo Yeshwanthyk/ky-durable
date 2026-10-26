@@ -35,6 +35,8 @@ against B, never against the PR before it.
 | W2-K | Kit: a mutant run no longer overwrites `proof.json`; `fc.commands` size large (U3's note) | chief of staff | `effect/foundation` | done (77132f0) | `prove.sh deploy --runs 500 --seed 20261025`: 69 held; 500 runs; 6/6 mutants, evidence kept |
 | W3-A | Dreaming core: Versioned, Soul, ledger, skills couplings | `mcp:8d5dbe6d-d482-4a42-a67f-dc4b57d1211e` | `effect/w3-dreaming-core` (from `effect/next-wave`) | dispatched | — |
 | W3-B | Approvals, then inbound | `mcp:36b5de4e-3a55-417a-b796-2ecaad528290` | `effect/w3-approvals-inbound` (from `effect/next-wave`) | dispatched | — |
+| W3-C | Machines | `mcp:0bc81c72-2230-4afa-95a3-159a58a4b3ad` | `effect/w3-machines` (from `effect/next-wave`) | dispatched | — |
+| W3-D | Cleanup of deploy, automations, skills (comments, dead code, tests through the ledger) | `mcp:4ea9e764-7b4b-470f-9413-1ee26dee7332` | `effect/cleanup-shipped` (from `effect/next-wave`) | dispatched | — |
 
 ## Resumed (2026-10-25)
 
@@ -81,6 +83,8 @@ Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branc
 ## Decisions
 
 - Owner, 2026-10-26: the move is also a cleanup. Ported code carries no comments; dead legacy code goes with the port; Effect patterns come from `vendor/effect`; tests census marks MOCK, SCAN, SLEEP, COPY or UNIT, or that an invariant or the parity runs already prove, are deleted through the prune ledger. Writers may change server.ts only by a separate constructor-only commit the COS takes or drops.
+
+- **Owner, 2026-10-26:** more in parallel: machines (W3-C) and the cleanup of the shipped domains (W3-D) join Wave 3; a read-only Fable 5.1 pass groups the flat `src/*.ts` files into domains and waves; each domain merges into `effect/next-wave` as soon as it passes, not at the end of its wave. Models: Haiku 5.5 for small things, Fable 5.1 for the most important work and gaps (no Astra), Opus 5.5 for everything else.
 
 - **Owner, 2026-10-26:** Wave 3 is the dreaming core (Versioned, Soul, ledger, and the two couplings in skills)
   and approvals then inbound, two writers in parallel. Peers and the rest of dreaming wait for Wave 4; machines
