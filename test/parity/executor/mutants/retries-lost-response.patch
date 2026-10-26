@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..e040ad6 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -141,7 +141,7 @@ export class ExecutorClient {
+ 
+               if (signal?.aborted !== true) this.#forget(connection);
+ 
+-              return unanswered(error, answered(error, 404));
++              return unanswered(error, true);
+             }
+           })
+         ),

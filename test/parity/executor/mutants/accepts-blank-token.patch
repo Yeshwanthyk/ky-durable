@@ -1,0 +1,12 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..fdebbf0 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -207,7 +207,6 @@ export const connect = Effect.fnUntraced(function* (url: string, token: string,
+   const kept = token.trim() === "" ? Option.getOrUndefined(yield* link.saved)?.token : undefined;
+   const connection = { url: url.trim(), token: kept ?? token.trim() };
+ 
+-  if (connection.token === "") return yield* new NoToken();
+   const parsed = yield* checkUrl(connection.url);
+ 
+   yield* probe(reach ? { ...connection, fetch: reach } : connection, parsed.origin);

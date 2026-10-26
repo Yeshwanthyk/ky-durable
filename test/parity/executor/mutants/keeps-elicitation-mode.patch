@@ -1,0 +1,12 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..6aeaa79 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -59,7 +59,6 @@ function toResult(answer: Awaited<ReturnType<Client["callTool"]>>): CallResult {
+ function modelMode(url: string): URL {
+   const parsed = new URL(url);
+ 
+-  parsed.searchParams.delete("elicitation_mode");
+ 
+   return parsed;
+ }

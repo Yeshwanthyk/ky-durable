@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..8727816 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -111,7 +111,7 @@ export class ExecutorClient {
+ 
+     return Effect.runPromise(
+       this.#once(name, args, signal).pipe(
+-        Effect.retry({ times: 1, while: (unanswered) => retry && unanswered.neverRan }),
++        Effect.retry({ times: 2, while: (unanswered) => retry && unanswered.neverRan }),
+         Effect.match({
+           onSuccess: (result) => ({ result, neverRan: false }),
+           onFailure: (unanswered) => ({ result: failed(unanswered.message), neverRan: unanswered.neverRan })

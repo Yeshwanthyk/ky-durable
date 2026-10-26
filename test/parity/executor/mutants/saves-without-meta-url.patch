@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..c440b27 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -172,7 +172,7 @@ export class Link extends Context.Service<
+ 
+           return Option.getOrNull(Option.filter(Option.map(metaOf(secret?.meta), (meta) => meta.url), (url) => url !== ""));
+         }),
+-        save: (connection) => Effect.asVoid(Effect.promise(() => vault().put("executor", id, connection, { url: connection.url }))),
++        save: (connection) => Effect.asVoid(Effect.promise(() => vault().put("executor", id, connection, { url: "" }))),
+         forget: Effect.asVoid(Effect.promise(() => vault().remove("executor", id)))
+       })
+     );

@@ -1,0 +1,12 @@
+diff --git a/src/executor/contract.ts b/src/executor/contract.ts
+index e79d076..1fd8d86 100644
+--- a/src/executor/contract.ts
++++ b/src/executor/contract.ts
+@@ -112,6 +112,6 @@ export function programOutcome(text: string): ProgramOutcome {
+ function errorText({ error }: typeof Execution.Type): string {
+   return lineOf(error).pipe(
+     Option.orElse(() => Option.map(messageOf(error), (said) => said.message)),
+-    Option.match({ onSome: (said) => said.trim(), onNone: () => (error === undefined ? "the program failed" : JSON.stringify(error)) })
++    Option.match({ onSome: (said) => said, onNone: () => (error === undefined ? "the program failed" : JSON.stringify(error)) })
+   );
+ }

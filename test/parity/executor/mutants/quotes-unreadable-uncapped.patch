@@ -1,0 +1,13 @@
+diff --git a/src/executor/contract.ts b/src/executor/contract.ts
+index e79d076..b355f45 100644
+--- a/src/executor/contract.ts
++++ b/src/executor/contract.ts
+@@ -99,7 +99,7 @@ export function programOutcome(text: string): ProgramOutcome {
+   if (pausedForUser(text)) return { kind: "paused" };
+   const envelope = envelopeOf(text);
+ 
+-  if (Option.isNone(envelope)) return { kind: "failed", text: `Executor answered something ky can't read: ${text.trim().slice(0, 200)}` };
++  if (Option.isNone(envelope)) return { kind: "failed", text: `Executor answered something ky can't read: ${text.trim().slice(0, 2000)}` };
+   const { status, execution } = envelope.value;
+ 
+   if (status !== "completed") return { kind: "failed", text: `Executor said ${status}` };
