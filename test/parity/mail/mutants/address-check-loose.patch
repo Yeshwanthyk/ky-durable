@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index c9a0f21..0a45018 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -353,7 +353,7 @@ const write = Effect.fnUntraced(function* (session: string, draft: { to: string;
+   if (!(yield* Desk).boundary) return yield* new NotSetUp();
+   const to = addressOf(draft.to);
+ 
+-  if (!ADDRESS.test(to)) return yield* new NotAnAddress({ to: draft.to });
++  if (!to.includes("@")) return yield* new NotAnAddress({ to: draft.to });
+ 
+   if (draft.subject.trim() === "" || draft.body.trim() === "") return yield* new EmptyMail();
+ 

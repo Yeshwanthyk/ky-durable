@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index c9a0f21..3597575 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -207,7 +207,7 @@ export class Box extends Context.Service<
+             draft.body,
+             state,
+             draft.session,
+-            now
++            now + 1
+           );
+ 
+           if (!row) return yield* Effect.die(new Error("ky couldn't keep the mail it wrote."));

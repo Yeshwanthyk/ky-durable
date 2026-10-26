@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index c9a0f21..e6b28c1 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -229,7 +229,7 @@ export class Box extends Context.Service<
+           Effect.asVoid(exec(`INSERT INTO ${EXPECT} (session, sender, until) VALUES (?, ?, ?) ON CONFLICT (session, sender) DO UPDATE SET until = excluded.until`, session, sender, until)),
+         expecting: Effect.fnUntraced(function* (sender) {
+           const now = yield* Clock.currentTimeMillis;
+-          yield* exec(`DELETE FROM ${EXPECT} WHERE until <= ?`, now);
++          yield* exec(`DELETE FROM ${EXPECT} WHERE until <= ?`, now - 60_000);
+           const waiting = yield* rows(Expecting, `SELECT session, sender FROM ${EXPECT}`);
+ 
+           return [...new Set(waiting.filter((row) => expected(sender, row.sender)).map((row) => row.session))];

@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index c9a0f21..a1f88cf 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -199,7 +199,7 @@ export class Box extends Context.Service<
+ 
+           const [row] = yield* rows(
+             MailRow,
+-            `INSERT INTO ${MAIL} (id, direction, answers, party, subject, body, state, session, at) VALUES (?, 'out', ?, ?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
++            `INSERT INTO ${MAIL} (id, direction, answers, party, subject, body, state, session, at) VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
+             crypto.randomUUID(),
+             draft.answers,
+             draft.to,

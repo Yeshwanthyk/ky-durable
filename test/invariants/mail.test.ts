@@ -352,10 +352,10 @@ describe("writing a mail", () => {
 
   it("keeps what was written: an outbound row with its party, subject, body, the writing chat, a state and the clock's time", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.constantFrom("a@b.test", OWNER), fc.constantFrom(MAIN, SIDE), fc.integer({ min: 0, max: DAY }), async (to, session, elapsed) => {
+      fc.asyncProperty(fc.constantFrom("a@b.test", OWNER), fc.constantFrom(MAIN, SIDE), fc.integer({ min: 0, max: DAY }), fc.constantFrom("Hi there", "w".repeat(20_000)), async (to, session, elapsed, text) => {
         using ky = port();
         ky.advance(elapsed);
-        await ky.tool({ to: to.toUpperCase(), subject: "Hello", text: "Hi there" }, session);
+        await ky.tool({ to: to.toUpperCase(), subject: "Hello", text }, session);
         const [row] = ky.mail();
 
         expect(row?.id).toMatch(UUID);
@@ -367,7 +367,7 @@ describe("writing a mail", () => {
           party: to,
           party_name: "",
           subject: "Hello",
-          body: "Hi there",
+          body: text,
           state: to === OWNER ? "sent" : "held",
           session,
           note: "",

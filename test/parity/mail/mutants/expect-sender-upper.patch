@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index c9a0f21..f2c5d19 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -226,7 +226,7 @@ export class Box extends Context.Service<
+         }),
+         disallow: (address) => Effect.map(exec(`DELETE FROM ${ALLOWED} WHERE address = ? RETURNING address`, address), (found) => found.length > 0),
+         expect: (session, sender, until) =>
+-          Effect.asVoid(exec(`INSERT INTO ${EXPECT} (session, sender, until) VALUES (?, ?, ?) ON CONFLICT (session, sender) DO UPDATE SET until = excluded.until`, session, sender, until)),
++          Effect.asVoid(exec(`INSERT INTO ${EXPECT} (session, sender, until) VALUES (?, ?, ?) ON CONFLICT (session, sender) DO UPDATE SET until = excluded.until`, session, sender.toUpperCase(), until)),
+         expecting: Effect.fnUntraced(function* (sender) {
+           const now = yield* Clock.currentTimeMillis;
+           yield* exec(`DELETE FROM ${EXPECT} WHERE until <= ?`, now);
