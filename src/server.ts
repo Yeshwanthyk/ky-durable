@@ -22,7 +22,8 @@ import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed }
 import { browseExtension } from "./browse";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor";
 import type { FileRow } from "./files/contract";
-import { download, FileStore, retype, saveImage, uploadMedia } from "./files/wiring";
+import { download, saveImage } from "./files/files";
+import { FileStore, retype, uploadMedia } from "./files/wiring";
 import { History, startedByUser } from "./history";
 import { lookPost } from "./transcript";
 import type { SandboxNow } from "./cloud";

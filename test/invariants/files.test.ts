@@ -9,27 +9,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  baseType,
-  checkInput,
-  clock,
-  DIFF_TYPE,
-  FILE_TABLES,
-  imageSupport,
-  imagesOf,
-  MAX_DIFF_BYTES,
-  MAX_MEDIA_BYTES,
-  type MediaClip,
-  mediaKind,
-  mediaTag,
-  type NewFile,
-  readMedia,
-  spokenText
-} from "../../src/files/contract";
-import { Files, typeOf } from "../../src/files/files";
+import { DIFF_TYPE, FILE_TABLES, MAX_DIFF_BYTES, type NewFile } from "../../src/files/contract";
+import { download as downloadFrom, Files, typeOf, uploadedType } from "../../src/files/files";
+import { baseType, checkInput, clock, imageSupport, imagesOf, MAX_MEDIA_BYTES, type MediaClip, mediaKind, mediaTag, readMedia, spokenText } from "../../src/files/media";
 import { Sql } from "../../src/core/sql";
 import type { Purpose, SettingsView } from "../../src/settings";
-import { download as downloadFrom, FileStore, retype as retypeFrom, upload as uploadTo, uploadedType, uploadMedia as uploadMediaTo } from "../../src/files/wiring";
+import { FileStore, retype as retypeFrom, upload as uploadTo, uploadMedia as uploadMediaTo } from "../../src/files/wiring";
 import * as B from "../parity/files/legacy";
 import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
 import { storageOf, StoredRow } from "../parity/skills/storage";

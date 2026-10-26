@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clock, framesOf, readMedia } from "../files/contract";
+import { clock, framesOf, readMedia } from "../files/media";
 import { type Outgoing, outgoingImages, outgoingText } from "../outbox";
 import { Icon } from "./Icon";
 

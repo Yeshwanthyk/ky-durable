@@ -5,8 +5,6 @@ import { Sql } from "../core/sql";
 import type { FileRow, NewFile } from "./contract";
 import { Files, reply, stored, typeOf, upload as accept, uploadMedia as acceptMedia } from "./files";
 
-export { download, saveImage, uploadedType } from "./files";
-
 export class FileStore {
   readonly #edge: Edge<Files>;
   readonly #listeners = new Set<() => void>();

@@ -1,8 +1,6 @@
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 
-export * from "./media.ts";
-
 export const FILE_TABLES = Object.freeze({ files: "ky_files", typed: "ky_files_typed" } as const);
 
 export const FileRow = Schema.Struct({

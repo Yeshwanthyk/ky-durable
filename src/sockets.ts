@@ -33,7 +33,7 @@ import {
   runnerTag
 } from "./machines/contract";
 import type { RunnerPipe } from "./pipe";
-import { checkInput, imagesOf, spokenText } from "./files/contract";
+import { checkInput, imagesOf, spokenText } from "./files/media";
 import { CARD_ANSWER } from "./ui-blocks";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats";

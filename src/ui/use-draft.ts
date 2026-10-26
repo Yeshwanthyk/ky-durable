@@ -1,7 +1,7 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
 import { useEffect, useRef, useState } from "react";
-import { framesOf, imagesOf, MAX_CLIPS, MAX_IMAGES, mediaKind, mediaTag, readMedia } from "../files/contract";
+import { framesOf, imagesOf, MAX_CLIPS, MAX_IMAGES, mediaKind, mediaTag, readMedia } from "../files/media";
 import { outgoingText } from "../outbox";
 import { clipOf, type PendingClip, prepareClip, recordedClip, uploadClip } from "./pick-media";
 import { prepareImage, type PendingImage } from "./pick-images";

@@ -7,7 +7,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
 import { answeredWith, isQuestion } from "./card-answers";
 import type { CardAnswer } from "../ui-blocks";
-import type { MediaClip } from "../files/contract";
+import type { MediaClip } from "../files/media";
 import { BotAvatar } from "./BotAvatar";
 import { Changes } from "./Changes";
 import { CopyButton } from "./CopyButton";

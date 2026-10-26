@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
-import { clock, type MediaClip, PEAK_BARS } from "../files/contract";
+import { clock, type MediaClip, PEAK_BARS } from "../files/media";
 import { Icon } from "./Icon";
 
 /** A clip's loudness as bars of 0–1, from its peaks; a clip without them gets an even, quiet row. */

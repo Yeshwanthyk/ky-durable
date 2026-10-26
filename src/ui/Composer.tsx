@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { BotAvatar } from "./BotAvatar";
 import { Icon } from "./Icon";
-import { clock, mediaKind } from "../files/contract";
+import { clock, mediaKind } from "../files/media";
 import type { PendingClip } from "./pick-media";
 import { imageSrc, type PendingImage } from "./pick-images";
 import type { Recorder } from "./use-recorder";
