@@ -1,13 +1,13 @@
 diff --git a/src/skills/contract.ts b/src/skills/contract.ts
-index f9a25c8..fc4fad9 100644
+index bac6973..ccd8b17 100644
 --- a/src/skills/contract.ts
 +++ b/src/skills/contract.ts
-@@ -263,7 +263,7 @@ export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
+@@ -204,7 +204,7 @@ export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
+ 
  const decodeAnswers = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)));
  
- /** Stored answers; a column that doesn't hold an object of strings reads as none. */
 -const answersOf = (stored: string | null): Readonly<Record<string, string>> => (stored === null ? {} : Option.getOrElse(decodeAnswers(stored), () => ({})));
 +const answersOf = (stored: string | null): Readonly<Record<string, string>> => (stored === null ? {} : Option.getOrElse(decodeAnswers(stored), () => ({ answers: stored })));
  
- /** A stored skill, its pin as a boolean and its answers as an object. */
  export function skillOf({ pinned, answers, ...row }: typeof SkillStored.Type): SkillRow {
+   return { ...row, pinned: pinned !== 0, answers: answersOf(answers) };

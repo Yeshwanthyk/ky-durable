@@ -30,8 +30,6 @@ import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
 import { specialistDraft } from "../../src/ui/Soul";
 import { blockOf, HOST, storageOf } from "../parity/skills/storage";
 
-/** What the skills domain promises, whatever its code becomes: src/skills/contract.ts. */
-
 const FOLDER = path.join(import.meta.dirname, "../../src/skills");
 
 const sources = readdirSync(FOLDER)
@@ -331,14 +329,12 @@ describe("stored skills", () => {
     kind: fc.constantFrom("skill", "kit")
   });
 
-  /** What a row's answers column reads as: an object of strings as it is, anything else as none. */
   function answersIn(column: string | null): Record<string, string> {
     if (column === null) return {};
 
     try {
       const parsed: unknown = JSON.parse(column);
 
-      // JSON gives an object, an array or a primitive; only a plain object of strings is answers.
       if (!(parsed instanceof Object) || Array.isArray(parsed)) return {};
       const entries = Object.entries(parsed);
 
@@ -461,10 +457,8 @@ describe("a skill's guards", () => {
 
     type Made = typeof aSkill extends fc.Arbitrary<infer T> ? T : never;
 
-    /** What the sweep may archive at all: an active, unpinned skill ky made, at least 14 days old. */
     const sweepable = ({ status, pinned, created_by, created }: Made) => status === "active" && pinned === 0 && created_by !== "user" && created >= 14 * DAY;
 
-    /** Its last sign of life, opened or else made, or the user's change when later, is 60 days gone; a use before ky kept when is unknown. */
     const quiet = ({ opened, uses, created, version }: Made) => {
       if (opened === null && uses > 0) return false;
 
@@ -562,7 +556,6 @@ describe("stored specialists", () => {
 
   const aDraft = fc.record({ description: fc.constantFrom("Builds things.", "  Finds sources.  "), model: fc.constantFrom(MODEL, null), machine: fc.constantFrom("mac", "", null) }, { requiredKeys: [] });
 
-  /** What a field reads after a save: the draft's, as stored, or what it was when the draft leaves it out. */
   const kept = <T>(given: T | undefined, was: T, stored: (value: T) => T): T => (given === undefined ? was : stored(given));
 
   it("saves each field a draft gives, a blank machine as none, and keeps each it leaves out", () => {
@@ -591,7 +584,6 @@ describe("stored specialists", () => {
 
   type Attach = { readonly session: string; readonly id: string; readonly kind: SessionKind };
 
-  /** What a run of attaches leaves: each conversation's specialist and kind, from its last attach to one that exists, and each specialist's last home. */
   function recorded(attaches: readonly Attach[]) {
     const owner = new Map<string, { id: string; kind: SessionKind } | undefined>();
     const home = new Map<string, string>();
@@ -635,14 +627,12 @@ describe("stored specialists", () => {
 
   const aNewDraft = fc.record({ description: aDescription, brief: fc.constantFrom("Be terse.", "  ") }, { requiredKeys: [] });
 
-  /** One line under 200 characters once trimmed: the description rule. */
   const oneLine = (text: string | undefined) => {
     const line = (text ?? "").trim();
 
     return line !== "" && !line.includes("\n") && line.length <= 200;
   };
 
-  /** B's refusal for creating `id` from `draft`, in the order B checks, or none. */
   function createRefusal(id: string, { description, brief }: SpecialistDraft): string | undefined {
     if (brief === undefined) return "A new specialist needs a brief.";
 

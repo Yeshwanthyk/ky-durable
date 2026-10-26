@@ -29,25 +29,11 @@ import { endStep, startStep } from "../step-labels";
 import { RunCards } from "../ui-tool";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
-/**
- * Persistent cloud subagents, after pi-durable's example 23. One `subagent`
- * tool spawns named subagents, messages them (steer or follow-up), stops
- * them, and lists them. Each subagent is its own pi conversation in this
- * object, so it remembers earlier messages. Each message is delivered by a
- * background reporter task that posts the answer back to the main agent as
- * a steer, so it lands after the main agent's current tool round, and records it in the task feed.
- * An automation's run is the exception: its report is handed to delivery (src/automations/delivery.ts),
- * which puts it in the chat only between turns, with the cards it showed (src/ui-tool.ts) before it.
- */
-
-/** How a subagent's message ended, for its row in the task feed. */
 type Outcome = { status: "done" | "failed" | "stopped"; summary: string };
 
 type Subagent = {
   conversationId: ConversationId;
-  /** Answers already reported, so several messages ending in one answer report once. */
   reported: EntryId[];
-  /** The model a spawn or send named for it, as asked; it runs on the worker's when unset. */
   model?: ModelChoice;
 };
 
@@ -60,15 +46,10 @@ const Subagents = defineDoc<{
   scope: "conversation",
   history: "latest",
   fork: "initial",
-  // Each change is stored as a delta; no full copy is written.
   checkpointWhen: () => false,
   initial: () => ({ agents: {}, reporters: {} })
 });
 
-/**
- * Owns a subagent's conversation. A background task that finishes at once:
- * the main agent's Esc and idle waits stop at it, so subagents outlive turns.
- */
 const Anchor = defineTask<null, { phase: "done" }, null>({
   name: "ky.subagent-anchor",
   version: 1,
@@ -89,22 +70,15 @@ type ReporterInput = {
   conversationId: ConversationId;
   message: string;
   followUp: boolean;
-  /** The task feed row it updates; the reporter's own id when unset. */
   feedId?: string;
-  /** Who reports to the main agent when the user wants the result, like `automation "Daily digest"`. */
   label?: string;
-  /** The specialist answering, by id. */
   specialist?: string;
-  /** A check-in's run: it reports only what it found new, and a failure stays in Activity. */
   checkIn?: boolean;
-  /** An automation's run: its report is delivered between turns (src/automations/delivery.ts), not steered in. */
   deliver?: boolean;
-  /** A delivered answer is posted as ky's own message, as written, and starts no turn; a failure is still an event. */
   post?: boolean;
 };
 
-/** A fresh subagent conversation registered under `name`, sent `message` on `model`. */
-export type SpawnRequest = {
+type SpawnRequest = {
   name: string;
   message: string;
   model: ModelChoice;
@@ -115,50 +89,33 @@ export type SpawnRequest = {
   post?: boolean;
 };
 
-/** Spawn inside a commit on `owner`, the conversation the answer is reported to; returns the subagent's conversation. */
 export type Spawn = (tx: Tx, owner: ConversationId, request: SpawnRequest) => Promise<ConversationId>;
 
-/** The subagent tool, and the same spawn for work that starts outside a tool call. */
 type SubagentTools = { extension: Extension; spawn: Spawn };
 
-/** What `ask` and `discuss` need: the specialists, their task, what they do without, and their model. */
-export type SpecialistDeps = {
+type SpecialistDeps = {
   readonly store: Specialists;
   readonly tools: Specialist;
-  /** Extensions a specialist's conversations do not get: the main agent's persona and managers. */
   readonly remove: readonly Extension[];
-  /** A specialist's model as it can run: its own, or the worker's. */
   readonly model: (own: ModelChoice | null) => ModelChoice;
 };
 
 const handle = (id: string | undefined) => (id ?? "").trim().replace(/^@/, "");
 
-/**
- * `line` is the report in a line, for what ky surfaced; checkpoints from before it have none. `kind` post: a post run's answer, posted as written.
- * `cards`: the cards a run that answered showed, as a JSON array, posted before its report.
- */
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; line?: string; kind?: "post"; cards?: string };
 
-/** A check-in's answer when it found nothing worth saying. */
 const NOTHING_NEW = /^\s*NOTHING_NEW\b/;
 
-/** What the main agent reads of a failed run; a check-in's failure stays in Activity. */
 function failureOf(input: ReporterInput, reason: string): string | undefined {
   if (input.checkIn) return undefined;
 
   return `[${input.label ?? `subagent ${input.name}`} failed: ${reason}]`;
 }
 
-/** What a reporter's lines call it: its label, like automation "Inbox", or the subagent's name. */
 const labelOf = (input: ReporterInput) => input.label ?? `subagent ${input.name}`;
 
-/** A report in one line, as what ky surfaced keeps it. */
 const lineOf = (input: ReporterInput, said: string) => `${labelOf(input)}: ${said}`;
 
-/**
- * An answer's summary and report for Activity, and what the main agent reads; a check-in with nothing new posts nothing,
- * and a post with no text only its cards, if any.
- */
 function answeredOf(input: ReporterInput, text: string, cards: number) {
   if (input.checkIn && NOTHING_NEW.test(text)) return { summary: "Nothing new", report: "", message: undefined };
 
@@ -167,7 +124,6 @@ function answeredOf(input: ReporterInput, text: string, cards: number) {
   return { summary: summarize(text), report: text, message: reportOf(input, text, cards) };
 }
 
-/** What the main agent reads: a subagent's answer needs no reply, a labelled report is for the user; a post is as written. */
 function reportOf(input: ReporterInput, text: string, cards: number): string {
   if (input.post) return text;
 
@@ -189,18 +145,12 @@ const background = (conversationId: ConversationId) =>
 
 export function subagentExtension(
   feed: TaskFeed,
-  /** Main-agent-only extensions that subagents do not get, besides this one. */
   mainOnly: readonly Extension[],
-  /** Of those, the ones an automation's run keeps. */
   runKeeps: readonly Extension[],
-  /** The worker's model, applied to each subagent whenever it is messaged. */
   model: () => ModelChoice,
-  /** A named model as it can run, and the models to choose from when it can't. */
   models: Pick<Models, "valid" | "choices">,
-  /** Whether a task's work is still wanted; checked before it starts and before its report is posted. */
   wanted: (feedId: string) => boolean,
   specialists?: SpecialistDeps,
-  /** How an automation's report reaches the user (src/automations/delivery.ts). */
   handOver?: (item: Delivery) => Promise<void>
 ): SubagentTools {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
@@ -260,7 +210,6 @@ export function subagentExtension(
           }
 
           if (settled.type !== "input") return next();
-          // A specialist's fresh conversation is not registered: it answers once.
           const agent = (await tx.doc(Subagents, runtime.conversationId)).agents[name];
 
           if (agent?.reported.includes(settled.answer)) return next();
@@ -272,7 +221,6 @@ export function subagentExtension(
             | undefined;
 
           const text = textOf(answer);
-          // Only a run that answered posts its cards, each once: a failed or stopped one leaves no half card.
           const shown = reporter.input.deliver ? await tx.doc(RunCards, conversationId) : undefined;
           const cards = reporter.input.checkIn && NOTHING_NEW.test(text) ? [] : (shown?.cards.splice(0) ?? []);
           const read = answeredOf(reporter.input, text, cards.length);
@@ -282,7 +230,6 @@ export function subagentExtension(
 
           return next(read.message, lineOf(reporter.input, read.summary), reporter.input.post ? "post" : undefined, posted);
         }, context);
-        // Stopped while it answered: it stays stopped, as its report is not posted.
         const wantedStill = wanted(feedId);
         feed.update(feedId, wantedStill ? outcome : { status: "stopped", summary: "Stopped" });
 
@@ -294,7 +241,6 @@ export function subagentExtension(
 
         if (report !== undefined && wanted(feedId)) {
           if (reporter.input.deliver && handOver) {
-            // The same request id as a steer's below, so a report a deploy caught between the two goes in once.
             await handOver({
               id: `subagent-report:${reporter.id}`,
               session: String(runtime.conversationId),
@@ -310,7 +256,6 @@ export function subagentExtension(
               {
                 type: "input",
                 content: report,
-                // A follow-up would wait for the main agent's whole run; a steer joins after its current tool round.
                 whenBusy: "steer",
                 requestId: `subagent-report:${reporter.id}`
               },
@@ -352,7 +297,6 @@ export function subagentExtension(
       "ask (specialist, title, message): give one specialist a task or a question; its answer is reported back like a subagent's. " +
       `discuss (specialists: ${DISCUSS_MIN} to ${DISCUSS_MAX} ids, message: the topic, rounds: 1 or 2, default 2): they each answer, then reply to each other; the transcript is reported back for you to sum up.`,
     parameters: SubagentInput,
-    // A rerun after a crash could stop newer work; the model can check status.
     replay: "unsafe",
     execute: async (args, api, context) => reply(await ACTIONS[args.action](desk, args, api, context))
   });
@@ -363,10 +307,6 @@ export function subagentExtension(
     tools: [tool]
   });
 
-  /**
-   * A fresh child conversation, configured as a subagent and registered under `name`, replacing any before it. An
-   * automation's run keeps what `run` names, the ui tool, whose cards go with its report.
-   */
   async function register(tx: Tx, owner: ConversationId, name: string, run = false): Promise<ConversationId> {
     const state = await tx.doc(Subagents, owner);
     const anchor = await tx.createTask(Anchor, null, background(owner));
@@ -382,7 +322,6 @@ export function subagentExtension(
     return child.id;
   }
 
-  /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
   async function deliver(tx: Tx, owner: ConversationId, input: ReporterInput, choice: ModelChoice): Promise<TaskId> {
     await configure(tx, input.conversationId, agentModel(choice));
 
@@ -401,29 +340,21 @@ export function subagentExtension(
   return { extension, spawn };
 }
 
-/** What the subagent tool's actions work with. */
 type Desk = {
   readonly feed: TaskFeed;
   readonly specialists: SpecialistDeps | undefined;
-  /** The worker's model, applied to each subagent whenever it is messaged. */
   readonly model: () => ModelChoice;
-  /** A named model as it can run, and the models to choose from when it can't. */
   readonly models: Pick<Models, "valid" | "choices">;
-  /** A fresh child conversation, configured as a subagent and registered under `name`. */
   readonly register: (tx: Tx, owner: ConversationId, name: string) => Promise<ConversationId>;
-  /** Message a subagent on `choice`: a reporter task delivers it and reports the answer to `owner`. */
   readonly deliver: (tx: Tx, owner: ConversationId, input: ReporterInput, choice: ModelChoice) => Promise<TaskId>;
 };
 
-/** One subagent tool action; returns what the agent reads. */
 type Act = (desk: Desk, args: SubagentInput, api: ToolExecutionApi, context: Context) => Promise<string>;
 
-/** This conversation's subagents. */
 async function registryOf(api: ToolExecutionApi, context: Context) {
   return (await api.snapshot(Subagents, api.conversationId, context)) ?? { agents: {}, reporters: {} };
 }
 
-/** Each subagent, or the one named, with whether it is working and its last task. */
 async function status(feed: TaskFeed, name: string | undefined, api: ToolExecutionApi, context: Context): Promise<string> {
   const registry = await registryOf(api, context);
   const names = name === undefined ? Object.keys(registry.agents) : [name];
@@ -443,22 +374,18 @@ async function status(feed: TaskFeed, name: string | undefined, api: ToolExecuti
   return lines.length === 0 ? "No subagents." : lines.join("\n");
 }
 
-/** The text of a subagent's latest reported answer: a turn that ended with one, not one stopped or failed. */
 async function lastAnswer(api: ToolExecutionApi, agent: Subagent, context: Context): Promise<string | undefined> {
   const id = agent.reported.at(-1);
 
   if (id === undefined) return undefined;
-  // A commit that writes nothing: a tool reads an entry only through a transaction.
   const message = (await api.commit((tx) => tx.entry(id), context))?.model?.[0];
   const text = message?.role === "assistant" ? textOf(message) : "";
 
   return text === "" ? undefined : text;
 }
 
-/** The most of an answer `last` reads back. */
 const LAST_MAX = 16_000;
 
-/** `text` cut to `LAST_MAX` with a note, never through a surrogate pair. */
 function capped(text: string): string {
   if (text.length <= LAST_MAX) return text;
   const code = text.charCodeAt(LAST_MAX - 1);
@@ -489,7 +416,6 @@ const stop: Act = async (_desk, { name }, api, context) => {
   return `Stopped ${name}.`;
 };
 
-/** A task's row in Activity, named by `title` or, without one, from its message; `chat` is the chat it works for, if any. */
 function show(feed: TaskFeed, id: string, worker: string, title: string | undefined, text: string, session: ConversationId | undefined, chat: ConversationId | null): void {
   feed.create({
     id,
@@ -506,7 +432,6 @@ function show(feed: TaskFeed, id: string, worker: string, title: string | undefi
 
 type Registry = Awaited<ReturnType<typeof registryOf>>;
 
-/** Why a spawn or a send can't go, if it can't. */
 function messageRefusal(action: "spawn" | "send", name: string | undefined, text: string | undefined, registry: Registry): string | undefined {
   if (name === undefined) return `${action} needs a name.`;
 
@@ -515,13 +440,8 @@ function messageRefusal(action: "spawn" | "send", name: string | undefined, text
   return text === undefined ? `${action} needs a message.` : undefined;
 }
 
-/** What a spawn or send runs on, and the model the subagent keeps after it. */
 type Run = { choice: ModelChoice; own: ModelChoice | undefined } | { refused: string };
 
-/**
- * A model the message names, else the one the subagent keeps (the worker's once that is gone), else the worker's;
- * `thinking` changes that one's level. `worker` clears the kept model.
- */
 function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: SubagentInput): Run {
   const worker = model();
   const named = args.model?.trim();
@@ -533,7 +453,6 @@ function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: Sub
     if (args.thinking === undefined) return { choice: base, own };
     const leveled = { ...base, thinkingLevel: args.thinking };
 
-    // Clamped to the model's levels when its provider answers; as asked otherwise, so a level alone never refuses.
     return { choice: models.valid(leveled) ?? leveled, own: own && { ...own, thinkingLevel: args.thinking } };
   }
 
@@ -543,7 +462,6 @@ function runOf({ model, models }: Desk, kept: ModelChoice | undefined, args: Sub
   return choice ? { choice, own: asked } : { refused: `No connected model ${asked.provider}/${asked.modelId}. ${models.choices()}` };
 }
 
-/** Spawn a subagent, or send one a message. */
 function message(action: "spawn" | "send"): Act {
   return async (desk, args, api, context) => {
     const { feed, register, deliver } = desk;
@@ -561,13 +479,11 @@ function message(action: "spawn" | "send"): Act {
       const state = await tx.doc(Subagents, api.conversationId);
 
       if (action === "spawn" && state.agents[name]) return `${name} already exists; use send.`;
-      // Read here: a round's tool calls run in parallel, and another may have just changed the kept model.
       const run = runOf(desk, state.agents[name]?.model, args);
 
       if ("refused" in run) return run.refused;
       const queued = action === "send" && followUp === true && (args.model !== undefined || args.thinking !== undefined);
 
-      // Configuring now would switch the turn already running, not the queued one.
       if (queued && (await tx.doc(LiveDoc, must(state.agents[name], `No subagent named ${name}.`).conversationId)).run !== undefined) {
         return `${name} is busy: a followUp send can't change its model. Send it without followUp, or once it answers.`;
       }
@@ -596,7 +512,6 @@ function message(action: "spawn" | "send"): Act {
   };
 }
 
-/** A fresh conversation for `id`, set up as its own and recorded as `kind`. */
 async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss"): Promise<ConversationId> {
   const child = await tx.createConversation({ ownership: { kind: "ownerless" } });
   await setUp(tx, child.id, deps.remove, deps.model(must(deps.store.get(id), `No specialist @${id}.`).model));
@@ -605,7 +520,6 @@ async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "c
   return child.id;
 }
 
-/** Where an ask for `row` goes: its home conversation from a chat, registered here; a fresh one from another specialist. */
 async function askedIn(deps: SpecialistDeps, tx: Tx, owner: ConversationId, row: SpecialistRow, caller: string | undefined): Promise<ConversationId> {
   if (caller !== undefined) return fresh(deps, tx, row.id, "consult");
   // SAFETY: a specialist's session is the id, as text, of a conversation fresh() made.
@@ -618,11 +532,6 @@ async function askedIn(deps: SpecialistDeps, tx: Tx, owner: ConversationId, row:
   return conversationId;
 }
 
-/**
- * One task for a specialist. From a chat it goes to the specialist's home
- * conversation, queued behind any work it has; from another specialist,
- * to a fresh conversation, so a consult never steers its own work.
- */
 const ask: Act = async ({ feed, specialists: deps, deliver }, args, api, context) => {
   if (deps === undefined) return "There are no specialists.";
   const { message: text, title } = args;
@@ -644,13 +553,11 @@ const ask: Act = async ({ feed, specialists: deps, deliver }, args, api, context
     await deliver(tx, api.conversationId, { name, conversationId, message: text, followUp: true, feedId, specialist: id }, deps.model(row.model));
   }, context);
 
-  // A consult works for the specialist that asked, not for a chat.
   show(feed, feedId, caller === undefined ? name : `@${caller} → ${name}`, title, text, conversationId, caller === undefined ? api.conversationId : null);
 
   return `Asked ${name}.`;
 };
 
-/** Why a discussion among `ids` on `topic` can't start, if it can't. */
 function discussRefusal(deps: SpecialistDeps, owner: ConversationId, ids: readonly string[], topic: string | undefined): string | undefined {
   if (deps.store.bySession(String(owner))) return "Specialists cannot start a discussion.";
 
@@ -665,7 +572,6 @@ function discussRefusal(deps: SpecialistDeps, owner: ConversationId, ids: readon
   return topic === undefined || topic.trim() === "" ? "discuss needs a message: the topic." : undefined;
 }
 
-/** A discussion among specialists, each in a fresh conversation, reported back to this one. */
 const discuss: Act = async ({ feed, specialists: deps }, args, api, context) => {
   if (deps === undefined) return "There are no specialists.";
   const ids = (args.specialists ?? []).map(handle);
@@ -687,7 +593,6 @@ const discuss: Act = async ({ feed, specialists: deps }, args, api, context) => 
   return `Started a discussion with ${who}.`;
 };
 
-/** One handler per action: the record's type makes it exhaustive, so no action falls through to another. */
 export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
   spawn: message("spawn"),
   send: message("send"),
@@ -698,13 +603,6 @@ export const ACTIONS: Readonly<Record<SubagentAction, Act>> = {
   discuss
 };
 
-/**
- * Each tool a subagent uses becomes a step on its task, done with what it
- * returned once it returns, and each model
- * response adds a turn and its cost. Installed for every conversation, since
- * subagents drop the `subagents` extension; a conversation with no working
- * cloud task, such as the main chat, records nothing.
- */
 export function subagentProgressExtension(feed: TaskFeed): Extension {
   const task = (conversationId: ConversationId) => feed.working(String(conversationId))?.id;
 
