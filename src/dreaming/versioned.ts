@@ -4,19 +4,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import Type, { type Static } from "typebox";
-import type { Edge, Refusable } from "../core/edge.ts";
-import { Sql } from "../core/sql.ts";
-
-export const SoulChangeSchema = Type.Object({
-  action: Type.Union([Type.Literal("edit"), Type.Literal("patch"), Type.Literal("revert")]),
-  body: Type.Optional(Type.String()),
-  old: Type.Optional(Type.String()),
-  new: Type.Optional(Type.String()),
-  version: Type.Optional(Type.Number())
-});
-
-export type SoulChange = Static<typeof SoulChangeSchema>;
+import { type Edge, type Refusable, runOrThrow } from "../core/edge";
+import { Sql } from "../core/sql";
+import type { SoulChange } from "./contract";
 
 const SoulVersion = Schema.Struct({
   id: Schema.Int,
@@ -155,7 +145,8 @@ export class Versions extends Context.Service<
       const insert = Effect.fn("Versions.insert")(function* (file: VersionedFile, action: string, actor: string, conversation: string | null, body: string) {
         const now = yield* Clock.currentTimeMillis;
 
-        const [inserted] = yield* Effect.orDie(
+        const { version } = yield* Effect.orDie(
+          Effect.head(
           sql.rows(
             VersionRow,
             `INSERT INTO ky_soul_versions (key, version, action, actor, conversation, body, created_at)
@@ -167,10 +158,10 @@ export class Versions extends Context.Service<
             conversation,
             body,
             now
-          )
+          ))
         );
 
-        return inserted?.version ?? 0;
+        return version;
       });
 
       const latest = Effect.fn("Versions.latest")(function* (file: VersionedFile) {
@@ -231,27 +222,17 @@ export class Versions extends Context.Service<
   );
 }
 
-const thrown = <A, E extends Refusable>(effect: Effect.Effect<A, E, Versions>) => Effect.catch(effect, ({ refusal }) => Effect.die(new Error(refusal)));
-
 export class Versioned {
   readonly #edge: Edge<Versions>;
   readonly #file: VersionedFile;
-  readonly #listeners: Set<() => void>;
 
-  constructor(edge: Edge<Versions>, key: string, label: string, { template, listeners = new Set() }: { readonly template?: string; readonly listeners?: Set<() => void> } = {}) {
+  constructor(edge: Edge<Versions>, key: string, label: string, { template, listeners = new Set() }: { readonly template?: string; readonly listeners?: ReadonlySet<() => void> } = {}) {
     this.#edge = edge;
-    this.#listeners = listeners;
     this.#file = { key, label, template, listeners };
   }
 
-  onChange(listener: () => void): () => void {
-    this.#listeners.add(listener);
-
-    return () => this.#listeners.delete(listener);
-  }
-
   current(): SoulVersion {
-    return this.#edge.run(thrown(Versions.use((versions) => versions.current(this.#file))));
+    return runOrThrow(this.#edge, Versions.use((versions) => versions.current(this.#file)));
   }
 
   view(): SoulView {
@@ -265,7 +246,7 @@ export class Versioned {
   }
 
   apply(change: SoulChange, actor: string, conversation: string | null = null): string {
-    return this.#edge.run(thrown(Versions.use((versions) => versions.apply(this.#file, change, actor, conversation))));
+    return runOrThrow(this.#edge, Versions.use((versions) => versions.apply(this.#file, change, actor, conversation)));
   }
 }
 

@@ -216,7 +216,17 @@ export type ProactivityView = Static<typeof ProactivityViewSchema>;
 
 // SOUL.md.
 
-export { type SoulChange, SoulChangeSchema, type SoulVersion, type SoulView, type VersionRefusal, Versioned, versionLine, Versions } from "./versioned.ts";
+export const SoulChangeSchema = Type.Object({
+  action: Type.Union([Type.Literal("edit"), Type.Literal("patch"), Type.Literal("revert")]),
+  body: Type.Optional(Type.String()),
+  old: Type.Optional(Type.String()),
+  new: Type.Optional(Type.String()),
+  version: Type.Optional(Type.Number())
+});
+
+export type SoulChange = Static<typeof SoulChangeSchema>;
+
+export type { SoulVersion, SoulView, VersionRefusal } from "./versioned";
 
 // Dreaming.
 

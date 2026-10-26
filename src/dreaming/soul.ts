@@ -22,10 +22,20 @@ If you change this file, tell the user. It's your soul, and they should know.
 `;
 
 export class Soul extends Versioned {
+  readonly #listeners: Set<() => void>;
+
   constructor(storage: DurableObjectStorage) {
     const edge = makeEdge(Versions.layer.pipe(Layer.provide(Sql.layer(storage))));
+    const listeners = new Set<() => void>();
     edge.run(Effect.void);
-    super(edge, "soul", "SOUL.md", { template: TEMPLATE });
+    super(edge, "soul", "SOUL.md", { template: TEMPLATE, listeners });
+    this.#listeners = listeners;
+  }
+
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+
+    return () => this.#listeners.delete(listener);
   }
 }
 

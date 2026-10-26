@@ -19,13 +19,13 @@
  *   runtime refuses; edges live in a Durable Object or a single request.
  */
 import * as Cause from "effect/Cause";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import type * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as EffectResult from "effect/Result";
-import { type Refusal, type Result, refused } from "./refusal";
+import { isRefusal, type Refusal, type Result, refused } from "./refusal";
 
 /** A domain failure the user is told about: a tagged error that says why ky won't, in their words. */
 export interface Refusable {
@@ -82,4 +82,13 @@ export function makeEdge<R>(layer: Layer.Layer<R>): Edge<R> {
   }
 
   return { run, runPromise, dispose: () => runtime.dispose() };
+}
+
+/** What `effect` answers, or B's throw: an Error whose message is the refusal. A defect throws as it was thrown. */
+export function runOrThrow<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, E, S>): A {
+  const result = edge.run(Effect.map(effect, (value) => ({ value })));
+
+  if (isRefusal(result)) throw new Error(result.refused);
+
+  return result.value;
 }

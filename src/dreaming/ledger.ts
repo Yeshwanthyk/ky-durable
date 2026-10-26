@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { type Edge, makeEdge, type Refusable } from "../core/edge";
+import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import { isMachine, type SkillWrite } from "../skills/contract";
 import type { Reviews, Skills } from "../skills/wiring";
@@ -127,7 +127,7 @@ export class Ledger extends Context.Service<
           undone_at INTEGER
         )`);
 
-        const have = new Set((yield* exec("PRAGMA table_info(ky_dream_ledger)")).flatMap((row) => Option.toArray(Schema.decodeUnknownOption(ColumnRow)(row)).map((column) => column.name)));
+        const have = new Set((yield* Effect.orDie(sql.rows(ColumnRow, "PRAGMA table_info(ky_dream_ledger)"))).map((column) => column.name));
 
         for (const [name, type] of [["actor", "TEXT"], ["after", "INTEGER"]] as const) {
           if (!have.has(name)) yield* exec(`ALTER TABLE ky_dream_ledger ADD COLUMN ${name} ${type}`);
@@ -208,8 +208,6 @@ export class Ledger extends Context.Service<
     );
 }
 
-const thrown = <A, E extends Refusable>(effect: Effect.Effect<A, E, Ledger>) => Effect.catch(effect, ({ refusal }) => Effect.die(new Error(refusal)));
-
 export class DreamLedger {
   readonly #edge: Edge<Ledger>;
 
@@ -217,11 +215,11 @@ export class DreamLedger {
     this.#edge = makeEdge(Ledger.layer(deps).pipe(Layer.provide(Sql.layer(storage))));
     this.#edge.run(Effect.void);
     deps.skills.onWrite((write) => (isMachine(write.actor) ? this.#skillWrite(write) : undefined));
-    deps.memory.onForget((forget) => this.#edge.run(thrown(Ledger.use((ledger) => ledger.forget(forget)))));
+    deps.memory.onForget((forget) => runOrThrow(this.#edge, Ledger.use((ledger) => ledger.forget(forget))));
   }
 
   #skillWrite(write: SkillWrite): (version: number) => void {
-    const id = this.#edge.run(thrown(Ledger.use((ledger) => ledger.skillWrite(write))));
+    const id = runOrThrow(this.#edge, Ledger.use((ledger) => ledger.skillWrite(write)));
 
     return (version) => this.#edge.run(Ledger.use((ledger) => ledger.landed(id, version)));
   }
@@ -231,6 +229,6 @@ export class DreamLedger {
   }
 
   undo(id: number): string {
-    return this.#edge.run(thrown(Ledger.use((ledger) => ledger.undo(id))));
+    return runOrThrow(this.#edge, Ledger.use((ledger) => ledger.undo(id)));
   }
 }

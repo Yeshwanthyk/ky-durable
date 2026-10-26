@@ -19,13 +19,12 @@ import {
   memoryRow,
   NO_MARK,
   type SoulChange,
-  summaryOf,
-  type Versioned,
-  Versions
+  summaryOf
 } from "../../src/dreaming/contract";
 import { DreamLedger, Ledger } from "../../src/dreaming/ledger";
 import { type Compressor, Memory } from "../../src/dreaming/memory";
 import { Soul, TEMPLATE } from "../../src/dreaming/soul";
+import { type Versioned, Versions } from "../../src/dreaming/versioned";
 import type { SkillChange } from "../../src/skills/contract";
 import { Reviews, Skills, Specialists } from "../../src/skills/wiring";
 import { LegacyDreamLedger } from "../parity/dreaming/legacy/ledger";
@@ -109,6 +108,8 @@ describe("the allowlists", () => {
 const CAP = 20_000;
 
 const START = Date.UTC(2026, 0, 1);
+
+const HOUR = 60 * 60 * 1000;
 
 type File = { readonly key: string; readonly label: string; readonly template?: string };
 
@@ -278,6 +279,23 @@ describe("SOUL.md and the specialists' briefs", () => {
     expect(seen).toBeGreaterThan(0);
   });
 
+  it("SOUL.md tells its listeners once for each version it saves, and a brief tells the specialists'", () => {
+    fc.assert(
+      fc.property(fc.array(aChange, { minLength: 1, maxLength: 8 }), fc.array(aChange, { maxLength: 8 }), (souls, briefs) => {
+        const db = new DatabaseSync(":memory:");
+        const soul = new Soul(storageOf(db));
+        const specialists = new Specialists(storageOf(db));
+        const heard = { soul: 0, brief: 0 };
+        soul.onChange(() => heard.soul++);
+        specialists.onChange(() => heard.brief++);
+        const saved = (file: Versioned, changes: SoulChange[]) => changes.filter((change) => answerOf(() => file.apply(change, "user")).startsWith("Saved")).length;
+        expect({ soul: saved(soul, souls), brief: saved(specialists.brief("eng"), briefs) }).toEqual(heard);
+        db.close();
+      }),
+      { numRuns: 60, seed: 7 }
+    );
+  });
+
   it("a damaged version row is skipped, and the last whole one is current", () => {
     fc.assert(
       fc.property(fc.array(fc.constantFrom("tea", "mint", "green tea"), { minLength: 1, maxLength: 4 }), fc.constantFrom<Record<string, SQLInputValue>>({ created_at: "soon" }, { version: "v" }, { version: 2.5 }), (bodies, damage) => {
@@ -321,6 +339,14 @@ const summarize = ({ db }: World, block: string, text: string) => {
   const [lo, hi] = block.split("-").map(Number);
   db.prepare("INSERT OR REPLACE INTO memo_tree (lo, hi, text) VALUES (?, ?, ?)").run(lo ?? 0, (hi ?? 0) + 1, text);
 };
+
+function answerOf(work: () => string): string {
+  try {
+    return work();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
 
 const refusal = (work: () => void): string => {
   try {
@@ -485,6 +511,46 @@ describe("the dream's ledger", () => {
 
   const atRows = (here: World) => rowsOf(here.db, "SELECT run, at, undone_at FROM ky_dream_ledger ORDER BY id");
 
+  it("last night is the dream's changes in the twelve hours up to its latest, oldest first", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.record({ gap: fc.oneof(fc.integer({ min: 0, max: 13 * HOUR }), fc.constantFrom(12 * HOUR - 1, 12 * HOUR, 12 * HOUR + 1)), conversation: fc.constantFrom("c1", "c2", "c3") }), { minLength: 1, maxLength: 8 }),
+        async (steps) => {
+          const here = world();
+          let at = START;
+
+          const made = steps.map(({ gap, conversation }, index) => {
+            at += gap;
+
+            return { id: index + 1, at, dream: conversation !== "c2", conversation, block: `${index}-${index}` };
+          });
+
+          const night = await Effect.runPromise(
+            Effect.provide(
+              Effect.gen(function* () {
+                const ledger = yield* Ledger;
+
+                for (const { at: when, conversation, block } of made) {
+                  yield* TestClock.setTime(when);
+                  yield* ledger.forget({ block, text: "a summary", conversation });
+                }
+
+                return yield* ledger.lastNight;
+              }),
+              ledgerOver(here)
+            )
+          );
+
+          const dreams = made.filter((each) => each.dream);
+          const latest = Math.max(...dreams.map((each) => each.at));
+          expect(night.map((row) => row.id)).toEqual(dreams.filter((each) => each.at > latest - 12 * HOUR).map((each) => each.id));
+          here.db.close();
+        }
+      ),
+      { numRuns: 60, seed: 7 }
+    );
+  });
+
   it("a skill change is stamped with the Clock's time, and one with no run is named for it", async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 1, max: 1_000_000 }), async (at) => {
@@ -600,10 +666,10 @@ function answer(work: () => Json | undefined | void): Json {
 
 const TABLES = ["ky_soul_versions", "ky_dream_ledger", "ky_skills", "ky_skill_versions", "memo_log", "memo_tree"];
 
-function instance<F extends Versionish>(here: World, soul: F, brief: F, ledger: Ledgerish, read: (file: F, how: How) => Json): Instance<Action> {
+function instance<F extends Versionish>(here: World, soul: F & { onChange(listener: () => void): void }, brief: F, ledger: Ledgerish, read: (file: F, how: How) => Json, briefHeard: (listener: () => void) => void): Instance<Action> {
   const heard = { soul: 0, brief: 0 };
   soul.onChange(() => heard.soul++);
-  brief.onChange(() => heard.brief++);
+  briefHeard(() => heard.brief++);
 
   return {
     apply: async (action) => {
@@ -641,14 +707,14 @@ const dreamingParity: Parity<Action> = {
     const soul = new LegacyVersioned(sql, "soul", "SOUL.md", TEMPLATE);
     const brief = new LegacyVersioned(sql, "specialist:eng", "@eng's brief");
 
-    return instance(here, soul, brief, new LegacyDreamLedger(sql, here), (file: LegacyVersioned, how) => (how === "current" ? file.current() : file.history()));
+    return instance(here, soul, brief, new LegacyDreamLedger(sql, here), (file: LegacyVersioned, how) => (how === "current" ? file.current() : file.history()), (listener) => brief.onChange(listener));
   },
   next: async () => {
     const here = world();
     const soul = new Soul(storageOf(here.db));
-    const brief = new Specialists(storageOf(here.db)).brief("eng");
+    const specialists = new Specialists(storageOf(here.db));
 
-    return instance(here, soul, brief, new DreamLedger(storageOf(here.db), here), (file: Versioned, how) => (how === "current" ? file.current() : file.history()));
+    return instance(here, soul, specialists.brief("eng"), new DreamLedger(storageOf(here.db), here), (file: Versioned, how) => (how === "current" ? file.current() : file.history()), (listener) => specialists.onChange(listener));
   }
 };
 

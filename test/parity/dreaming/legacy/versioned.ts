@@ -12,7 +12,7 @@ const SoulVersionSchema = Type.Object({
   created_at: Type.Number()
 });
 
-export type SoulVersion = Static<typeof SoulVersionSchema>;
+type SoulVersion = Static<typeof SoulVersionSchema>;
 
 const SoulActionSchema = Type.Union([Type.Literal("edit"), Type.Literal("patch"), Type.Literal("revert")]);
 
@@ -24,7 +24,7 @@ const SoulChangeSchema = Type.Object({
   version: Type.Optional(Type.Number())
 });
 
-export type SoulChange = Static<typeof SoulChangeSchema>;
+type SoulChange = Static<typeof SoulChangeSchema>;
 
 const ColumnRow = Type.Object({ name: Type.String() });
 

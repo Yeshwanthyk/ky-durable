@@ -2,24 +2,14 @@ import type { Extension } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { Automations, Delivery, TaskFeed } from "../automations/contract";
-import { type Edge, makeEdge, type Refusable } from "../core/edge";
-import { isRefusal } from "../core/refusal";
+import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { Models } from "../models";
-import { Versioned, Versions } from "../dreaming/contract";
+import { Versioned, Versions } from "../dreaming/versioned";
 import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
-
-/** What `effect` answers, or B's throw: an Error whose message is the refusal. A defect throws as it was thrown. */
-function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, E, S>): A {
-  const result = edge.run(Effect.map(effect, (value) => ({ value })));
-
-  if (isRefusal(result)) throw new Error(result.refused);
-
-  return result.value;
-}
 
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
@@ -33,7 +23,7 @@ export class Specialists {
   }
 
   #run<A, E extends Refusable>(action: (roster: Roster["Service"]) => Effect.Effect<A, E>): A {
-    return run(this.#edge, Roster.use(action));
+    return runOrThrow(this.#edge, Roster.use(action));
   }
 
   onChange(listener: () => void): () => void {
@@ -97,7 +87,7 @@ export class Skills {
   }
 
   #run<A, E extends Refusable>(action: (library: Library["Service"]) => Effect.Effect<A, E>): A {
-    return run(this.#edge, Library.use(action));
+    return runOrThrow(this.#edge, Library.use(action));
   }
 
   /**
@@ -164,7 +154,7 @@ export class Reviews {
   }
 
   #run<A>(action: (log: ReviewLog["Service"]) => Effect.Effect<A>): A {
-    return run(this.#edge, ReviewLog.use(action));
+    return runOrThrow(this.#edge, ReviewLog.use(action));
   }
 
   kind(conversation: string) {
