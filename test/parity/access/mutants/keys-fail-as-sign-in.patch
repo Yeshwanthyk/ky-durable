@@ -1,0 +1,12 @@
+diff --git a/src/access/contract.ts b/src/access/contract.ts
+index bd8a304..e9f68a8 100644
+--- a/src/access/contract.ts
++++ b/src/access/contract.ts
+@@ -50,6 +50,6 @@ export class NotSetUp extends Schema.TaggedError<NotSetUp>()("NotSetUp", {}) imp
+ 
+ export class KeysUnavailable extends Schema.TaggedError<KeysUnavailable>()("KeysUnavailable", { cause: Schema.Defect() }) implements Refusable {
+   get refusal(): string {
+-    return TRY_AGAIN;
++    return SIGN_IN;
+   }
+ }

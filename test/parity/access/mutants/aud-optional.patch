@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..de3b25b 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -135,7 +135,7 @@ export const signedIn = (request: Request, env: AccessVars) =>
+ 
+     if (env.KY_DEV === "1") return yield* admit(env.KY_DEV_EMAIL, emails);
+ 
+-    if (!team || !aud) return yield* new NotSetUp();
++    if (!team) return yield* new NotSetUp();
+ 
+     const email = yield* emailOf(request.headers.get(ASSERTION), team, aud).pipe(
+       Effect.tapError(({ cause }) => Effect.logError("ky couldn't fetch Access's keys", cause))

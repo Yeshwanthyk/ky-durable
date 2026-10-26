@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..43845b2 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -11,7 +11,7 @@ import { type AccessVars, ASSERTION, Certs, JwtClaims, JwtHeader, KeysUnavailabl
+ 
+ export type CertsFetch = (url: string) => Promise<Response>;
+ 
+-const KEYS_TTL_MS = 60 * 60_000;
++const KEYS_TTL_MS = Number.POSITIVE_INFINITY;
+ 
+ const REFETCH_MS = 60_000;
+ 
