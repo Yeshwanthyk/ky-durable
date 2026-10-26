@@ -1,0 +1,16 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index b1b509a..4bfe082 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -169,10 +169,7 @@ function browse(launch: Launch, args: Args) {
+     Effect.try({ try: launch, catch: failed }),
+     (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),
+     (launching) =>
+-      Effect.forkDetach(Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.ignore)).pipe(
+-        Effect.flatMap((closing) => Fiber.join(closing).pipe(Effect.interruptible, Effect.timeoutOption(CLOSE_TIMEOUT_MS))),
+-        Effect.asVoid
+-      )
++      Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.interruptible, Effect.timeoutOption(CLOSE_TIMEOUT_MS), Effect.ignore)
+   );
+ }
+ 

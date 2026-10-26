@@ -1,0 +1,13 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index f8fcaa8..74167f7 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -318,7 +318,7 @@ function download(reader: ReadableStreamDefaultReader<Uint8Array>, url: string,
+       if (chunk.done) break;
+ 
+       if (size === 0 && reached(downloaded, contentType, chunk.value) === "file") {
+-        return yield* new NotAPdf({ url, aborted: contentType?.startsWith("text/html") === true });
++        return yield* new NotAPdf({ url, aborted: contentType === "text/html" });
+       }
+ 
+       size += chunk.value.length;

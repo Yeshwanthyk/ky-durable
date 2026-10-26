@@ -100,5 +100,47 @@
     "name": "sites refuses past 200 files, 10 MB or 50 sites",
     "class": "MOCK",
     "replacedBy": "test/invariants/sites.test.ts > refusals > I-S7: publishes a folder of at most 200 files, all of them"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "what a navigation reached is a PDF by its content type or its first bytes, and otherwise the page, or a file it downloaded",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says so when the browser downloaded a file that isn't a PDF",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says a page whose navigation the browser aborted was aborted, not a download",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF refuses a PDF over 15 MB",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B5: a download over 15 MB is refused, and one of 15 MB or less is read"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF stops reading a PDF when the call is stopped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B3: a stop answers at once with its reason, and the browser closes once"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF keeps long text whole past the old 20,000 characters, for guardrails to spill",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B11: text over 400,000 characters is cut there and says so, and text of 400,000 or fewer is whole"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says when the URL answers with nothing to read",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B7: a PDF fetch that fails is refused with its HTTP status, and one with no body says there is nothing to read"
   }
 ]

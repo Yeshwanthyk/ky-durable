@@ -1,0 +1,13 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index b1b509a..1f91e64 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -167,7 +167,7 @@ export function keepShots(result: Reply, save: Save) {
+ function browse(launch: Launch, args: Args) {
+   return Effect.acquireUseRelease(
+     Effect.try({ try: launch, catch: failed }),
+-    (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),
++    (launching) => Effect.tryPromise({ try: () => launching, catch: failed }).pipe(Effect.flatMap((browser) => readPage(browser, args))),
+     (launching) =>
+       Effect.forkDetach(Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.ignore)).pipe(
+         Effect.flatMap((closing) => Fiber.join(closing).pipe(Effect.interruptible, Effect.timeoutOption(CLOSE_TIMEOUT_MS))),

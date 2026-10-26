@@ -1,0 +1,13 @@
+diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+index f8fcaa8..1536f31 100644
+--- a/src/browse/browse.ts
++++ b/src/browse/browse.ts
+@@ -323,7 +323,7 @@ function download(reader: ReadableStreamDefaultReader<Uint8Array>, url: string,
+ 
+       size += chunk.value.length;
+ 
+-      if (size > MAX_PDF_BYTES) return yield* new TooLarge({ url, mb: MAX_PDF_BYTES / 1024 / 1024 });
++      if (size >= MAX_PDF_BYTES) return yield* new TooLarge({ url, mb: MAX_PDF_BYTES / 1024 / 1024 });
+       chunks.push(chunk.value);
+     }
+ 
