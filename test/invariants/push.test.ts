@@ -350,22 +350,37 @@ async function postAll(world: World, model: Model, answers: readonly (readonly A
   return count >= Math.max(world.most, 1) ? day : full;
 }
 
-function apply(world: World, model: Model, op: Exclude<Op, { op: "post" }>): void {
-  if (op.op === "advance") world.now += op.ms;
-  else if (op.op === "most") world.most = op.most;
-  else if (op.op === "origin") world.origin = op.known ? ORIGIN : null;
-  else if (op.op === "subscribe") {
-    const was = model.devices.get(op.device);
+function subscribe(world: World, model: Model, device: number, keys: number): void {
+  const was = model.devices.get(device);
 
-    if (was !== undefined && was.keys !== op.keys) reached.rekeyed++;
-    world.pushes.subscribe(subscriberOf(op.device, op.keys).device(ENDPOINTS[op.device] ?? ""));
-    world.held[op.device] = op.keys;
-    model.devices.set(op.device, { keys: op.keys, since: was?.since ?? world.now });
-    model.gone.delete(op.device);
-  } else {
-    world.pushes.unsubscribe(ENDPOINTS[op.device] ?? "");
-    model.devices.delete(op.device);
-  }
+  if (was !== undefined && was.keys !== keys) reached.rekeyed++;
+  world.pushes.subscribe(subscriberOf(device, keys).device(ENDPOINTS[device] ?? ""));
+  world.held[device] = keys;
+  model.devices.set(device, { keys, since: was?.since ?? world.now });
+  model.gone.delete(device);
+}
+
+function unsubscribe(world: World, model: Model, device: number): void {
+  world.pushes.unsubscribe(ENDPOINTS[device] ?? "");
+  model.devices.delete(device);
+}
+
+type Step = Exclude<Op, { op: "post" }>;
+
+type Steps = { readonly [K in Step["op"]]: (world: World, model: Model, op: Extract<Step, { op: K }>) => void };
+
+const STEPS: Steps = {
+  advance: (world, _model, op) => void (world.now += op.ms),
+  most: (world, _model, op) => void (world.most = op.most),
+  origin: (world, _model, op) => void (world.origin = op.known ? ORIGIN : null),
+  subscribe: (world, model, op) => subscribe(world, model, op.device, op.keys),
+  unsubscribe: (world, model, op) => unsubscribe(world, model, op.device)
+};
+
+function apply<K extends Step["op"]>(world: World, model: Model, op: Extract<Step, { op: K }>): void {
+  const step: (world: World, model: Model, op: Extract<Step, { op: K }>) => void = STEPS[op.op];
+
+  step(world, model, op);
 }
 
 function expectEnd(world: World, model: Model, ops: readonly Op[]): void {
