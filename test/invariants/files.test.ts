@@ -248,11 +248,19 @@ const aFrameHeavy: fc.Arbitrary<UserInput> = fc
     ...Array.from({ length: clips.reduce((total, clip) => total + clip.frames, 0) }, () => ({ type: "image" as const, data: "QUJD".repeat(chars / 4), mimeType: "image/png" }))
   ]);
 
+const anImageHeavy: fc.Arbitrary<UserInput> = fc
+  .record({ count: fc.integer({ min: 1, max: 4 }), chars: fc.constantFrom(350_000, 350_004, 700_000, 1_400_004) })
+  .map(({ count, chars }) => [
+    { type: "text" as const, text: "look" },
+    ...Array.from({ length: count }, () => ({ type: "image" as const, data: "QUJD".repeat(chars / 4), mimeType: "image/png" }))
+  ]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
   aMessage,
   aFrameShort,
   aFrameHeavy,
+  anImageHeavy,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
