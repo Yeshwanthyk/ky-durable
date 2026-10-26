@@ -76,7 +76,15 @@ export type Said = {
   readonly through: number;
 };
 
-type EntryRow = { id: number; conversation_id: number; kind: string | null; at: number; text: string | null };
+const EntryRow = Type.Object({
+  id: Type.Number(),
+  conversation_id: Type.Number(),
+  kind: Type.Union([Type.String(), Type.Null()]),
+  at: Type.Number(),
+  text: Type.Union([Type.String(), Type.Null()])
+});
+
+type EntryRow = Type.Static<typeof EntryRow>;
 
 /** An entry's text in SQL: a look's post, or a message's text parts, not thinking, tool calls or images; null for anything else. */
 const TEXT_OF = `CASE
@@ -112,9 +120,17 @@ type SearchOptions = { readonly around?: number; readonly caller?: string; reado
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
-type Hit = { rowid: number; conversation: string; role: string; at: number; snippet: string };
+const Hit = Type.Object({ rowid: Type.Number(), conversation: Type.String(), role: Type.String(), at: Type.Number(), snippet: Type.String() });
 
-type Line = { rowid: number; role: string; at: number; text: string };
+type Hit = Type.Static<typeof Hit>;
+
+const Line = Type.Object({ rowid: Type.Number(), role: Type.String(), at: Type.Number(), text: Type.String() });
+
+type Line = Type.Static<typeof Line>;
+
+const AskingRow = Type.Object({ rowid: Type.Union([Type.Number(), Type.Null()]) });
+
+const LastRow = Type.Object({ last: Type.Number() });
 
 const CountRow = Type.Object({ n: Type.Number() });
 
@@ -202,19 +218,14 @@ export class History {
 
   /** The user's latest message in `caller`, or -1. */
   #asking(caller: string): number {
-    return (
-      this.#sql
-        .exec<{ rowid: number | null }>(
-          "SELECT max(rowid) AS rowid FROM ky_history WHERE conversation = ? AND role = 'user'",
-          caller
-        )
-        .toArray()[0]?.rowid ?? -1
-    );
+    const row = this.#sql.exec("SELECT max(rowid) AS rowid FROM ky_history WHERE conversation = ? AND role = 'user'", caller).toArray()[0];
+
+    return decodeOr(AskingRow, row, undefined)?.rowid ?? -1;
   }
 
   #match(expression: string, skip: number, span: Pick<Span, "from" | "to">): Hit[] {
     return this.#sql
-      .exec<Hit>(
+      .exec(
         `SELECT rowid, conversation, role, at, snippet(ky_history, 0, '[', ']', ' … ', 24) AS snippet
          FROM ky_history WHERE ky_history MATCH ? AND rowid != ? AND at >= ? AND at < ? ORDER BY rank LIMIT ?`,
         expression,
@@ -223,7 +234,8 @@ export class History {
         span.to,
         MATCHES
       )
-      .toArray();
+      .toArray()
+      .flatMap((row) => decodeOr(Hit, row, undefined) ?? []);
   }
 
   /** The hits as text, as many as fit OUTPUT_CHARS; empty when there are none. */
@@ -251,23 +263,25 @@ export class History {
     if (around <= 0) return `${head} ${hit.role}: ${flat(hit.snippet)}`;
 
     const before = this.#sql
-      .exec<Line>(
+      .exec(
         "SELECT rowid, role, at, text FROM ky_history WHERE conversation = ? AND rowid < ? ORDER BY rowid DESC LIMIT ?",
         hit.conversation,
         hit.rowid,
         around
       )
       .toArray()
+      .flatMap((row) => decodeOr(Line, row, undefined) ?? [])
       .reverse();
 
     const after = this.#sql
-      .exec<Line>(
+      .exec(
         "SELECT rowid, role, at, text FROM ky_history WHERE conversation = ? AND rowid > ? ORDER BY rowid LIMIT ?",
         hit.conversation,
         hit.rowid,
         around
       )
-      .toArray();
+      .toArray()
+      .flatMap((row) => decodeOr(Line, row, undefined) ?? []);
 
     const neighbor = (line: Line) => `  #${line.rowid} ${line.role}: ${cut(flat(line.text), NEIGHBOR_CHARS)}`;
 
@@ -376,18 +390,19 @@ export class History {
 
   /** Copy the chat messages pi committed since the last search, at most `batches` batches of them. */
   #catchUp(batches = Number.POSITIVE_INFINITY): void {
-    let last = this.#sql.exec<{ last: number }>("SELECT last FROM ky_history_mark").toArray()[0]?.last ?? 0;
+    let last = decodeOr(LastRow, this.#sql.exec("SELECT last FROM ky_history_mark").toArray()[0], undefined)?.last ?? 0;
     let from = Math.max(0, last - LOOKBACK);
 
     for (let read = 0; read < batches; read++) {
       const rows = this.#entries(from);
+      const newest = rows.at(-1);
 
-      if (rows.length === 0) break;
+      if (newest === undefined) break;
       const own = this.#own(rows);
 
       for (const row of rows) this.#index(row, own);
 
-      from = rows.at(-1)!.id;
+      from = newest.id;
       last = Math.max(last, from);
     }
 
@@ -397,14 +412,15 @@ export class History {
   /** The next batch of pi's entries after `from`, as text; null text for anything but a user's or ky's message. */
   #entries(from: number): EntryRow[] {
     return this.#sql
-      .exec<EntryRow>(
+      .exec(
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
            coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at, ${TEXT_OF} AS text
          FROM pi_entries WHERE id > ? ORDER BY id LIMIT ?`,
         from,
         BATCH
       )
-      .toArray();
+      .toArray()
+      .flatMap((row) => decodeOr(EntryRow, row, undefined) ?? []);
   }
 
   /** Of these entries, the user entries the user sent; every other user entry is a notice. */
