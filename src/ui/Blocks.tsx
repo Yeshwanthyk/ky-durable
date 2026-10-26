@@ -62,8 +62,7 @@ function useForm(call: string, questions: readonly Question[], answer: Answered 
   const answerWith = (text: string, chosen: readonly Value[], button?: string) => {
     if (!live || !text) return;
     setSent(true);
-    const values = chosen.map((value) => [...value]);
-    const card: CardAnswer = button === undefined ? { call, values } : { call, values, button };
+    const card: CardAnswer = button === undefined ? { call, values: chosen } : { call, values: chosen, button };
 
     send(text, card);
   };

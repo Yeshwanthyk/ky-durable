@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { answerOf, cardOf } from "../../src/cards/contract";
 import { uiExtension } from "../../src/cards/tool";
 import { assertParity, budget } from "../parity/kit";
-import { answerOf as legacyAnswerOf, card as legacyCard } from "../parity/cards/legacy/card";
+import { decodeOr } from "../../src/core/decode";
+import { card as legacyCard } from "../parity/cards/legacy/card-answers";
+import { CardAnswerSchema } from "../parity/cards/legacy/ui-blocks";
 import { uiExtension as legacyUi } from "../parity/cards/legacy/ui-tool";
 import { type Action, type Side, type Where, world } from "../parity/cards/world";
 
@@ -19,7 +21,11 @@ type Card = Block & { blocks: Block[] };
 
 const port: Side = { ui: uiExtension, card: cardOf, answerOf };
 
-const legacy: Side = { ui: legacyUi, card: legacyCard, answerOf: legacyAnswerOf };
+const legacy: Side = {
+  ui: legacyUi,
+  card: (input) => legacyCard({ kind: "tool", id: "c", name: "ui", category: "other", summary: "", status: "done", input, output: "", images: [], durationMs: null }),
+  answerOf: (data) => decodeOr(CardAnswerSchema, data, null)
+};
 
 const word = fc.string({ unit: fc.constantFrom("a", "b", " ", "é", "😀", ":", ",", "\n"), maxLength: 12 });
 
@@ -117,26 +123,53 @@ const asking = fc.oneof(valid.choice, valid.input, valid.buttons);
 
 const block: fc.Arbitrary<Block> = fc.oneof(shown, asking, valid.page, valid.routine, tabs, columns);
 
+const many = <T>(item: fc.Arbitrary<T>, length: number) => fc.array(item, { minLength: length, maxLength: length });
+
+const cell = record({ label: word }, ["label"]);
+
 const breaks = {
   "an unknown type": fc.record({ type: fc.constantFrom("map", "poll", ""), text: word }),
   "a missing field": fc.constantFrom<Block>({ type: "text" }, { type: "choice", label: "Pick" }, { type: "image" }),
   "a source not ky's nor https": fc.record({ type: fc.constantFrom("image", "audio", "video"), src: fc.constantFrom("http://example.com/a.png", "javascript:alert(1)", "/files/x", "https://a b", "ABCDEF0123456789abcdef0123456789") }),
-  "too many options": valid.choice.chain((choice) => fc.array(record({ label: word }, ["label"]), { minLength: 13, maxLength: 14 }).map((options) => ({ ...choice, options }))),
-  "no option": valid.choice.map((choice) => ({ ...choice, options: [] })),
-  "too many buttons": valid.buttons.chain((buttons) => fc.array(record({ label: word }, ["label"]), { minLength: 5, maxLength: 6 }).map((each) => ({ ...buttons, buttons: each }))),
+  "over 30 list items": fc.tuple(valid.list, many(record({ title: word }, ["title"]), 31)).map(([list, items]) => ({ ...list, items })),
+  "over 20 facts": fc.tuple(valid.facts, many(record({ label: word, value: word }, ["label", "value"]), 21)).map(([facts, rows]) => ({ ...facts, rows })),
+  "stats with no item": valid.stats.map((stats) => ({ ...stats, items: [] })),
+  "over 6 stats": fc.tuple(valid.stats, many(record({ value: number, label: word }, ["value", "label"]), 7)).map(([stats, items]) => ({ ...stats, items })),
   "a series out of range": valid.stats.chain((stats) => fc.constantFrom(0, 7, 1.5).map((series) => ({ ...stats, items: [{ value: 1, label: "n", series }] }))),
-  "a page out of bounds": valid.page.chain((page) => fc.constantFrom(79, 2001, 80.5).map((height) => ({ ...page, height }))),
-  "a site that isn't an id": valid.page.map((page) => ({ ...page, site: "https://example.com" })),
-  "a routine id over 64": span(65, 68).map((routine) => ({ type: "routine", routine })),
-  "a question in columns": fc.tuple(shown, asking).map(([one, other]) => ({ type: "columns", columns: [[one], [other]] })),
+  "a chart with no x": valid.chart.map((chart) => ({ ...chart, x: [] })),
+  "over 60 x": fc.tuple(valid.chart, many(word, 61)).map(([chart, x]) => ({ ...chart, x })),
+  "a chart with no series": valid.chart.map((chart) => ({ ...chart, series: [] })),
+  "over 6 series": fc.tuple(valid.chart, many(record({ name: word, values: fc.constant([]) }, ["name", "values"]), 7)).map(([chart, series]) => ({ ...chart, series })),
+  "over 60 values": fc.tuple(valid.chart, many(number, 61)).map(([chart, values]) => ({ ...chart, series: [{ name: "s", values }] })),
+  "a table with no column": valid.table.map((table) => ({ ...table, columns: [] })),
+  "over 8 columns": fc.tuple(valid.table, many(word, 9)).map(([table, columns]) => ({ ...table, columns })),
+  "over 50 rows": valid.table.map((table) => ({ ...table, rows: Array.from({ length: 51 }, () => []) })),
+  "a row over 8 cells": fc.tuple(valid.table, many(word, 9)).map(([table, row]) => ({ ...table, rows: [row] })),
   "a lone tab": valid.text.map((text) => ({ type: "tabs", tabs: [{ label: "only", blocks: [text] }] })),
-  "too many x": valid.chart.chain((chart) => fc.array(word, { minLength: 61, maxLength: 62 }).map((x) => ({ ...chart, x }))),
-  "too many columns": valid.table.map((table) => ({ ...table, columns: ["1", "2", "3", "4", "5", "6", "7", "8", "9"] }))
+  "over 6 tabs": fc.tuple(many(shown, 7)).map(([each]) => ({ type: "tabs", tabs: each.map((one, index) => ({ label: `t${index}`, blocks: [one] })) })),
+  "a tab with no block": shown.map((one) => ({ type: "tabs", tabs: [{ label: "a", blocks: [] }, { label: "b", blocks: [one] }] })),
+  "a tab over 8 blocks": fc.tuple(many(shown, 9), shown).map(([each, one]) => ({ type: "tabs", tabs: [{ label: "a", blocks: each }, { label: "b", blocks: [one] }] })),
+  "a lone column": shown.map((one) => ({ type: "columns", columns: [[one]] })),
+  "over 3 columns": many(shown, 4).map((each) => ({ type: "columns", columns: each.map((one) => [one]) })),
+  "an empty column": shown.map((one) => ({ type: "columns", columns: [[], [one]] })),
+  "a column over 8 blocks": fc.tuple(many(shown, 9), shown).map(([each, one]) => ({ type: "columns", columns: [each, [one]] })),
+  "a question in columns": fc.tuple(shown, asking).map(([one, other]) => ({ type: "columns", columns: [[one], [other]] })),
+  "no option": valid.choice.map((choice) => ({ ...choice, options: [] })),
+  "over 12 options": fc.tuple(valid.choice, many(cell, 13)).map(([choice, options]) => ({ ...choice, options })),
+  "no button": valid.buttons.map((buttons) => ({ ...buttons, buttons: [] })),
+  "over 4 buttons": fc.tuple(valid.buttons, many(cell, 5)).map(([buttons, each]) => ({ ...buttons, buttons: each })),
+  "a page under 80": valid.page.chain((page) => fc.constantFrom(79, 0, -1).map((height) => ({ ...page, height }))),
+  "a page over 2000": valid.page.chain((page) => fc.constantFrom(2001, 5000).map((height) => ({ ...page, height }))),
+  "a page height not whole": valid.page.map((page) => ({ ...page, height: 80.5 })),
+  "a site that isn't an id": valid.page.map((page) => ({ ...page, site: "https://example.com" })),
+  "a routine id over 64": span(65, 68).map((routine) => ({ type: "routine", routine }))
 } satisfies Record<string, fc.Arbitrary<Block>>;
 
 const broken = fc.oneof(...Object.values(breaks));
 
-const top = record({ id: word, title: word, subtitle: word, icon: word, note: word, wait: fc.boolean() }, []);
+const top = record({ id: word, title: word, subtitle: word, icon: word, note: word, wait: fc.boolean(), seen: word }, []);
+
+const extra = (arbitrary: fc.Arbitrary<Block>) => fc.tuple(arbitrary, fc.option(word)).map(([each, seen]) => (seen === null ? each : { ...each, seen }));
 
 const card = fc.tuple(top, fc.array(block, { minLength: 1, maxLength: 12 })).map(([head, blocks]): Card => ({ ...head, blocks }));
 
@@ -165,19 +198,40 @@ const ASKS = new Set<JsonValue>(["choice", "input", "buttons"]);
 
 const asks = (blocks: readonly Block[]) => blocks.some((each) => ASKS.has(each.type ?? null));
 
-const text = (result: ToolExecutionResult) => JSON.stringify(result);
+const said = (text: string, isError = false): ToolExecutionResult => ({ output: [{ type: "text", text }], isError });
 
 const settings = () => ({ numRuns: budget().numRuns, seed: budget().seed });
 
 describe("a card the page draws", () => {
   it("shows each block that keeps every rule, as the model wrote it, and skips each that breaks one", () => {
-    const mixed = fc.array(fc.oneof(block.map((each) => ({ each, keeps: true })), broken.map((each) => ({ each, keeps: false }))), { minLength: 1, maxLength: 12 });
+    const mixed = fc.array(fc.oneof(extra(block).map((each) => ({ each, keeps: true })), broken.map((each) => ({ each, keeps: false }))), { minLength: 1, maxLength: 12 });
 
     fc.assert(
       fc.property(top, mixed, (head, blocks) => {
         const kept = blocks.filter((each) => each.keeps).map((each) => each.each);
 
         expect(cardOf(JSON.stringify({ ...head, blocks: blocks.map((each) => each.each) }))).toEqual(kept.length > 0 ? { ...head, blocks: kept } : null);
+      }),
+      settings()
+    );
+  });
+
+  it("draws nothing from arguments that are not yet a card: unread JSON, another value, a field of the wrong kind, no blocks or none that keep", () => {
+    const unread = fc.oneof(
+      fc.string(),
+      fc.tuple(card, fc.nat()).map(([each, cut]) => {
+        const whole = JSON.stringify(each);
+
+        return whole.slice(0, cut % whole.length);
+      }),
+      fc.constantFrom<JsonValue>(null, 1, "card", [], {}, { blocks: "none" }, { blocks: {} }).map((value) => JSON.stringify(value)),
+      fc.tuple(card, fc.constantFrom("id", "title", "subtitle", "icon", "note", "wait"), fc.constantFrom<JsonValue>(1, null, [], {})).map(([each, key, value]) => JSON.stringify({ ...each, [key]: value })),
+      fc.tuple(top, fc.array(broken, { maxLength: 6 })).map(([head, blocks]) => JSON.stringify({ ...head, blocks }))
+    );
+
+    fc.assert(
+      fc.property(unread, (input) => {
+        expect(cardOf(input)).toBeNull();
       }),
       settings()
     );
@@ -197,16 +251,15 @@ describe("a card's answer kept beside its message", () => {
 });
 
 describe("the ui tool in a chat", () => {
-  it("ends the turn on a card that waits only when it asks something, and refuses a wait with nothing to answer", async () => {
+  it("shows a card, ends the turn on one that waits only when it asks something, and refuses a wait with nothing to answer", async () => {
     await fc.assert(
       fc.asyncProperty(card, async (each) => {
-        const result = text(await world(port).call("main", "c", each));
+        const result = await world(port).call("main", "c", each);
+        const asked = asks(each.blocks);
 
-        if (each.wait !== true) expect(result).not.toContain("terminate");
-        else if (asks(each.blocks)) expect(result).toContain('"control":{"terminate":true}');
-        else expect(result).toContain("Not waiting: the card has nothing to answer.");
-
-        expect(result.includes('"isError":true')).toBe(each.wait === true && !asks(each.blocks));
+        if (each.wait !== true) expect(result).toEqual(said(asked ? "Shown to the user; their answer, if any, arrives as a later message." : "Shown to the user."));
+        else if (asked) expect(result).toEqual({ ...said("Shown to the user. Your turn ends here; their answer arrives as their next message."), control: { terminate: true } });
+        else expect(result).toEqual(said("Not waiting: the card has nothing to answer. Add a choice, input or buttons, or leave out wait.", true));
       }),
       settings()
     );
@@ -220,10 +273,7 @@ describe("the ui tool outside a chat", () => {
         const side = world(port);
 
         for (const [index, each] of cards.entries()) {
-          const result = text(await side.call("aside", `c${index}`, each));
-
-          expect(result).toContain("Not shown: only a chat with the user has someone to show.");
-          expect(result).toContain('"isError":true');
+          expect(await side.call("aside", `c${index}`, each)).toEqual(said("Not shown: only a chat with the user has someone to show.", true));
         }
 
         expect(side.docs().aside?.cards ?? []).toEqual([]);
@@ -242,10 +292,10 @@ describe("the ui tool outside a chat", () => {
 
         for (const [call, shown] of each) {
           if (!first.has(call)) first.set(call, shown);
-          const result = text(await side.call("run", call, shown));
+          const answers = asks(shown.blocks) ? " The user answers it in that chat, later, not to this run." : "";
+          const waits = shown.wait === true ? " wait does nothing in a run: your turn goes on; finish with your report." : "";
 
-          expect(result).toContain("Kept: the card is posted to the user before your report once this run succeeds.");
-          expect(result.includes("wait does nothing in a run")).toBe(shown.wait === true);
+          expect(await side.call("run", call, shown)).toEqual(said(`Kept: the card is posted to the user before your report once this run succeeds.${answers}${waits}`));
         }
 
         const kept = [...first].map(([call, shown]) => {

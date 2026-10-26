@@ -328,7 +328,7 @@ export function usePiSession(session: string) {
       const operationId = crypto.randomUUID();
       const message: Extract<ClientMessage, { type: "submit" }> = { type: "submit", id: operationId, operationId, input, whenBusy };
 
-      if (card !== undefined) message.card = card;
+      if (card !== undefined) message.card = { ...card, values: card.values.map((value) => [...value]) };
       unanswered.current.set(operationId, { session, message });
       // It shows before the server answers: in the thread, or queued behind the run going now.
       setState((current) => ({

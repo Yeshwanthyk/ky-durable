@@ -117,7 +117,7 @@ export function cardOf(input: string): UiCard | null {
 
 const CardAnswer = Schema.Struct({
   call: Schema.String.check(Schema.isMaxCodePoints(200)),
-  values: Schema.mutable(Many(Schema.mutable(Many(Schema.String.check(Schema.isMaxCodePoints(4000)), 0, 12)), 0, 12)),
+  values: Many(Many(Schema.String.check(Schema.isMaxCodePoints(4000)), 0, 12), 0, 12),
   button: Schema.optionalKey(Schema.String.check(Schema.isMaxCodePoints(4000)))
 });
 
