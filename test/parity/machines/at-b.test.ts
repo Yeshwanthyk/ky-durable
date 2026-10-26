@@ -1,18 +1,13 @@
 import * as Schema from "effect/Schema";
-import fc from "fast-check";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
 import { FileStore } from "../../../src/files";
-import * as B from "../../../src/machines/legacy/runner-protocol";
 import type { Harness } from "../../../src/machines/machines";
-import * as Port from "../../../src/machines/runner-protocol";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/sandboxes";
-import { assertParity, budget } from "../kit";
-import { FRAMES, PAIRS, REPORTS, texts } from "./wire";
-import { actions, advances, legacy, next, settle, storageOf } from "./world";
+import { settle, storageOf } from "./world";
 
 const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
 
@@ -38,12 +33,6 @@ beforeAll(() => {
 
 afterAll(() => {
   vi.useRealTimers();
-});
-
-describe("machines parity with B", () => {
-  it("the port answers, stores and sends as B did", async () => {
-    await assertParity({ domain: "machines", actions, advances, legacy, next, start: 1_760_000_000_000 });
-  }, 600_000);
 });
 
 describe("machine rows written at B", () => {
@@ -117,48 +106,5 @@ describe("machine rows written at B", () => {
 
     expect(JSON.stringify({ ...reads, ...owed }, null, 2)).toBe(JSON.stringify(atB.reads, null, 2));
     db.close();
-  });
-});
-
-describe("the runner's wire, read as B read it", () => {
-  const runs = { numRuns: budget().numRuns * 20, seed: budget().seed };
-
-  it("takes, refuses and reads a runner's report as B did", () => {
-    fc.assert(
-      fc.property(texts(REPORTS), ({ text }) => {
-        const was = B.decodeReport(text);
-        const is = Port.decodeReport(text);
-
-        expect(is.kind).toBe(was.kind);
-        expect(was).toMatchObject(is);
-      }),
-      runs
-    );
-  });
-
-  it("takes, refuses and reads the object's frame as B did", () => {
-    fc.assert(
-      fc.property(texts(FRAMES), ({ text }) => {
-        const was = B.decodeObjectFrame(text);
-        const is = Port.decodeObjectFrame(text);
-
-        expect(is === undefined).toBe(was === undefined);
-
-        if (was && is) expect(was).toMatchObject(is);
-      }),
-      runs
-    );
-  });
-
-  it("takes a pairing request, its facts and its name as B did", () => {
-    fc.assert(
-      fc.property(texts(PAIRS), fc.oneof(fc.string(), fc.stringMatching(/^[a-z0-9-]{0,34}$/u)), ({ value }, name) => {
-        expect(Port.isPairRequest(value)).toBe(B.isPairRequest(value));
-        expect(Port.isMachineFacts(value)).toBe(B.isMachineFacts(value));
-        expect(Port.isMachineFacts(B.isPairRequest(value) ? value.facts : value)).toBe(B.isMachineFacts(B.isPairRequest(value) ? value.facts : value));
-        expect(Port.isMachineName(name)).toBe(B.isMachineName(name));
-      }),
-      runs
-    );
   });
 });

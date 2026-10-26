@@ -120,6 +120,18 @@ describe("the runner's frames", () => {
     expect(decodeObjectFrame('{"type":"run","seq":1,"task":"m-1"}')).toBeUndefined();
     expect(decodeObjectFrame('{"type":"cf_agent_state"}')).toBeUndefined();
   });
+
+  it("takes a runner's numbers only as integers in their bounds: a seq from 1, a port from 1 to 65,535", () =>
+    fc.assert(
+      fc.property(fc.oneof(fc.integer({ min: -3, max: 70_000 }), fc.double({ noNaN: true }), fc.constantFrom(0, 1, 1.5, 65_535, 65_536)), (n) => {
+        const integer = Number.isInteger(n);
+        const hello = { type: "hello", protocol: PROTOCOL, version: "1", active: [], facts: { ...FACTS, ports: [n] } };
+
+        expect(decodeReport(JSON.stringify({ type: "ack", seq: n })).kind).toBe(integer && n >= 1 ? "report" : "malformed");
+        expect(decodeReport(JSON.stringify(hello)).kind).toBe(integer && n >= 1 && n <= 65_535 ? "report" : "malformed");
+      }),
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
+    ));
 });
 
 describe("the machine tool", () => {
@@ -160,12 +172,12 @@ type Run = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 type Harness = { readonly port: Port; readonly run: Run; readonly world: World; readonly at: (ms: number) => Promise<void> };
 
 async function portWith(test: (harness: Harness) => Promise<void>): Promise<void> {
-  const world = new World({ now: () => DATE });
+  const world = new World(DATE);
 
   const host = Layer.succeed(Host)({
     feed: world.feed,
     sockets: world.socketsOf,
-    files: world.files,
+    shared: (task) => world.files.forTask(task),
     tokens: world.tokens,
     creds: world.creds,
     sandboxes: world.sandboxes,
@@ -205,7 +217,7 @@ const refusalOf = ({ port, run }: Harness, name: string, change: MachineChange) 
   run(Effect.match(port.configure(name, change), { onFailure: (error) => error.refusal, onSuccess: () => null }));
 
 const property = <Ts extends [unknown, ...unknown[]]>(...args: [...{ [K in keyof Ts]: fc.Arbitrary<Ts[K]> }, (...values: Ts) => Promise<void>]) =>
-  fc.assert(fc.asyncProperty(...args), { numRuns: budget().numRuns, seed: budget().seed });
+  fc.assert(fc.asyncProperty(...args), { numRuns: budget().numRuns * 4, seed: budget().seed });
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ["Date"] });

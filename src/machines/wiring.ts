@@ -33,7 +33,7 @@ export class MachineHub {
     const host = Layer.succeed(Host)({
       feed,
       sockets,
-      files,
+      shared: (task) => files.forTask(task),
       tokens,
       creds,
       sandboxes,

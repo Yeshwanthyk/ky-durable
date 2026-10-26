@@ -13,7 +13,7 @@ import { summarize, type TaskFeed, type TaskRow } from "../automations/contract"
 import { CLOUD_FACTS } from "../cloud-facts";
 import { must } from "../core/must";
 import { Sql } from "../core/sql";
-import type { FileRow, FileStore } from "../files";
+import type { FileRow } from "../files";
 import type { CloudState, MachineInfo } from "../protocol";
 import type { Sandboxes } from "../sandboxes";
 import {
@@ -154,7 +154,7 @@ export class Host extends Context.Service<
   {
     readonly feed: TaskFeed;
     readonly sockets: (tag: string) => WebSocket[];
-    readonly files: FileStore;
+    readonly shared: (task: string) => readonly FileRow[];
     readonly tokens: TaskTokens;
     readonly creds: SessionCreds;
     readonly sandboxes: Sandboxes;
@@ -171,7 +171,7 @@ const make = Effect.gen(function* () {
   const sql = yield* Sql;
   const host = yield* Host;
   const feed: TaskFeed = host.feed;
-  const { files, tokens, sandboxes } = host;
+  const { tokens, sandboxes } = host;
   const now = Clock.currentTimeMillis;
   const exec = (query: string, ...bindings: SqlStorageValue[]) => sql.exec(query, ...bindings).pipe(Effect.orDie);
   const rows = <T>(row: Schema.Decoder<T>, query: string, ...bindings: SqlStorageValue[]) => sql.rows(row, query, ...bindings).pipe(Effect.orDie);
@@ -532,7 +532,7 @@ const make = Effect.gen(function* () {
       feed.update(id, { status: outcome, summary: summarize(text) || (ok ? "Done" : "Failed") });
 
       if (ok) feed.describe(id, text);
-      const report = `[machine ${task.worker}, task ${id} "${task.title}" ${ENDINGS[outcome]}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(files.forTask(id))}`;
+      const report = `[machine ${task.worker}, task ${id} "${task.title}" ${ENDINGS[outcome]}, no reply needed unless the user is waiting on it]\n${text}${sharedLine(host.shared(id))}`;
 
       for (const session of yield* listeners(id, from, turn)) {
         yield* exec("INSERT OR IGNORE INTO ky_machine_reports (task, turn, session, text) VALUES (?, ?, ?, ?)", id, turn, session, report);
