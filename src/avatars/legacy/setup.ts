@@ -1,3 +1,6 @@
+import Type from "typebox";
+import { decodeOr } from "../../core/decode";
+
 /**
  * Where self-edits happen: the GitHub repo of ky's own code and the address
  * ky answers on, both in this object's SQLite. The user sets the repo in
@@ -22,6 +25,8 @@ export type RepoSaved = { readonly refused?: string };
 
 /** Where self-edits happen and what they check after a deploy. */
 export type SelfEdit = { readonly repo: string; readonly url: string };
+
+const SetupRow = Type.Object({ value: Type.String() });
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 
@@ -124,6 +129,6 @@ export class Setup {
   }
 
   #get(key: Key): string | undefined {
-    return this.#sql.exec<{ value: string }>("SELECT value FROM ky_setup WHERE key = ?", key).toArray()[0]?.value;
+    return decodeOr(SetupRow, this.#sql.exec("SELECT value FROM ky_setup WHERE key = ?", key).toArray()[0], undefined)?.value;
   }
 }
