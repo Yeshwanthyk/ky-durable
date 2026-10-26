@@ -456,6 +456,52 @@ describe("a subscription", () => {
   });
 });
 
+describe("a push whose address can't be read", () => {
+  it("I-P2: fails on each device alone, so the day's count is given back and the next push still goes out", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.uniqueArray(aDevice, { minLength: 1, maxLength: ENDPOINTS.length }), fc.integer({ min: 1, max: 4 }), fc.integer({ min: 1, max: 3 }), async (devices, most, broken) => {
+        const db = new DatabaseSync(":memory:");
+        const tried: string[] = [];
+
+        let readable = false;
+
+        const pushes = new Pushes(storageOf(db), {
+          vault: signer,
+          zone: () => null,
+          most: () => most,
+          title: () => "ky",
+          origin: () => {
+            if (!readable) throw new TypeError("no address");
+
+            return ORIGIN;
+          }
+        });
+
+        pushes.fetch = async (endpoint) => {
+          tried.push(String(endpoint));
+
+          return new Response(null, { status: 201 });
+        };
+
+        for (const device of devices) pushes.subscribe(subscriberOf(device, 0).device(ENDPOINTS[device] ?? ""));
+
+        for (let at = 0; at < broken; at++) await pushes.notify("1", `broken ${at}`);
+
+        expect(tried).toEqual([]);
+        expect(sentOf(db).map((row) => row.sent)).toEqual([0]);
+
+        readable = true;
+        await pushes.notify("1", "readable");
+
+        expect(tried.length).toBe(devices.length);
+        expect(sentOf(db).map((row) => row.sent)).toEqual([1]);
+        db.close();
+      }),
+      { numRuns: Math.max(100, budget().numRuns), seed: budget().seed }
+    );
+  });
+});
+
 describe("a push's record", () => {
   it("opens with the device's key to the payload ky sent, for any payload one record holds", async () => {
     await fc.assert(

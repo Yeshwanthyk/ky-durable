@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import type { Fetch } from "../chatgpt";
 import { Sql } from "../core/sql";
 import { localNow } from "../dreaming/contract";
-import { BadSubscription, PUSH_TABLES, PushDevice } from "./contract";
+import { BadSubscription, PushDevice } from "./contract";
 import { encrypt, fromBase64url } from "./webpush";
 
 export type Signer = {
@@ -32,7 +32,9 @@ const GONE = new Set([403, 404, 410]);
 
 const encoder = new TextEncoder();
 
-const { devices: DEVICES, sent: SENT } = PUSH_TABLES;
+const DEVICES = "ky_push_devices";
+
+const SENT = "ky_push_sent";
 
 class Unsent extends Schema.TaggedError<Unsent>()("Unsent", { cause: Schema.Defect() }) {}
 
@@ -94,9 +96,12 @@ export class Push extends Context.Service<
           return taken.length > 0;
         });
 
-        const post = (device: PushDevice, payload: Uint8Array, origin: string) =>
+        const post = (device: PushDevice, payload: Uint8Array) =>
           Effect.tryPromise({
             try: async () => {
+              const origin = parts.origin();
+
+              if (origin === null) throw new Error("ky doesn't know its own address yet.");
               const sender = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
               const body = await encrypt(payload, device, sender, crypto.getRandomValues(new Uint8Array(16)));
               const authorization = await parts.vault().vapidAuth(new URL(device.endpoint).origin, origin);
@@ -112,10 +117,7 @@ export class Push extends Context.Service<
 
         const send = (device: PushDevice, payload: Uint8Array) =>
           Effect.gen(function* () {
-            const origin = parts.origin();
-
-            if (origin === null) return yield* new Unsent({ cause: new Error("ky doesn't know its own address yet.") });
-            const response = yield* post(device, payload, origin);
+            const response = yield* post(device, payload);
 
             if (response.ok) return true;
 

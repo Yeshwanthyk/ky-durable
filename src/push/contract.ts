@@ -1,10 +1,6 @@
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 
-export { base64url, fromBase64url, vapidToken } from "./webpush";
-
-export const PUSH_TABLES = Object.freeze({ devices: "ky_push_devices", sent: "ky_push_sent" } as const);
-
 export const PushDevice = Schema.Struct({ endpoint: Schema.String, p256dh: Schema.String, auth: Schema.String });
 
 export type PushDevice = typeof PushDevice.Type;
