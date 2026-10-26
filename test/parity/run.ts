@@ -27,7 +27,8 @@ const PROOFS = {
   skills: ["test/invariants/skills.test.ts", "test/parity/skills/at-b.test.ts"],
   dreaming: ["test/invariants/dreaming.test.ts", "test/parity/dreaming/at-b.test.ts"],
   approvals: ["test/invariants/approvals.test.ts", "test/parity/approvals/at-b.test.ts"],
-  inbound: ["test/invariants/inbound.test.ts", "test/parity/inbound/at-b.test.ts"]
+  inbound: ["test/invariants/inbound.test.ts", "test/parity/inbound/at-b.test.ts"],
+  machines: ["test/invariants/machines.test.ts", "test/parity/machines/at-b.test.ts"]
 } satisfies Record<string, string[]>;
 
 const isDomain = (name: string | undefined): name is keyof typeof PROOFS => name !== undefined && Object.hasOwn(PROOFS, name);

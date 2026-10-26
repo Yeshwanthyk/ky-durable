@@ -10,8 +10,9 @@ Baseline: B = `effect-baseline` (b658a6e). Doctor first; every run reports its s
 | Dreaming (core: Versioned, Soul, ledger) | 3 | 1; 3 partly (row decoders) | [dreaming.md](dreaming.md) |
 | Approvals | 3 | 1 | [approvals.md](approvals.md) |
 | Inbound | 3 | 1 | [inbound.md](inbound.md) |
+| Machines | 3 | 1 | [machines.md](machines.md) |
 
-Not mapped yet: peers and the rest of dreaming (Wave 4); machines (its slim plan shipped, #94 to #111).
+Not mapped yet: peers and the rest of dreaming (Wave 4).
 
 ## Conventions
 
