@@ -1,0 +1,13 @@
+diff --git a/src/inbound/routes.ts b/src/inbound/routes.ts
+index c49b72f..1b0daf0 100644
+--- a/src/inbound/routes.ts
++++ b/src/inbound/routes.ts
+@@ -42,7 +42,7 @@ async function posted(request: Request, env: Env, url: URL): Promise<Response> {
+ async function admitted(request: Request, env: Env, url: URL): Promise<Hook | Response> {
+   const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
+ 
+-  if (!(await env.HOOK_LIMIT.limit({ key: `hook:${address}` })).success) return new Response("Too many posts; wait a minute.", { status: 429 });
++  if (!(await env.HOOK_LIMIT.limit({ key: `hook:${address}` })).success && address !== "unknown") return new Response("Too many posts; wait a minute.", { status: 429 });
+ 
+   const addressee = addressed(request, url);
+ 

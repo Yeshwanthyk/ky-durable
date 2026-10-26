@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..ea9cb15 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -238,7 +238,7 @@ class Store extends Context.Service<
+             name,
+             info.origin,
+             info.scheme,
+-            info.header,
++            null,
+             info.purpose,
+             now
+           );

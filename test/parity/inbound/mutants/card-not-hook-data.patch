@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..942af67 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -66,7 +66,7 @@ const DECIDED_REQUEST = "hook-approval:";
+ 
+ const CARD_REQUEST = "hook-card:";
+ 
+-const isHookData = (request: string | undefined) => [HOOK_REQUEST, DECIDED_REQUEST, CARD_REQUEST].some((prefix) => request?.startsWith(prefix) === true);
++const isHookData = (request: string | undefined) => [HOOK_REQUEST, DECIDED_REQUEST].some((prefix) => request?.startsWith(prefix) === true);
+ 
+ const ON_HOOK_DATA = "[on a webhook's data, ";
+ 

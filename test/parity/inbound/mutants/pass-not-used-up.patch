@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..7b8ad76 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -262,7 +262,7 @@ class Store extends Context.Service<
+ 
+           yield* exec(`INSERT OR REPLACE INTO ${PASSES} (approval, at) VALUES (?, ?)`, approval, now);
+         }),
+-        use: (approval) => Effect.map(rows(Used, `DELETE FROM ${PASSES} WHERE approval = ? RETURNING approval`, approval), (used) => used.length > 0)
++        use: (approval) => Effect.map(rows(Used, `SELECT approval FROM ${PASSES} WHERE approval = ?`, approval), (used) => used.length > 0)
+       });
+     })
+   );
