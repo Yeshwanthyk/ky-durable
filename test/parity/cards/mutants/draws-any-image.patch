@@ -1,5 +1,5 @@
 diff --git a/src/cards/contract.ts b/src/cards/contract.ts
-index b04076b..fd2fad8 100644
+index ba8110b..1893e3b 100644
 --- a/src/cards/contract.ts
 +++ b/src/cards/contract.ts
 @@ -15,7 +15,7 @@ const Flag = Schema.optionalKey(Schema.Boolean);

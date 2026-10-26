@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..5f99b6a 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -38,7 +38,7 @@ const Stats = Schema.Struct({
+       tone: Tone,
+       series: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 6 })))
+     }),
+-    1,
++    0,
+     6
+   )
+ });

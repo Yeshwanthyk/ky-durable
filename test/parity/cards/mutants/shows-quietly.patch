@@ -1,0 +1,13 @@
+diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+index 59a83f0..73cff31 100644
+--- a/src/cards/tool.ts
++++ b/src/cards/tool.ts
+@@ -25,7 +25,7 @@ export const RunCards = defineDoc<RunCardsDoc>({
+ const asks = (card: UiCardArgs) => card.blocks.some((block) => INTERACTIVE.has(block.type));
+ 
+ function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAnswer> {
+-  if (!card.wait) return Effect.succeed(reply(asks(card) ? "Shown to the user; their answer, if any, arrives as a later message." : "Shown to the user."));
++  if (!card.wait) return Effect.succeed(reply("Shown to the user."));
+ 
+   if (!asks(card)) return Effect.fail(new NothingToAnswer());
+ 

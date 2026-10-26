@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..f03d39f 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -88,7 +88,7 @@ const Routine = Schema.Struct({ type: Schema.Literal("routine"), routine: Schema
+ const UiBlock = Schema.Union([Text, Choice, Input, Buttons, List, Facts, Media("image"), Media("audio"), Media("video"), Page, Status, Routine, Stats, Chart, Table, Tabs, Columns]);
+ 
+ const Card = <S extends Schema.Top>(block: S) =>
+-  Schema.Struct({ id: Words, title: Words, subtitle: Words, icon: Words, note: Words, wait: Flag, blocks: Schema.Array(block) });
++  Schema.Struct({ blocks: Schema.Array(block) });
+ 
+ const UiCard = Card(UiBlock);
+ 
