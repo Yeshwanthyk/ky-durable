@@ -11,6 +11,18 @@
  * `ky attach` types a file by its extension, so a sound saved as .webm or .mp4 arrives as video; its own
  * tracks decide, and it is stored as the audio type (file-types.ts).
  */
+import Type from "typebox";
+import { decode } from "../../core/decode";
+
+const Row = Type.Object({
+  id: Type.String(),
+  task: Type.String(),
+  name: Type.String(),
+  type: Type.String(),
+  size: Type.Number(),
+  caption: Type.Union([Type.String(), Type.Null()]),
+  created_at: Type.Number()
+});
 
 export type FileRow = {
   readonly id: string;
@@ -98,7 +110,7 @@ export class FileStore {
   }
 
   #rows(where: string, ...bindings: SqlStorageValue[]): FileRow[] {
-    return this.#sql.exec<FileRow>(`SELECT * FROM ky_files WHERE ${where}`, ...bindings).toArray();
+    return this.#sql.exec(`SELECT * FROM ky_files WHERE ${where}`, ...bindings).toArray().map((row) => decode(Row, row, "a file row"));
   }
 
   record(file: Omit<FileRow, "created_at">): FileRow {
@@ -180,48 +192,3 @@ export async function upload(
 }
 
 /** Keep an image ky made itself, such as a browse screenshot, where /files/<id> serves it; returns the id. */
-export async function saveImage(bucket: R2Bucket, bytes: Uint8Array, type = "image/png"): Promise<string> {
-  const id = crypto.randomUUID().replaceAll("-", "");
-  await bucket.put(`files/${id}`, bytes, { httpMetadata: { contentType: type } });
-
-  return id;
-}
-
-/** GET /files/<id>, with byte ranges: iOS Safari plays a video only from 206 responses. */
-export async function download(request: Request, bucket: R2Bucket, id: string): Promise<Response> {
-  const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("Range") ?? "");
-
-  const object = await bucket.get(
-    `files/${id}`,
-    range ? { range: rangeOf(range[1]!, range[2]!) } : {}
-  );
-
-  if (!object) return reply(404, "Not found");
-
-  const headers = new Headers({
-    "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
-    "Accept-Ranges": "bytes",
-    // A patch is the task's text: never let a browser sniff it into a page.
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "private, max-age=31536000, immutable"
-  });
-
-  if (!range || !object.range || !("offset" in object.range)) {
-    headers.set("Content-Length", String(object.size));
-
-    return new Response(object.body, { headers });
-  }
-
-  const start = object.range.offset ?? 0;
-  const length = object.range.length ?? object.size - start;
-  headers.set("Content-Range", `bytes ${start}-${start + length - 1}/${object.size}`);
-  headers.set("Content-Length", String(length));
-
-  return new Response(object.body, { status: 206, headers });
-}
-
-function rangeOf(start: string, end: string): { offset: number; length?: number } {
-  const offset = Number(start);
-
-  return end === "" ? { offset } : { offset, length: Number(end) - offset + 1 };
-}
