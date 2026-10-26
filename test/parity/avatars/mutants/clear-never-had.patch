@@ -1,0 +1,13 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..97dbbca 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -68,7 +68,7 @@ export class Wardrobe extends Context.Service<
+               changed
+             ),
+           clear: Effect.fnUntraced(function* (owner) {
+-            const had = (yield* exec(`DELETE FROM ${TABLE} WHERE owner = ? RETURNING owner`, owner)).length > 0;
++            const had = (yield* exec(`DELETE FROM ${TABLE} WHERE owner = ? RETURNING owner`, owner)).length < 0;
+ 
+             if (had) yield* changed;
+ 
