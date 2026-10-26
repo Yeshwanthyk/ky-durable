@@ -31,7 +31,18 @@ const DOMAINS = {
   peers: /peer|group|crew/i,
   machines: /machine|runner/i,
   approvals: /approval|executor/i,
-  inbound: /inbound|webhook|credential/i
+  inbound: /inbound|webhook|credential/i,
+  settings: /settings|purpose|transcript/i,
+  files: /\bfiles?\b|file-types|media|container-tracks|\bimages?\b/i,
+  chats: /\bchats?\b|titles?/i,
+  mail: /\bmail|email|inbox\b/i,
+  sites: /\bsites?\b|site-routes|embed/i,
+  browse: /browse|browser/i,
+  access: /\baccess\b|cf-access|\bjwt\b/i,
+  avatars: /avatar|setup|seeds?|prompt/i,
+  history: /history/i,
+  push: /\bpush\b|notif/i,
+  cards: /ui-blocks|ui-tool|\bcards?\b/i
 } satisfies Record<string, RegExp>;
 
 type Domain = keyof typeof DOMAINS;
