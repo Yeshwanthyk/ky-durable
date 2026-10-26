@@ -1,7 +1,8 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { MailView, PiClientMessage } from "../protocol";
-import { mailLimits, readMail, receive } from "../mail";
+import { mailLimits } from "../mail/contract";
+import { readMail, receive } from "../mail/wiring";
 import { connect, follow, inside, promptTool, said, shows, snapshotView, tasks } from "./drive";
 import { MAIL_ADDRESS, NO_MAIL } from "./stack";
 
