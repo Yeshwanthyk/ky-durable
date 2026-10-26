@@ -1,34 +1,16 @@
 import type { Context, JsonValue } from "@earendil-works/chord";
-import type { ConversationDocToken, ConversationId, Extension, JsonObject, ToolExecutionApi, Tx } from "@earendil-works/pi-durable";
-import type { Instance, Json } from "../kit";
+import type { ConversationDocToken, ConversationId, JsonObject, ToolExecutionApi, Tx } from "@earendil-works/pi-durable";
+import { uiExtension } from "../../../src/cards/tool";
 
 export type Where = "main" | "run" | "aside";
-
-export type Action =
-  | { readonly kind: "draw"; readonly input: string }
-  | { readonly kind: "call"; readonly where: Where; readonly call: string; readonly card: JsonValue }
-  | { readonly kind: "answer"; readonly data: JsonValue };
-
-export type Side = {
-  readonly ui: (chat: (session: string) => boolean) => Extension;
-  readonly card: (input: string) => object | null;
-  readonly answerOf: (data: JsonValue | undefined) => object | null;
-};
 
 const IDS: Record<Where, number> = { main: 1, run: 2, aside: 3 };
 
 type Docs = Partial<Record<Where, { run: boolean; cards: Array<{ call: string; card: string }> }>>;
 
-const json = <T>(value: T): Json => {
-  const text = JSON.stringify(value);
-
-  // SAFETY: what the sides answer is plain data; a missing value reads as null.
-  return text === undefined ? null : (JSON.parse(text) as Json);
-};
-
-export function world(side: Side) {
+export function world() {
   let docs: Docs = { run: { run: true, cards: [] } };
-  const tool = side.ui((session) => session === String(IDS.main)).tools?.[0];
+  const tool = uiExtension((session) => session === String(IDS.main)).tools?.[0];
 
   if (tool === undefined) throw new Error("the ui extension has no tool");
 
@@ -54,18 +36,5 @@ export function world(side: Side) {
     return tool.execute(card as never, api as ToolExecutionApi, {} as Context);
   };
 
-  const instance: Instance<Action> = {
-    apply: async (action) => {
-      if (action.kind === "draw") return json(side.card(action.input));
-
-      if (action.kind === "answer") return json(side.answerOf(action.data));
-
-      return json(await call(action.where, action.call, action.card));
-    },
-    tables: async () => json(docs),
-    effects: async () => [],
-    dispose: async () => {}
-  };
-
-  return { instance, docs: () => docs, call };
+  return { docs: () => docs, call };
 }

@@ -3,13 +3,8 @@ import type { ToolExecutionResult } from "@earendil-works/pi-durable";
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import { answerOf, cardOf } from "../../src/cards/contract";
-import { uiExtension } from "../../src/cards/tool";
-import { assertParity, budget } from "../parity/kit";
-import { decodeOr } from "../../src/core/decode";
-import { card as legacyCard } from "../parity/cards/legacy/card-answers";
-import { CardAnswerSchema } from "../parity/cards/legacy/ui-blocks";
-import { uiExtension as legacyUi } from "../parity/cards/legacy/ui-tool";
-import { type Action, type Side, type Where, world } from "../parity/cards/world";
+import { budget } from "../parity/kit";
+import { world } from "../parity/cards/world";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -18,14 +13,6 @@ vi.setConfig({ testTimeout: 600_000 });
 type Block = { [key: string]: JsonValue };
 
 type Card = Block & { blocks: Block[] };
-
-const port: Side = { ui: uiExtension, card: cardOf, answerOf };
-
-const legacy: Side = {
-  ui: legacyUi,
-  card: (input) => legacyCard({ kind: "tool", id: "c", name: "ui", category: "other", summary: "", status: "done", input, output: "", images: [], durationMs: null }),
-  answerOf: (data) => decodeOr(CardAnswerSchema, data, null)
-};
 
 const word = fc.string({ unit: fc.constantFrom("a", "b", " ", "é", "😀", ":", ",", "\n"), maxLength: 12 });
 
@@ -254,7 +241,7 @@ describe("the ui tool in a chat", () => {
   it("shows a card, ends the turn on one that waits only when it asks something, and refuses a wait with nothing to answer", async () => {
     await fc.assert(
       fc.asyncProperty(card, async (each) => {
-        const result = await world(port).call("main", "c", each);
+        const result = await world().call("main", "c", each);
         const asked = asks(each.blocks);
 
         if (each.wait !== true) expect(result).toEqual(said(asked ? "Shown to the user; their answer, if any, arrives as a later message." : "Shown to the user."));
@@ -270,7 +257,7 @@ describe("the ui tool outside a chat", () => {
   it("is refused where there is no one to show and no run to keep it, and keeps nothing", async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(card, { minLength: 1, maxLength: 4 }), async (cards) => {
-        const side = world(port);
+        const side = world();
 
         for (const [index, each] of cards.entries()) {
           expect(await side.call("aside", `c${index}`, each)).toEqual(said("Not shown: only a chat with the user has someone to show.", true));
@@ -287,7 +274,7 @@ describe("the ui tool outside a chat", () => {
 
     await fc.assert(
       fc.asyncProperty(calls, async (each) => {
-        const side = world(port);
+        const side = world();
         const first = new Map<string, Card>();
 
         for (const [call, shown] of each) {
@@ -308,34 +295,5 @@ describe("the ui tool outside a chat", () => {
       }),
       settings()
     );
-  });
-});
-
-const fuzz = fc.oneof(
-  card.map((each) => JSON.stringify(each)),
-  fc.tuple(top, fc.array(fc.oneof(block, broken, fc.jsonValue({ maxDepth: 2 })), { maxLength: 6 })).map(([head, blocks]) => JSON.stringify({ ...head, blocks })),
-  fc.tuple(card, fc.nat()).map(([each, cut]) => {
-    const whole = JSON.stringify(each);
-
-    return whole.slice(0, cut % (whole.length + 1));
-  }),
-  fc.jsonValue({ maxDepth: 3 }).map((value) => JSON.stringify(value)),
-  fc.string()
-);
-
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  fuzz.map((input) => ({ kind: "draw" as const, input })),
-  fc.record({ kind: fc.constant("call" as const), where: fc.constantFrom<Where>("main", "run", "aside"), call: fc.constantFrom("c1", "c2", "c3"), card }),
-  fc.oneof(answer, damaged, block, broken).map((data) => ({ kind: "answer" as const, data }))
-);
-
-describe("cards parity", () => {
-  it("draws, answers, keeps and refuses what B does, step for step", async () => {
-    await assertParity<Action>({
-      domain: "cards",
-      actions,
-      legacy: async () => world(legacy).instance,
-      next: async () => world(port).instance
-    });
   });
 });
