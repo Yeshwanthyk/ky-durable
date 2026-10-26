@@ -270,7 +270,7 @@ class Model {
 describe("the chat list", () => {
   it("stores each chat's session, title, times, archive and opener, and the main chat's last answer, as the model says, at the clock's time", () => {
     fc.assert(
-      fc.property(fc.array(fc.tuple(listActions, fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 600_000 }))), { maxLength: budget().maxCommands }), (steps) => {
+      fc.property(fc.array(fc.tuple(listActions, fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 600_000 }))), { maxLength: budget().maxCommands, size: "large" }), (steps) => {
         let at = START;
         vi.spyOn(Date, "now").mockImplementation(() => at);
         const db = new DatabaseSync(":memory:");
