@@ -122,7 +122,7 @@ export class Access {
   }
 
   /** The answer for a request Access didn't sign an allowed email in on; undefined when it did. */
-  async refuse(request: Request, env: Env): Promise<Response | undefined> {
+  async refuse(request: Request, env: Pick<Env, "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "ACCESS_EMAILS" | "KY_DEV" | "KY_DEV_EMAIL">): Promise<Response | undefined> {
     const { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: emails } = env;
 
     if (!emails) return notSetUp();
