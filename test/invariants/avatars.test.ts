@@ -2,8 +2,9 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EXAMPLES as B_EXAMPLES } from "../../src/avatars/legacy/avatar-spec";
 import { preamble as legacyPreamble } from "../../src/avatars/legacy/prompt";
 import { AVATAR_TABLES, EXAMPLES } from "../../src/avatars/contract";
 import { Avatars, avatarTools, preamble, Setup } from "../../src/avatars/wiring";
@@ -89,9 +90,9 @@ const actions: fc.Arbitrary<Action> = fc.oneof(
         "null",
         "5",
         '{"body":1}',
-        JSON.stringify(EXAMPLES.tok),
-        JSON.stringify({ ...EXAMPLES.pip, extra: { deep: true } }),
-        JSON.stringify({ ...EXAMPLES.pip, body: { ...EXAMPLES.pip.body, w: "1" } }),
+        JSON.stringify(B_EXAMPLES.tok),
+        JSON.stringify({ ...B_EXAMPLES.pip, extra: { deep: true } }),
+        JSON.stringify({ ...B_EXAMPLES.pip, body: { ...B_EXAMPLES.pip.body, w: "1" } }),
         '{"body":{"w":1e999,"h":100,"corner":10,"color":"#aabbcc"},"eyes":{"count":1,"size":20},"top":{"kind":"none"},"cheeks":true,"feet":true}'
       )
     }),
@@ -112,7 +113,7 @@ const actions: fc.Arbitrary<Action> = fc.oneof(
 );
 
 type Side = {
-  readonly avatars: { all(): object; onChange(listener: () => void): unknown };
+  readonly avatars: { all(): object; onChange(listener: () => void): void };
   readonly setup: Pick<Setup, "onChange" | "view" | "selfEdit" | "firstStart" | "origin" | "opened" | "moved"> & { setRepo(repo: string, page: string | null): object };
   readonly tool: Extension;
 };
@@ -125,16 +126,24 @@ const next: Make = (db, owners) => {
   return { avatars, setup: new Setup(storageOf(db)), tool: avatarTools(avatars, owners) };
 };
 
+// SAFETY: the avatar tool's execute never reads its api.
 const API = {} as ToolExecutionApi;
 
-let uuid = () => "";
+type Uuid = `${string}-${string}-${string}-${string}-${string}`;
 
-async function said(tool: Extension, input: Input): Promise<Json> {
+let uuid = (): Uuid => "0-0-0-0-0";
+
+type Said = { readonly text: string; readonly isError: boolean | null };
+
+async function said(tool: Extension, input: Input): Promise<Said> {
   const [registered] = tool.tools ?? [];
+  // SAFETY: the parity feeds the tool what a model could send, B's parameters unchecked as the runtime leaves them.
   const result = await registered?.execute(input as never, API, BACKGROUND_CONTEXT);
 
   return { text: (result?.output ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""), isError: result?.isError ?? null };
 }
+
+const jsonOf = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
 
 function caught(work: () => Json | undefined | void): Json {
   try {
@@ -146,7 +155,7 @@ function caught(work: () => Json | undefined | void): Json {
 
 const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
 
-const shownValue = (value: unknown) => (value instanceof Uint8Array ? `x'${Buffer.from(value).toString("hex")}'` : value);
+const shownValue = (value: SQLOutputValue) => (value instanceof Uint8Array ? `x'${Buffer.from(value).toString("hex")}'` : value);
 
 const rowsOf = (db: DatabaseSync, table: string): Json[] => [
   ...rowsDecoded(
@@ -161,7 +170,7 @@ function instance(db: DatabaseSync, make: Make): Instance<Action> {
   const side = make(db, () => OWNERS);
   const seen = { avatarChanges: 0, setupChanges: 0 };
   let rolled = 0;
-  const ownUuid = () => `00000000-0000-4000-8000-${String(rolled++).padStart(12, "0")}`;
+  const ownUuid = (): Uuid => `00000000-0000-4000-8000-${String(rolled++).padStart(12, "0")}`;
 
   side.avatars.onChange(() => seen.avatarChanges++);
   side.setup.onChange(() => seen.setupChanges++);
@@ -177,7 +186,7 @@ function instance(db: DatabaseSync, make: Make): Instance<Action> {
 
     if ("blob" in action) return caught(() => void db.prepare(`INSERT OR REPLACE INTO ${AVATAR_TABLES.avatars} (owner, spec) VALUES (X'7A', ?)`).run(JSON.stringify(EXAMPLES.fern)));
 
-    if ("setRepo" in action) return caught(() => JSON.parse(JSON.stringify(side.setup.setRepo(action.setRepo, action.page))));
+    if ("setRepo" in action) return caught(() => JSON.stringify(side.setup.setRepo(action.setRepo, action.page)));
 
     if ("opened" in action) return caught(() => side.setup.opened(action.opened));
 
@@ -185,7 +194,7 @@ function instance(db: DatabaseSync, make: Make): Instance<Action> {
 
     if ("setup" in action) return caught(() => side.setup[action.setup]());
 
-    return caught(() => JSON.parse(JSON.stringify(side.avatars.all())));
+    return caught(() => JSON.stringify(side.avatars.all()));
   };
 
   return {
@@ -208,7 +217,7 @@ function useClock(clock: Clock): void {
 }
 
 beforeEach(() => {
-  vi.spyOn(crypto, "randomUUID").mockImplementation(() => uuid() as `${string}-${string}-${string}-${string}-${string}`);
+  vi.spyOn(crypto, "randomUUID").mockImplementation(() => uuid());
 });
 
 afterEach(() => {
@@ -267,11 +276,9 @@ function port(owners: readonly string[] = OWNERS) {
     ...side,
     db,
     say: async (input: Input) => {
-      const reply = await said(side.tool, input);
+      const { text } = await said(side.tool, input);
 
-      const text = typeof reply === "object" && reply !== null && "text" in reply ? reply.text : null;
-
-      return typeof text === "string" ? text : null;
+      return text;
     },
     stored: (key: string) => db.prepare(`SELECT value FROM ${AVATAR_TABLES.setup} WHERE key = ?`).all(key).map((row) => Schema.decodeUnknownSync(Value)(row).value)[0],
     saved: () => db.prepare(`SELECT owner, spec FROM ${AVATAR_TABLES.avatars} ORDER BY owner`).all().map((row) => Schema.decodeUnknownSync(Spec)(row)),
@@ -281,37 +288,24 @@ function port(owners: readonly string[] = OWNERS) {
   };
 }
 
-const HEX = /^#[0-9a-fA-F]{6}$/;
+const Color = Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/));
 
 const segments = new Intl.Segmenter();
 
-const isObject = (value: Json | undefined): value is { readonly [key: string]: Json | undefined } => typeof value === "object" && value !== null && !Array.isArray(value);
+const ASpec = Schema.Struct({
+  name: Schema.optionalKey(Schema.String.check(Schema.makeFilter((name: string) => [...segments.segment(name)].length <= 24))),
+  body: Schema.Struct({ w: Schema.Finite, h: Schema.Finite, corner: Schema.Finite, color: Color }),
+  eyes: Schema.Struct({ count: Schema.Literals([1, 2]), size: Schema.Finite }),
+  top: Schema.Struct({ kind: Schema.Literals(["none", "antenna", "leaf", "ears", "sprout", "tuft"]), color: Schema.optionalKey(Color) }),
+  cheeks: Schema.Boolean,
+  feet: Schema.Boolean
+});
 
-const finite = (value: Json | undefined) => typeof value === "number" && Number.isFinite(value);
+const isSpec = Schema.is(ASpec);
 
-function isSpec(spec: Json): boolean {
-  if (!isObject(spec) || !isObject(spec.body) || !isObject(spec.eyes) || !isObject(spec.top)) return false;
-  const { name, body, eyes, top } = spec;
+const fencedOf = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.Json)));
 
-  return (
-    (name === undefined || (typeof name === "string" && [...segments.segment(name)].length <= 24)) &&
-    finite(body.w) &&
-    finite(body.h) &&
-    finite(body.corner) &&
-    typeof body.color === "string" &&
-    HEX.test(body.color) &&
-    !body.color.endsWith("\n") &&
-    (eyes.count === 1 || eyes.count === 2) &&
-    finite(eyes.size) &&
-    typeof top.kind === "string" &&
-    ["none", "antenna", "leaf", "ears", "sprout", "tuft"].includes(top.kind) &&
-    (top.color === undefined || (typeof top.color === "string" && HEX.test(top.color) && !top.color.endsWith("\n"))) &&
-    typeof spec.cheeks === "boolean" &&
-    typeof spec.feet === "boolean"
-  );
-}
-
-const fenced = (text: string | null) => JSON.parse(text?.split("```bloubs\n")[1]?.split("\n```")[0] ?? "null");
+const fenced = (text: string) => fencedOf(text.split("```bloubs\n")[1]?.split("\n```")[0] ?? "[]");
 
 describe("set", () => {
   it("refuses a spec that isn't one in B's words and saves nothing; saves one that is", async () => {
@@ -331,7 +325,7 @@ describe("set", () => {
     await fc.assert(
       fc.asyncProperty(fc.constantFrom("ky", "pip", "nobody", undefined), fc.option(aSpec, { nil: undefined }), async (owner, spec) => {
         using ky = port();
-        const reply = await ky.say({ action: "set", ...(owner === undefined ? {} : { for: owner }), ...(spec === undefined ? {} : { spec }) });
+        const reply = await ky.say({ action: "set", for: owner, spec });
 
         if (owner === "nobody") expect(reply).toBe('No one is called nobody: use "ky" or a specialist\'s id.');
         else if (spec === undefined) expect(reply).toBe("set needs a spec.");
@@ -348,7 +342,7 @@ describe("set", () => {
         const reply = await ky.say({ action: "set", for: owner, spec });
         const [shown] = fenced(reply);
 
-        expect(ky.saved().map(({ owner: who, spec: stored }) => [who, JSON.parse(stored)])).toEqual([[owner, shown]]);
+        expect(ky.saved().map(({ owner: who, spec: stored }) => [who, jsonOf(stored)])).toEqual([[owner, shown]]);
         expect(ky.avatars.all()).toEqual({ [owner]: shown });
         vi.restoreAllMocks();
       })
