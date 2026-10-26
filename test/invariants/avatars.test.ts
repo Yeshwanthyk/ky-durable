@@ -371,7 +371,7 @@ describe("clear and list", () => {
   });
 
   it("reads past a row that isn't a spec, and keeps a spec's extra keys", async () => {
-    const aRow = fc.oneof(aSpec.map((spec) => JSON.stringify(spec)), fc.constantFrom("not json", "null", "[]", '{"body":1}'), fc.string());
+    const aRow = fc.oneof(aSpec.map((spec) => JSON.stringify(spec)), fc.constantFrom("not json", "null", "[]", '{"body":1}'), fc.string({ maxLength: 40 }));
 
     await fc.assert(
       fc.asyncProperty(fc.dictionary(fc.constantFrom(...FOUR), aRow), async (rows) => {
