@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..14e2f7e 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -528,8 +528,7 @@ const make = Effect.gen(function* () {
+ 
+       if (turn === turns.turn) {
+         yield* Effect.forkDetach(yield* revokeWork(id));
+-        yield* exec("DELETE FROM ky_machine_logins WHERE task = ?", id);
+-      }
++              }
+ 
+       const ok = outcome === "done";
+ 

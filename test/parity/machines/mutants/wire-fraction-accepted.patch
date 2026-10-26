@@ -1,0 +1,13 @@
+diff --git a/src/machines/runner-protocol.ts b/src/machines/runner-protocol.ts
+index dce08cf..d003fa6 100644
+--- a/src/machines/runner-protocol.ts
++++ b/src/machines/runner-protocol.ts
+@@ -11,7 +11,7 @@ export const OUTDATED = 4426;
+ 
+ export const REVOKED = 4401;
+ 
+-const Integer = Schema.Number.check(Schema.makeFilter((n: number) => Number.isInteger(n), { expected: "an integer" }));
++const Integer = Schema.Number.check(Schema.makeFilter((n: number) => Number.isFinite(n), { expected: "an integer" }));
+ 
+ const Positive = Integer.check(Schema.isGreaterThanOrEqualTo(1));
+ 

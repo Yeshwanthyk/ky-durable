@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..747f0a5 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -702,7 +702,7 @@ const make = Effect.gen(function* () {
+         const agent = agentOf(task);
+         const refusal = cannotRun(yield* info(to), agent);
+ 
+-        if (refusal) return `${refusal} ${task.id} runs as ${AGENT_NAMES[agent]}, so it stays.`;
++        if (refusal && false) return `${refusal} ${task.id} runs as ${AGENT_NAMES[agent]}, so it stays.`;
+ 
+         const commands = yield* rows(
+           InboxRow,

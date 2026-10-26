@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..a38218c 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -773,7 +773,7 @@ const make = Effect.gen(function* () {
+       let listed = 0;
+ 
+       for (const sandbox of sandboxes.live()) {
+-        listed += (yield* rows(NameRow, "INSERT OR IGNORE INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?) RETURNING name", sandbox.name, yield* now, JSON.stringify(CLOUD_FACTS))).length;
++        listed += (yield* rows(NameRow, "INSERT OR IGNORE INTO ky_machines (name, seen_at, facts) VALUES (?, ?, ?) RETURNING name", sandbox.name, Date.now(), JSON.stringify(CLOUD_FACTS))).length;
+       }
+ 
+       if (listed > 0) yield* changed;

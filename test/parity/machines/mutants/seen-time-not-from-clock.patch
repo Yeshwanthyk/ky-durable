@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..9cd1eef 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -649,7 +649,7 @@ const make = Effect.gen(function* () {
+         return must(yield* info(name), `No machine ${name}.`);
+       }),
+ 
+-    seen: (machine: string, code?: number) => Effect.andThen(now, (at) => exec("UPDATE ky_machines SET seen_at = ?, reason = COALESCE(reason, ?) WHERE name = ?", at, closedReason(code), machine)),
++    seen: (machine: string, code?: number) => Effect.andThen(Effect.sync(() => Date.now()), (at) => exec("UPDATE ky_machines SET seen_at = ?, reason = COALESCE(reason, ?) WHERE name = ?", at, closedReason(code), machine)),
+ 
+     sweepTokens: Effect.flatten(
+       afterTokens(

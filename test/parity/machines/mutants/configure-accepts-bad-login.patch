@@ -1,0 +1,15 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..fd54238 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -637,9 +637,7 @@ const make = Effect.gen(function* () {
+ 
+         if (change.state !== undefined && !isMachineState(change.state)) return yield* new NotAState({ state: change.state });
+ 
+-        if (change.login !== undefined && !isMachineLogin(change.login)) return yield* new NotALogin({ login: change.login });
+-
+-        if (change.state !== undefined) yield* exec("UPDATE ky_machines SET state = ? WHERE name = ?", change.state, name);
++                if (change.state !== undefined) yield* exec("UPDATE ky_machines SET state = ? WHERE name = ?", change.state, name);
+ 
+         if (change.login !== undefined) yield* exec("UPDATE ky_machines SET login = ? WHERE name = ?", change.login, name);
+ 
