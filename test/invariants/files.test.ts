@@ -255,12 +255,25 @@ const anImageHeavy: fc.Arbitrary<UserInput> = fc
     ...Array.from({ length: count }, () => ({ type: "image" as const, data: "QUJD".repeat(chars / 4), mimeType: "image/png" }))
   ]);
 
+const aBadImage: fc.Arbitrary<UserInput> = fc
+  .record({
+    before: fc.integer({ min: 0, max: 3 }),
+    data: fc.constantFrom("QUJD", "not base64!", "QUJD QUJD", "QUJD===", "QU-D"),
+    mimeType: fc.constantFrom("image/png", "image/png", "image/bmp", "image/svg+xml")
+  })
+  .map(({ before, data, mimeType }) => [
+    { type: "text" as const, text: "look" },
+    ...Array.from({ length: before }, () => ({ type: "image" as const, data: "QUJD", mimeType: "image/png" })),
+    { type: "image" as const, data, mimeType }
+  ]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
   aMessage,
   aFrameShort,
   aFrameHeavy,
   anImageHeavy,
+  aBadImage,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
