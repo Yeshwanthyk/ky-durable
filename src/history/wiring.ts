@@ -11,7 +11,7 @@ const WROTE_SINCE = 20;
 
 const Id = Schema.Struct({ id: Schema.NullOr(Schema.Number) });
 
-const idsOf = (rows: Iterable<unknown>) => [...rows].flatMap((row) => Schema.decodeUnknownSync(Id)(row).id ?? []);
+const idsOf = (cursor: SqlStorageCursor<Record<string, SqlStorageValue>>) => cursor.toArray().flatMap((row) => Schema.decodeUnknownSync(Id)(row).id ?? []);
 
 export function placedBy(sql: SqlStorage, users: readonly number[]): ReadonlyMap<number, string | undefined> {
   if (users.length === 0) return new Map();
@@ -43,13 +43,14 @@ export function runOpener(sql: SqlStorage, conversation: string, before = Number
 }
 
 export function runInputs(sql: SqlStorage, conversation: string): readonly RunInput[] {
-  return [
-    ...sql.exec(
+  return sql
+    .exec(
       `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
        WHERE conversation_id = ? AND status = 'placed' ORDER BY entry`,
       Number(conversation)
     )
-  ].flatMap((raw) => Option.toArray(Option.map(placedOf(raw), (row) => ({ entry: row.entry, request: row.request ?? undefined }))));
+    .toArray()
+    .flatMap((raw) => Option.toArray(Option.map(placedOf(raw), (row) => ({ entry: row.entry, request: row.request ?? undefined }))));
 }
 
 export function wroteSince(sql: SqlStorage, conversation: string, at: number): boolean {
