@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ApprovalDeps, type ApprovalHandler, Approvals } from "../../src/approvals/approvals";
+import { type ApprovalDeps, Approvals } from "../../src/approvals/approvals";
 import { type ApprovalAction, type ApprovalKind, APPROVAL_TABLES, GONE, type ToolPolicy } from "../../src/approvals/contract";
 import { type ExecutorApprovalDeps, ExecutorApprovals } from "../../src/approvals/executor";
 import type { CallResult, ExecutorCall, ResumeAction } from "../../src/executor";
@@ -102,7 +102,7 @@ const DONE: CallResult = { output: [{ type: "text", text: "done" }] };
 
 type Side = {
   readonly approvals: Pick<Approvals, "handle" | "onChange" | "requestApproval" | "onDecision" | "withdraw" | "recover" | "byRef" | "pending">;
-  readonly executor: Pick<ExecutorApprovals, "onPolicies" | "setPolicy" | "policies" | "replied" | "beforeResume" | "resumed"> & ApprovalHandler;
+  readonly executor: Pick<ExecutorApprovals, "onPolicies" | "setPolicy" | "policies" | "replied" | "beforeResume" | "resumed" | "decide" | "lost">;
 };
 
 type Make = (db: DatabaseSync, deps: ApprovalDeps, executorDeps: ExecutorApprovalDeps) => Side;

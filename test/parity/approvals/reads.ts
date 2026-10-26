@@ -13,11 +13,11 @@ type Side = {
   readonly executor: Pick<ExecutorApprovals, "policies" | "policyFor" | "beforeResume">;
 };
 
-export const KINDS: ApprovalKind[] = ["executor", "webhook-action", "secret-request"];
+const KINDS: ApprovalKind[] = ["executor", "webhook-action", "secret-request"];
 
-export const TOOLS = ["gmail.send", "calendar.read", "drive.delete", "none"];
+const TOOLS = ["gmail.send", "calendar.read", "drive.delete", "none"];
 
-export const REFS: ReadonlyArray<readonly [ApprovalKind, string]> = [
+const REFS: ReadonlyArray<readonly [ApprovalKind, string]> = [
   ["executor", "r1"],
   ["executor", "r2"],
   ["executor", "r3"],
