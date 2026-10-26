@@ -1,5 +1,5 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index c9a0f21..2793a34 100644
+index 1b503e3..7bc29c4 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
 @@ -203,7 +203,7 @@ export class Box extends Context.Service<
