@@ -203,8 +203,32 @@ const B64 = ["QUJD", "QUJDRA==", "not base64!", "x".repeat(400_000), "y".repeat(
 
 const anImage = fc.record({ type: fc.constant<"image">("image"), data: fc.constantFrom(...B64), mimeType: fc.constantFrom("image/png", "image/jpeg", "image/bmp") });
 
+const aTaggedClip: fc.Arbitrary<MediaClip> = fc.constantFrom<"audio" | "video">("audio", "video").chain((kind) =>
+  fc.record({
+    kind: fc.constant(kind),
+    file: fc.constant("0123456789abcdef".repeat(2)),
+    type: fc.constant(kind === "audio" ? "audio/webm" : "video/mp4"),
+    name: fc.constant("Clip"),
+    seconds: fc.constant(null),
+    peaks: fc.constant(null),
+    transcript: fc.constantFrom("", "said"),
+    frames: kind === "audio" ? fc.constant(0) : fc.integer({ min: 0, max: 3 })
+  })
+);
+
+const aSmallImage = fc.record({
+  type: fc.constant<"image">("image"),
+  data: fc.oneof({ arbitrary: fc.constant("QUJD"), weight: 6 }, { arbitrary: fc.constantFrom(...B64), weight: 1 }),
+  mimeType: fc.oneof({ arbitrary: fc.constant("image/png"), weight: 6 }, { arbitrary: fc.constantFrom("image/jpeg", "image/bmp"), weight: 1 })
+});
+
+const aMessage: fc.Arbitrary<UserInput> = fc
+  .record({ clips: fc.array(aTaggedClip, { maxLength: 6 }), images: fc.array(aSmallImage, { maxLength: 18 }), texts: fc.constantFrom(0, 1, 1, 1, 2) })
+  .map(({ clips, images, texts }) => [...Array.from({ length: texts }, () => ({ type: "text" as const, text: `${clips.map(mediaTag).join("")}hi` })), ...images]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
+  aMessage,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
@@ -724,7 +748,7 @@ describe("a stored file's row", () => {
 
   it("lists newest first, at most 200, and a task's oldest first", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.array(fc.tuple(fc.constantFrom("t1", "t2"), fc.integer({ min: 0, max: 1000 })), { maxLength: 230 }), async (made) => {
+      fc.asyncProperty(fc.integer({ min: 0, max: 230 }).chain((count) => fc.array(fc.tuple(fc.constantFrom("t1", "t2"), fc.integer({ min: 0, max: 1000 })), { minLength: count, maxLength: count })), async (made) => {
         using ky = port();
         const times = new Map<string, number>();
 
