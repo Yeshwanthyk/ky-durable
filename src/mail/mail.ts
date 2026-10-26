@@ -25,7 +25,7 @@ import {
   NOTHING_NEW,
   NotWaiting,
   ServiceRefused,
-  TooLong
+  MailTooLong
 } from "./contract";
 
 const BODY_CHARS = 20_000;
@@ -85,7 +85,7 @@ const Parsed = Schema.Struct({
   references: Schema.optional(Schema.String)
 });
 
-export const readMail = Effect.fnUntraced(function* (raw: ReadableStream<Uint8Array> | ArrayBuffer | string, envelope: { from: string; to: string }, now?: number) {
+export const parse = Effect.fnUntraced(function* (raw: ReadableStream<Uint8Array> | ArrayBuffer | string, envelope: { from: string; to: string }, now?: number) {
   const parsed = yield* Effect.orDie(Schema.decodeUnknownEffect(Parsed)(yield* Effect.promise(() => PostalMime.parse(raw))));
   const references = (parsed.references ?? "").split(/\s+/).map(idOf);
   const at = now ?? (yield* Clock.currentTimeMillis);
@@ -284,7 +284,7 @@ export const keep = Effect.fnUntraced(function* (mail: InboundMail) {
   return yield* (yield* Box).received(inbound, (yield* Desk).limits.hourlyTriages);
 });
 
-export const receive = Effect.fnUntraced(function* (row: MailRow | undefined) {
+export const triage = Effect.fnUntraced(function* (row: MailRow | undefined) {
   const box = yield* Box;
   const desk = yield* Desk;
   const context = yield* Effect.context<Box>();
@@ -357,7 +357,7 @@ const write = Effect.fnUntraced(function* (session: string, draft: { to: string;
 
   if (draft.subject.trim() === "" || draft.body.trim() === "") return yield* new EmptyMail();
 
-  if (draft.body.length > WRITE_CHARS) return yield* new TooLong({ most: WRITE_CHARS });
+  if (draft.body.length > WRITE_CHARS) return yield* new MailTooLong({ most: WRITE_CHARS });
   const kept = { ...draft, to, session };
 
   if (!(yield* mayWrite(to))) {

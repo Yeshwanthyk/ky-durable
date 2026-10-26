@@ -102,7 +102,7 @@ export class EmptyMail extends Schema.TaggedError<EmptyMail>()("EmptyMail", {}) 
   }
 }
 
-export class TooLong extends Schema.TaggedError<TooLong>()("TooLong", { most: Schema.Number }) implements Refusable {
+export class MailTooLong extends Schema.TaggedError<MailTooLong>()("MailTooLong", { most: Schema.Number }) implements Refusable {
   get refusal(): string {
     return `A mail is at most ${this.most} characters.`;
   }

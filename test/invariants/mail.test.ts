@@ -2,7 +2,8 @@ import * as Schema from "effect/Schema";
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAIL_TABLES } from "../../src/mail/contract";
+import { addressOf, MAIL_BYTES, MAIL_TABLES, mailLimits } from "../../src/mail/contract";
+import * as B from "../../src/mail/legacy/mail";
 import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
 import { blocked, type Deps, legacyOf, said, type Side } from "../parity/mail/legacy";
 import { portOf } from "../parity/mail/port";
@@ -580,6 +581,24 @@ describe("a mail that came in", () => {
         expect(late.map((row) => row.state)).toEqual(Array.from({ length: more }, (_, i) => (!capped && i < LIMITS.hourlyTriages ? "triaged" : "kept")));
         expect(ky.mail().length).toBe(LIMITS.hourlyTriages + more);
         vi.restoreAllMocks();
+      }),
+      runs()
+    );
+  });
+});
+
+describe("the Worker's mail settings", () => {
+  it("read an address, the caps and the size ky takes as B does", () => {
+    const part = fc.constantFrom("", " ", "0", "7", "-3", "2.5", "x", "40", "a@B.test", "<A@b.TEST>", "Bea <BEA@b.test>", "<>");
+
+    fc.assert(
+      fc.property(part, part, part, (text, daily, hourly) => {
+        const vars = { KY_MAIL_DAILY_SENDS: daily, KY_MAIL_HOURLY_TRIAGES: hourly };
+
+        expect(addressOf(text)).toBe(B.addressOf(text));
+        expect(mailLimits(vars)).toEqual(B.mailLimits(vars));
+        expect(mailLimits({})).toEqual(B.mailLimits({}));
+        expect(MAIL_BYTES).toBe(B.MAIL_BYTES);
       }),
       runs()
     );

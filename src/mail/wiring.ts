@@ -8,7 +8,7 @@ import { toolReply as text } from "../core/reply";
 import { Sql } from "../core/sql";
 import type { MailView } from "../protocol";
 import type { InboundMail, MailRow } from "./contract";
-import { act, approve, Box, Desk, disallow, discard, keep, readMail as parse, receive as triage, view } from "./mail";
+import { act, approve, Box, Desk, disallow, discard, keep, parse, triage, view } from "./mail";
 
 export class MailBox {
   readonly edge: Edge<Box>;
