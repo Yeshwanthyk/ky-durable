@@ -165,7 +165,7 @@ export class PiAgent extends DurableObject<Env> {
   );
   readonly skills = new Skills(this.ctx.storage);
   /** SOUL.md, ky's persona. */
-  readonly soul = new Soul(this.ctx.storage.sql);
+  readonly soul = new Soul(this.ctx.storage);
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
@@ -175,7 +175,7 @@ export class PiAgent extends DurableObject<Env> {
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage);
   /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
-  readonly ledger = new DreamLedger(this.ctx.storage.sql, { skills: this.skills, memory: this.memory, reviews: this.reviews });
+  readonly ledger = new DreamLedger(this.ctx.storage, { skills: this.skills, memory: this.memory, reviews: this.reviews });
   readonly chats = new ChatList(this.ctx.storage.sql);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
