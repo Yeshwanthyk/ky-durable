@@ -26,7 +26,7 @@ import {
   readMedia,
   spokenText
 } from "../../src/files/contract";
-import { Files } from "../../src/files/files";
+import { Files, typeOf } from "../../src/files/files";
 import { Sql } from "../../src/core/sql";
 import type { Purpose, SettingsView } from "../../src/settings";
 import { download as downloadFrom, FileStore, retype as retypeFrom, upload as uploadTo, uploadedType, uploadMedia as uploadMediaTo } from "../../src/files/wiring";
@@ -733,14 +733,50 @@ const MEDIA_FILES = ["sound.webm", "clip.webm", "sound.mp4", "clip.mp4"] as cons
 
 const PICTURED: ReadonlySet<BodyName> = new Set(["clip.webm", "clip.mp4"]);
 
-describe("a file's type", () => {
-  it("is the sound type when a video file holds no picture, and as declared otherwise", async () => {
-    await fc.assert(
-      fc.asyncProperty(fc.constantFrom(...MEDIA_FILES), fc.constantFrom("video/webm", "video/mp4", "image/png", "audio/webm"), async (file, declared) => {
-        const sound = SOUND.get(declared);
-        const bytes = BODIES[file];
+const box = (type: string, body: Uint8Array) => {
+  const out = new Uint8Array(8 + body.length);
+  new DataView(out.buffer).setUint32(0, out.length);
+  out.set(new TextEncoder().encode(type), 4);
+  out.set(body, 8);
 
-        expect(await uploadedType(declared, bytes)).toBe(sound !== undefined && !PICTURED.has(file) ? sound : declared);
+  return out;
+};
+
+const joined = (...parts: Uint8Array[]) => {
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  parts.reduce((at, part) => (out.set(part, at), at + part.length), 0);
+
+  return out;
+};
+
+const soundMp4 = BODIES["sound.mp4"];
+
+const TRACKED = new Map<string, { readonly bytes: Uint8Array; readonly picture: boolean | undefined }>([
+  ...MEDIA_FILES.map((name) => [name, { bytes: BODIES[name], picture: PICTURED.has(name) }] as const),
+  ["sound.mp4 with its index after 4 MB of media", { bytes: joined(soundMp4.subarray(0, 36), box("mdat", new Uint8Array(4 * MB)), soundMp4.subarray(soundMp4.length - 962)), picture: false }],
+  ["sound.webm cut before its tracks", { bytes: BODIES["sound.webm"].subarray(0, 40), picture: undefined }],
+  ["text", { bytes: new TextEncoder().encode("not a video at all"), picture: undefined }]
+]);
+
+describe("a file's type", () => {
+  it("is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(...TRACKED.keys()), fc.constantFrom("video/webm", "video/mp4", "image/png", "audio/webm"), async (name, declared) => {
+        const { bytes, picture } = TRACKED.get(name) ?? { bytes: new Uint8Array(), picture: undefined };
+        const sound = SOUND.get(declared);
+        const expected = sound !== undefined && picture === false ? sound : declared;
+        let read = 0;
+
+        const counted = async (offset: number, length: number) => {
+          const range = bytes.subarray(offset, offset + length);
+          read += range.length;
+
+          return range;
+        };
+
+        expect(await typeOf(declared, counted, bytes.length)).toBe(expected);
+        expect(await uploadedType(declared, bytes)).toBe(expected);
+        expect(read).toBeLessThan(80 * 1024);
       }),
       runs()
     );
