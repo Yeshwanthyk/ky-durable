@@ -1,10 +1,9 @@
 import fc from "fast-check";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AccessVars } from "../../src/access/contract";
-import { LegacyAccess } from "../../src/access/legacy/access";
 import { Access } from "../../src/access/wiring";
 import { clockAt } from "../parity/access/clock";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
+import { budget } from "../parity/kit";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -420,67 +419,4 @@ describe("the team's keys", () => {
   it("I-A8: are one team's: a JWT for another team fetches that team's certs, and keys kept are only ever the last team's; an empty key list is kept like any other", async () => {
     await fc.assert(fc.asyncProperty(fc.array(aStep(true, true), { maxLength: budget().maxCommands }), keptKeys), runs());
   });
-});
-
-type Action = { ask: Token; env: "vars" | "other" | Env } | { race: [Token, Token] } | "rotate" | { mode: Mode };
-
-const anAction: fc.Arbitrary<Action> = fc.oneof(
-  { arbitrary: fc.record({ ask: aToken(), env: fc.oneof({ arbitrary: fc.constant<"vars">("vars"), weight: 6 }, fc.constant<"other">("other"), anEnv) }), weight: 8 },
-  { arbitrary: fc.record({ race: fc.tuple(aToken(), aToken()) }), weight: 2 },
-  { arbitrary: fc.constant<Action>("rotate"), weight: 1 },
-  { arbitrary: fc.record({ mode: fc.constantFrom<Mode>("ok", "ok", "ok", ...FAILING, "empty") }), weight: 1 }
-);
-
-const envOf = (env: "vars" | "other" | Env): AccessVars => (env === "vars" ? VARS : env === "other" ? { ...VARS, ACCESS_TEAM_DOMAIN: OTHER } : varsOf(env));
-
-function side(clock: Clock, make: (certs: (url: string) => Promise<Response>) => Refuser): Instance<Action> {
-  const team = world();
-  const access = make(team.certs);
-
-  return {
-    apply: async (action): Promise<Json> => {
-      if (action === "rotate") team.rotate();
-      else if ("mode" in action) team.state.mode = action.mode;
-
-      if (action === "rotate" || "mode" in action) return null;
-
-      if ("race" in action) {
-        const [early, late] = await Promise.all(action.race.map((token) => jwt(token, clock.now() / 1000)));
-        const release = team.hold();
-        const first = answer(access, early, VARS);
-        await nextTask();
-        const second = answer(access, late, VARS);
-        await nextTask();
-        release();
-
-        return Promise.all([first, second]);
-      }
-
-      return ask(access, action.ask, envOf(action.env), clock.now());
-    },
-    tables: async () => null,
-    effects: async () => [...team.state.fetched],
-    dispose: async () => {}
-  };
-}
-
-const accessParity: Parity<Action> = {
-  domain: "access",
-  actions: anAction,
-  start: START,
-  advances: fc.constantFrom(1, 999, 1000, MINUTE_MS - 1, MINUTE_MS, HOUR_MS - 1, HOUR_MS, 30 * MINUTE_MS),
-  legacy: async (clock) =>
-    side(clock, (certs) => {
-      const access = new LegacyAccess(certs);
-      access.now = () => clock.now();
-
-      return { refuse: (request, env) => access.refuse(request, env) };
-    }),
-  next: async (clock) => side(clock, (certs) => new Access(certs, clockAt(() => clock.now())))
-};
-
-describe("access parity", () => {
-  it("answers and fetches what B does, step for step", async () => {
-    await assertParity(accessParity);
-  }, 600_000);
 });
