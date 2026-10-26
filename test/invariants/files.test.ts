@@ -540,6 +540,8 @@ describe("files parity", () => {
 
 const runs = () => ({ numRuns: budget().numRuns, seed: budget().seed });
 
+const manyRuns = () => ({ numRuns: budget().numRuns * 4, seed: budget().seed });
+
 function port() {
   const db = new DatabaseSync(":memory:");
   const store = new FileStore(storageOf(db));
@@ -764,7 +766,7 @@ describe("a clip upload", () => {
           else expect(JSON.stringify(said)).toMatch(/^\{"threw":/);
         }
       ),
-      runs()
+      manyRuns()
     );
   });
 });
@@ -892,7 +894,7 @@ describe("a message's input", () => {
 
         expect(said).toBe(reasons.find(([fails]) => fails)?.[1] ?? null);
       }),
-      runs()
+      manyRuns()
     );
   });
 });
