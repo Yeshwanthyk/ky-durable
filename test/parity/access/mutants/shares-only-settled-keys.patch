@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..d26e71b 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -78,7 +78,7 @@ export class Keys extends Context.Service<Keys, { key(team: string, kid: string)
+             const entry: Kept = { team, at, keys };
+ 
+             const shared = yield* Ref.modify(kept, (current): [Kept | undefined, Kept | undefined] =>
+-              current?.team === team && at - current.at < maxAgeMs ? [current, current] : [undefined, entry]
++              current?.team === team && at - current.at < maxAgeMs && Deferred.isDoneUnsafe(current.keys) ? [current, current] : [undefined, entry]
+             );
+ 
+             if (shared) return yield* Deferred.await(shared.keys);

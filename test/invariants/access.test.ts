@@ -68,9 +68,22 @@ type World = { published: number; mode: Mode; fetched: string[] };
 
 function world(published = 1) {
   const state: World = { published, mode: "ok", fetched: [] };
+  let held = Promise.resolve();
+
+  const hold = () => {
+    let release = () => {};
+
+    held = new Promise((resolve) => (release = resolve));
+
+    return () => {
+      held = Promise.resolve();
+      release();
+    };
+  };
 
   const certs = async (url: string): Promise<Response> => {
     state.fetched.push(url);
+    await held;
 
     if (state.mode === "down") throw new TypeError("fetch failed");
 
@@ -84,7 +97,7 @@ function world(published = 1) {
     return Response.json({ keys: shown.map(({ kid, n, e }) => ({ kid, kty: state.mode === "ec" ? "EC" : "RSA", alg: "RS256", use: "sig", n, e })) });
   };
 
-  return { state, certs, rotate: () => void (state.published = Math.min(state.published + 1, PUBLISHABLE)) };
+  return { state, certs, hold, rotate: () => void (state.published = Math.min(state.published + 1, PUBLISHABLE)) };
 }
 
 type Flaw = "plain" | "expString" | "expHuge" | "nbfNull" | "noEmail" | "audNumber";
@@ -172,13 +185,16 @@ type Answer = { status: number; body: string } | null;
 
 type Refuser = { refuse(request: Request, env: AccessVars): Promise<Response | undefined> };
 
-async function ask(access: Refuser, token: Token, env: AccessVars, now: number): Promise<Answer> {
-  const assertion = await jwt(token, now / 1000);
+async function answer(access: Refuser, assertion: string | undefined, env: AccessVars): Promise<Answer> {
   const request = new Request("https://ky.test/api/chats", { headers: assertion === undefined ? {} : { "Cf-Access-Jwt-Assertion": assertion } });
   const response = await access.refuse(request, env);
 
   return response ? { status: response.status, body: await response.text() } : null;
 }
+
+const ask = async (access: Refuser, token: Token, env: AccessVars, now: number) => answer(access, await jwt(token, now / 1000), env);
+
+const nextTask = () => new Promise((resolve) => setImmediate(resolve));
 
 const VARS: AccessVars = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ACCESS_EMAILS: EMAILS };
 
@@ -303,6 +319,26 @@ describe("the team's keys", () => {
     );
   });
 
+  it("I-A7: requests in flight together share one fetch, and its failure", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom<Mode>("ok", ...FAILING), aJwt(true, fc.constant(0)), aJwt(true, fc.constant(0)), async (mode, early, late) => {
+        const ky = fresh();
+        ky.team.state.mode = mode;
+        const [a, b] = await Promise.all([jwt(early, START / 1000), jwt(late, START / 1000)]);
+        const release = ky.team.hold();
+        const first = answer(ky.access, a, VARS);
+        await nextTask();
+        const second = answer(ky.access, b, VARS);
+        await nextTask();
+        release();
+        const expected = mode === "ok" ? null : TRY_AGAIN;
+
+        expect([await first, await second, ky.team.state.fetched.length]).toEqual([expected, expected, 1]);
+      }),
+      runs()
+    );
+  });
+
   type Step = { advance: number } | { ask: number } | "rotate";
 
   const aStep = (unknown: boolean): fc.Arbitrary<Step> =>
@@ -368,7 +404,17 @@ function side(clock: Clock, make: (certs: (url: string) => Promise<Response>) =>
 
       if (action === "rotate" || "mode" in action) return null;
 
-      if ("race" in action) return Promise.all(action.race.map((token) => ask(access, token, VARS, clock.now())));
+      if ("race" in action) {
+        const [early, late] = await Promise.all(action.race.map((token) => jwt(token, clock.now() / 1000)));
+        const release = team.hold();
+        const first = answer(access, early, VARS);
+        await nextTask();
+        const second = answer(access, late, VARS);
+        await nextTask();
+        release();
+
+        return Promise.all([first, second]);
+      }
 
       return ask(access, action.ask, envOf(action.env), clock.now());
     },
