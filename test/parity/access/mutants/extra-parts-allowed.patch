@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index 06417c6..e5dcab7 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -111,7 +111,7 @@ const emailOf = (jwt: string | null, team: string, aud: string) =>
+     const claims = part(claimsOf, body);
+     const now = (yield* Clock.currentTimeMillis) / 1000;
+ 
+-    if (rest.length > 0 || !header || !claims || !valid(claims, team, aud, now)) return undefined;
++    if (!header || !claims || !valid(claims, team, aud, now)) return undefined;
+     const key = yield* Keys.use((keys) => keys.key(team, header.kid));
+     const signed = bytes(signature);
+ 

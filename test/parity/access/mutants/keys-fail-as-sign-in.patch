@@ -1,5 +1,5 @@
 diff --git a/src/access/contract.ts b/src/access/contract.ts
-index bd8a304..e9f68a8 100644
+index 5d71813..99207a3 100644
 --- a/src/access/contract.ts
 +++ b/src/access/contract.ts
 @@ -50,6 +50,6 @@ export class NotSetUp extends Schema.TaggedError<NotSetUp>()("NotSetUp", {}) imp
@@ -10,3 +10,16 @@ index bd8a304..e9f68a8 100644
 +    return SIGN_IN;
    }
  }
+diff --git a/src/access/wiring.ts b/src/access/wiring.ts
+index 4ca5712..e4c2aae 100644
+--- a/src/access/wiring.ts
++++ b/src/access/wiring.ts
+@@ -7,7 +7,7 @@ import type { AccessVars, KeysUnavailable, NotSetUp, SignInRefused } from "./con
+ 
+ type Refused = SignInRefused | NotSetUp | KeysUnavailable;
+ 
+-const STATUS: Record<Refused["_tag"], number> = { SignInRefused: 401, NotSetUp: 500, KeysUnavailable: 503 };
++const STATUS: Record<Refused["_tag"], number> = { SignInRefused: 401, NotSetUp: 500, KeysUnavailable: 401 };
+ 
+ export class Access {
+   readonly #layer;

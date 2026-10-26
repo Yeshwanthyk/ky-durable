@@ -132,10 +132,29 @@ const aJwt = (good: boolean, keyAt: fc.Arbitrary<number>, claims = aClaims(good)
     std: fc.boolean()
   }).map(({ kid, ...token }) => ({ ...token, kid: kid ?? token.key }));
 
+type Spoil = (token: Extract<Token, { kind: "jwt" }>) => Token;
+
+/** One thing wrong with a JWT that would otherwise pass, so each refusal rule is seen alone. */
+const SPOILS: Spoil[] = [
+  (token) => ({ ...token, claims: { ...token.claims, aud: "other" } }),
+  (token) => ({ ...token, claims: { ...token.claims, iss: `https://${OTHER}` } }),
+  (token) => ({ ...token, claims: { ...token.claims, iss: TEAM } }),
+  (token) => ({ ...token, tamper: "alg" }),
+  (token) => ({ ...token, tamper: "extra" }),
+  (token) => ({ ...token, tamper: "garbled" }),
+  (token) => ({ ...token, tamper: "signedOther" }),
+  (token) => ({ ...token, kid: (token.key + 1) % POOL })
+];
+
+const aSpoiled = (keyAt: fc.Arbitrary<number>): fc.Arbitrary<Token> =>
+  fc
+    .tuple(aJwt(true, keyAt), fc.constantFrom(...SPOILS))
+    .map(([token, spoil]) => (token.kind === "jwt" ? spoil(token) : token));
+
 const aRaw: fc.Arbitrary<Token> = fc.constantFrom("", "nope", "a.b.c", "..", "e30.e30.", "e30.e30.e30.e30").map((text) => ({ kind: "raw" as const, text }));
 
 const aToken = (keyAt = fc.integer({ min: 0, max: POOL - 1 })): fc.Arbitrary<Token> =>
-  fc.oneof({ arbitrary: aJwt(false, keyAt), weight: 4 }, { arbitrary: aJwt(false, keyAt, aClaims(true, anEmail)), weight: 4 }, { arbitrary: aRaw, weight: 1 }, { arbitrary: fc.constant<Token>({ kind: "none" }), weight: 1 });
+  fc.oneof({ arbitrary: aJwt(false, keyAt), weight: 4 }, { arbitrary: aJwt(false, keyAt, aClaims(true, anEmail)), weight: 4 }, { arbitrary: aSpoiled(keyAt), weight: 3 }, { arbitrary: aRaw, weight: 1 }, { arbitrary: fc.constant<Token>({ kind: "none" }), weight: 1 });
 
 const encode = (text: string, std: boolean) => (std ? Buffer.from(text).toString("base64") : Buffer.from(text).toString("base64url"));
 
