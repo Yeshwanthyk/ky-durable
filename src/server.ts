@@ -112,7 +112,7 @@ export class PiAgent extends DurableObject<Env> {
   );
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
-  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
+  readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** The questions this ky and its peers ask each other. */

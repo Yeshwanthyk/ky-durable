@@ -134,21 +134,21 @@ export class Models {
   readonly #madeFrom = new WeakMap<Endpoint, string>();
 
   constructor(
-    sql: SqlStorage,
+    storage: DurableObjectStorage,
     boundary: ModelsBoundary,
     vault: KeyVault,
     /** The paired machines, with the ports each shares, and the pipe to them: how runner-local providers are reached. */
     machines: Pick<MachineHub, "machines" | "online">,
     pipe: Pick<RunnerPipe, "fetcher">
   ) {
-    this.#records = new ProviderRecords(sql);
+    this.#records = new ProviderRecords(storage.sql);
     this.#boundary = boundary;
     this.#vault = vault;
     this.#machines = machines;
     this.#pipe = pipe;
     this.#records.add(WORKERS_AI_RECORD);
     this.#placeVibeProxy();
-    this.settings = new Settings(sql, (choice) => this.valid(choice));
+    this.settings = new Settings(storage.sql, (choice) => this.valid(choice));
     this.registry = createModels({ authContext: NO_ENV });
     this.#load();
   }
