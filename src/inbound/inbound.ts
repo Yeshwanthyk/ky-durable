@@ -153,7 +153,7 @@ class Store extends Context.Service<
     close(session: string, name: string): Effect.Effect<SecretAsk | undefined>;
     readonly lapse: Effect.Effect<void>;
     grant(approval: string): Effect.Effect<void>;
-    use(approval: string): Effect.Effect<boolean>;
+    drop(approval: string): Effect.Effect<boolean>;
   }
 >()("ky/inbound/Store") {
   static readonly layer = Layer.effect(
@@ -220,9 +220,9 @@ class Store extends Context.Service<
           const keys = [...(found.signed ? [`signature:${delivery.signature}`] : []), ...(delivery.delivery === null ? [] : [`delivery:${delivery.delivery}`])];
 
           yield* exec(`DELETE FROM ${SEEN} WHERE at < ?`, now - SEEN_MS);
-          const seen = yield* Effect.forEach(keys, (key) => rows(Seen, `SELECT key FROM ${SEEN} WHERE hook = ? AND key = ?`, id, key));
+          const seen = keys.length > 0 ? yield* rows(Seen, `SELECT key FROM ${SEEN} WHERE hook = ? AND key IN (${keys.map(() => "?").join(", ")})`, id, ...keys) : [];
 
-          if (seen.some((each) => each.length > 0)) return { received: "replay" } as const;
+          if (seen.length > 0) return { received: "replay" } as const;
 
           for (const key of keys) yield* exec(`INSERT INTO ${SEEN} (hook, key, at) VALUES (?, ?, ?)`, id, key, now);
           yield* exec(`UPDATE ${HOOKS} SET last_at = ? WHERE id = ?`, now, id);
@@ -262,7 +262,7 @@ class Store extends Context.Service<
 
           yield* exec(`INSERT OR REPLACE INTO ${PASSES} (approval, at) VALUES (?, ?)`, approval, now);
         }),
-        use: (approval) => Effect.map(rows(Used, `DELETE FROM ${PASSES} WHERE approval = ? RETURNING approval`, approval), (used) => used.length > 0)
+        drop: (approval) => Effect.map(rows(Used, `DELETE FROM ${PASSES} WHERE approval = ? RETURNING approval`, approval), (used) => used.length > 0)
       });
     })
   );
@@ -362,7 +362,7 @@ export class Inbound {
             accepted.approval.conversation === conversation &&
             accepted.call.tool === tool &&
             canonical(accepted.call.arguments) === canonical(args) &&
-            (yield* store.use(accepted.approval.id))
+            (yield* store.drop(accepted.approval.id))
           ) {
             return true;
           }
@@ -446,7 +446,7 @@ export class Inbound {
   }
 
   #hookLost(approval: Approval, action: ApprovalAction): Promise<void> {
-    this.#edge.run(Store.use((store) => Effect.asVoid(store.use(approval.id))));
+    this.#edge.run(Store.use((store) => store.drop(approval.id)));
 
     return this.#told(approval, true, `${outcome(true, CHOSE[action], approval.summary)} ${RESTARTED} Don't make that call unless they approve it again.`);
   }

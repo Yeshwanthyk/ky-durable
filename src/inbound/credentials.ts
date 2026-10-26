@@ -163,8 +163,11 @@ export async function signedWith(secret: string, body: string, signature: string
   const made = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));
   const given = Uint8Array.from(sent.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
 
-  // SAFETY: the Workers runtime has timingSafeEqual on crypto.subtle; the DOM lib's SubtleCrypto, which wins the merge here, lacks it.
-  return (crypto.subtle as WorkersSubtle).timingSafeEqual(made, given);
+  const subtle = crypto.subtle;
+
+  return comparesSafely(subtle) && subtle.timingSafeEqual(made, given);
 }
 
 type WorkersSubtle = SubtleCrypto & { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean };
+
+const comparesSafely = (subtle: SubtleCrypto): subtle is WorkersSubtle => "timingSafeEqual" in subtle;

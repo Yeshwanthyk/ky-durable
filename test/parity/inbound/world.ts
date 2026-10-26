@@ -130,7 +130,6 @@ type InputAction =
 type DecisionAction =
   | { readonly askApproval: "webhook-action" | "secret-request"; readonly conversation: string; readonly tool: number; readonly args: number; readonly url: number; readonly good: boolean }
   | { readonly decide: number; readonly action: ApprovalAction }
-  | { readonly recover: true }
   | { readonly passed: string; readonly tool: number; readonly args: number; readonly fresh: boolean };
 
 type CallAction =
@@ -152,7 +151,7 @@ const isSecret = keyed<SecretAction>(["ask", "save", "asks", "listSecrets", "rem
 
 const isInput = keyed<InputAction>(["place", "newRun", "guarded"]);
 
-const isApproval = keyed<DecisionAction>(["askApproval", "decide", "recover", "passed"]);
+const isApproval = keyed<DecisionAction>(["askApproval", "decide", "passed"]);
 
 const aSession = fc.constantFrom(...SESSIONS);
 
@@ -198,7 +197,6 @@ export const actions: fc.Arbitrary<Action> = fc.oneof(
     weight: 4
   },
   { arbitrary: fc.record({ decide: fc.constantFrom(-1, -1, -1, 0, 1, 2), action: fc.constantFrom<ApprovalAction>("accept", "accept", "decline", "cancel") }), weight: 4 },
-  { arbitrary: fc.constant({ recover: true as const }), weight: 1 },
   { arbitrary: fc.record({ passed: aSession, tool: anIndex(TOOLS.length), args: anIndex(ARGS.length), fresh: fc.constantFrom(true, true, true, false) }), weight: 4 },
   { arbitrary: fc.record({ fetch: fc.constantFrom(...FETCHES) }), weight: 2 },
   { arbitrary: fc.record({ http: anIndex(NAMES.length), url: fc.constantFrom(0, 0, 0, 1, 2, 3, 4), method: fc.constantFrom<"GET" | "POST">("GET", "POST"), fresh: fc.constantFrom(true, true, true, false) }), weight: 4 }
@@ -533,7 +531,7 @@ export function world(db: DatabaseSync, side: Side) {
       return inbound.passed(call.conversation, TOOLS[call.tool] ?? "write", ARGS[call.args] ?? {});
     }
 
-    const decided = "decide" in action ? approvals.onDecision(asked.at(action.decide) ?? "none", action.action) : (approvals.recover(), null);
+    const decided = approvals.onDecision(asked.at(action.decide) ?? "none", action.action);
     await settle();
 
     return decided;
