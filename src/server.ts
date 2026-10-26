@@ -116,7 +116,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
-  readonly setup = new Setup(this.ctx.storage.sql);
+  readonly setup = new Setup(this.ctx.storage);
   /** What the peer tool and Settings › Peers work with. */
   readonly peerDesk: PeerDesk = {
     peers: this.peers,
@@ -167,7 +167,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
-  readonly avatars = new Avatars(this.ctx.storage.sql);
+  readonly avatars = new Avatars(this.ctx.storage);
   /** Which specialists are in which chats, and their seats there. */
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
