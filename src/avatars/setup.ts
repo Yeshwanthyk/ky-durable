@@ -14,7 +14,7 @@ type Key = "repo" | "url" | "seeded" | "origin";
 
 const SetupRow = Schema.Struct({ value: Schema.String });
 
-const originOf = (page: string) => Effect.orDie(Effect.try(() => new URL(page).origin));
+const originOf = (page: string) => Effect.orDie(Effect.try({ try: () => new URL(page).origin, catch: (cause) => cause }));
 
 export class Places extends Context.Service<
   Places,
