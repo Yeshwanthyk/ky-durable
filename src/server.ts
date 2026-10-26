@@ -21,7 +21,7 @@ import { chatsExtension } from "./chats-tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse";
-import { ExecutorLink, executeOnce, executorExtension } from "./executor";
+import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
 import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
 import { uploadMedia } from "./media-upload";

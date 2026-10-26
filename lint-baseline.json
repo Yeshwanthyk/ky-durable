@@ -45,7 +45,7 @@
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 1
   },
-  "src/executor.ts": {
+  "src/executor/legacy/executor.ts": {
     "typescript(await-thenable)": 1,
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-member-access)": 2

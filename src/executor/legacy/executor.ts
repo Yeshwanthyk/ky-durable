@@ -12,9 +12,9 @@ import {
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
-import { toolReply } from "./core/reply";
-import type { ExecutorView } from "./protocol";
-import type { Vault } from "./vault";
+import { toolReply } from "../../core/reply";
+import type { ExecutorView } from "../../protocol";
+import type { Vault } from "../../vault";
 
 /**
  * Executor (v2.executor.sh) over MCP. Executor holds the accounts and turns
