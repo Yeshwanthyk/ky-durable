@@ -3,12 +3,12 @@ import * as Layer from "effect/Layer";
 import { makeEdge } from "../core/edge";
 import { isRefusal } from "../core/refusal";
 import { toolReply as reply } from "../core/reply";
-import { MAX_BYTES, MAX_FILES, MAX_SITES, SITE_TOOL, SiteArgs, type SiteFiles } from "./contract";
+import { MAX_BYTES, MAX_FILES, MAX_SITES, SITE_TOOL, SiteArgs, type SiteBucket, type SiteFiles } from "./contract";
 import { act } from "./sites";
 
 export { publicSiteRoute, siteRoute } from "./routes";
 
-export function siteExtension(chat: (session: string) => boolean, bucket: R2Bucket, workspace: { readonly fs: SiteFiles }, origin: () => string | null): Extension {
+export function siteExtension(chat: (session: string) => boolean, bucket: SiteBucket, workspace: { readonly fs: SiteFiles }, origin: () => string | null): Extension {
   const edge = makeEdge(Layer.empty);
   const host = { bucket, files: workspace.fs, origin };
 

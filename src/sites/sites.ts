@@ -16,6 +16,7 @@ import {
   type SiteArgs,
   type SiteFiles,
   siteKey,
+  type SiteBucket,
   type SiteMeta,
   type SiteRow,
   hidden,
@@ -27,17 +28,17 @@ import {
 
 const PAGE = 500;
 
-export type SiteHost = { readonly bucket: R2Bucket; readonly files: SiteFiles; readonly origin: () => string | null };
+export type SiteHost = { readonly bucket: SiteBucket; readonly files: SiteFiles; readonly origin: () => string | null };
 
-async function meta(bucket: R2Bucket, id: string): Promise<SiteMeta | undefined> {
+async function meta(bucket: SiteBucket, id: string): Promise<SiteMeta | undefined> {
   const object = await bucket.get(siteKey(id, META));
 
   return object ? metaOr(await object.text()) : undefined;
 }
 
-const siteIds = async (bucket: R2Bucket) => (await bucket.list({ prefix: "sites/", delimiter: "/" })).delimitedPrefixes.map((prefix) => prefix.slice("sites/".length, -1));
+const siteIds = async (bucket: SiteBucket) => (await bucket.list({ prefix: "sites/", delimiter: "/" })).delimitedPrefixes.map((prefix) => prefix.slice("sites/".length, -1));
 
-async function stored(bucket: R2Bucket): Promise<Array<{ id: string; site: SiteMeta }>> {
+async function stored(bucket: SiteBucket): Promise<Array<{ id: string; site: SiteMeta }>> {
   const all = [];
 
   for (const id of await siteIds(bucket)) {
@@ -49,17 +50,17 @@ async function stored(bucket: R2Bucket): Promise<Array<{ id: string; site: SiteM
   return all;
 }
 
-export async function listSites(bucket: R2Bucket): Promise<SiteRow[]> {
+export async function listSites(bucket: SiteBucket): Promise<SiteRow[]> {
   return (await stored(bucket)).map(({ id, site }) => ({ id, title: site.title, created: site.created, public: site.token !== undefined })).sort((a, b) => b.created - a.created);
 }
 
-const putMeta = (bucket: R2Bucket, id: string, value: SiteMeta) => bucket.put(siteKey(id, META), JSON.stringify(value));
+const putMeta = (bucket: SiteBucket, id: string, value: SiteMeta) => bucket.put(siteKey(id, META), JSON.stringify(value));
 
-async function keys(bucket: R2Bucket, id: string): Promise<string[]> {
+async function keys(bucket: SiteBucket, id: string): Promise<string[]> {
   return (await bucket.list({ prefix: siteKey(id, "") })).objects.map((object) => object.key);
 }
 
-async function store(bucket: R2Bucket, id: string, files: ReadonlyMap<string, Uint8Array>): Promise<void> {
+async function store(bucket: SiteBucket, id: string, files: ReadonlyMap<string, Uint8Array>): Promise<void> {
   for (const [path, body] of files) await bucket.put(siteKey(id, path), body);
   const kept = new Set([...files.keys(), META].map((path) => siteKey(id, path)));
   const stale = (await keys(bucket, id)).filter((key) => !kept.has(key));
@@ -135,14 +136,14 @@ const gather = (files: SiteFiles, { html, dir }: SiteArgs) =>
     return new Map([["index.html", page]]);
   });
 
-const find = (bucket: R2Bucket, id: string) =>
+const find = (bucket: SiteBucket, id: string) =>
   Effect.gen(function* () {
     const site = SITE_ID.test(id) ? yield* Effect.promise(() => meta(bucket, id)) : undefined;
 
     return site ?? (yield* new NoSite({ id }));
   });
 
-const target = (bucket: R2Bucket, id: string | undefined) =>
+const target = (bucket: SiteBucket, id: string | undefined) =>
   Effect.gen(function* () {
     if (id !== undefined) return { id, was: yield* find(bucket, id) };
 

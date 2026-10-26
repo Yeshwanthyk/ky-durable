@@ -1,4 +1,4 @@
-import { hidden, publicKey, SITE_ID, siteKey } from "./contract";
+import { hidden, publicKey, SITE_ID, type SiteBucket, siteKey, type SiteObject } from "./contract";
 import { EMBED_HEAD } from "./embed-theme";
 import { listSites } from "./sites";
 
@@ -61,7 +61,7 @@ function sitePath(rest: string): string | undefined {
   return path.split("/").includes("") || hidden(path) ? undefined : path;
 }
 
-async function serve(request: Request, bucket: R2Bucket, id: string, rest: string, open: boolean, embed = false): Promise<Response> {
+async function serve(request: Request, bucket: SiteBucket, id: string, rest: string, open: boolean, embed = false): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
   const path = sitePath(rest);
 
@@ -86,7 +86,7 @@ async function serve(request: Request, bucket: R2Bucket, id: string, rest: strin
   return new Response(html, { headers });
 }
 
-function headersFor(path: string, object: R2Object, open: boolean): Headers {
+function headersFor(path: string, object: SiteObject, open: boolean): Headers {
   const headers = new Headers({
     "Content-Type": TYPES.get(/\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "") ?? "application/octet-stream",
     "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
@@ -104,7 +104,7 @@ function headersFor(path: string, object: R2Object, open: boolean): Headers {
   return headers;
 }
 
-export function siteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
+export function siteRoute(request: Request, env: { readonly FILES: SiteBucket }, url: URL): Promise<Response> | undefined {
   if (url.pathname === "/api/sites") return request.method === "GET" ? listSites(env.FILES).then((sites) => Response.json(sites)) : Promise.resolve(new Response(null, { status: 405 }));
 
   if (!url.pathname.startsWith("/s/")) return undefined;
@@ -117,7 +117,7 @@ export function siteRoute(request: Request, env: Env, url: URL): Promise<Respons
   return serve(request, env.FILES, id, rest, false, url.searchParams.has("embed"));
 }
 
-export function publicSiteRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
+export function publicSiteRoute(request: Request, env: { readonly FILES: SiteBucket }, url: URL): Promise<Response> | undefined {
   if (!url.pathname.startsWith("/p/")) return undefined;
   const [, token, rest] = /^\/p\/([A-Za-z0-9_-]{22})(\/.*)?$/.exec(url.pathname) ?? [];
 

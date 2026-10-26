@@ -21,7 +21,7 @@ export const siteKey = (id: string, path: string) => `sites/${id}/${path}`;
 
 export const publicKey = (token: string) => `sites-public/${token}`;
 
-export const SiteMeta = Schema.Struct({ title: Schema.String, created: Schema.Number, token: Schema.optionalKey(Schema.String) });
+export const SiteMeta = Schema.StructWithRest(Schema.Struct({ title: Schema.String, created: Schema.Number, token: Schema.optionalKey(Schema.String) }), [Schema.Record(Schema.String, Schema.Unknown)]);
 
 export type SiteMeta = typeof SiteMeta.Type;
 
@@ -47,6 +47,26 @@ export interface SiteFiles {
   find(root: string, pattern: string, options: { limit: number; offset: number; exclude: string[] }): Promise<ReadonlyArray<{ readonly path: string; readonly type: string }>>;
   stat(path: string): Promise<{ readonly size: number }>;
   readFile(path: string): Promise<ReadableStream<Uint8Array>>;
+}
+
+export interface SiteObject {
+  readonly key: string;
+  readonly size: number;
+  readonly etag: string;
+  readonly httpEtag: string;
+}
+
+export interface SiteBody extends SiteObject {
+  readonly body: ReadableStream;
+  text(): Promise<string>;
+}
+
+export interface SiteBucket {
+  head(key: string): Promise<SiteObject | null>;
+  get(key: string): Promise<SiteBody | null>;
+  put(key: string, value: string | Uint8Array): Promise<SiteObject | null>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options: { prefix: string; delimiter?: string }): Promise<{ readonly objects: ReadonlyArray<SiteObject>; readonly delimitedPrefixes: ReadonlyArray<string> }>;
 }
 
 export class NotAChat extends Schema.TaggedError<NotAChat>()("NotAChat", {}) implements Refusable {
