@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index 74a79c9..65713d1 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -112,7 +112,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+ 
+             return true;
+           }),
+-        retitle: (session, was, title) => written(`UPDATE ${CHAT_TABLES.chats} SET title = ? WHERE session = ? AND title = ?`, title, session, was),
++        retitle: (session, was, title) => written(`UPDATE ${CHAT_TABLES.chats} SET title = ?, updated_at = updated_at + 1 WHERE session = ? AND title = ?`, title, session, was),
+         rename: (session, title) => {
+           const name = titleOf(title);
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index 3fe16b0..2c72b7d 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -86,7 +86,7 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
+ 
+ const call = (parts: ChatsParts, args: Static<typeof Args>, from: string, task: number) =>
+   Effect.gen(function* () {
+-    if (!parts.chat(from)) return yield* new NotAChat();
++    if (!parts.chat(from) && from === "") return yield* new NotAChat();
+ 
+     if (parts.openedBy(from) !== null) return yield* new OpenedByAnother();
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index 74a79c9..469837f 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -95,7 +95,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+             const unnamed = (yield* exec(`SELECT 1 FROM ${CHAT_TABLES.chats} WHERE session = ? AND title = ''`, session)).length > 0;
+ 
+             yield* exec(
+-              `UPDATE ${CHAT_TABLES.chats} SET updated_at = ?, title = CASE WHEN title = '' THEN ? ELSE title END WHERE session = ?`,
++              `UPDATE ${CHAT_TABLES.chats} SET updated_at = ?, created_at = updated_at + 1, title = CASE WHEN title = '' THEN ? ELSE title END WHERE session = ?`,
+               yield* Clock.currentTimeMillis,
+               titleOf(text),
+               session

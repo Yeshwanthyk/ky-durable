@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index 3fe16b0..1df2287 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -88,7 +88,7 @@ const call = (parts: ChatsParts, args: Static<typeof Args>, from: string, task:
+   Effect.gen(function* () {
+     if (!parts.chat(from)) return yield* new NotAChat();
+ 
+-    if (parts.openedBy(from) !== null) return yield* new OpenedByAnother();
++    if (parts.openedBy(from) === "") return yield* new OpenedByAnother();
+ 
+     if (args.action === "inspect" && args.chat === undefined) return yield* Effect.promise(() => list(parts, from));
+     const message = args.message?.trim() ?? "";

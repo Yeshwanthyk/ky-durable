@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index 74a79c9..4a4c228 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -77,7 +77,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+         has: (session) => Effect.map(exec(`SELECT 1 FROM ${CHAT_TABLES.chats} WHERE session = ?`, session), (found) => found.length > 0),
+         add: (session, opener) =>
+           Effect.gen(function* () {
+-            const now = yield* Clock.currentTimeMillis;
++            const now = (yield* Clock.currentTimeMillis) - 1;
+ 
+             yield* exec(
+               `INSERT OR IGNORE INTO ${CHAT_TABLES.chats} (session, created_at, updated_at, opened_by, opened_request) VALUES (?, ?, ?, ?, ?)`,
