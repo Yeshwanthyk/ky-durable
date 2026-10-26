@@ -38,6 +38,25 @@ against B, never against the PR before it.
 | W3-C | Machines | `mcp:0bc81c72-2230-4afa-95a3-159a58a4b3ad` | `effect/w3-machines` (from `effect/next-wave`) | dispatched | — |
 | W3-D | Cleanup of deploy, automations, skills (comments, dead code, tests through the ledger) | `mcp:4ea9e764-7b4b-470f-9413-1ee26dee7332` | `effect/cleanup-shipped` (from `effect/next-wave`) | dispatched | — |
 
+## Waves 4–8 (Fable 5.1 grouping of the flat `src/*.ts`, 2026-10-26)
+
+No flat file is dead. Five fold into a neighbour: cloud-facts → machines/contract, media-upload → media, file-types → files, executor-status → executor/contract, tables.ts → backup.
+
+| Wave | Domains (one writer each unless noted) | Waits on |
+|---|---|---|
+| 4 | foundation (one writer): settings (settings.ts), transcript.ts → core, pipe.ts + cloud-facts.ts → machines/; the rest of dreaming | machines merged; dreaming core merged |
+| 5 | files (files, file-types, container-tracks, media, media-upload, images) · chats (chats, chats-tool, titles) · mail · sites (sites, site-routes, embed-theme) · browse · access · avatars + setup (avatars, avatar-spec, setup, seeds, prompt) · history · push · cards (ui-blocks, ui-tool) | Wave 4 |
+| 6 | machines rest (sandboxes, runners) · executor (executor, executor-status) · workspace (workspace, guardrails) · providers (models, chatgpt) | files; history; settings + pipe |
+| 7 | vault (vault, github + github-tools merged, subscriptions) · cloud (cloud, uploads, sandbox-routes) · peers | executor, push, providers; machines rest |
+| 8 | backup (backup, archive, tables), then server.ts / sockets.ts split and protocol.ts consolidation (one writer) | every contract final |
+
+Rules for these waves:
+- protocol.ts: a writer adds one `export * from "./<domain>/contract"` line and nothing else; the COS merges.
+- Break cycles in the port that touches them: vault↔executor (a narrow type in executor/contract), github↔github-tools (merge), protocol↔client-messages (merge into protocol).
+- machines/contract.ts stops re-exporting DIFF_TYPE / MAX_DIFF_BYTES from files.ts; files/contract owns them (Wave 5 files).
+- server.ts:900-901 writes automations' tables directly; moves to automations wiring in Wave 8.
+- Shared schemas (protocol, client-messages, view, tool-labels, step-labels, server-frames) and the browser files (client.tsx, use-pi-session, asks, view-cache, outbox) are not domains; they change only as their domains need.
+
 ## Resumed (2026-10-25)
 
 Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branches kept). Next: each unit reports, then real-data restore, Fable 5.1 review, merge.
