@@ -64,5 +64,11 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "allows no lint findings in src/settings.ts",
+    "class": "SCAN",
+    "replacedBy": "test/invariants/lint-zones.test.ts > allows no lint findings in src/settings/"
   }
 ]

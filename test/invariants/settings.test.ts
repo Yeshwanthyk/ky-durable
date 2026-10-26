@@ -6,22 +6,13 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { type ModelChoice, nearestLevel } from "../../src/settings/contract";
 import { Settings } from "../../src/settings/wiring";
-import { nearestLevel as legacyNearest } from "../../src/settings/legacy/settings";
-import { assertParity, type Instance, type Json, type Parity } from "../parity/kit";
-import { legacyOf } from "../parity/settings/legacy";
-import { CATALOG, levelsOf, type Nearest, PURPOSES, type PurposeName, validOf } from "../parity/settings/reads";
+import { budget, type Json } from "../parity/kit";
+import { CATALOG, levelsOf, ORDER, PURPOSES, type PurposeName, validOf } from "../parity/settings/reads";
 import { storageOf } from "../parity/skills/storage";
-
-const ORDER: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 const PROVIDERS = ["workers-ai", "vibeproxy", "gone"];
 
 const MODELS = [...[...CATALOG.values()].flatMap((models) => [...models.keys()]), "retired"];
-
-type Side = Pick<Settings, "get" | "set" | "onChange">;
-
-type Action =
-  { readonly set: PurposeName; readonly choice: ModelChoice } | { readonly get: PurposeName } | { readonly connect: readonly string[] } | { readonly store: PurposeName; readonly raw: string };
 
 const aPurpose = fc.constantFrom(...PURPOSES);
 
@@ -48,15 +39,6 @@ const aRaw = fc.oneof(
   )
 );
 
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  { arbitrary: fc.record({ set: aPurpose, choice: aChoice }), weight: 4 },
-  { arbitrary: fc.record({ get: aPurpose }), weight: 3 },
-  { arbitrary: fc.record({ connect: fc.subarray(PROVIDERS) }), weight: 1 },
-  { arbitrary: fc.record({ store: aPurpose, raw: aRaw }), weight: 2 }
-);
-
-const hasExtra = (raw: string) => raw.includes('"extra"');
-
 const shown = (choice: ModelChoice | undefined): Json =>
   choice
     ? {
@@ -66,12 +48,12 @@ const shown = (choice: ModelChoice | undefined): Json =>
       }
     : null;
 
-function world(make: (db: DatabaseSync, valid: (choice: ModelChoice) => ModelChoice | undefined) => Side, nearest: Nearest) {
+function fresh() {
   const db = new DatabaseSync(":memory:");
   const state = { connected: new Set<string>(PROVIDERS) };
   const heard: Json[] = [];
 
-  const settings = make(db, (choice) => validOf(nearest, state.connected)(choice));
+  const settings = new Settings(storageOf(db), (choice) => validOf(nearestLevel, state.connected)(choice));
 
   settings.onChange((purpose, choice) => heard.push({ purpose, choice: shown(choice) }));
 
@@ -87,64 +69,7 @@ function world(make: (db: DatabaseSync, valid: (choice: ModelChoice) => ModelCho
   return { db, state, heard, settings, rows };
 }
 
-const legacySide = (db: DatabaseSync, valid: (choice: ModelChoice) => ModelChoice | undefined): Side => legacyOf(db, valid);
-
-const nextSide = (db: DatabaseSync, valid: (choice: ModelChoice) => ModelChoice | undefined): Side => new Settings(storageOf(db), valid);
-
-const fresh = () => world(nextSide, nearestLevel);
-
-async function instance(make: typeof legacySide, nearest: Nearest): Promise<Instance<Action>> {
-  const { db, state, heard, settings, rows } = world(make, nearest);
-
-  return {
-    apply: async (action) => {
-      if ("connect" in action) {
-        state.connected = new Set(action.connect);
-
-        return null;
-      }
-
-      if ("store" in action) {
-        db.prepare("INSERT INTO ky_purposes (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value").run(action.store, action.raw);
-
-        return null;
-      }
-
-      if ("get" in action) return shown(settings.get(action.get));
-
-      try {
-        return shown(settings.set(action.set, action.choice));
-      } catch (error) {
-        return {
-          refused: error instanceof Error ? error.message : String(error)
-        };
-      }
-    },
-    tables: async () => ({
-      schema: db
-        .prepare("SELECT sql FROM sqlite_master WHERE name LIKE 'ky_%' ORDER BY name")
-        .all()
-        .map((row) => String(row.sql)),
-      ky_purposes: rows()
-    }),
-    effects: async () => heard,
-    dispose: async () => db.close()
-  };
-}
-
-const settingsParity: Parity<Action> = {
-  domain: "settings",
-  actions,
-  legacy: async () => instance(legacySide, legacyNearest),
-  next: async () => instance(nextSide, nearestLevel),
-  divergences: [
-    {
-      name: "drops-extra-keys",
-      covers: (action) => "store" in action && hasExtra(action.raw),
-      heldBy: "test/invariants/settings.test.ts > keeps only a choice's provider, model and level, whatever else it carries"
-    }
-  ]
-};
+const RUNS = { numRuns: budget().numRuns * 4, seed: budget().seed };
 
 const distance = (a: ModelThinkingLevel, b: ModelThinkingLevel) => Math.abs(ORDER.indexOf(a) - ORDER.indexOf(b));
 
@@ -166,12 +91,6 @@ const parsed = (raw: string) => Option.getOrUndefined(Schema.decodeUnknownOption
 
 const keysOf = (raw: string) => Object.keys(Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))(raw)).sort();
 
-describe("settings parity", () => {
-  it("answers, stores and tells its listeners what B does, step for step", async () => {
-    await assertParity(settingsParity);
-  });
-});
-
 describe("a purpose's model", () => {
   it("refuses a model the connected providers don't offer in B's words, storing nothing and telling no one", () => {
     fc.assert(
@@ -184,7 +103,8 @@ describe("a purpose's model", () => {
         expect(rows()).toEqual([]);
         expect(heard).toEqual([]);
         db.close();
-      })
+      }),
+      RUNS
     );
   });
 
@@ -208,7 +128,8 @@ describe("a purpose's model", () => {
         expect(row?.purpose).toBe(purpose);
         expect(heard).toEqual([{ purpose, choice: shown(kept) }]);
         db.close();
-      })
+      }),
+      RUNS
     );
   });
 
@@ -228,7 +149,8 @@ describe("a purpose's model", () => {
 
         for (const purpose of PURPOSES) expect(settings.get(purpose)).toEqual(last.get(purpose));
         db.close();
-      })
+      }),
+      RUNS
     );
   });
 
@@ -251,7 +173,8 @@ describe("a purpose's model", () => {
 
         for (const other of PURPOSES.filter((each) => each !== purpose)) expect(settings.get(other)).toBeUndefined();
         db.close();
-      })
+      }),
+      RUNS
     );
   });
 
@@ -268,7 +191,8 @@ describe("a purpose's model", () => {
         db.prepare("UPDATE ky_purposes SET value = ? WHERE purpose = ?").run(JSON.stringify(carried), purpose);
         expect(Object.keys(settings.get(purpose) ?? {}).sort()).toEqual(keys);
         db.close();
-      })
+      }),
+      RUNS
     );
   });
 });

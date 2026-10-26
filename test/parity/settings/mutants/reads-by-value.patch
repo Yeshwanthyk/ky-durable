@@ -1,8 +1,8 @@
 diff --git a/src/settings/settings.ts b/src/settings/settings.ts
-index 1f64c2e..9460fb9 100644
+index 456d591..18a159e 100644
 --- a/src/settings/settings.ts
 +++ b/src/settings/settings.ts
-@@ -32,7 +32,7 @@ export class Purposes extends Context.Service<
+@@ -34,7 +34,7 @@ export class Purposes extends Context.Service<
  
          return Purposes.of({
            get: (purpose) =>

@@ -1,8 +1,8 @@
 diff --git a/src/settings/settings.ts b/src/settings/settings.ts
-index 0f594a4..9986a90 100644
+index 456d591..1453573 100644
 --- a/src/settings/settings.ts
 +++ b/src/settings/settings.ts
-@@ -36,7 +36,7 @@ export class Purposes extends Context.Service<
+@@ -38,7 +38,7 @@ export class Purposes extends Context.Service<
                Option.getOrUndefined(Option.flatMapNullishOr(Schema.decodeUnknownOption(PurposeRow)(row), (stored) => validOf(stored.value)))
              ),
            set: Effect.fnUntraced(function* (purpose, choice) {

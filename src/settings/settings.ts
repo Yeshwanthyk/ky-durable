@@ -27,8 +27,10 @@ export class Purposes extends Context.Service<
       Effect.gen(function* () {
         const sql = yield* Sql;
 
-        yield* Effect.orDie(sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (
-      purpose TEXT PRIMARY KEY, value TEXT NOT NULL)`));
+        yield* Effect.orDie(
+          sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (
+      purpose TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+        );
 
         return Purposes.of({
           get: (purpose) =>
@@ -40,9 +42,7 @@ export class Purposes extends Context.Service<
 
             if (!valid) return yield* new NotAvailable({ provider: choice.provider, modelId: choice.modelId });
             const value = yield* Effect.orDie(Schema.encodeEffect(Stored)(valid));
-            yield* Effect.orDie(
-              sql.exec(`INSERT INTO ${TABLE} (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value`, purpose, value)
-            );
+            yield* Effect.orDie(sql.exec(`INSERT INTO ${TABLE} (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value`, purpose, value));
 
             return { provider: valid.provider, modelId: valid.modelId, thinkingLevel: valid.thinkingLevel };
           })
