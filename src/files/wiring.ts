@@ -56,15 +56,8 @@ export class FileStore {
   }
 }
 
-async function answer<E extends Refusable & { readonly status: number }>(effect: Effect.Effect<Response, E>): Promise<Response> {
-  const edge = makeEdge(Layer.empty);
-
-  try {
-    return await edge.runPromise(effect.pipe(Effect.catch((refused) => Effect.succeed(reply(refused.status, refused.refusal)))));
-  } finally {
-    await edge.dispose();
-  }
-}
+const answer = <E extends Refusable & { readonly status: number }>(effect: Effect.Effect<Response, E>) =>
+  Effect.runPromise(effect.pipe(Effect.catch((refused) => Effect.succeed(reply(refused.status, refused.refusal)))));
 
 export const upload = (
   request: Request,

@@ -1,6 +1,5 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { UserInput } from "@earendil-works/pi-durable";
-import * as Schema from "effect/Schema";
 import type { Purpose, SettingsView } from "../settings";
 
 export type MediaKind = "audio" | "video";
@@ -149,7 +148,7 @@ export function imagesOf(input: UserInput): ImageContent[] {
 }
 
 export function checkInput(input: UserInput): string | null {
-  if (!Array.isArray(input)) return Schema.is(Schema.String)(input) ? null : "Send text, or text and images.";
+  if (!Array.isArray(input)) return null;
   const images = imagesOf(input);
 
   if (input.length === 0 || input.length - images.length > 1) return "Send one text part at most, and something.";

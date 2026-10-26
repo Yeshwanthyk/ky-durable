@@ -122,7 +122,3 @@ export class NoClip extends Schema.TaggedError<NoClip>()("NoClip", {}) implement
     return "Send the clip as the body";
   }
 }
-
-export type UploadRefused = WrongMethod | NoTask | NotAFileType | FileTooLarge | BadLabel | ShortBody | NotRecorded;
-
-export type MediaRefused = WrongMethod | NotAClip | ClipTooLarge | NoClip;
