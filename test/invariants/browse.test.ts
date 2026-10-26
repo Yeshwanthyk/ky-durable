@@ -21,15 +21,29 @@ type Stall = "launch" | "newPage" | "goto" | "evaluate" | "screenshot" | "none";
 
 const never = <A>() => new Promise<A>(() => undefined);
 
-function world(stall: Stall) {
-  const seen = { closes: 0, launch: () => {} };
+type Options = { gotoError?: string; failing?: string[]; text?: string; closeHangs?: boolean };
+
+function world(stall: Stall, options: Options = {}) {
+  const ran: string[] = [];
+  const seen = { closes: 0, transports: 0, ran, launch: () => {} };
+  let closed = () => {};
+
+  const act = (selector: string) => async () => {
+    seen.ran.push(selector);
+
+    if (options.failing?.includes(selector)) throw new Error(`no ${selector}`);
+  };
 
   const page: Page = {
-    goto: () => (stall === "goto" ? never() : Promise.resolve(null)),
+    goto: () => {
+      if (options.gotoError !== undefined) return Promise.reject(new Error(options.gotoError));
+
+      return stall === "goto" ? never() : Promise.resolve(null);
+    },
     waitForLoadState: async () => undefined,
-    evaluate: () => (stall === "evaluate" ? never() : Promise.resolve({ title: "A page", text: "Words", links: [] })),
+    evaluate: () => (stall === "evaluate" ? never() : Promise.resolve({ title: "A page", text: options.text ?? "Words", links: [] })),
     url: () => URL,
-    locator: () => ({ first: () => ({ click: async () => undefined, fill: async () => undefined, press: async () => undefined }) }),
+    locator: (selector) => ({ first: () => ({ click: act(selector), fill: act(selector), press: act(selector) }) }),
     context: () => ({
       newCDPSession: () =>
         stall === "screenshot" ? never() : Promise.resolve({ send: async () => ({ data: btoa("png") }), detach: async () => undefined })
@@ -38,7 +52,23 @@ function world(stall: Stall) {
 
   const browser: Browser = {
     newPage: () => (stall === "newPage" ? never() : Promise.resolve(page)),
-    close: async () => void seen.closes++
+    close: () => {
+      seen.closes++;
+
+      return options.closeHangs === true ? new Promise<void>((resolve) => (closed = resolve)) : Promise.resolve();
+    },
+    _connection: {
+      toImpl: () => ({
+        _connection: {
+          _transport: {
+            close: () => {
+              seen.transports++;
+              closed();
+            }
+          }
+        }
+      })
+    }
   };
 
   const launch: Launch = () =>
@@ -194,7 +224,90 @@ describe("browse answers in time", () => {
   });
 });
 
-function pdfBytes(padding: number): Uint8Array {
+describe("browse answers with what happened", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("I-B9: steps run in order until the first that fails, which answers with its number, action, selector and words", async () => {
+    const SELECTORS = ["#a", "#b", "#c", "#d"];
+    const step = fc.record({ do: fc.constantFrom("click", "fill", "press" as const), selector: fc.option(fc.constantFrom(...SELECTORS), { nil: undefined }) });
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(step, { maxLength: 6 }), fc.subarray(SELECTORS), async (steps, failing) => {
+        const { seen, launch } = world("none", { failing });
+        const result = await Effect.runPromise(browseCall(launch, { url: URL, steps }, save));
+        const first = steps.findIndex((each) => each.selector === undefined || failing.includes(each.selector));
+        const tried = first === -1 ? steps : steps.slice(0, first + 1);
+
+        expect(seen.ran).toEqual(tried.flatMap((each) => (each.selector === undefined ? [] : [each.selector])));
+        expect(seen.closes).toBe(1);
+
+        if (first === -1) {
+          expect(result.isError).toBe(false);
+
+          return;
+        }
+
+        const failed = tried[first];
+        const words = failed?.selector === undefined ? "needs a selector" : `no ${failed.selector}`;
+
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toBe(`Step ${first + 1} (${failed?.do} ${failed?.selector ?? ""}) failed: ${words}`);
+      }),
+      budget()
+    );
+  });
+
+  it("I-B10: a navigation that fails answers with the browser's words, unless they say a download started", async () => {
+    const words = fc
+      .oneof(fc.constantFrom("net::ERR_NAME_NOT_RESOLVED at https://example.com/story", "Timeout 30000ms exceeded."), fc.string({ minLength: 1 }))
+      .filter((said) => !said.includes("Download is starting") && !said.includes("net::ERR_ABORTED"));
+
+    await fc.assert(
+      fc.asyncProperty(words, async (said) => {
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 404 }));
+        const { seen, launch } = world("none", { gotoError: said });
+        const exit = await Effect.runPromise(Effect.exit(browseCall(launch, { url: URL }, save)));
+
+        expect(refusalOf(exit)).toEqual([said]);
+        expect(seen.closes).toBe(1);
+      }),
+      budget()
+    );
+  });
+
+  it("I-B11: text over 400,000 characters is cut there and says so, and text of 400,000 or fewer is whole", async () => {
+    const CAP = 400_000;
+
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(1, CAP - 1, CAP, CAP + 1, CAP + 5_000), async (length) => {
+        const text = "w".repeat(length);
+        const { launch } = world("none", { text });
+        const said = textOf(await Effect.runPromise(browseCall(launch, { url: URL }, save)));
+        const kept = length > CAP ? `${text.slice(0, CAP)}\n[cut at 400000 characters]` : text;
+
+        expect(said).toBe(`A page\n${URL}\n\n${kept}`);
+      }),
+      budget()
+    );
+  });
+
+  it("I-B12: a browser that won't close has its connection closed after 1s, and the call answers then", async () => {
+    await fc.assert(
+      fc.asyncProperty(toward(SECOND), async (advances) => {
+        const { seen, launch } = world("none", { closeHangs: true });
+        const { at, exit } = await onTestClock(answeredAt(browseCall(launch, { url: URL }, save), advances));
+
+        expect(exit !== undefined && Exit.isSuccess(exit)).toBe(true);
+        expect(at).toBe(crossing(advances, SECOND));
+        expect(seen.closes).toBe(1);
+        expect(seen.transports).toBe(1);
+      }),
+      budget()
+    );
+  });
+});
+
+function pdfBytes(padding: number): Uint8Array<ArrayBuffer> {
   const stream = "BT /F1 8 Tf 36 756 Td (Words) Tj ET";
 
   const objects = [
@@ -223,9 +336,9 @@ function pdfBytes(padding: number): Uint8Array {
 
 const TINY = pdfBytes(0);
 
-const sized = new Map<number, Uint8Array>();
+const sized = new Map<number, Uint8Array<ArrayBuffer>>();
 
-function pdfOf(size: number): Uint8Array {
+function pdfOf(size: number): Uint8Array<ArrayBuffer> {
   const known = sized.get(size);
 
   if (known) return known;
@@ -290,6 +403,35 @@ describe("browse reads only a PDF it can hold", () => {
         if (!pdf && contentType?.startsWith("text/html")) expect(said).toBe(`${URL} aborted its navigation in the browser, so browse can't read it.`);
         else if (!pdf) expect(said).toBe(`${URL} downloads a file that is neither a page nor a PDF, so browse can't read it.`);
         else expect(said).not.toMatch(/can't read it/);
+      }),
+      budget()
+    );
+  });
+
+  it("I-B7: a PDF fetch that fails is refused with its HTTP status, and one with no body says there is nothing to read", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 200, max: 599 }), fc.boolean(), async (status, empty) => {
+        const bodiless = empty || [204, 205, 304].includes(status);
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(bodiless ? null : TINY, { status, headers: { "content-type": "application/pdf" } }));
+        const exit = await Effect.runPromise(Effect.exit(pdfReply(URL, null, { url: URL })));
+        const said = Exit.isSuccess(exit) ? textOf(exit.value) : refusalOf(exit).join();
+
+        if (status < 200 || status > 299) expect(said).toBe(`fetching the PDF answered HTTP ${status}`);
+        else if (bodiless) expect(said).toBe(`${URL} answered HTTP ${status} with nothing to read.`);
+        else expect(said).toBe(`story\n${URL} (PDF, 1 page)\n\nWords`);
+      }),
+      budget()
+    );
+  });
+
+  it("I-B8: a PDF still unread at 20s answers then that reading it took too long", async () => {
+    await fc.assert(
+      fc.asyncProperty(toward(20 * SECOND), async (advances) => {
+        vi.spyOn(globalThis, "fetch").mockImplementation(() => never());
+        const { at, exit } = await onTestClock(answeredAt(pdfReply(URL, null, { url: URL }), advances));
+
+        expect(refusalOf(exit)).toEqual(["reading the PDF took longer than 20s"]);
+        expect(at).toBe(crossing(advances, 20 * SECOND));
       }),
       budget()
     );

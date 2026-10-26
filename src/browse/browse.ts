@@ -55,9 +55,9 @@ const StepParameter = Type.Object({
   value: Type.Optional(Type.String({ description: "fill: the text. press: a key like Enter. wait: milliseconds." }))
 });
 
-export type Shown = { headers(): Record<string, string>; body(): Promise<Uint8Array> };
+type Shown = { headers(): Record<string, string>; body(): Promise<Uint8Array> };
 
-export type Response = Shown & { ok(): boolean; status(): number; url(): string };
+type Response = Shown & { ok(): boolean; status(): number; url(): string };
 
 type Locator = {
   click(options: { timeout: number }): Promise<void>;
@@ -87,7 +87,7 @@ export type Browser = {
 
 export type Launch = () => Promise<Browser>;
 
-export type Save = (png: Uint8Array) => Promise<string>;
+type Save = (png: Uint8Array) => Promise<string>;
 
 const failed = (cause: unknown) => new Failed({ said: cause instanceof Error ? cause.message : String(cause) });
 
@@ -166,7 +166,7 @@ export function keepShots(result: Reply, save: Save) {
 
 function browse(launch: Launch, args: Args) {
   return Effect.acquireUseRelease(
-    Effect.sync(launch),
+    Effect.try({ try: launch, catch: failed }),
     (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),
     (launching) =>
       Effect.forkDetach(Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.ignore)).pipe(
@@ -300,7 +300,7 @@ function fetchPdf(url: string, downloaded: boolean) {
     const contentType = response.headers.get("content-type") ?? undefined;
 
     return yield* Effect.acquireUseRelease(
-      Effect.sync(() => body.getReader()),
+      Effect.try({ try: () => body.getReader(), catch: failed }),
       (reader) => download(reader, url, downloaded, contentType),
       (reader) => Effect.tryPromise(() => reader.cancel()).pipe(Effect.ignore)
     );

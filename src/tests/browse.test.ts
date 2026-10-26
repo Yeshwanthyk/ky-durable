@@ -2,12 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Effect from "effect/Effect";
 import { keepShots, pdfReply } from "../browse/browse";
 
-/**
- * The browse tool's PDF reply (src/browse.ts), on the Worker runtime unpdf runs on: what counts as a PDF,
- * the text, title and page count of one the browser showed or downloaded, and the 15 MB cap.
- */
-
-/** A PDF with one page per string, each line of it a line of the page, titled `title` when given. */
 function pdf(pages: string[], title?: string): Uint8Array<ArrayBuffer> {
   const pageIds = pages.map((_, index) => 4 + index * 2);
 
@@ -48,7 +42,6 @@ const text = (result: { output?: Array<{ type: string; text?: string }> }) => (r
 
 const MB = 1024 * 1024;
 
-/** The browser's response for a PDF it showed: `bytes`, declared as `length` bytes (none when null), sent in `encoding`. */
 function shown(bytes: Uint8Array, length: number | null = bytes.length, encoding = "identity") {
   const type = { "content-type": "application/pdf", "content-encoding": encoding };
   const headers = length === null ? type : { ...type, "content-length": String(length) };
@@ -79,14 +72,6 @@ describe("browse reads a PDF", () => {
       "notes.pdf\nhttps://example.com/papers/notes.pdf (PDF, 1 page)\n\n" +
         "Steps and screenshot don't apply to a PDF, so they were skipped.\n\nOnly page"
     );
-  });
-
-  it("keeps long text whole past the old 20,000 characters, for guardrails to spill", async () => {
-    const page = Array.from({ length: 60 }, () => "word ".repeat(15).trim()).join("\n");
-    const result = await run(pdfReply("https://example.com/long.pdf", shown(pdf(Array.from({ length: 40 }, () => page))), plain));
-
-    expect(text(result)).toMatch(/\(PDF, 40 pages\)\n\n[word \n]{170000,}$/);
-    expect(text(result)).not.toContain("[cut at");
   });
 
   it("downloads a PDF the browser downloaded instead of showing, and knows it by its first bytes", async () => {
@@ -135,12 +120,6 @@ describe("browse reads a PDF", () => {
       "https://example.com/archive downloads a file that is neither a page nor a PDF, so browse can't read it."
     );
     expect(pulled).toBeLessThan(4);
-  });
-
-  it("says when the URL answers with nothing to read", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
-
-    expect(text(await run(pdfReply("https://example.com/empty", null, plain)))).toBe("https://example.com/empty answered HTTP 204 with nothing to read.");
   });
 });
 

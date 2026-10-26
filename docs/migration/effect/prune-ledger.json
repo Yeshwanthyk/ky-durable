@@ -94,5 +94,17 @@
     "name": "browse reads a PDF stops reading a PDF when the call is stopped",
     "class": "UNIT",
     "replacedBy": "test/invariants/browse.test.ts > I-B3: a stop answers at once with its reason, and the browser closes once"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF keeps long text whole past the old 20,000 characters, for guardrails to spill",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B11: text over 400,000 characters is cut there and says so, and text of 400,000 or fewer is whole"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says when the URL answers with nothing to read",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B7: a PDF fetch that fails is refused with its HTTP status, and one with no body says there is nothing to read"
   }
 ]
