@@ -218,7 +218,7 @@ const aTaggedClip: fc.Arbitrary<MediaClip> = fc.constantFrom<"audio" | "video">(
 
 const aSmallImage = fc.record({
   type: fc.constant<"image">("image"),
-  data: fc.oneof({ arbitrary: fc.constant("QUJD"), weight: 6 }, { arbitrary: fc.constantFrom(...B64), weight: 1 }),
+  data: fc.oneof({ arbitrary: fc.constant("QUJD"), weight: 4 }, { arbitrary: fc.constant("QUJD".repeat(40_000)), weight: 3 }, { arbitrary: fc.constantFrom(...B64), weight: 1 }),
   mimeType: fc.oneof({ arbitrary: fc.constant("image/png"), weight: 6 }, { arbitrary: fc.constantFrom("image/jpeg", "image/bmp"), weight: 1 })
 });
 
