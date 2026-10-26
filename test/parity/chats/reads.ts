@@ -6,9 +6,9 @@ type ChatReads = {
   openedBy(session: string): string | null;
 };
 
-export const SESSIONS = ["2", "3", "4", "5", "6", "9"];
+const SESSIONS = ["2", "3", "4", "5", "6", "9"];
 
-export const REQUESTS = ["chat-create:1:7", "chat-create:3:1", "chat-create:1:8", "none"];
+const REQUESTS = ["chat-create:1:7", "chat-create:3:1", "chat-create:1:8", "none"];
 
 export function readsOf(chats: ChatReads) {
   return {

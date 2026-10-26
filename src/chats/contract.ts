@@ -46,5 +46,3 @@ export class NotOpenedHere extends Schema.TaggedError<NotOpenedHere>()("NotOpene
     return `No chat ${JSON.stringify(this.chat)} that this chat opened: inspect lists them.`;
   }
 }
-
-export type ChatsRefusal = NotAChat | OpenedByAnother | NothingToStart | NothingToSteer | NotOpenedHere;

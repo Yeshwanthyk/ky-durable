@@ -40,7 +40,7 @@ interface ChatStore {
   readonly archive: (session: string, archived: boolean) => Effect.Effect<boolean>;
 }
 
-export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
   static readonly layer = Layer.effect(Chats)(
     Effect.gen(function* () {
       const sql = yield* Sql;
