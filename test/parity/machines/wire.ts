@@ -45,6 +45,8 @@ type Json = Schema.Json;
 
 const json = (depth?: number) => fc.jsonValue({ maxDepth: depth }).map(Schema.decodeUnknownSync(Schema.Json));
 
+const isNumber = Schema.is(Schema.Number);
+
 const isList = Schema.is(Schema.Array(Schema.Json));
 
 const isObject = Schema.is(Schema.Record(Schema.String, Schema.Json));
@@ -61,13 +63,15 @@ function pathsOf(value: Json | undefined, at: Path = []): Path[] {
   return [at];
 }
 
-type Edit = { readonly pick: number; readonly how: "drop" | "set" | "add"; readonly to: Json };
+type Edit = { readonly pick: number; readonly how: "drop" | "set" | "add" | "nudge"; readonly to: Json };
 
 function edited(value: Json | undefined, path: Path, edit: Edit): Json | undefined {
   const [step, ...rest] = path;
 
   if (step === undefined) {
     if (edit.how === "set") return edit.to;
+
+    if (edit.how === "nudge" && isNumber(value)) return value + (isNumber(edit.to) && edit.to < 0 ? -1 : 1);
 
     if (edit.how === "add" && !isList(value) && isObject(value)) return Object.fromEntries([...Object.entries(value), ["extra", edit.to]]);
 
@@ -89,7 +93,7 @@ function edited(value: Json | undefined, path: Path, edit: Edit): Json | undefin
   return value;
 }
 
-const edit: fc.Arbitrary<Edit> = fc.record({ pick: fc.nat(), how: fc.constantFrom("drop" as const, "set" as const, "add" as const), to: fc.oneof(fc.constantFrom(...EDGES), json(1)) });
+const edit: fc.Arbitrary<Edit> = fc.record({ pick: fc.nat(), how: fc.constantFrom("drop" as const, "set" as const, "add" as const, "nudge" as const), to: fc.oneof(fc.constantFrom(...EDGES), json(1)) });
 
 export const texts = (seeds: Json[]): fc.Arbitrary<{ value: Json | undefined; text: string }> =>
   fc.oneof(

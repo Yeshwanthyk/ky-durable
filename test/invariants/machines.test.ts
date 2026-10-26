@@ -265,6 +265,40 @@ describe("the port's refusals", () => {
         expect(await run(port.pairedAs("mini", offered))).toBe(false);
       });
     }));
+
+  it("keeps a task on its machine once it has gone out there, in B's words", () =>
+    property(fc.boolean(), async (delivered) => {
+      await portWith(async (harness) => {
+        const { port, run, world } = harness;
+        await run(port.paired("mini", FACTS, "p1"));
+        await run(port.paired("box", FACTS, "p2"));
+
+        if (delivered) await hello(harness, "c1");
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude"));
+        await run(port.deliver("mini"));
+        // SAFETY: start made the task.
+        const said = await run(port.move(world.feed.get("t1")!, "box"));
+
+        expect(said).toBe(delivered ? "t1 has already run on mini, and its session lives there, so it stays. Start a new task on box with what it needs." : null);
+        expect(world.feed.get("t1")?.worker).toBe(delivered ? "mini" : "box");
+      });
+    }));
+
+  it("moves a task only to a machine that has its agent, in B's words", () =>
+    property(fc.constantFrom("claude" as const, "codex" as const), fc.boolean(), async (agent, installed) => {
+      await portWith(async (harness) => {
+        const { port, run, world } = harness;
+        await run(port.paired("mini", FACTS, "p1"));
+        await run(port.paired("box", { ...FACTS, agents: { ...FACTS.agents, [agent]: { installed, signedIn: installed } } }, "p2"));
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", agent));
+        const name = agent === "claude" ? "Claude Code" : "Codex";
+        // SAFETY: start made the task.
+        const said = await run(port.move(world.feed.get("t1")!, "box"));
+
+        expect(said).toBe(installed ? null : `box cannot run ${name}: it is not installed there. t1 runs as ${name}, so it stays.`);
+        expect(world.feed.get("t1")?.worker).toBe(installed ? "box" : "mini");
+      });
+    }));
 });
 
 describe("the port's time is the Clock's", () => {
@@ -384,7 +418,7 @@ const steps: fc.Arbitrary<Step[]> = fc.array(
     { weight: 1, arbitrary: fc.record({ do: fc.constant("login" as const), login: fc.constantFrom("own" as const, "ky" as const) }) },
     { weight: 1, arbitrary: fc.record({ do: fc.constant("tick" as const), ms: fc.constantFrom(1_000, 60_000) }) }
   ),
-  { maxLength: budget().maxCommands }
+  { maxLength: budget().maxCommands, size: "max" }
 );
 
 type Runner = { readonly ran: number[]; readonly acked: Set<number>; readonly resent: number[]; readonly lateChanged: string[] };
@@ -411,7 +445,7 @@ async function drive(harness: Harness, run: readonly Step[]): Promise<Runner> {
 
   for (const step of run) {
     const row = "task" in step ? world.feed.get(step.task) : undefined;
-    const turns = "task" in step ? world.rows("SELECT turn, closed FROM ky_machine_turns WHERE task = ?", step.task)[0] : undefined;
+    const turns = "task" in step ? world.rows("SELECT turn, closed, sent FROM ky_machine_turns WHERE task = ?", step.task)[0] : undefined;
 
     switch (step.do) {
       case "start":
@@ -450,7 +484,18 @@ async function drive(harness: Harness, run: readonly Step[]): Promise<Runner> {
       }
 
       case "result":
-        if (turns) await harness.run(port.onReport("mini", { type: "result", task: step.task, turn: Number(turns.turn), ok: step.ok, text: "Ended.", session: "r1", agent: "claude" }, `c${connections}`));
+        if (turns && Number(turns.sent) >= Number(turns.turn)) {
+          // SAFETY: the world records each frame as its connection and the command sent.
+          const commands = world.effects.runner.map((effect) => (effect as { command: { seq: number; type: string; task: string } }).command);
+
+          for (const { seq } of commands.filter((command) => command.type === "run" && command.task === step.task && !runner.acked.has(command.seq))) {
+            runner.acked.add(seq);
+            await harness.run(port.onReport("mini", { type: "ack", seq }, `c${connections}`));
+          }
+
+          await harness.run(port.onReport("mini", { type: "result", task: step.task, turn: Number(turns.turn), ok: step.ok, text: "Ended.", session: "r1", agent: "claude" }, `c${connections}`));
+        }
+
         break;
       case "late":
         if (turns && Number(turns.closed) > 0) {
@@ -580,6 +625,24 @@ describe("the port's stored rows", () => {
       const { ky_machine_inbox, ran } = await stored(run);
 
       for (const row of ky_machine_inbox) expect([row.seq, row.sent]).toEqual([row.seq, ran.includes(row.seq) ? 1 : 0]);
+    }));
+
+  it("keeps the turn a task was asked to stop, so its failed result ends it stopped", () =>
+    property(fc.boolean(), async (stopped) => {
+      await portWith(async (harness) => {
+        const { port, run, world } = harness;
+        await run(port.paired("mini", FACTS, "p1"));
+        await hello(harness, "c1");
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude"));
+        await run(port.deliver("mini"));
+
+        // SAFETY: start made the task.
+        if (stopped) await run(port.stop(world.feed.get("t1")!));
+        await run(port.onReport("mini", { type: "result", task: "t1", turn: 1, ok: false, text: "Ended.", session: null, agent: "claude" }, "c1"));
+
+        expect(world.rows("SELECT stopping FROM ky_machine_turns WHERE task = 't1'")).toEqual([{ stopping: stopped ? 1 : 0 }]);
+        expect(world.feed.get("t1")?.status).toBe(stopped ? "stopped" : "failed");
+      });
     }));
 
   it("keeps each task's turns in order: closed, sent and stopping at most its latest", () =>
