@@ -134,7 +134,7 @@ export class PiAgent extends DurableObject<Env> {
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   /** ky's own mail (src/mail.ts). */
-  readonly mailBox = new MailBox(this.ctx.storage.sql);
+  readonly mailBox = new MailBox(this.ctx.storage);
   /** What the mail tool, the email handler and Settings › Mail work with. */
   readonly mailDesk: MailDesk = {
     box: this.mailBox,
