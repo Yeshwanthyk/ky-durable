@@ -42,7 +42,9 @@ const DOMAINS = {
   avatars: /avatar|setup|seeds?|prompt/i,
   history: /history/i,
   push: /\bpush\b|notif/i,
-  cards: /ui-blocks|ui-tool|\bcards?\b/i
+  cards: /ui-blocks|ui-tool|\bcards?\b/i,
+  memory: /memory|recall|episode/i,
+  anticipations: /anticipation|surfaced|proactiv|dreaming\/decide|presence|looks/i
 } satisfies Record<string, RegExp>;
 
 type Domain = keyof typeof DOMAINS;
