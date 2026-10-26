@@ -1,5 +1,5 @@
 diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
-index 276e4ea..cc74858 100644
+index de99d7f..5e6e810 100644
 --- a/src/inbound/inbound.ts
 +++ b/src/inbound/inbound.ts
 @@ -217,7 +217,7 @@ class Store extends Context.Service<
@@ -10,4 +10,4 @@ index 276e4ea..cc74858 100644
 +          const keys = [...(found.signed && delivery.delivery === null ? [`signature:${delivery.signature}`] : []), ...(delivery.delivery === null ? [] : [`delivery:${delivery.delivery}`])];
  
            yield* exec(`DELETE FROM ${SEEN} WHERE at < ?`, now - SEEN_MS);
-           const seen = yield* Effect.forEach(keys, (key) => rows(Seen, `SELECT key FROM ${SEEN} WHERE hook = ? AND key = ?`, id, key));
+           const seen = keys.length > 0 ? yield* rows(Seen, `SELECT key FROM ${SEEN} WHERE hook = ? AND key IN (${keys.map(() => "?").join(", ")})`, id, ...keys) : [];
