@@ -1,17 +1,12 @@
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import Type from "typebox";
-import { decodeOr } from "../core/decode";
 import { toolReply as reply } from "../core/reply";
 import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SECRET_NAME } from "./credentials";
 import { SchemeSchema } from "./shapes";
 import { HOOK_TURN_TOOLS, type Inbound, type SecretCall } from "./inbound";
-
-/**
- * The credential tools, and the guard on a chat working on a webhook. ky asks for a credential (request_secret),
- * lists the ones it has (list_secrets), and calls an API with one (secret_request), but never sees one: the Vault
- * makes the call and redacts what comes back.
- */
 
 const RequestSecret = Type.Object({
   name: Type.String({ pattern: SECRET_NAME.source, description: "What to call it, like GITHUB_TOKEN: a letter, then letters, digits, _ and -." }),
@@ -31,10 +26,8 @@ const SecretRequest = Type.Object({
   body: Type.Optional(Type.String())
 });
 
-/** The methods secret_request makes without asking: they read, and change nothing. */
 const READS = new Set(["GET", "HEAD"]);
 
-/** Credentials are only a chat's: elsewhere no user sees the field or the approval, so the tools refuse. */
 const NOT_A_CHAT = "Only a chat with the user can use credentials.";
 
 export function inboundTools(inbound: Inbound): Extension {
@@ -118,11 +111,6 @@ export function inboundTools(inbound: Inbound): Extension {
   });
 }
 
-/**
- * A call with a credential that changes something: asked of the user, and the turn ends until they decide. The card
- * shows what goes with it, the headers and body the model wrote, so a run can't carry what it read out in a body the
- * user doesn't see; and, from a webhook's run, says so.
- */
 async function askToCall(inbound: Inbound, call: SecretCall, conversation: string, args: JsonObject) {
   const summary = `${call.method} ${call.url} with ${call.name}${await sentWith(inbound, call)}${call.guarded ? WHILE_ON_HOOK : ""}`;
 
@@ -142,10 +130,6 @@ async function askToCall(inbound: Inbound, call: SecretCall, conversation: strin
   };
 }
 
-/**
- * A run working on a webhook's outside data calls only HOOK_TURN_TOOLS without asking. Any other call is blocked and
- * asked of the user as an approval; approved, it gets one pass, for that tool with exactly those arguments.
- */
 export function hookGuard(inbound: Inbound): Extension {
   return defineExtension({
     name: "hook-guard",
@@ -185,22 +169,15 @@ export function hookGuard(inbound: Inbound): Extension {
   });
 }
 
-/** A call's arguments as its card shows them: enough of them to judge what the user is saying yes to. */
 const BRIEF_CHARS = 600;
 
-/** The header a kept credential goes in, as its Vault meta says: null for bearer and basic, which use Authorization. */
-const KeptHeader = Type.Object({ header: Type.Union([Type.String(), Type.Null()]) });
+const keptHeaderOf = Schema.decodeUnknownOption(Schema.Struct({ header: Schema.NullOr(Schema.String) }));
 
-/** What a card asked from a run on a webhook's data adds to its summary. */
 const WHILE_ON_HOOK = ", while working on a webhook";
 
-/**
- * The headers and body a call sends besides the credential, briefly; empty when it sends none. Any header the model
- * named as the credential's own is left out: the Vault puts the credential there in its place.
- */
 async function sentWith(inbound: Inbound, call: SecretCall): Promise<string> {
   const meta = (await inbound.desk.vault().status()).find((secret) => secret.kind === HTTP_KIND && secret.id === call.name)?.meta;
-  const own = (decodeOr(KeptHeader, meta, null)?.header ?? "Authorization").toLowerCase();
+  const own = Option.getOrElse(Option.flatMapNullishOr(keptHeaderOf(meta), (kept) => kept.header), () => "Authorization").toLowerCase();
   const headers = Object.fromEntries(Object.entries(call.headers).filter(([key]) => key.toLowerCase() !== own));
   const sent: JsonObject = {};
 
