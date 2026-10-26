@@ -10,5 +10,5 @@
     // cli/binary.ts embeds the release with an import attribute.
     "module": "esnext"
   },
-  "include": ["cli/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "src/tests/frames.ts", "src/tests/fake-access.ts", "vite.config.ts", "wrangler-overlay.ts", "env.optional.d.ts"]
+  "include": ["cli/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "src/tests/frames.ts", "src/tests/fake-access.ts", "vite.config.ts", "wrangler-overlay.ts", "env.d.ts", "env.optional.d.ts"]
 }
