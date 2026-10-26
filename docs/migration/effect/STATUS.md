@@ -38,6 +38,24 @@ against B, never against the PR before it.
 | W3-C | Machines | `mcp:0bc81c72-2230-4afa-95a3-159a58a4b3ad` | `effect/w3-machines` (from `effect/next-wave`) | dispatched | — |
 | W3-D | Cleanup of deploy, automations, skills (comments, dead code, tests through the ledger) | `mcp:4ea9e764-7b4b-470f-9413-1ee26dee7332` | `effect/cleanup-shipped` (from `effect/next-wave`) | dispatched | — |
 
+## Waves 4–5 dispatched (2026-10-26)
+
+Owner: Wave 5 all in parallel. Wave 5 started alongside Wave 4: only images (settings), history (transcript) and push (dreaming/contract) touch Wave 4 or in-flight code, as import lines. Shared brief: WRITER-BRIEF.md. Cleanup merged d58c766; its worktree removed.
+
+| Unit | Thread | Branch | State |
+|---|---|---|---|
+| W4 foundation | `mcp:17744dbe-5fd3-48dc-9876-7807570ca9ca` | `effect/w4-foundation` | dispatched |
+| W5 files | `mcp:f3655a92-8e5e-41cb-8fb8-6cd2b662f59c` | `effect/w5-files` | dispatched |
+| W5 chats | `mcp:ac365f6d-f379-4337-9c4b-524587ed6218` | `effect/w5-chats` | dispatched |
+| W5 mail | `mcp:3dda23a3-a07d-46f5-9b01-d254332a90cc` | `effect/w5-mail` | dispatched |
+| W5 sites | `mcp:f8d045e0-d875-4637-b2e4-1045c1baf1a0` | `effect/w5-sites` | dispatched |
+| W5 browse | `mcp:1e50bc0c-4175-4fa8-ad46-2fdb53c24e60` | `effect/w5-browse` | dispatched |
+| W5 access | `mcp:33eed12e-2acd-4330-ba93-380174f99ac8` | `effect/w5-access` | dispatched |
+| W5 avatars | `mcp:68476470-5968-49f3-87b2-5a0c4410ee84` | `effect/w5-avatars` | dispatched |
+| W5 history | `mcp:c051a13a-8282-4868-b972-ffc176946064` | `effect/w5-history` | dispatched |
+| W5 push | `mcp:1556d2cc-2638-4593-a9b8-7769b7f91d2d` | `effect/w5-push` | dispatched |
+| W5 cards | `mcp:be10a1ef-3a1e-4883-ac69-f3fd96bdf74a` | `effect/w5-cards` | dispatched |
+
 ## Waves 4–8 (Fable 5.1 grouping of the flat `src/*.ts`, 2026-10-26)
 
 No flat file is dead. Five fold into a neighbour: cloud-facts → machines/contract, media-upload → media, file-types → files, executor-status → executor/contract, tables.ts → backup.
