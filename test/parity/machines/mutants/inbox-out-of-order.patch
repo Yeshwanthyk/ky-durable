@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..83b1dd7 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -285,7 +285,7 @@ const make = Effect.gen(function* () {
+     Effect.gen(function* () {
+       const commands: Pending[] = [];
+ 
+-      for (const row of yield* rows(InboxRow, "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? ORDER BY seq", machine)) {
++      for (const row of yield* rows(InboxRow, "SELECT seq, payload FROM ky_machine_inbox WHERE machine = ? ORDER BY seq DESC", machine)) {
+         const command = queuedOf(row.payload);
+ 
+         if (Option.isSome(command)) {

@@ -102,7 +102,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
   readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(
-    this.ctx.storage.sql,
+    this.ctx.storage,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
     this.files,

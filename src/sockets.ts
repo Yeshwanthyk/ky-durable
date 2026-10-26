@@ -16,6 +16,7 @@ import Type from "typebox";
 import { Guard } from "typebox/guard";
 import { ClientMessageSchema, refusedFrame } from "./client-messages";
 import { decodeOr, parseOr } from "./core/decode";
+import { isRefusal } from "./core/refusal";
 import {
   decodeReport,
   isPipeReport,
@@ -958,7 +959,9 @@ export class PiSessionSockets {
       if (message.note !== undefined) change.note = message.note;
 
       if (message.login !== undefined) change.login = message.login;
-      this.#hub.configure(message.machine, change);
+      const changed = this.#hub.change(message.machine, change);
+
+      if (isRefusal(changed)) throw new Error(changed.refused);
 
       return null;
     },

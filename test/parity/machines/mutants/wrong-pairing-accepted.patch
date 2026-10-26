@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..91a00d8 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -800,7 +800,7 @@ const make = Effect.gen(function* () {
+ 
+     turnsEnded: (machine: string) => Effect.map(rows(TurnsEndedRow, "SELECT turns_ended FROM ky_machines WHERE name = ?", machine), (all) => all[0]?.turns_ended ?? 0),
+ 
+-    pairedAs: (machine: string, pairing: string | undefined) => (pairing === undefined ? Effect.succeed(false) : Effect.map(pairingOf(machine), (live) => live === pairing)),
++    pairedAs: (machine: string, pairing: string | undefined) => (pairing === undefined ? Effect.succeed(false) : Effect.map(pairingOf(machine), (live) => live !== null)),
+ 
+     onReport: (machine: string, report: TaskReport, connection: string): Effect.Effect<void> => {
+       switch (report.type) {

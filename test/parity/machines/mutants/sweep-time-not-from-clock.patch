@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..3c8eb52 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -657,7 +657,7 @@ const make = Effect.gen(function* () {
+         Effect.gen(function* () {
+           const over: string[] = [];
+ 
+-          for (const task of feed.closedSince("machine", (yield* now) - ISSUED_TTL_MS)) if (yield* isOver(task)) over.push(task);
++          for (const task of feed.closedSince("machine", Date.now() - ISSUED_TTL_MS)) if (yield* isOver(task)) over.push(task);
+ 
+           yield* vault(() => tokens.revokeAll(over));
+         })

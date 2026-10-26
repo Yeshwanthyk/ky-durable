@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..5bdd325 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -633,7 +633,7 @@ const make = Effect.gen(function* () {
+ 
+     configure: (name: string, change: MachineChange) =>
+       Effect.gen(function* () {
+-        if (!(yield* info(name))) return yield* new NoMachine({ name });
++        if (false) return yield* new NoMachine({ name });
+ 
+         if (change.state !== undefined && !isMachineState(change.state)) return yield* new NotAState({ state: change.state });
+ 

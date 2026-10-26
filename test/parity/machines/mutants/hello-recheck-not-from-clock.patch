@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..ef5057b 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -553,7 +553,7 @@ const make = Effect.gen(function* () {
+   const onHello = (machine: string, connection: string, active: readonly string[], facts: MachineFacts) =>
+     Effect.gen(function* () {
+       yield* exec("UPDATE ky_machines SET seen_at = ?, facts = ?, hello = ?, reason = NULL WHERE name = ?", yield* now, JSON.stringify(facts), connection, machine);
+-      host.recheckAt((yield* now) + ONLINE_WITHIN_MS + 1_000);
++      host.recheckAt(Date.now() + ONLINE_WITHIN_MS + 1_000);
+       const unacked = new Set((yield* pending(machine)).flatMap((command) => (command.type === "run" ? [command.task] : [])));
+       const lost = feed.open("machine", machine).filter((task) => !unacked.has(task.id) && !active.includes(task.id));
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/machines/runner-protocol.ts b/src/machines/runner-protocol.ts
+index dce08cf..e4e7d8d 100644
+--- a/src/machines/runner-protocol.ts
++++ b/src/machines/runner-protocol.ts
+@@ -38,7 +38,7 @@ const RunCredsSchema = Schema.Struct({
+ 
+ const Headers = Schema.Record(Schema.String, Schema.String);
+ 
+-const Port = Integer.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }));
++const Port = Integer.check(Schema.isBetween({ minimum: 1, maximum: 65_536 }));
+ 
+ const RunCommandSchema = Schema.Struct({
+   type: Schema.Literal("run"),

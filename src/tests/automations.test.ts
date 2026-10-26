@@ -654,7 +654,7 @@ describe("automations", () => {
     const name = crypto.randomUUID();
     const first = await runner(name);
     first.socket.close();
-    await inside(name, (instance) => instance.machines.configure("mac", { state: "paused" }));
+    await inside(name, (instance) => instance.machines.change("mac", { state: "paused" }));
 
     const id = await create(name, { machine: "mac", prompt: "check the backups" });
     await runNow(name, id);

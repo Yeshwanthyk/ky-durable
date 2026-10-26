@@ -1,0 +1,779 @@
+{
+  "schema": [
+    "CREATE TABLE ky_tasks (\n      id TEXT PRIMARY KEY,\n      kind TEXT NOT NULL,\n      worker TEXT NOT NULL,\n      title TEXT NOT NULL,\n      status TEXT NOT NULL,\n      summary TEXT NOT NULL DEFAULT '',\n      session TEXT,\n      created_at INTEGER NOT NULL,\n      updated_at INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'chat', steps TEXT NOT NULL DEFAULT '[]', started_at INTEGER, finished_at INTEGER, turns INTEGER, cost_usd REAL, agent TEXT, chat TEXT)",
+    "CREATE TABLE ky_task_steps (\n      seq INTEGER PRIMARY KEY,\n      task TEXT NOT NULL,\n      call TEXT,\n      at INTEGER NOT NULL,\n      ended_at INTEGER,\n      state TEXT NOT NULL,\n      text TEXT NOT NULL,\n      detail TEXT NOT NULL DEFAULT '',\n      input TEXT NOT NULL DEFAULT '',\n      output TEXT NOT NULL DEFAULT '')",
+    "CREATE INDEX task_steps_by_task ON ky_task_steps (task, seq)",
+    "CREATE TABLE ky_files (\n      id TEXT PRIMARY KEY,\n      task TEXT NOT NULL,\n      name TEXT NOT NULL,\n      type TEXT NOT NULL,\n      size INTEGER NOT NULL,\n      caption TEXT,\n      created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_files_typed (done INTEGER NOT NULL)",
+    "CREATE TABLE ky_sandboxes (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      repos TEXT NOT NULL DEFAULT '[]',\n      idle_minutes INTEGER,\n      is_default INTEGER NOT NULL DEFAULT 0,\n      created_at INTEGER NOT NULL,\n      deleted_at INTEGER)",
+    "CREATE UNIQUE INDEX ky_sandboxes_live_name ON ky_sandboxes (name) WHERE deleted_at IS NULL",
+    "CREATE TABLE ky_sandboxes_seeded (at INTEGER NOT NULL)",
+    "CREATE TABLE ky_machine_inbox (\n      seq INTEGER PRIMARY KEY AUTOINCREMENT,\n      machine TEXT NOT NULL,\n      payload TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE sqlite_sequence(name,seq)",
+    "CREATE TABLE ky_machines (\n      name TEXT PRIMARY KEY, seen_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'on', note TEXT NOT NULL DEFAULT '', facts TEXT, pairing TEXT, login TEXT NOT NULL DEFAULT 'own', hello TEXT, reason TEXT, turns_ended INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE ky_machine_turns (\n      task TEXT PRIMARY KEY,\n      turn INTEGER NOT NULL,\n      closed INTEGER NOT NULL,\n      sent INTEGER NOT NULL, stopping INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE ky_machine_senders (\n      task TEXT NOT NULL,\n      turn INTEGER NOT NULL,\n      session TEXT NOT NULL,\n      PRIMARY KEY (task, turn))",
+    "CREATE TABLE ky_machine_logins (\n      task TEXT PRIMARY KEY,\n      expires_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_machine_reports (\n      task TEXT NOT NULL,\n      turn INTEGER NOT NULL,\n      session TEXT NOT NULL,\n      text TEXT NOT NULL,\n      PRIMARY KEY (task, turn, session))"
+  ],
+  "tables": {
+    "ky_files": [],
+    "ky_files_typed": [],
+    "ky_machine_inbox": [
+      {
+        "seq": 2,
+        "machine": "mini",
+        "payload": "{\"type\":\"run\",\"task\":\"t2\",\"turn\":1,\"prompt\":\"Document it\",\"session\":null,\"agent\":\"codex\"}",
+        "sent": 1
+      },
+      {
+        "seq": 3,
+        "machine": "mini",
+        "payload": "{\"type\":\"stop\",\"task\":\"t2\",\"turn\":1}",
+        "sent": 1
+      },
+      {
+        "seq": 4,
+        "machine": "mini",
+        "payload": "{\"type\":\"run\",\"task\":\"t1\",\"turn\":2,\"prompt\":\"And the tests\",\"session\":\"r1\",\"agent\":\"claude\"}",
+        "sent": 0
+      },
+      {
+        "seq": 5,
+        "machine": "box",
+        "payload": "{\"type\":\"run\",\"task\":\"t3\",\"turn\":1,\"prompt\":\"Tidy\",\"session\":null,\"agent\":\"codex\"}",
+        "sent": 0
+      },
+      {
+        "seq": 6,
+        "machine": "mini",
+        "payload": "not json",
+        "sent": 0
+      }
+    ],
+    "ky_machine_logins": [
+      {
+        "task": "t2",
+        "expires_at": 1760003600000
+      }
+    ],
+    "ky_machine_reports": [
+      {
+        "task": "t1",
+        "turn": 1,
+        "session": "s1",
+        "text": "[machine mini, task t1 \"Fix the build\" finished, no reply needed unless the user is waiting on it]\nGreen now."
+      }
+    ],
+    "ky_machine_senders": [
+      {
+        "task": "t1",
+        "turn": 1,
+        "session": "s1"
+      },
+      {
+        "task": "t2",
+        "turn": 1,
+        "session": "s2"
+      },
+      {
+        "task": "t1",
+        "turn": 2,
+        "session": "s3"
+      },
+      {
+        "task": "t3",
+        "turn": 1,
+        "session": "s1"
+      }
+    ],
+    "ky_machine_turns": [
+      {
+        "task": "t1",
+        "turn": 2,
+        "closed": 1,
+        "sent": 1,
+        "stopping": 0
+      },
+      {
+        "task": "t2",
+        "turn": 1,
+        "closed": 0,
+        "sent": 1,
+        "stopping": 1
+      },
+      {
+        "task": "t3",
+        "turn": 1,
+        "closed": 0,
+        "sent": 0,
+        "stopping": 0
+      }
+    ],
+    "ky_machines": [
+      {
+        "name": "mini",
+        "seen_at": 1760000000000,
+        "state": "on",
+        "note": "the desk one",
+        "facts": "{\"os\":\"darwin\",\"chrome\":true,\"repos\":[{\"name\":\"api\",\"remote\":\"https://github.com/acme/api.git\"}],\"agents\":{\"claude\":{\"installed\":true,\"signedIn\":true},\"codex\":{\"installed\":true,\"signedIn\":true}},\"ports\":[3000],\"kind\":\"computer\"}",
+        "pairing": "p1",
+        "login": "ky",
+        "hello": "c1",
+        "reason": null,
+        "turns_ended": 1
+      },
+      {
+        "name": "box",
+        "seen_at": 1760000000000,
+        "state": "paused",
+        "note": "in the closet",
+        "facts": "{\"os\":\"linux\",\"chrome\":false,\"repos\":[],\"agents\":{\"claude\":{\"installed\":false,\"signedIn\":false},\"codex\":{\"installed\":true,\"signedIn\":true}},\"ports\":[],\"kind\":\"computer\"}",
+        "pairing": "p2",
+        "login": "ky",
+        "hello": null,
+        "reason": null,
+        "turns_ended": 0
+      },
+      {
+        "name": "old",
+        "seen_at": 1760000000000,
+        "state": "on",
+        "note": "",
+        "facts": "{\"os\":\"darwin\",\"chrome\":true,\"repos\":[{\"name\":\"api\",\"remote\":\"https://github.com/acme/api.git\"}],\"agents\":{\"claude\":{\"installed\":true,\"signedIn\":true},\"codex\":{\"installed\":true,\"signedIn\":true}},\"ports\":[3000],\"kind\":\"computer\"}",
+        "pairing": "p3",
+        "login": "own",
+        "hello": null,
+        "reason": "Its runner is older than ky: it speaks runner protocol 3, ky 4. Get the newer ky on it, then run ky upgrade.",
+        "turns_ended": 0
+      },
+      {
+        "name": "cloud",
+        "seen_at": 1760000000000,
+        "state": "on",
+        "note": "",
+        "facts": "{\"os\":\"linux\",\"chrome\":false,\"repos\":[],\"agents\":{\"claude\":{\"installed\":true,\"signedIn\":false},\"codex\":{\"installed\":true,\"signedIn\":false}},\"ports\":[],\"kind\":\"cloud\"}",
+        "pairing": null,
+        "login": "own",
+        "hello": null,
+        "reason": null,
+        "turns_ended": 0
+      },
+      {
+        "name": "lab",
+        "seen_at": 1760000000000,
+        "state": "on",
+        "note": "",
+        "facts": "{\"os\":\"linux\",\"chrome\":false,\"repos\":[],\"agents\":{\"claude\":{\"installed\":true,\"signedIn\":false},\"codex\":{\"installed\":true,\"signedIn\":false}},\"ports\":[],\"kind\":\"cloud\"}",
+        "pairing": null,
+        "login": "own",
+        "hello": null,
+        "reason": null,
+        "turns_ended": 0
+      },
+      {
+        "name": "restored",
+        "seen_at": 1759999995000,
+        "state": "asleep",
+        "note": "",
+        "facts": "not json",
+        "pairing": null,
+        "login": "theirs",
+        "hello": null,
+        "reason": null,
+        "turns_ended": 0
+      }
+    ],
+    "ky_sandboxes": [
+      {
+        "id": "cloud",
+        "name": "cloud",
+        "repos": "[]",
+        "idle_minutes": null,
+        "is_default": 1,
+        "created_at": 1760000000000,
+        "deleted_at": null
+      },
+      {
+        "id": "sb-lab",
+        "name": "lab",
+        "repos": "[\"acme/api\"]",
+        "idle_minutes": null,
+        "is_default": 0,
+        "created_at": 1760000000000,
+        "deleted_at": null
+      }
+    ],
+    "ky_sandboxes_seeded": [
+      {
+        "at": 1760000000000
+      }
+    ],
+    "ky_task_steps": [
+      {
+        "seq": 1,
+        "task": "t1",
+        "call": "k1",
+        "at": 1760000000000,
+        "ended_at": 1760000000000,
+        "state": "done",
+        "text": "Reading",
+        "detail": "",
+        "input": "{}",
+        "output": "ok"
+      }
+    ],
+    "ky_tasks": [
+      {
+        "id": "t1",
+        "kind": "machine",
+        "worker": "mini",
+        "title": "Fix the build",
+        "status": "queued",
+        "summary": "Green now.",
+        "session": "r1",
+        "created_at": 1760000000000,
+        "updated_at": 1760000000000,
+        "source": "chat",
+        "steps": "[{\"at\":1760000000000,\"text\":\"Reading\"}]",
+        "started_at": null,
+        "finished_at": null,
+        "turns": 3,
+        "cost_usd": 0.25,
+        "agent": "claude",
+        "chat": null
+      },
+      {
+        "id": "t2",
+        "kind": "machine",
+        "worker": "mini",
+        "title": "Write the docs",
+        "status": "queued",
+        "summary": "",
+        "session": null,
+        "created_at": 1760000000000,
+        "updated_at": 1760000000000,
+        "source": "automation",
+        "steps": "[]",
+        "started_at": null,
+        "finished_at": null,
+        "turns": null,
+        "cost_usd": null,
+        "agent": "codex",
+        "chat": null
+      },
+      {
+        "id": "t3",
+        "kind": "machine",
+        "worker": "box",
+        "title": "Clean up",
+        "status": "queued",
+        "summary": "",
+        "session": null,
+        "created_at": 1760000000000,
+        "updated_at": 1760000000000,
+        "source": "chat",
+        "steps": "[]",
+        "started_at": null,
+        "finished_at": null,
+        "turns": null,
+        "cost_usd": null,
+        "agent": "codex",
+        "chat": null
+      }
+    ]
+  },
+  "reads": {
+    "machines": [
+      {
+        "name": "cloud",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": false
+            }
+          },
+          "ports": [],
+          "kind": "cloud"
+        },
+        "login": "own",
+        "cloud": "asleep",
+        "sandbox": {
+          "id": "cloud",
+          "repos": [],
+          "isDefault": true,
+          "idleMinutes": null
+        }
+      },
+      {
+        "name": "lab",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": false
+            }
+          },
+          "ports": [],
+          "kind": "cloud"
+        },
+        "login": "own",
+        "cloud": "asleep",
+        "sandbox": {
+          "id": "sb-lab",
+          "repos": [
+            "acme/api"
+          ],
+          "isDefault": false,
+          "idleMinutes": null
+        }
+      },
+      {
+        "name": "box",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 1,
+        "state": "paused",
+        "note": "in the closet",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": false,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [],
+          "kind": "computer"
+        },
+        "login": "ky",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "mini",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 2,
+        "state": "on",
+        "note": "the desk one",
+        "facts": {
+          "os": "darwin",
+          "chrome": true,
+          "repos": [
+            {
+              "name": "api",
+              "remote": "https://github.com/acme/api.git"
+            }
+          ],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": true
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [
+            3000
+          ],
+          "kind": "computer"
+        },
+        "login": "ky",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "old",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": "Its runner is older than ky: it speaks runner protocol 3, ky 4. Get the newer ky on it, then run ky upgrade.",
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "darwin",
+          "chrome": true,
+          "repos": [
+            {
+              "name": "api",
+              "remote": "https://github.com/acme/api.git"
+            }
+          ],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": true
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [
+            3000
+          ],
+          "kind": "computer"
+        },
+        "login": "own",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "restored",
+        "online": false,
+        "seenAt": 1759999995000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": null,
+        "login": "own",
+        "cloud": null,
+        "sandbox": null
+      }
+    ],
+    "machine": [
+      {
+        "name": "mini",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 2,
+        "state": "on",
+        "note": "the desk one",
+        "facts": {
+          "os": "darwin",
+          "chrome": true,
+          "repos": [
+            {
+              "name": "api",
+              "remote": "https://github.com/acme/api.git"
+            }
+          ],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": true
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [
+            3000
+          ],
+          "kind": "computer"
+        },
+        "login": "ky",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "box",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 1,
+        "state": "paused",
+        "note": "in the closet",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": false,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [],
+          "kind": "computer"
+        },
+        "login": "ky",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "old",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": "Its runner is older than ky: it speaks runner protocol 3, ky 4. Get the newer ky on it, then run ky upgrade.",
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "darwin",
+          "chrome": true,
+          "repos": [
+            {
+              "name": "api",
+              "remote": "https://github.com/acme/api.git"
+            }
+          ],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": true
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": true
+            }
+          },
+          "ports": [
+            3000
+          ],
+          "kind": "computer"
+        },
+        "login": "own",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "restored",
+        "online": false,
+        "seenAt": 1759999995000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": null,
+        "login": "own",
+        "cloud": null,
+        "sandbox": null
+      },
+      {
+        "name": "cloud",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": false
+            }
+          },
+          "ports": [],
+          "kind": "cloud"
+        },
+        "login": "own",
+        "cloud": "asleep",
+        "sandbox": {
+          "id": "cloud",
+          "repos": [],
+          "isDefault": true,
+          "idleMinutes": null
+        }
+      },
+      {
+        "name": "lab",
+        "online": false,
+        "seenAt": 1760000000000,
+        "reason": null,
+        "active": 0,
+        "state": "on",
+        "note": "",
+        "facts": {
+          "os": "linux",
+          "chrome": false,
+          "repos": [],
+          "agents": {
+            "claude": {
+              "installed": true,
+              "signedIn": false
+            },
+            "codex": {
+              "installed": true,
+              "signedIn": false
+            }
+          },
+          "ports": [],
+          "kind": "cloud"
+        },
+        "login": "own",
+        "cloud": "asleep",
+        "sandbox": {
+          "id": "sb-lab",
+          "repos": [
+            "acme/api"
+          ],
+          "isDefault": false,
+          "idleMinutes": null
+        }
+      },
+      null
+    ],
+    "online": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "busy": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "turnsEnded": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "defaultAgent": [
+      "claude",
+      "codex",
+      "claude",
+      "claude",
+      "claude",
+      "claude",
+      "claude"
+    ],
+    "pairedAs": [
+      true,
+      true,
+      false,
+      true,
+      false
+    ],
+    "sandboxFor": [
+      "lab",
+      "cloud"
+    ],
+    "cloudOn": "cloud",
+    "sent": [
+      {
+        "type": "run",
+        "task": "t2",
+        "turn": 1,
+        "prompt": "Document it",
+        "session": null,
+        "agent": "codex",
+        "seq": 2,
+        "taskToken": "tok-t2",
+        "creds": {
+          "codex": {
+            "accessToken": "at",
+            "refreshToken": null,
+            "idToken": "it",
+            "accountId": "acct",
+            "expiresAt": 1760003600000
+          }
+        }
+      },
+      {
+        "type": "stop",
+        "task": "t2",
+        "turn": 1,
+        "seq": 3
+      },
+      {
+        "type": "run",
+        "task": "t1",
+        "turn": 2,
+        "prompt": "And the tests",
+        "session": "r1",
+        "agent": "claude",
+        "seq": 4,
+        "taskToken": "tok-t1",
+        "creds": {
+          "claude": {
+            "oauthToken": "oauth"
+          }
+        }
+      }
+    ],
+    "posted": [
+      {
+        "text": "[machine mini, task t1 \"Fix the build\" finished, no reply needed unless the user is waiting on it]\nGreen now.",
+        "options": {
+          "session": "s1",
+          "operationId": "task:t1:1:s1",
+          "whenBusy": "steer"
+        }
+      }
+    ],
+    "onlineAfter": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "busyAfter": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  }
+}

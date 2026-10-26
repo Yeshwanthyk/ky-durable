@@ -175,7 +175,7 @@ describe("handing a machine's task the subscriptions", () => {
       await prompt(own, "machine build it");
       expect((await signed.run()).creds).toBeUndefined();
 
-      await inside(own, (instance) => instance.machines.configure("mac", { login: "ky" }));
+      await inside(own, (instance) => instance.machines.change("mac", { login: "ky" }));
       await prompt(own, "machine build it again");
       expect((await signed.run()).creds).toEqual({ claude: { oauthToken: token } });
       signed.socket.close();

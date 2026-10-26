@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..c5c8184 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -737,8 +737,7 @@ const make = Effect.gen(function* () {
+ 
+         if (withdrawn.length > 0 && sent <= upTo) return yield* finish(task.id, "stopped", "Stopped before it started.", turn);
+ 
+-        yield* setTurns(task.id, { stopping: turn });
+-        yield* enqueue(task.worker, { type: "stop", task: task.id, turn });
++                yield* enqueue(task.worker, { type: "stop", task: task.id, turn });
+       }),
+ 
+     remove: (machine: string) =>

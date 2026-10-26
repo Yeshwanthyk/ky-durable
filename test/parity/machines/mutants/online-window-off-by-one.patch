@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..302a42c 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -278,7 +278,7 @@ const make = Effect.gen(function* () {
+     Effect.gen(function* () {
+       const [row] = yield* rows(HelloRow, "SELECT seen_at, hello FROM ky_machines WHERE name = ?", machine);
+ 
+-      return row !== undefined && (yield* now) - row.seen_at <= ONLINE_WITHIN_MS && greeted(row.hello).length > 0;
++      return row !== undefined && (yield* now) - row.seen_at < ONLINE_WITHIN_MS && greeted(row.hello).length > 0;
+     });
+ 
+   const pending = (machine: string) =>

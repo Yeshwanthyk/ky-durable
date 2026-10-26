@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..eadc91a 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -527,8 +527,7 @@ const make = Effect.gen(function* () {
+       if (sandboxes.named(task.worker)) host.cloud()?.turnEnded(task.worker);
+ 
+       if (turn === turns.turn) {
+-        yield* Effect.forkDetach(yield* revokeWork(id));
+-        yield* exec("DELETE FROM ky_machine_logins WHERE task = ?", id);
++                yield* exec("DELETE FROM ky_machine_logins WHERE task = ?", id);
+       }
+ 
+       const ok = outcome === "done";
