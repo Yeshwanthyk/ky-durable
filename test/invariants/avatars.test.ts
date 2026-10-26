@@ -265,25 +265,22 @@ describe("the seeded time", () => {
 
 const FOUR = ["al", "ky", "pip", "zed"];
 
-const shownRange = (spec: Schema.Json) => {
-  const { body, eyes, top, name } = Schema.decodeUnknownSync(ASpec)(spec);
-  const whole = [body.w, body.h, body.corner, eyes.size].every(Number.isInteger);
+const Whole = (min: number, max: number) => Schema.Int.check(Schema.isBetween({ minimum: min, maximum: max }));
 
-  return (
-    whole &&
-    body.w >= 80 &&
-    body.w <= 124 &&
-    body.h >= 80 &&
-    body.h <= 124 &&
-    body.corner >= 0 &&
-    body.corner <= Math.round(Math.min(body.w, body.h) / 2) &&
-    eyes.size >= 8 &&
-    eyes.size <= 32 &&
-    body.color === body.color.toLowerCase() &&
-    (top.kind === "none" ? top.color === undefined : top.color === top.color?.toLowerCase()) &&
-    (name === undefined || (name !== "" && name === name.trim()))
-  );
-};
+const Lower = Schema.String.check(Schema.isPattern(/^#[0-9a-f]{6}$/));
+
+const Fitted = Schema.Struct({
+  name: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^\S(.*\S)?$/s))),
+  body: Schema.Struct({ w: Whole(80, 124), h: Whole(80, 124), corner: Whole(0, 62), color: Lower }).check(Schema.makeFilter(({ w, h, corner }) => corner <= Math.round(Math.min(w, h) / 2))),
+  eyes: Schema.Struct({ count: Schema.Literals([1, 2]), size: Whole(8, 32) }),
+  top: Schema.Union([Schema.Struct({ kind: Schema.Literal("none"), color: Schema.optionalKey(Schema.Never) }), Schema.Struct({ kind: Schema.Literals(["antenna", "leaf", "ears", "sprout", "tuft"]), color: Schema.optionalKey(Lower) })]),
+  cheeks: Schema.Boolean,
+  feet: Schema.Boolean
+});
+
+const isFitted = Schema.is(Fitted);
+
+const shownRange = (spec: Schema.Json) => isSpec(spec) && isFitted(spec);
 
 describe("roll", () => {
   it("offers one to six fitted bloubs, three when not asked, the same ones for the same seed", async () => {

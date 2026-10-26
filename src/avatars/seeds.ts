@@ -2,6 +2,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { AVATAR_TOOL, EXAMPLES } from "./contract";
 import type { Automations } from "../automations/contract";
 import type { Skills, Specialists } from "../skills/contract";
+import type { Setup } from "./wiring";
 
 const SKILLS = [
   {
@@ -187,7 +188,7 @@ const AUTOMATIONS = [
   }
 ] as const;
 
-export async function seed(setup: { firstStart(): boolean }, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
+export async function seed(setup: Setup, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
   for (const skill of [MAKE_AVATAR, MAKE_SKILL]) {
     if (!skills.get(skill.name)) skills.apply({ action: "create", ...skill }, "ky");
   }
