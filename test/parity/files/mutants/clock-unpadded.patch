@@ -1,0 +1,13 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 61a5b79..1c73e15 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -123,7 +123,7 @@ export const framesOf = (clips: readonly MediaClip[]) => clips.reduce((total, cl
+ export function clock(seconds: number): string {
+   const whole = Math.max(0, Math.floor(seconds));
+ 
+-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
++  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(1, "0")}`;
+ }
+ 
+ export function spokenText(text: string): string {
