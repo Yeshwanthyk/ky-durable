@@ -225,7 +225,7 @@ const aSmallImage = fc.record({
 const aMessage: fc.Arbitrary<UserInput> = fc
   .record({
     clips: fc.array(aTaggedClip, { maxLength: 6 }),
-    own: fc.array(aSmallImage, { maxLength: 5 }),
+    own: fc.oneof(fc.constant([]), fc.array(aSmallImage, { maxLength: 5 })),
     shown: fc.array(aSmallImage, { minLength: 13, maxLength: 13 }),
     off: fc.integer({ min: -1, max: 1 }),
     texts: fc.constantFrom(0, 1, 1, 1, 2)
@@ -236,9 +236,15 @@ const aMessage: fc.Arbitrary<UserInput> = fc
     ...shown.slice(0, Math.max(0, clips.reduce((total, clip) => total + clip.frames, 0) + off))
   ]);
 
+const aFrameShort: fc.Arbitrary<UserInput> = fc.array(aTaggedClip, { minLength: 1, maxLength: 4 }).map((clips) => [
+  { type: "text" as const, text: clips.map(mediaTag).join("") },
+  ...Array.from({ length: Math.max(0, clips.reduce((total, clip) => total + clip.frames, 0) - 1) }, () => ({ type: "image" as const, data: "QUJD", mimeType: "image/png" }))
+]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
   aMessage,
+  aFrameShort,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
@@ -738,7 +744,14 @@ describe("a stored file's row", () => {
   it("keeps every column as recorded and takes created_at from the clock", async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.record({ id: fc.string({ minLength: 1 }), task: fc.string(), name: fc.string(), type: fc.string(), size: fc.nat(), caption: fc.option(fc.string(), { nil: null }) }),
+        fc.record({
+          id: fc.string({ minLength: 1 }),
+          task: fc.oneof(fc.constant(""), fc.string()),
+          name: fc.oneof(fc.constant(""), fc.string()),
+          type: fc.oneof(fc.constant(""), fc.string()),
+          size: fc.oneof(fc.constant(0), fc.nat()),
+          caption: fc.option(fc.oneof(fc.constant(""), fc.string()), { nil: null })
+        }),
         fc.integer({ min: 0, max: 2 ** 41 }),
         async (file, now) => {
           vi.spyOn(Date, "now").mockReturnValue(now);
