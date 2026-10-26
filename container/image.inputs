@@ -30,6 +30,5 @@ src/machines/contract.ts
 src/machines/runner-protocol.ts
 src/core/decode.ts
 src/files/contract.ts
-src/files/media.ts
 src/step-labels.ts
 src/tool-labels.ts
