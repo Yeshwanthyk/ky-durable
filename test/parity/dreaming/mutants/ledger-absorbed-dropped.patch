@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..04c6bf0 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -151,7 +151,7 @@ export class Ledger extends Context.Service<
+             entry.target,
+             entry.before,
+             entry.reason,
+-            entry.absorbed_into,
++            null,
+             at
+           );
+ 

@@ -1,1 +1,68 @@
-[]
+[
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from undefined is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from {} is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { memories: 'abc', at: 1 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { id: '7', date: null, text: 3 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { text:  } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a ledger row of an unknown kind or with a damaged cell is skipped, and a whole one decodes, with or without the later columns' values",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from undefined is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from {} is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { memories: 'abc', at: 1 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { id: '7', date: null, text: 3 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  }
+]

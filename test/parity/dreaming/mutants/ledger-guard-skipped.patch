@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..8fd8eef 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -139,7 +139,7 @@ export class Ledger extends Context.Service<
+               (row) => DESTRUCTIVE.has(row.action)
+             );
+ 
+-            if (earlier) return yield* new AlreadyChanged({ kind: entry.kind, target: entry.target, action: earlier.action });
++            if (earlier && false) return yield* new AlreadyChanged({ kind: entry.kind, target: entry.target, action: earlier.action });
+           }
+ 
+           const [row] = yield* rows(

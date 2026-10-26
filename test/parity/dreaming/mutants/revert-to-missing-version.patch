@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..ef67d39 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -192,7 +192,7 @@ export class Versions extends Context.Service<
+       const reverted = Effect.fn("Versions.reverted")(function* (file: VersionedFile, version: number) {
+         const found = (yield* history(file)).find((each) => each.id === version);
+ 
+-        return found?.body ?? (yield* new NoVersion({ label: file.label, version }));
++        return found?.body ?? "";
+       });
+ 
+       const next = Effect.fn("Versions.next")(function* (file: VersionedFile, change: SoulChange, was: string) {

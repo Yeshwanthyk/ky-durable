@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..71a18c7 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -189,7 +189,7 @@ export class Ledger extends Context.Service<
+ 
+             if (kind === undefined) return;
+             const run = yield* Effect.sync(() => reviews.run(conversation));
+-            yield* record({ run, actor: kind, kind: "memory", action: "forget", target: block, before: text, reason: null, absorbed_into: null }, yield* Clock.currentTimeMillis);
++            yield* record({ run, actor: kind, kind: "memory", action: "forget", target: block, before: text, reason: null, absorbed_into: null }, Date.now());
+           }),
+           lastNight: rows(`SELECT * FROM ky_dream_ledger WHERE ${DREAMS} AND at > (SELECT MAX(at) FROM ky_dream_ledger WHERE ${DREAMS}) - ? ORDER BY id`, NIGHT_MS),
+           undo: Effect.fn("Ledger.undo")(function* (id) {

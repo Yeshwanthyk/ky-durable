@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..e106025 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -86,7 +86,7 @@ class Incomplete extends Schema.TaggedError<Incomplete>()("Incomplete", { action
+ const patched = (label: string, was: string, old: string, replacement: string): Effect.Effect<string, NotFound | Ambiguous> => {
+   const count = was.split(old).length - 1;
+ 
+-  if (old === "" || count === 0) return Effect.fail(new NotFound({ label }));
++  if (count === 0) return Effect.fail(new NotFound({ label }));
+ 
+   if (count > 1) return Effect.fail(new Ambiguous({ label, count }));
+ 

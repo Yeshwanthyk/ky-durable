@@ -48,7 +48,7 @@ describe("dreaming's contract", () => {
     const [tables, count, soul] = await inside(name, (instance, state) => {
       instance.memory.note("the user likes green tea");
       new Memory(state.storage.sql, never);
-      const again = new Soul(state.storage.sql);
+      const again = new Soul(state.storage);
       const listed = state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => row.name);
 
       return [listed, new Memory(state.storage.sql, never).count(), again.current().action];

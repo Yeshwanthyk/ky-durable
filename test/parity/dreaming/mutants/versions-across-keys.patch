@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..b3676e8 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -159,7 +159,7 @@ export class Versions extends Context.Service<
+           sql.rows(
+             VersionRow,
+             `INSERT INTO ky_soul_versions (key, version, action, actor, conversation, body, created_at)
+-             VALUES (?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ky_soul_versions WHERE key = ?), ?, ?, ?, ?, ?) RETURNING version`,
++             VALUES (?, (SELECT COALESCE(MAX(version), 0) + 1 FROM ky_soul_versions WHERE key = ? OR 1), ?, ?, ?, ?, ?) RETURNING version`,
+             file.key,
+             file.key,
+             action,

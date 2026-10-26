@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index 071cb61..7edb0df 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -155,7 +155,7 @@ export class Versions extends Context.Service<
+             file.key,
+             action,
+             actor,
+-            conversation,
++            null,
+             body,
+             now
+           ))
