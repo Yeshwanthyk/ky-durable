@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..3810888 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -87,7 +87,7 @@ export class Push extends Context.Service<
+         const take = Effect.fnUntraced(function* (day: string) {
+           const most = parts.most();
+ 
+-          if (most < 1) return false;
++          
+           yield* exec(`DELETE FROM ${SENT} WHERE day <> ?`, day);
+           const taken = yield* exec(`INSERT INTO ${SENT} (day, sent) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET sent = sent + 1 WHERE sent < ? RETURNING sent`, day, most);
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..d7946a0 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -45,7 +45,7 @@ const keysOf = (device: PushDevice) =>
+   });
+ 
+ const checked = Effect.fnUntraced(function* (device: PushDevice) {
+-  if (!URL.canParse(device.endpoint) || new URL(device.endpoint).protocol !== "https:") return yield* new BadSubscription({ problem: "endpoint" });
++  if (!URL.canParse(device.endpoint)) return yield* new BadSubscription({ problem: "endpoint" });
+   const { ua, auth } = yield* keysOf(device);
+ 
+   if (ua.length !== 65 || ua[0] !== 4 || auth.length !== 16) return yield* new BadSubscription({ problem: "keys" });

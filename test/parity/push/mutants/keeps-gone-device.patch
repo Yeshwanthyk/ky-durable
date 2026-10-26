@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..e968d1a 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -119,7 +119,7 @@ export class Push extends Context.Service<
+ 
+             if (response.ok) return true;
+ 
+-            if (GONE.has(response.status)) yield* unsubscribe(device.endpoint);
++            if (GONE.has(response.status)) yield* Effect.void;
+             else {
+               const said = yield* Effect.tryPromise({ try: () => response.text(), catch: (cause) => new Unsent({ cause }) });
+               yield* warned(response.status, said.slice(0, LOGGED_CHARS));
