@@ -40,7 +40,7 @@
     "ky(no-unchecked-parse)": 3,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/chats.ts": {
+  "src/chats/legacy/chats.ts": {
     "ky(no-unchecked-parse)": 3
   },
   "src/client.tsx": {

@@ -45,9 +45,12 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
     Effect.gen(function* () {
       const sql = yield* Sql;
       const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+
       const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
+
       const first = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) =>
         Effect.map(exec(query, ...params), ([found]) => Option.getOrUndefined(Schema.decodeUnknownOption(row)(found)));
+
       const written = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(`${query} RETURNING session`, ...params), (each) => each.length > 0);
 
       yield* exec(`CREATE TABLE IF NOT EXISTS ${CHAT_TABLES.chats} (
