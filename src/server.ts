@@ -45,7 +45,7 @@ import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } 
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
 import { hookGuard, inboundTools } from "./inbound/tools";
-import { Pushes } from "./push";
+import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
 import { PiSessionSockets } from "./sockets";
@@ -260,7 +260,7 @@ export class PiAgent extends DurableObject<Env> {
     delivered: (requestId) => this.deliveries.delivered(requestId)
   });
   /** What ky posts unasked, as notifications on the user's devices. */
-  readonly pushes = new Pushes(this.ctx.storage.sql, {
+  readonly pushes = new Pushes(this.ctx.storage, {
     vault: () => this.env.Vault.getByName("owner"),
     zone: () => this.automations.checkIns().zone,
     most: () => this.proactivity.rightAway(),

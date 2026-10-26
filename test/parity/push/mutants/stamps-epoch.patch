@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..cd03483 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -131,7 +131,7 @@ export class Push extends Context.Service<
+         return Push.of({
+           subscribe: Effect.fnUntraced(function* (device) {
+             const { endpoint, p256dh, auth } = yield* checked(device);
+-            const now = yield* Clock.currentTimeMillis;
++            const now = yield* Effect.succeed(0);
+             yield* exec(
+               `INSERT INTO ${DEVICES} (endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT (endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,

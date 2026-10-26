@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index e18b125..9d6f987 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -153,7 +153,7 @@ export class Push extends Context.Service<
+             const devices = yield* rows(DeviceRow, `SELECT * FROM ${DEVICES}`);
+ 
+             if (devices.length === 0) return;
+-            const day = localNow(parts.zone(), yield* Clock.currentTimeMillis).date;
++            const day = localNow(parts.zone(), 0).date;
+ 
+             if (!(yield* take(day))) return;
+             const payload = payloadOf(parts.title(session), session, text);

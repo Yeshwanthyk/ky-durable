@@ -1,0 +1,12 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 88e425f..a195163 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -117,6 +117,7 @@ export class Push extends Context.Service<
+ 
+         const send = (device: PushDevice, payload: Uint8Array) =>
+           Effect.gen(function* () {
++            yield* Effect.sync(() => parts.origin());
+             const response = yield* post(device, payload);
+ 
+             if (response.ok) return true;

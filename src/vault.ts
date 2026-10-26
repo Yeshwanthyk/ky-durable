@@ -6,7 +6,7 @@ import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDev
 import type { ExecutorConnection } from "./executor";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
-import { base64url, fromBase64url, vapidToken } from "./push";
+import { base64url, fromBase64url, vapidToken } from "./push/webpush";
 import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
 import { credentialFetch, type CredentialReply, type CredentialRequest, CredentialSchema, HTTP_KIND, signedWith } from "./inbound/credentials";

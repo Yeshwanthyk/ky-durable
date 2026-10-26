@@ -1,0 +1,12 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index e18b125..b96840f 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -95,7 +95,6 @@ export class Push extends Context.Service<
+           const most = parts.most();
+ 
+           if (most < 1) return false;
+-          yield* exec(`DELETE FROM ${SENT} WHERE day <> ?`, day);
+           const taken = yield* rows(SentRow, `INSERT INTO ${SENT} (day, sent) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET sent = sent + 1 WHERE sent < ? RETURNING *`, day, most);
+ 
+           return taken.length > 0;
