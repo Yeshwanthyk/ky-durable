@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..c7648c0 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -368,7 +368,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+               const window = span ?? ALWAYS;
+               const every = yield* match(terms.join(" AND "), skip, window);
+ 
+-              if (every.length > 0 || terms.length === 1) return (yield* show(every, around, "")) || none;
++              if (every.length >= 0 || terms.length === 1) return (yield* show(every, around, "")) || none;
+ 
+               const some = yield* match(terms.join(" OR "), skip, window);
+ 

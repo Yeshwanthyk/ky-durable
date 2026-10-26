@@ -1,8 +1,8 @@
 diff --git a/src/history/history.ts b/src/history/history.ts
-index ecbeb4d..4de1533 100644
+index 5ed3e6a..596b749 100644
 --- a/src/history/history.ts
 +++ b/src/history/history.ts
-@@ -319,7 +319,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+@@ -258,7 +258,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
                for (const row of entries) yield* index(row, mine);
  
                from = newest.id;

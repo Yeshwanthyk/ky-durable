@@ -1,8 +1,8 @@
 diff --git a/src/history/history.ts b/src/history/history.ts
-index ecbeb4d..781480c 100644
+index 5ed3e6a..57ef3de 100644
 --- a/src/history/history.ts
 +++ b/src/history/history.ts
-@@ -322,7 +322,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+@@ -261,7 +261,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
                last = Math.max(last, from);
              }
  

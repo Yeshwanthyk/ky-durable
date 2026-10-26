@@ -19,7 +19,7 @@ export const CONVERSATIONS = [ROOT_SESSION, "2", "3", "9"] as const;
 
 const UUID = "5a810bd0-46f4-43eb-8060-2a379fb357a5";
 
-const LONG = `ferry ${"Lisbon tram plan ".repeat(320)}end`;
+export const LONG = `ferry ${"Lisbon tram plan ".repeat(320)}end`;
 
 export const TEXTS = [
   "Plan a ferry to Lisbon",
@@ -49,6 +49,7 @@ export type Say = {
   readonly placed: boolean;
   readonly late: boolean;
   readonly sameCommit: boolean;
+  readonly stamp: "ms" | "iso";
 };
 
 export type Action =
@@ -78,7 +79,8 @@ const say: fc.Arbitrary<Action> = fc.record({
   origin: fc.constantFrom("own", "own", "relay", "far", "none"),
   placed: fc.boolean(),
   late: fc.boolean(),
-  sameCommit: fc.boolean()
+  sameCommit: fc.boolean(),
+  stamp: fc.constantFrom("ms", "ms", "ms", "iso")
 });
 
 const back = fc.integer({ min: 0, max: 12 });
@@ -165,9 +167,13 @@ export function transactionOf(db: DatabaseSync) {
 
 type SearchOptions = { around?: number; caller?: string; batches?: number; span?: { from: number; to: number; days: string } };
 
+type Said = { readonly lines: readonly string[]; readonly dropped: number; readonly waiting: number; readonly through: number };
+
+export const saidJson = (said: Said): Json => ({ ...said, lines: [...said.lines] });
+
 export type Side = {
   search(query: string, options: SearchOptions): string;
-  since(from: { seq: number; at: number }, chars: number, now?: number): Json;
+  since(from: { seq: number; at: number }, chars: number, now?: number): Said;
   latest(session: string): string | null;
   rebuild(): void;
 };
@@ -191,7 +197,10 @@ export const chatSide = { isChat, name: nameOf };
 
 const rowsOf = (db: DatabaseSync, query: string): Json[] => Schema.decodeUnknownSync(Schema.Array(StoredRow))(db.prepare(query).all()).map((row) => ({ ...row }));
 
-function recordOf(action: Say, at: number): string {
+export const stampOf = (action: Say, at: number) => (action.stamp === "iso" ? new Date(at).toISOString() : at);
+
+function recordOf(action: Say, now: number): string {
+  const at = stampOf(action, now);
   const content = action.parts ? [{ type: "thinking", thinking: "hmm" }, { type: "text", text: action.text }, { type: "image", data: "x" }, { type: "text", text: "and so" }] : action.text;
 
   if (action.kind === "look") return JSON.stringify({ kind: "ky.look", data: { text: action.text }, model: [{ role: "user", content: action.text, timestamp: at }] });
@@ -311,7 +320,7 @@ export function world(make: Make, now: () => number) {
       case "search":
         return search(action);
       case "since":
-        return side.since({ seq: action.seq, at: now() - action.back }, action.chars, action.now === null ? undefined : now() + action.now);
+        return saidJson(side.since({ seq: action.seq, at: now() - action.back }, action.chars, action.now === null ? undefined : now() + action.now));
       case "latest":
         return side.latest(action.session);
       case "rebuild":

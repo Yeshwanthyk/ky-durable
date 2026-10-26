@@ -1,66 +1,23 @@
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assertParity, budget, type Instance, type Json, type Parity } from "../parity/kit";
-import { legacySide, nextSide } from "../parity/history/sides";
-import { type Action, actions, advances, CHATS, DAY, type Make, START, type Say, TEXTS, world } from "../parity/history/world";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { budget } from "../parity/kit";
+import { nextSide } from "../parity/history/next";
+import { actions, advances, CHATS, CONVERSATIONS, DAY, LONG, type Say, START, stampOf, TEXTS, world } from "../parity/history/world";
 
 fc.configureGlobal({ baseSize: "large" });
-
-let warned: Json[] = [];
-
-beforeEach(() => {
-  warned = [];
-  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void warned.push(args.map(String)));
-});
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function instance(make: Make, now: () => number): Instance<Action> {
-  const made = world(make, now);
-  const seen: Json[] = [];
-
-  return {
-    apply: async (action) => {
-      const from = warned.length;
-      const result = made.apply(action);
-
-      seen.push(...warned.slice(from));
-
-      return result;
-    },
-    tables: async () => made.tables(),
-    effects: async () => ({ warned: seen }),
-    dispose: async () => made.db.close()
-  };
-}
-
-const historyParity: Parity<Action> = {
-  domain: "history",
-  actions,
-  advances,
-  start: START,
-  legacy: async (clock) => {
-    vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-
-    return instance(legacySide, () => clock.now());
-  },
-  next: async (clock) => instance(nextSide, () => clock.now())
-};
-
-describe("history parity", () => {
-  it("indexes, searches, reads since and tells whose message it was, as B does, step for step", async () => {
-    await assertParity(historyParity);
-  });
-});
-
-const Row = Schema.Struct({ rowid: Schema.Number, text: Schema.String, conversation: Schema.String, role: Schema.String, at: Schema.Number });
+const Row = Schema.Struct({ rowid: Schema.Number, text: Schema.String, conversation: Schema.String, role: Schema.String, at: Schema.Union([Schema.Number, Schema.String]) });
 
 const Mark = Schema.Struct({ last: Schema.Number, roles: Schema.Number });
 
-const Since = Schema.Struct({ lines: Schema.Array(Schema.String), dropped: Schema.Number });
+const Since = Schema.Struct({ lines: Schema.Array(Schema.String), dropped: Schema.Number, through: Schema.Number });
+
+const Seq = Schema.Struct({ commit_seq: Schema.Number });
 
 type Step = { readonly say: Say } | { readonly advance: number } | { readonly reopen: "none" | "roles" } | { readonly search: string };
 
@@ -80,23 +37,51 @@ const textOf = (say: Say) => (say.kind === "look" || !say.parts ? say.text : [sa
 
 type Said = { readonly id: number; readonly at: number; readonly say: Say };
 
+const said = (conversation: string, text: string, origin: Say["origin"], kind: Say["kind"] = "user"): Say => ({
+  _tag: "say",
+  conversation,
+  kind,
+  text,
+  parts: false,
+  stop: "stop",
+  origin,
+  placed: false,
+  late: false,
+  sameCommit: false,
+  stamp: "ms"
+});
+
+const wordsOf = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []));
+
+const hitsOf = (answer: string) => [...answer.matchAll(/^#(\d+) /gm)].map(([, id]) => Number(id));
+
+const search = (query: string) => ({ _tag: "search" as const, query, around: 0, caller: "", batches: null, span: null });
+
+const timed = Schema.is(Schema.Number);
+
+type Span = { readonly from: number; readonly to: number };
+
+const find = (made: ReturnType<typeof world>, query: string, caller = "", span?: Span, around = 0) =>
+  made.side().search(query, span === undefined ? { around, caller } : { around, caller, span: { ...span, days: "then" } });
+
 function drive(run: readonly Step[]) {
   let at = START;
   vi.spyOn(Date, "now").mockImplementation(() => at);
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   const made = world(nextSide, () => at);
-  const said: Said[] = [];
+  const saids: Said[] = [];
 
   for (const step of run) {
-    if ("say" in step) said.push({ id: Number(made.apply(step.say)), at, say: step.say });
+    if ("say" in step) saids.push({ id: Number(made.apply(step.say)), at, say: step.say });
 
     if ("advance" in step) at += step.advance;
 
     if ("reopen" in step) made.apply({ _tag: "reopen", downgrade: step.reopen });
 
-    if ("search" in step) made.apply({ _tag: "search", query: step.search, around: 0, caller: "", batches: null, span: null });
+    if ("search" in step) made.apply(search(step.search));
   }
 
-  made.apply({ _tag: "search", query: "ferry", around: 0, caller: "", batches: null, span: null });
+  made.apply(search("ferry"));
 
   const index = made.db
     .prepare("SELECT rowid, text, conversation, role, at FROM ky_history ORDER BY rowid")
@@ -105,7 +90,7 @@ function drive(run: readonly Step[]) {
 
   const mark = Schema.decodeUnknownSync(Mark)(made.db.prepare("SELECT last, roles FROM ky_history_mark").get());
 
-  return { made, said, index, mark, advance: (ms: number) => void (at += ms) };
+  return { made, said: saids, index, mark, now: () => at, advance: (ms: number) => void (at += ms) };
 }
 
 const indexed = (each: Said) => CHATS.has(each.say.conversation) && (each.say.kind === "user" || each.say.kind === "assistant" || each.say.kind === "look") && textOf(each.say).slice(0, 4_000).trim() !== "";
@@ -116,7 +101,7 @@ describe("history invariants", () => {
   it("I-H1: since, with no time given, keeps to the last week by the clock", () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 10 }), fc.integer({ min: 0, max: 10 }), (before, after) => {
-        const user: Say = { _tag: "say", conversation: "2", kind: "user", text: TEXTS[0], parts: false, stop: "stop", origin: "own", placed: false, late: false, sameCommit: false };
+        const user = said("2", TEXTS[0], "own");
         const { made, advance } = drive([{ say: user }, { advance: before * DAY }, { say: user }]);
 
         advance(after * DAY);
@@ -168,13 +153,13 @@ describe("history invariants", () => {
     );
   });
 
-  it("I-H5: a message is indexed at the time it was said", () => {
+  it("I-H5: a message is indexed at the time it was said, as its entry gives it, a damaged time too", () => {
     fc.assert(
       fc.property(steps, (run) => {
         const { said, index } = drive(run);
         const ats = new Map(index.map((row) => [row.rowid, row.at]));
 
-        for (const each of said.filter(indexed)) expect(ats.get(each.id)).toBe(each.at);
+        for (const each of said.filter(indexed)) expect(ats.get(each.id)).toBe(stampOf(each.say, each.at));
       }),
       runs
     );
@@ -201,12 +186,124 @@ describe("history invariants", () => {
 
         made.db.exec("UPDATE ky_history SET role = 'stale'");
         made.apply({ _tag: "reopen", downgrade: "roles" });
-        made.apply({ _tag: "search", query: "ferry", around: 0, caller: "", batches: null, span: null });
+        made.apply(search("ferry"));
 
         const roles = made.db.prepare("SELECT role FROM ky_history").all().map((row) => Schema.decodeUnknownSync(Schema.Struct({ role: Schema.String }))(row).role);
         const marked = Schema.decodeUnknownSync(Mark)(made.db.prepare("SELECT last, roles FROM ky_history_mark").get());
 
         expect([roles.includes("stale"), marked.roles, roles.length]).toEqual([false, 1, said.filter(indexed).length]);
+      }),
+      runs
+    );
+  });
+
+  it("I-H8: a query with no words asks for some, and one with words searches", () => {
+    fc.assert(
+      fc.property(steps, fc.constantFrom("", "   ", "?!", "— …", "ferry", "?tram!", "Kyoto"), (run, query) => {
+        const { made } = drive(run);
+        const answer = find(made, query);
+
+        expect(answer === "Give some words to search for.").toBe(wordsOf(query).size === 0);
+      }),
+      runs
+    );
+  });
+
+  it("I-H9: a message with every word is a match; with none such, those with some are shown as some", () => {
+    fc.assert(
+      fc.property(steps, fc.constantFrom("Kyoto tram", "ferry Lisbon", "zanzibar Kyoto"), (run, query) => {
+        const { made, index } = drive(run);
+        const words = [...wordsOf(query)];
+        const found = index.filter((row) => timed(row.at)).map((row) => wordsOf(row.text));
+        const every = found.some((has) => words.every((word) => has.has(word)));
+        const some = found.some((has) => words.some((word) => has.has(word)));
+        const opening = every ? /^#\d+ / : some ? /^No message has all those words; these have some of them\.\n#\d+ / : /^No message matches /;
+
+        expect(find(made, query)).toMatch(opening);
+      }),
+      runs
+    );
+  });
+
+  it("I-H10: a search finds each message with the word sent in its span, but the user's newest question in the caller's chat", () => {
+    fc.assert(
+      fc.property(steps, fc.constantFrom(...CONVERSATIONS, ""), fc.option(fc.record({ from: fc.integer({ min: -1, max: 3 }), to: fc.integer({ min: 0, max: 5 }) })), (run, caller, days) => {
+        const { made, index } = drive(run);
+        const span = days === null ? undefined : { from: START + days.from * DAY, to: START + days.to * DAY };
+        const asking = Math.max(-1, ...index.filter((row) => row.conversation === caller && row.role === "user").map((row) => row.rowid));
+
+        const expected = index
+          .filter((row) => timed(row.at) && (span === undefined || (row.at >= span.from && row.at < span.to)))
+          .filter((row) => row.rowid !== asking && wordsOf(row.text).has("ferry"))
+          .map((row) => row.rowid);
+
+        const hits = hitsOf(find(made, "ferry", caller, span));
+
+        if (expected.length <= 8) expect([...hits].sort((a, b) => a - b)).toEqual(expected);
+        else expect(hits.length).toBe(8);
+      }),
+      runs
+    );
+  });
+
+  it("I-H11: what a search shows stays within 12,000 characters, the rest named as cut", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 9, max: 20 }), fc.integer({ min: 1, max: 8 }), (count, around) => {
+        const { made } = drive(Array.from({ length: count }, () => ({ say: said("2", LONG, "own") })));
+        const answer = find(made, "ferry", "", undefined, around);
+        const shown = answer.slice(0, answer.lastIndexOf("\n\n") + 2);
+
+        expect(shown.length).toBeLessThanOrEqual(12_000);
+        expect(answer).toMatch(/\n\d+ match(es)?(, \d+ more cut for length)?\. Search again with other words to find more\.$/);
+      }),
+      runs
+    );
+  });
+
+  it("I-H12: since stops before a user's message that does not fit, so the next reader starts with it", () => {
+    fc.assert(
+      fc.property(steps, fc.constantFrom(0, 1, 2, 4), fc.constantFrom(40, 80, 200, 600), (run, from, chars) => {
+        const { made } = drive(run);
+        const read = (seq: number, budget: number) => Schema.decodeUnknownSync(Since)(made.side().since({ seq, at: 0 }, budget));
+        const all = read(from, 1e9);
+        const first = read(from, chars);
+        const cut = all.lines.find((line) => line.includes(", user: ") && !first.lines.includes(line));
+
+        if (cut === undefined) return;
+
+        const rowid = Number(/^#(\d+) /.exec(cut)?.[1]);
+        const { commit_seq } = Schema.decodeUnknownSync(Seq)(made.db.prepare("SELECT commit_seq FROM pi_entries WHERE id = ?").get(rowid));
+
+        if (commit_seq - 1 > from) expect(read(first.through, 1e9).lines).toContain(cut);
+      }),
+      runs
+    );
+  });
+
+  it("I-H13: a chat's latest is its newest look or finished reply with text", () => {
+    fc.assert(
+      fc.property(steps, (run) => {
+        const { made, said } = drive(run);
+
+        for (const session of CONVERSATIONS) {
+          const done = said
+            .filter(({ say }) => say.conversation === session && (say.kind === "look" || (say.kind === "assistant" && (say.stop === "stop" || say.stop === "length"))))
+            .filter(({ say }) => textOf(say).trim() !== "")
+            .sort((a, b) => b.id - a.id);
+
+          expect(made.side().latest(session)).toBe(done[0] === undefined ? null : textOf(done[0].say));
+        }
+      }),
+      runs
+    );
+  });
+
+  it("I-H14: whether the user wrote since looks at the chat's newest 20 user messages", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 30 }), (notices) => {
+        const { made } = drive([{ say: said("2", TEXTS[0], "own") }, ...Array.from({ length: notices }, () => ({ say: said("2", TEXTS[1], "relay") }))]);
+
+        expect(made.reads.wroteSince("2", START - 1)).toBe(notices < 20);
       }),
       runs
     );

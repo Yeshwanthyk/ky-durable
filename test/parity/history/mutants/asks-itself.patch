@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..3b1c031 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -362,7 +362,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+ 
+               if (terms.length === 0) return "Give some words to search for.";
+ 
+-              const skip = yield* asking(caller);
++              const skip = -1;
+               const during = span === undefined ? "" : ` ${span.days}`;
+               const none = `No message matches ${query.trim()}${during}.`;
+               const window = span ?? ALWAYS;

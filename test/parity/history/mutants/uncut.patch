@@ -1,13 +1,13 @@
 diff --git a/src/history/history.ts b/src/history/history.ts
-index ecbeb4d..39eb2b8 100644
+index 5ed3e6a..9540956 100644
 --- a/src/history/history.ts
 +++ b/src/history/history.ts
-@@ -281,7 +281,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+@@ -220,7 +220,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
  
          const index = (row: Entry, mine: ReadonlySet<number>) => {
            const conversation = String(row.conversation_id);
 -          const text = (row.text ?? "").slice(0, MESSAGE_CHARS);
-+          const text = (row.text ?? "");
++          const text = row.text ?? "";
  
            if (text.trim() === "" || !deps.isChat(conversation)) return Effect.void;
  

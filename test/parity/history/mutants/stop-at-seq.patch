@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..73801fa 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -394,7 +394,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+ 
+               const { end, stopAt, shown } = fit(lines, chars);
+               const [newest] = yield* rows(Newest, `SELECT max(seq) AS seq FROM ${SAID_FROM}`);
+-              const stopBefore = (seq: number) => (seq - 1 > from.seq ? seq - 1 : seq);
++              const stopBefore = (seq: number) => seq;
+ 
+               return {
+                 lines: shown.map((each) => each.line),

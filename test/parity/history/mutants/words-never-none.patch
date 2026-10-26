@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..5be6357 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -127,7 +127,7 @@ export const ownOf = (requests: ReadonlyMap<number, string | undefined>): Readon
+ 
+ type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
+ 
+-const termsOf = (query: string) => (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
++const termsOf = (query: string) => (query.match(/[\p{L}\p{N}_]+/gu) ?? [""]).map((term) => `"${term}"`);
+ 
+ function fit(said: readonly SaidLine[], chars: number) {
+   let used = 0;

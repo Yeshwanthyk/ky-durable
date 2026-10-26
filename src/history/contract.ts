@@ -7,7 +7,7 @@ const SaidMark = Schema.Struct({ seq: Schema.Number, at: Schema.Number });
 export type SaidMark = typeof SaidMark.Type;
 
 const Said = Schema.Struct({
-  lines: Schema.mutable(Schema.Array(Schema.String)),
+  lines: Schema.Array(Schema.String),
   dropped: Schema.Number,
   waiting: Schema.Number,
   through: Schema.Number

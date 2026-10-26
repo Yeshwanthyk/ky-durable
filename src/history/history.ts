@@ -3,13 +3,13 @@ import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import { flow } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 import { Sql } from "../core/sql";
 import { LOOK_POST } from "../core/transcript";
-import { HISTORY_TABLES, isOwnRequest, type RunInput, type Said, type SaidMark, type SearchOptions, type Span } from "./contract";
+import { HISTORY_TABLES, isOwnRequest, type Said, type SaidMark, type SearchOptions, type Span } from "./contract";
 
 const INDEX = HISTORY_TABLES.index;
 
@@ -35,8 +35,6 @@ const LOOKBACK = 256;
 
 const PLACED_SLACK = 5_000;
 
-const WROTE_SINCE = 20;
-
 const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
 
 const TEXT_OF = `CASE
@@ -51,142 +49,81 @@ END`;
 const SAID_FROM = `(SELECT h.rowid AS rowid, h.conversation AS conversation, h.role AS role, h.at AS at, h.text AS text, e.commit_seq AS seq
   FROM ${INDEX} AS h LEFT JOIN pi_entries AS e ON e.id = h.rowid)`;
 
-const Entry = Schema.Struct({ id: Schema.Number, conversation_id: Schema.Number, kind: Schema.NullOr(Schema.String), at: Schema.Number, text: Schema.NullOr(Schema.String) });
+const IndexRow = Schema.Struct({
+  rowid: Schema.Number,
+  text: Schema.String,
+  conversation: Schema.String,
+  role: Schema.Literals(["user", "ky", "notice"]),
+  at: Schema.Union([Schema.Number, Schema.String])
+});
+
+const MarkRow = Schema.Struct({ id: Schema.Number, last: Schema.Number, roles: Schema.Number });
+
+const Entry = Schema.Struct({
+  id: Schema.Number,
+  conversation_id: Schema.Number,
+  kind: Schema.NullOr(Schema.String),
+  at: IndexRow.fields.at,
+  text: Schema.NullOr(Schema.String)
+});
 
 type Entry = typeof Entry.Type;
 
-const Hit = Schema.Struct({ rowid: Schema.Number, conversation: Schema.String, role: Schema.String, at: Schema.Number, snippet: Schema.String });
+const Hit = IndexRow.mapFields((fields) => ({ ...Struct.pick(fields, ["rowid", "conversation", "role"]), at: Schema.Number, snippet: Schema.String }));
 
 type Hit = typeof Hit.Type;
 
-const Line = Schema.Struct({ rowid: Schema.Number, role: Schema.String, at: Schema.Number, text: Schema.String });
+const Line = IndexRow.mapFields(Struct.pick(["rowid", "role", "text"]));
 
 type Line = typeof Line.Type;
 
-const SaidRow = Schema.Struct({ rowid: Schema.Number, conversation: Schema.String, role: Schema.String, at: Schema.Number, seq: Schema.Number, text: Schema.String });
+const SaidRow = IndexRow.mapFields((fields) => ({ ...Struct.pick(fields, ["rowid", "conversation", "role", "text"]), at: Schema.Number, seq: Schema.Number }));
+
+const Last = MarkRow.mapFields(Struct.pick(["last"]));
+
+const Roles = MarkRow.mapFields(Struct.pick(["roles"]));
 
 const Placed = Schema.Struct({ entry: Schema.Number, request: Schema.NullOr(Schema.String) });
 
-const Text = Schema.Struct({ text: Schema.String });
-
 const Column = Schema.Struct({ name: Schema.String });
 
-const Roles = Schema.Struct({ roles: Schema.Number });
-
-const Last = Schema.Struct({ last: Schema.Number });
+const Text = Schema.Struct({ text: Schema.NullOr(Schema.String) });
 
 const Count = Schema.Struct({ n: Schema.Number });
 
-const Seq = Schema.Struct({ seq: Schema.NullOr(Schema.Number) });
-
-const Id = Schema.Struct({ id: Schema.NullOr(Schema.Number) });
+const Newest = Schema.Struct({ seq: Schema.NullOr(Schema.Number) });
 
 const Asking = Schema.Struct({ rowid: Schema.NullOr(Schema.Number) });
 
-const or = <T>(schema: Schema.Decoder<T>) => flow(Schema.decodeUnknownOption(schema), Option.getOrUndefined);
+export const placedOf = Schema.decodeUnknownOption(Placed);
 
-const placedOf = or(Placed);
+const saidOf = Schema.decodeUnknownOption(SaidRow);
 
-const idOf = or(Id);
-
-const textOf = or(Text);
-
-const columnOf = or(Column);
-
-const rolesOf = or(Roles);
-
-const countOf = or(Count);
-
-const seqOf = or(Seq);
-
-const saidOf = or(SaidRow);
-
-const PLACED = `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
+export const PLACED = `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
      WHERE id BETWEEN ? AND ? AND json_extract(record, '$.entry') BETWEEN ? AND ?`;
 
-const placedAround = (users: readonly number[]) => {
+export const placedAround = (users: readonly number[]) => {
   const low = Math.min(...users);
   const high = Math.max(...users);
 
   return [low - PLACED_SLACK, high + PLACED_SLACK, low, high];
 };
 
-function requestsOf(placed: Iterable<unknown>, users: readonly number[]): ReadonlyMap<number, string | undefined> {
+export function requestsOf(placed: Iterable<unknown>, users: readonly number[]): ReadonlyMap<number, string | undefined> {
   const wanted = new Set(users);
   const requests = new Map<number, string | undefined>();
 
   for (const raw of placed) {
     const row = placedOf(raw);
 
-    if (row !== undefined && wanted.has(row.entry)) requests.set(row.entry, row.request ?? undefined);
+    if (Option.isSome(row) && wanted.has(row.value.entry)) requests.set(row.value.entry, row.value.request ?? undefined);
   }
 
   return requests;
 }
 
-const ownOf = (requests: ReadonlyMap<number, string | undefined>): ReadonlySet<number> =>
+export const ownOf = (requests: ReadonlyMap<number, string | undefined>): ReadonlySet<number> =>
   new Set([...requests].flatMap(([entry, request]) => (isOwnRequest(request) ? [entry] : [])));
-
-export function placedBy(sql: SqlStorage, users: readonly number[]): ReadonlyMap<number, string | undefined> {
-  if (users.length === 0) return new Map();
-
-  return requestsOf(sql.exec(PLACED, ...placedAround(users)), users);
-}
-
-export function ownMessages(sql: SqlStorage, users: readonly number[]): ReadonlySet<number> {
-  return ownOf(placedBy(sql, users));
-}
-
-export function startedByUser(sql: SqlStorage, conversation: string): boolean {
-  const newest =
-    idOf(sql.exec("SELECT max(id) AS id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'", Number(conversation)).one())?.id ??
-    null;
-
-  return newest !== null && ownMessages(sql, [newest]).has(newest);
-}
-
-export function runOpener(sql: SqlStorage, conversation: string, before = Number.MAX_SAFE_INTEGER): number | undefined {
-  const [row] = sql
-    .exec(
-      `SELECT id FROM pi_entries WHERE conversation_id = ? AND id < ? AND json_extract(record, '$.kind') IN ('pi.user', 'pi.reset')
-       ORDER BY id DESC LIMIT 1`,
-      Number(conversation),
-      before
-    )
-    .toArray();
-
-  return idOf(row ?? { id: null })?.id ?? undefined;
-}
-
-export function runInputs(sql: SqlStorage, conversation: string): readonly RunInput[] {
-  return sql
-    .exec(
-      `SELECT json_extract(record, '$.entry') AS entry, json_extract(record, '$.requestId') AS request FROM pi_submissions
-       WHERE conversation_id = ? AND status = 'placed' ORDER BY entry`,
-      Number(conversation)
-    )
-    .toArray()
-    .flatMap((raw) => {
-      const row = placedOf(raw);
-
-      return row === undefined ? [] : [{ entry: row.entry, request: row.request ?? undefined }];
-    });
-}
-
-export function wroteSince(sql: SqlStorage, conversation: string, at: number): boolean {
-  const users = sql
-    .exec(
-      `SELECT id FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user'
-       AND json_extract(record, '$.model[0].timestamp') > ? ORDER BY id DESC LIMIT ?`,
-      Number(conversation),
-      at,
-      WROTE_SINCE
-    )
-    .toArray()
-    .flatMap((row) => idOf(row)?.id ?? []);
-
-  return ownMessages(sql, users).size > 0;
-}
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
@@ -257,15 +194,15 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
         yield* exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${INDEX} USING fts5(
       text, conversation UNINDEXED, role UNINDEXED, at UNINDEXED, tokenize = 'unicode61')`);
 
-        const columns = yield* exec(`PRAGMA table_info(${MARK})`);
+        const columns = yield* rows(Column, `PRAGMA table_info(${MARK})`);
 
-        if (!columns.some((column) => columnOf(column)?.name === "roles")) {
+        if (!columns.some((column) => column.name === "roles")) {
           yield* exec(`ALTER TABLE ${MARK} ADD COLUMN roles INTEGER NOT NULL DEFAULT 0`);
         }
 
-        const [marked] = yield* exec(`SELECT roles FROM ${MARK} WHERE id = 1`);
+        const [marked] = yield* rows(Roles, `SELECT roles FROM ${MARK} WHERE id = 1`);
 
-        if (rolesOf(marked)?.roles === 0) {
+        if (marked?.roles === 0) {
           yield* exec(`DELETE FROM ${INDEX}`);
           yield* exec(`DELETE FROM ${MARK}`);
         }
@@ -395,13 +332,14 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
             for (const each of raw) {
               const row = saidOf(each);
 
-              if (row === undefined) {
+              if (Option.isNone(row)) {
                 damaged++;
                 continue;
               }
 
-              const user = row.role === "user";
-              lines.push({ seq: row.seq, user, line: `#${row.rowid} ${day(row.at)} ${chatName(row.conversation)}, ${row.role}: ${cut(flat(row.text), user ? SINCE_CHARS : BRIEF_CHARS)}` });
+              const { rowid, conversation, role, at, text } = row.value;
+              const user = role === "user";
+              lines.push({ seq: row.value.seq, user, line: `#${rowid} ${day(at)} ${chatName(conversation)}, ${role}: ${cut(flat(text), user ? SINCE_CHARS : BRIEF_CHARS)}` });
             }
 
             if (damaged > 0) yield* Console.warn(`chat search: ${damaged} damaged messages left out of what the dream reads`);
@@ -443,8 +381,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
               const now = at ?? (yield* Clock.currentTimeMillis);
               const [after, bound] = from.seq > 0 ? ["seq > ?", from.seq] : ["at > ?", from.at];
               const oldest = now - SINCE_WINDOW_MS;
-              const [count] = yield* exec(`SELECT count(*) AS n FROM ${SAID_FROM} WHERE ${after} AND at <= ?`, bound, oldest);
-              const old = countOf(count)?.n ?? 0;
+              const [{ n: old } = { n: 0 }] = yield* rows(Count, `SELECT count(*) AS n FROM ${SAID_FROM} WHERE ${after} AND at <= ?`, bound, oldest);
 
               const lines = yield* said(
                 yield* exec(
@@ -456,26 +393,27 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
               );
 
               const { end, stopAt, shown } = fit(lines, chars);
-              const [newest] = yield* exec(`SELECT max(seq) AS seq FROM ${SAID_FROM}`);
+              const [newest] = yield* rows(Newest, `SELECT max(seq) AS seq FROM ${SAID_FROM}`);
               const stopBefore = (seq: number) => (seq - 1 > from.seq ? seq - 1 : seq);
 
               return {
                 lines: shown.map((each) => each.line),
                 dropped: old + end - shown.length,
                 waiting: lines.length - end,
-                through: stopAt === undefined ? Math.max(from.seq, seqOf(newest)?.seq ?? 0) : stopBefore(stopAt)
+                through: stopAt === undefined ? Math.max(from.seq, newest?.seq ?? 0) : stopBefore(stopAt)
               };
             }),
           latest: (session) =>
             Effect.map(
-              exec(
-                `SELECT text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
+              rows(
+                Text,
+                `SELECT CASE WHEN typeof(text) = 'text' THEN text END AS text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
            WHERE conversation_id = ? AND (json_extract(record, '$.kind') = '${LOOK_POST}'
              OR (json_extract(record, '$.kind') = 'pi.assistant' AND json_extract(record, '$.model[0].stopReason') IN ('stop', 'length'))))
          WHERE trim(coalesce(text, '')) != '' ORDER BY id DESC LIMIT 1`,
                 Number(session)
               ),
-              ([row]) => textOf(row)?.text ?? null
+              ([row]) => row?.text ?? null
             ),
           rebuild: Effect.gen(function* () {
             yield* exec(`DELETE FROM ${INDEX}`);

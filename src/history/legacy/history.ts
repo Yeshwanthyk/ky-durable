@@ -76,15 +76,7 @@ export type Said = {
   readonly through: number;
 };
 
-const EntryRow = Type.Object({
-  id: Type.Number(),
-  conversation_id: Type.Number(),
-  kind: Type.Union([Type.String(), Type.Null()]),
-  at: Type.Number(),
-  text: Type.Union([Type.String(), Type.Null()])
-});
-
-type EntryRow = Type.Static<typeof EntryRow>;
+type EntryRow = { id: number; conversation_id: number; kind: string | null; at: number; text: string | null };
 
 /** An entry's text in SQL: a look's post, or a message's text parts, not thinking, tool calls or images; null for anything else. */
 const TEXT_OF = `CASE
@@ -111,7 +103,7 @@ const PlacedRow = Type.Object({ entry: Type.Number(), request: Type.Union([Type.
  * The messages a search reads, by when they were sent: from `from` up to, not including, `to`, in epoch ms;
  * `days` is how a reply names them, like "between 2026-01-02 and 2026-01-03".
  */
-type Span = { readonly from: number; readonly to: number; readonly days: string };
+export type Span = { readonly from: number; readonly to: number; readonly days: string };
 
 const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
 
@@ -120,19 +112,9 @@ type SearchOptions = { readonly around?: number; readonly caller?: string; reado
 
 type SaidLine = { readonly seq: number; readonly user: boolean; readonly line: string };
 
-const termsOf = (query: string) => (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
+type Hit = { rowid: number; conversation: string; role: string; at: number; snippet: string };
 
-const Hit = Type.Object({ rowid: Type.Number(), conversation: Type.String(), role: Type.String(), at: Type.Number(), snippet: Type.String() });
-
-type Hit = Type.Static<typeof Hit>;
-
-const Line = Type.Object({ rowid: Type.Number(), role: Type.String(), at: Type.Number(), text: Type.String() });
-
-type Line = Type.Static<typeof Line>;
-
-const AskingRow = Type.Object({ rowid: Type.Union([Type.Number(), Type.Null()]) });
-
-const LastRow = Type.Object({ last: Type.Number() });
+type Line = { rowid: number; role: string; at: number; text: string };
 
 const CountRow = Type.Object({ n: Type.Number() });
 
@@ -158,7 +140,7 @@ const SeqRow = Type.Object({ seq: Type.Union([Type.Number(), Type.Null()]) });
 /** A chat's newest user entry; null before the first. */
 const NewestRow = Type.Object({ id: Type.Union([Type.Number(), Type.Null()]) });
 
-export class LegacyHistory {
+export class History {
   readonly #sql: SqlStorage;
   readonly #isChat: (session: string) => boolean;
   readonly #name: (session: string) => string;
@@ -202,33 +184,37 @@ export class LegacyHistory {
   search(query: string, { around = 0, caller = "", batches = Number.POSITIVE_INFINITY, span }: SearchOptions = {}): string {
     this.#catchUp(batches);
 
-    const terms = termsOf(query);
+    const terms = (query.match(/[\p{L}\p{N}_]+/gu) ?? []).map((term) => `"${term}"`);
 
     if (terms.length === 0) return "Give some words to search for.";
 
     const skip = this.#asking(caller);
     const during = span === undefined ? "" : ` ${span.days}`;
     const none = `No message matches ${query.trim()}${during}.`;
-    const window = span ?? ALWAYS;
-    const every = this.#match(terms.join(" AND "), skip, window);
+    const every = this.#match(terms.join(" AND "), skip, span ?? ALWAYS);
 
     if (every.length > 0 || terms.length === 1) return this.#show(every, around, "") || none;
 
-    const some = this.#match(terms.join(" OR "), skip, window);
+    const some = this.#match(terms.join(" OR "), skip, span ?? ALWAYS);
 
     return this.#show(some, around, `No message has all those words${during}; these have some of them.\n`) || none;
   }
 
   /** The user's latest message in `caller`, or -1. */
   #asking(caller: string): number {
-    const row = this.#sql.exec("SELECT max(rowid) AS rowid FROM ky_history WHERE conversation = ? AND role = 'user'", caller).toArray()[0];
-
-    return decodeOr(AskingRow, row, undefined)?.rowid ?? -1;
+    return (
+      this.#sql
+        .exec<{ rowid: number | null }>(
+          "SELECT max(rowid) AS rowid FROM ky_history WHERE conversation = ? AND role = 'user'",
+          caller
+        )
+        .toArray()[0]?.rowid ?? -1
+    );
   }
 
   #match(expression: string, skip: number, span: Pick<Span, "from" | "to">): Hit[] {
     return this.#sql
-      .exec(
+      .exec<Hit>(
         `SELECT rowid, conversation, role, at, snippet(ky_history, 0, '[', ']', ' … ', 24) AS snippet
          FROM ky_history WHERE ky_history MATCH ? AND rowid != ? AND at >= ? AND at < ? ORDER BY rank LIMIT ?`,
         expression,
@@ -237,8 +223,7 @@ export class LegacyHistory {
         span.to,
         MATCHES
       )
-      .toArray()
-      .flatMap((row) => decodeOr(Hit, row, undefined) ?? []);
+      .toArray();
   }
 
   /** The hits as text, as many as fit OUTPUT_CHARS; empty when there are none. */
@@ -266,25 +251,23 @@ export class LegacyHistory {
     if (around <= 0) return `${head} ${hit.role}: ${flat(hit.snippet)}`;
 
     const before = this.#sql
-      .exec(
+      .exec<Line>(
         "SELECT rowid, role, at, text FROM ky_history WHERE conversation = ? AND rowid < ? ORDER BY rowid DESC LIMIT ?",
         hit.conversation,
         hit.rowid,
         around
       )
       .toArray()
-      .flatMap((row) => decodeOr(Line, row, undefined) ?? [])
       .reverse();
 
     const after = this.#sql
-      .exec(
+      .exec<Line>(
         "SELECT rowid, role, at, text FROM ky_history WHERE conversation = ? AND rowid > ? ORDER BY rowid LIMIT ?",
         hit.conversation,
         hit.rowid,
         around
       )
-      .toArray()
-      .flatMap((row) => decodeOr(Line, row, undefined) ?? []);
+      .toArray();
 
     const neighbor = (line: Line) => `  #${line.rowid} ${line.role}: ${cut(flat(line.text), NEIGHBOR_CHARS)}`;
 
@@ -393,19 +376,18 @@ export class LegacyHistory {
 
   /** Copy the chat messages pi committed since the last search, at most `batches` batches of them. */
   #catchUp(batches = Number.POSITIVE_INFINITY): void {
-    let last = decodeOr(LastRow, this.#sql.exec("SELECT last FROM ky_history_mark").toArray()[0], undefined)?.last ?? 0;
+    let last = this.#sql.exec<{ last: number }>("SELECT last FROM ky_history_mark").toArray()[0]?.last ?? 0;
     let from = Math.max(0, last - LOOKBACK);
 
     for (let read = 0; read < batches; read++) {
       const rows = this.#entries(from);
-      const newest = rows.at(-1);
 
-      if (newest === undefined) break;
+      if (rows.length === 0) break;
       const own = this.#own(rows);
 
       for (const row of rows) this.#index(row, own);
 
-      from = newest.id;
+      from = rows.at(-1)!.id;
       last = Math.max(last, from);
     }
 
@@ -415,15 +397,14 @@ export class LegacyHistory {
   /** The next batch of pi's entries after `from`, as text; null text for anything but a user's or ky's message. */
   #entries(from: number): EntryRow[] {
     return this.#sql
-      .exec(
+      .exec<EntryRow>(
         `SELECT id, conversation_id, json_extract(record, '$.kind') AS kind,
            coalesce(json_extract(record, '$.model[0].timestamp'), 0) AS at, ${TEXT_OF} AS text
          FROM pi_entries WHERE id > ? ORDER BY id LIMIT ?`,
         from,
         BATCH
       )
-      .toArray()
-      .flatMap((row) => decodeOr(EntryRow, row, undefined) ?? []);
+      .toArray();
   }
 
   /** Of these entries, the user entries the user sent; every other user entry is a notice. */

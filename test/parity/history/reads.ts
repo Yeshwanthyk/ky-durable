@@ -1,5 +1,5 @@
 import type { Json } from "../kit";
-import { CONVERSATIONS, DAY, QUERIES, type Reads, type Side } from "./world";
+import { CONVERSATIONS, DAY, QUERIES, type Reads, saidJson, type Side } from "./world";
 
 export function readAll(side: Side, reads: Reads, ids: readonly number[], now: number): Json {
   const span = { from: now - 3 * DAY, to: now, days: "the last three days" };
@@ -12,9 +12,9 @@ export function readAll(side: Side, reads: Reads, ids: readonly number[], now: n
       side.search(query, { around: 2, batches: 0 })
     ]),
     since: [0, 1, 5, 20].flatMap((seq) =>
-      [0, 2 * DAY, 30 * DAY].flatMap((back) => [120, 20_000].map((chars) => side.since({ seq, at: now - back }, chars)))
+      [0, 2 * DAY, 30 * DAY].flatMap((back) => [120, 20_000].map((chars) => saidJson(side.since({ seq, at: now - back }, chars))))
     ),
-    sinceAt: [side.since({ seq: 0, at: 0 }, 20_000, now - 2 * DAY), side.since({ seq: 0, at: 0 }, 20_000, now + 9 * DAY)],
+    sinceAt: [saidJson(side.since({ seq: 0, at: 0 }, 20_000, now - 2 * DAY)), saidJson(side.since({ seq: 0, at: 0 }, 20_000, now + 9 * DAY))],
     latest: CONVERSATIONS.map((session) => side.latest(session)),
     placedBy: [...reads.placedBy(ids)].map(([entry, request]) => [entry, request ?? null]),
     ownMessages: [...reads.ownMessages(ids)],

@@ -1,5 +1,5 @@
 diff --git a/src/history/history.ts b/src/history/history.ts
-index ecbeb4d..61f900e 100644
+index 5ed3e6a..db4f3a7 100644
 --- a/src/history/history.ts
 +++ b/src/history/history.ts
 @@ -31,7 +31,7 @@ const OUTPUT_CHARS = 12_000;

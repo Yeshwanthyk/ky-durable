@@ -45,6 +45,10 @@
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },
+  "src/history/legacy/history.ts": {
+    "ky(no-unchecked-parse)": 6,
+    "typescript(no-non-null-assertion)": 1
+  },
   "src/models.ts": {
     "typescript(await-thenable)": 1,
     "typescript(no-non-null-assertion)": 1

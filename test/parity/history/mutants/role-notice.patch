@@ -1,8 +1,8 @@
 diff --git a/src/history/history.ts b/src/history/history.ts
-index ecbeb4d..aa9821d 100644
+index 5ed3e6a..927ec1d 100644
 --- a/src/history/history.ts
 +++ b/src/history/history.ts
-@@ -219,7 +219,7 @@ function fit(said: readonly SaidLine[], chars: number) {
+@@ -158,7 +158,7 @@ function fit(said: readonly SaidLine[], chars: number) {
    return { end, stopAt, shown };
  }
  
