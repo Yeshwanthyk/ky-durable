@@ -37,7 +37,7 @@ import { checkInput, imagesOf } from "./images";
 import { spokenText } from "./media";
 import { CARD_ANSWER } from "./ui-blocks";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
-import type { ChatList } from "./chats";
+import type { ChatList } from "./chats/chats";
 import type { Avatars } from "./avatars";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";

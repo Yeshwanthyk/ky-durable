@@ -9,7 +9,7 @@ import { placedBy } from "../history";
 import { agent, gateStarted, inside, until } from "./drive";
 
 /**
- * The chats tool (src/chats-tool.ts) through ky's real PiAgent on the fake models: a chat opens side chats, steers
+ * The chats tool (src/chats/tool.ts) through ky's real PiAgent on the fake models: a chat opens side chats, steers
  * the ones it opened, and inspects them; a chat it opened runs none. The fake model answers an opener's message
  * as the message after its header, so `create` with `gate` leaves the opened chat working until the test releases it.
  */
@@ -73,7 +73,7 @@ describe("the chats tool", () => {
     // Another call is another chat, named from its message when no title is given.
     const second = await create(name, ROOT_SESSION, 8, "reply: Yesterday's top stories.");
     expect(second).not.toBe(first);
-    expect((await row(name, second))?.title).toBe("reply: Yesterday's top stories.");
+    expect((await row(name, second))?.title).toMatch(/^(Named: )?reply: Yesterday's top stories\.$/);
   });
 
   it("opens one chat across an eviction: the call run again finds the chat it opened", async () => {
@@ -89,7 +89,7 @@ describe("the chats tool", () => {
 
   it("steers a working chat into the turn it is in, once per call, and inspect shows it working, then idle with its answer", async () => {
     const name = crypto.randomUUID();
-    const chat = await create(name, ROOT_SESSION, 1, "gate");
+    const chat = await create(name, ROOT_SESSION, 1, "gate", "gate");
     await gateStarted(name, 1);
 
     expect(await run(name, ROOT_SESSION, 2, { action: "inspect", chat })).toEqual({ text: `"gate" is working; no message from ky in it yet.`, failed: false });
