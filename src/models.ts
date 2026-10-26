@@ -24,15 +24,8 @@ import type { Endpoint } from "./providers/endpoint";
 import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
 import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
 import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./providers/workers-ai";
-import {
-  type ModelChoice,
-  type ModelOption,
-  nearestLevel,
-  type ProviderInfo,
-  type Purpose,
-  Settings,
-  type SettingsView
-} from "./settings";
+import { type ModelChoice, type ModelOption, nearestLevel, type ProviderInfo, type Purpose, type SettingsView } from "./settings/contract";
+import { Settings } from "./settings/wiring";
 
 /**
  * Which model does what (C5). This owns the providers this deploy has (their
@@ -148,7 +141,7 @@ export class Models {
     this.#pipe = pipe;
     this.#records.add(WORKERS_AI_RECORD);
     this.#placeVibeProxy();
-    this.settings = new Settings(storage.sql, (choice) => this.valid(choice));
+    this.settings = new Settings(storage, (choice) => this.valid(choice));
     this.registry = createModels({ authContext: NO_ENV });
     this.#load();
   }

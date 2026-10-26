@@ -8,7 +8,7 @@ import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contrac
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../models";
-import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
 
 export type { Reviews, Skills } from "./wiring";
 

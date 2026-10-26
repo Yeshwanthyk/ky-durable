@@ -25,7 +25,7 @@ import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
 import { uploadMedia } from "./media-upload";
 import { History, startedByUser } from "./history";
-import { lookPost } from "./transcript";
+import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
@@ -56,7 +56,7 @@ import { seed } from "./seeds";
 import { Titler } from "./titles";
 import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
-import type { Purpose } from "./settings";
+import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
 import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 

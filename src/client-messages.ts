@@ -12,7 +12,7 @@ import { ApprovalActionSchema, ToolPolicySchema } from "./approvals/contract";
 import { AutomationActionSchema, AutomationDraftSchema } from "./automations/contract";
 import { ProactivityLevelSchema, RIGHT_AWAY_MOST, SoulChangeSchema } from "./dreaming/contract";
 import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
-import { ModelChoiceSchema, PurposeSchema } from "./settings";
+import { ModelChoiceSchema, PurposeSchema } from "./settings/contract";
 import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
 import type { PiServerMessage } from "./protocol";
 import { CardAnswerSchema } from "./ui-blocks";

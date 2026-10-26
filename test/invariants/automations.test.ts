@@ -15,7 +15,7 @@ import {
   taskRows,
   TOOL_ACTIONS
 } from "../../src/automations/contract";
-import { ModelChoiceSchema } from "../../src/settings";
+import { ModelChoiceSchema } from "../../src/settings/contract";
 import { budget } from "../parity/kit";
 import { type Action, actions, HOUR, installIds, next, port, START, World } from "../parity/automations/world";
 

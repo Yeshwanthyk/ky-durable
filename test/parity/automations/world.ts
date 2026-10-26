@@ -10,7 +10,7 @@ import { TaskFeed } from "../../../src/automations/tasks";
 import type { AutomationDeps, Callbacks, GateAnswer } from "../../../src/automations/automations";
 import type { MachineHub } from "../../../src/machines/contract";
 import type { MachineInfo } from "../../../src/protocol";
-import type { ModelChoice } from "../../../src/settings";
+import type { ModelChoice } from "../../../src/settings/contract";
 import type { Spawn } from "../../../src/skills/contract";
 import type { Clock, Instance, Json } from "../kit";
 import { Bookings } from "./scheduler";

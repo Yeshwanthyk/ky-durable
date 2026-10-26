@@ -1,7 +1,7 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import Type, { type Static } from "typebox";
-import { decodeOr, parseOr } from "./core/decode";
-import type { ProviderKind } from "./providers/records";
+import { decodeOr, parseOr } from "../../core/decode";
+import type { ProviderKind } from "../../providers/records";
 
 /**
  * Which model does which job. There are four purposes (C5): the main agent;

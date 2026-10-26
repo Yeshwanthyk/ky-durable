@@ -17,7 +17,7 @@ import { decodeOr, parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { refused } from "../core/refusal";
 import { agentModel } from "../models";
-import type { ModelChoice } from "../settings";
+import type { ModelChoice } from "../settings/contract";
 import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "../skills/contract";
 import { summarize, type TaskFeed } from "../automations/contract";
 import {
@@ -28,7 +28,7 @@ import {
   type SpecialistReplyData,
   TO_SPECIALISTS,
   type ToSpecialistsData
-} from "../transcript";
+} from "../core/transcript";
 import {
   ChatMember,
   type GroupMembers,

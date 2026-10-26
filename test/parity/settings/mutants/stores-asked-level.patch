@@ -1,0 +1,13 @@
+diff --git a/src/settings/settings.ts b/src/settings/settings.ts
+index 1f64c2e..dc67231 100644
+--- a/src/settings/settings.ts
++++ b/src/settings/settings.ts
+@@ -39,7 +39,7 @@ export class Purposes extends Context.Service<
+             const valid = validOf(choice);
+ 
+             if (!valid) return yield* new NotAvailable({ provider: choice.provider, modelId: choice.modelId });
+-            const kept = yield* Effect.orDie(Schema.decodeUnknownEffect(Choice)(valid));
++            const kept = yield* Effect.orDie(Schema.decodeUnknownEffect(Choice)(choice));
+             const value = yield* Effect.orDie(Schema.encodeEffect(Stored)(kept));
+             yield* Effect.orDie(
+               sql.exec(`INSERT INTO ${TABLE} (purpose, value) VALUES (?, ?) ON CONFLICT(purpose) DO UPDATE SET value = excluded.value`, purpose, value)

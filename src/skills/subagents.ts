@@ -19,7 +19,7 @@ import {
   type Tx
 } from "@earendil-works/pi-durable";
 import { agentModel, type Models, parseModel } from "../models";
-import type { ModelChoice } from "../settings";
+import type { ModelChoice } from "../settings/contract";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, type Specialist } from "./specialists";
 import type { Specialists } from "./wiring";
 import { toolReply as reply } from "../core/reply";

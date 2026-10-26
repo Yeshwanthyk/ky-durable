@@ -3,7 +3,7 @@ import type { UserInput } from "@earendil-works/pi-durable";
 import Type from "typebox";
 import { Value } from "typebox/value";
 import { FRAMES_PER_VIDEO, framesOf, MAX_CLIPS, MAX_FRAME_CHARS, readMedia } from "./media";
-import type { Purpose, SettingsView } from "./settings";
+import type { Purpose, SettingsView } from "./settings/contract";
 
 /**
  * Images the user attaches travel inline, as pi-ai image parts in the user

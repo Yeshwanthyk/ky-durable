@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PiMessage } from "../transcript";
+import type { PiMessage } from "../core/transcript";
 import { peerAnswer } from "../peers/peers";
 import { buildTurns, sentTexts } from "../ui/turns";
 

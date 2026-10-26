@@ -1,0 +1,13 @@
+diff --git a/src/settings/settings.ts b/src/settings/settings.ts
+index 1f64c2e..a438234 100644
+--- a/src/settings/settings.ts
++++ b/src/settings/settings.ts
+@@ -36,7 +36,7 @@ export class Purposes extends Context.Service<
+               Option.getOrUndefined(Option.flatMapNullishOr(Schema.decodeUnknownOption(PurposeRow)(row), (stored) => validOf(stored.value)))
+             ),
+           set: Effect.fnUntraced(function* (purpose, choice) {
+-            const valid = validOf(choice);
++            const valid = validOf(choice) ?? choice;
+ 
+             if (!valid) return yield* new NotAvailable({ provider: choice.provider, modelId: choice.modelId });
+             const kept = yield* Effect.orDie(Schema.decodeUnknownEffect(Choice)(valid));

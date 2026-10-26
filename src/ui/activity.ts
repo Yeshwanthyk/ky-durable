@@ -1,6 +1,6 @@
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { type Activity, describeTool } from "../tool-labels";
-import type { PiMessage } from "../transcript";
+import type { PiMessage } from "../core/transcript";
 import type { PiRunningTool } from "../view";
 
 export type { Activity } from "../tool-labels";
