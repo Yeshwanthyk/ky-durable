@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index c31972b..e3f0df6 100644
+index 61a5b79..03de523 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -158,7 +158,7 @@ export function checkInput(input: UserInput): string | null {
+@@ -157,7 +157,7 @@ export function checkInput(input: UserInput): string | null {
  
    if (clips.length > MAX_CLIPS) return `Attach at most ${MAX_CLIPS} clips.`;
  

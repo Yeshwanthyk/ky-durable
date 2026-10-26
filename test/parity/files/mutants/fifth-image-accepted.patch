@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index c31972b..be4ac6d 100644
+index 61a5b79..cadbd7c 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -160,7 +160,7 @@ export function checkInput(input: UserInput): string | null {
+@@ -159,7 +159,7 @@ export function checkInput(input: UserInput): string | null {
  
    if (frames > images.length || frames > MAX_CLIPS * FRAMES_PER_VIDEO) return "A video's frames don't match its tag.";
  

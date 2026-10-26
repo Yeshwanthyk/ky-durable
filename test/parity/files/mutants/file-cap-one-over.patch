@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 2059cd2..cefdc7c 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -44,7 +44,7 @@ const FILE_TYPES: ReadonlySet<string> = new Set([
+   DIFF_TYPE
+ ]);
+ 
+-const MAX_FILE_BYTES = 25 * 1024 * 1024;
++const MAX_FILE_BYTES = 25 * 1024 * 1024 + 1;
+ 
+ const LIST_LIMIT = 200;
+ 

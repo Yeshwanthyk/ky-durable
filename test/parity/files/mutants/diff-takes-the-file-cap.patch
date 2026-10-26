@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 6389f5e..f13d094 100644
+index 2059cd2..81ddc81 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -139,7 +139,7 @@ export const upload = (
+@@ -136,7 +136,7 @@ export const upload = (
  
      if (!FILE_TYPES.has(type)) return yield* new NotAFileType();
      const size = Number(request.headers.get("Content-Length"));

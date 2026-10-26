@@ -1,0 +1,13 @@
+diff --git a/src/files/wiring.ts b/src/files/wiring.ts
+index db36d00..6c7f501 100644
+--- a/src/files/wiring.ts
++++ b/src/files/wiring.ts
+@@ -21,7 +21,7 @@ export class FileStore {
+   typed(types: ReadonlyMap<string, string>): void {
+     this.#edge.run(Files.use((files) => files.typed(types)));
+ 
+-    if (types.size > 0) this.#changed();
++    this.#changed();
+   }
+ 
+   restored(): void {

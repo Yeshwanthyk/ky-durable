@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 6389f5e..ec80a90 100644
+index 2059cd2..ea36589 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -131,7 +131,7 @@ export const upload = (
+@@ -128,7 +128,7 @@ export const upload = (
    typeOf: (declared: string, bytes: Uint8Array) => Promise<string>
  ) =>
    Effect.gen(function* () {

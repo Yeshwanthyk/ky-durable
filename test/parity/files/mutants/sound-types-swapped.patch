@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index c31972b..3f3aed3 100644
+index 61a5b79..26eb1f0 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -31,8 +31,8 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
+@@ -30,8 +30,8 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
  const VIDEO_TYPES: ReadonlySet<string> = new Set(["video/mp4", "video/webm", "video/quicktime"]);
  
  export const soundTypeOf: ReadonlyMap<string, string> = new Map([

@@ -1,9 +1,9 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index c31972b..61b307c 100644
+index 61a5b79..69ff181 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -152,7 +152,7 @@ export function checkInput(input: UserInput): string | null {
-   if (!Array.isArray(input)) return Schema.is(Schema.String)(input) ? null : "Send text, or text and images.";
+@@ -151,7 +151,7 @@ export function checkInput(input: UserInput): string | null {
+   if (!Array.isArray(input)) return null;
    const images = imagesOf(input);
  
 -  if (input.length === 0 || input.length - images.length > 1) return "Send one text part at most, and something.";

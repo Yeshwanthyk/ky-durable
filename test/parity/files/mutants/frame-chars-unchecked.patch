@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index c31972b..c77accb 100644
+index 61a5b79..0e0ddd4 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -174,7 +174,6 @@ export function checkInput(input: UserInput): string | null {
+@@ -173,7 +173,6 @@ export function checkInput(input: UserInput): string | null {
      return "These images are too large together. Attach fewer.";
    }
  

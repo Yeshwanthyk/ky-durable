@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 6389f5e..732fbe7 100644
+index 2059cd2..1f116a0 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -99,7 +99,7 @@ export class Files extends Context.Service<
+@@ -96,7 +96,7 @@ export class Files extends Context.Service<
            yield* exec(
              `INSERT INTO ${TABLE} (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
              row.id,

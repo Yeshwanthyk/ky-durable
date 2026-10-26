@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 6389f5e..c3c11b5 100644
+index 2059cd2..7345752 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -90,7 +90,7 @@ export class Files extends Context.Service<
+@@ -87,7 +87,7 @@ export class Files extends Context.Service<
            yield* exec(`DELETE FROM ${TYPED}`);
            yield* exec(`INSERT INTO ${TYPED} (done) VALUES (1)`);
          }),

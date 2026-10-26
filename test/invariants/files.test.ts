@@ -779,10 +779,32 @@ describe("a file's type", () => {
 
         expect(ky.store.list().map((row) => row.type)).toEqual([after]);
         expect(ky.store.untyped()).toEqual([]);
+        expect(ky.db.prepare(`SELECT done FROM ${FILE_TABLES.typed}`).all().map((row) => ({ ...row }))).toEqual([{ done: 1 }]);
 
         if (restore) ky.store.restored();
 
         expect(ky.store.untyped().length).toBe(restore && after === declared ? 1 : 0);
+      }),
+      runs()
+    );
+  });
+});
+
+describe("a file store's listeners", () => {
+  it("hear each recorded file and each retype that names a file, never an empty one", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(fc.oneof(fc.constant("record" as const), fc.nat({ max: 3 })), { maxLength: 12 }), async (steps) => {
+        using ky = port();
+        let heard = 0;
+        ky.store.onChange(() => heard++);
+        const expected = steps.filter((step) => step === "record" || step > 0).length;
+
+        for (const [index, step] of steps.entries()) {
+          if (step === "record") ky.store.record({ id: `f${index}`, task: "t1", name: "n", type: "video/webm", size: 1, caption: null });
+          else ky.store.typed(new Map(Array.from({ length: step }, (_, at) => [`f${at}`, "audio/webm"])));
+        }
+
+        expect(heard).toBe(expected);
       }),
       runs()
     );
@@ -798,7 +820,7 @@ describe("a clip upload", () => {
 
     await fc.assert(
       fc.asyncProperty(
-        fc.constantFrom<"PUT" | "POST">("PUT", "PUT", "POST"),
+        fc.constantFrom("PUT", "PUT", "PUT", "POST", "GET", "PATCH", "DELETE"),
         fc.oneof({ arbitrary: fc.constantFrom(...audio, ...video), weight: 3 }, fc.constantFrom("AUDIO/FLAC; x=1", " video/mp4 ", "image/png", "audio/aiff", ""), fc.string()),
         fc.oneof({ arbitrary: fc.constantFrom(0, 1, 1, 1, 1.5, 2, MAX_MEDIA, MAX_MEDIA + 1), weight: 3 }, fc.integer({ min: -1, max: 100 * MB })),
         fc.boolean(),
@@ -867,7 +889,7 @@ describe("a stored file's row", () => {
 
           expect(listed.length).toBe(Math.min(200, made.length));
           expect(listed.every((id, index) => index === 0 || at(listed[index - 1] ?? "") >= at(id))).toBe(true);
-          expect(forT1.length).toBe(made.filter(([task]) => task === "t1").length);
+          expect(forT1.toSorted()).toEqual(made.flatMap(([task], index) => (task === "t1" ? [`f${index}`] : [])).toSorted());
           expect(forT1.every((id, index) => index === 0 || at(forT1[index - 1] ?? "") <= at(id))).toBe(true);
         })
       ),

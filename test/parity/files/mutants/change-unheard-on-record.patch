@@ -1,8 +1,8 @@
 diff --git a/src/files/wiring.ts b/src/files/wiring.ts
-index fba4d25..992df19 100644
+index db36d00..594f0e8 100644
 --- a/src/files/wiring.ts
 +++ b/src/files/wiring.ts
-@@ -46,7 +46,6 @@ export class FileStore {
+@@ -44,7 +44,6 @@ export class FileStore {
  
    record(file: NewFile): FileRow {
      const row = this.#edge.run(Files.use((files) => files.record(file)));
