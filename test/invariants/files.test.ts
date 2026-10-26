@@ -1,5 +1,9 @@
 import type { UserInput } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schema from "effect/Schema";
+import { TestClock } from "effect/testing";
 import fc from "fast-check";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -22,6 +26,8 @@ import {
   readMedia,
   spokenText
 } from "../../src/files/contract";
+import { Files } from "../../src/files/files";
+import { Sql } from "../../src/core/sql";
 import type { Purpose, SettingsView } from "../../src/settings";
 import { download as downloadFrom, FileStore, retype as retypeFrom, upload as uploadTo, uploadedType, uploadMedia as uploadMediaTo } from "../../src/files/wiring";
 import * as B from "../parity/files/legacy";
@@ -547,6 +553,24 @@ const runs = () => ({ numRuns: budget().numRuns, seed: budget().seed });
 
 const manyRuns = () => ({ numRuns: budget().numRuns * 4, seed: budget().seed });
 
+type RunFiles = <A>(use: (files: Files["Service"]) => Effect.Effect<A>) => Promise<A>;
+
+async function filesAt<A>(test: (run: RunFiles, at: (ms: number) => Promise<void>, db: DatabaseSync) => Promise<A>): Promise<A> {
+  const db = new DatabaseSync(":memory:");
+  const runtime = ManagedRuntime.make(Files.layer.pipe(Layer.provideMerge(Layer.mergeAll(Sql.layer(storageOf(db)), TestClock.layer()))));
+
+  try {
+    return await test(
+      (use) => runtime.runPromise(Files.use(use)),
+      (ms) => runtime.runPromise(TestClock.setTime(ms)),
+      db
+    );
+  } finally {
+    await runtime.dispose();
+    db.close();
+  }
+}
+
 function port() {
   const db = new DatabaseSync(":memory:");
   const store = new FileStore(storageOf(db));
@@ -789,17 +813,16 @@ describe("a stored file's row", () => {
           caption: fc.option(fc.oneof(fc.constant(""), fc.string()), { nil: null })
         }),
         fc.integer({ min: 0, max: 2 ** 41 }),
-        async (file, now) => {
-          vi.spyOn(Date, "now").mockReturnValue(now);
-          using ky = port();
-          const row = ky.store.record(file);
-          const stored = rowsDecoded(ky.db.prepare(`SELECT id, task, name, type, size, caption, created_at FROM ${FILE_TABLES.files}`).all());
+        (file, now) =>
+          filesAt(async (run, at, db) => {
+            await at(now);
+            const row = await run((files) => files.record(file));
+            const stored = rowsDecoded(db.prepare(`SELECT id, task, name, type, size, caption, created_at FROM ${FILE_TABLES.files}`).all());
 
-          expect(row).toEqual({ ...file, created_at: now });
-          expect(stored).toEqual([{ ...file, created_at: now }]);
-          expect(ky.store.forTask(file.task)).toEqual([{ ...file, created_at: now }]);
-          vi.restoreAllMocks();
-        }
+            expect(row).toEqual({ ...file, created_at: now });
+            expect(stored).toEqual([{ ...file, created_at: now }]);
+            expect(await run((files) => files.forTask(file.task))).toEqual([{ ...file, created_at: now }]);
+          })
       ),
       runs()
     );
@@ -807,25 +830,26 @@ describe("a stored file's row", () => {
 
   it("lists newest first, at most 200, and a task's oldest first", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.integer({ min: 0, max: 230 }).chain((count) => fc.array(fc.tuple(fc.constantFrom("t1", "t2"), fc.integer({ min: 0, max: 1000 })), { minLength: count, maxLength: count })), async (made) => {
-        using ky = port();
-        const times = new Map<string, number>();
+      fc.asyncProperty(fc.integer({ min: 0, max: 230 }).chain((count) => fc.array(fc.tuple(fc.constantFrom("t1", "t2"), fc.integer({ min: 0, max: 1000 })), { minLength: count, maxLength: count })), (made) =>
+        filesAt(async (run, setTime) => {
+          const times = new Map<string, number>();
 
-        made.forEach(([task, at], index) => {
-          vi.spyOn(Date, "now").mockReturnValue(at);
-          ky.store.record({ id: `f${index}`, task, name: "n", type: "image/png", size: 1, caption: null });
-          times.set(`f${index}`, at);
-        });
-        const at = (id: string) => times.get(id) ?? 0;
-        const listed = ky.store.list().map((row) => row.id);
-        const forT1 = ky.store.forTask("t1").map((row) => row.id);
+          for (const [index, [task, when]] of made.entries()) {
+            await setTime(when);
+            await run((files) => files.record({ id: `f${index}`, task, name: "n", type: "image/png", size: 1, caption: null }));
+            times.set(`f${index}`, when);
+          }
 
-        expect(listed.length).toBe(Math.min(200, made.length));
-        expect(listed.every((id, index) => index === 0 || at(listed[index - 1] ?? "") >= at(id))).toBe(true);
-        expect(forT1.length).toBe(made.filter(([task]) => task === "t1").length);
-        expect(forT1.every((id, index) => index === 0 || at(forT1[index - 1] ?? "") <= at(id))).toBe(true);
-        vi.restoreAllMocks();
-      }),
+          const at = (id: string) => times.get(id) ?? 0;
+          const listed = (await run((files) => files.list)).map((row) => row.id);
+          const forT1 = (await run((files) => files.forTask("t1"))).map((row) => row.id);
+
+          expect(listed.length).toBe(Math.min(200, made.length));
+          expect(listed.every((id, index) => index === 0 || at(listed[index - 1] ?? "") >= at(id))).toBe(true);
+          expect(forT1.length).toBe(made.filter(([task]) => task === "t1").length);
+          expect(forT1.every((id, index) => index === 0 || at(forT1[index - 1] ?? "") <= at(id))).toBe(true);
+        })
+      ),
       runs()
     );
   });
