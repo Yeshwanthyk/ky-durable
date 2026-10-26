@@ -1,8 +1,8 @@
 diff --git a/src/chats/chats.ts b/src/chats/chats.ts
-index 74a79c9..beef379 100644
+index a8eeee8..e11d3fe 100644
 --- a/src/chats/chats.ts
 +++ b/src/chats/chats.ts
-@@ -85,7 +85,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+@@ -83,7 +83,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
                now,
                now,
                opener?.by ?? null,

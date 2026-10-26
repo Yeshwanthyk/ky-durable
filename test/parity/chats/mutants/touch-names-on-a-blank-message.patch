@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index a8eeee8..2f4d38d 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -99,7 +99,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+               session
+             );
+ 
+-            return unnamed && titleOf(text) !== "";
++            return unnamed;
+           }),
+         answered: (session) =>
+           Effect.gen(function* () {

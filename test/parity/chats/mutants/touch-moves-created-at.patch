@@ -1,8 +1,8 @@
 diff --git a/src/chats/chats.ts b/src/chats/chats.ts
-index 74a79c9..469837f 100644
+index a8eeee8..a68a9e4 100644
 --- a/src/chats/chats.ts
 +++ b/src/chats/chats.ts
-@@ -95,7 +95,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+@@ -93,7 +93,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
              const unnamed = (yield* exec(`SELECT 1 FROM ${CHAT_TABLES.chats} WHERE session = ? AND title = ''`, session)).length > 0;
  
              yield* exec(

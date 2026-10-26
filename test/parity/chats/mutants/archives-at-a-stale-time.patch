@@ -1,13 +1,13 @@
 diff --git a/src/chats/chats.ts b/src/chats/chats.ts
-index 74a79c9..4e62a13 100644
+index a8eeee8..c982f01 100644
 --- a/src/chats/chats.ts
 +++ b/src/chats/chats.ts
-@@ -120,7 +120,7 @@ export class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats")
+@@ -116,7 +116,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+ 
+           return name === "" ? Effect.succeed(false) : written(`UPDATE ${CHAT_TABLES.chats} SET title = ? WHERE session = ?`, name, session);
          },
-         archive: (session, archived) =>
-           Effect.gen(function* () {
--            return yield* written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? yield* Clock.currentTimeMillis : null, session);
-+            return yield* written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? (yield* Clock.currentTimeMillis) - 1 : null, session);
-           })
+-        archive: (session, archived) => Effect.flatMap(Clock.currentTimeMillis, (now) => written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? now : null, session))
++        archive: (session, archived) => Effect.flatMap(Clock.currentTimeMillis, (now) => written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? now - 1 : null, session))
        };
      })
+   );
