@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..f3850b5 100644
+index 7e8beff..9fad252 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -155,7 +155,7 @@ export function checkInput(input: UserInput): string | null {
+@@ -174,7 +174,7 @@ export function checkInput(input: UserInput): string | null {
    const { clips } = readMedia(input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
    const frames = framesOf(clips);
  

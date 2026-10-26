@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..0fc848c 100644
+index 7e8beff..fdc00f6 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -135,7 +135,7 @@ export function spokenText(text: string): string {
+@@ -154,7 +154,7 @@ export function spokenText(text: string): string {
    return [...said, rest].filter((each) => each !== "").join(" ");
  }
  

@@ -1,9 +1,9 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..ffb02f6 100644
+index f6f50e9..10b69d2 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -147,7 +147,7 @@ export const upload = (
-     const caption = captioned === null ? null : yield* label(captioned, 2000);
+@@ -164,7 +164,7 @@ export const accept = (
+     const { task, type, size, name, caption } = yield* declared(request);
      const body = yield* Effect.promise(() => request.arrayBuffer());
  
 -    if (body.byteLength !== size) return yield* new ShortBody();

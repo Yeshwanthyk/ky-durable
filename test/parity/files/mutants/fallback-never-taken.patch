@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..de17e73 100644
+index 7e8beff..83e6a6a 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -188,7 +188,6 @@ export function imageSupport(settings: SettingsView, purpose: Purpose): string |
+@@ -207,7 +207,6 @@ export function imageSupport(settings: SettingsView, purpose: Purpose): string |
  
    let found = find(settings.purposes[purpose]);
  

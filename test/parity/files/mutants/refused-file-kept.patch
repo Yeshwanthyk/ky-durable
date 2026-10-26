@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..ee7d1bd 100644
+index f6f50e9..90ae9ed 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -154,7 +154,6 @@ export const upload = (
+@@ -171,7 +171,6 @@ export const accept = (
      const refused = yield* Effect.promise(() => record({ id, task, name, type: kept, size, caption }));
  
      if (refused !== null) {

@@ -1,13 +1,13 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..9948d81 100644
+index f6f50e9..562c186 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -134,7 +134,7 @@ export const upload = (
+@@ -147,7 +147,7 @@ const declared = (request: Request) =>
      if (!task) return yield* new NoTask();
      const type = request.headers.get("Content-Type") ?? "";
  
 -    if (!FILE_TYPES.has(type)) return yield* new NotAFileType();
 +    if (!FILE_TYPES.has(type) && !type.startsWith("image/")) return yield* new NotAFileType();
-     const size = Number(request.headers.get("Content-Length"));
-     const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
+     const size = yield* sizeOf(request, type);
+     const { name, caption } = yield* labels(request);
  

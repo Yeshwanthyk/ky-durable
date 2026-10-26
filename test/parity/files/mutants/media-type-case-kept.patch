@@ -1,5 +1,5 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..18622a7 100644
+index 7e8beff..2b16559 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
 @@ -34,7 +34,7 @@ export const soundTypeOf: ReadonlyMap<string, string> = new Map([

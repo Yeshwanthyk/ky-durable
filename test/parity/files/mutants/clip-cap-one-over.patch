@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..00b50f6 100644
+index f6f50e9..c66205f 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -170,7 +170,7 @@ export const uploadMedia = (request: Request, bucket: R2Bucket) =>
+@@ -187,7 +187,7 @@ export const acceptMedia = (request: Request, bucket: R2Bucket) =>
      if (mediaKind(type) === null) return yield* new NotAClip();
      const size = Number(request.headers.get("Content-Length"));
  

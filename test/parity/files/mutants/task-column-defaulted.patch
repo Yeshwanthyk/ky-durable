@@ -1,5 +1,5 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..1f116a0 100644
+index f6f50e9..40a609f 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
 @@ -96,7 +96,7 @@ export class Files extends Context.Service<

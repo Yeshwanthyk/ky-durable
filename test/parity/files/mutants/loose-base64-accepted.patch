@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..1b76802 100644
+index 7e8beff..ea68de8 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -164,7 +164,7 @@ export function checkInput(input: UserInput): string | null {
+@@ -183,7 +183,7 @@ export function checkInput(input: UserInput): string | null {
    for (const image of images) {
      if (!IMAGE_TYPES.has(image.mimeType)) return `Images must be JPEG, PNG, WebP or GIF, not ${image.mimeType}.`;
  

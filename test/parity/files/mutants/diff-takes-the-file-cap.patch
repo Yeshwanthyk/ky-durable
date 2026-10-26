@@ -1,13 +1,13 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..81ddc81 100644
+index f6f50e9..65128e5 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -136,7 +136,7 @@ export const upload = (
+@@ -123,7 +123,7 @@ const label = (value: string, max: number) =>
  
-     if (!FILE_TYPES.has(type)) return yield* new NotAFileType();
-     const size = Number(request.headers.get("Content-Length"));
--    const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
-+    const max = MAX_FILE_BYTES;
+ const sizeOf = (request: Request, type: string) => {
+   const size = Number(request.headers.get("Content-Length"));
+-  const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
++  const max = MAX_FILE_BYTES;
  
-     if (!Number.isInteger(size) || size < 1 || size > max) return yield* new FileTooLarge({ max });
-     const named = request.headers.get("X-Ky-Name");
+   return Number.isInteger(size) && size >= 1 && size <= max ? Effect.succeed(size) : Effect.fail(new FileTooLarge({ max }));
+ };

@@ -1,8 +1,8 @@
 diff --git a/src/files/files.ts b/src/files/files.ts
-index 2059cd2..62eafb5 100644
+index f6f50e9..ed5b6a3 100644
 --- a/src/files/files.ts
 +++ b/src/files/files.ts
-@@ -131,7 +131,7 @@ export const upload = (
+@@ -144,7 +144,7 @@ const declared = (request: Request) =>
      if (request.method !== "PUT") return yield* new WrongMethod();
      const task = new URL(request.url).searchParams.get("task");
  

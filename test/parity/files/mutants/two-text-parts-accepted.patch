@@ -1,8 +1,8 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..69ff181 100644
+index 7e8beff..a099e3d 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
-@@ -151,7 +151,7 @@ export function checkInput(input: UserInput): string | null {
+@@ -170,7 +170,7 @@ export function checkInput(input: UserInput): string | null {
    if (!Array.isArray(input)) return null;
    const images = imagesOf(input);
  

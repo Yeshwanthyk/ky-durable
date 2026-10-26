@@ -1,5 +1,5 @@
 diff --git a/src/files/wiring.ts b/src/files/wiring.ts
-index db36d00..594f0e8 100644
+index 8bde228..e7465e8 100644
 --- a/src/files/wiring.ts
 +++ b/src/files/wiring.ts
 @@ -44,7 +44,6 @@ export class FileStore {

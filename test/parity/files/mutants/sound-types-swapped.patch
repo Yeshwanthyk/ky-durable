@@ -1,5 +1,5 @@
 diff --git a/src/files/media.ts b/src/files/media.ts
-index 61a5b79..26eb1f0 100644
+index 7e8beff..c9f5f07 100644
 --- a/src/files/media.ts
 +++ b/src/files/media.ts
 @@ -30,8 +30,8 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
