@@ -64,5 +64,17 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "reading a mail off SMTP takes the sender, subject, text and the mails it answers, newest first",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > a mail that came in > is read off SMTP as its bare sender, name, subject cut to 300, text cut to 20000, its id and the ids it answers newest first, at the clock's time"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the mail caps are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > the Worker's mail settings > read an address as its bracketed part lowercased, the caps as positive whole numbers else 50 and 20, and mail up to 2,000,000 bytes"
   }
 ]

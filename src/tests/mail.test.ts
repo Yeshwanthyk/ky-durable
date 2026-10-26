@@ -1,7 +1,6 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { MailView, PiClientMessage } from "../protocol";
-import { mailLimits } from "../mail/contract";
 import { readMail, receive } from "../mail/wiring";
 import { connect, follow, inside, promptTool, said, shows, snapshotView, tasks } from "./drive";
 import { MAIL_ADDRESS, NO_MAIL } from "./stack";
@@ -68,40 +67,10 @@ async function settings(name: string): Promise<(message: PiClientMessage) => Pro
 }
 
 describe("reading a mail off SMTP", () => {
-  it("takes the sender, subject, text and the mails it answers, newest first", async () => {
-    const parsed = await readMail(
-      raw({ from: "Ana Lee <Ana@Example.COM>", subject: "Hi", body: "Saturday works.", id: "one", inReplyTo: "<sent-1@mail.test>" }),
-      { from: "bounce@example.com", to: `ky <${MAIL_ADDRESS}>` },
-      5
-    );
-
-    expect(parsed).toEqual({
-      messageId: "<one@sender.test>",
-      from: "ana@example.com",
-      fromName: "Ana Lee",
-      to: MAIL_ADDRESS,
-      subject: "Hi",
-      text: "Saturday works.",
-      answers: ["<sent-1@mail.test>", "<sent-1@mail.test>", "<older@sender.test>"],
-      at: 5
-    });
-  });
-
   it("reads an HTML-only mail as text", async () => {
     const parsed = await readMail(raw({ from: "a@b.test", subject: "x", body: "<p>Your code is <b>4821</b></p><style>p{}</style>", html: true }), { from: "a@b.test", to: MAIL_ADDRESS });
 
     expect(parsed.text).toBe("Your code is 4821");
-  });
-});
-
-describe("the mail caps", () => {
-  it("are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number", () => {
-    expect(mailLimits({})).toEqual({ dailySends: 50, hourlyTriages: 20 });
-    expect(mailLimits({ KY_MAIL_DAILY_SENDS: "200", KY_MAIL_HOURLY_TRIAGES: "5" })).toEqual({ dailySends: 200, hourlyTriages: 5 });
-
-    for (const bad of ["", " ", "0", "-3", "2.5", "lots", "Infinity"]) {
-      expect(mailLimits({ KY_MAIL_DAILY_SENDS: bad, KY_MAIL_HOURLY_TRIAGES: bad })).toEqual({ dailySends: 50, hourlyTriages: 20 });
-    }
   });
 });
 

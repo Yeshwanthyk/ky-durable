@@ -3,10 +3,8 @@ import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addressOf, MAIL_BYTES, MAIL_TABLES, mailLimits } from "../../src/mail/contract";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { blocked, type Deps, legacyOf, said, type Side } from "../parity/mail/legacy";
-import { portOf } from "../parity/mail/port";
-import { StoredRow } from "../parity/skills/storage";
+import { budget, type Json } from "../parity/kit";
+import { blocked, type Deps, portOf, said } from "../parity/mail/port";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -104,18 +102,7 @@ const actions: fc.Arbitrary<Action> = fc.oneof(
   { arbitrary: fc.record({ sendFails: fc.boolean() }), weight: 1 }
 );
 
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
-
-function normalize(observed: Json): Json {
-  const seen = new Map<string, string>();
-
-  return JSON.stringify(observed).replace(UUID, (id) => {
-    const known = seen.get(id) ?? `id-${seen.size}`;
-    seen.set(id, known);
-
-    return known;
-  });
-}
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 function raw(mail: Incoming): string {
   return [
@@ -130,21 +117,9 @@ function raw(mail: Incoming): string {
   ].join("\r\n");
 }
 
-const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
-
-function rowsOf(db: DatabaseSync, table: string): Json[] {
-  if (db.prepare("SELECT name FROM sqlite_master WHERE name = ?").all(table).length === 0) return [];
-
-  return [...rowsDecoded(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())];
-}
-
 type Seen = { readonly told: [string | null, string, string][]; readonly triaged: Json[]; readonly sent: string[] };
 
-type Make = (db: DatabaseSync, deps: Deps, chat: (session: string) => boolean) => Side;
-
-const next: Make = portOf;
-
-function world(db: DatabaseSync, make: Make) {
+function world(db: DatabaseSync) {
   const seen: Seen = { told: [], triaged: [], sent: [] };
   const triage: Triage = { start: null, said: undefined };
   const state = { setUp: true, sendFails: false, triage };
@@ -175,7 +150,7 @@ function world(db: DatabaseSync, make: Make) {
     }
   };
 
-  const side = make(db, deps, (session) => CHATS.has(session));
+  const side = portOf(db, deps, (session) => CHATS.has(session));
   const idAt = (pick: number) => side.recent(50)[pick]?.id ?? "none";
 
   const apply = async (action: Action): Promise<Json> => {
@@ -222,55 +197,8 @@ function world(db: DatabaseSync, make: Make) {
   return { seen, side, apply, idAt };
 }
 
-function instance(db: DatabaseSync, make: Make): Instance<Action> {
-  const made = world(db, make);
-
-  return {
-    apply: made.apply,
-    tables: async () => ({
-      schema: db
-        .prepare("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'ky_mail%' ORDER BY name")
-        .all()
-        .map(({ type, name, sql }) => ({ type: String(type), name: String(name), sql: String(sql).replace(/\s+/g, " ") })),
-      mail: rowsOf(db, MAIL_TABLES.mail),
-      allowed: rowsOf(db, MAIL_TABLES.allowed),
-      expect: rowsOf(db, MAIL_TABLES.expect)
-    }),
-    effects: async () => made.seen,
-    dispose: async () => db.close()
-  };
-}
-
-function useClock(clock: Clock): void {
-  vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-const mailParity: Parity<Action> = {
-  domain: "mail",
-  actions,
-  start: START,
-  advances: fc.oneof(fc.integer({ min: 0, max: 2 * HOUR }), fc.constantFrom(HOUR, HOUR + 1, DAY, 5 * 60_000)),
-  normalize,
-  legacy: async (clock) => {
-    useClock(clock);
-
-    return instance(new DatabaseSync(":memory:"), legacyOf);
-  },
-  next: async (clock) => {
-    useClock(clock);
-
-    return instance(new DatabaseSync(":memory:"), next);
-  }
-};
-
-describe("mail parity", () => {
-  it("answers, stores, tells, triages and sends what B does, step for step", async () => {
-    await assertParity(mailParity);
-  });
 });
 
 const MailStored = Schema.Struct({
@@ -296,7 +224,7 @@ function port() {
   let at = START;
   vi.spyOn(Date, "now").mockImplementation(() => at);
   const db = new DatabaseSync(":memory:");
-  const made = world(db, next);
+  const made = world(db);
 
   return {
     ...made,
@@ -653,6 +581,38 @@ describe("the Worker's mail settings", () => {
         expect(addressOf(text)).toBe(address);
         expect(mailLimits({ KY_MAIL_DAILY_SENDS: daily, KY_MAIL_HOURLY_TRIAGES: hourly })).toEqual({ dailySends: sends ?? 50, hourlyTriages: triages ?? 20 });
         expect(MAIL_BYTES).toBe(2_000_000);
+      }),
+      runs()
+    );
+  });
+});
+
+const Sent = Schema.fromJsonString(Schema.Struct({ to: Schema.String }));
+
+describe("a run of mail, tool calls and the user's choices", () => {
+  it("sends only to the user or an address the user sent a held mail to and hasn't disallowed since, and keeps every row whole", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(fc.tuple(actions, fc.constantFrom(0, 5 * 60_000, HOUR + 1, DAY)), { maxLength: 30 }), async (steps) => {
+        using ky = port();
+        const approved = new Set([OWNER]);
+
+        for (const [action, gap] of steps) {
+          ky.advance(gap);
+          const held = "approve" in action ? ky.mail().find((row) => row.id === ky.idAt(action.approve) && row.state === "held") : undefined;
+
+          if (held) approved.add(held.party);
+          const before = ky.seen.sent.length;
+          const answer = await ky.apply(action);
+
+          if ("disallow" in action && JSON.stringify(answer) === "{}") approved.delete(addressOf(action.disallow));
+          const to = ky.seen.sent.slice(before).map((each) => Schema.decodeUnknownSync(Sent)(each).to);
+
+          expect(to.filter((address) => !approved.has(address))).toEqual([]);
+        }
+
+        expect(ky.allowed().every((row) => approved.has(row.address))).toBe(true);
+        expect([ky.mail(), ky.expecting()].every((rows) => Array.isArray(rows))).toBe(true);
+        vi.restoreAllMocks();
       }),
       runs()
     );

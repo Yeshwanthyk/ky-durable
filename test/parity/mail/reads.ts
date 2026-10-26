@@ -1,4 +1,4 @@
-import { blocked, said, type Side } from "./legacy";
+import { blocked, said, type Side } from "./port";
 
 const SESSIONS = ["1", "2", "7", "8", "9"];
 
