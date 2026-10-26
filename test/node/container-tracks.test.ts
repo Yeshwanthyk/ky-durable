@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { hasPicture, inMemory, type ReadRange } from "../../src/container-tracks.ts";
+import { hasPicture, inMemory, type ReadRange } from "../../src/files/tracks.ts";
 
 /**
  * Whether a file holds a picture comes from its track list, read in a few small ranges: a sound saved as

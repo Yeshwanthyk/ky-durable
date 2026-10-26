@@ -1,8 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { checkInput } from "../images";
-import { type MediaClip, mediaTag, readMedia, spokenText } from "../media";
-import { uploadMedia } from "../media-upload";
+import { checkInput, type MediaClip, mediaTag, readMedia, spokenText } from "../files/contract";
+import { uploadMedia } from "../files/wiring";
 import { buildTurns } from "../ui/turns";
 
 /**

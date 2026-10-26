@@ -1,7 +1,7 @@
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from "node:sqlite";
 import { vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
-import { FileStore } from "../../../src/files";
+import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/sandboxes";

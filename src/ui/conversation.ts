@@ -1,4 +1,4 @@
-import type { MediaClip } from "../media";
+import type { MediaClip } from "../files/contract";
 import type { IconName } from "./Icon";
 
 /** Scotty's conversation shape: turns of a prompt, a work log and an answer. */

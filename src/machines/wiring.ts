@@ -4,7 +4,7 @@ import type { TaskFeed, TaskRow } from "../automations/contract";
 import { makeEdge } from "../core/edge";
 import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
-import type { FileStore } from "../files";
+import type { FileStore } from "../files/wiring";
 import type { MachineInfo } from "../protocol";
 import type { Sandboxes } from "../sandboxes";
 import type { CloudHook, MachineChange, SessionCreds, TaskTokens } from "./contract";

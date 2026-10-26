@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { retype } from "../file-types";
+import { retype } from "../files/wiring";
 import { connect, inside } from "./drive";
 
 /**

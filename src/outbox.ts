@@ -1,5 +1,5 @@
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
-import { imagesOf } from "./images";
+import { imagesOf } from "./files/contract";
 import { type PiMessage, projectMessage } from "./transcript";
 
 /**

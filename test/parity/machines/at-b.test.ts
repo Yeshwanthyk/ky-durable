@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
-import { FileStore } from "../../../src/files";
+import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/sandboxes";

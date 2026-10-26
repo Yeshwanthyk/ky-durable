@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { DIFF_TYPE } from "../files";
+import { DIFF_TYPE } from "../files/contract";
 import type { FileRow } from "../protocol";
 import { useLightbox } from "./Lightbox";
 import { VideoClip, VoiceNote } from "./Media";
