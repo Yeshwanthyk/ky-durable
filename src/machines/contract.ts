@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type from "typebox";
 import type { Refusable } from "../core/edge.ts";
-import { AgentSchema, type Agent, FactsSchema, type RunCreds, type TaskReport } from "./runner-protocol.ts";
+import { AgentSchema, type Agent, FactsSchema, Integer, type RunCreds, type TaskReport } from "./runner-protocol.ts";
 
 export {
   AGENT_NAMES,
@@ -87,8 +87,6 @@ export const TASK_REPORT_TYPES = { hello: true, ack: true, session: true, step: 
 
 const Text = Schema.String;
 
-const Count = Schema.Int;
-
 const orElse = <S extends Schema.Top>(schema: S, fallback: S["Type"]) => schema.pipe(Schema.catchDecoding(() => Effect.succeed(Option.some(fallback))));
 
 export const MachineRow = Schema.Struct({
@@ -104,11 +102,11 @@ export const MachineRow = Schema.Struct({
 
 export const HelloRow = Schema.Struct({ seen_at: Schema.Number, hello: Schema.NullOr(Text) });
 
-export const InboxRow = Schema.Struct({ seq: Count, payload: Text });
+export const InboxRow = Schema.Struct({ seq: Integer, payload: Text });
 
 const Queued = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("run"), task: Text, turn: Count, prompt: Text, session: Schema.NullOr(Text), agent: AgentSchema }),
-  Schema.Struct({ type: Schema.Literal("stop"), task: Text, turn: Count }),
+  Schema.Struct({ type: Schema.Literal("run"), task: Text, turn: Integer, prompt: Text, session: Schema.NullOr(Text), agent: AgentSchema }),
+  Schema.Struct({ type: Schema.Literal("stop"), task: Text, turn: Integer }),
   Schema.Struct({ type: Schema.Literal("creds"), task: Text })
 ]);
 
@@ -116,11 +114,11 @@ export type Queued = typeof Queued.Type;
 
 export const QueuedJson = Schema.fromJsonString(Queued);
 
-export const TurnsRow = Schema.Struct({ turn: Count, closed: Count, sent: Count, stopping: Count });
+export const TurnsRow = Schema.Struct({ turn: Integer, closed: Integer, sent: Integer, stopping: Integer });
 
 export type Turns = typeof TurnsRow.Type;
 
-export const ReportRow = Schema.Struct({ task: Text, turn: Count, session: Text, text: Text });
+export const ReportRow = Schema.Struct({ task: Text, turn: Integer, session: Text, text: Text });
 
 export const LoginRow = Schema.Struct({ task: Text, expires_at: Schema.Number });
 

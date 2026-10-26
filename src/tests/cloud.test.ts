@@ -395,7 +395,7 @@ describe("the cloud machine", () => {
     expect(mac.commands).toEqual([]);
 
     // With the cloud machine off, an unnamed task goes to the only computer on and online.
-    await inside(name, (instance) => instance.machines.configure(CLOUD, { state: "off" }));
+    await inside(name, (instance) => instance.machines.change(CLOUD, { state: "off" }));
     await prompt(name, `tool machine ${JSON.stringify({ action: "run", prompt: "build it here" })}`);
     expect((await mac.run()).prompt).toContain("build it here");
     cloud.socket.close();

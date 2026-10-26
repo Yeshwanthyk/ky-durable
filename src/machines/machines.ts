@@ -67,7 +67,7 @@ export const PREFERRED: readonly Agent[] = ["claude", "codex"];
 
 type Pending = Queued & { readonly seq: number };
 
-const ColumnRow = Schema.Struct({ name: Schema.String });
+const NameRow = Schema.Struct({ name: Schema.String });
 
 const SessionRow = Schema.Struct({ session: Schema.String });
 
@@ -79,11 +79,7 @@ const KindRow = Schema.Struct({ name: Schema.String, kind: Schema.NullOr(Schema.
 
 const SeqRow = Schema.Struct({ seq: Schema.Number });
 
-const NameRow = Schema.Struct({ name: Schema.String });
-
 const queuedOf = Schema.decodeUnknownOption(QueuedJson);
-
-class VaultFailed extends Schema.TaggedError<VaultFailed>()("VaultFailed", { cause: Schema.Defect() }) {}
 
 function closedReason(code: number | undefined): string | null {
   switch (code) {
@@ -181,8 +177,8 @@ const make = Effect.gen(function* () {
   const rows = <T>(row: Schema.Decoder<T>, query: string, ...bindings: SqlStorageValue[]) => sql.rows(row, query, ...bindings).pipe(Effect.orDie);
   const changed = Effect.sync(() => host.changed());
   const warn = (...said: unknown[]) => Effect.sync(() => console.warn(...said));
-  const vault = <A>(call: () => Promise<A>) => Effect.tryPromise({ try: call, catch: (cause) => new VaultFailed({ cause }) });
-  const columns = (table: string) => Effect.map(rows(ColumnRow, `PRAGMA table_info(${table})`), (all) => new Set(all.map((column) => column.name)));
+  const vault = <A>(call: () => Promise<A>) => Effect.promise(call);
+  const columns = (table: string) => Effect.map(rows(NameRow, `PRAGMA table_info(${table})`), (all) => new Set(all.map((column) => column.name)));
   const greeted = (connection: string | null) => (connection === null ? [] : host.sockets(connection).filter((socket) => socket.readyState === OPEN));
   const tokenWork = yield* Ref.make<Effect.Effect<void>>(Effect.void);
   const retries = new Map<string, number>();

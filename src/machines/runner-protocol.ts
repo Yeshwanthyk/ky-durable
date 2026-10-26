@@ -11,7 +11,7 @@ export const OUTDATED = 4426;
 
 export const REVOKED = 4401;
 
-const Integer = Schema.Number.check(Schema.makeFilter((n: number) => Number.isInteger(n), { expected: "an integer" }));
+export const Integer = Schema.Number.check(Schema.makeFilter((n: number) => Number.isInteger(n), { expected: "an integer" }));
 
 const Positive = Integer.check(Schema.isGreaterThanOrEqualTo(1));
 

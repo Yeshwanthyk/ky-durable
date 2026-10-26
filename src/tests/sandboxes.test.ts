@@ -225,12 +225,12 @@ describe("routing a task to a sandbox", () => {
     expect((await mac.run()).prompt).toContain("fix it here");
 
     // The repo's sandbox off: refused, not sent to the default.
-    await inside(name, (instance) => instance.machines.configure("web", { state: "off" }));
+    await inside(name, (instance) => instance.machines.change("web", { state: "off" }));
     expect((await run({ prompt: "fix the site", repo: "me/web" })).text).toContain("me/web is the sandbox web's, which is off");
 
     // The default moves, and the tool says where unnamed work goes.
     await inside(name, (instance) => {
-      instance.machines.configure("web", { state: "on" });
+      instance.machines.change("web", { state: "on" });
       instance.changeSandbox(web.id, { isDefault: true });
     });
     await run({ prompt: "anything else" });

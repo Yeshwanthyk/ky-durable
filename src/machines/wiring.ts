@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { TaskFeed, TaskRow } from "../automations/contract";
 import { makeEdge } from "../core/edge";
-import { isRefusal, type Result } from "../core/refusal";
+import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { FileStore } from "../files";
 import type { MachineInfo } from "../protocol";
@@ -92,14 +92,6 @@ export class MachineHub {
 
   change(name: string, change: MachineChange): Result<MachineInfo> {
     return this.#edge.run(Machines.use((machines) => machines.configure(name, change)));
-  }
-
-  configure(name: string, change: MachineChange): MachineInfo {
-    const result = this.change(name, change);
-
-    if (isRefusal(result)) throw new Error(result.refused);
-
-    return result;
   }
 
   seen(machine: string, code?: number): void {

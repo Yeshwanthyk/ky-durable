@@ -10,6 +10,7 @@ import { vi } from "vitest";
 import { TaskFeed } from "../../../src/automations/tasks";
 import { FileStore } from "../../../src/files";
 import { MachineHub as LegacyHub } from "../../../src/machines/legacy/machines";
+import { refused } from "../../../src/core/refusal";
 import type { MachineChange, MachineFacts, TaskReport } from "../../../src/machines/contract";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
@@ -18,7 +19,7 @@ import type { Clock, Instance, Json } from "../kit";
 
 type Row = Record<string, SQLOutputValue>;
 
-type Hub = Omit<MachineHub, "change">;
+type Hub = Pick<MachineHub, keyof MachineHub>;
 
 type Storage = ConstructorParameters<typeof MachineHub>[0];
 
@@ -112,7 +113,7 @@ export type Action =
   | { readonly do: "refused"; readonly machine: string; readonly protocol: number }
   | { readonly do: "trouble"; readonly machine: string; readonly reason: string | null }
   | { readonly do: "startFailed"; readonly machine: string }
-  | { readonly do: "sweepTokens" | "recheck" | "post" | "listSandboxes" | "renewLogin" | "dropSandbox" }
+  | { readonly do: "sweepTokens" | "recheck" | "post" | "listSandboxes" | "renewLogin" | "signOut" | "dropSandbox" }
   | { readonly do: "wanted"; readonly task: string; readonly wanted: boolean }
   | { readonly do: "read"; readonly machine: string; readonly pairing: string | undefined; readonly repo: string };
 
@@ -124,7 +125,7 @@ export const actions: fc.Arbitrary<Action> = fc.oneof(
   },
   {
     weight: 2,
-    arbitrary: fc.record({ do: fc.constant("close" as const), machine, connection, code: fc.constantFrom(undefined, 1000, 4401, 4409) })
+    arbitrary: fc.record({ do: fc.constant("close" as const), machine, connection, code: fc.constantFrom(undefined, 1000, 1008, 4401, 4409, 4426) })
   },
   { weight: 8, arbitrary: fc.record({ do: fc.constant("report" as const), machine, connection, report }) },
   {
@@ -145,7 +146,7 @@ export const actions: fc.Arbitrary<Action> = fc.oneof(
   { weight: 1, arbitrary: fc.record({ do: fc.constant("refused" as const), machine, protocol: fc.constantFrom(3, 5) }) },
   { weight: 1, arbitrary: fc.record({ do: fc.constant("trouble" as const), machine, reason: fc.constantFrom(null, "Saves keep failing.") }) },
   { weight: 1, arbitrary: fc.record({ do: fc.constant("startFailed" as const), machine }) },
-  { weight: 3, arbitrary: fc.record({ do: fc.constantFrom("sweepTokens" as const, "recheck" as const, "post" as const, "listSandboxes" as const, "renewLogin" as const, "dropSandbox" as const) }) },
+  { weight: 3, arbitrary: fc.record({ do: fc.constantFrom("sweepTokens" as const, "recheck" as const, "post" as const, "listSandboxes" as const, "renewLogin" as const, "signOut" as const, "dropSandbox" as const) }) },
   { weight: 1, arbitrary: fc.record({ do: fc.constant("wanted" as const), task, wanted: fc.boolean() }) },
   {
     weight: 3,
@@ -203,6 +204,7 @@ export class World {
   readonly sockets = new Map<string, Socket>();
   readonly unwanted = new Set<string>();
   expiresAt = 1_000;
+  signedIn = true;
   readonly clock: Clock;
 
   constructor(clock: Clock) {
@@ -249,6 +251,8 @@ export class World {
 
   creds = async (agent: "claude" | "codex") => {
     this.effects.vault.push({ creds: agent });
+
+    if (!this.signedIn) return {};
 
     return agent === "codex"
       ? { codex: { accessToken: "at", refreshToken: null, idToken: "it", accountId: "acct", expiresAt: this.expiresAt } }
@@ -321,11 +325,7 @@ export class World {
       }
 
       case "configure":
-        try {
-          return hub.configure(action.machine, action.change);
-        } catch (error) {
-          return { threw: error instanceof Error ? error.message : String(error) };
-        }
+        return hub.change(action.machine, action.change);
 
       case "remove":
         return hub.remove(action.machine);
@@ -345,6 +345,10 @@ export class World {
         return hub.listSandboxes();
       case "renewLogin":
         this.expiresAt += 60_000;
+
+        return null;
+      case "signOut":
+        this.signedIn = false;
 
         return null;
       case "dropSandbox":
@@ -411,10 +415,18 @@ function instance(world: World, hub: Hub): Instance<Action> {
 export async function legacy(clock: Clock): Promise<Instance<Action>> {
   const world = new World(clock);
 
-  // SAFETY: B's hub has the facade's members, typed for B's own rows.
-  const hub = new LegacyHub(world.durable.sql(), world.feed, world.socketsOf, world.files, world.tokens, world.creds, world.sandboxes) as Hub;
+  const b = new LegacyHub(world.durable.sql(), world.feed, world.socketsOf, world.files, world.tokens, world.creds, world.sandboxes);
 
-  return instance(world, hub);
+  const change = (name: string, change: MachineChange) => {
+    try {
+      return b.configure(name, change);
+    } catch (error) {
+      return refused(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  // SAFETY: B's hub has the facade's members, typed for B's own rows; its change is its configure, a throw read as the refusal.
+  return instance(world, Object.assign(b, { change }) as Hub);
 }
 
 export async function next(clock: Clock): Promise<Instance<Action>> {
