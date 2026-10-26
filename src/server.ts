@@ -15,7 +15,7 @@ import { Avatars, avatarTools } from "./avatars";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { uiExtension } from "./ui-tool";
+import { uiExtension } from "./cards/tool";
 import { ChatList, chatActivityExtension, type Opener } from "./chats";
 import { chatsExtension } from "./chats-tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";

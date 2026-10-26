@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..2f6fd2c 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -118,7 +118,7 @@ export function cardOf(input: string): UiCard | null {
+ const CardAnswer = Schema.Struct({
+   call: Schema.String.check(Schema.isMaxCodePoints(200)),
+   values: Many(Many(Schema.String.check(Schema.isMaxCodePoints(4000)), 0, 12), 0, 12),
+-  button: Schema.optionalKey(Schema.String.check(Schema.isMaxCodePoints(4000)))
++  button: Schema.optionalKey(Schema.String)
+ });
+ 
+ export type CardAnswer = typeof CardAnswer.Type;

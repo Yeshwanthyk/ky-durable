@@ -1,0 +1,12 @@
+diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+index 59a83f0..404e6f4 100644
+--- a/src/cards/tool.ts
++++ b/src/cards/tool.ts
+@@ -27,7 +27,6 @@ const asks = (card: UiCardArgs) => card.blocks.some((block) => INTERACTIVE.has(b
+ function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAnswer> {
+   if (!card.wait) return Effect.succeed(reply(asks(card) ? "Shown to the user; their answer, if any, arrives as a later message." : "Shown to the user."));
+ 
+-  if (!asks(card)) return Effect.fail(new NothingToAnswer());
+ 
+   return Effect.succeed({ ...reply("Shown to the user. Your turn ends here; their answer arrives as their next message."), control: { terminate: true } });
+ }

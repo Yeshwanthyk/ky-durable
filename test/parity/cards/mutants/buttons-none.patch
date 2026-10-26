@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..7af0bb4 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -73,7 +73,7 @@ const Input = Schema.Struct({ type: Schema.Literal("input"), label: Schema.Strin
+ 
+ const Buttons = Schema.Struct({
+   type: Schema.Literal("buttons"),
+-  buttons: Many(Schema.Struct({ label: Schema.String, reply: Words, url: Words, tone: Schema.optionalKey(Schema.Literals(["primary", "default", "danger"])) }), 1, 4)
++  buttons: Many(Schema.Struct({ label: Schema.String, reply: Words, url: Words, tone: Schema.optionalKey(Schema.Literals(["primary", "default", "danger"])) }), 0, 4)
+ });
+ 
+ const Page = Schema.Struct({

@@ -15,7 +15,7 @@ import {
 import { must } from "./core/must";
 import { decodeOr } from "./core/decode";
 import Type from "typebox";
-import { CARD_ANSWER, type CardAnswer, CardAnswerSchema } from "./ui-blocks";
+import { answerOf as cardAnswerOf, CARD_ANSWER, type CardAnswer } from "./cards/contract";
 
 /** A tool call running now, with its streamed output. */
 export type PiRunningTool = {
@@ -67,7 +67,7 @@ export const EMPTY_VIEW: PiSessionView = {
 const LIVE_ID = "live";
 
 /** A card's answer the entry keeps, if it is one; one a damaged or newer entry holds reads as none. */
-const answerOf = (entry: EntryRecord): CardAnswer | null => (entry.kind === CARD_ANSWER ? decodeOr(CardAnswerSchema, entry.data, null) : null);
+const answerOf = (entry: EntryRecord): CardAnswer | null => (entry.kind === CARD_ANSWER ? cardAnswerOf(entry.data) : null);
 
 /** `answers` with what `entries` answered added. */
 function withAnswers(answers: PiSessionView["answers"], entries: readonly EntryRecord[]): PiSessionView["answers"] {

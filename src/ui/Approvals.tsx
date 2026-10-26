@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { type ApprovalAction, APPROVAL_KINDS, type ApprovalView } from "../approvals/contract";
-import type { UiCard } from "../ui-blocks";
+import type { UiCard } from "../cards/contract";
 import { BlockCard, ReplyContext } from "./Blocks";
 import { Problem } from "./Subscriptions";
 
@@ -36,12 +36,7 @@ function cardOf(approval: ApprovalView): UiCard {
     note: "Only your tap approves it: ky can't, and nobody else can."
   };
 
-  if (approval.subject) {
-    card.subtitle = approval.subject;
-    card.icon = approval.subject;
-  }
-
-  return card;
+  return approval.subject ? { ...card, subtitle: approval.subject, icon: approval.subject } : card;
 }
 
 /** The approvals waiting in chat `chat`, after its thread. */

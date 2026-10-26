@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..e2beb4e 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -80,7 +80,7 @@ const Page = Schema.Struct({
+   type: Schema.Literal("page"),
+   site: Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/)),
+   title: Words,
+-  height: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 80, maximum: 2000 })))
++  height: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 80, maximum: 100000 })))
+ });
+ 
+ const Routine = Schema.Struct({ type: Schema.Literal("routine"), routine: Schema.String.check(Schema.isMaxCodePoints(64)) });

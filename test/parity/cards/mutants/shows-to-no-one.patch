@@ -1,0 +1,12 @@
+diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+index 59a83f0..9dcb8fa 100644
+--- a/src/cards/tool.ts
++++ b/src/cards/tool.ts
+@@ -33,7 +33,6 @@ function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAns
+ }
+ 
+ function keep(doc: RunCardsDoc, call: string, { wait, ...card }: UiCardArgs): Effect.Effect<ToolExecutionResult, NoOneToShow> {
+-  if (!doc.run) return Effect.fail(new NoOneToShow());
+ 
+   if (!doc.cards.some((each) => each.call === call)) doc.cards.push({ call, card: JSON.stringify(card) });
+   const answers = asks(card) ? " The user answers it in that chat, later, not to this run." : "";

@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..2e42f94 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -47,7 +47,7 @@ const Chart = Schema.Struct({
+   type: Schema.Literal("chart"),
+   kind: Schema.Literals(["bar", "line", "donut"]),
+   label: Words,
+-  x: Many(Schema.String, 1, 60),
++  x: Many(Schema.String, 1, 1000),
+   series: Many(Schema.Struct({ name: Schema.String, values: Many(Schema.Number, 0, 60) }), 1, 6),
+   stacked: Flag,
+   unit: Words

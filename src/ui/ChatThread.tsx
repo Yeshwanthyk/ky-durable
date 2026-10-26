@@ -6,7 +6,7 @@ import { InboundCards } from "./InboundCards";
 import { ReplyContext } from "./Blocks";
 import type { BlobVariantId } from "./blob-catalog";
 import { AnswersContext, OpenStepsContext, RecalledContext, SpeakerContext, Thread } from "./Thread";
-import type { CardAnswer } from "../ui-blocks";
+import type { CardAnswer } from "../cards/contract";
 import { Timeline, TimelineSheet } from "./Timeline";
 import type { Visit } from "./thread-marks";
 import { turnTimeline } from "./timeline-steps";

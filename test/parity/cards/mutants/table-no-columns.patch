@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..0e80c05 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -53,7 +53,7 @@ const Chart = Schema.Struct({
+   unit: Words
+ });
+ 
+-const Table = Schema.Struct({ type: Schema.Literal("table"), label: Words, columns: Many(Schema.String, 1, 8), rows: Many(Many(Schema.String, 0, 8), 0, 50) });
++const Table = Schema.Struct({ type: Schema.Literal("table"), label: Words, columns: Many(Schema.String, 0, 8), rows: Many(Many(Schema.String, 0, 8), 0, 50) });
+ 
+ const Shown = Schema.Union([Text, List, Facts, Media("image"), Media("audio"), Media("video"), Status, Stats, Chart, Table]);
+ 

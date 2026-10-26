@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..5354f2d 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -110,7 +110,7 @@ export function cardOf(input: string): UiCard | null {
+   const drawn = Option.getOrNull(Option.filter(Schema.decodeUnknownOption(Json)(input), isDrawn));
+ 
+   if (drawn === null) return null;
+-  const blocks = drawn.blocks.filter(isBlock);
++  const blocks = drawn.blocks.filter(isBlock).map((each) => Schema.decodeUnknownSync(UiBlock)(each));
+ 
+   return blocks.length > 0 ? { ...drawn, blocks } : null;
+ }

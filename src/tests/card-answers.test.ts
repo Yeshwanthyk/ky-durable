@@ -1,6 +1,6 @@
 import type { AgentEvent, ConversationId, EntryId } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
-import { CARD_ANSWER, type CardAnswer } from "../ui-blocks";
+import { CARD_ANSWER, type CardAnswer } from "../cards/contract";
 import { EMPTY_VIEW, reduceEvents } from "../view";
 import { answered, answeredWith, card, cardName, compose, decompose, lettered, needsSend, optionState, type Question, sendsOnTap, takesTaps, toggled } from "../ui/card-answers";
 import type { Tool } from "../ui/conversation";
