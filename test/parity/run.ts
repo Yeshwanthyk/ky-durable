@@ -41,7 +41,11 @@ const PROOFS = {
   push: ["test/invariants/push.test.ts", "test/parity/push/at-b.test.ts"],
   cards: ["test/invariants/cards.test.ts", "test/parity/cards/at-b.test.ts"],
   memory: ["test/invariants/memory.test.ts", "test/parity/memory/at-b.test.ts"],
-  anticipations: ["test/invariants/anticipations.test.ts", "test/parity/anticipations/at-b.test.ts"]
+  anticipations: ["test/invariants/anticipations.test.ts", "test/parity/anticipations/at-b.test.ts"],
+  runners: ["test/invariants/runners.test.ts", "test/parity/runners/at-b.test.ts"],
+  executor: ["test/invariants/executor.test.ts", "test/parity/executor/at-b.test.ts"],
+  workspace: ["test/invariants/workspace.test.ts", "test/parity/workspace/at-b.test.ts"],
+  providers: ["test/invariants/providers.test.ts", "test/parity/providers/at-b.test.ts"]
 } satisfies Record<string, string[]>;
 
 const isDomain = (name: string | undefined): name is keyof typeof PROOFS => name !== undefined && Object.hasOwn(PROOFS, name);
