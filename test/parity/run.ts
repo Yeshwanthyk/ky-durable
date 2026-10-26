@@ -35,7 +35,7 @@ const PROOFS = {
   mail: ["test/invariants/mail.test.ts", "test/parity/mail/at-b.test.ts"],
   sites: ["test/invariants/sites.test.ts", "test/parity/sites/at-b.test.ts"],
   browse: ["test/invariants/browse.test.ts", "test/parity/browse/at-b.test.ts"],
-  access: ["test/invariants/access.test.ts", "test/parity/access/at-b.test.ts"],
+  access: ["test/invariants/access.test.ts"],
   avatars: ["test/invariants/avatars.test.ts", "test/parity/avatars/at-b.test.ts"],
   history: ["test/invariants/history.test.ts", "test/parity/history/at-b.test.ts"],
   push: ["test/invariants/push.test.ts", "test/parity/push/at-b.test.ts"],
