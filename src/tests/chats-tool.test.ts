@@ -129,39 +129,6 @@ describe("the chats tool", () => {
     await agent(name).release();
   });
 
-  it("refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way", async () => {
-    const name = crypto.randomUUID();
-    const chat = await create(name, ROOT_SESSION, 1, "reply: ok");
-    const refused = { text: "Another chat opened this one, so this one runs none: answer here.", failed: true };
-
-    expect(await run(name, chat, 1, { action: "create", message: "reply: deeper" })).toEqual(refused);
-    expect(await run(name, chat, 2, { action: "steer", chat: ROOT_SESSION, message: "hi" })).toEqual(refused);
-    expect(await run(name, chat, 3, { action: "inspect" })).toEqual(refused);
-    expect(await inside(name, (instance) => instance.chats.list().length)).toBe(1);
-  });
-
-  it("steers and inspects only the chats this chat opened: not main, not the user's, not another chat's", async () => {
-    const name = crypto.randomUUID();
-    const users = await userChat(name);
-    const theirs = await create(name, users, 1, "reply: ok");
-    const missing = (chat: string) => ({ text: `No chat ${JSON.stringify(chat)} that this chat opened: inspect lists them.`, failed: true });
-
-    expect(await run(name, ROOT_SESSION, 1, { action: "steer", chat: theirs, message: "hi" })).toEqual(missing(theirs));
-    expect(await run(name, ROOT_SESSION, 2, { action: "inspect", chat: users })).toEqual(missing(users));
-    expect(await run(name, users, 2, { action: "steer", chat: ROOT_SESSION, message: "hi" })).toEqual(missing(ROOT_SESSION));
-    expect(await run(name, ROOT_SESSION, 3, { action: "create", message: "  " })).toEqual({ text: "Nothing to start it on: give a message.", failed: true });
-    expect(await run(name, users, 3, { action: "steer", chat: theirs, message: " " })).toEqual({ text: "Nothing to steer it with: give a message.", failed: true });
-  });
-
-  it("refuses a conversation that is not a chat with the user, as a subagent's", async () => {
-    const name = crypto.randomUUID();
-    await inside(name, (instance) => instance.harness.prompt("spawn helper reply: done"));
-    const session = () => inside(name, (instance) => instance.feed.list().find((task) => task.kind === "cloud")?.session ?? null);
-    await until(async () => (await session()) !== null, "the subagent's conversation");
-
-    expect(await run(name, (await session())!, 1, { action: "create", message: "hi" })).toEqual({ text: "Only a chat with the user runs other chats.", failed: true });
-  });
-
   it("opens a chat when the main chat's model calls it, as the user asked", async () => {
     const name = crypto.randomUUID();
     const said = await inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify({ action: "create", message: "reply: On it.", title: "HN yesterday" })}`)).text ?? "");

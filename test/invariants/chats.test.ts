@@ -2,13 +2,11 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import fc from "fast-check";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatList } from "../../src/chats/chats";
-import { ChatList as LegacyChatList } from "../../src/chats/legacy/chats";
-import { chatsExtension as legacyChatsExtension } from "../../src/chats/legacy/chats-tool";
 import { chatsExtension } from "../../src/chats/tool";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
+import { budget, type Json } from "../parity/kit";
 import { storageOf, StoredRow } from "../parity/skills/storage";
 
 const START = Date.UTC(2026, 0, 1);
@@ -27,15 +25,13 @@ type Opener = { readonly by: string; readonly request: string };
 
 type ToolArgs = { readonly action: "create" | "steer" | "inspect"; readonly chat?: string; readonly message?: string; readonly title?: string };
 
-type Action =
+type ListAction =
   | { readonly op: "add"; readonly session: string; readonly opener?: Opener }
   | { readonly op: "touch"; readonly session: string; readonly text: string }
   | { readonly op: "answered"; readonly session: string }
   | { readonly op: "retitle"; readonly session: string; readonly was: string; readonly title: string }
   | { readonly op: "rename"; readonly session: string; readonly title: string }
-  | { readonly op: "archive"; readonly session: string; readonly archived: boolean }
-  | { readonly op: "tool"; readonly from: string; readonly task: number; readonly args: ToolArgs }
-  | { readonly op: "read" };
+  | { readonly op: "archive"; readonly session: string; readonly archived: boolean };
 
 const aSession = fc.constantFrom(...SESSIONS);
 
@@ -57,35 +53,7 @@ const listActions: fc.Arbitrary<ListAction> = fc.oneof(
   { weight: 2, arbitrary: fc.record({ op: fc.constant("archive" as const), session: aSession, archived: fc.boolean() }) }
 );
 
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  { weight: 6, arbitrary: listActions },
-  { weight: 4, arbitrary: fc.record({ op: fc.constant("tool" as const), from: aSession, task: fc.integer({ min: 1, max: 3 }), args: someArgs }) },
-  { weight: 1, arbitrary: fc.constant({ op: "read" as const }) }
-);
-
-type AnyList = ChatList | LegacyChatList;
-
 type Seen = { changes: number; readonly named: Json[]; readonly steers: Json[]; readonly opened: Json[] };
-
-const Total = Schema.Struct({ n: Schema.Number });
-
-function legacySql(db: DatabaseSync): SqlStorage {
-  const total = () => Schema.decodeUnknownSync(Total)(db.prepare("SELECT total_changes() AS n").get()).n;
-
-  const exec = (query: string, ...bindings: SQLInputValue[]) => {
-    const before = total();
-
-    const rows = db
-      .prepare(query)
-      .all(...bindings)
-      .map((row) => ({ ...row }));
-
-    return { toArray: () => rows, rowsWritten: total() - before };
-  };
-
-  // SAFETY: B's ChatList calls exec and reads toArray and rowsWritten, nothing else of SqlStorage or its cursor.
-  return { exec, databaseSize: 0 } as SqlStorage;
-}
 
 const Rows = Schema.Array(StoredRow);
 
@@ -95,7 +63,7 @@ function tablesOf(db: DatabaseSync): Json {
   return { ky_chats: [...read("SELECT * FROM ky_chats ORDER BY session")], ky_main_chat: [...read("SELECT * FROM ky_main_chat")] };
 }
 
-function partsFor<List extends AnyList>(chats: List, seen: Seen) {
+function partsFor(chats: ChatList, seen: Seen) {
   let next = 20;
 
   return {
@@ -129,9 +97,7 @@ async function runTool(extension: Extension, from: string, task: number, args: T
   return { text: result.output.map((part) => part.text ?? "").join(""), failed: result.isError === true };
 }
 
-type ListAction = Exclude<Action, { readonly op: "tool" } | { readonly op: "read" }>;
-
-function applyToList(chats: AnyList, action: ListAction): void {
+function applyToList(chats: ChatList, action: ListAction): void {
   if (action.op === "add") chats.add(action.session, action.opener);
   else if (action.op === "touch") chats.touch(action.session, action.text);
   else if (action.op === "answered") chats.answered(action.session);
@@ -140,68 +106,8 @@ function applyToList(chats: AnyList, action: ListAction): void {
   else chats.archive(action.session, action.archived);
 }
 
-function side<List extends AnyList>(makeList: (db: DatabaseSync) => List, makeTool: (chats: List, seen: Seen) => Extension): Instance<Action> {
-  const db = new DatabaseSync(":memory:");
-  const seen: Seen = { changes: 0, named: [], steers: [], opened: [] };
-  const chats = makeList(db);
-  chats.onChange(() => seen.changes++);
-  chats.onNamed((session, text) => void seen.named.push([session, text]));
-  const extension = makeTool(chats, seen);
-
-  const apply = async (action: Action): Promise<Json> => {
-    if (action.op === "tool") return runTool(extension, action.from, action.task, action.args);
-
-    if (action.op !== "read") {
-      applyToList(chats, action);
-
-      return null;
-    }
-
-    return JSON.stringify({
-      list: chats.list(),
-      main: chats.mainUpdatedAt(),
-      has: SESSIONS.map((session) => chats.has(session)),
-      openedFor: ["chat-create:1:7", "chat-create:2:1", "chat-create:1:1", "none"].map((request) => chats.openedFor(request) ?? null),
-      openedBy: SESSIONS.map((session) => chats.openedBy(session))
-    });
-  };
-
-  return {
-    apply,
-    tables: async () => tablesOf(db),
-    effects: async () => ({ ...seen }),
-    dispose: async () => db.close()
-  };
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-const chatsParity: Parity<Action> = {
-  domain: "chats",
-  actions,
-  start: START,
-  advances: fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 600_000 })),
-  legacy: async (clock: Clock) => {
-    vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-
-    return side(
-      (db) => new LegacyChatList(legacySql(db)),
-      (chats, seen) => legacyChatsExtension(partsFor(chats, seen))
-    );
-  },
-  next: async () =>
-    side(
-      (db) => new ChatList(storageOf(db)),
-      (chats, seen) => chatsExtension(partsFor(chats, seen))
-    )
-};
-
-describe("chats parity", () => {
-  it("answers, stores and emits what B does, step for step", async () => {
-    await assertParity(chatsParity);
-  });
 });
 
 function titleFrom(text: string): string {

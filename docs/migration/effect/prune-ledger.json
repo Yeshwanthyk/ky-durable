@@ -64,5 +64,23 @@
     "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
     "class": "UNIT",
     "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs from no chat another chat opened: it refuses and opens and steers nothing"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool steers and inspects only the chats this chat opened: not main, not the user's, not another chat's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > steers or inspects only a chat this chat opened"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a conversation that is not a chat with the user, as a subagent's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs only from a chat with the user: elsewhere it refuses and opens and steers nothing"
   }
 ]
