@@ -9,23 +9,18 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DIFF_TYPE, FILE_TABLES, MAX_DIFF_BYTES, type NewFile } from "../../src/files/contract";
+import { DIFF_TYPE, FILE_TABLES, type NewFile } from "../../src/files/contract";
 import { download as downloadFrom, Files, typeOf, uploadedType } from "../../src/files/files";
-import { baseType, checkInput, clock, imageSupport, imagesOf, MAX_MEDIA_BYTES, type MediaClip, mediaKind, mediaTag, readMedia, spokenText } from "../../src/files/media";
+import { baseType, checkInput, clock, imageSupport, type MediaClip, mediaKind, mediaTag, readMedia, spokenText } from "../../src/files/media";
 import { Sql } from "../../src/core/sql";
 import type { Purpose, SettingsView } from "../../src/settings";
 import { FileStore, retype as retypeFrom, upload as uploadTo, uploadMedia as uploadMediaTo } from "../../src/files/wiring";
-import * as B from "../parity/files/legacy";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
+import { budget, type Json } from "../parity/kit";
 import { storageOf, StoredRow } from "../parity/skills/storage";
 
 fc.configureGlobal({ baseSize: "large" });
 
-const START = Date.UTC(2026, 0, 1);
-
 const MB = 1024 * 1024;
-
-const MAX_FILE_BYTES = 25 * MB;
 
 const fixture = (name: string) => new Uint8Array(readFileSync(path.join(import.meta.dirname, "../web/fixtures", name)));
 
@@ -125,54 +120,6 @@ const retype = retypeFrom as Retype;
 
 // SAFETY: download calls only the bucket's get and reads size, httpMetadata, range and body, all of which the fake returns.
 const download = downloadFrom as Download;
-
-type Typer = "read" | "declared";
-
-type UploadAction = {
-  readonly upload: "PUT" | "POST";
-  readonly task: string | null;
-  readonly type: string;
-  readonly length: string;
-  readonly body: BodyName;
-  readonly name: string | null;
-  readonly caption: string | null;
-  readonly typer: Typer;
-};
-
-type MediaAction = { readonly media: "PUT" | "GET"; readonly type: string; readonly length: string; readonly body: BodyName };
-
-type Action =
-  | UploadAction
-  | MediaAction
-  | { readonly record: NewFile }
-  | { readonly list: true }
-  | { readonly forTask: string }
-  | { readonly untyped: true }
-  | { readonly typed: readonly (readonly [string, string])[] }
-  | { readonly restored: true }
-  | { readonly retype: true }
-  | { readonly check: UserInput }
-  | { readonly read: string }
-  | { readonly kind: string }
-  | { readonly support: { readonly settings: SettingsView; readonly purpose: Purpose } }
-  | { readonly tag: MediaClip }
-  | { readonly clock: number };
-
-const TASKS = ["t1", "t2", "gone"];
-
-const IDS = ["f1", "f2", "f3"];
-
-const STORED_TYPES = ["video/mp4", "video/webm", "image/png", "audio/mp4", "text/x-diff"];
-
-const UPLOAD_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "video/webm", "video/mp4", "audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav", DIFF_TYPE, "image/svg+xml", "video/quicktime", "", "IMAGE/PNG"];
-
-const MEDIA_TYPES = ["audio/webm;codecs=opus", "AUDIO/MP4", " video/quicktime ", "audio/x-m4a", "audio/flac", "video/webm", "image/png", "audio/aiff", "", "text/plain"];
-
-const LABELS = ["shot.png", "ok%20name", "%E0%A4%A", "", "x".repeat(255), "x".repeat(256), "%25", "caf%C3%A9"];
-
-const aLength = (max: number) => fc.oneof(fc.constantFrom("body", "0", "-1", "1.5", "x", "", String(max), String(max + 1), String(MAX_DIFF_BYTES + 1)), fc.nat({ max: 60_000 }).map(String));
-
-const aBody = fc.constantFrom<BodyName>("sound.webm", "clip.webm", "sound.mp4", "clip.mp4", "text", "one", "none");
 
 const aClip: fc.Arbitrary<MediaClip> = fc.record({
   kind: fc.constantFrom<"audio" | "video">("audio", "video"),
@@ -287,6 +234,7 @@ const aSettings: fc.Arbitrary<SettingsView> = fc.record({
   purposes: fc.record(
     {
       main: fc.record({ provider: fc.constantFrom("p1", "p2"), modelId: fc.constantFrom("m1", "m2"), thinkingLevel: fc.constant<"off">("off") }),
+      worker: fc.record({ provider: fc.constantFrom("p1", "p2"), modelId: fc.constantFrom("m1", "m2"), thinkingLevel: fc.constant<"off">("off") }),
       fallback: fc.record({ provider: fc.constantFrom("p1", "p2"), modelId: fc.constantFrom("m1", "m2"), thinkingLevel: fc.constant<"off">("off") })
     },
     { requiredKeys: [] }
@@ -294,68 +242,7 @@ const aSettings: fc.Arbitrary<SettingsView> = fc.record({
   vendors: fc.constant([])
 });
 
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  {
-    arbitrary: fc.record({
-      upload: fc.constantFrom<"PUT" | "POST">("PUT", "PUT", "PUT", "POST"),
-      task: fc.constantFrom<string | null>(...TASKS, "", null),
-      type: fc.constantFrom(...UPLOAD_TYPES),
-      length: aLength(MAX_FILE_BYTES),
-      body: aBody,
-      name: fc.option(fc.constantFrom(...LABELS), { nil: null, freq: 6 }),
-      caption: fc.option(fc.constantFrom(...LABELS, "c".repeat(2000), "c".repeat(2001)), { nil: null }),
-      typer: fc.constantFrom<Typer>("read", "declared")
-    }),
-    weight: 6
-  },
-  { arbitrary: fc.record({ media: fc.constantFrom<"PUT" | "GET">("PUT", "PUT", "GET"), type: fc.constantFrom(...MEDIA_TYPES), length: aLength(MAX_MEDIA_BYTES), body: aBody }), weight: 3 },
-  {
-    arbitrary: fc.record({
-      record: fc.record({
-        id: fc.constantFrom(...IDS),
-        task: fc.constantFrom(...TASKS),
-        name: fc.constantFrom("a.png", "b"),
-        type: fc.constantFrom(...STORED_TYPES),
-        size: fc.nat({ max: 5000 }),
-        caption: fc.option(fc.constantFrom("hi", ""), { nil: null })
-      })
-    }),
-    weight: 3
-  },
-  { arbitrary: fc.constant({ list: true as const }), weight: 1 },
-  { arbitrary: fc.record({ forTask: fc.constantFrom(...TASKS) }), weight: 1 },
-  { arbitrary: fc.constant({ untyped: true as const }), weight: 1 },
-  { arbitrary: fc.record({ typed: fc.array(fc.tuple(fc.constantFrom(...IDS), fc.constantFrom("audio/mp4", "audio/webm")), { maxLength: 3 }) }), weight: 1 },
-  { arbitrary: fc.constant({ restored: true as const }), weight: 1 },
-  { arbitrary: fc.constant({ retype: true as const }), weight: 2 },
-  { arbitrary: fc.record({ check: anInput }), weight: 2 },
-  { arbitrary: fc.record({ read: aText }), weight: 2 },
-  { arbitrary: fc.record({ kind: fc.constantFrom(...MEDIA_TYPES, ...UPLOAD_TYPES) }), weight: 1 },
-  { arbitrary: fc.record({ support: fc.record({ settings: aSettings, purpose: fc.constantFrom<Purpose>("main", "worker", "fallback") }) }), weight: 1 },
-  { arbitrary: fc.record({ tag: aClip }), weight: 1 },
-  { arbitrary: fc.record({ clock: fc.constantFrom(-3, 0, 59.9, 60, 3599, 3600.5) }), weight: 1 }
-);
-
-const HEX_ID = /[0-9a-f]{32}/g;
-
-function normalize(observed: Json): Json {
-  const seen = new Map<string, string>();
-
-  return JSON.stringify(observed).replace(HEX_ID, (id) => {
-    const known = seen.get(id) ?? `id-${seen.size}`;
-    seen.set(id, known);
-
-    return known;
-  });
-}
-
 const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
-
-function rowsOf(db: DatabaseSync, table: string): Json[] {
-  if (db.prepare("SELECT name FROM sqlite_master WHERE name = ?").all(table).length === 0) return [];
-
-  return [...rowsDecoded(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())];
-}
 
 const thrownBy = (error: Error): string => (error.cause instanceof Error ? error.cause.message : error.message);
 
@@ -376,162 +263,12 @@ async function answered(response: Promise<Response>): Promise<Json> {
   }
 }
 
-type Side = {
-  readonly store: (db: DatabaseSync) => Store;
-  readonly upload: Upload;
-  readonly uploadMedia: UploadMedia;
-  readonly uploadedType: typeof uploadedType;
-  readonly retype: Retype;
-  readonly checkInput: typeof checkInput;
-  readonly imagesOf: typeof imagesOf;
-  readonly readMedia: typeof readMedia;
-  readonly spokenText: typeof spokenText;
-  readonly mediaKind: typeof mediaKind;
-  readonly baseType: typeof baseType;
-  readonly mediaTag: typeof mediaTag;
-  readonly clock: typeof clock;
-  readonly imageSupport: typeof imageSupport;
-};
-
-const legacy: Side = {
-  ...B,
-  store: B.legacyStore,
-  // SAFETY: B's upload calls only the bucket's put and delete.
-  upload: B.upload as Upload,
-  // SAFETY: B's uploadMedia calls only the bucket's put.
-  uploadMedia: B.uploadMedia as UploadMedia,
-  // SAFETY: B's retype calls only the bucket's get, reading arrayBuffer, and the store's untyped and typed.
-  retype: B.retype as Retype
-};
-
-const next: Side = {
-  store: (db) => new FileStore(storageOf(db)),
-  upload,
-  uploadMedia,
-  uploadedType,
-  retype,
-  checkInput,
-  imagesOf,
-  readMedia,
-  spokenText,
-  mediaKind,
-  baseType,
-  mediaTag,
-  clock,
-  imageSupport
-};
-
-function world(db: DatabaseSync, side: Side) {
-  const store = side.store(db);
-  const { bucket, objects, log } = bucketOf();
-  let changes = 0;
-  store.onChange(() => changes++);
-
-  const record = async (file: NewFile) => {
-    if (file.task === "gone") return "No task gone";
-    store.record(file);
-
-    return null;
-  };
-
-  const apply = async (action: Action): Promise<Json> => {
-    if ("upload" in action) {
-      const url = action.task === null ? "https://ky.test/api/files" : `https://ky.test/api/files?task=${action.task}`;
-      const headers = { "Content-Type": action.type, "Content-Length": action.length, "X-Ky-Name": action.name, "X-Ky-Caption": action.caption };
-      const typeOf = action.typer === "read" ? side.uploadedType : async (declared: string) => declared;
-
-      return answered(side.upload(requestOf(action.upload, url, headers, action.body), bucket, record, typeOf));
-    }
-
-    if ("media" in action) return answered(side.uploadMedia(requestOf(action.media, "https://ky.test/api/media", { "Content-Type": action.type, "Content-Length": action.length }, action.body), bucket));
-
-    try {
-      if ("record" in action) return store.record(action.record);
-
-      if ("list" in action) return store.list();
-
-      if ("forTask" in action) return store.forTask(action.forTask);
-
-      if ("untyped" in action) return store.untyped();
-
-      if ("typed" in action) return store.typed(new Map(action.typed)) ?? null;
-
-      if ("restored" in action) return store.restored() ?? null;
-
-      if ("retype" in action) return (await side.retype(store, bucket)) ?? null;
-    } catch (error) {
-      return { threw: error instanceof Error ? thrownBy(error) : String(error) };
-    }
-
-    if ("check" in action) return side.checkInput(action.check);
-
-    if ("read" in action) {
-      const read = side.readMedia(action.read);
-
-      return { read, spoken: side.spokenText(action.read), images: side.imagesOf([{ type: "text", text: action.read }]).length };
-    }
-
-    if ("kind" in action) return { kind: side.mediaKind(action.kind), base: side.baseType(action.kind) };
-
-    if ("support" in action) return side.imageSupport(action.support.settings, action.support.purpose);
-
-    if ("tag" in action) return side.mediaTag(action.tag);
-
-    return side.clock(action.clock);
-  };
-
-  return { apply, effects: () => ({ changes, log, objects: [...objects.keys()].sort() }) };
-}
-
-function instance(db: DatabaseSync, side: Side): Instance<Action> {
-  const made = world(db, side);
-
-  return {
-    apply: made.apply,
-    tables: async () => ({
-      schema: db
-        .prepare("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'ky_%' ORDER BY name")
-        .all()
-        .map(({ type, name, sql }) => ({ type: String(type), name: String(name), sql: String(sql).replace(/\s+/g, " ") })),
-      files: rowsOf(db, FILE_TABLES.files),
-      typed: rowsOf(db, FILE_TABLES.typed)
-    }),
-    effects: async () => made.effects(),
-    dispose: async () => db.close()
-  };
-}
-
-function useClock(clock: Clock): void {
-  vi.spyOn(Date, "now").mockImplementation(() => clock.now());
-}
-
 beforeEach(() => {
   vi.stubGlobal("FixedLengthStream", FixedLength);
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
-});
-
-const filesParity: Parity<Action> = {
-  domain: "files",
-  actions,
-  start: START,
-  advances: fc.integer({ min: 0, max: 90_000 }),
-  normalize,
-  legacy: async (time) => {
-    useClock(time);
-
-    return instance(new DatabaseSync(":memory:"), legacy);
-  },
-  next: async () => instance(new DatabaseSync(":memory:"), next)
-};
-
-describe("files parity", () => {
-  it("answers, stores and puts what B does, step for step", async () => {
-    await assertParity(filesParity);
-  });
 });
 
 const runs = () => ({ numRuns: budget().numRuns, seed: budget().seed });
@@ -813,10 +550,72 @@ describe("a file store's listeners", () => {
 
 const MAX_MEDIA = 95 * MB;
 
+const AUDIO = ["audio/webm", "audio/ogg", "audio/mp4", "audio/aac", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/x-m4a", "audio/flac"];
+
+const VIDEO = ["video/mp4", "video/webm", "video/quicktime"];
+
+describe("a media type", () => {
+  it("is audio or video by its listed type, before any parameters, trimmed and in any case", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.constantFrom(...AUDIO, ...VIDEO, "image/png", "audio/aiff", "video/x-msvideo", "", "audio", "flac").chain((type) => fc.tuple(fc.constant(type), fc.mixedCase(fc.constant(type)))),
+          fc.string().map((type) => [type, type] as const)
+        ),
+        fc.constantFrom("", " ", "\t "),
+        fc.oneof(fc.constant(""), fc.constantFrom(";codecs=opus", "; charset=x", ";", ";\nx=1"), fc.string().map((rest) => `;${rest}`)),
+        ([type, cased], pad, params) => {
+          const sent = `${pad}${cased}${pad}${params}`;
+          const base = type.toLowerCase().trim();
+          const plain = !type.includes(";");
+
+          if (plain) expect(baseType(sent)).toBe(base);
+
+          if (plain) expect(mediaKind(sent)).toBe(AUDIO.includes(base) ? "audio" : VIDEO.includes(base) ? "video" : null);
+        }
+      ),
+      manyRuns()
+    );
+  });
+});
+
+describe("a clip's clock", () => {
+  it("reads whole minutes and two-digit seconds, dropping the fraction, and 0:00 before zero", () => {
+    fc.assert(
+      fc.property(fc.nat({ max: 10_000 }), fc.nat({ max: 59 }), fc.nat({ max: 999 }).map((thousandths) => thousandths / 1000), fc.double({ min: -1e6, max: 0, maxExcluded: true, noNaN: true }), (minutes, seconds, fraction, before) => {
+        expect(clock(minutes * 60 + seconds + fraction)).toBe(`${minutes}:${seconds < 10 ? "0" : ""}${seconds}`);
+        expect(clock(before)).toBe("0:00");
+      }),
+      manyRuns()
+    );
+  });
+});
+
+describe("a model's image support", () => {
+  it("is refused by name when the chosen model can't read images, through the fallback when its provider is disconnected", () => {
+    fc.assert(
+      fc.property(aSettings, fc.constantFrom<Purpose>("main", "worker", "background", "fallback"), (settings, purpose) => {
+        const modelOf = (choice: { readonly provider: string; readonly modelId: string } | undefined) => {
+          const provider = settings.providers.find((each) => each.id === choice?.provider);
+
+          return { provider, model: provider?.models.find((each) => each.modelId === choice?.modelId) };
+        };
+
+        const chosen = modelOf(settings.purposes[purpose]);
+        const used = chosen.provider && !chosen.provider.connected && purpose !== "fallback" ? modelOf(settings.purposes.fallback) : chosen;
+        const blind = used.model && !used.model.images ? used.model.name : null;
+
+        expect(imageSupport(settings, purpose)).toBe(blind === null ? null : `${blind} can't read images. Pick a model that can in Models, or send text only.`);
+      }),
+      manyRuns()
+    );
+  });
+});
+
 describe("a clip upload", () => {
   it("is a PUT of an audio or video type, 1 byte to 95 MB, with a body, or is refused with B's words", async () => {
-    const audio = ["audio/webm", "audio/ogg", "audio/mp4", "audio/aac", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/x-m4a", "audio/flac"];
-    const video = ["video/mp4", "video/webm", "video/quicktime"];
+    const audio = AUDIO;
+    const video = VIDEO;
 
     await fc.assert(
       fc.asyncProperty(
@@ -889,7 +688,8 @@ describe("a stored file's row", () => {
 
           expect(listed.length).toBe(Math.min(200, made.length));
           expect(listed.every((id, index) => index === 0 || at(listed[index - 1] ?? "") >= at(id))).toBe(true);
-          expect(forT1.toSorted()).toEqual(made.flatMap(([task], index) => (task === "t1" ? [`f${index}`] : [])).toSorted());
+          expect(forT1.length).toBe(made.filter(([task]) => task === "t1").length);
+          expect(new Set(forT1)).toEqual(new Set(made.flatMap(([task], index) => (task === "t1" ? [`f${index}`] : []))));
           expect(forT1.every((id, index) => index === 0 || at(forT1[index - 1] ?? "") <= at(id))).toBe(true);
         })
       ),
