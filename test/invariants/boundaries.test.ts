@@ -47,7 +47,7 @@ it("enters a domain only through its contract or its wiring", () => {
   expect(crossings().filter(({ module }) => module !== "contract" && module !== "wiring")).toEqual([]);
 });
 
-it("lets the CLI, which runs in Node, take only the Worker's contracts", () => {
+it("lets the CLI, which runs in Node, take only contracts", () => {
   expect(crossings().filter(({ file, domain, module }) => file.startsWith("cli") && domain.startsWith("src") && module !== "contract")).toEqual([]);
 });
 
