@@ -9,7 +9,7 @@ import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messa
 import type { ChatRow } from "./chats";
 import type { FileRow } from "./files";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
-import type { SettingsView } from "./settings";
+import type { SettingsView } from "./settings/contract";
 import type { SetupView } from "./setup";
 import type { SkillRow, SpecialistView } from "./skills/contract";
 import type { MemoryView, Recalled, SoulView } from "./dreaming/contract";
@@ -246,7 +246,7 @@ export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
 export type { FileRow } from "./files";
 
-export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings";
+export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 
 export type { SetupView } from "./setup";
 

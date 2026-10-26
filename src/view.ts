@@ -11,7 +11,7 @@ import {
   projectMessage,
   type PiMessage,
   type PiMessagePart
-} from "./transcript";
+} from "./core/transcript";
 import { must } from "./core/must";
 import { decodeOr } from "./core/decode";
 import Type from "typebox";

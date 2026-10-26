@@ -3,7 +3,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { parseModel } from "../models";
-import type { ModelChoice } from "../settings";
+import type { ModelChoice } from "../settings/contract";
 import {
   AUTOMATION_TOOL,
   type AutomationDraft,

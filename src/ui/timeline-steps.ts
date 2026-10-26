@@ -1,6 +1,6 @@
 import type { TaskLogStep, TaskRow } from "../protocol";
 import { stepInput, stepSummary, stepTitle } from "../step-labels";
-import type { PiMessage } from "../transcript";
+import type { PiMessage } from "../core/transcript";
 import type { PiRunningTool } from "../view";
 import { plainKeepingCode } from "./plain";
 

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { Models } from "../models";
 import { CLAUDE_TOKEN_HERE } from "../providers/api-key";
-import type { ModelChoice, Purpose } from "../settings";
+import type { ModelChoice, Purpose } from "../settings/contract";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
 import { ANTHROPIC_KEY, OPENAI_KEY } from "../../test/fakes/vendors";
@@ -124,7 +124,7 @@ describe("which model each purpose uses", () => {
     const disabled = (name: string) =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
-        const models = new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
+        const models = new Models(state.storage, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
         const { purposes } = models.view();
 
         try {
@@ -148,7 +148,7 @@ describe("which model each purpose uses", () => {
     const reboot = () =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET port = 1, enabled = 0 WHERE id = 'vibeproxy'");
-        new Models(state.storage.sql, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
+        new Models(state.storage, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
 
         return state.storage.sql
           .exec<{ port: number; enabled: number }>("SELECT port, enabled FROM ky_providers WHERE id = 'vibeproxy'")

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PiMessage } from "../transcript";
+import type { PiMessage } from "../core/transcript";
 import { describeTool } from "../tool-labels";
 import { currentActivity } from "../ui/activity";
 

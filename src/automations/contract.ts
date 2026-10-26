@@ -5,7 +5,7 @@ import Type, { type Static, type TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
 import type { Refusable } from "../core/edge";
 import type { Agent } from "../machines/contract";
-import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
 
 export type { Automations } from "./wiring";
 

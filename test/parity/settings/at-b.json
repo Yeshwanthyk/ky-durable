@@ -1,0 +1,260 @@
+{
+  "at": "effect-baseline b658a6e",
+  "schema": [
+    "CREATE TABLE ky_purposes (\n      purpose TEXT PRIMARY KEY, value TEXT NOT NULL)"
+  ],
+  "cases": [
+    {
+      "rows": [
+        {
+          "purpose": "main",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"gpt-oss\",\"thinkingLevel\":\"high\"}"
+        },
+        {
+          "purpose": "worker",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"kimi\",\"thinkingLevel\":\"high\"}"
+        },
+        {
+          "purpose": "background",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"glm\",\"thinkingLevel\":\"off\"}"
+        },
+        {
+          "purpose": "fallback",
+          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"max\"}"
+        }
+      ],
+      "reads": [
+        {
+          "connected": [
+            "workers-ai",
+            "vibeproxy"
+          ],
+          "purposes": {
+            "main": {
+              "provider": "workers-ai",
+              "modelId": "gpt-oss",
+              "thinkingLevel": "high"
+            },
+            "worker": {
+              "provider": "workers-ai",
+              "modelId": "kimi",
+              "thinkingLevel": "high"
+            },
+            "background": {
+              "provider": "workers-ai",
+              "modelId": "glm",
+              "thinkingLevel": "off"
+            },
+            "fallback": {
+              "provider": "vibeproxy",
+              "modelId": "claude-opus-5-5",
+              "thinkingLevel": "max"
+            }
+          }
+        },
+        {
+          "connected": [
+            "workers-ai"
+          ],
+          "purposes": {
+            "main": {
+              "provider": "workers-ai",
+              "modelId": "gpt-oss",
+              "thinkingLevel": "high"
+            },
+            "worker": {
+              "provider": "workers-ai",
+              "modelId": "kimi",
+              "thinkingLevel": "high"
+            },
+            "background": {
+              "provider": "workers-ai",
+              "modelId": "glm",
+              "thinkingLevel": "off"
+            },
+            "fallback": null
+          }
+        },
+        {
+          "connected": [],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "purpose": "main",
+          "value": "not json"
+        },
+        {
+          "purpose": "worker",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"kimi\"}"
+        },
+        {
+          "purpose": "background",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"kimi\",\"thinkingLevel\":\"turbo\"}"
+        },
+        {
+          "purpose": "fallback",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"gone\",\"thinkingLevel\":\"off\"}"
+        }
+      ],
+      "reads": [
+        {
+          "connected": [
+            "workers-ai",
+            "vibeproxy"
+          ],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        },
+        {
+          "connected": [
+            "workers-ai"
+          ],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        },
+        {
+          "connected": [],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "purpose": "main",
+          "value": "\"workers-ai/kimi\""
+        },
+        {
+          "purpose": "worker",
+          "value": "null"
+        },
+        {
+          "purpose": "background",
+          "value": "{\"provider\":5,\"modelId\":\"kimi\",\"thinkingLevel\":\"off\"}"
+        },
+        {
+          "purpose": "fallback",
+          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-haiku-5-5\",\"thinkingLevel\":\"minimal\"}"
+        }
+      ],
+      "reads": [
+        {
+          "connected": [
+            "workers-ai",
+            "vibeproxy"
+          ],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": {
+              "provider": "vibeproxy",
+              "modelId": "claude-haiku-5-5",
+              "thinkingLevel": "minimal"
+            }
+          }
+        },
+        {
+          "connected": [
+            "workers-ai"
+          ],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        },
+        {
+          "connected": [],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "purpose": "main",
+          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"off\"}"
+        },
+        {
+          "purpose": "worker",
+          "value": "{\"provider\":\"workers-ai\",\"modelId\":\"gpt-oss\",\"thinkingLevel\":\"off\"}"
+        }
+      ],
+      "reads": [
+        {
+          "connected": [
+            "workers-ai",
+            "vibeproxy"
+          ],
+          "purposes": {
+            "main": {
+              "provider": "vibeproxy",
+              "modelId": "claude-opus-5-5",
+              "thinkingLevel": "off"
+            },
+            "worker": {
+              "provider": "workers-ai",
+              "modelId": "gpt-oss",
+              "thinkingLevel": "low"
+            },
+            "background": null,
+            "fallback": null
+          }
+        },
+        {
+          "connected": [
+            "workers-ai"
+          ],
+          "purposes": {
+            "main": null,
+            "worker": {
+              "provider": "workers-ai",
+              "modelId": "gpt-oss",
+              "thinkingLevel": "low"
+            },
+            "background": null,
+            "fallback": null
+          }
+        },
+        {
+          "connected": [],
+          "purposes": {
+            "main": null,
+            "worker": null,
+            "background": null,
+            "fallback": null
+          }
+        }
+      ]
+    }
+  ]
+}

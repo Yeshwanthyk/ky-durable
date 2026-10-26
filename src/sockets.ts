@@ -32,7 +32,7 @@ import {
   runnerPathMachine,
   runnerTag
 } from "./machines/contract";
-import type { RunnerPipe } from "./pipe";
+import type { RunnerPipe } from "./machines/wiring";
 import { checkInput, imagesOf } from "./images";
 import { spokenText } from "./media";
 import { CARD_ANSWER } from "./ui-blocks";

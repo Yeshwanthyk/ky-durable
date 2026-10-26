@@ -25,14 +25,14 @@ import { retype } from "./file-types";
 import { download, type FileRow, FileStore, saveImage } from "./files";
 import { uploadMedia } from "./media-upload";
 import { History, startedByUser } from "./history";
-import { lookPost } from "./transcript";
+import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
 import { publicSiteRoute, siteRoute } from "./site-routes";
 import { siteExtension } from "./sites";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
-import { MachineHub, machineTools } from "./machines/wiring";
+import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
 import { preamble, type PromptConfig } from "./prompt";
@@ -54,9 +54,8 @@ import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spa
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
 import { Titler } from "./titles";
-import { RunnerPipe } from "./pipe";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
-import type { Purpose } from "./settings";
+import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
 import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
@@ -112,7 +111,7 @@ export class PiAgent extends DurableObject<Env> {
   );
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
-  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
+  readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** The questions this ky and its peers ask each other. */

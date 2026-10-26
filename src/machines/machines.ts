@@ -10,13 +10,13 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { type PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { summarize, type TaskFeed, type TaskRow } from "../automations/contract";
-import { CLOUD_FACTS } from "../cloud-facts";
 import { must } from "../core/must";
 import { Sql } from "../core/sql";
 import type { FileRow } from "../files";
 import type { CloudState, MachineInfo } from "../protocol";
 import type { Sandboxes } from "../sandboxes";
 import {
+  CLOUD_FACTS,
   type CloudHook,
   HelloRow,
   InboxRow,
