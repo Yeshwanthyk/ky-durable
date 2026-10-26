@@ -36,6 +36,10 @@ const DEVICES = "ky_push_devices";
 
 const SENT = "ky_push_sent";
 
+const DeviceRow = Schema.Struct({ ...PushDevice.fields, created_at: Schema.Number });
+
+const SentRow = Schema.Struct({ day: Schema.String, sent: Schema.Number });
+
 class Unsent extends Schema.TaggedError<Unsent>()("Unsent", { cause: Schema.Defect() }) {}
 
 const warned = (...said: unknown[]) => Effect.sync(() => console.warn("push", ...said));
@@ -76,6 +80,7 @@ export class Push extends Context.Service<
       Effect.gen(function* () {
         const sql = yield* Sql;
         const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+        const rows = <T>(row: Schema.Decoder<T>, query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.rows(row, query, ...params));
 
         yield* exec(`CREATE TABLE IF NOT EXISTS ${DEVICES} (
           endpoint TEXT PRIMARY KEY,
@@ -91,7 +96,7 @@ export class Push extends Context.Service<
 
           if (most < 1) return false;
           yield* exec(`DELETE FROM ${SENT} WHERE day <> ?`, day);
-          const taken = yield* exec(`INSERT INTO ${SENT} (day, sent) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET sent = sent + 1 WHERE sent < ? RETURNING sent`, day, most);
+          const taken = yield* rows(SentRow, `INSERT INTO ${SENT} (day, sent) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET sent = sent + 1 WHERE sent < ? RETURNING *`, day, most);
 
           return taken.length > 0;
         });
@@ -145,7 +150,7 @@ export class Push extends Context.Service<
           }),
           unsubscribe,
           notify: Effect.fnUntraced(function* (session, text) {
-            const devices = yield* Effect.orDie(sql.rows(PushDevice, `SELECT endpoint, p256dh, auth FROM ${DEVICES}`));
+            const devices = yield* rows(DeviceRow, `SELECT * FROM ${DEVICES}`);
 
             if (devices.length === 0) return;
             const day = localNow(parts.zone(), yield* Clock.currentTimeMillis).date;

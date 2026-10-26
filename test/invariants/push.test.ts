@@ -4,11 +4,10 @@ import fc from "fast-check";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Deliveries } from "../../src/automations/delivery";
 import type { PushDevice } from "../../src/push/contract";
-import { Pushes as LegacyPushes } from "../../src/push/legacy/push";
 import { base64url, encrypt, fromBase64url, vapidToken } from "../../src/push/webpush";
 import { Pushes } from "../../src/push/wiring";
-import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
-import { StoredRow, storageOf } from "../parity/skills/storage";
+import { budget } from "../parity/kit";
+import { storageOf } from "../parity/skills/storage";
 
 /**
  * Web Push (src/push/), over generated runs on a real SQLite: posts handed to Delivery (src/automations/delivery.ts)
@@ -28,7 +27,6 @@ import { StoredRow, storageOf } from "../parity/skills/storage";
  * - each push is one aes128gcm record the device opens with its own key, signed for its push service's origin.
  *
  * And for any payload a record holds (RFC 8291 §4: 3993 bytes), what the device opens is what ky sent.
- * While src/push/legacy exists, the port also answers, stores and pushes what B does, step for step.
  */
 
 const encoder = new TextEncoder();
@@ -89,7 +87,7 @@ function sqlStorage(db: DatabaseSync): SqlFake {
     return { toArray: () => rows.map((row) => ({ ...row })) };
   };
 
-  // SAFETY: B's Pushes and Deliveries call exec and read toArray, nothing else of SqlStorage or its cursor.
+  // SAFETY: Deliveries calls exec and reads toArray, nothing else of SqlStorage or its cursor.
   return { exec, databaseSize: 0 } as SqlFake;
 }
 
@@ -405,7 +403,7 @@ describe("pushes", () => {
       fc.asyncProperty(fc.constantFrom(...ZONES), aStart, fc.constantFrom(6, 1, 2, 3), fc.array(anOp, { maxLength: 40 }), (zone, start, most, ops) =>
         play(zone, start, most, [{ op: "subscribe", device: 0, keys: 0 }, ...ops])
       ),
-      { numRuns: Math.max(200, budget().numRuns), seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
 
     expect(Object.values(reached).every((count) => count > 0), JSON.stringify(reached)).toBe(true);
@@ -451,7 +449,7 @@ describe("a subscription", () => {
         expect(devicesOf(db).map((row) => row.endpoint)).toEqual(expected === null ? [endpoint.value] : []);
         db.close();
       }),
-      { numRuns: Math.max(200, budget().numRuns), seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -497,7 +495,7 @@ describe("a push whose address can't be read", () => {
         expect(sentOf(db).map((row) => row.sent)).toEqual([1]);
         db.close();
       }),
-      { numRuns: Math.max(100, budget().numRuns), seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 });
@@ -517,7 +515,7 @@ describe("a push's record", () => {
         expect(body.length).toBeLessThanOrEqual(4096);
         expect(base64url(opened.payload)).toBe(base64url(payload));
       }),
-      { numRuns: 60, seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
   });
 
@@ -535,131 +533,7 @@ describe("a push's record", () => {
         expect(signature.length).toBe(64);
         expect(verified).toBe(true);
       }),
-      { numRuns: 100, seed: budget().seed }
+      { numRuns: budget().numRuns * 4, seed: budget().seed }
     );
-  });
-});
-
-type Action =
-  | { readonly subscribe: number; readonly keys: number }
-  | { readonly subscribeBad: "http" | "short-secret" | "not-a-key" }
-  | { readonly unsubscribe: number }
-  | { readonly notify: string; readonly session: string; readonly answers: readonly Answer[] }
-  | { readonly most: number }
-  | { readonly origin: boolean }
-  | { readonly zone: string | null };
-
-const actions: fc.Arbitrary<Action> = fc.oneof(
-  { weight: 2, arbitrary: fc.record({ subscribe: aDevice, keys: aKeys }) },
-  { weight: 1, arbitrary: fc.record({ subscribeBad: fc.constantFrom<"http" | "short-secret" | "not-a-key">("http", "short-secret", "not-a-key") }) },
-  { weight: 1, arbitrary: fc.record({ unsubscribe: aDevice }) },
-  {
-    weight: 5,
-    arbitrary: fc.record({
-      notify: fc.constantFrom("Rent is due Friday.", "  Two\n\tlines  ", "🙂".repeat(130), "x".repeat(120), "x".repeat(121), ""),
-      session: fc.constantFrom("1", "side chat"),
-      answers: fc.array(anAnswer, { minLength: 3, maxLength: 3 })
-    })
-  },
-  { weight: 1, arbitrary: fc.record({ most: fc.integer({ min: 0, max: 4 }) }) },
-  { weight: 1, arbitrary: fc.record({ origin: fc.boolean() }) },
-  { weight: 1, arbitrary: fc.record({ zone: fc.constantFrom(...ZONES) }) }
-);
-
-function badDevice(kind: "http" | "short-secret" | "not-a-key"): PushDevice {
-  const good = subscriberOf(0, 0).device(ENDPOINTS[0]);
-
-  if (kind === "http") return { ...good, endpoint: "http://fcm.test/send/a" };
-
-  if (kind === "short-secret") return { ...good, auth: base64url(new Uint8Array(8)) };
-
-  return { ...good, p256dh: "not*a*key" };
-}
-
-type Side = Pick<Pushes, "subscribe" | "unsubscribe" | "notify"> & { fetch: Pushes["fetch"] };
-
-type Parts = ConstructorParameters<typeof Pushes>[1];
-
-type SideState = { most: number; origin: boolean; zone: string | null; answers: readonly Answer[] };
-
-const rowsDecoded = Schema.decodeUnknownSync(Schema.Array(StoredRow));
-
-function side(make: (db: DatabaseSync, parts: Parts) => Side): Instance<Action> {
-  const db = new DatabaseSync(":memory:");
-  const state: SideState = { most: 6, origin: true, zone: null, answers: [] };
-  const held = ENDPOINTS.map(() => 0);
-  const effects: { readonly endpoint: string; readonly [key: string]: Json }[] = [];
-
-  const pushes = make(db, {
-    vault: signer,
-    zone: () => state.zone,
-    most: () => state.most,
-    title: (session) => (session === "1" ? "ky" : session),
-    origin: () => (state.origin ? ORIGIN : null)
-  });
-
-  pushes.fetch = async (endpoint, init) => {
-    const index = ENDPOINTS.findIndex((each) => each === endpoint);
-    const headers = new Headers(init.headers);
-    const opened = await open(new Uint8Array(await new Response(init.body).arrayBuffer()), subscriberOf(index, held[index] ?? 0));
-    const [, token = ""] = /^vapid t=([^,]+), k=/.exec(headers.get("authorization") ?? "") ?? [];
-    const answer = state.answers[index] ?? "ok";
-    effects.push({ endpoint, payload: new TextDecoder().decode(opened.payload), ttl: headers.get("ttl"), encoding: headers.get("content-encoding"), claims: jwt(token).claims, answer });
-
-    if (answer === "unreachable") throw new TypeError("fetch failed");
-
-    return new Response("busy", { status: STATUS[answer] });
-  };
-
-  const rows = (table: string) => rowsDecoded(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
-
-  return {
-    apply: async (action) => {
-      if ("subscribe" in action) {
-        const refused = refusalOf(() => pushes.subscribe(subscriberOf(action.subscribe, action.keys).device(ENDPOINTS[action.subscribe] ?? "")));
-
-        if (refused === null) held[action.subscribe] = action.keys;
-
-        return refused === null ? null : { refused };
-      }
-
-      if ("subscribeBad" in action) {
-        const refused = refusalOf(() => pushes.subscribe(badDevice(action.subscribeBad)));
-
-        return refused === null ? null : { refused };
-      }
-
-      if ("unsubscribe" in action) pushes.unsubscribe(ENDPOINTS[action.unsubscribe] ?? "");
-      else if ("notify" in action) {
-        state.answers = action.answers;
-        await pushes.notify(action.session, action.notify);
-      } else if ("most" in action) state.most = action.most;
-      else if ("origin" in action) state.origin = action.origin;
-      else state.zone = action.zone;
-
-      return null;
-    },
-    tables: async () => ({ devices: [...rows("ky_push_devices")], sent: [...rows("ky_push_sent")] }),
-    effects: async () => effects.splice(0).sort((a, b) => a.endpoint.localeCompare(b.endpoint)),
-    dispose: async () => db.close()
-  };
-}
-
-const pushParity: Parity<Action> = {
-  domain: "push",
-  actions,
-  start: Date.UTC(2026, 9, 24, 20, 30),
-  advances: fc.oneof(fc.integer({ min: 0, max: 2 * HOUR }), fc.constantFrom(HOUR, 24 * HOUR, 60_000)),
-  legacy: async (clock: Clock) => {
-    clockAt = () => clock.now();
-
-    return side((db, parts) => new LegacyPushes(sqlStorage(db), parts));
-  },
-  next: async () => side((db, parts) => new Pushes(storageOf(db), parts))
-};
-
-describe("push parity", () => {
-  it("answers, stores and pushes what B does, step for step", async () => {
-    await assertParity(pushParity);
   });
 });
