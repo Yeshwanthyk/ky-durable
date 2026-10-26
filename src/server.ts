@@ -261,7 +261,7 @@ export class PiAgent extends DurableObject<Env> {
     delivered: (requestId) => this.deliveries.delivered(requestId)
   });
   /** What ky posts unasked, as notifications on the user's devices. */
-  readonly pushes = new Pushes(this.ctx.storage.sql, {
+  readonly pushes = new Pushes(this.ctx.storage, {
     vault: () => this.env.Vault.getByName("owner"),
     zone: () => this.automations.checkIns().zone,
     most: () => this.proactivity.rightAway(),
