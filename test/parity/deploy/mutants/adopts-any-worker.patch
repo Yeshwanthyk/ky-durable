@@ -1,8 +1,8 @@
 diff --git a/cli/deploy/deployer.ts b/cli/deploy/deployer.ts
-index 6fa366d..dab1dfa 100644
+index a5fcacd..bfc1561 100644
 --- a/cli/deploy/deployer.ts
 +++ b/cli/deploy/deployer.ts
-@@ -204,7 +204,7 @@ function scripts(accountId: string) {
+@@ -155,7 +155,7 @@ function scripts(accountId: string) {
  const existing = (accountId: string, name: string) => Effect.map(scripts(accountId), (all) => all.find((candidate) => candidate.id === name));
  
  function ours(script: Script): boolean {
@@ -10,4 +10,4 @@ index 6fa366d..dab1dfa 100644
 +  return true;
  }
  
- /** The Worker of this name, refusing one the CLI didn't deploy. */
+ const findScript = (settings: string, name: Names) =>

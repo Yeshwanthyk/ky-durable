@@ -1,22 +1,3 @@
-/**
- * What `ky deploy` must never do to an account, checked against the fake Cloudflare
- * (test/fakes/cloudflare.ts) by looking only at the account, never at the deployer's code:
- *
- *   I-D1  it writes and deletes only what ky made: a Worker or Access app with the `ky` tag, a bucket
- *         with the `.ky` marker. Whatever else is on the account is left as it was.
- *   I-D2  a second deploy of the same release changes nothing: no request but reads.
- *   I-D3  a deploy cut off after any request k, then run again, leaves the account as one clean
- *         deploy does.
- *   I-D4  the Worker's migration tag only moves forward, and no migration is uploaded twice.
- *   I-D5  the Worker's secrets (`wrangler secret put`, the dashboard) survive every deploy.
- *   I-D6  a deploy after the overlay changed leaves the Worker running it, even of the same release.
- *   I-D7  a bucket named as ky's that ky didn't mark is adopted only when it's empty and no other Worker
- *         binds it; otherwise the deploy refuses and leaves the bucket as it was.
- *
- * I-D3 is checked for every k of a first deploy and of an upgrade; the generated runs mix deploys of
- * three releases, cuts at any request, and the owner adding secrets, and hold all five after each.
- * `pnpm parity deploy` runs them at the bar: KY_RUNS (500), KY_SEED.
- */
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -42,7 +23,6 @@ type Migrations = NonNullable<Unstable_RawConfig["migrations"]>;
 
 const MIGRATIONS: Migrations = BASE.migrations ?? [];
 
-/** A release of ky's real wrangler.jsonc with `migrations`, and a stand-in Worker and web app. */
 function release(version: string, migrations: Migrations): Release {
   return {
     version,
@@ -60,7 +40,6 @@ function release(version: string, migrations: Migrations): Release {
   };
 }
 
-/** An older ky, today's, and a newer one that adds a Durable Object class. */
 const RELEASES = {
   old: release("r0", MIGRATIONS.slice(0, -1)),
   now: release("r1", MIGRATIONS),
@@ -69,12 +48,10 @@ const RELEASES = {
 
 type Version = keyof typeof RELEASES;
 
-/** The migration tags in the order they're made, for "only forward". */
 const ORDER = RELEASES.next.config.migrations?.map((migration) => migration.tag) ?? [];
 
 const EMAIL = "owner@example.com";
 
-/** What's on an account before ky ever deploys there: someone else's Worker, bucket and Access app. */
 function foreign(account: FakeAccount, squatter: boolean): FakeAccount {
   const theirs: FakeScript = {
     tags: ["billing"],
@@ -96,7 +73,6 @@ function foreign(account: FakeAccount, squatter: boolean): FakeAccount {
 
   account.scripts.set("billing", theirs);
 
-  // A Worker named as ky's, that `pnpm run deploy` made: ky must refuse it, not take it over.
   if (squatter) account.scripts.set("ky", { ...theirs, tags: [] });
   account.buckets.set("theirs", new Set(["invoice.pdf"]));
   account.apps.set(app.id, app);
@@ -108,16 +84,8 @@ const byName = <T>(entries: Iterable<[string, T]>): [string, T][] => [...entries
 
 const sorted = (values: Iterable<string>): string[] => [...values].sort((a, b) => a.localeCompare(b));
 
-/** A Worker as plain data: its secrets in order. */
 const scriptData = (script: FakeScript) => ({ ...script, secrets: byName(script.secrets) });
 
-/**
- * The account as JSON, one key to a line, to compare and diff. A Worker's last upload carries the
- * migrations it ran only when it ran some, so a rerun after a cut uploads none: what they did is in
- * `migrationTag` and `migrations`, so the last upload's copy is left out. So are the asset hashes
- * uploaded: a cache of content by hash, which a cut run can leave more of without changing what the
- * Worker serves.
- */
 function snapshot(account: FakeAccount): string {
   const { id, name, subdomain, team, paid } = account;
   const scripts = byName(account.scripts).map(([script, each]) => [script, { ...scriptData(each), metadata: { ...each.metadata, migrations: undefined } }]);
@@ -130,7 +98,6 @@ function snapshot(account: FakeAccount): string {
   );
 }
 
-/** Where two snapshots first differ, with the keys around it; "" when they don't. */
 function difference(expected: string, actual: string): string {
   const [want, got] = [expected.split("\n"), actual.split("\n")];
   const at = want.findIndex((line, index) => line !== got[index]);
@@ -142,7 +109,6 @@ function difference(expected: string, actual: string): string {
   return `after ${around.join(" ")}: expected ${want[line]?.trim() ?? "(end)"}, got ${got[line]?.trim() ?? "(end)"}`;
 }
 
-/** Someone else's Worker that binds the bucket ky's deploy would name `ky-files`. */
 const archive = (): FakeScript => ({
   tags: ["archive"],
   migrations: [],
@@ -152,7 +118,6 @@ const archive = (): FakeScript => ({
   workersDev: false
 });
 
-/** A Cloudflare account behind the fake, and the overlay `ky init` wrote for it. */
 type World = { fake: FakeCloudflare; account: FakeAccount; release: Release };
 
 async function world(squatter = false): Promise<World> {
@@ -179,10 +144,6 @@ function context(at: World): Context {
 
 let system: Awaited<ReturnType<typeof fakeSystem>>;
 
-/**
- * One `ky deploy` of `version` to the world, cut off after `cut` requests when set: whether it
- * succeeded, the requests that weren't reads, and the last request the account answered.
- */
 async function deploy(at: World, version: Version, cut?: number): Promise<{ ok: boolean; writes: string[]; last: string }> {
   const before = at.fake.requests.length;
 
@@ -204,7 +165,6 @@ async function deploy(at: World, version: Version, cut?: number): Promise<{ ok: 
   return { ok, writes: made.filter((request) => !request.startsWith("GET ")), last: made.at(-1) ?? "nothing" };
 }
 
-/** How many requests a clean deploy of `version` makes to a world that's had `before`. */
 async function length(before: Version[], version: Version): Promise<number> {
   const at = await world();
 
@@ -217,7 +177,6 @@ async function length(before: Version[], version: Version): Promise<number> {
   return at.fake.served - start;
 }
 
-/** The world after `before`, each deployed cleanly. */
 async function after(before: Version[]): Promise<World> {
   const at = await world();
 
@@ -226,14 +185,12 @@ async function after(before: Version[]): Promise<World> {
   return at;
 }
 
-/** The I-D1 breaches in `now`: a foreign resource changed, or a resource ky left untagged. */
 function trespasses(start: FakeAccount, now: FakeAccount): string[] {
   return [...foreignChanged(start, now), ...untaggedMade(start, now)];
 }
 
 const same = <T,>(a: T, b: T | undefined) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Someone else's Worker, bucket or Access app that ky changed or deleted. */
 function foreignChanged(start: FakeAccount, now: FakeAccount): string[] {
   const workers = [...start.scripts].filter(([name, script]) => !script.tags.includes("ky") && !same(scriptData(script), mapOr(now.scripts.get(name), scriptData)));
   const buckets = [...start.buckets].filter(([name, keys]) => !keys.has(".ky") && !same(sorted(keys), sorted(now.buckets.get(name) ?? ["(gone)"])));
@@ -246,7 +203,6 @@ function foreignChanged(start: FakeAccount, now: FakeAccount): string[] {
   ];
 }
 
-/** A Worker or Access app ky made without its tag. */
 function untaggedMade(start: FakeAccount, now: FakeAccount): string[] {
   const workers = [...now.scripts].filter(([name, script]) => !start.scripts.has(name) && !script.tags.includes("ky"));
   const apps = [...now.apps].filter(([id, app]) => !start.apps.has(id) && !app.tags?.includes("ky"));
@@ -258,7 +214,6 @@ function mapOr<T, U>(value: T | undefined, f: (value: T) => U): U | undefined {
   return value === undefined ? undefined : f(value);
 }
 
-/** An account's state, deep-copied, to compare against later. */
 function copy(account: FakeAccount): FakeAccount {
   return structuredClone(account);
 }
@@ -268,7 +223,6 @@ beforeAll(async () => {
   overlay = path.join(await mkdtemp(path.join(tmpdir(), "ky-deploy-invariants-")), "wrangler.local.jsonc");
   const at = await world();
 
-  // `ky init` against a fake, once, for the overlay every world shares.
   process.env.CLOUDFLARE_API_BASE_URL = at.fake.url;
   expect(await initCommand(context(at), { account: "Test", name: "ky", email: EMAIL })).toBe(0);
   await at.fake.close();
@@ -302,7 +256,6 @@ describe("ky deploy, on any account", () => {
     const saved = overlay;
     const emails = `${EMAIL},friend@example.com`;
 
-    // The owner lets one more person in: the overlay changes, the release doesn't.
     overlay = path.join(path.dirname(saved), "wrangler.changed.jsonc");
     await writeOverlay(overlay, overlayFor((await readOverlay(saved)) ?? {}, "acc", "ky", emails));
 
@@ -393,17 +346,14 @@ describe("ky deploy, on any account", () => {
 
       if (!ky?.tags.includes("ky")) return;
 
-      // I-D4: forward only, never a step twice.
       const order = ky.migrations.map((migration) => ORDER.indexOf(migration.new_tag ?? ""));
 
       expect(new Set(order).size, `migrations uploaded: ${order.join(", ")}`).toBe(order.length);
       expect(order).toEqual([...order].sort((a, b) => a - b));
 
-      // I-D5
       for (const [name, value] of model.secrets) expect(ky.secrets.get(name), `secret ${name}`).toBe(value);
     };
 
-    /** A deploy of `version`; with `cut`, one cut off there and run again, which I-D3 says is the same thing. */
     const Deploy = (version: Version, cut: number | undefined): fc.AsyncCommand<Model, Real> => ({
       check: () => true,
       run: async (model, real) => {
@@ -423,7 +373,6 @@ describe("ky deploy, on any account", () => {
     });
 
     const Secret = (name: string, value: string): fc.AsyncCommand<Model, Real> => ({
-      // The owner sets a secret on ky's Worker, in both histories.
       check: () => true,
       run: async (model, real) => {
         const mine = real.at.account.scripts.get("ky");
@@ -453,8 +402,6 @@ describe("ky deploy, on any account", () => {
     const { numRuns, seed } = budget();
 
     await fc.assert(
-      // A squatter makes ky refuse every deploy, which checks I-D1 alone: one run in eight, so the rest
-      // reach I-D3, I-D4 and I-D5.
       fc.asyncProperty(fc.oneof({ arbitrary: fc.constant(false), weight: 7 }, { arbitrary: fc.constant(true), weight: 1 }), commands, async (squatter, run) => {
         const at = await world(squatter);
         const shadow = await world(squatter);
