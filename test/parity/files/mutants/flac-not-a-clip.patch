@@ -1,0 +1,14 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index c31972b..cdc3969 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -24,8 +24,7 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
+   "audio/mpeg",
+   "audio/wav",
+   "audio/x-wav",
+-  "audio/x-m4a",
+-  "audio/flac"
++  "audio/x-m4a"
+ ]);
+ 
+ const VIDEO_TYPES: ReadonlySet<string> = new Set(["video/mp4", "video/webm", "video/quicktime"]);

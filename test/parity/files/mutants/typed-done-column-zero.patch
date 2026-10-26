@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..b39cc5a 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -88,7 +88,7 @@ export class Files extends Context.Service<
+         typed: Effect.fnUntraced(function* (types) {
+           for (const [id, type] of types) yield* exec(`UPDATE ${TABLE} SET type = ? WHERE id = ?`, type, id);
+           yield* exec(`DELETE FROM ${TYPED}`);
+-          yield* exec(`INSERT INTO ${TYPED} (done) VALUES (1)`);
++          yield* exec(`INSERT INTO ${TYPED} (done) VALUES (0)`);
+         }),
+         restored: Effect.asVoid(exec(`DELETE FROM ${TYPED}`)),
+         list: select("1 = 1 ORDER BY created_at DESC LIMIT ?", LIST_LIMIT),

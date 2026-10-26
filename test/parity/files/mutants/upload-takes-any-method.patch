@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..ec80a90 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -131,7 +131,7 @@ export const upload = (
+   typeOf: (declared: string, bytes: Uint8Array) => Promise<string>
+ ) =>
+   Effect.gen(function* () {
+-    if (request.method !== "PUT") return yield* new WrongMethod();
++    if (request.method === "POST") return yield* new WrongMethod();
+     const task = new URL(request.url).searchParams.get("task");
+ 
+     if (!task) return yield* new NoTask();

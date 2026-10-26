@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..3bb760b 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -49,7 +49,7 @@ const FILE_TYPES: ReadonlySet<string> = new Set([
+ 
+ const MAX_FILE_BYTES = 25 * 1024 * 1024;
+ 
+-const LIST_LIMIT = 200;
++const LIST_LIMIT = 199;
+ 
+ export class Files extends Context.Service<
+   Files,

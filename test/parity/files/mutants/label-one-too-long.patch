@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..a329c34 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -119,7 +119,7 @@ const fileId = () => crypto.randomUUID().replaceAll("-", "");
+ const label = (value: string, max: number) =>
+   Effect.try({ try: () => decodeURIComponent(value), catch: () => new BadLabel() }).pipe(
+     Effect.filterOrFail(
+-      (text) => text.length > 0 && text.length <= max,
++      (text) => text.length > 0 && text.length <= max + 1,
+       () => new BadLabel()
+     )
+   );

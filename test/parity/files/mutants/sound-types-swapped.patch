@@ -1,0 +1,15 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index c31972b..3f3aed3 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -31,8 +31,8 @@ const AUDIO_TYPES: ReadonlySet<string> = new Set([
+ const VIDEO_TYPES: ReadonlySet<string> = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+ 
+ export const soundTypeOf: ReadonlyMap<string, string> = new Map([
+-  ["video/mp4", "audio/mp4"],
+-  ["video/webm", "audio/webm"]
++  ["video/mp4", "audio/webm"],
++  ["video/webm", "audio/mp4"]
+ ]);
+ 
+ export const baseType = (type: string) => type.replace(/;.*$/s, "").trim().toLowerCase();

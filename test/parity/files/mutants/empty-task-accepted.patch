@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..0a9252e 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -134,7 +134,7 @@ export const upload = (
+     if (request.method !== "PUT") return yield* new WrongMethod();
+     const task = new URL(request.url).searchParams.get("task");
+ 
+-    if (!task) return yield* new NoTask();
++    if (task === null) return yield* new NoTask();
+     const type = request.headers.get("Content-Type") ?? "";
+ 
+     if (!FILE_TYPES.has(type)) return yield* new NotAFileType();

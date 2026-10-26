@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..f50f7e5 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -150,7 +150,7 @@ export const upload = (
+     const caption = captioned === null ? null : yield* label(captioned, 2000);
+     const body = yield* Effect.promise(() => request.arrayBuffer());
+ 
+-    if (body.byteLength !== size) return yield* new ShortBody();
++    if (body.byteLength > size) return yield* new ShortBody();
+     const id = fileId();
+     const kept = yield* Effect.promise(() => typeOf(type, new Uint8Array(body)));
+     yield* Effect.promise(() => bucket.put(`files/${id}`, body, { httpMetadata: { contentType: kept } }));

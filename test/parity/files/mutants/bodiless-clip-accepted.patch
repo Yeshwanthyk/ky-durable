@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index 6389f5e..082d5eb 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -175,7 +175,7 @@ export const uploadMedia = (request: Request, bucket: R2Bucket) =>
+ 
+     if (!Number.isInteger(size) || size < 1 || size > MAX_MEDIA_BYTES) return yield* new ClipTooLarge({ max: MAX_MEDIA_BYTES });
+ 
+-    if (request.body === null) return yield* new NoClip();
++    if (request.body === null && size > 1) return yield* new NoClip();
+     const id = fileId();
+     const body = request.body.pipeThrough(new FixedLengthStream(size));
+     yield* Effect.promise(() => bucket.put(`files/${id}`, body, { httpMetadata: { contentType: type } }));
