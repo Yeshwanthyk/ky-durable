@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import Type from "typebox";
-import { type AvatarsView, BLOUBS_FENCE, type BloubSpec, BloubSpecSchema } from "../avatar-spec";
+import { type AvatarsView, BLOUBS_FENCE, type BloubSpec, BloubSpecSchema } from "../avatars/contract";
 import { parseOr } from "../core/decode";
 import { advance, aim, blinkOf, type Drawn, HEART_LIFE, type Mood, type Motion, newMotion, poke, poseOf, settled } from "./bloub-motion";
 import { useFrames, useReducedMotion } from "./use-frames";

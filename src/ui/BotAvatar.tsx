@@ -11,7 +11,7 @@ import { DEMI_VIEWBOX, RAYON } from "./bloub/repere";
 import { AvatarsContext, Bloub } from "./Bloub";
 import type { Mood } from "./bloub-motion";
 import { useFrames, useReducedMotion } from "./use-frames";
-import { KY_AVATAR, rollSpec } from "../avatar-spec";
+import { KY_AVATAR, rollSpec } from "../avatars/contract";
 
 const IDLE_VIEWBOX_RADIUS = 126;
 

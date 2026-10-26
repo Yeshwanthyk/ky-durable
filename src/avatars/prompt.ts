@@ -1,20 +1,9 @@
-/**
- * The main agent's system prompt. Its wording is product behaviour: change it
- * deliberately. What it offers follows the deploy: Executor's lines only when
- * Executor is set up, the cloud machine's only when the deploy has one, and
- * self-edits only once Settings has ky's repo (src/setup.ts).
- */
-
-import type { SelfEdit } from "./setup";
+import type { SelfEdit } from "./contract";
 
 export type PromptConfig = {
-  /** Executor is set up, so the user's apps and accounts are reachable. */
   readonly executor: boolean;
-  /** The default sandbox's name, when the deploy has sandboxes and the user lets it take tasks. */
   readonly cloud?: string;
-  /** ky's repo and address, once Settings has the repo. */
   readonly selfEdit?: SelfEdit;
-  /** The sandbox a task on ky's repo goes to, when one may take it: the repo's, else the default. */
   readonly selfEditOn?: string;
 };
 
@@ -39,7 +28,6 @@ ${machines(cloud, selfEdit !== undefined)}
 When you delegate, give the worker the full context it needs, tell the user what you started, and carry on. Results come back to you as messages, sometimes in the middle of other work; tell the user what matters in one or two lines.${selfEdit ? `\n\n${selfEditing(selfEdit, selfEditOn)}` : ""}`;
 }
 
-/** Where machine work goes: a sandbox for scripts, builds and repos when the default one is on, the user's computers for what only they have. */
 function machines(cloud: string | undefined, selfEdit: boolean): string {
   if (!cloud) {
     return `- Use a machine only when the user asks for one, or when the work needs a real computer: pages behind the user's logins, scripts, builds, local files${selfEdit ? ", changing yourself" : ""}.`;
@@ -50,18 +38,6 @@ function machines(cloud: string | undefined, selfEdit: boolean): string {
   return `- Use a machine when the user asks for one, or when the work needs a real computer. ${work} go to your sandboxes, your own machines in the cloud, which run with the user's computers off: give run the task's repo (owner/name) and it goes to the sandbox that owns it; with no repo, or one no sandbox owns, it goes to ${cloud}, the default. Use one of the user's computers for pages behind their logins (its Chrome), its local files, its local models, or when the user names it.`;
 }
 
-/**
- * Changing ky: a task clones the repo, pushes a ky/* branch and opens a pull
- * request; merging it to main deploys it through the repo's deploy workflow
- * (.github/workflows/deploy.yml), and a rollback is that workflow run on the
- * commit before. ky never holds a Cloudflare token: the workflow's is a repo secret.
- *
- * The task goes to the sandbox that owns the repo, else the default, which
- * `sandbox` names; there no task holds a GitHub token: git goes through the
- * Worker's github.internal, and `ky github` asks the Worker's GitHub tools
- * (src/github-tools.ts). With no sandbox for it, a computer's `gh` is signed
- * in as the user.
- */
 function selfEditing({ repo, url }: SelfEdit, sandbox: string | undefined): string {
   const where = sandbox ? `on ${sandbox} with repo ${repo}` : "on a machine of the user's where gh is signed in";
 

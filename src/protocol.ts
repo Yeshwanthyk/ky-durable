@@ -3,14 +3,14 @@ import type { AgentEvent } from "@earendil-works/pi-durable";
 import type { PiSessionId } from "agents/harness/pi";
 import type { Static } from "typebox";
 import type { ApprovalView, ToolPolicyView } from "./approvals/contract";
-import type { AvatarsView } from "./avatar-spec";
+import type { AvatarsView } from "./avatars/contract";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
 import type { ChatRow } from "./chats/contract";
 import type { FileRow } from "./files/contract";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
 import type { SettingsView } from "./settings/contract";
-import type { SetupView } from "./setup";
+import type { SetupView } from "./avatars/contract";
 import type { SkillRow, SpecialistView } from "./skills/contract";
 import type { MemoryView, Recalled, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
@@ -248,6 +248,6 @@ export type { FileRow } from "./files/contract";
 
 export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 
-export type { SetupView } from "./setup";
+export type { SetupView } from "./avatars/contract";
 
 export type { PiSessionView as SessionView } from "./view";

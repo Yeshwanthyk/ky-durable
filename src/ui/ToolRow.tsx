@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
-import { AVATAR_TOOL } from "../avatar-spec";
+import { AVATAR_TOOL } from "../avatars/contract";
 import { BloubOptions, bloubsIn } from "./Bloub";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";

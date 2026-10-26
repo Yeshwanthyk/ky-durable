@@ -2,7 +2,7 @@ import { useRef } from "react";
 import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
-import { KY_AVATAR } from "../avatar-spec";
+import { KY_AVATAR } from "../avatars/contract";
 import { CrewCount, CrewRow, crewSays, kyGaze } from "./Crew";
 import type { Crew } from "./crew-of";
 import { type Group, GroupMembers } from "./GroupMembers";

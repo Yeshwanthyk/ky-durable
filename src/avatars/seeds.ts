@@ -1,16 +1,8 @@
 import { ROOT_SESSION } from "agents/harness/pi";
-import { AVATAR_TOOL, EXAMPLES } from "./avatar-spec";
-import type { Automations } from "./automations/contract";
-import type { Setup } from "./setup";
-import type { Skills, Specialists } from "./skills/contract";
-
-/**
- * What a new ky starts with, once, on its first start: starter skills, one
- * example specialist and starter automations. Everything that acts on its
- * own is off: the skills are archived and the automations paused, so the
- * owner turns on what they want from Skills and Activity. make-avatar, make-skill and
- * the default skills are the exceptions: on, and added to a ky that predates them.
- */
+import { AVATAR_TOOL, EXAMPLES } from "./contract";
+import type { Automations } from "../automations/contract";
+import type { Setup } from "./wiring";
+import type { Skills, Specialists } from "../skills/contract";
 
 const SKILLS = [
   {
@@ -41,10 +33,6 @@ const SKILLS = [
   }
 ] as const;
 
-/**
- * How to make a bloub avatar, on from the start: it runs only when asked. A ky from before it gets it
- * on its next start; once there, the owner's edits and archiving stand.
- */
 const MAKE_AVATAR = {
   name: "make-avatar",
   description: "Design a cute animated avatar (a bloub) for ky or a specialist, show options, and save the one the user picks.",
@@ -71,10 +59,6 @@ const MAKE_AVATAR = {
   ].join("\n")
 };
 
-/**
- * How to make a skill when the owner asks for one, on from the start like make-avatar. The bar it drafts to
- * is SKILL_CRAFT, in every conversation's skills rules; a skill review and the dream write to it too.
- */
 const MAKE_SKILL = {
   name: "make-skill",
   description: "Make or rework a skill when the user asks for one. Not for the skills ky saves on its own after a task.",
@@ -96,10 +80,6 @@ const MAKE_SKILL = {
   ].join("\n")
 };
 
-/**
- * How to delegate and check work, on and pinned from the start, so reviews, dreams and the stale sweep leave them
- * alone. A ky from before them gets each missing one on its next start; once there, the owner's changes stand.
- */
 export const DEFAULT_SKILLS = [
   {
     name: "delegate",
@@ -208,7 +188,6 @@ const AUTOMATIONS = [
   }
 ] as const;
 
-/** Seed a ky: make-avatar, make-skill and the default skills when missing, on every start; the rest only on its first. */
 export async function seed(setup: Setup, skills: Skills, specialists: Specialists, automations: Automations): Promise<void> {
   for (const skill of [MAKE_AVATAR, MAKE_SKILL]) {
     if (!skills.get(skill.name)) skills.apply({ action: "create", ...skill }, "ky");

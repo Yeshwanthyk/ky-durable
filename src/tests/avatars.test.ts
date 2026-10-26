@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type BloubSpec, checkSpec, EXAMPLES, rollSpec } from "../avatar-spec";
+import { type BloubSpec, checkSpec, EXAMPLES, rollSpec } from "../avatars/contract";
 import { connect, follow, inside, prompt } from "./drive";
 import { FRESH } from "./stack";
 import { advance, aim, newMotion, poke, poseOf } from "../ui/bloub-motion";
