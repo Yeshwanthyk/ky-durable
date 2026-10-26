@@ -72,7 +72,7 @@ describe("whether the pinned image is current", () => {
       expect(await imageCurrent("base", commit, clone, inputs)).toEqual({ current: true });
       expect(await imageCurrent("base", commit, clone, BEFORE)).toMatchObject({ current: false, changed: ["cli/init.ts"] });
 
-      for (const file of ["cli/backup.ts", "cli/deploy/deployer.ts", "src/access.ts"]) expect(await imageCurrent("base", await touching(file), clone, inputs)).toEqual({ current: true });
+      for (const file of ["cli/backup.ts", "cli/deploy/deployer.ts", "src/access/access.ts"]) expect(await imageCurrent("base", await touching(file), clone, inputs)).toEqual({ current: true });
     });
 
     it("says stale for a change to the runner", async () => {

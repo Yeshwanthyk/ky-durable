@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AccessVars } from "../../src/access/contract";
-import { Access as LegacyAccess } from "../../src/access/legacy/access";
+import { LegacyAccess } from "../../src/access/legacy/access";
 import { Access } from "../../src/access/wiring";
 import { clockAt } from "../parity/access/clock";
 import { assertParity, budget, type Clock, type Instance, type Json, type Parity } from "../parity/kit";
@@ -434,7 +434,7 @@ const accessParity: Parity<Action> = {
       const access = new LegacyAccess(certs);
       access.now = () => clock.now();
 
-      return access;
+      return { refuse: (request, env) => access.refuse(request, env) };
     }),
   next: async (clock) => side(clock, (certs) => new Access(certs, clockAt(() => clock.now())))
 };

@@ -19,24 +19,8 @@ import { parseOr } from "../../core/decode";
  * `pnpm start`'s .dev.vars sets it.
  */
 
-/**
- * C2: the paths Access lets through without a login, written as an Access
- * app's paths; `/peer/*` is other kys' (src/peers/peers.ts), `/p/*` the public sites (src/site-routes.ts), `/hooks/*`
- * webhooks, each with a token in its URL (src/inbound/routes.ts). The deployer's bypass
- * app covers exactly these, and the Worker sends them only to routes that
- * check their own tokens, or are public.
- */
-export const BYPASS = ["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*", "/p/*", "/hooks/*"];
-
 /** The header Access puts its JWT in. */
-export const ASSERTION = "Cf-Access-Jwt-Assertion";
-
-/** Whether Access lets `pathname` through by BYPASS: `/a` covers `/a` and every path under it, `/a/*` every path under it. */
-export function bypassed(pathname: string): boolean {
-  return BYPASS.some((path) =>
-    path.endsWith("/*") ? pathname.startsWith(path.slice(0, -1)) : pathname === path || pathname.startsWith(`${path}/`)
-  );
-}
+const ASSERTION = "Cf-Access-Jwt-Assertion";
 
 /** How long the team's keys are used before they are fetched again. */
 const KEYS_TTL_MS = 60 * 60_000;
@@ -105,7 +89,7 @@ const notSetUp = () =>
   );
 
 /** Checks Access's JWT, with the team's keys fetched through `certs`: the network's fetch, or a fake Access's in tests. */
-export class Access {
+export class LegacyAccess {
   readonly #certs: (url: string) => Promise<Response>;
   #keys: Keys | undefined;
   /** The clock for keys' age and JWTs' times; the tests move it ahead. */
