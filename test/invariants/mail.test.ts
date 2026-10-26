@@ -408,6 +408,51 @@ describe("reading mail with the tool", () => {
   });
 });
 
+describe("the Settings view and the tool's list", () => {
+  it("show the 20 newest mails newest first, the view each one's first 600 characters and the allowed addresses sorted", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 0, max: 24 }), async (more) => {
+        using ky = port();
+
+        for (const to of ["z@b.test", "a@b.test", "m@b.test"]) {
+          await ky.tool({ to, subject: to, text: "Hi" });
+          ky.advance(DAY + 1);
+          expect(await ky.side.approve(ky.idAt(0))).toEqual({});
+        }
+
+        for (let i = 0; i < more; i++) {
+          ky.advance(1);
+          await ky.tool({ to: OWNER, subject: `s${i}`, text: "v".repeat(700) });
+        }
+
+        const subjects = [...Array.from({ length: more }, (_, i) => `s${more - 1 - i}`), "m@b.test", "a@b.test", "z@b.test"].slice(0, 20);
+        const shown = ky.side.view();
+        const list = await said(ky.side.extension, { action: "list" }, MAIN);
+
+        expect(shown.allowed).toEqual(["a@b.test", "m@b.test", "z@b.test"]);
+        expect(shown.recent.map((item) => item.subject)).toEqual(subjects);
+        expect(shown.recent.map((item) => item.preview)).toEqual(subjects.map((subject) => (subject.startsWith("s") ? "v".repeat(600) : "Hi")));
+        expect(list.split("\n").map((line) => /"([^"]*)"/.exec(line)?.[1])).toEqual(subjects);
+        vi.restoreAllMocks();
+      }),
+      runs()
+    );
+  });
+
+  it("reads a whole mail up to its first 8000 characters", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 20_000 }), async (length) => {
+        using ky = port();
+        await ky.tool({ to: "a@b.test", subject: "Hello", text: "w".repeat(length) });
+
+        expect(await ky.tool({ action: "read", id: ky.idAt(0) })).toBe(`[ky's mail to a@b.test, held]\nSubject: Hello\n\n${"w".repeat(Math.min(length, 8000))}`);
+        vi.restoreAllMocks();
+      }),
+      runs()
+    );
+  });
+});
+
 describe("expecting mail", () => {
   it("needs a sender, waits 1 to 1440 whole minutes from the clock, and keeps the chat and the bare sender", async () => {
     await fc.assert(
@@ -434,7 +479,7 @@ describe("expecting mail", () => {
 
   it("brings a mail from the sender, its domain or under it to the waiting chat until the clock passes the wait", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.constantFrom("news@github.com", "code@mail.github.com", "a@b.test"), fc.integer({ min: 0, max: 2 * 60 * 60_000 }), async (from, elapsed) => {
+      fc.asyncProperty(fc.constantFrom("news@github.com", "code@mail.github.com", "a@b.test"), fc.oneof(fc.integer({ min: 0, max: 2 * 60 * 60_000 }), fc.constantFrom(60 * 60_000 - 1, 60 * 60_000)), async (from, elapsed) => {
         using ky = port();
         await ky.tool({ action: "expect", from: "github.com", minutes: 60 }, SIDE);
         ky.advance(elapsed);
@@ -524,6 +569,38 @@ describe("a mail that came in", () => {
           vi.restoreAllMocks();
         }
       ),
+      runs()
+    );
+  });
+
+  it("answers the mail of ky's its In-Reply-To names, before older ones its References name", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(1, 2), async (named) => {
+        using ky = port();
+        await ky.tool({ to: OWNER, subject: "One", text: "Hi" });
+        await ky.tool({ to: OWNER, subject: "Two", text: "Hi" });
+        const other = 3 - named;
+
+        const mail = await ky.side.readMail(
+          [
+            "From: a@b.test",
+            `To: ${ADDRESS}`,
+            "Subject: Re",
+            "Message-ID: <r1@sender.test>",
+            `In-Reply-To: <sent-${named}@ky.test>`,
+            `References: <sent-${other}@ky.test> <sent-${named}@ky.test>`,
+            "",
+            "Yes"
+          ].join("\r\n"),
+          { from: "a@b.test", to: ADDRESS }
+        );
+
+        await ky.side.receive(mail);
+        const [one, two, reply] = ky.mail();
+
+        expect(reply?.answers).toBe(named === 1 ? one?.id : two?.id);
+        vi.restoreAllMocks();
+      }),
       runs()
     );
   });

@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..78faae9 100644
+index f663956..8ddda69 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -474,7 +474,7 @@ export const act = Effect.fnUntraced(function* ({ action, to = "", subject = "",
+@@ -471,7 +471,7 @@ export const act = Effect.fnUntraced(function* ({ action, to = "", subject = "",
    if (action === "read") {
      const row = yield* box.get(id);
  

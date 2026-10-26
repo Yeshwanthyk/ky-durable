@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..53db27b 100644
+index f663956..09536af 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -88,7 +88,7 @@ const Parsed = Schema.Struct({
+@@ -86,7 +86,7 @@ const Parsed = Schema.Struct({
  export const parse = Effect.fnUntraced(function* (raw: ReadableStream<Uint8Array> | ArrayBuffer | string, envelope: { from: string; to: string }, now?: number) {
    const parsed = yield* Effect.orDie(Schema.decodeUnknownEffect(Parsed)(yield* Effect.promise(() => PostalMime.parse(raw))));
    const references = (parsed.references ?? "").split(/\s+/).map(idOf);

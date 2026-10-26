@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..acb8f2d 100644
+index f663956..e3aa059 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -179,7 +179,7 @@ export class Box extends Context.Service<
+@@ -177,7 +177,7 @@ export class Box extends Context.Service<
              `INSERT INTO ${MAIL} (id, direction, message_id, answers, party, party_name, subject, body, state, at)
               VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (direction, message_id) DO NOTHING RETURNING ${COLUMNS}`,
              crypto.randomUUID(),

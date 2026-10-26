@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..d8770c8 100644
+index f663956..4c58c17 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -355,7 +355,7 @@ const write = Effect.fnUntraced(function* (session: string, draft: { to: string;
+@@ -352,7 +352,7 @@ const write = Effect.fnUntraced(function* (session: string, draft: { to: string;
  
    if (!ADDRESS.test(to)) return yield* new NotAnAddress({ to: draft.to });
  

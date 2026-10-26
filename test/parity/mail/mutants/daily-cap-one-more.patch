@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..4b2f6df 100644
+index f663956..13ee703 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -325,7 +325,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
+@@ -322,7 +322,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
  
    const now = yield* Clock.currentTimeMillis;
  

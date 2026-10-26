@@ -1,8 +1,8 @@
 diff --git a/src/mail/mail.ts b/src/mail/mail.ts
-index 1b503e3..e9230f3 100644
+index f663956..c86f196 100644
 --- a/src/mail/mail.ts
 +++ b/src/mail/mail.ts
-@@ -339,7 +339,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
+@@ -336,7 +336,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
  
    const messageId = yield* Effect.tryPromise({
      try: async () => (await boundary.send(message)).messageId,

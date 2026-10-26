@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..01fbcb1 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -405,7 +405,7 @@ const itemOf = (row: MailRow): MailItem => ({
+   party: row.party,
+   partyName: row.party_name,
+   subject: row.subject,
+-  preview: (row.direction === "in" && row.note && row.note !== NOTHING_NEW ? row.note : row.body).slice(0, 600),
++  preview: (row.direction === "in" && row.note && row.note !== NOTHING_NEW ? row.note : row.body).slice(0, 60),
+   state: row.state,
+   note: row.direction === "out" ? row.note : "",
+   at: row.at

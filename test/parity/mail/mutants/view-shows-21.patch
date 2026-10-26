@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..e367a4a 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -417,7 +417,7 @@ export const view = Effect.gen(function* () {
+   return {
+     address: (yield* Desk).boundary?.address ?? null,
+     held: (yield* box.held).map(itemOf),
+-    recent: (yield* box.recent(20)).filter((row) => row.state !== "held").map(itemOf),
++    recent: (yield* box.recent(21)).filter((row) => row.state !== "held").map(itemOf),
+     allowed: [...(yield* box.allowed)]
+   } satisfies MailView;
+ });
