@@ -3,7 +3,7 @@ import fc from "fast-check";
 import type { ConversationDocToken, ConversationId, JsonObject, Tx } from "@earendil-works/pi-durable";
 import { Scheduler, type ScheduleOptions, type SchedulerPayload } from "agents/schedules";
 import { vi } from "vitest";
-import { ChatList } from "../../../src/chats";
+import { ChatList } from "../../../src/chats/chats";
 import type { AutomationAuthor, AutomationDraft, TaskStatus } from "../../../src/automations/contract";
 import { Automations } from "../../../src/automations/wiring";
 import { TaskFeed } from "../../../src/automations/tasks";
@@ -128,7 +128,7 @@ export class World {
   readonly db = new DatabaseSync(":memory:");
   readonly durable = openStorage(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
-  readonly chats = new ChatList(this.durable.sql());
+  readonly chats = new ChatList(this.durable.storage());
   readonly effects: Effect[] = [];
   readonly clock: Clock;
   ids = 0;

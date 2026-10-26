@@ -16,8 +16,9 @@ import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./cards/tool";
-import { ChatList, chatActivityExtension, type Opener } from "./chats";
-import { chatsExtension } from "./chats-tool";
+import { ChatList, chatActivityExtension } from "./chats/chats";
+import type { Opener } from "./chats/contract";
+import { chatsExtension } from "./chats/tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse/browse";
@@ -53,7 +54,7 @@ import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { seed } from "./seeds";
-import { Titler } from "./titles";
+import { Titler } from "./chats/titles";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
@@ -175,7 +176,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly reviews = new Reviews(this.ctx.storage);
   /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
   readonly ledger = new DreamLedger(this.ctx.storage, { skills: this.skills, memory: this.memory, reviews: this.reviews });
-  readonly chats = new ChatList(this.ctx.storage.sql);
+  readonly chats = new ChatList(this.ctx.storage);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
     this.ctx.storage.sql,

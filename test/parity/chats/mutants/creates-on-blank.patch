@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index b7089ec..b7cc109 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -100,7 +100,7 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string,
+   if (args.action === "inspect" && args.chat === undefined) return list(parts, from);
+   const message = args.message?.trim() ?? "";
+ 
+-  if (args.action === "create") return message === "" ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
++  if (args.action === "create") return false ? reply(new NothingToStart().refusal, true) : create(parts, from, task, message, args.title);
+ 
+   return onOpened(parts, args, from, task, message);
+ }

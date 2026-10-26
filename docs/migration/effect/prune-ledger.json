@@ -142,5 +142,23 @@
     "name": "browse reads a PDF says when the URL answers with nothing to read",
     "class": "MOCK",
     "replacedBy": "test/invariants/browse.test.ts > I-B7: a PDF fetch that fails is refused with its HTTP status, and one with no body says there is nothing to read"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs from no chat another chat opened: it refuses and opens and steers nothing"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool steers and inspects only the chats this chat opened: not main, not the user's, not another chat's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > steers or inspects only a chat this chat opened"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a conversation that is not a chat with the user, as a subagent's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs only from a chat with the user: elsewhere it refuses and opens and steers nothing"
   }
 ]

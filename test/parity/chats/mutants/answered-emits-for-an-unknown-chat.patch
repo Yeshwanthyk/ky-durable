@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index a8eeee8..2d46cce 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -105,7 +105,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+           Effect.gen(function* () {
+             const now = yield* Clock.currentTimeMillis;
+ 
+-            if (session !== ROOT_SESSION) return yield* written(`UPDATE ${CHAT_TABLES.chats} SET updated_at = ? WHERE session = ?`, now, session);
++            if (session !== ROOT_SESSION) return (yield* written(`UPDATE ${CHAT_TABLES.chats} SET updated_at = ? WHERE session = ?`, now, session)) || true;
+             yield* exec(`INSERT OR REPLACE INTO ${CHAT_TABLES.main} (id, updated_at) VALUES (1, ?)`, now);
+ 
+             return true;

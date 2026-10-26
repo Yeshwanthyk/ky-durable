@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index b7089ec..d486e3a 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -89,7 +89,7 @@ async function onOpened(parts: ChatsParts, args: Static<typeof Args>, from: stri
+ 
+   if (args.action === "inspect") return inspect(parts, row);
+ 
+-  return message === "" ? reply(new NothingToSteer().refusal, true) : steer(parts, from, task, row, message);
++  return false ? reply(new NothingToSteer().refusal, true) : steer(parts, from, task, row, message);
+ }
+ 
+ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number): Promise<ToolExecutionResult> {

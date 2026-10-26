@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index a8eeee8..0816d87 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -79,7 +79,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+ 
+             yield* exec(
+               `INSERT OR IGNORE INTO ${CHAT_TABLES.chats} (session, created_at, updated_at, opened_by, opened_request) VALUES (?, ?, ?, ?, ?)`,
+-              session,
++              session.slice(0, 1),
+               now,
+               now,
+               opener?.by ?? null,

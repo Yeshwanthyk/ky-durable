@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import type { ChatList } from "../chats";
+import type { ChatList } from "../chats/chats";
 import { Sql } from "../core/sql";
 import { programOutcome } from "../executor-status";
 import type { MachineHub } from "../machines/contract";
