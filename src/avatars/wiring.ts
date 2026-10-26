@@ -9,10 +9,6 @@ import { act, AvatarInput, type Reply, Wardrobe } from "./avatars";
 import { AVATAR_TOOL, type AvatarsView, KY_AVATAR, type SelfEdit, type SetupView } from "./contract";
 import { Places } from "./setup";
 
-export { preamble, type PromptConfig } from "./prompt";
-
-export { DEFAULT_SKILLS, seed } from "./seeds";
-
 export class Avatars {
   readonly #listeners = new Set<() => void>();
   readonly #edge: Edge<Wardrobe>;
@@ -65,7 +61,7 @@ export class Setup {
   readonly #edge: Edge<Places>;
 
   constructor(storage: DurableObjectStorage) {
-    this.#edge = makeEdge(Places.layer.pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge = makeEdge(Places.layer(this.#listeners).pipe(Layer.provide(Sql.layer(storage))));
     this.#edge.run(Effect.void);
   }
 
@@ -76,11 +72,7 @@ export class Setup {
   }
 
   setRepo(repo: string, page: string | null): Result<Record<string, never>> {
-    const saved = this.#edge.run(Places.use((places) => places.setRepo(repo, page)));
-
-    if (!isRefusal(saved)) for (const listener of this.#listeners) listener();
-
-    return saved;
+    return this.#edge.run(Places.use((places) => places.setRepo(repo, page)));
   }
 
   view(): Omit<SetupView, "missing"> {

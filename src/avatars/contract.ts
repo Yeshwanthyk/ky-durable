@@ -4,7 +4,6 @@ import * as Schema from "effect/Schema";
 import Type from "typebox";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
-import { type Refusal, refused } from "../core/refusal";
 
 export const AVATAR_TABLES = Object.freeze({ avatars: "ky_avatars", setup: "ky_setup" } as const);
 
@@ -74,11 +73,6 @@ function fit(spec: BloubSpec): BloubSpec {
 }
 
 export const fitSpec = flow(Schema.decodeUnknownOption(BloubSpec), Option.map(fit));
-
-export const checkSpec = flow(
-  fitSpec,
-  Option.match({ onNone: (): BloubSpec | Refusal => refused(WHAT_A_SPEC_IS), onSome: (spec): BloubSpec | Refusal => spec })
-);
 
 const BODIES = ["#f0393c", "#3d8bff", "#f4ece0", "#8a5cf6", "#22b8a6", "#ff9f1c", "#ff6fa8", "#7bd389", "#ffd23f", "#5ec8f2", "#b48cff", "#ff7a59"];
 
