@@ -1,0 +1,13 @@
+diff --git a/src/avatars/setup.ts b/src/avatars/setup.ts
+index 0349278..60782ef 100644
+--- a/src/avatars/setup.ts
++++ b/src/avatars/setup.ts
+@@ -38,7 +38,7 @@ export class Places extends Context.Service<
+       const put = (key: Key, value: string) =>
+         exec(`INSERT INTO ${TABLE} (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value);
+ 
+-      const seed = Effect.flatMap(Clock.currentTimeMillis, (now) => put("seeded", String(now)));
++      const seed = Effect.flatMap(Clock.currentTimeMillis, (now) => put("seeded", String(Math.floor(now / 1000))));
+ 
+       yield* exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+ 

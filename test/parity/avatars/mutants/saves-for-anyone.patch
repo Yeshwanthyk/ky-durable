@@ -1,0 +1,12 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..9dacf19 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -123,7 +123,6 @@ const ACTIONS = {
+     Effect.gen(function* () {
+       const owner = input.for ?? KY_AVATAR;
+ 
+-      if (!owners().includes(owner)) return yield* new NoOwner({ owner });
+ 
+       if (!input.spec) return yield* new SpecMissing({ action: "set" });
+       const spec = yield* fitted(input.spec);

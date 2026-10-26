@@ -1,0 +1,12 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..859a1fc 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -106,7 +106,6 @@ const ACTIONS = {
+     Effect.gen(function* () {
+       const checked = yield* Effect.forEach(specs ?? (spec ? [spec] : []), (each, index) => fitted(each, index + 1));
+ 
+-      if (checked.length === 0) return yield* new SpecMissing({ action: "preview" });
+ 
+       return shown(`Showing ${checked.length}. Ask which one, or what to change; then set it.`, checked);
+     }),
