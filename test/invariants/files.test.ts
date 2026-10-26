@@ -267,6 +267,10 @@ const aBadImage: fc.Arbitrary<UserInput> = fc
     { type: "image" as const, data, mimeType }
   ]);
 
+const aFewImages: fc.Arbitrary<UserInput> = fc
+  .integer({ min: 3, max: 6 })
+  .map((count) => [{ type: "text" as const, text: "look" }, ...Array.from({ length: count }, () => ({ type: "image" as const, data: "QUJD", mimeType: "image/png" }))]);
+
 const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aText,
   aMessage,
@@ -274,6 +278,7 @@ const anInput: fc.Arbitrary<UserInput> = fc.oneof(
   aFrameHeavy,
   anImageHeavy,
   aBadImage,
+  aFewImages,
   fc.array(fc.oneof({ arbitrary: aText.map((text) => ({ type: "text" as const, text })), weight: 1 }, { arbitrary: anImage, weight: 2 }), { maxLength: 10 })
 );
 
