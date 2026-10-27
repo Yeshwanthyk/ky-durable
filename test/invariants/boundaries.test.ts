@@ -11,7 +11,7 @@ import { expect, it } from "vitest";
  */
 const REPO = path.join(import.meta.dirname, "../..");
 
-const DOMAINS = ["src/dreaming", "src/peers", "src/skills", "src/automations", "src/machines", "src/settings", "src/access", "src/sites", "src/browse", "src/cards", "src/mail", "cli/deploy"];
+const DOMAINS = ["src/dreaming", "src/peers", "src/skills", "src/automations", "src/machines", "src/settings", "src/access", "src/sites", "src/browse", "src/cards", "src/mail", "src/executor", "cli/deploy"];
 
 function sources(dir: string): string[] {
   return readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
