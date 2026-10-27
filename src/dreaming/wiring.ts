@@ -43,7 +43,7 @@ export type DreamingWiring = {
   /** The main chat or a side chat. */
   readonly chat: (session: string) => boolean;
   /** Where episode reflections run and report, and the store their count reads (src/dreaming/episodes.ts). */
-  readonly sql: SqlStorage;
+  readonly storage: DurableObjectStorage;
   readonly background: ReviewHost;
   /** Tool calls that make a turn busy enough for a skill review, and so for an episode reflection. */
   readonly busyAfter: () => number;
@@ -52,7 +52,7 @@ export type DreamingWiring = {
 };
 
 /** SOUL.md's tool and sections, memory's, the episode reflections after chat turns and turn-start recall; the agent installs them, soul first. */
-export function dreamingTools({ soul, memory, anticipations, recall, history, reviews, chat, sql, background, busyAfter, proactivity }: DreamingWiring) {
+export function dreamingTools({ soul, memory, anticipations, recall, history, reviews, chat, storage, background, busyAfter, proactivity }: DreamingWiring) {
   // A dream's and an episode's rows are a machine's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
   const actor = (session: string): Actor => {
     const kind = reviews.kind(session);
@@ -76,9 +76,9 @@ export function dreamingTools({ soul, memory, anticipations, recall, history, re
       history,
       (session) => chat(session) || reviews.has(session),
       anticipate,
-      new DreamNotes(sql, (session) => reviews.kind(session) === "dream")
+      new DreamNotes(storage, (session) => reviews.kind(session) === "dream")
     ),
-    episodes: episodeExtension({ sql, reviews, host: background, chat, busyAfter, proactivity }),
+    episodes: episodeExtension({ sql: storage.sql, reviews, host: background, chat, busyAfter, proactivity }),
     recall: recallExtension(recall)
   };
 }

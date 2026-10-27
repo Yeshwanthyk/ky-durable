@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
-import { decodeOr, parseOr } from "../core/decode.ts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { decodeOr } from "../core/decode.ts";
 
 /**
  * The dreaming domain's contract: the shapes, tool names, frozen table names and row decoders of
@@ -87,54 +89,50 @@ export const countOf = (row: Row): number => decodeOr(CountRow, row, { n: 0 }).n
 // Anticipations.
 
 /** Who made a row: the nightly dream, an episode review, or the user (through the chat). Only machine-made rows are the dream's to change. */
-const CreatorSchema = Type.Union([Type.Literal("dream"), Type.Literal("episode"), Type.Literal("user")]);
+const Creator = Schema.Literals(["dream", "episode", "user"]);
 
-export type Creator = Static<typeof CreatorSchema>;
+export type Creator = typeof Creator.Type;
 
 /** A commitment or thread; a date; a question likely next; a condition worth a gate. */
-const AnticipationKindSchema = Type.Union([Type.Literal("open_loop"), Type.Literal("upcoming"), Type.Literal("predicted_ask"), Type.Literal("watch")]);
+export const AnticipationKind = Schema.Literals(["open_loop", "upcoming", "predicted_ask", "watch"]);
 
-export type AnticipationKind = Static<typeof AnticipationKindSchema>;
+export type AnticipationKind = typeof AnticipationKind.Type;
 
-export const ANTICIPATION_KINDS: readonly AnticipationKind[] = ["open_loop", "upcoming", "predicted_ask", "watch"];
+export const ANTICIPATION_KINDS = AnticipationKind.literals;
 
-const StatusSchema = Type.Union([Type.Literal("open"), Type.Literal("surfaced"), Type.Literal("done"), Type.Literal("dismissed"), Type.Literal("expired")]);
+const AnticipationStatus = Schema.Literals(["open", "surfaced", "done", "dismissed", "expired"]);
 
-export type AnticipationStatus = Static<typeof StatusSchema>;
+export type AnticipationStatus = typeof AnticipationStatus.Type;
 
 /** What a row rests on: `ky_history` rowids (chat messages) and `memo_log` ids. */
-const EvidenceSchema = Type.Object({ messages: Type.Array(Type.Integer()), memories: Type.Array(Type.Integer()) });
+const Evidence = Schema.Struct({ messages: Schema.Array(Schema.Int), memories: Schema.Array(Schema.Int) });
 
-export type Evidence = Static<typeof EvidenceSchema>;
+export type Evidence = typeof Evidence.Type;
 
 /** A row of ky_anticipations as stored: evidence as JSON text, pinned as 0 or 1, times in epoch ms. */
-const AnticipationStoredSchema = Type.Object({
-  id: Type.Integer(),
-  created_at: Type.Number(),
-  created_by: CreatorSchema,
-  kind: AnticipationKindSchema,
-  text: Type.String(),
-  evidence: Type.String(),
-  prepared: Type.Union([Type.String(), Type.Null()]),
-  window_from: Type.Union([Type.Number(), Type.Null()]),
-  window_to: Type.Union([Type.Number(), Type.Null()]),
-  status: StatusSchema,
-  pinned: Type.Integer(),
-  absorbed_into: Type.Union([Type.Integer(), Type.Null()]),
-  closed_at: Type.Union([Type.Number(), Type.Null()])
+const AnticipationRow = Schema.Struct({
+  id: Schema.Int,
+  created_at: Schema.Number,
+  created_by: Creator,
+  kind: AnticipationKind,
+  text: Schema.String,
+  evidence: Schema.fromJsonString(Evidence),
+  prepared: Schema.NullOr(Schema.String),
+  window_from: Schema.NullOr(Schema.Number),
+  window_to: Schema.NullOr(Schema.Number),
+  status: AnticipationStatus,
+  pinned: Schema.Int,
+  absorbed_into: Schema.NullOr(Schema.Int),
+  closed_at: Schema.NullOr(Schema.Number),
+  recalled_at: Schema.optionalKey(Schema.NullOr(Schema.Number))
 });
 
-export type Anticipation = Omit<Static<typeof AnticipationStoredSchema>, "evidence" | "pinned"> & { readonly evidence: Evidence; readonly pinned: boolean };
+export type Anticipation = Omit<typeof AnticipationRow.Type, "pinned"> & { readonly pinned: boolean };
+
+const decodeAnticipation = Schema.decodeUnknownOption(AnticipationRow);
 
 /** A stored row, or undefined when a restore left it damaged (evidence included): callers skip it. */
-export function anticipationRow(row: Row): Anticipation | undefined {
-  const stored = decodeOr(AnticipationStoredSchema, row, undefined);
-
-  if (stored === undefined) return undefined;
-  const evidence = parseOr(EvidenceSchema, stored.evidence, undefined);
-
-  return evidence === undefined ? undefined : { ...stored, evidence, pinned: stored.pinned !== 0 };
-}
+export const anticipationRow = (row: Row): Anticipation | undefined => Option.getOrUndefined(Option.map(decodeAnticipation(row), (stored) => ({ ...stored, pinned: stored.pinned !== 0 })));
 
 // Proactivity and what ky surfaced.
 
@@ -148,19 +146,14 @@ export type ProactivityLevel = Static<typeof ProactivityLevelSchema>;
  * or the chats itself in the same turn. An older ky's brief and suggestions also stored acted and dismissed, never
  * read now.
  */
-const SurfacedOutcomeSchema = Type.Union([Type.Literal("expired"), Type.Literal("missed")]);
+export const SurfacedOutcome = Schema.Literals(["expired", "missed"]);
 
-export type SurfacedOutcome = Static<typeof SurfacedOutcomeSchema>;
-
-export const SURFACED_OUTCOMES: readonly SurfacedOutcome[] = ["expired", "missed"];
+export type SurfacedOutcome = typeof SurfacedOutcome.Type;
 
 /** A shown thing's key and text, as a chat's recall blocks are read back. */
-const ShownItemRow = Type.Object({ item: Type.String(), text: Type.String() });
+export const ShownItem = Schema.Struct({ item: Schema.String, text: Schema.String });
 
-export type ShownItem = Static<typeof ShownItemRow>;
-
-/** A shown item's row, or undefined when it is damaged: callers skip it. */
-export const shownItem = (row: Row): ShownItem | undefined => decodeOr(ShownItemRow, row, undefined);
+export type ShownItem = typeof ShownItem.Type;
 
 const Recalled = Schema.Struct({ entry: Schema.Int, lines: Schema.Array(Schema.String) });
 
@@ -176,9 +169,7 @@ export const LOOK_TIMES = 4;
 export const RIGHT_AWAY_MOST = 24;
 
 /** Settings › Proactivity: the level, the look times, earliest first, and how many posts a day push right away. */
-const ProactivityViewSchema = Type.Object({ level: ProactivityLevelSchema, looks: Type.Array(Type.String()), rightAway: Type.Integer() });
-
-export type ProactivityView = Static<typeof ProactivityViewSchema>;
+export type ProactivityView = { readonly level: ProactivityLevel; readonly looks: readonly string[]; readonly rightAway: number };
 
 // SOUL.md.
 
@@ -200,24 +191,24 @@ export type { SoulVersion, SoulView, VersionRefusal } from "./versioned";
  * The point the last dream read up to: the memory count, the time, and pi's commit sequence of the last
  * chat message it read (absent or 0 before one was kept, when what was said is read by time).
  */
-const MarkSchema = Type.Object({ memories: Type.Integer({ minimum: 0 }), at: Type.Number({ minimum: 0 }), said: Type.Optional(Type.Integer({ minimum: 0 })) });
+const Mark = Schema.Struct({
+  memories: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  at: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+  said: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+});
 
-export type Mark = Static<typeof MarkSchema>;
+export type Mark = typeof Mark.Type;
+
+const decodeMark = Schema.decodeUnknownOption(Mark);
 
 /** Before the first dream, or when the stored mark is damaged: the beginning, so the next dream reads everything. */
 export const NO_MARK: Mark = { memories: 0, at: 0 };
 
 /** The stored mark, or NO_MARK when there is none or it is damaged. */
-export const markOf = (row: Row): Mark => decodeOr(MarkSchema, row, NO_MARK);
+export const markOf = (row: Row): Mark => Option.getOrElse(decodeMark(row), () => NO_MARK);
 
 /** What the dream knows of check-ins: whether it may book them, the user's time zone, and the ones waiting. */
-const CheckInsNowSchema = Type.Object({
-  on: Type.Boolean(),
-  zone: Type.Union([Type.String(), Type.Null()]),
-  waiting: Type.Array(Type.String())
-});
-
-export type CheckInsNow = Static<typeof CheckInsNowSchema>;
+export type CheckInsNow = { readonly on: boolean; readonly zone: string | null; readonly waiting: readonly string[] };
 
 // The dream's ledger.
 

@@ -1,45 +1,33 @@
 import { ROOT_SESSION } from "agents/harness/pi";
+import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import type { Automations, Delivery } from "../automations/contract";
+import { type Edge, makeEdge } from "../core/edge";
 import { isRefusal } from "../core/refusal";
+import { Sql } from "../core/sql";
 import { type History, wroteSince } from "../history/wiring";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
-import { type Anticipation, countOf, localCron, localNow } from "./contract";
+import { type Anticipation, localCron, localNow } from "./contract";
 import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS } from "./decide";
 import { MEMORIES_DISAGREE } from "./dreaming";
 import type { Proactivity } from "./proactivity";
 import type { Surfaced } from "./surfaced";
 
-/**
- * Looks: at each of the user's look times (Settings › Proactivity, 08:00, 13:00 and 18:00 by default), while
- * Proactivity is on, ky looks over their day. A look is a fresh conversation that remembers, like a dream, and
- * only reads: memory, the chats, the open anticipations, and what a check-in may call (the web through Executor,
- * the browser). It weighs what is needed (open anticipations, lasting memories) against what is current (recent
- * chats, connections) and answers with rows (src/dreaming/decide.ts); decide picks at most three, and each is
- * posted in the main chat as ky's own message, as written, through Delivery (src/automations/delivery.ts), which
- * waits for the chat to be idle and starts no turn. Each post is a surfaced row of kind look: what later looks
- * know was said. It shows in Activity like a dream, and its rows are its answer there.
- *
- * A row on an open watch anticipation may carry a gate and a prompt: a watch, booked after the look as ky's own gated
- * automation every 15 minutes that reports to the main chat (src/automations/automations.ts), so a fire runs only when
- * the gate's answer changed, and runs as a check-in does: read only, and saying nothing when nothing is new. At most
- * WATCHES are active and NEW_WATCHES come from one look; an anticipation has one, whatever its status. Each is deleted
- * once its anticipation is no longer an open watch, at the next look and whenever an anticipation closes, and all of
- * them when Proactivity is turned off; one the user deletes dismisses its anticipation (src/server.ts).
- */
-
-/** What was said lately that a look reads. */
 const RECENT_MS = 86_400_000;
 
 const SAID_CHARS = 12_000;
 
-/** Posts of earlier looks a look is shown, at most. */
 const SHOWN_POSTS = 20;
 
-/** How often a watch checks. */
 const WATCH_CRON = "*/15 * * * *";
 
-/** The most of a watch anticipation's text its automation's title keeps. */
 const WATCH_TITLE_CHARS = 60;
 
 const LOOK_PROMPT = `[look] You are ky taking a look over the user's day, a background run at one of their look times. Nobody reads your answer but the Activity panel; what you decide to say, ky posts in the main chat as written.
@@ -75,173 +63,285 @@ const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(
 
 const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 
-/** What a look needs from the rest of ky, set up in src/server.ts. */
 type LookParts = {
   readonly history: History;
   readonly anticipations: Anticipations;
   readonly reviews: Reviews;
   readonly host: ReviewHost;
-  /** A new conversation that remembers, set up like a chat; returns its session. */
   readonly create: () => Promise<string>;
   readonly surfaced: Surfaced;
   readonly proactivity: Proactivity;
-  /** The user's time zone; null while unknown, when looks run in UTC. */
   readonly zone: () => string | null;
   readonly deliver: (item: Delivery, now: number) => Promise<void>;
-  /** Where watches are booked. */
   readonly automations: Automations;
 };
 
+const CountRow = Schema.Struct({ n: Schema.Number });
+
+const decodeCount = Schema.decodeUnknownOption(CountRow);
+
+const warn = (...said: unknown[]) => Effect.sync(() => console.warn(...said));
+
+type Booked = Array<{ readonly time: string; readonly cron: string }>;
+
+export class Looking extends Context.Service<
+  Looking,
+  {
+    readonly booked: (zone: string | null, now: number | undefined) => Effect.Effect<Booked>;
+    readonly run: (time: string) => Effect.Effect<void>;
+    readonly retire: Effect.Effect<void>;
+  }
+>()("ky/dreaming/Looks") {
+  static readonly layer = (parts: LookParts, entries: SqlStorage) =>
+    Layer.effect(
+      Looking,
+      Effect.gen(function* () {
+        const sql = yield* Sql;
+
+        const { history, anticipations, reviews, host, surfaced, proactivity, automations } = parts;
+
+        const looking = yield* Ref.make(false);
+        const level = Effect.sync(() => proactivity.level());
+
+        const openWatches = Effect.gen(function* () {
+          if ((yield* level) === "off") return [];
+
+          return anticipations.open().filter((row) => row.kind === "watch");
+        });
+
+        const openWatch = (ref: string) => Effect.map(openWatches, (rows): Anticipation | undefined => rows.find((row) => `anticipation:${row.id}` === ref));
+
+        const isMemory = Effect.fn("Looks.isMemory")(function* (ref: string) {
+          const id = /^memory:(\d+)$/.exec(ref)?.[1];
+
+          if (id === undefined) return false;
+
+          const [row] = yield* Effect.orDie(sql.exec("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", Number(id)));
+
+          return (
+            Option.getOrElse(
+              Option.map(decodeCount(row), ({ n }) => n),
+              () => 0
+            ) > 0
+          );
+        });
+
+        const ask = Effect.fn("Looks.ask")(function* (time: string, now: number, next: NextLook | undefined) {
+          const zone = yield* Effect.sync(() => parts.zone());
+
+          const digest = yield* Effect.sync(() =>
+            [
+              `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
+              ...section(
+                "Open anticipations, oldest first:",
+                anticipations.open().map((row) => anticipationLine(row, now))
+              ),
+              ...section(
+                'What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):',
+                history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines
+              ),
+              ...section(
+                "Said already, by the looks of the last two days:",
+                [...surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS), ...surfaced.items("post", "subagent-report:", now - SAID_QUIET_MS, SHOWN_POSTS)].map((post) => `- ${post.text}`)
+              ),
+              ...section(
+                "Watched already, every 15 minutes:",
+                automations.watches().map((each) => `- #${each.watch}`)
+              )
+            ].join("\n")
+          );
+
+          const run = `look-${crypto.randomUUID()}`;
+          const session = yield* Effect.promise(() => parts.create());
+          yield* Effect.sync(() => reviews.add(session, "", "look", { run }));
+
+          const conversation = yield* Effect.promise(() => host.conversation(session));
+
+          return yield* Effect.promise(() =>
+            runInFeed(host, conversation, {
+              id: run,
+              worker: "looks",
+              title: "Look",
+              content: `${LOOK_PROMPT}\n\n${digest}`
+            })
+          );
+        });
+
+        const post = Effect.fn("Looks.post")(function* (prefix: string, rows: readonly LookRow[], open: ReadonlySet<string>, next: number | null) {
+          const now = yield* Clock.currentTimeMillis;
+          const memories: string[] = [];
+
+          for (const row of rows) {
+            if (yield* isMemory(row.ref)) memories.push(row.ref);
+          }
+
+          const known = new Set([...open, ...memories]);
+
+          const said = yield* Effect.sync(
+            () =>
+              new Map(
+                [...surfaced.lastShown("look")].map(([ref, at]) => [
+                  ref,
+                  {
+                    at,
+                    replied: wroteSince(entries, ROOT_SESSION, at),
+                    open: open.has(ref)
+                  }
+                ])
+              )
+          );
+
+          for (const [index, row] of decide(rows, {
+            now,
+            next,
+            known,
+            said
+          }).entries()) {
+            if ((yield* level) === "off") return;
+            const message = row.message ?? "";
+            yield* Effect.promise(() =>
+              parts.deliver(
+                {
+                  id: `${prefix}:${row.ref}`,
+                  session: ROOT_SESSION,
+                  content: message,
+                  line: message,
+                  ref: row.ref,
+                  kind: "look"
+                },
+                now + index
+              )
+            );
+          }
+        });
+
+        const retire = Effect.gen(function* () {
+          const open = new Set((yield* openWatches).map((row) => row.id));
+
+          for (const each of automations.watches()) {
+            if (!open.has(each.watch)) yield* Effect.promise(() => automations.retire(each.id));
+          }
+        });
+
+        const watch = Effect.fn("Looks.watch")(function* (rows: readonly LookRow[]) {
+          yield* retire;
+          const watches = automations.watches();
+
+          const watchable = new Set((yield* openWatches).map((row) => `anticipation:${row.id}`));
+
+          const watched = new Set(watches.map((each) => `anticipation:${each.watch}`));
+
+          const live = watches.filter((each) => each.status === "active").length;
+
+          for (const row of newWatches(rows, watchable, watched, live)) {
+            const failed = (yield* Effect.promise(() => automations.checkGate(row.gate))).kind === "error";
+
+            const anticipation = yield* openWatch(row.ref);
+
+            if (failed || anticipation === undefined) continue;
+            const title = `Watch: ${anticipation.text.slice(0, WATCH_TITLE_CHARS)}`;
+
+            const draft = {
+              title,
+              prompt: row.prompt,
+              cron: WATCH_CRON,
+              at: null,
+              model: null,
+              machine: null,
+              chat: ROOT_SESSION,
+              gate: row.gate
+            };
+
+            const made = yield* Effect.promise(() => automations.create(draft, "ky", anticipation.id));
+
+            if (isRefusal(made)) yield* warn("watch not booked", made.refused);
+            else if ((yield* openWatch(row.ref)) === undefined) yield* Effect.promise(() => automations.retire(made.id));
+          }
+        });
+
+        const look = Effect.fn("Looks.look")(function* (time: string) {
+          const now = yield* Clock.currentTimeMillis;
+          const local = localNow(parts.zone(), now);
+
+          const next = nextLook(proactivity.looks().map(minutesOf), local.minutes);
+
+          const open = new Set(anticipations.open().map((row) => `anticipation:${row.id}`));
+
+          const answer = yield* ask(time, now, next);
+
+          if (answer === undefined) return;
+          const rows = lookRows(answer);
+          yield* post(`look:${local.date}:${time}`, rows, open, next === undefined ? null : now + next.ahead * 60_000);
+          yield* watch(rows);
+        });
+
+        return Looking.of({
+          booked: Effect.fn("Looks.booked")(function* (zone, at) {
+            const now = at ?? (yield* Clock.currentTimeMillis);
+
+            if ((yield* level) === "off") return [];
+
+            return proactivity.looks().map((time) => ({
+              time,
+              cron: localCron(minutesOf(time), zone, now)
+            }));
+          }),
+          run: Effect.fn("Looks.run")(function* (time) {
+            if ((yield* Ref.get(looking)) || (yield* level) === "off") return;
+            yield* Ref.set(looking, true);
+            yield* Effect.suspend(() => look(time)).pipe(
+              Effect.catchCause((cause) => warn("look failed", Cause.squash(cause))),
+              Effect.ensuring(Ref.set(looking, false))
+            );
+          }),
+          retire
+        });
+      })
+    );
+}
+
 export class Looks {
-  readonly #sql: SqlStorage;
-  readonly #parts: LookParts;
-  /** In memory: an eviction mid-look only lets the next fire start another. */
-  #looking = false;
+  readonly #edge: Edge<Looking>;
 
-  constructor(sql: SqlStorage, parts: LookParts) {
-    this.#sql = sql;
-    this.#parts = parts;
+  constructor(storage: DurableObjectStorage, parts: LookParts) {
+    this.#edge = makeEdge(Looking.layer(parts, storage.sql).pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge.run(Effect.void);
   }
 
-  /** The looks to book in `zone`, each its time and its cron; none while Proactivity is off. */
-  booked(zone: string | null, now = Date.now()): Array<{ readonly time: string; readonly cron: string }> {
-    if (this.#parts.proactivity.level() === "off") return [];
-
-    return this.#parts.proactivity.looks().map((time) => ({ time, cron: localCron(minutesOf(time), zone, now) }));
+  booked(zone: string | null, now?: number): Array<{ readonly time: string; readonly cron: string }> {
+    return this.#edge.run(Looking.use((looks) => looks.booked(zone, now)));
   }
 
-  /** The look booked at `time`: weigh what is needed against what is current, and post what decide picks. */
-  async run(time: string): Promise<void> {
-    if (this.#looking || this.#parts.proactivity.level() === "off") return;
-    this.#looking = true;
-
-    try {
-      const now = Date.now();
-      const local = localNow(this.#parts.zone(), now);
-      const next = nextLook(this.#parts.proactivity.looks().map(minutesOf), local.minutes);
-      const open = new Set(this.#parts.anticipations.open().map((row) => `anticipation:${row.id}`));
-      const answer = await this.#ask(time, now, next);
-
-      if (answer === undefined) return;
-      const rows = lookRows(answer);
-      await this.#post(`look:${local.date}:${time}`, rows, open, next === undefined ? null : now + next.ahead * 60_000);
-      await this.#watch(rows);
-    } catch (error) {
-      console.warn("look failed", error);
-    } finally {
-      this.#looking = false;
-    }
+  run(time: string): Promise<void> {
+    return this.#edge.runPromise(Looking.use((looks) => looks.run(time)));
   }
 
-  /** Run the look in a conversation of its own, shown in Activity: its answer, or undefined when it failed. */
-  async #ask(time: string, now: number, next: NextLook | undefined): Promise<string | undefined> {
-    const { history, anticipations, reviews, host, surfaced } = this.#parts;
-    const zone = this.#parts.zone();
-
-    const digest = [
-      `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
-      ...section("Open anticipations, oldest first:", anticipations.open().map((row) => anticipationLine(row, now))),
-      ...section('What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):', history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines),
-      ...section("Said already, by the looks of the last two days:", [...surfaced.items("look", "look:", now - SAID_QUIET_MS, SHOWN_POSTS), ...surfaced.items("post", "subagent-report:", now - SAID_QUIET_MS, SHOWN_POSTS)].map((post) => `- ${post.text}`)),
-      ...section("Watched already, every 15 minutes:", this.#parts.automations.watches().map((each) => `- #${each.watch}`))
-    ].join("\n");
-
-    const run = `look-${crypto.randomUUID()}`;
-    const session = await this.#parts.create();
-    reviews.add(session, "", "look", { run });
-
-    return runInFeed(host, await host.conversation(session), { id: run, worker: "looks", title: "Look", content: `${LOOK_PROMPT}\n\n${digest}` });
-  }
-
-  /** Post in the main chat what decide picks of `rows`, each by `prefix:<ref>`, so a look posts a ref once. */
-  async #post(prefix: string, rows: readonly LookRow[], open: ReadonlySet<string>, next: number | null): Promise<void> {
-    const now = Date.now();
-    const known = new Set([...open, ...rows.flatMap((row) => (this.#isMemory(row.ref) ? [row.ref] : []))]);
-    const said = new Map([...this.#parts.surfaced.lastShown("look")].map(([ref, at]) => [ref, { at, replied: wroteSince(this.#sql, ROOT_SESSION, at), open: open.has(ref) }]));
-
-    // Each a millisecond apart, so they are posted in decide's order.
-    for (const [index, row] of decide(rows, { now, next, known, said }).entries()) {
-      // Turned off while the look ran, or while an earlier post waited for the chat: nothing more is said.
-      if (this.#parts.proactivity.level() === "off") return;
-      const message = row.message ?? "";
-      await this.#parts.deliver({ id: `${prefix}:${row.ref}`, session: ROOT_SESSION, content: message, line: message, ref: row.ref, kind: "look" }, now + index);
-    }
-  }
-
-  /** Delete each watch whose anticipation is no longer an open watch, or every one while Proactivity is off. */
-  async retire(): Promise<void> {
-    const open = new Set(this.#openWatches().map((row) => row.id));
-
-    for (const each of this.#parts.automations.watches()) {
-      if (!open.has(each.watch)) await this.#parts.automations.retire(each.id);
-    }
-  }
-
-  /** Retire what no longer needs watching, then book the watches newWatches picks of `rows` whose gate runs. */
-  async #watch(rows: readonly LookRow[]): Promise<void> {
-    await this.retire();
-    const { automations } = this.#parts;
-    const watches = automations.watches();
-    const watchable = new Set(this.#openWatches().map((row) => `anticipation:${row.id}`));
-    const watched = new Set(watches.map((each) => `anticipation:${each.watch}`));
-    const live = watches.filter((each) => each.status === "active").length;
-
-    for (const row of newWatches(rows, watchable, watched, live)) {
-      // A gate that fails now would fail its fires too, and pause its automation.
-      const failed = (await automations.checkGate(row.gate)).kind === "error";
-      // Read after the check: closed, or Proactivity off, while it ran books none.
-      const anticipation = this.#openWatch(row.ref);
-
-      if (failed || anticipation === undefined) continue;
-      const title = `Watch: ${anticipation.text.slice(0, WATCH_TITLE_CHARS)}`;
-      const draft = { title, prompt: row.prompt, cron: WATCH_CRON, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: row.gate };
-      const made = await automations.create(draft, "ky", anticipation.id);
-
-      if (isRefusal(made)) console.warn("watch not booked", made.refused);
-      // Closed, or Proactivity off, while it was booked: its retire came too early to see it. No await between the two.
-      else if (this.#openWatch(row.ref) === undefined) await automations.retire(made.id);
-    }
-  }
-
-  /** The open anticipations of kind watch; none while Proactivity is off, so nothing is watched then. */
-  #openWatches(): Anticipation[] {
-    if (this.#parts.proactivity.level() === "off") return [];
-
-    return this.#parts.anticipations.open().filter((row) => row.kind === "watch");
-  }
-
-  /** The open watch anticipation `ref` names, if it is one. */
-  #openWatch(ref: string): Anticipation | undefined {
-    return this.#openWatches().find((row) => `anticipation:${row.id}` === ref);
-  }
-
-  /** Whether `ref` names a memory there is: memory:<id> of a note in the log. */
-  #isMemory(ref: string): boolean {
-    const id = /^memory:(\d+)$/.exec(ref)?.[1];
-
-    return id !== undefined && countOf(this.#sql.exec("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", Number(id)).toArray()[0]) > 0;
+  retire(): Promise<void> {
+    return this.#edge.runPromise(Looking.use((looks) => looks.retire));
   }
 }
 
 const MINUTES_A_DAY = 24 * 60;
 
-/** The next look: its local minute of the day, whether that is tomorrow, and how many minutes ahead of now it is. */
-type NextLook = { readonly at: number; readonly tomorrow: boolean; readonly ahead: number };
+type NextLook = {
+  readonly at: number;
+  readonly tomorrow: boolean;
+  readonly ahead: number;
+};
 
-/**
- * The look after the one at `minutes` (local): later today, else tomorrow's first; undefined when there are no look
- * times. So a prepare waits for no look that comes too late, and goes at the last one that leaves time.
- */
 function nextLook(times: readonly number[], minutes: number): NextLook | undefined {
   const at = times.find((each) => each > minutes) ?? times[0];
 
   if (at === undefined) return undefined;
   const tomorrow = at <= minutes;
 
-  return { at, tomorrow, ahead: tomorrow ? MINUTES_A_DAY - minutes + at : at - minutes };
+  return {
+    at,
+    tomorrow,
+    ahead: tomorrow ? MINUTES_A_DAY - minutes + at : at - minutes
+  };
 }
 
-/** A digest section: its heading and lines, or "(none)". */
 function section(heading: string, lines: readonly string[]): string[] {
   return ["", heading, ...(lines.length === 0 ? ["(none)"] : lines)];
 }
