@@ -1,0 +1,13 @@
+diff --git a/src/providers/contract.ts b/src/providers/contract.ts
+index 4dff681..03ac3cd 100644
+--- a/src/providers/contract.ts
++++ b/src/providers/contract.ts
+@@ -94,7 +94,7 @@ export function parseModel(text: string, thinkingLevel: ModelThinkingLevel): Cho
+ 
+ export class NoVendor extends Schema.TaggedError<NoVendor>()("NoVendor", { vendorId: Schema.String }) implements Refusable {
+   get refusal(): string {
+-    return `ky has no vendor "${this.vendorId}".`;
++    return `ky has no vendor.`;
+   }
+ }
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/providers/contract.ts b/src/providers/contract.ts
+index 4dff681..b54ca1d 100644
+--- a/src/providers/contract.ts
++++ b/src/providers/contract.ts
+@@ -148,7 +148,7 @@ export class ChatGptRefused extends Schema.TaggedError<ChatGptRefused>()("ChatGp
+ 
+ export class ChatGptUnreadable extends Schema.TaggedError<ChatGptUnreadable>()("ChatGptUnreadable", { step: Schema.String, what: Schema.Literals(["an answer", "a token"]) }) implements Refusable {
+   get refusal(): string {
+-    return `ChatGPT ${this.step} failed: ${this.what} ky can't read.`;
++    return `ChatGPT ${this.step} failed: ${this.what} ky cannot read.`;
+   }
+ }
+ 

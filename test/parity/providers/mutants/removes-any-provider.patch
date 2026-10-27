@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..32e94e6 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -442,7 +442,7 @@ const make = Effect.gen(function* () {
+       Effect.gen(function* () {
+         const record = (yield* records.list).find((each) => each.id === providerId);
+ 
+-        if (record?.kind !== "api-key") return yield* new NoKeyToRemove({ providerId });
++        if (!record) return yield* new NoKeyToRemove({ providerId });
+         yield* Effect.promise(() => vault.remove("provider", providerId));
+         yield* records.remove(providerId);
+         yield* load;

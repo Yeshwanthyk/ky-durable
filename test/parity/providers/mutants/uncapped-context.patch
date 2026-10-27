@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..aa60038 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -95,7 +95,7 @@ function best(endpoints: readonly Endpoint[], need: Need = {}, except?: Model<Ap
+ }
+ 
+ function compacting(provider: Provider): Provider {
+-  const cap = <M extends { readonly contextWindow: number }>(model: M): M => (model.contextWindow > CONTEXT_WINDOW ? { ...model, contextWindow: CONTEXT_WINDOW } : model);
++  const cap = <M extends { readonly contextWindow: number }>(model: M): M => (false ? { ...model, contextWindow: CONTEXT_WINDOW } : model);
+ 
+   return {
+     ...provider,

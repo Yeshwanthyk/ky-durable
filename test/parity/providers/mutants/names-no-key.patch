@@ -1,0 +1,13 @@
+diff --git a/src/providers/contract.ts b/src/providers/contract.ts
+index 4dff681..741b407 100644
+--- a/src/providers/contract.ts
++++ b/src/providers/contract.ts
+@@ -100,7 +100,7 @@ export class NoVendor extends Schema.TaggedError<NoVendor>()("NoVendor", { vendo
+ 
+ export class NoKey extends Schema.TaggedError<NoKey>()("NoKey", { vendor: Schema.String }) implements Refusable {
+   get refusal(): string {
+-    return `Paste your ${this.vendor} API key.`;
++    return `Paste your API key.`;
+   }
+ }
+ 

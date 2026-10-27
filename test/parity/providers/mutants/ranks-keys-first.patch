@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..ed4aed6 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -56,7 +56,7 @@ type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true; readonly
+ 
+ export type Resolved = { readonly choice: ModelChoice; readonly model: Model<Api> };
+ 
+-const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 0, "api-key": 1, "workers-ai": 2 };
++const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 1, "api-key": 0, "workers-ai": 2 };
+ 
+ export class Host extends Context.Service<
+   Host,

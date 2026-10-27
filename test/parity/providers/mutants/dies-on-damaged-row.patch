@@ -1,0 +1,13 @@
+diff --git a/src/providers/records.ts b/src/providers/records.ts
+index 3817a07..16e2606 100644
+--- a/src/providers/records.ts
++++ b/src/providers/records.ts
+@@ -48,7 +48,7 @@ export class Records extends Context.Service<
+ 
+       return Records.of({
+         list: Effect.map(Effect.orDie(sql.exec(`SELECT id, kind, vendor, machine, port, api, label, enabled FROM ${TABLE} ORDER BY rowid`)), (rows) =>
+-          rows.flatMap((row) => Option.match(rowOf(row), { onNone: () => [], onSome: ({ enabled, ...record }) => [{ ...record, enabled: enabled === 1 }] }))
++          rows.flatMap((row) => Option.match(rowOf(row), { onNone: () => { throw new Error("damaged row"); }, onSome: ({ enabled, ...record }) => [{ ...record, enabled: enabled === 1 }] }))
+         ),
+         add: (record) =>
+           Effect.asVoid(Effect.orDie(

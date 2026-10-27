@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..326f3f8 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -375,7 +375,7 @@ const make = Effect.gen(function* () {
+         }
+       });
+ 
+-      if (answer.stopReason === "error") return yield* new ModelFailed({ message: answer.errorMessage ?? `The ${purpose} model failed.` });
++      if (answer.stopReason === "error") return yield* new ModelFailed({ message: `The ${purpose} model failed.` });
+ 
+       return answer;
+     });

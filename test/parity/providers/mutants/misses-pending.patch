@@ -1,0 +1,13 @@
+diff --git a/src/providers/chatgpt.ts b/src/providers/chatgpt.ts
+index 3d30bc6..649e924 100644
+--- a/src/providers/chatgpt.ts
++++ b/src/providers/chatgpt.ts
+@@ -109,7 +109,7 @@ export const startDevice = Effect.fnUntraced(function* (fetch: Fetch) {
+ export const pollDevice = Effect.fnUntraced(function* (fetch: Fetch, device: Device) {
+   const response = yield* reach(fetch, `${OPENAI_ISSUER}/api/accounts/deviceauth/token`, json({ device_auth_id: device.deviceAuthId, user_code: device.userCode }));
+ 
+-  if ((response.status === 403 || response.status === 404) && (yield* errorCode(response)) === "deviceauth_authorization_pending") return "pending" as const;
++  if (response.status === 403 && (yield* errorCode(response)) === "deviceauth_authorization_pending") return "pending" as const;
+   const authorization = yield* decoded("sign-in", response, Authorization);
+ 
+   const tokens = yield* reach(

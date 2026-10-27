@@ -1,0 +1,13 @@
+diff --git a/src/providers/breaker.ts b/src/providers/breaker.ts
+index ef7a0d3..cbd2e7b 100644
+--- a/src/providers/breaker.ts
++++ b/src/providers/breaker.ts
+@@ -50,7 +50,7 @@ export class Breaker {
+ 
+   #open(why: string): void {
+     if (this.closed()) console.warn(`${this.#name} ${why}; its calls run on a stand-in for a while.`);
+-    this.#openUntil = this.#now() + COOLDOWN_MS;
++    this.#openUntil = Date.now() + COOLDOWN_MS;
+     this.#failure = why;
+   }
+ }
