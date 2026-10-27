@@ -202,30 +202,29 @@ function readPage(browser: Browser, args: Args) {
       Effect.flatMap((raw) => Schema.decodeUnknownEffect(PageRead)(raw).pipe(Effect.mapError((error) => new Failed({ said: error.message }))))
     );
 
-    const summary = [
-      `${read.title}\n${page.url()}${response && !response.ok() ? ` (HTTP ${response.status()})` : ""}`,
-      cut(read.text),
-      read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const output: Part[] = [{ type: "text", text: summaryOf(read, page.url(), response) }];
 
-    const output: Part[] = [{ type: "text", text: summary }];
-
-    if (args.screenshot) {
-      const shot = yield* within(OPERATION_TIMEOUT_MS, "the screenshot", async () => {
-        const session = await page.context().newCDPSession(page);
-        const result = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-        await session.detach();
-
-        return result;
-      });
-
-      output.push({ type: "image", data: shot.data, mimeType: "image/png" });
-    }
+    if (args.screenshot) output.push(yield* screenshot(page));
 
     return { output, isError: false };
   });
+}
+
+function summaryOf(read: typeof PageRead.Type, url: string, response: Response | null): string {
+  const status = response && !response.ok() ? ` (HTTP ${response.status()})` : "";
+  const links = read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`;
+
+  return [`${read.title}\n${url}${status}`, cut(read.text), links].filter(Boolean).join("\n\n");
+}
+
+function screenshot(page: BrowserPage) {
+  return within(OPERATION_TIMEOUT_MS, "the screenshot", async () => {
+    const session = await page.context().newCDPSession(page);
+    const result = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    await session.detach();
+
+    return result;
+  }).pipe(Effect.map((shot): Part => ({ type: "image", data: shot.data, mimeType: "image/png" })));
 }
 
 function runStep(page: BrowserPage, step: Step): Effect.Effect<void, Failed> {
@@ -273,17 +272,19 @@ export function pdfReply(url: string, response: Shown | null, args: Args) {
 
 function pdfFile(url: string, response: Shown | null) {
   return Effect.gen(function* () {
-    const headers = response?.headers();
-    const encoding = headers?.["content-encoding"] ?? "identity";
+    const bytes = response === null ? Option.none() : yield* browserCopy(response);
 
-    if (response && encoding === "identity" && Number(headers?.["content-length"] ?? Number.NaN) <= MAX_PDF_BYTES) {
-      const bytes = yield* within(OPERATION_TIMEOUT_MS, "the browser's copy", () => response.body()).pipe(Effect.option);
-
-      if (Option.isSome(bytes) && bytes.value.length > 0 && bytes.value.length <= MAX_PDF_BYTES) return bytes.value;
-    }
+    if (Option.isSome(bytes) && bytes.value.length > 0 && bytes.value.length <= MAX_PDF_BYTES) return bytes.value;
 
     return yield* fetchPdf(url, response === null);
   });
+}
+
+function browserCopy(response: Shown) {
+  const headers = response.headers();
+  const small = (headers["content-encoding"] ?? "identity") === "identity" && Number(headers["content-length"] ?? Number.NaN) <= MAX_PDF_BYTES;
+
+  return small ? within(OPERATION_TIMEOUT_MS, "the browser's copy", () => response.body()).pipe(Effect.option) : Effect.succeed(Option.none<Uint8Array>());
 }
 
 function fetchPdf(url: string, downloaded: boolean) {

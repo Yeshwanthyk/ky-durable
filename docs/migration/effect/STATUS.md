@@ -38,23 +38,37 @@ against B, never against the PR before it.
 | W3-C | Machines | `mcp:0bc81c72-2230-4afa-95a3-159a58a4b3ad` | `effect/w3-machines` (from `effect/next-wave`) | merged (d7823df) | 500 runs, 27/27 mutants |
 | W3-D | Cleanup of deploy, automations, skills (comments, dead code, tests through the ledger) | `mcp:4ea9e764-7b4b-470f-9413-1ee26dee7332` | `effect/cleanup-shipped` (from `effect/next-wave`) | dispatched | — |
 
+## Release 2 (2026-10-27)
+
+next-wave carries foundation (settings, transcript), access, sites, browse, cards, push, chats, files, mail
+and executor on top of Wave 3's approvals, inbound and machines; every one flipped, no `legacy/` left.
+Squarey's backup (squarey-20261025T164300Z) comes up on it as at B (real-data.ts). Divergences:
+divergences/settings.md. Boundaries hold browse, cards, mail and executor; chats and files still take
+inner modules from outside, push from vault (Wave 7). Avatars, history, memory, anticipations, runners and
+providers ship in the next release.
+
 ## Waves 4–5 dispatched (2026-10-26)
 
 Owner: Wave 5 all in parallel. Wave 5 started alongside Wave 4: only images (settings), history (transcript) and push (dreaming/contract) touch Wave 4 or in-flight code, as import lines. Shared brief: WRITER-BRIEF.md. Cleanup merged d58c766; inbound merged (3b0eeb4) after Fable review, fix round and flip. Both worktrees removed. 07:42–12:00 UTC: every writer paused on the account's 5-hour usage limit; resumed after the reset. Census knows the Wave 4–5 domains (f2d716c).
 
 | Unit | Thread | Branch | State |
 |---|---|---|---|
-| W4 foundation | `mcp:17744dbe-5fd3-48dc-9876-7807570ca9ca` | `effect/w4-foundation` | dispatched |
-| W5 files | `mcp:f3655a92-8e5e-41cb-8fb8-6cd2b662f59c` | `effect/w5-files` | dispatched |
-| W5 chats | `mcp:ac365f6d-f379-4337-9c4b-524587ed6218` | `effect/w5-chats` | dispatched |
-| W5 mail | `mcp:3dda23a3-a07d-46f5-9b01-d254332a90cc` | `effect/w5-mail` | dispatched |
-| W5 sites | `mcp:f8d045e0-d875-4637-b2e4-1045c1baf1a0` | `effect/w5-sites` | dispatched |
-| W5 browse | `mcp:1e50bc0c-4175-4fa8-ad46-2fdb53c24e60` | `effect/w5-browse` | dispatched |
-| W5 access | `mcp:33eed12e-2acd-4330-ba93-380174f99ac8` | `effect/w5-access` | dispatched |
+| W4 foundation | `mcp:17744dbe-5fd3-48dc-9876-7807570ca9ca` | `effect/w4-foundation` | merged into next-wave, flipped, 500 runs |
+| W5 files | `mcp:f3655a92-8e5e-41cb-8fb8-6cd2b662f59c` | `effect/w5-files` | merged into next-wave, flipped, 500 runs |
+| W5 chats | `mcp:ac365f6d-f379-4337-9c4b-524587ed6218` | `effect/w5-chats` | merged into next-wave, flipped, 500 runs |
+| W5 mail | `mcp:3dda23a3-a07d-46f5-9b01-d254332a90cc` | `effect/w5-mail` | merged into next-wave, flipped, 500 runs |
+| W5 sites | `mcp:f8d045e0-d875-4637-b2e4-1045c1baf1a0` | `effect/w5-sites` | merged into next-wave, flipped, 500 runs |
+| W5 browse | `mcp:1e50bc0c-4175-4fa8-ad46-2fdb53c24e60` | `effect/w5-browse` | merged into next-wave, flipped, 500 runs |
+| W5 access | `mcp:33eed12e-2acd-4330-ba93-380174f99ac8` | `effect/w5-access` | merged into next-wave, flipped, 500 runs |
 | W5 avatars | `mcp:68476470-5968-49f3-87b2-5a0c4410ee84` | `effect/w5-avatars` | dispatched |
 | W5 history | `mcp:c051a13a-8282-4868-b972-ffc176946064` | `effect/w5-history` | dispatched |
-| W5 push | `mcp:1556d2cc-2638-4593-a9b8-7769b7f91d2d` | `effect/w5-push` | dispatched |
-| W5 cards | `mcp:be10a1ef-3a1e-4883-ac69-f3fd96bdf74a` | `effect/w5-cards` | dispatched |
+| W5 push | `mcp:1556d2cc-2638-4593-a9b8-7769b7f91d2d` | `effect/w5-push` | merged into next-wave, flipped, 500 runs |
+| W5 cards | `mcp:be10a1ef-3a1e-4883-ac69-f3fd96bdf74a` | `effect/w5-cards` | merged into next-wave, flipped, 500 runs |
+| W6 executor | `mcp:7fd6636f-cc02-4a35-95ad-f60035444a71` | `effect/w6-executor` | merged into next-wave, flipped, 500 runs |
+| W4 memory | `mcp:6ccb6021-8490-431c-947c-542b22e3fa89` | `effect/w4-memory` | dispatched |
+| W4 anticipations | `mcp:dc80ea39-71d5-4083-97e6-7ecb994d4492` | `effect/w4-anticipations` | dispatched |
+| W6 runners | `mcp:444e4604-6589-470c-9a18-f8b548ec142b` | `effect/w6-runners` | dispatched |
+| W6 providers | `mcp:b52fd2bf-f444-4127-9c57-344d63b34133` | `effect/w6-providers` | dispatched |
 
 ## Waves 4–8 (Fable 5.1 grouping of the flat `src/*.ts`, 2026-10-26)
 
