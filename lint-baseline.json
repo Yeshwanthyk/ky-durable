@@ -42,11 +42,6 @@
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 1
   },
-  "src/executor.ts": {
-    "typescript(await-thenable)": 1,
-    "typescript(no-unsafe-assignment)": 1,
-    "typescript(no-unsafe-member-access)": 2
-  },
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },

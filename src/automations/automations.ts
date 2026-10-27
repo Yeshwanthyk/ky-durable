@@ -9,7 +9,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { ChatList } from "../chats/chats";
 import { Sql } from "../core/sql";
-import { programOutcome } from "../executor-status";
+import { programOutcome } from "../executor/contract";
 import type { MachineHub } from "../machines/contract";
 import type { Models } from "../models";
 import type { Spawn } from "../skills/contract";

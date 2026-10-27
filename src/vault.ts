@@ -3,7 +3,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import Type from "typebox";
 import { decode, decodeOr, parseAs } from "./core/decode";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
-import type { ExecutorConnection } from "./executor";
+import type { ExecutorConnection } from "./executor/contract";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import { base64url, fromBase64url, vapidToken } from "./push/webpush";

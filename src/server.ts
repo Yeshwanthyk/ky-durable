@@ -22,7 +22,7 @@ import { chatsExtension } from "./chats/tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse/wiring";
-import { ExecutorLink, executeOnce, executorExtension } from "./executor";
+import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
 import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
 import { FileStore, retype, uploadMedia } from "./files/wiring";

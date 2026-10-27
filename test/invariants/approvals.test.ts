@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ApprovalDeps, Approvals } from "../../src/approvals/approvals";
 import { type ApprovalAction, type ApprovalKind, APPROVAL_TABLES, GONE, type ToolPolicy } from "../../src/approvals/contract";
 import { type ExecutorApprovalDeps, ExecutorApprovals } from "../../src/approvals/executor";
-import type { CallResult, ExecutorCall } from "../../src/executor";
+import type { CallResult, ExecutorCall } from "../../src/executor/contract";
 import { budget, type Json } from "../parity/kit";
 import { storageOf } from "../parity/skills/storage";
 

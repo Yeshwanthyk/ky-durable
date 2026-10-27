@@ -1,0 +1,12 @@
+diff --git a/src/executor/wiring.ts b/src/executor/wiring.ts
+index 56bdf43..d4a3087 100644
+--- a/src/executor/wiring.ts
++++ b/src/executor/wiring.ts
+@@ -104,7 +104,6 @@ export function executorExtension(config: ExecutorConfig, gate: ExecutorGate, re
+           const conversation = String(api.conversationId);
+           const refused = gate.beforeResume(requestId, response.action, conversation);
+ 
+-          if (refused) return toolReply(`Not sent: ${refused}`, true);
+           const call: ExecutorCall = (name, more) => executor.call(name, more, context.abortSignal);
+           const action = response.action === "answer" ? "accept" : response.action;
+           const result = await call("resume", { requestId, response: response.content ? { action, content: response.content } : { action } });

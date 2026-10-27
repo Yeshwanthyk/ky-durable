@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..bb768a5 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -187,7 +187,7 @@ const isExecutorUrl = (parsed: URL): boolean =>
+ const checkUrl = (url: string): Effect.Effect<URL, NotAUrl | NotHttps> =>
+   Effect.try({ try: () => new URL(url), catch: () => new NotAUrl() }).pipe(Effect.filterOrFail(isExecutorUrl, () => new NotHttps()));
+ 
+-const refusalOf = (origin: string, error: Error) => (answered(error, 401, 403) ? new TokenRefused() : new Unreachable({ origin, message: error.message }));
++const refusalOf = (origin: string, error: Error) => (answered(error, 999) ? new TokenRefused() : new Unreachable({ origin, message: error.message }));
+ 
+ const probe = (config: ExecutorConfig, origin: string): Effect.Effect<void, TokenRefused | Unreachable> =>
+   Effect.acquireUseRelease(

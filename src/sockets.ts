@@ -49,7 +49,7 @@ import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from 
 import type { Approvals } from "./approvals/approvals";
 import type { ExecutorApprovals } from "./approvals/executor";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
-import type { ExecutorLink } from "./executor";
+import type { ExecutorLink } from "./executor/wiring";
 import type { NotSetUp, Setup } from "./setup";
 import type { Pushes } from "./push/wiring";
 import type { TaskFeed } from "./automations/contract";

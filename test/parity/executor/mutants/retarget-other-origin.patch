@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..a69da40 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -230,7 +230,7 @@ export const retarget = Effect.fnUntraced(function* (url: string, reach: typeof
+   if (Option.isNone(saved)) return yield* new NotConnected();
+   const [from, to] = [originOf(saved.value.url), originOf(url.trim())];
+ 
+-  if (Option.isSome(from) && Option.isSome(to) && from.value !== to.value) return yield* new OtherOrigin({ origin: from.value });
++  if (Option.isSome(from) && Option.isSome(to) && from.value === "never") return yield* new OtherOrigin({ origin: from.value });
+ 
+   return yield* connect(url, "", reach);
+ });

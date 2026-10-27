@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..ea7f942 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -170,7 +170,7 @@ export class Link extends Context.Service<
+         url: Effect.map(Effect.promise(() => vault().status()), (secrets) => {
+           const secret = secrets.find((each) => each.kind === "executor" && each.id === id);
+ 
+-          return Option.getOrNull(Option.filter(Option.map(metaOf(secret?.meta), (meta) => meta.url), (url) => url !== ""));
++          return Option.getOrNull(Option.filter(Option.map(metaOf(secret?.meta), (meta) => meta.url), () => true));
+         }),
+         save: (connection) => Effect.asVoid(Effect.promise(() => vault().put("executor", id, connection, { url: connection.url }))),
+         forget: Effect.asVoid(Effect.promise(() => vault().remove("executor", id)))

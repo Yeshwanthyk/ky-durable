@@ -6,7 +6,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
-import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, callOnce, resultText } from "../executor";
+import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, resultText } from "../executor/contract";
+import { callOnce } from "../executor/wiring";
 import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
 import { type ApprovalAction, APPROVAL_TABLES, type ToolPolicy, type ToolPolicyView } from "./contract";
 
