@@ -10,7 +10,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { bypassed } from "./access/contract";
 import { Access } from "./access/wiring";
-import { KY_AVATAR, type NotSetUp } from "./avatars/contract";
+import { KY_AVATAR, type Missing as NotSetUp } from "./avatars/contract";
 import { preamble, type PromptConfig } from "./avatars/prompt";
 import { seed } from "./avatars/seeds";
 import { Avatars, avatarTools, Setup } from "./avatars/wiring";

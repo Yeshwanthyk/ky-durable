@@ -137,12 +137,12 @@ export class NoOwner extends Schema.TaggedError<NoOwner>()("NoOwner", { owner: S
   }
 }
 
-export type NotSetUp = { readonly id: string; readonly name: string; readonly needs: string };
+export type Missing = { readonly id: string; readonly name: string; readonly needs: string };
 
 export type SetupView = {
   readonly repo: string | null;
   readonly url: string | null;
-  readonly missing: readonly NotSetUp[];
+  readonly missing: readonly Missing[];
 };
 
 export type SelfEdit = { readonly repo: string; readonly url: string };
