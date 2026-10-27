@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..48f32bb 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -567,8 +567,7 @@ const make = Effect.gen(function* () {
+     Effect.gen(function* () {
+       const command = (yield* pending(machine)).find((each) => each.seq === seq);
+ 
+-      yield* exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND seq = ?", machine, seq);
+-
++      
+       if (command?.type !== "run" || (yield* closed(command.task, command.turn))) return;
+ 
+       if (feed.get(command.task)?.status === "queued") feed.update(command.task, { status: "working" });

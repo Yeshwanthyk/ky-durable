@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..fd53732 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -179,7 +179,7 @@ const list = ({ bucket, origin }: SiteHost) =>
+ const makePublic = ({ bucket, origin }: SiteHost, id: string) =>
+   Effect.gen(function* () {
+     const site = yield* find(bucket, id);
+-    const token = yield* Effect.promise(async () => (site.token !== undefined && (await bucket.head(publicKey(site.token))) ? site.token : newToken()));
++    const token = yield* Effect.promise(async () => (newToken()));
+     yield* Effect.promise(() => putMeta(bucket, id, { ...site, token }));
+     yield* Effect.promise(() => bucket.put(publicKey(token), id));
+ 

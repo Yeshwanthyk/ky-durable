@@ -1,7 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { idleTimeout } from "../cloud";
-import { CLOUD, CLOUD_FACTS } from "../cloud-facts";
+import { CLOUD, CLOUD_FACTS } from "../machines/contract";
 import type { ClientMessage } from "../protocol";
 import { allowedRepos, type GithubLogin, kyRefsOnly, proxyGit } from "../github";
 import { githubTool } from "../github-tools";
@@ -395,7 +395,7 @@ describe("the cloud machine", () => {
     expect(mac.commands).toEqual([]);
 
     // With the cloud machine off, an unnamed task goes to the only computer on and online.
-    await inside(name, (instance) => instance.machines.configure(CLOUD, { state: "off" }));
+    await inside(name, (instance) => instance.machines.change(CLOUD, { state: "off" }));
     await prompt(name, `tool machine ${JSON.stringify({ action: "run", prompt: "build it here" })}`);
     expect((await mac.run()).prompt).toContain("build it here");
     cloud.socket.close();

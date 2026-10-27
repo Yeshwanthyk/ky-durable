@@ -9,7 +9,7 @@ import { experimental_readRawConfig, type Unstable_RawConfig } from "wrangler";
 import { Cloudflare, lacks, SCOPES, tokenPage } from "../../cli/cloudflare.ts";
 import { type Context, deployCommand, doctorCommand, teardownCommand, upgradeCommand } from "../../cli/commands.ts";
 import { deployedPath, readOverlay, writeOverlay } from "../../cli/config.ts";
-import { BYPASS } from "../../src/access.ts";
+import { BYPASS } from "../../src/access/contract.ts";
 import { initCommand } from "../../cli/init.ts";
 import { savedToken } from "../../cli/login.ts";
 import * as Cli from "../../cli/ky.ts";

@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..74dd6ec 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -586,7 +586,7 @@ const make = Effect.gen(function* () {
+     Effect.gen(function* () {
+       const turns = yield* turnsOf(report.task);
+ 
+-      if (report.turn <= turns.closed) return;
++      if (report.turn < turns.closed) return;
+ 
+       if (report.session) feed.update(report.task, { session: report.session });
+ 

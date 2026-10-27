@@ -32,7 +32,7 @@ import { Changes } from "./Changes";
 import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
-import { KY_AVATAR } from "../avatar-spec";
+import { KY_AVATAR } from "../avatars/contract";
 import { Icon, Spinner, type IconName } from "./Icon";
 import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";

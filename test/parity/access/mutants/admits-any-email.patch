@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..d727932 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -125,7 +125,7 @@ const emailOf = (jwt: string | null, team: string, aud: string) =>
+ const allowed = (emails: string) => new Set(emails.split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
+ 
+ const admit = (email: string | undefined, emails: string) =>
+-  email !== undefined && allowed(emails).has(email.toLowerCase()) ? Effect.succeed({ email }) : Effect.fail(new SignInRefused());
++  email !== undefined ? Effect.succeed({ email }) : Effect.fail(new SignInRefused());
+ 
+ export const signedIn = (request: Request, env: AccessVars) =>
+   Effect.gen(function* () {

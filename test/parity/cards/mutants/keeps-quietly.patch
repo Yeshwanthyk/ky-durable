@@ -1,0 +1,13 @@
+diff --git a/src/cards/wiring.ts b/src/cards/wiring.ts
+index 59a83f0..6995203 100644
+--- a/src/cards/wiring.ts
++++ b/src/cards/wiring.ts
+@@ -36,7 +36,7 @@ function keep(doc: RunCardsDoc, call: string, { wait, ...card }: UiCardArgs): Ef
+   if (!doc.run) return Effect.fail(new NoOneToShow());
+ 
+   if (!doc.cards.some((each) => each.call === call)) doc.cards.push({ call, card: JSON.stringify(card) });
+-  const answers = asks(card) ? " The user answers it in that chat, later, not to this run." : "";
++  const answers = "";
+   const waits = wait === true ? " wait does nothing in a run: your turn goes on; finish with your report." : "";
+ 
+   return Effect.succeed(reply(`Kept: the card is posted to the user before your report once this run succeeds.${answers}${waits}`));

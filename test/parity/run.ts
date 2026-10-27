@@ -24,7 +24,28 @@ const PROOFS = {
   toy: ["test/parity/toy/toy.test.ts"],
   deploy: ["test/invariants/deploy.test.ts"],
   automations: ["test/invariants/automations.test.ts", "test/parity/automations/at-b.test.ts"],
-  skills: ["test/invariants/skills.test.ts", "test/parity/skills/at-b.test.ts"]
+  skills: ["test/invariants/skills.test.ts", "test/parity/skills/at-b.test.ts"],
+  dreaming: ["test/invariants/dreaming.test.ts", "test/parity/dreaming/at-b.test.ts"],
+  approvals: ["test/invariants/approvals.test.ts", "test/parity/approvals/at-b.test.ts"],
+  inbound: ["test/invariants/inbound.test.ts", "test/parity/inbound/at-b.test.ts"],
+  machines: ["test/invariants/machines.test.ts", "test/parity/machines/at-b.test.ts"],
+  settings: ["test/invariants/settings.test.ts", "test/parity/settings/at-b.test.ts"],
+  files: ["test/invariants/files.test.ts", "test/parity/files/at-b.test.ts"],
+  chats: ["test/invariants/chats.test.ts", "test/parity/chats/at-b.test.ts"],
+  mail: ["test/invariants/mail.test.ts", "test/parity/mail/at-b.test.ts"],
+  sites: ["test/invariants/sites.test.ts", "test/parity/sites/at-b.test.ts"],
+  browse: ["test/invariants/browse.test.ts", "test/parity/browse/at-b.test.ts"],
+  access: ["test/invariants/access.test.ts"],
+  avatars: ["test/invariants/avatars.test.ts", "test/parity/avatars/at-b.test.ts"],
+  history: ["test/invariants/history.test.ts", "test/parity/history/at-b.test.ts"],
+  push: ["test/invariants/push.test.ts", "test/parity/push/at-b.test.ts"],
+  cards: ["test/invariants/cards.test.ts", "test/parity/cards/at-b.test.ts"],
+  memory: ["test/invariants/memory.test.ts", "test/parity/memory/at-b.test.ts"],
+  anticipations: ["test/invariants/anticipations.test.ts", "test/parity/anticipations/at-b.test.ts"],
+  runners: ["test/invariants/runners.test.ts", "test/parity/runners/at-b.test.ts"],
+  executor: ["test/invariants/executor.test.ts", "test/parity/executor/at-b.test.ts"],
+  workspace: ["test/invariants/workspace.test.ts", "test/parity/workspace/at-b.test.ts"],
+  providers: ["test/invariants/providers.test.ts", "test/parity/providers/at-b.test.ts"]
 } satisfies Record<string, string[]>;
 
 const isDomain = (name: string | undefined): name is keyof typeof PROOFS => name !== undefined && Object.hasOwn(PROOFS, name);

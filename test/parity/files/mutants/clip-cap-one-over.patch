@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..c66205f 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -187,7 +187,7 @@ export const acceptMedia = (request: Request, bucket: R2Bucket) =>
+     if (mediaKind(type) === null) return yield* new NotAClip();
+     const size = Number(request.headers.get("Content-Length"));
+ 
+-    if (!Number.isInteger(size) || size < 1 || size > MAX_MEDIA_BYTES) return yield* new ClipTooLarge({ max: MAX_MEDIA_BYTES });
++    if (!Number.isInteger(size) || size < 1 || size > MAX_MEDIA_BYTES + 1) return yield* new ClipTooLarge({ max: MAX_MEDIA_BYTES });
+ 
+     if (request.body === null) return yield* new NoClip();
+     const id = fileId();

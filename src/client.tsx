@@ -1,13 +1,13 @@
 import type { UserInput } from "@earendil-works/pi-durable";
 import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ComponentProps, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
-import { imageSupport } from "./images";
+import { imageSupport } from "./files/media";
 import type { SettingsView, TaskRow } from "./protocol";
 import { type Activity, currentActivity, toolLabels } from "./ui/activity";
 import { FilesContext } from "./ui/Attachments";
 import { AutomationsContext, RoutinesContext } from "./ui/Automations";
 import { SendTaskContext } from "./ui/change-review";
-import type { CardAnswer } from "./ui-blocks";
+import type { CardAnswer } from "./cards/contract";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";

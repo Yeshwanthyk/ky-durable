@@ -1,0 +1,12 @@
+diff --git a/src/executor/contract.ts b/src/executor/contract.ts
+index e79d076..f6e4a8d 100644
+--- a/src/executor/contract.ts
++++ b/src/executor/contract.ts
+@@ -96,7 +96,6 @@ export type ProgramOutcome =
+   | { readonly kind: "paused" };
+ 
+ export function programOutcome(text: string): ProgramOutcome {
+-  if (pausedForUser(text)) return { kind: "paused" };
+   const envelope = envelopeOf(text);
+ 
+   if (Option.isNone(envelope)) return { kind: "failed", text: `Executor answered something ky can't read: ${text.trim().slice(0, 200)}` };

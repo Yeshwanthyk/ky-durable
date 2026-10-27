@@ -26,7 +26,29 @@ const ROOTS = ["src/tests", "test/node", "test/invariants", "test/parity", "test
 const DOMAINS = {
   deploy: /deploy|cloudflare|\binit\b|overlay|wrangler/i,
   automations: /automation|routine|schedul|check-?ins?/i,
-  skills: /skill/i
+  skills: /skill/i,
+  dreaming: /dreaming|versioned|anticipation|episode|memory|recall|soul|looks|watches/i,
+  peers: /peer|group|crew/i,
+  machines: /machine|runner/i,
+  approvals: /approval|executor/i,
+  inbound: /inbound|webhook|credential/i,
+  settings: /settings|purpose|transcript/i,
+  files: /\bfiles?\b|file-types|media|container-tracks|\bimages?\b/i,
+  chats: /\bchats?\b|titles?/i,
+  mail: /\bmail|email|inbox\b/i,
+  sites: /\bsites?\b|site-routes|embed/i,
+  browse: /browse|browser/i,
+  access: /\baccess\b|cf-access|\bjwt\b/i,
+  avatars: /avatar|setup|seeds?|prompt/i,
+  history: /history/i,
+  push: /\bpush\b|notif/i,
+  cards: /ui-blocks|ui-tool|\bcards?\b/i,
+  memory: /memory|recall|episode/i,
+  anticipations: /anticipation|surfaced|proactiv|dreaming\/decide|presence|looks/i,
+  runners: /sandbox|\brunners?\b/i,
+  executor: /executor/i,
+  workspace: /workspace|guardrail/i,
+  providers: /\bmodels\b|chatgpt|provider/i
 } satisfies Record<string, RegExp>;
 
 type Domain = keyof typeof DOMAINS;

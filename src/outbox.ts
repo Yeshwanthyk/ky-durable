@@ -1,6 +1,6 @@
 import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
-import { imagesOf } from "./images";
-import { type PiMessage, projectMessage } from "./transcript";
+import { imagesOf } from "./files/media";
+import { type PiMessage, projectMessage } from "./core/transcript";
 
 /**
  * A message the user sent that pi has not placed in the transcript yet. The

@@ -1,0 +1,732 @@
+{
+  "at": "effect-baseline b658a6e",
+  "now": 1781310816691,
+  "schema": [
+    "CREATE VIRTUAL TABLE ky_history USING fts5(\n      text, conversation UNINDEXED, role UNINDEXED, at UNINDEXED, tokenize = 'unicode61')",
+    "CREATE TABLE ky_history_mark (id INTEGER PRIMARY KEY CHECK (id = 1), last INTEGER NOT NULL, roles INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE pi_entries (id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL, head INTEGER, commit_seq INTEGER NOT NULL, record TEXT NOT NULL CHECK (json_valid(record))) STRICT",
+    "CREATE TABLE pi_submissions (id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL, request_id TEXT, status TEXT NOT NULL CHECK (status IN ('queued', 'placed', 'done', 'unanswered')), record TEXT NOT NULL CHECK (json_valid(record))) STRICT"
+  ],
+  "tables": {
+    "pi_entries": [
+      {
+        "id": 1,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 1,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"The night tram in Lisbon\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1768003378351}]}"
+      },
+      {
+        "id": 2,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 1,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      },
+      {
+        "id": 3,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 1,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"tram café über\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1768694856557}]}"
+      },
+      {
+        "id": 5,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 1,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"The night tram in Lisbon\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1770509256557}]}"
+      },
+      {
+        "id": 7,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 2,
+        "record": "{\"kind\":\"ky.look\",\"data\":{\"text\":\"tram café über\"},\"model\":[{\"role\":\"user\",\"content\":\"tram café über\",\"timestamp\":1770768456567}]}"
+      },
+      {
+        "id": 9,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 4,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      },
+      {
+        "id": 11,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 5,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ferry\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1771546434410}]}"
+      },
+      {
+        "id": 12,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.assistant\",\"model\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ferry Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan end\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1777681489204,\"stopReason\":\"toolUse\"}]}"
+      },
+      {
+        "id": 15,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 5,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ferry Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan Lisbon tram plan end\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1773101847166}]}"
+      },
+      {
+        "id": 16,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 6,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      },
+      {
+        "id": 17,
+        "conversation_id": 3,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":\"ferry\",\"timestamp\":1777681528729}]}"
+      },
+      {
+        "id": 19,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1779064131754}]}"
+      },
+      {
+        "id": 21,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.assistant\",\"model\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"   \"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1779064131763,\"stopReason\":\"toolUse\"}]}"
+      },
+      {
+        "id": 22,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.assistant\",\"model\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ferry\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1780360251756,\"stopReason\":\"stop\"}]}"
+      },
+      {
+        "id": 23,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      },
+      {
+        "id": 25,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"The night tram in Lisbon\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1781310816691}]}"
+      },
+      {
+        "id": 27,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      },
+      {
+        "id": 29,
+        "conversation_id": 9,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"tram café über\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1781310816691}]}"
+      },
+      {
+        "id": 31,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"zanzibar  ferry\\n\\nsee you\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1781310816691}]}"
+      },
+      {
+        "id": 33,
+        "conversation_id": 2,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.user\",\"model\":[{\"role\":\"user\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"The night tram in Lisbon\"},{\"type\":\"image\",\"data\":\"x\"},{\"type\":\"text\",\"text\":\"and so\"}],\"timestamp\":1781310816691}]}"
+      },
+      {
+        "id": 35,
+        "conversation_id": 1,
+        "head": null,
+        "commit_seq": 7,
+        "record": "{\"kind\":\"pi.reset\",\"model\":[]}"
+      }
+    ],
+    "pi_submissions": [
+      {
+        "id": 11,
+        "conversation_id": 1,
+        "request_id": "mail:1",
+        "status": "done",
+        "record": "{\"entry\":1,\"requestId\":\"mail:1\"}"
+      },
+      {
+        "id": 41,
+        "conversation_id": 2,
+        "request_id": "mail:4",
+        "status": "done",
+        "record": "{\"entry\":4,\"requestId\":\"mail:4\"}"
+      },
+      {
+        "id": 111,
+        "conversation_id": 2,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "done",
+        "record": "{\"entry\":11,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      },
+      {
+        "id": 151,
+        "conversation_id": 9,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "placed",
+        "record": "{\"entry\":15,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      },
+      {
+        "id": 191,
+        "conversation_id": 9,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "done",
+        "record": "{\"entry\":19,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      },
+      {
+        "id": 251,
+        "conversation_id": 1,
+        "request_id": "mail:25",
+        "status": "done",
+        "record": "{\"entry\":25,\"requestId\":\"mail:25\"}"
+      },
+      {
+        "id": 311,
+        "conversation_id": 2,
+        "request_id": "mail:31",
+        "status": "done",
+        "record": "{\"entry\":31,\"requestId\":\"mail:31\"}"
+      },
+      {
+        "id": 6050,
+        "conversation_id": 2,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "done",
+        "record": "{\"entry\":5,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      },
+      {
+        "id": 6170,
+        "conversation_id": 3,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "placed",
+        "record": "{\"entry\":17,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      },
+      {
+        "id": 6330,
+        "conversation_id": 2,
+        "request_id": "5a810bd0-46f4-43eb-8060-2a379fb357a5",
+        "status": "done",
+        "record": "{\"entry\":33,\"requestId\":\"5a810bd0-46f4-43eb-8060-2a379fb357a5\"}"
+      }
+    ],
+    "ky_history": [
+      {
+        "rowid": 1,
+        "text": "The night tram in Lisbon\nand so",
+        "conversation": "1",
+        "role": "notice",
+        "at": 1768003378351
+      },
+      {
+        "rowid": 5,
+        "text": "The night tram in Lisbon\nand so",
+        "conversation": "2",
+        "role": "notice",
+        "at": 1770509256557
+      },
+      {
+        "rowid": 7,
+        "text": "tram café über",
+        "conversation": "2",
+        "role": "ky",
+        "at": 1770768456567
+      },
+      {
+        "rowid": 11,
+        "text": "ferry\nand so",
+        "conversation": "2",
+        "role": "user",
+        "at": 1771546434410
+      },
+      {
+        "rowid": 17,
+        "text": "ferry",
+        "conversation": "3",
+        "role": "notice",
+        "at": 1777681528729
+      },
+      {
+        "rowid": 21,
+        "text": "   \nand so",
+        "conversation": "2",
+        "role": "ky",
+        "at": 1779064131763
+      },
+      {
+        "rowid": 22,
+        "text": "ferry\nand so",
+        "conversation": "2",
+        "role": "ky",
+        "at": 1780360251756
+      }
+    ],
+    "ky_history_mark": [
+      {
+        "id": 1,
+        "last": 23,
+        "roles": 1
+      }
+    ]
+  },
+  "reads": {
+    "search": [
+      "#17 2026-05-02 chat \"Work\" notice: [ferry]\n\n#11 2026-02-20 chat \"Trip\" user: [ferry] and so\n\n#22 2026-06-02 chat \"Trip\" ky: [ferry] and so\n\n#31 2026-06-13 chat \"Trip\" notice: zanzibar [ferry] see you and so\n\n4 matches. Search again with other words to find more.",
+      "#17 2026-05-02 chat \"Work\"\n> #17 notice: [ferry]\n\n#22 2026-06-02 chat \"Trip\"\n  #21 ky: and so\n> #22 ky: [ferry] and so\n  #31 notice: zanzibar ferry see you and so\n\n#31 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n> #31 notice: zanzibar [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n3 matches. Search again with other words to find more.",
+      "No message matches ferry the last three days.",
+      "#17 2026-05-02 chat \"Work\"\n> #17 notice: [ferry]\n\n#11 2026-02-20 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n  #7 ky: tram café über\n> #11 user: [ferry] and so\n  #21 ky: and so\n  #22 ky: ferry and so\n\n#22 2026-06-02 chat \"Trip\"\n  #11 user: ferry and so\n  #21 ky: and so\n> #22 ky: [ferry] and so\n  #31 notice: zanzibar ferry see you and so\n  #33 notice: The night tram in Lisbon and so\n\n#31 2026-06-13 chat \"Trip\"\n  #21 ky: and so\n  #22 ky: ferry and so\n> #31 notice: zanzibar [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n4 matches. Search again with other words to find more.",
+      "No message has all those words; these have some of them.\n#17 2026-05-02 chat \"Work\" notice: [ferry]\n\n#11 2026-02-20 chat \"Trip\" user: [ferry] and so\n\n#22 2026-06-02 chat \"Trip\" ky: [ferry] and so\n\n#31 2026-06-13 chat \"Trip\" notice: zanzibar [ferry] see you and so\n\n#1 2026-01-10 main chat notice: The night tram in [Lisbon] and so\n\n#5 2026-02-08 chat \"Trip\" notice: The night tram in [Lisbon] and so\n\n#25 2026-06-13 main chat notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\" notice: The night tram in [Lisbon] and so\n\n8 matches. Search again with other words to find more.",
+      "No message has all those words; these have some of them.\n#17 2026-05-02 chat \"Work\"\n> #17 notice: [ferry]\n\n#22 2026-06-02 chat \"Trip\"\n  #21 ky: and so\n> #22 ky: [ferry] and so\n  #31 notice: zanzibar ferry see you and so\n\n#31 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n> #31 notice: zanzibar [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n#1 2026-01-10 main chat\n> #1 notice: The night tram in [Lisbon] and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night tram in [Lisbon] and so\n  #7 ky: tram café über\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\"\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night tram in [Lisbon] and so\n\n7 matches. Search again with other words to find more.",
+      "No message matches ferry Lisbon the last three days.",
+      "No message has all those words; these have some of them.\n#17 2026-05-02 chat \"Work\"\n> #17 notice: [ferry]\n\n#11 2026-02-20 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n  #7 ky: tram café über\n> #11 user: [ferry] and so\n  #21 ky: and so\n  #22 ky: ferry and so\n\n#22 2026-06-02 chat \"Trip\"\n  #11 user: ferry and so\n  #21 ky: and so\n> #22 ky: [ferry] and so\n  #31 notice: zanzibar ferry see you and so\n  #33 notice: The night tram in Lisbon and so\n\n#31 2026-06-13 chat \"Trip\"\n  #21 ky: and so\n  #22 ky: ferry and so\n> #31 notice: zanzibar [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n#1 2026-01-10 main chat\n> #1 notice: The night tram in [Lisbon] and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night tram in [Lisbon] and so\n  #7 ky: tram café über\n  #11 user: ferry and so\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night tram in [Lisbon] and so\n\n8 matches. Search again with other words to find more.",
+      "#31 2026-06-13 chat \"Trip\" notice: [zanzibar] [ferry] see you and so\n\n1 match. Search again with other words to find more.",
+      "#31 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n> #31 notice: [zanzibar] [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n1 match. Search again with other words to find more.",
+      "No message matches ferry zanzibar the last three days.",
+      "#31 2026-06-13 chat \"Trip\"\n  #21 ky: and so\n  #22 ky: ferry and so\n> #31 notice: [zanzibar] [ferry] see you and so\n  #33 notice: The night tram in Lisbon and so\n\n1 match. Search again with other words to find more.",
+      "No message matches Kyoto.",
+      "No message matches Kyoto.",
+      "No message matches Kyoto the last three days.",
+      "No message matches Kyoto.",
+      "#7 2026-02-11 chat \"Trip\" ky: [tram] café über\n\n#1 2026-01-10 main chat notice: The night [tram] in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\" notice: The night [tram] in Lisbon and so\n\n#25 2026-06-13 main chat notice: The night [tram] in Lisbon and so\n\n#33 2026-06-13 chat \"Trip\" notice: The night [tram] in Lisbon and so\n\n5 matches. Search again with other words to find more.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: [tram] café über\n  #11 user: ferry and so\n\n#1 2026-01-10 main chat\n> #1 notice: The night [tram] in Lisbon and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night [tram] in Lisbon and so\n  #7 ky: tram café über\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night [tram] in Lisbon and so\n\n#33 2026-06-13 chat \"Trip\"\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night [tram] in Lisbon and so\n\n5 matches. Search again with other words to find more.",
+      "No message matches tram the last three days.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: [tram] café über\n  #11 user: ferry and so\n  #21 ky: and so\n\n#1 2026-01-10 main chat\n> #1 notice: The night [tram] in Lisbon and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night [tram] in Lisbon and so\n  #7 ky: tram café über\n  #11 user: ferry and so\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night [tram] in Lisbon and so\n\n#33 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night [tram] in Lisbon and so\n\n5 matches. Search again with other words to find more.",
+      "#7 2026-02-11 chat \"Trip\" ky: tram [café] über\n\n1 match. Search again with other words to find more.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: tram [café] über\n  #11 user: ferry and so\n\n1 match. Search again with other words to find more.",
+      "No message matches café the last three days.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: tram [café] über\n  #11 user: ferry and so\n  #21 ky: and so\n\n1 match. Search again with other words to find more.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "Give some words to search for.",
+      "#1 2026-01-10 main chat notice: The night tram in [Lisbon] and so\n\n#5 2026-02-08 chat \"Trip\" notice: The night tram in [Lisbon] and so\n\n#25 2026-06-13 main chat notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\" notice: The night tram in [Lisbon] and so\n\n4 matches. Search again with other words to find more.",
+      "#1 2026-01-10 main chat\n> #1 notice: The night tram in [Lisbon] and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night tram in [Lisbon] and so\n  #7 ky: tram café über\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\"\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night tram in [Lisbon] and so\n\n4 matches. Search again with other words to find more.",
+      "No message matches Lisbon the last three days.",
+      "#1 2026-01-10 main chat\n> #1 notice: The night tram in [Lisbon] and so\n  #25 notice: The night tram in Lisbon and so\n\n#5 2026-02-08 chat \"Trip\"\n> #5 notice: The night tram in [Lisbon] and so\n  #7 ky: tram café über\n  #11 user: ferry and so\n\n#25 2026-06-13 main chat\n  #1 notice: The night tram in Lisbon and so\n> #25 notice: The night tram in [Lisbon] and so\n\n#33 2026-06-13 chat \"Trip\"\n  #22 ky: ferry and so\n  #31 notice: zanzibar ferry see you and so\n> #33 notice: The night tram in [Lisbon] and so\n\n4 matches. Search again with other words to find more.",
+      "No message matches nothing here.",
+      "No message matches nothing here.",
+      "No message matches nothing here the last three days.",
+      "No message matches nothing here.",
+      "#7 2026-02-11 chat \"Trip\" ky: [tram] café [über]\n\n1 match. Search again with other words to find more.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: [tram] café [über]\n  #11 user: ferry and so\n\n1 match. Search again with other words to find more.",
+      "No message matches über tram the last three days.",
+      "#7 2026-02-11 chat \"Trip\"\n  #5 notice: The night tram in Lisbon and so\n> #7 ky: [tram] café [über]\n  #11 user: ferry and so\n  #21 ky: and so\n\n1 match. Search again with other words to find more."
+    ],
+    "since": [
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 2,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 4,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 2,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 7,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 7,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 7,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 3,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 3,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 5,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 3,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      },
+      {
+        "lines": [],
+        "dropped": 0,
+        "waiting": 0,
+        "through": 20
+      }
+    ],
+    "sinceAt": [
+      {
+        "lines": [
+          "#25 2026-06-13 main chat, notice: The night tram in Lisbon and so",
+          "#31 2026-06-13 chat \"Trip\", notice: zanzibar ferry see you and so",
+          "#33 2026-06-13 chat \"Trip\", notice: The night tram in Lisbon and so"
+        ],
+        "dropped": 7,
+        "waiting": 0,
+        "through": 7
+      },
+      {
+        "lines": [],
+        "dropped": 10,
+        "waiting": 0,
+        "through": 7
+      }
+    ],
+    "latest": [
+      null,
+      "ferry\nand so",
+      null,
+      null
+    ],
+    "placedBy": [
+      [
+        1,
+        "mail:1"
+      ],
+      [
+        11,
+        "5a810bd0-46f4-43eb-8060-2a379fb357a5"
+      ],
+      [
+        15,
+        "5a810bd0-46f4-43eb-8060-2a379fb357a5"
+      ],
+      [
+        19,
+        "5a810bd0-46f4-43eb-8060-2a379fb357a5"
+      ],
+      [
+        25,
+        "mail:25"
+      ],
+      [
+        31,
+        "mail:31"
+      ]
+    ],
+    "ownMessages": [
+      11,
+      15,
+      19
+    ],
+    "conversations": [
+      {
+        "startedByUser": false,
+        "runOpener": 35,
+        "runOpenerBefore": [
+          null,
+          1,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          23,
+          25,
+          27,
+          27,
+          27,
+          27
+        ],
+        "runInputs": [],
+        "wroteSince": [
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "startedByUser": false,
+        "runOpener": 33,
+        "runOpenerBefore": [
+          null,
+          null,
+          null,
+          null,
+          5,
+          5,
+          5,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          31,
+          33
+        ],
+        "runInputs": [],
+        "wroteSince": [
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "startedByUser": false,
+        "runOpener": 17,
+        "runOpenerBefore": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17
+        ],
+        "runInputs": [
+          {
+            "entry": 17,
+            "request": "5a810bd0-46f4-43eb-8060-2a379fb357a5"
+          }
+        ],
+        "wroteSince": [
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "startedByUser": false,
+        "runOpener": 29,
+        "runOpenerBefore": [
+          null,
+          null,
+          null,
+          3,
+          3,
+          3,
+          9,
+          9,
+          9,
+          15,
+          16,
+          16,
+          19,
+          19,
+          19,
+          19,
+          19,
+          19,
+          29,
+          29,
+          29
+        ],
+        "runInputs": [
+          {
+            "entry": 15,
+            "request": "5a810bd0-46f4-43eb-8060-2a379fb357a5"
+          }
+        ],
+        "wroteSince": [
+          false,
+          false,
+          false
+        ]
+      }
+    ]
+  }
+}

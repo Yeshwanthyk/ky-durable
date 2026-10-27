@@ -17,7 +17,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { MEMORY_WRITE_TOOLS, type Versioned, versionLine } from "../dreaming/contract";
+import { MEMORY_WRITE_TOOLS, type VersionRefusal } from "../dreaming/contract";
+import { versionLine, Versions } from "../dreaming/wiring";
 import { summarize, type TaskFeed } from "../automations/contract";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
@@ -123,9 +124,6 @@ class NoSpecialist extends Schema.TaggedError<NoSpecialist>()("NoSpecialist", { 
   }
 }
 
-/** The brief refused its first version, in Versioned's words: empty, or too long. */
-class BriefRefused extends Schema.TaggedError<BriefRefused>()("BriefRefused", { refusal: Schema.String }) implements Refusable {}
-
 /** A description as stored: trimmed, one line, under the limit. */
 function descriptionOf(text: string | undefined): Effect.Effect<string, BadDescription> {
   const line = (text ?? "").trim();
@@ -133,14 +131,13 @@ function descriptionOf(text: string | undefined): Effect.Effect<string, BadDescr
   return line === "" || line.includes("\n") || line.length > DESCRIPTION_CHARS ? Effect.fail(new BadDescription()) : Effect.succeed(line);
 }
 
-/** Who hears of the roster's changes, and where each brief is kept: the facade (wiring.ts) owns both. */
-type Hooks = { readonly listeners: ReadonlySet<() => void>; readonly brief: (id: string) => Versioned };
+type Hooks = { readonly listeners: ReadonlySet<() => void> };
 
 interface SpecialistRoster {
   readonly list: Effect.Effect<SpecialistRow[]>;
   readonly get: (id: string) => Effect.Effect<SpecialistRow | undefined>;
   /** A new specialist, its brief the first version. */
-  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription | BriefRefused>;
+  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription | VersionRefusal>;
   /** Change a specialist's description, model or machine; its brief changes through the facade's brief(). */
   readonly set: (id: string, draft: SpecialistDraft) => Effect.Effect<string, NoSpecialist | BadDescription>;
   /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
@@ -156,6 +153,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
     Layer.effect(Roster)(
       Effect.gen(function* () {
         const { exec, rows } = yield* storage;
+        const versions = yield* Versions;
 
         for (const table of CREATE) yield* exec(table);
 
@@ -179,11 +177,7 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
 
               if (body === undefined) return yield* Effect.fail(new NoBrief());
               const description = yield* descriptionOf(draft.description);
-              // Versioned refuses by throwing, as at B; its words are the refusal.
-              yield* Effect.try({
-                try: () => hooks.brief(id).apply({ action: "edit", body }, actor, conversation),
-                catch: (cause) => new BriefRefused({ refusal: cause instanceof Error ? cause.message : String(cause) })
-              });
+              yield* versions.apply({ key: `specialist:${id}`, label: `@${id}'s brief`, listeners: hooks.listeners }, { action: "edit", body }, actor, conversation);
               const now = yield* Clock.currentTimeMillis;
               yield* exec(
                 `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,

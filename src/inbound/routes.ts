@@ -1,17 +1,10 @@
-import Type, { type Static, type TSchema } from "typebox";
-import { parseOr } from "../core/decode";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { badInfo, type Credential, HTTP_KIND, MAX_VALUE_CHARS, MIN_VALUE_CHARS } from "./credentials";
 import { type HookDelivery, type Hook, HOOK_ID, type Received } from "./inbound";
 
-/**
- * Inbound's routes. `/hooks/<id>/<token>` is open to anyone, as the one path under `/hooks/` in Access's BYPASS
- * (src/access.ts): a webhook's sender has no sign-in, only the URL. `/api/inbound/*` is the signed-in user's, for
- * Settings › Webhooks and the chat's cards: hooks, and credentials.
- */
-
 const HOOKS_PATH = "/hooks/";
 
-/** The most a post to a hook may carry. */
 export const MAX_HOOK_BYTES = 256 * 1024;
 
 const HOOK_URL = /^\/hooks\/([0-9a-f]{32})\/([0-9a-f]{64})$/;
@@ -26,15 +19,10 @@ const tooLarge = () => new Response(`A post to a hook is at most ${MAX_HOOK_BYTE
 
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-/** A post to a hook; undefined for a path outside `/hooks/`. */
 export function hookRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
   return url.pathname.startsWith(HOOKS_PATH) ? posted(request, env, url) : undefined;
 }
 
-/**
- * Limited per address by HOOK_LIMIT, since the route is open to anyone; a token is 256 random bits, so the limit is
- * against floods, not guessing. A wrong id or token is a 404 like any missing page, so a guess learns nothing.
- */
 async function posted(request: Request, env: Env, url: URL): Promise<Response> {
   const hook = await admitted(request, env, url);
 
@@ -51,7 +39,6 @@ async function posted(request: Request, env: Env, url: URL): Promise<Response> {
   return RECEIVED[await agent(env).hookReceived(hook.id, deliveryOf(request, url, body, signature))]();
 }
 
-/** The hook a post is for, once it is under the limit, addressed right, and its token the hook's; or why not. */
 async function admitted(request: Request, env: Env, url: URL): Promise<Hook | Response> {
   const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
 
@@ -66,7 +53,6 @@ async function admitted(request: Request, env: Env, url: URL): Promise<Hook | Re
   return (await agent(env).inboundHook(addressee.id)) ?? notFound();
 }
 
-/** The id and token a post names, once it is a POST small enough by what it says; or why not. */
 function addressed(request: Request, url: URL): { id: string; token: string } | Response {
   const [, id, token] = HOOK_URL.exec(url.pathname) ?? [];
 
@@ -74,14 +60,11 @@ function addressed(request: Request, url: URL): { id: string; token: string } | 
 
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
 
-  // What the sender says first, then what it sends: Content-Length can be left out, or wrong.
   return Number(request.headers.get("Content-Length") ?? 0) > MAX_HOOK_BYTES ? tooLarge() : { id, token };
 }
 
-/** A header's value, cut to a label's length; null when it isn't sent. */
 const label = (request: Request, name: string) => request.headers.get(name)?.slice(0, 80) ?? null;
 
-/** The headers a sender names each delivery by, sent again with a redelivery: GitHub's, GitLab's, and Standard Webhooks'. */
 const DELIVERY_HEADERS = ["X-GitHub-Delivery", "X-Gitlab-Event-UUID", "Webhook-Id"];
 
 function deliveryOf(request: Request, url: URL, body: string, signature: string | null): HookDelivery {
@@ -94,14 +77,12 @@ function deliveryOf(request: Request, url: URL, body: string, signature: string 
   };
 }
 
-/** What the sender hears of a post the agent got. */
 const RECEIVED: Readonly<Record<Received, () => Response>> = {
   accepted: () => Response.json({ accepted: true }, { status: 202 }),
   replay: () => new Response("This delivery was already received.", { status: 409 }),
   gone: notFound
 };
 
-/** The body as text, or null once it passes `max` bytes, read no further. */
 async function capped(body: ReadableStream<unknown> | null, max: number): Promise<string | null> {
   if (body === null) return "";
 
@@ -138,12 +119,9 @@ async function capped(body: ReadableStream<unknown> | null, max: number): Promis
   return new TextDecoder().decode(bytes);
 }
 
-// --- The signed-in user's: Settings › Webhooks, and the chat's cards ---
-
 type Route = {
   readonly method: string;
   readonly path: RegExp;
-  /** `param` is the path's one group, when it has one: a hook's id, or a credential's name. */
   readonly run: (request: Request, env: Env, url: URL, param: string) => Promise<Response>;
 };
 
@@ -158,7 +136,6 @@ const ROUTES: readonly Route[] = [
   { method: "GET", path: /^\/api\/inbound\/asks$/, run: (_request, env, url) => asks(env, url) }
 ];
 
-/** `/api/inbound/*`, behind Access; undefined for any other path. */
 export function inboundRoute(request: Request, env: Env, url: URL): Promise<Response> | undefined {
   if (!url.pathname.startsWith("/api/inbound/")) return undefined;
 
@@ -174,27 +151,22 @@ const notAllowed = () => Promise.resolve(new Response("Method not allowed", { st
 
 const refused = (text: string, status = 400) => new Response(text, { status });
 
-const AddHookBody = Type.Object({ session: Type.String(), label: Type.Optional(Type.String()), signed: Type.Optional(Type.Boolean()) });
+const addHookBodyOf = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ session: Schema.String, label: Schema.optionalKey(Schema.String), signed: Schema.optionalKey(Schema.Boolean) }))
+);
 
-const SaveSecretBody = Type.Object({ session: Type.String(), name: Type.String(), value: Type.String() });
-
-/** The request's JSON body as `schema` says, or null for any other body. */
-async function bodyOf<Schema extends TSchema>(request: Request, schema: Schema): Promise<Static<Schema> | null> {
-  return parseOr(schema, await request.text(), null);
-}
+const saveSecretBodyOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ session: Schema.String, name: Schema.String, value: Schema.String })));
 
 async function listHooks(env: Env): Promise<Response> {
   return Response.json(await agent(env).inboundHooks());
 }
 
-/** A hook for a chat: its URL, and its signing secret if it is signed, shown this once. */
 async function addHook(request: Request, env: Env, url: URL): Promise<Response> {
-  const body = await bodyOf(request, AddHookBody);
+  const body = Option.getOrNull(addHookBodyOf(await request.text()));
 
   if (body === null) return refused("Send { session, label, signed }.");
 
   const id = hex(16);
-  // In the Vault before the hook is kept: a signed hook is never there without its secret.
   const signing = body.signed === true ? await newSigning(env, id) : null;
   const added = await agent(env).addHook(id, body.session, body.label ?? "", signing !== null);
 
@@ -207,7 +179,6 @@ async function addHook(request: Request, env: Env, url: URL): Promise<Response> 
   return Response.json({ hook: added, url: await hookUrl(env, url, id), signing });
 }
 
-/** A signing secret for hook `id`, kept in the Vault in place of any it had. */
 async function newSigning(env: Env, id: string): Promise<string> {
   const signing = hex(32);
 
@@ -216,10 +187,6 @@ async function newSigning(env: Env, id: string): Promise<string> {
   return signing;
 }
 
-/**
- * A new token for the hook, and a new signing secret if it is signed: the old URL and secret stop working, and a signed
- * hook whose secret was lost (a restore brings no Vault) works again.
- */
 async function rotate(env: Env, url: URL, id: string): Promise<Response> {
   const hook = await agent(env).inboundHook(id);
 
@@ -248,12 +215,8 @@ async function listSecrets(env: Env): Promise<Response> {
   return Response.json({ secrets });
 }
 
-/**
- * What the user typed into a chat's masked field, for an ask still open there: into the Vault, and only the Vault.
- * The agent hears that it was saved, never what.
- */
 async function saveSecret(request: Request, env: Env): Promise<Response> {
-  const body = await bodyOf(request, SaveSecretBody);
+  const body = Option.getOrNull(saveSecretBodyOf(await request.text()));
 
   if (body === null) return refused("Send { session, name, value }.");
 
@@ -281,7 +244,6 @@ async function removeSecret(env: Env, name: string): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
-/** The credentials ky is asking for in a chat, which it shows a masked field for. */
 async function asks(env: Env, url: URL): Promise<Response> {
   const session = url.searchParams.get("session");
 

@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..444ee6f 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -213,7 +213,7 @@ export class Box extends Context.Service<
+           return row;
+         }),
+         release: (id, state) => Effect.map(rows(MailRow, `UPDATE ${MAIL} SET state = ? WHERE id = ? AND state = 'held' RETURNING ${COLUMNS}`, state, id), ([row]) => row),
+-        sent: (id, messageId) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'sent', message_id = ?, note = '' WHERE id = ?`, idOf(messageId), id)),
++        sent: (id, messageId) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'sent', message_id = ?, note = '' WHERE id = ?`, messageId, id)),
+         failed: (id, why) => Effect.asVoid(exec(`UPDATE ${MAIL} SET state = 'failed', note = ? WHERE id = ?`, why, id)),
+         sentSince: (since) => count(`SELECT COUNT(*) AS n FROM ${MAIL} WHERE direction = 'out' AND state IN ('sending', 'sent') AND at > ?`, since),
+         allowed: Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} ORDER BY address`), (found) => found.map((row) => row.address)),

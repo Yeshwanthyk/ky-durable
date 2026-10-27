@@ -1,0 +1,184 @@
+{
+  "at": "effect-baseline b658a6e",
+  "now": 1767304800777,
+  "again": {
+    "endpoint": "https://fcm.test/send/b",
+    "p256dh": "BJ56k6WQIj3M7Q-mCoZ8QvAAIR8QfczTMHU6AybS-4RZTmHhg1weBDmwpIpNakzZW8aLE5WOiJfCx11V9msNXoQ",
+    "auth": "_kx0Pegx5_cG8EM15kThnA"
+  },
+  "schema": [
+    "CREATE TABLE ky_push_devices (\n      endpoint TEXT PRIMARY KEY,\n      p256dh TEXT NOT NULL,\n      auth TEXT NOT NULL,\n      created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_push_sent (day TEXT PRIMARY KEY, sent INTEGER NOT NULL)"
+  ],
+  "tables": {
+    "ky_push_devices": [
+      {
+        "endpoint": "https://fcm.test/send/a",
+        "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+        "auth": "PIsWwbWNkduLf470kSS6LA",
+        "created_at": 1767286801234
+      },
+      {
+        "endpoint": "https://fcm.test/send/b",
+        "p256dh": "BC9TrDrDjaNqupk8n4L1R5Jp8_RDU18mNInAy5zFSqvC3GgcdCkNLGHfMIpqy-Xall6zXnBV2WMb1o5D-rnJuzM",
+        "auth": "IbKf-gdFvGh9xHVDsz9D6A",
+        "created_at": 1767290401234
+      },
+      {
+        "endpoint": "https://fcm.test/send/c",
+        "p256dh": "BP7YJUlS2uaeExKCZDhgcCKyeDYnTZ8NnAKeWMpm__iCiKrb-ZdAyvwMrYP8L2VarJXe1KrXIaRzK8Nb-VHdKKI",
+        "auth": "Et0sK49tS5czXO_6yDVlSA",
+        "created_at": 1767294001234
+      }
+    ],
+    "ky_push_sent": [
+      {
+        "day": "2026-01-01",
+        "sent": 2
+      }
+    ]
+  },
+  "reads": {
+    "rounds": [
+      {
+        "tried": [
+          "https://fcm.test/send/a",
+          "https://fcm.test/send/b",
+          "https://fcm.test/send/c"
+        ],
+        "rows": [
+          [
+            {
+              "endpoint": "https://fcm.test/send/a",
+              "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+              "auth": "PIsWwbWNkduLf470kSS6LA",
+              "created_at": 1767286801234
+            },
+            {
+              "endpoint": "https://fcm.test/send/b",
+              "p256dh": "BC9TrDrDjaNqupk8n4L1R5Jp8_RDU18mNInAy5zFSqvC3GgcdCkNLGHfMIpqy-Xall6zXnBV2WMb1o5D-rnJuzM",
+              "auth": "IbKf-gdFvGh9xHVDsz9D6A",
+              "created_at": 1767290401234
+            },
+            {
+              "endpoint": "https://fcm.test/send/c",
+              "p256dh": "BP7YJUlS2uaeExKCZDhgcCKyeDYnTZ8NnAKeWMpm__iCiKrb-ZdAyvwMrYP8L2VarJXe1KrXIaRzK8Nb-VHdKKI",
+              "auth": "Et0sK49tS5czXO_6yDVlSA",
+              "created_at": 1767294001234
+            }
+          ],
+          [
+            {
+              "day": "2026-01-01",
+              "sent": 3
+            }
+          ]
+        ]
+      },
+      {
+        "tried": [
+          "https://fcm.test/send/a",
+          "https://fcm.test/send/b",
+          "https://fcm.test/send/c"
+        ],
+        "rows": [
+          [
+            {
+              "endpoint": "https://fcm.test/send/a",
+              "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+              "auth": "PIsWwbWNkduLf470kSS6LA",
+              "created_at": 1767286801234
+            },
+            {
+              "endpoint": "https://fcm.test/send/c",
+              "p256dh": "BP7YJUlS2uaeExKCZDhgcCKyeDYnTZ8NnAKeWMpm__iCiKrb-ZdAyvwMrYP8L2VarJXe1KrXIaRzK8Nb-VHdKKI",
+              "auth": "Et0sK49tS5czXO_6yDVlSA",
+              "created_at": 1767294001234
+            }
+          ],
+          [
+            {
+              "day": "2026-01-01",
+              "sent": 4
+            }
+          ]
+        ]
+      },
+      {
+        "tried": [
+          "https://fcm.test/send/a",
+          "https://fcm.test/send/c"
+        ],
+        "rows": [
+          [
+            {
+              "endpoint": "https://fcm.test/send/a",
+              "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+              "auth": "PIsWwbWNkduLf470kSS6LA",
+              "created_at": 1767286801234
+            },
+            {
+              "endpoint": "https://fcm.test/send/c",
+              "p256dh": "BP7YJUlS2uaeExKCZDhgcCKyeDYnTZ8NnAKeWMpm__iCiKrb-ZdAyvwMrYP8L2VarJXe1KrXIaRzK8Nb-VHdKKI",
+              "auth": "Et0sK49tS5czXO_6yDVlSA",
+              "created_at": 1767294001234
+            }
+          ],
+          [
+            {
+              "day": "2026-01-01",
+              "sent": 5
+            }
+          ]
+        ]
+      },
+      {
+        "tried": [],
+        "rows": [
+          [
+            {
+              "endpoint": "https://fcm.test/send/a",
+              "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+              "auth": "PIsWwbWNkduLf470kSS6LA",
+              "created_at": 1767286801234
+            },
+            {
+              "endpoint": "https://fcm.test/send/c",
+              "p256dh": "BP7YJUlS2uaeExKCZDhgcCKyeDYnTZ8NnAKeWMpm__iCiKrb-ZdAyvwMrYP8L2VarJXe1KrXIaRzK8Nb-VHdKKI",
+              "auth": "Et0sK49tS5czXO_6yDVlSA",
+              "created_at": 1767294001234
+            }
+          ],
+          [
+            {
+              "day": "2026-01-01",
+              "sent": 5
+            }
+          ]
+        ]
+      }
+    ],
+    "after": [
+      [
+        {
+          "endpoint": "https://fcm.test/send/a",
+          "p256dh": "BBnSpryFSAe0AaSwnqPfj8PVZYSLljX6JVW1Gomg7xg1y1L0KwJt5bI1wKAP9GPjZ-mRpy8Glse1hD-IPDOz45k",
+          "auth": "PIsWwbWNkduLf470kSS6LA",
+          "created_at": 1767286801234
+        },
+        {
+          "endpoint": "https://fcm.test/send/b",
+          "p256dh": "BJ56k6WQIj3M7Q-mCoZ8QvAAIR8QfczTMHU6AybS-4RZTmHhg1weBDmwpIpNakzZW8aLE5WOiJfCx11V9msNXoQ",
+          "auth": "_kx0Pegx5_cG8EM15kThnA",
+          "created_at": 1767304800777
+        }
+      ],
+      [
+        {
+          "day": "2026-01-01",
+          "sent": 5
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index a8eeee8..e11d3fe 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -83,7 +83,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+               now,
+               now,
+               opener?.by ?? null,
+-              opener?.request ?? null
++              null
+             );
+           }),
+         openedFor: (request) => Effect.map(first(SessionOf, `SELECT session FROM ${CHAT_TABLES.chats} WHERE opened_request = ?`, request), (row) => row?.session),

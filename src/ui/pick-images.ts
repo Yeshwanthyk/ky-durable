@@ -1,5 +1,5 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { IMAGE_TYPES, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, MAX_IMAGES } from "../images";
+import { IMAGE_TYPES, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, MAX_IMAGES } from "../files/media";
 
 /** An image picked in the composer, ready to send. */
 export type PendingImage = ImageContent & {

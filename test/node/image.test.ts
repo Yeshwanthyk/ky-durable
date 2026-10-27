@@ -16,7 +16,7 @@ describe("container/image.inputs", () => {
     // The runner and what it imports; none of the commands the cloud machine never runs.
     expect(graph).toEqual(expect.arrayContaining(["cli/binary.ts", "cli/runner/cloud.ts", "cli/runner/forward.ts", "cli/runner/share.ts", "src/machines/runner-protocol.ts"]));
 
-    for (const never of ["cli/init.ts", "cli/backup.ts", "cli/deploy/deployer.ts", "cli/commands.ts", "cli/cloudflare.ts", "cli/image.ts", "src/access.ts"]) expect(graph).not.toContain(never);
+    for (const never of ["cli/init.ts", "cli/backup.ts", "cli/deploy/deployer.ts", "cli/commands.ts", "cli/cloudflare.ts", "cli/image.ts", "src/access/contract.ts"]) expect(graph).not.toContain(never);
   }, 30_000);
 
   it("is caught when the code and the list drift apart", () => {
@@ -72,7 +72,7 @@ describe("whether the pinned image is current", () => {
       expect(await imageCurrent("base", commit, clone, inputs)).toEqual({ current: true });
       expect(await imageCurrent("base", commit, clone, BEFORE)).toMatchObject({ current: false, changed: ["cli/init.ts"] });
 
-      for (const file of ["cli/backup.ts", "cli/deploy/deployer.ts", "src/access.ts"]) expect(await imageCurrent("base", await touching(file), clone, inputs)).toEqual({ current: true });
+      for (const file of ["cli/backup.ts", "cli/deploy/deployer.ts", "src/access/access.ts"]) expect(await imageCurrent("base", await touching(file), clone, inputs)).toEqual({ current: true });
     });
 
     it("says stale for a change to the runner", async () => {

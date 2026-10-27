@@ -1,0 +1,12 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index b1b509a..4cb8760 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -233,7 +233,6 @@ function runStep(page: Page, step: Step): Effect.Effect<void, Failed> {
+ 
+   const selector = step.selector;
+ 
+-  if (!selector) return Effect.fail(new Failed({ said: "needs a selector" }));
+ 
+   return Effect.tryPromise({
+     try: () => {

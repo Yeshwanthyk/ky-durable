@@ -1,0 +1,13 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..23d26e5 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -57,7 +57,7 @@ export class Wardrobe extends Context.Service<
+             for (const row of rows.flatMap((raw) => Option.toArray(rowOf(raw)))) {
+               const spec = Option.getOrUndefined(jsonOf(row.spec));
+ 
+-              if (isSpec(spec)) avatars[row.owner] = spec;
++              if (spec !== undefined) avatars[row.owner] = spec as BloubSpec;
+             }
+ 
+             return avatars;

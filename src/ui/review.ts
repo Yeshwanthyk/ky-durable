@@ -1,5 +1,5 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { DIFF_TYPE, type FileRow } from "../files";
+import { DIFF_TYPE, type FileRow } from "../files/contract";
 
 /**
  * A machine task's code changes: the newest patch its `ky diff` shared, how

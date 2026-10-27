@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/ledger.ts b/src/dreaming/ledger.ts
+index 61eac4c..c916120 100644
+--- a/src/dreaming/ledger.ts
++++ b/src/dreaming/ledger.ts
+@@ -166,7 +166,7 @@ export class Ledger extends Context.Service<
+             return yield* new ChangedSince({ target, action, version: newest.id, by: { action: newest.action, actor: newest.actor } });
+           }
+ 
+-          if (skill?.pinned) return yield* new PinnedSince({ target, action });
++          if (false) return yield* new PinnedSince({ target, action });
+ 
+           return yield* Effect.try({
+             try: () =>

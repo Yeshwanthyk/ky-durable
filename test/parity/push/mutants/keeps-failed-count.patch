@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..7b2a2e8 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -152,7 +152,7 @@ export class Push extends Context.Service<
+             const payload = payloadOf(parts.title(session), session, text);
+             const took = yield* Effect.forEach(devices, (device) => send(device, payload), { concurrency: "unbounded" });
+ 
+-            if (!took.includes(true)) yield* exec(`UPDATE ${SENT} SET sent = sent - 1 WHERE day = ?`, day);
++            if (took.length < 0) yield* exec(`UPDATE ${SENT} SET sent = sent - 1 WHERE day = ?`, day);
+           })
+         });
+       })

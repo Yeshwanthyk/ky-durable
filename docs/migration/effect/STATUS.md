@@ -1,7 +1,15 @@
 # ky → Effect v4: status
 
-The checkpoint for the migration. One writer: the chief-of-staff thread on `effect/foundation`. Each
+The checkpoint for the migration. One writer: the chief-of-staff thread, on a branch cut from `main`
+(`effect/next-wave` from 0af806a; `effect/foundation` is retired, its history squashed into main). Each
 later wave starts only on the owner's plain "go".
+
+## Shipped (2026-10-26)
+
+Waves 1 and 2 (deploy, automations, skills) are squash-merged to main as 0af806a (#177). deploy.yml
+deployed it to squarey; `ky doctor squarey` reports all good: Release 0af806a, migrations v3, cloud machine
+on the newest release's image. Still on B's code: dreaming, peers, machines, approvals, inbound, and the
+flat `src/*.ts` modules. Next: discovery of Wave 3 (a read-only scout per candidate), then the owner picks.
 
 **Baseline B** = `origin/main` b658a6e, tagged locally `effect-baseline`. Every domain is measured
 against B, never against the PR before it.
@@ -25,6 +33,61 @@ against B, never against the PR before it.
 | U3b | Skills: Fable fixes 1, 3, 4 (stale-sweep property sees `last_used_at`, an independent answers oracle, one storage helper); port `specialists.ts` and `subagents.ts` with their exported API unchanged | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3b-skills` (from foundation) | merged into foundation (3a56ffa, a54b924): fixes 1, 3, 4; specialists ported (Roster over Sql, facade API unchanged, server.ts passes storage); subagents keep no DO storage; 1 divergence (corrupt specialist wording); Fable 5.1 review: 6 findings, nothing serious; 2, 5, 6 recorded, 1, 3, 4 go to U3c | on foundation: `prove.sh skills --runs 500 --seed 20261025`: 112 held, 0 lost; 9/9 mutants; automations still 159 held, 4/4; `pnpm check` 0 (227); U3b: web 7, harness skills and skill-review; real-data on squarey at 3a56ffa: HEAD = B (47 skills, 16 routines; only the 2 runtime tables lost on both) |
 | U3c | Skills: Fable specialists fixes 1 (an empty brief is a typed refusal), 3 (descriptionOf refusals and a mutant), 4 (created_at from Clock asserted, a mutant) | `mcp:668d9e4a-78b7-4945-b25e-cbf5d8e98a21` | `effect/u3c-skills` (from foundation 2964e88) | done, merged into foundation (f98761a, ad0382e): BriefRefused in create's E; refusal and Clock-time properties; 3 mutants | on foundation: `prove.sh skills --runs 500 --seed 20261025`: 112 held, 0 lost; 12/12 mutants; `pnpm check` 0 (230) |
 | W2-K | Kit: a mutant run no longer overwrites `proof.json`; `fc.commands` size large (U3's note) | chief of staff | `effect/foundation` | done (77132f0) | `prove.sh deploy --runs 500 --seed 20261025`: 69 held; 500 runs; 6/6 mutants, evidence kept |
+| W3-A | Dreaming core: Versioned, Soul, ledger, skills couplings | `mcp:8d5dbe6d-d482-4a42-a67f-dc4b57d1211e` | `effect/w3-dreaming-core` (from `effect/next-wave`) | merged (2042245) | 500 runs, 21/21 mutants |
+| W3-B | Approvals, then inbound | `mcp:36b5de4e-3a55-417a-b796-2ecaad528290` | `effect/w3-approvals-flip` → merged 530c682; inbound on `effect/w3-approvals-inbound` | approvals done (498ee44); inbound in flight | `prove.sh approvals --runs 500 --seed 20261025`: 0 lost, 6/6 mutants; Fable review fixed (carried guard property); 43/43 src/tests, 4/4 web, visual 0/8 |
+| W3-C | Machines | `mcp:0bc81c72-2230-4afa-95a3-159a58a4b3ad` | `effect/w3-machines` (from `effect/next-wave`) | merged (d7823df) | 500 runs, 27/27 mutants |
+| W3-D | Cleanup of deploy, automations, skills (comments, dead code, tests through the ledger) | `mcp:4ea9e764-7b4b-470f-9413-1ee26dee7332` | `effect/cleanup-shipped` (from `effect/next-wave`) | dispatched | — |
+
+## Release 2 (2026-10-27)
+
+next-wave carries foundation (settings, transcript), access, sites, browse, cards, push, chats, files, mail
+and executor on top of Wave 3's approvals, inbound and machines; every one flipped, no `legacy/` left.
+Squarey's backup (squarey-20261025T164300Z) comes up on it as at B (real-data.ts). Divergences:
+divergences/settings.md. Boundaries hold browse, cards, mail and executor; chats and files still take
+inner modules from outside, push from vault (Wave 7). Avatars, history, memory, anticipations, runners and
+providers ship in the next release.
+
+## Waves 4–5 dispatched (2026-10-26)
+
+Owner: Wave 5 all in parallel. Wave 5 started alongside Wave 4: only images (settings), history (transcript) and push (dreaming/contract) touch Wave 4 or in-flight code, as import lines. Shared brief: WRITER-BRIEF.md. Cleanup merged d58c766; inbound merged (3b0eeb4) after Fable review, fix round and flip. Both worktrees removed. 07:42–12:00 UTC: every writer paused on the account's 5-hour usage limit; resumed after the reset. Census knows the Wave 4–5 domains (f2d716c).
+
+| Unit | Thread | Branch | State |
+|---|---|---|---|
+| W4 foundation | `mcp:17744dbe-5fd3-48dc-9876-7807570ca9ca` | `effect/w4-foundation` | merged into next-wave, flipped, 500 runs |
+| W5 files | `mcp:f3655a92-8e5e-41cb-8fb8-6cd2b662f59c` | `effect/w5-files` | merged into next-wave, flipped, 500 runs |
+| W5 chats | `mcp:ac365f6d-f379-4337-9c4b-524587ed6218` | `effect/w5-chats` | merged into next-wave, flipped, 500 runs |
+| W5 mail | `mcp:3dda23a3-a07d-46f5-9b01-d254332a90cc` | `effect/w5-mail` | merged into next-wave, flipped, 500 runs |
+| W5 sites | `mcp:f8d045e0-d875-4637-b2e4-1045c1baf1a0` | `effect/w5-sites` | merged into next-wave, flipped, 500 runs |
+| W5 browse | `mcp:1e50bc0c-4175-4fa8-ad46-2fdb53c24e60` | `effect/w5-browse` | merged into next-wave, flipped, 500 runs |
+| W5 access | `mcp:33eed12e-2acd-4330-ba93-380174f99ac8` | `effect/w5-access` | merged into next-wave, flipped, 500 runs |
+| W5 avatars | `mcp:68476470-5968-49f3-87b2-5a0c4410ee84` | `effect/w5-avatars` | dispatched |
+| W5 history | `mcp:c051a13a-8282-4868-b972-ffc176946064` | `effect/w5-history` | dispatched |
+| W5 push | `mcp:1556d2cc-2638-4593-a9b8-7769b7f91d2d` | `effect/w5-push` | merged into next-wave, flipped, 500 runs |
+| W5 cards | `mcp:be10a1ef-3a1e-4883-ac69-f3fd96bdf74a` | `effect/w5-cards` | merged into next-wave, flipped, 500 runs |
+| W6 executor | `mcp:7fd6636f-cc02-4a35-95ad-f60035444a71` | `effect/w6-executor` | merged into next-wave, flipped, 500 runs |
+| W4 memory | `mcp:6ccb6021-8490-431c-947c-542b22e3fa89` | `effect/w4-memory` | dispatched |
+| W4 anticipations | `mcp:dc80ea39-71d5-4083-97e6-7ecb994d4492` | `effect/w4-anticipations` | dispatched |
+| W6 runners | `mcp:444e4604-6589-470c-9a18-f8b548ec142b` | `effect/w6-runners` | dispatched |
+| W6 providers | `mcp:b52fd2bf-f444-4127-9c57-344d63b34133` | `effect/w6-providers` | dispatched |
+
+## Waves 4–8 (Fable 5.1 grouping of the flat `src/*.ts`, 2026-10-26)
+
+No flat file is dead. Five fold into a neighbour: cloud-facts → machines/contract, media-upload → media, file-types → files, executor-status → executor/contract, tables.ts → backup.
+
+| Wave | Domains (one writer each unless noted) | Waits on |
+|---|---|---|
+| 4 | foundation (one writer): settings (settings.ts), transcript.ts → core, pipe.ts + cloud-facts.ts → machines/; the rest of dreaming | machines merged; dreaming core merged |
+| 5 | files (files, file-types, container-tracks, media, media-upload, images) · chats (chats, chats-tool, titles) · mail · sites (sites, site-routes, embed-theme) · browse · access · avatars + setup (avatars, avatar-spec, setup, seeds, prompt) · history · push · cards (ui-blocks, ui-tool) | Wave 4 |
+| 6 | machines rest (sandboxes, runners) · executor (executor, executor-status) · workspace (workspace, guardrails) · providers (models, chatgpt) | files; history; settings + pipe |
+| 7 | vault (vault, github + github-tools merged, subscriptions) · cloud (cloud, uploads, sandbox-routes) · peers | executor, push, providers; machines rest |
+| 8 | backup (backup, archive, tables), then server.ts / sockets.ts split and protocol.ts consolidation (one writer) | every contract final |
+
+Rules for these waves:
+- protocol.ts: a writer adds one `export * from "./<domain>/contract"` line and nothing else; the COS merges.
+- Break cycles in the port that touches them: vault↔executor (a narrow type in executor/contract), github↔github-tools (merge), protocol↔client-messages (merge into protocol).
+- machines/contract.ts stops re-exporting DIFF_TYPE / MAX_DIFF_BYTES from files.ts; files/contract owns them (Wave 5 files).
+- server.ts:900-901 writes automations' tables directly; moves to automations wiring in Wave 8.
+- Shared schemas (protocol, client-messages, view, tool-labels, step-labels, server-frames) and the browser files (client.tsx, use-pi-session, asks, view-cache, outbox) are not domains; they change only as their domains need.
 
 ## Resumed (2026-10-25)
 
@@ -69,6 +132,14 @@ Owner: Wave 2 go, U2 and U3 in parallel; the four stale worktrees removed (branc
 | Screenshot diff integrated | done: `pnpm visual` / `visual:capture` / `visual:diff`; threshold 0.0001; B vs HEAD 0 on 8 pages from foundation; `pnpm check` red only on B's 9 | `test/visual/`; `fallow/health.json` |
 
 ## Decisions
+
+- Owner, 2026-10-26: the move is also a cleanup. Ported code carries no comments; dead legacy code goes with the port; Effect patterns come from `vendor/effect`; tests census marks MOCK, SCAN, SLEEP, COPY or UNIT, or that an invariant or the parity runs already prove, are deleted through the prune ledger. Writers may change server.ts only by a separate constructor-only commit the COS takes or drops.
+
+- **Owner, 2026-10-26:** more in parallel: machines (W3-C) and the cleanup of the shipped domains (W3-D) join Wave 3; a read-only Fable 5.1 pass groups the flat `src/*.ts` files into domains and waves; each domain merges into `effect/next-wave` as soon as it passes, not at the end of its wave. Models: Haiku 5.5 for small things, Fable 5.1 for the most important work and gaps (no Astra), Opus 5.5 for everything else.
+
+- **Owner, 2026-10-26:** Wave 3 is the dreaming core (Versioned, Soul, ledger, and the two couplings in skills)
+  and approvals then inbound, two writers in parallel. Peers and the rest of dreaming wait for Wave 4; machines
+  (slim plan shipped, #94 to #111) and the flat modules later. Discovery: six Haiku scouts, one per candidate.
 
 - **Owner, 2026-10-25:** Effect may ship to the browser: the UI enters a domain through its contract, even when that pulls in Effect Schema (about 70 KB gzip for automations' contract alone, Fable's measure).
 

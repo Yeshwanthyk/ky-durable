@@ -1,5 +1,4 @@
-import { decodeOr, parseOr } from "../core/decode";
-import { type CardAnswer, type UiBlock, UiBlockSchema, type UiCard, UiCardShown } from "../ui-blocks";
+import { type CardAnswer, cardOf, type UiBlock, type UiCard } from "../cards/contract";
 import type { Tool } from "./conversation";
 
 /**
@@ -21,14 +20,7 @@ export type Question = Choice | Input;
 export type Value = readonly string[];
 
 /** The card a ui call showed, from its arguments, each block checked on its own; arguments that do not read yet show none. */
-export function card(tool: Tool): UiCard | null {
-  const shown = parseOr(UiCardShown, tool.input, null);
-
-  if (shown === null) return null;
-  const blocks = shown.blocks.flatMap((block) => decodeOr(UiBlockSchema, block, []));
-
-  return blocks.length > 0 ? { ...shown, blocks } : null;
-}
+export const card = (tool: Tool): UiCard | null => cardOf(tool.input);
 
 /** The keys that pick a choice's options, in order; a choice has at most this many. */
 export const LETTERS = "ABCDEFGHIJKL";

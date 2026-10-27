@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..8dd2b94 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -509,8 +509,7 @@ const make = Effect.gen(function* () {
+           }
+         }
+ 
+-        yield* exec("DELETE FROM ky_machine_reports WHERE task = ? AND turn = ? AND session = ?", report.task, report.turn, report.session);
+-      }
++              }
+     });
+ 
+   const finish = (id: string, outcome: TaskOutcome, text: string, turn: number) =>

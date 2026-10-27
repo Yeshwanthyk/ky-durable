@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..13ee703 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -322,7 +322,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
+ 
+   const now = yield* Clock.currentTimeMillis;
+ 
+-  if ((yield* box.sentSince(now - DAY)) > limits.dailySends) {
++  if ((yield* box.sentSince(now - DAY)) > limits.dailySends + 1) {
+     yield* box.failed(row.id, `ky sends at most ${limits.dailySends} mails a day.`);
+ 
+     return yield* new DailyCap({ dailySends: limits.dailySends });

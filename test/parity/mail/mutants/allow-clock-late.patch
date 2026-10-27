@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..66b6d3c 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -220,7 +220,7 @@ export class Box extends Context.Service<
+         isAllowed: (address) => Effect.map(rows(AllowedRow, `SELECT address, at FROM ${ALLOWED} WHERE address = ?`, address), (found) => found.length > 0),
+         allow: Effect.fnUntraced(function* (address) {
+           const now = yield* Clock.currentTimeMillis;
+-          yield* exec(`INSERT INTO ${ALLOWED} (address, at) VALUES (?, ?) ON CONFLICT (address) DO NOTHING`, address, now);
++          yield* exec(`INSERT INTO ${ALLOWED} (address, at) VALUES (?, ?) ON CONFLICT (address) DO NOTHING`, address, now + 1);
+         }),
+         disallow: (address) => Effect.map(rows(AllowedRow, `DELETE FROM ${ALLOWED} WHERE address = ? RETURNING address, at`, address), (found) => found.length > 0),
+         expect: (session, sender, until) =>

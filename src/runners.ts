@@ -1,5 +1,5 @@
-import { uploadedType } from "./file-types";
-import { upload } from "./files";
+import { uploadedType } from "./files/files";
+import { upload } from "./files/wiring";
 import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./machines/contract";
 
 /**

@@ -1,0 +1,146 @@
+{
+  "at": "effect-baseline b658a6e",
+  "now": 1767225729800,
+  "schema": [
+    "CREATE TABLE ky_avatars (owner TEXT PRIMARY KEY, spec TEXT NOT NULL)",
+    "CREATE TABLE ky_setup (\n      key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+  ],
+  "tables": {
+    "ky_avatars": [
+      {
+        "owner": "ky",
+        "spec": "{\"body\":{\"w\":112,\"h\":104,\"corner\":30,\"color\":\"#f0393c\"},\"eyes\":{\"count\":1,\"size\":30},\"top\":{\"kind\":\"antenna\",\"color\":\"#ffc93c\"},\"cheeks\":true,\"feet\":true,\"name\":\"Squarey\"}"
+      },
+      {
+        "owner": "pip",
+        "spec": "{\"body\":{\"w\":124,\"h\":108,\"corner\":54,\"color\":\"#3d8bff\"},\"eyes\":{\"count\":2,\"size\":15},\"top\":{\"kind\":\"leaf\",\"color\":\"#3cc46a\"},\"cheeks\":true,\"feet\":true,\"name\":\"Pip\"}"
+      },
+      {
+        "owner": "tok",
+        "spec": "{\"body\":{\"w\":88,\"h\":120,\"corner\":30,\"color\":\"#8a5cf6\"},\"eyes\":{\"count\":1,\"size\":24},\"top\":{\"kind\":\"none\"},\"cheeks\":false,\"feet\":true,\"name\":\"Tok\"}"
+      },
+      {
+        "owner": "fern",
+        "spec": "{\"name\":\"Fern\",\"body\":{\"w\":112,\"h\":100,\"corner\":40,\"color\":\"#22b8a6\"},\"eyes\":{\"count\":2,\"size\":16},\"top\":{\"kind\":\"antenna\",\"color\":\"#ff7ab8\"},\"cheeks\":true,\"feet\":true,\"extra\":{\"kept\":true}}"
+      },
+      {
+        "owner": "zed",
+        "spec": "not json"
+      },
+      {
+        "owner": "odd",
+        "spec": "{\"name\":\"Fern\",\"body\":{\"w\":112,\"h\":100,\"corner\":40,\"color\":\"teal\"},\"eyes\":{\"count\":2,\"size\":16},\"top\":{\"kind\":\"antenna\",\"color\":\"#ff7ab8\"},\"cheeks\":true,\"feet\":true}"
+      }
+    ],
+    "ky_setup": [
+      {
+        "key": "repo",
+        "value": "me/ky"
+      },
+      {
+        "key": "url",
+        "value": "https://ky.example.com"
+      },
+      {
+        "key": "origin",
+        "value": "https://ky.example.com"
+      },
+      {
+        "key": "seeded",
+        "value": "1767225729800"
+      }
+    ]
+  },
+  "reads": {
+    "avatars": {
+      "fern": {
+        "name": "Fern",
+        "body": {
+          "w": 112,
+          "h": 100,
+          "corner": 40,
+          "color": "#22b8a6"
+        },
+        "eyes": {
+          "count": 2,
+          "size": 16
+        },
+        "top": {
+          "kind": "antenna",
+          "color": "#ff7ab8"
+        },
+        "cheeks": true,
+        "feet": true,
+        "extra": {
+          "kept": true
+        }
+      },
+      "ky": {
+        "body": {
+          "w": 112,
+          "h": 104,
+          "corner": 30,
+          "color": "#f0393c"
+        },
+        "eyes": {
+          "count": 1,
+          "size": 30
+        },
+        "top": {
+          "kind": "antenna",
+          "color": "#ffc93c"
+        },
+        "cheeks": true,
+        "feet": true,
+        "name": "Squarey"
+      },
+      "pip": {
+        "body": {
+          "w": 124,
+          "h": 108,
+          "corner": 54,
+          "color": "#3d8bff"
+        },
+        "eyes": {
+          "count": 2,
+          "size": 15
+        },
+        "top": {
+          "kind": "leaf",
+          "color": "#3cc46a"
+        },
+        "cheeks": true,
+        "feet": true,
+        "name": "Pip"
+      },
+      "tok": {
+        "body": {
+          "w": 88,
+          "h": 120,
+          "corner": 30,
+          "color": "#8a5cf6"
+        },
+        "eyes": {
+          "count": 1,
+          "size": 24
+        },
+        "top": {
+          "kind": "none"
+        },
+        "cheeks": false,
+        "feet": true,
+        "name": "Tok"
+      }
+    },
+    "setup": {
+      "repo": "me/ky",
+      "url": "https://ky.example.com"
+    },
+    "selfEdit": {
+      "repo": "me/ky",
+      "url": "https://ky.example.com"
+    },
+    "origin": "https://ky.example.com",
+    "firstStart": false
+  }
+}

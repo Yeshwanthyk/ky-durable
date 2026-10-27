@@ -1,0 +1,12 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index f8fcaa8..cbc5e35 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -129,7 +129,6 @@ export function browseExtension(binding: BrowserWorker, save: Save): Extension {
+ 
+ export function browseCall(launch: Launch, args: Args, save: Save, signal?: AbortSignal) {
+   return browse(launch, args).pipe(
+-    Effect.timeoutOrElse({ duration: CALL_TIMEOUT_MS, orElse: tookTooLong(CALL_TIMEOUT_MS, "the whole browse call") }),
+     Effect.raceFirst(stoppedBy(signal)),
+     Effect.flatMap((result) => keepShots(result, save))
+   );

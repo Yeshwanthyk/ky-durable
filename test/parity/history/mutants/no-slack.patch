@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..fcce63e 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -33,7 +33,7 @@ const BATCH = 500;
+ 
+ const LOOKBACK = 256;
+ 
+-const PLACED_SLACK = 5_000;
++const PLACED_SLACK = 0;
+ 
+ const ALWAYS = { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
+ 

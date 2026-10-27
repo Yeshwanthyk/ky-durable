@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..f89652a 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -463,7 +463,7 @@ export const act = Effect.fnUntraced(function* ({ action, to = "", subject = "",
+   }
+ 
+   if (action === "list") {
+-    const rows = yield* box.recent(20);
++    const rows = yield* box.recent(21);
+ 
+     return rows.length === 0 ? "No mail yet." : rows.map(lineOf).join("\n");
+   }

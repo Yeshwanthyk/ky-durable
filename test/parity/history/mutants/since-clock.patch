@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..77e108e 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -378,7 +378,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+             Effect.gen(function* () {
+               yield* catchUp(Number.POSITIVE_INFINITY);
+ 
+-              const now = at ?? (yield* Clock.currentTimeMillis);
++              const now = at ?? 0;
+               const [after, bound] = from.seq > 0 ? ["seq > ?", from.seq] : ["at > ?", from.at];
+               const oldest = now - SINCE_WINDOW_MS;
+               const [{ n: old } = { n: 0 }] = yield* rows(Count, `SELECT count(*) AS n FROM ${SAID_FROM} WHERE ${after} AND at <= ?`, bound, oldest);

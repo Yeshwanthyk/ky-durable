@@ -1,168 +1,234 @@
-import Type from "typebox";
-import { decodeOr } from "../core/decode";
-import { isMachine, type Reviews, type Skills, type SkillWrite } from "../skills/contract";
-import { type DreamLedgerRow, ledgerRow } from "./contract";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
+import { Sql } from "../core/sql";
+import { isMachine, type SkillWrite } from "../skills/contract";
+import type { Reviews, Skills } from "../skills/wiring";
+import type { DreamLedgerRow } from "./contract";
 import type { Memory, MemoryForget } from "./memory";
 
-/** The actions that overwrite or drop something; a run makes at most one of them per target. */
 const DESTRUCTIVE: ReadonlySet<string> = new Set(["edit", "patch", "archive", "revert", "forget"]);
 
-/** How far back from a dream's last change "last night" reaches: its stale pass and its model run, not the night before. */
 const NIGHT_MS = 12 * 60 * 60 * 1000;
 
-/** A column of `PRAGMA table_info`. */
-const ColumnRow = Type.Object({ name: Type.String() });
-
-/** A dream's rows: "dream", or none for one from before the actor was kept. */
 const DREAMS = "coalesce(actor, 'dream') = 'dream'";
 
-/**
- * ky_dream_ledger: one row per change a background run makes (the nightly dream and its stale pass, a skill
- * review), with what it replaced, after Hermes's curator log. It watches the skill library and memory, writes
- * a row just before each such change lands, and refuses a second destructive change to the same target in one
- * run. `undo` puts a change back: a skill to the version before it, while nothing changed it since, and a
- * forgotten summary as a new note, since OptMem's log is never edited.
- */
+const LedgerRow = Schema.Struct({
+  id: Schema.Number,
+  run: Schema.String,
+  kind: Schema.Literals(["skill", "memory"]),
+  action: Schema.String,
+  target: Schema.String,
+  before: Schema.Union([Schema.Number, Schema.String, Schema.Null]),
+  reason: Schema.NullOr(Schema.String),
+  absorbed_into: Schema.NullOr(Schema.String),
+  at: Schema.Number,
+  undone_at: Schema.NullOr(Schema.Number),
+  actor: Schema.NullOr(Schema.String),
+  after: Schema.NullOr(Schema.Number)
+});
+
+const decodeRow = Schema.decodeUnknownOption(LedgerRow);
+
+const ColumnRow = Schema.Struct({ name: Schema.String });
+
+type Kind = DreamLedgerRow["kind"];
+
+class AlreadyChanged extends Schema.TaggedError<AlreadyChanged>()("AlreadyChanged", { kind: Schema.Literals(["skill", "memory"]), target: Schema.String, action: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `This run already changed ${this.target} (${this.action}); one change per ${this.kind === "skill" ? "skill" : "summary"} a run, so each can be undone on its own.`;
+  }
+}
+
+class NotSaved extends Schema.TaggedError<NotSaved>()("NotSaved", {}) implements Refusable {
+  get refusal(): string {
+    return "The ledger row was not saved, so the change is not made.";
+  }
+}
+
+class NoChange extends Schema.TaggedError<NoChange>()("NoChange", { id: Schema.Number }) implements Refusable {
+  get refusal(): string {
+    return `No dream change ${this.id}.`;
+  }
+}
+
+class AlreadyUndone extends Schema.TaggedError<AlreadyUndone>()("AlreadyUndone", { actor: Schema.NullOr(Schema.String), action: Schema.String, target: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `The ${this.actor ?? "dream"}'s ${this.action} of ${this.target} is already undone.`;
+  }
+}
+
+class ChangedSince extends Schema.TaggedError<ChangedSince>()("ChangedSince", {
+  target: Schema.String,
+  action: Schema.String,
+  version: Schema.Number,
+  by: Schema.Struct({ action: Schema.String, actor: Schema.String })
+}) implements Refusable {
+  get refusal(): string {
+    return `${this.target} changed after this ${this.action} (version ${this.version}, ${this.by.action} by ${this.by.actor}), so undo would lose that; revert it from its history instead.`;
+  }
+}
+
+class PinnedSince extends Schema.TaggedError<PinnedSince>()("PinnedSince", { target: Schema.String, action: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${this.target} was pinned since; unpin it first to undo this ${this.action}.`;
+  }
+}
+
+class Refused extends Schema.TaggedError<Refused>()("Refused", { refusal: Schema.String }) implements Refusable {}
+
+const refusedBy = (cause: unknown) => new Refused({ refusal: cause instanceof Error ? cause.message : String(cause) });
+
+type Entry = {
+  readonly run: string;
+  readonly actor: string;
+  readonly kind: Kind;
+  readonly action: string;
+  readonly target: string;
+  readonly before: number | string | null;
+  readonly reason: string | null;
+  readonly absorbed_into: string | null;
+};
+
+type Deps = { readonly skills: Skills; readonly memory: Memory; readonly reviews: Reviews };
+
+export class Ledger extends Context.Service<
+  Ledger,
+  {
+    readonly skillWrite: (write: SkillWrite) => Effect.Effect<number, AlreadyChanged | NotSaved>;
+    readonly landed: (id: number, version: number) => Effect.Effect<void>;
+    readonly forget: (forget: MemoryForget) => Effect.Effect<void, AlreadyChanged | NotSaved>;
+    readonly lastNight: Effect.Effect<DreamLedgerRow[]>;
+    readonly undo: (id: number) => Effect.Effect<string, NoChange | AlreadyUndone | ChangedSince | PinnedSince | Refused>;
+  }
+>()("ky/dreaming/Ledger") {
+  static readonly layer = ({ skills, memory, reviews }: Deps) =>
+    Layer.effect(
+      Ledger,
+      Effect.gen(function* () {
+        const sql = yield* Sql;
+        const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+        const rows = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(query, ...params), (found) => found.flatMap((row) => Option.toArray(decodeRow(row))));
+
+        yield* exec(`CREATE TABLE IF NOT EXISTS ky_dream_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target TEXT NOT NULL,
+          before,
+          reason TEXT,
+          absorbed_into TEXT,
+          at INTEGER NOT NULL,
+          undone_at INTEGER
+        )`);
+
+        const have = new Set((yield* Effect.orDie(sql.rows(ColumnRow, "PRAGMA table_info(ky_dream_ledger)"))).map((column) => column.name));
+
+        for (const [name, type] of [["actor", "TEXT"], ["after", "INTEGER"]] as const) {
+          if (!have.has(name)) yield* exec(`ALTER TABLE ky_dream_ledger ADD COLUMN ${name} ${type}`);
+        }
+
+        const record = Effect.fn("Ledger.record")(function* (entry: Entry, at: number) {
+          if (DESTRUCTIVE.has(entry.action)) {
+            const earlier = (yield* rows("SELECT * FROM ky_dream_ledger WHERE kind = ? AND target = ? AND run = ? AND undone_at IS NULL", entry.kind, entry.target, entry.run)).find(
+              (row) => DESTRUCTIVE.has(row.action)
+            );
+
+            if (earlier) return yield* new AlreadyChanged({ kind: entry.kind, target: entry.target, action: earlier.action });
+          }
+
+          const [row] = yield* rows(
+            "INSERT INTO ky_dream_ledger (run, actor, kind, action, target, before, reason, absorbed_into, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+            entry.run,
+            entry.actor,
+            entry.kind,
+            entry.action,
+            entry.target,
+            entry.before,
+            entry.reason,
+            entry.absorbed_into,
+            at
+          );
+
+          return row?.id ?? (yield* new NotSaved());
+        });
+
+        const undoSkill = Effect.fn("Ledger.undoSkill")(function* ({ target, before, after, action }: DreamLedgerRow) {
+          const skill = yield* Effect.sync(() => skills.get(target));
+          const [newest] = yield* Effect.sync(() => skills.history(target));
+
+          if (after !== null && newest !== undefined && newest.id !== after) {
+            return yield* new ChangedSince({ target, action, version: newest.id, by: { action: newest.action, actor: newest.actor } });
+          }
+
+          if (skill?.pinned) return yield* new PinnedSince({ target, action });
+
+          return yield* Effect.try({
+            try: () =>
+              before === null ? skills.apply({ name: target, action: "archive" }, "user") : skills.apply({ name: target, action: "revert", version: Number(before) }, "user"),
+            catch: refusedBy
+          });
+        });
+
+        return Ledger.of({
+          skillWrite: Effect.fn("Ledger.skillWrite")(function* ({ name, action, actor, conversation, run, before, absorbed_into, reason }) {
+            const at = yield* Clock.currentTimeMillis;
+            const owner = run ?? (conversation === null ? `${actor}-${at}` : yield* Effect.sync(() => reviews.run(conversation)));
+
+            return yield* record({ run: owner, actor, kind: "skill", action, target: name, before, reason, absorbed_into }, at);
+          }),
+          landed: (id, version) => Effect.asVoid(exec("UPDATE ky_dream_ledger SET after = ? WHERE id = ?", version, id)),
+          forget: Effect.fn("Ledger.forget")(function* ({ block, text, conversation }) {
+            if (conversation === null) return;
+            const kind = yield* Effect.sync(() => reviews.kind(conversation));
+
+            if (kind === undefined) return;
+            const run = yield* Effect.sync(() => reviews.run(conversation));
+            yield* record({ run, actor: kind, kind: "memory", action: "forget", target: block, before: text, reason: null, absorbed_into: null }, yield* Clock.currentTimeMillis);
+          }),
+          lastNight: rows(`SELECT * FROM ky_dream_ledger WHERE ${DREAMS} AND at > (SELECT MAX(at) FROM ky_dream_ledger WHERE ${DREAMS}) - ? ORDER BY id`, NIGHT_MS),
+          undo: Effect.fn("Ledger.undo")(function* (id) {
+            const [row] = yield* rows("SELECT * FROM ky_dream_ledger WHERE id = ?", id);
+
+            if (!row) return yield* new NoChange({ id });
+
+            if (row.undone_at !== null) return yield* new AlreadyUndone({ actor: row.actor, action: row.action, target: row.target });
+            const done = row.kind === "memory" ? yield* Effect.try({ try: () => memory.renote(String(row.before)), catch: refusedBy }) : yield* undoSkill(row);
+            yield* exec("UPDATE ky_dream_ledger SET undone_at = ? WHERE id = ?", yield* Clock.currentTimeMillis, id);
+
+            return done;
+          })
+        });
+      })
+    );
+}
+
 export class DreamLedger {
-  readonly #sql: SqlStorage;
-  readonly #skills: Skills;
-  readonly #memory: Memory;
-  readonly #reviews: Reviews;
+  readonly #edge: Edge<Ledger>;
 
-  constructor(sql: SqlStorage, { skills, memory, reviews }: { readonly skills: Skills; readonly memory: Memory; readonly reviews: Reviews }) {
-    this.#sql = sql;
-    this.#skills = skills;
-    this.#memory = memory;
-    this.#reviews = reviews;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_dream_ledger (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      action TEXT NOT NULL,
-      target TEXT NOT NULL,
-      before,
-      reason TEXT,
-      absorbed_into TEXT,
-      at INTEGER NOT NULL,
-      undone_at INTEGER
-    )`);
-
-    // Columns added later; a row from before them reads null, a dream's change whose undo looks at nothing since.
-    const have = new Set(sql.exec("PRAGMA table_info(ky_dream_ledger)").toArray().map((column) => decodeOr(ColumnRow, column, undefined)?.name));
-
-    for (const [name, type] of [["actor", "TEXT"], ["after", "INTEGER"]] as const) {
-      if (!have.has(name)) sql.exec(`ALTER TABLE ky_dream_ledger ADD COLUMN ${name} ${type}`);
-    }
-
-    skills.onWrite((write) => (isMachine(write.actor) ? this.#skillWrite(write) : undefined));
-    memory.onForget((forget) => {
-      const kind = forget.conversation === null ? undefined : reviews.kind(forget.conversation);
-
-      if (forget.conversation !== null && kind !== undefined) this.#forget(this.#reviews.run(forget.conversation), kind, forget);
-    });
+  constructor(storage: DurableObjectStorage, deps: Deps) {
+    this.#edge = makeEdge(Ledger.layer(deps).pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge.run(Effect.void);
+    deps.skills.onWrite((write) => (isMachine(write.actor) ? this.#skillWrite(write) : undefined));
+    deps.memory.onForget((forget) => runOrThrow(this.#edge, Ledger.use((ledger) => ledger.forget(forget))));
   }
 
-  /** Record a background run's skill change; returns where to keep the version it makes. */
-  #skillWrite({ name, action, actor, conversation, run, before, absorbed_into, reason }: SkillWrite): (version: number) => void {
-    const at = Date.now();
-    const owner = run ?? (conversation === null ? `${actor}-${at}` : this.#reviews.run(conversation));
-    this.#guard(owner, "skill", action, name);
-    const id = this.#insert(owner, actor, "skill", action, name, before, reason, absorbed_into, at);
+  #skillWrite(write: SkillWrite): (version: number) => void {
+    const id = runOrThrow(this.#edge, Ledger.use((ledger) => ledger.skillWrite(write)));
 
-    return (version) => this.#sql.exec("UPDATE ky_dream_ledger SET after = ? WHERE id = ?", version, id);
+    return (version) => this.#edge.run(Ledger.use((ledger) => ledger.landed(id, version)));
   }
 
-  #forget(run: string, actor: string, { block, text }: MemoryForget): void {
-    this.#guard(run, "memory", "forget", block);
-    this.#insert(run, actor, "memory", "forget", block, text, null, null, Date.now());
-  }
-
-  /** Refuse a second destructive change to one target in a run; a dream's stale pass shares the dream's run. */
-  #guard(run: string, kind: DreamLedgerRow["kind"], action: string, target: string): void {
-    if (!DESTRUCTIVE.has(action)) return;
-
-    const earlier = this.#rows("SELECT * FROM ky_dream_ledger WHERE kind = ? AND target = ? AND run = ? AND undone_at IS NULL", kind, target, run).filter(
-      (row) => DESTRUCTIVE.has(row.action)
-    );
-
-    if (earlier.length > 0) {
-      throw new Error(`This run already changed ${target} (${earlier[0]?.action}); one change per ${kind === "skill" ? "skill" : "summary"} a run, so each can be undone on its own.`);
-    }
-  }
-
-  #insert(
-    run: string,
-    actor: string,
-    kind: DreamLedgerRow["kind"],
-    action: string,
-    target: string,
-    before: number | string | null,
-    reason: string | null,
-    absorbedInto: string | null,
-    at: number
-  ): number {
-    const row = this.#rows(
-      "INSERT INTO ky_dream_ledger (run, actor, kind, action, target, before, reason, absorbed_into, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
-      run,
-      actor,
-      kind,
-      action,
-      target,
-      before,
-      reason,
-      absorbedInto,
-      at
-    )[0];
-
-    if (row === undefined) throw new Error("The ledger row was not saved, so the change is not made.");
-
-    return row.id;
-  }
-
-  /** The rows a query reads, leaving out any a restore damaged. */
-  #rows(query: string, ...bindings: SqlStorageValue[]): DreamLedgerRow[] {
-    return this.#sql
-      .exec(query, ...bindings)
-      .toArray()
-      .flatMap((row) => ledgerRow(row) ?? []);
-  }
-
-  /** The changes of the latest dream and its stale pass, oldest first; empty before the first. A review's are not a dream's. */
   lastNight(): DreamLedgerRow[] {
-    return this.#rows(
-      `SELECT * FROM ky_dream_ledger WHERE ${DREAMS} AND at > (SELECT MAX(at) FROM ky_dream_ledger WHERE ${DREAMS}) - ? ORDER BY id`,
-      NIGHT_MS
-    );
+    return this.#edge.run(Ledger.use((ledger) => ledger.lastNight));
   }
 
-  /** Put one change back, as the user: a skill to the version before it (a created one archived), a forget re-noted. */
   undo(id: number): string {
-    const [row] = this.#rows("SELECT * FROM ky_dream_ledger WHERE id = ?", id);
-
-    if (!row) throw new Error(`No dream change ${id}.`);
-
-    if (row.undone_at !== null) throw new Error(`The ${row.actor ?? "dream"}'s ${row.action} of ${row.target} is already undone.`);
-    const done = row.kind === "memory" ? this.#memory.renote(String(row.before)) : this.#undoSkill(row);
-    this.#sql.exec("UPDATE ky_dream_ledger SET undone_at = ? WHERE id = ?", Date.now(), id);
-
-    return done;
-  }
-
-  /** Refused once the skill moved on: a later version, or a pin, is someone's newer word on it. */
-  #undoSkill({ target, before, after, action }: DreamLedgerRow): string {
-    const skill = this.#skills.get(target);
-    const newest = this.#skills.history(target)[0];
-
-    if (after !== null && newest !== undefined && newest.id !== after) {
-      throw new Error(
-        `${target} changed after this ${action} (version ${newest.id}, ${newest.action} by ${newest.actor}), so undo would lose that; revert it from its history instead.`
-      );
-    }
-
-    if (skill?.pinned) throw new Error(`${target} was pinned since; unpin it first to undo this ${action}.`);
-
-    if (before === null) return this.#skills.apply({ name: target, action: "archive" }, "user");
-
-    return this.#skills.apply({ name: target, action: "revert", version: Number(before) }, "user");
+    return runOrThrow(this.#edge, Ledger.use((ledger) => ledger.undo(id)));
   }
 }

@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..c3e65f7 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -760,7 +760,7 @@ const make = Effect.gen(function* () {
+           `INSERT INTO ky_machines (name, seen_at, facts, pairing) VALUES (?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at, facts = excluded.facts, pairing = excluded.pairing`,
+           machine,
+-          yield* now,
++          Date.now(),
+           JSON.stringify(facts),
+           pairing
+         );

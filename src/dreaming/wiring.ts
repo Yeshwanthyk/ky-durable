@@ -1,4 +1,4 @@
-import type { History } from "../history";
+import type { History } from "../history/wiring";
 import type { ReviewHost, Reviews } from "../skills/contract";
 import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
 import { DreamNotes } from "./dreaming";
@@ -28,6 +28,8 @@ export { Recall } from "./recall";
 export { Soul, TEMPLATE } from "./soul";
 
 export { Surfaced } from "./surfaced";
+
+export { Versioned, versionLine, Versions } from "./versioned";
 
 /** What the dreaming domain's tools are made from, on the agent (src/server.ts). */
 export type DreamingWiring = {

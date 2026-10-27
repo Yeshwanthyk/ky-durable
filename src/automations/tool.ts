@@ -3,7 +3,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { parseModel } from "../models";
-import type { ModelChoice } from "../settings";
+import type { ModelChoice } from "../settings/contract";
 import {
   AUTOMATION_TOOL,
   type AutomationDraft,
@@ -11,25 +11,19 @@ import {
   AutomationToolInput,
   type AutomationToolArgs,
   type AutomationView,
-  type ByIdAction,
+  type AutomationAction,
   CHECK_IN_TOOLS,
   EXTENSIONS,
   type ToolAction
 } from "./contract";
 import type { Automations } from "./wiring";
 
-/** The tools a check-in run may call. */
 const CHECK_IN_ALLOWED: ReadonlySet<string> = new Set(CHECK_IN_TOOLS);
 
-/** The most of a gate's answer a create or update's gate test shows. */
 const GATE_PREVIEW_MAX = 500;
 
 type Args = AutomationToolArgs;
 
-/**
- * The model the tool asked for. `base` is what a level alone changes and a model alone keeps the
- * level of: the automation's own model on update, else the worker's.
- */
 function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined {
   if (args.model === "worker") return null;
 
@@ -38,7 +32,6 @@ function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined
   return parseModel(args.model, args.thinking ?? base.thinkingLevel);
 }
 
-/** What the tool's arguments change, leaving out what they do not mention. */
 function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
   const patch: Partial<AutomationDraft> = {
     title: args.title,
@@ -55,11 +48,9 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
 }
 
-/** Create, reporting to the calling chat unless another is named. A dream creates check-ins only. */
 async function create(automations: Automations, args: Args, fallback: ModelChoice, caller: string, dream: boolean): Promise<string> {
   if (!args.title || !args.prompt) return "create needs a title and a prompt.";
 
-  // What the arguments leave out: no model or machine, and reports to this chat.
   const unset = { cron: null, at: null, model: null, machine: null, chat: caller, gate: null };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
   const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION, post: false } : asked;
@@ -70,7 +61,6 @@ async function create(automations: Automations, args: Args, fallback: ModelChoic
   return `Created automation ${created.id}, "${created.title}" (${scheduleOf(created, automations.checkIns().zone)}).${await gateTest(automations, created.gate)}`;
 }
 
-/** A new gate run once, so the model sees what fires will make of it and can fix it now. */
 async function gateTest(automations: Automations, gate: string | null): Promise<string> {
   if (gate === null) return "";
   const check = await automations.checkGate(gate);
@@ -109,7 +99,6 @@ async function list(automations: Automations, all: boolean): Promise<string> {
   return views.length === 0 ? "No automations." : views.map((view) => lineOf(automations, view)).join("\n");
 }
 
-/** The actions on one automation, by id: one handler each, so a new action can't go unhandled. */
 const BY_ID = {
   pause: (automations, id) => automations.pause(id),
   resume: (automations, id) => automations.resume(id),
@@ -118,19 +107,13 @@ const BY_ID = {
   run: (automations, id) => automations.run(id),
   stop: (automations, id) => automations.stop(id),
   delete: (automations, id) => automations.delete(id)
-} satisfies { readonly [Action in ByIdAction]: (automations: Automations, id: string) => Promise<string> | string };
-
-/** The user's actions from Activity, as the tool takes them. */
-function act(automations: Automations, action: ByIdAction, id: string): Promise<string> | string {
-  return BY_ID[action](automations, id);
-}
+} satisfies { readonly [Action in AutomationAction]: (automations: Automations, id: string) => Promise<string> | string };
 
 type Call = {
   readonly action: ToolAction;
   readonly args: Args;
   readonly fallback: ModelChoice;
   readonly caller: string;
-  /** The caller is a dream: it may create check-ins and list, nothing more. */
   readonly dream: boolean;
 };
 
@@ -143,10 +126,9 @@ async function dispatch(automations: Automations, { action, args, fallback, call
 
   if (!args.id) return `${action} needs an id.`;
 
-  return action === "update" ? update(automations, args.id, args, fallback) : act(automations, action, args.id);
+  return action === "update" ? update(automations, args.id, args, fallback) : BY_ID[action](automations, args.id);
 }
 
-/** Update from the tool: a level alone is the automation's own model at that level, not the worker's. */
 async function update(automations: Automations, id: string, args: Args, fallback: ModelChoice): Promise<string> {
   const patch = patchOf(args, automations.get(id)?.model ?? fallback);
   const updated = await automations.update(id, patch);
@@ -156,11 +138,9 @@ async function update(automations: Automations, id: string, args: Args, fallback
   return `Updated "${updated.title}".${patch.gate === undefined ? "" : await gateTest(automations, updated.gate)}`;
 }
 
-/** The automation tool, for the main agent, and for a dream to book check-ins. */
 export function automationExtension(
   automations: Automations,
   worker: () => ModelChoice,
-  /** Whether a pi session is a dream's. */
   dreaming: (session: string) => boolean
 ): Extension {
   return defineExtension({
@@ -203,7 +183,6 @@ export function automationExtension(
   });
 }
 
-/** A check-in's run may only search and read the web; every conversation gets this, as subagents drop the rest. */
 export function checkInGuardExtension(automations: Automations): Extension {
   return defineExtension({
     name: EXTENSIONS.checkInGuard,

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..4bac727 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -198,7 +198,7 @@ export class Versions extends Context.Service<
+       const next = Effect.fn("Versions.next")(function* (file: VersionedFile, change: SoulChange, was: string) {
+         switch (change.action) {
+           case "edit":
+-            return change.body ?? (yield* new Incomplete({ action: "edit" }));
++            return change.body ?? "";
+           case "patch":
+             return change.old === undefined || change.new === undefined ? yield* new Incomplete({ action: "patch" }) : yield* patched(file.label, was, change.old, change.new);
+           case "revert":

@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..36d3305 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -141,7 +141,7 @@ const labels = (request: Request) =>
+ 
+ const declared = (request: Request) =>
+   Effect.gen(function* () {
+-    if (request.method !== "PUT") return yield* new WrongMethod();
++    if (request.method === "POST") return yield* new WrongMethod();
+     const task = new URL(request.url).searchParams.get("task");
+ 
+     if (!task) return yield* new NoTask();

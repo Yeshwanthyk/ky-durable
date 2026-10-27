@@ -1,8 +1,8 @@
 import { type JsonValue, type Static, Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { DreamLedgerRow } from "../dreaming/contract";
-import type { TaskTokens } from "../machines/contract";
-import { Access } from "../access";
+import { CLOUD, type TaskTokens } from "../machines/contract";
+import { Access } from "../access/wiring";
 import { parseOr } from "../core/decode";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";
@@ -15,7 +15,6 @@ import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } 
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 import { type CloudBox, CloudMachine as ProductionCloudMachine } from "../cloud";
 import { saveKey } from "../sandboxes";
-import { CLOUD } from "../cloud-facts";
 import { allowedRepos, proxyGit } from "../github";
 import { githubTool } from "../github-tools";
 import { fakeGithubApi, fakeGithubRest } from "../../test/fakes/github";

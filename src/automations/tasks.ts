@@ -1,10 +1,3 @@
-/**
- * The task feed: one row per piece of delegated work, cloud subagent or
- * machine run, with a title, a status, the last few steps it took and, once
- * it ends, its result and what it cost. It is what the UI's task list shows,
- * and what the main agent's `status` reads.
- */
-
 import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
 import type { Agent } from "../machines/contract";
@@ -24,17 +17,14 @@ import {
 
 const STEPS_KEPT = 5;
 
-/** How many steps a task's full log keeps, and how many of the newest tasks keep one. */
 const LOG_KEPT = 60;
 
 const LOGS_KEPT = 200;
 
 const LIVE: readonly TaskStatus[] = ["queued", "working"];
 
-/** Queued or working: not over yet. */
 export const isLive = (status: TaskStatus) => LIVE.includes(status);
 
-/** Columns added after ky_tasks was first made, with their types. */
 const ADDED = [
   ["source", "TEXT NOT NULL DEFAULT 'chat'"],
   ["steps", "TEXT NOT NULL DEFAULT '[]'"],
@@ -46,7 +36,6 @@ const ADDED = [
   ["chat", "TEXT"]
 ] as const;
 
-/** When a status change moves the task's working stretch: it starts working again, or it ends. */
 function stretch(current: TaskRow, status: TaskStatus, now: number): Pick<TaskRow, "started_at" | "finished_at"> {
   if (!isLive(status)) return { started_at: current.started_at ?? now, finished_at: current.finished_at ?? now };
 
@@ -84,7 +73,6 @@ export class TaskFeed {
       if (!columns.includes(name)) sql.exec(`ALTER TABLE ky_tasks ADD COLUMN ${name} ${type}`);
     }
 
-    // Every step a task took, with what came back, for its timeline; the steps column keeps the last few for the feed.
     sql.exec(`CREATE TABLE IF NOT EXISTS ky_task_steps (
       seq INTEGER PRIMARY KEY,
       task TEXT NOT NULL,
@@ -98,7 +86,6 @@ export class TaskFeed {
       output TEXT NOT NULL DEFAULT '')`);
     sql.exec(`CREATE INDEX IF NOT EXISTS task_steps_by_task ON ky_task_steps (task, seq)`);
 
-    // Machine tasks from before they named their agent all ran as Claude Code.
     sql.exec("UPDATE ky_tasks SET agent = 'claude' WHERE kind = 'machine' AND agent IS NULL");
   }
 
@@ -112,12 +99,10 @@ export class TaskFeed {
     this.#namer = namer;
   }
 
-  /** A task started with no title: name it from its prompt. */
   name(id: string, prompt: string): void {
     this.#namer?.title(id, prompt);
   }
 
-  /** A task finished: sum up its whole report, not just the report's first line. */
   describe(id: string, report: string): void {
     this.#namer?.summary(id, report);
   }
@@ -130,7 +115,6 @@ export class TaskFeed {
     return this.#rows("SELECT * FROM ky_tasks ORDER BY updated_at DESC LIMIT ?", limit);
   }
 
-  /** The newest `limit` tasks that finished after `at`, newest first, leaving out the `except` workers' own. */
   finishedSince(at: number, limit: number, except: readonly string[]): TaskRow[] {
     return this.#rows(
       `SELECT * FROM ky_tasks WHERE finished_at > ? AND worker NOT IN (${except.map(() => "?").join(", ")}) ORDER BY finished_at DESC LIMIT ?`,
@@ -144,7 +128,6 @@ export class TaskFeed {
     return this.#rows("SELECT * FROM ky_tasks WHERE id = ?", id)[0];
   }
 
-  /** The newest task a worker has, for `send`/`stop` by name. */
   latest(kind: TaskKind, worker: string): TaskRow | undefined {
     return this.#rows(
       "SELECT * FROM ky_tasks WHERE kind = ? AND worker = ? ORDER BY created_at DESC LIMIT 1",
@@ -153,24 +136,20 @@ export class TaskFeed {
     )[0];
   }
 
-  /** The newest task started for a reason, such as `automation:<id>`. */
   latestFrom(source: string): TaskRow | undefined {
     return this.#rows("SELECT * FROM ky_tasks WHERE source = ? ORDER BY created_at DESC LIMIT 1", source)[0];
   }
 
-  /** The newest `limit` tasks started for a reason, newest first. */
   recentFrom(source: string, limit: number): TaskRow[] {
     return this.#rows("SELECT * FROM ky_tasks WHERE source = ? ORDER BY created_at DESC LIMIT ?", source, limit);
   }
 
-  /** The ids of the tasks of a kind that ended, last changed at or after `since`. */
   closedSince(kind: TaskKind, since: number): string[] {
     return this.#rows("SELECT * FROM ky_tasks WHERE kind = ? AND status NOT IN ('queued', 'working') AND updated_at >= ?", kind, since).map(
       (task) => task.id
     );
   }
 
-  /** A worker's queued and working tasks, oldest first. */
   open(kind: TaskKind, worker: string): TaskRow[] {
     return this.#rows(
       "SELECT * FROM ky_tasks WHERE kind = ? AND worker = ? AND status IN ('queued', 'working') ORDER BY created_at",
@@ -179,7 +158,6 @@ export class TaskFeed {
     );
   }
 
-  /** The working cloud task a pi session is doing, if any: the newest, as a subagent does one message at a time. */
   working(session: string): TaskRow | undefined {
     return this.#rows(
       "SELECT * FROM ky_tasks WHERE kind = 'cloud' AND session = ? AND status = 'working' ORDER BY created_at DESC LIMIT 1",
@@ -187,7 +165,6 @@ export class TaskFeed {
     )[0];
   }
 
-  /** Insert the task, or leave an existing one alone: ids are idempotency keys. */
   create(
     task: Pick<TaskRow, "id" | "kind" | "worker" | "title" | "status" | "session"> & {
       summary?: string;
@@ -215,7 +192,6 @@ export class TaskFeed {
       now,
       task.status === "working" ? now : null
     );
-    // Only the newest tasks keep their full log.
     this.#sql.exec(
       `DELETE FROM ky_task_steps WHERE task NOT IN (SELECT id FROM ky_tasks ORDER BY updated_at DESC LIMIT ?)`,
       LOGS_KEPT
@@ -246,7 +222,6 @@ export class TaskFeed {
     this.#emit();
   }
 
-  /** Fail the live tasks of `source` that a restart cut off: nothing is left to finish them. */
   cutOff(source: string): void {
     const now = Date.now();
     this.#sql.exec(
@@ -259,16 +234,11 @@ export class TaskFeed {
     this.#emit();
   }
 
-  /** The task now runs on `worker`: a machine task moved before it started. */
   reassign(id: string, worker: string): void {
     this.#sql.exec("UPDATE ky_tasks SET worker = ?, updated_at = ? WHERE id = ?", worker, Date.now(), id);
     this.#emit();
   }
 
-  /**
-   * The task took a step, such as "Reading tasks.ts"; a task that is over takes none. A step with a
-   * `call` is a tool running until `stepEnd` says it is done; one without is done as it is said.
-   */
   step(id: string, text: string, start: { call?: string; input?: string } = {}): void {
     const current = this.get(id);
     const line = summarize(text);
@@ -288,7 +258,6 @@ export class TaskFeed {
     this.update(id, { status: "working" });
   }
 
-  /** Add a step to the task's full log, which keeps its newest LOG_KEPT. */
   #logStep(id: string, line: string, at: number, { call = null, input = "" }: { call?: string | null; input?: string }): void {
     this.#sql.exec(
       `INSERT INTO ky_task_steps (task, call, at, state, text, input) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -307,7 +276,6 @@ export class TaskFeed {
     );
   }
 
-  /** The tool a step's `call` ran is done: its title says what it did, with what came back. */
   stepEnd(id: string, call: string, end: StepEnd): void {
     this.#sql.exec(
       `UPDATE ky_task_steps SET state = ?, text = ?, detail = ?, output = ?, ended_at = ? WHERE task = ? AND call = ? AND state = 'running'`,
@@ -320,18 +288,15 @@ export class TaskFeed {
       call
     );
 
-    // A live task's row changes, so a page showing its timeline asks for it again.
     if (isLive(this.get(id)?.status ?? "done")) this.update(id, {});
   }
 
-  /** Every step the task's log kept, oldest first. */
   log(id: string): TaskLogStep[] {
     return taskLogRows(
       this.#sql.exec(`SELECT seq, call, at, ended_at, state, text, detail, input, output FROM ky_task_steps WHERE task = ? ORDER BY seq`, id).toArray()
     );
   }
 
-  /** Add model turns and their cost to the task's totals. */
   spend(id: string, turns: number, costUsd: number): void {
     this.#sql.exec(
       "UPDATE ky_tasks SET turns = COALESCE(turns, 0) + ?, cost_usd = COALESCE(cost_usd, 0) + ? WHERE id = ?",

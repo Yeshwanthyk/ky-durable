@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..ed529b1 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -109,8 +109,6 @@ const folder = (files: SiteFiles, dir: string) =>
+     if (root === undefined) return yield* new NotAFolder({ dir });
+     const paths = yield* reading(dir, () => listed(files, root));
+ 
+-    if (paths.length === 0) return yield* new NoFiles({ dir });
+-
+     if (paths.length > MAX_FILES) return yield* new TooManyFiles({ dir });
+     let bytes = 0;
+ 

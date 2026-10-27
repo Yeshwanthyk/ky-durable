@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..25588c1 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -409,7 +409,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+                 Text,
+                 `SELECT CASE WHEN typeof(text) = 'text' THEN text END AS text FROM (SELECT id, ${TEXT_OF} AS text FROM pi_entries
+            WHERE conversation_id = ? AND (json_extract(record, '$.kind') = '${LOOK_POST}'
+-             OR (json_extract(record, '$.kind') = 'pi.assistant' AND json_extract(record, '$.model[0].stopReason') IN ('stop', 'length'))))
++             OR (json_extract(record, '$.kind') = 'pi.assistant' AND json_extract(record, '$.model[0].stopReason') IN ('stop', 'length', 'toolUse'))))
+          WHERE trim(coalesce(text, '')) != '' ORDER BY id DESC LIMIT 1`,
+                 Number(session)
+               ),

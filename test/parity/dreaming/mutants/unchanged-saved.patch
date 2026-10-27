@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..5ebbadc 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -218,7 +218,7 @@ export class Versions extends Context.Service<
+           const was = found?.body ?? "";
+           const body = yield* Effect.flatMap(next(file, change, was), (proposed) => checked(file.label, proposed));
+ 
+-          if (body === was) return `${file.label} is unchanged.`;
++          
+           const action = found ? change.action : "create";
+           const version = yield* insert(file, action, actor, conversation, body);
+ 

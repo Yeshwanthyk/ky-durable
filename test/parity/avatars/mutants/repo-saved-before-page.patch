@@ -1,0 +1,15 @@
+diff --git a/src/avatars/setup.ts b/src/avatars/setup.ts
+index be2136b..60c4a7f 100644
+--- a/src/avatars/setup.ts
++++ b/src/avatars/setup.ts
+@@ -57,8 +57,9 @@ export class Places extends Context.Service<
+             } else {
+               if (!REPO.test(value)) return yield* new NotARepo({ repo: value });
+ 
+-              if (!page) return yield* new PageUnknown();
+               yield* put("repo", value);
++
++              if (!page) return yield* new PageUnknown();
+               yield* put("url", yield* originOf(page));
+             }
+ 

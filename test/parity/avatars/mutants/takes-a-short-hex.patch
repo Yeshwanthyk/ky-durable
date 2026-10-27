@@ -1,0 +1,13 @@
+diff --git a/src/avatars/contract.ts b/src/avatars/contract.ts
+index dcf8bc7..e343030 100644
+--- a/src/avatars/contract.ts
++++ b/src/avatars/contract.ts
+@@ -16,7 +16,7 @@ export const KY_AVATAR = "ky";
+ 
+ const TOPS = ["none", "antenna", "leaf", "ears", "sprout", "tuft"] as const;
+ 
+-const HEX = "^#[0-9a-fA-F]{6}$";
++const HEX = "^#[0-9a-fA-F]{3,6}$";
+ 
+ const NAME_MAX = 24;
+ 

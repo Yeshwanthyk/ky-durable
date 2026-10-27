@@ -30,9 +30,6 @@
     "ky(no-unchecked-parse)": 1,
     "typescript(no-unsafe-assignment)": 1
   },
-  "src/access.ts": {
-    "ky(no-unchecked-parse)": 2
-  },
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
@@ -40,29 +37,13 @@
     "ky(no-unchecked-parse)": 3,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/chats.ts": {
-    "ky(no-unchecked-parse)": 3
-  },
   "src/client.tsx": {
     "typescript(no-unsafe-argument)": 1,
     "typescript(no-unsafe-assignment)": 1,
     "typescript(no-unsafe-return)": 1
   },
-  "src/executor.ts": {
-    "typescript(await-thenable)": 1,
-    "typescript(no-unsafe-assignment)": 1,
-    "typescript(no-unsafe-member-access)": 2
-  },
-  "src/files.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-non-null-assertion)": 2
-  },
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
-  },
-  "src/history.ts": {
-    "ky(no-unchecked-parse)": 6,
-    "typescript(no-non-null-assertion)": 1
   },
   "src/models.ts": {
     "typescript(await-thenable)": 1,
@@ -83,9 +64,6 @@
   },
   "src/server.ts": {
     "typescript(no-non-null-assertion)": 1
-  },
-  "src/setup.ts": {
-    "ky(no-unchecked-parse)": 1
   },
   "src/tests/backup.test.ts": {
     "typescript(no-unsafe-assignment)": 2

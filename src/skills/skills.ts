@@ -53,6 +53,7 @@ import {
   TOOLS,
   UsersOwn
 } from "./contract";
+import type { Refusable } from "../core/edge";
 import { toolReply as text } from "../core/reply";
 import type { Reviews, Skills } from "./wiring";
 
@@ -151,6 +152,8 @@ function patched(skill: SkillRow, old: string, replacement: string): Effect.Effe
 
   return Effect.succeed(skill.body.replace(old, () => replacement));
 }
+
+class WriteRefused extends Schema.TaggedError<WriteRefused>()("WriteRefused", { refusal: Schema.String }) implements Refusable {}
 
 function checkText(description: string, body: string): Effect.Effect<void, TextRefusal> {
   if (description.trim() === "") return Effect.fail(new NoDescription());
@@ -253,14 +256,14 @@ interface SkillLibrary {
   /** Versions made after a time, oldest first, newest `limit` of them. */
   readonly versionsSince: (at: number, limit: number, exceptActor?: string) => Effect.Effect<ReadonlyArray<SkillVersion>>;
   /** Apply one change and record the result as a new version; returns what happened. An action ky doesn't know is refused. */
-  readonly apply: (change: SkillChange, actor: string, conversation?: string | null) => Effect.Effect<string, SkillRefusal>;
+  readonly apply: (change: SkillChange, actor: string, conversation?: string | null) => Effect.Effect<string, SkillRefusal | WriteRefused>;
   /**
    * Archive every skill ky made that nobody has opened in 60 days and that is older than 14, leaving
    * pinned ones and the user's. A skill opened before ky kept when (uses but no last_used_at) is left too:
    * its last use is unknown, and so is one the user changed lately, such as by undoing its archive. The
    * dream runs it first, as part of its `run`; each archive is a version like any other, by "dream".
    */
-  readonly stale: (run: string, now?: number) => Effect.Effect<ReadonlyArray<string>, TextRefusal>;
+  readonly stale: (run: string, now?: number) => Effect.Effect<ReadonlyArray<string>, TextRefusal | WriteRefused>;
 }
 
 /** The skill library in the Durable Object's SQLite, with every version kept. */
@@ -325,8 +328,12 @@ export class Library extends Context.Service<Library, SkillLibrary>()("ky/skills
             const { name, action, actor, conversation } = write;
             yield* checkText(description, body);
             const [before] = yield* rows(VersionId, `SELECT id FROM ${SKILL_TABLES.skillVersions} WHERE name = ? ORDER BY id DESC LIMIT 1`, name);
-            // A watcher refuses by throwing, as at B: the throw is the ledger's own Error, and the edge rethrows it as it was.
-            const landed = yield* Effect.sync(() => [...hooks.writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) })));
+
+            const landed = yield* Effect.try({
+              try: () => [...hooks.writes].map((watcher) => watcher({ ...write, before: action === "create" ? null : (before?.id ?? null) })),
+              catch: (cause) => new WriteRefused({ refusal: cause instanceof Error ? cause.message : String(cause) })
+            });
+
             const now = yield* Clock.currentTimeMillis;
             yield* exec(
               `INSERT INTO ${SKILL_TABLES.skills} (name, description, body, status, created_at, updated_at, created_by, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)

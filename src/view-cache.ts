@@ -1,7 +1,7 @@
 import Type from "typebox";
 import { parseOr } from "./core/decode";
 import type { AutomationInfo, ChatRow, FileRow, MachineInfo, SettingsView, SkillRow, TaskRow, ToolInfo } from "./protocol";
-import type { PiMessage, PiMessagePart } from "./transcript";
+import type { PiMessage, PiMessagePart } from "./core/transcript";
 import type { PiSessionView } from "./view";
 
 /**

@@ -1,6 +1,6 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { programOutcome } from "../executor-status";
+import { programOutcome } from "../executor/contract";
 
 /** `execute`'s answer as the real Executor sends it. */
 const envelope = (execution: { ok: boolean; value?: JsonValue; error?: JsonValue }, status = "completed") =>

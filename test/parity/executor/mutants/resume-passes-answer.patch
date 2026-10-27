@@ -1,0 +1,13 @@
+diff --git a/src/executor/wiring.ts b/src/executor/wiring.ts
+index 56bdf43..c792652 100644
+--- a/src/executor/wiring.ts
++++ b/src/executor/wiring.ts
+@@ -106,7 +106,7 @@ export function executorExtension(config: ExecutorConfig, gate: ExecutorGate, re
+ 
+           if (refused) return toolReply(`Not sent: ${refused}`, true);
+           const call: ExecutorCall = (name, more) => executor.call(name, more, context.abortSignal);
+-          const action = response.action === "answer" ? "accept" : response.action;
++          const action = response.action;
+           const result = await call("resume", { requestId, response: response.content ? { action, content: response.content } : { action } });
+ 
+           gate.resumed(requestId);

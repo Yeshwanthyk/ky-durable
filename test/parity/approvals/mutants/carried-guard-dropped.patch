@@ -1,0 +1,12 @@
+diff --git a/src/approvals/approvals.ts b/src/approvals/approvals.ts
+--- a/src/approvals/approvals.ts
++++ b/src/approvals/approvals.ts
+@@ -213,7 +213,7 @@
+         }),
+         carried: Effect.fnUntraced(function* (id, decidedAt) {
+           const now = yield* Clock.currentTimeMillis;
+-          yield* exec(`UPDATE ${TABLE} SET carried_at = ? WHERE id = ? AND decided_at = ? AND status != 'pending' AND carried_at IS NULL`, now, id, decidedAt);
++          yield* exec(`UPDATE ${TABLE} SET carried_at = ? WHERE id = ? AND status != 'pending' AND carried_at IS NULL`, now, id);
+         }),
+         cut: Effect.gen(function* () {
+           const now = yield* Clock.currentTimeMillis;

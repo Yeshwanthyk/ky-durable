@@ -1,35 +1,22 @@
-/**
- * The automations domain's world, for its invariants: a Durable Object's SQLite (node:sqlite),
- * the real TaskFeed and ChatList over it, and fakes for everything else a fire reaches: pi (a commit with its
- * Runs doc, a spawn, a delivery, an abort), the machines, the models, the gate's Executor, the dream, the looks
- * and peers. Every fake writes what it was asked to do to the world's effects, which is what the domain did
- * outside its tables.
- *
- * Time and ids are the world's: before each call the system time is set to the clock's and `crypto.randomUUID`
- * counts from the world's own counter, so two worlds driven alike make the same ids at the same times.
- *
- * The port books on ./scheduler.ts's Bookings, through the Scheduler it is given.
- */
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from "node:sqlite";
 import fc from "fast-check";
 import type { ConversationDocToken, ConversationId, JsonObject, Tx } from "@earendil-works/pi-durable";
 import { Scheduler, type ScheduleOptions, type SchedulerPayload } from "agents/schedules";
 import { vi } from "vitest";
-import { ChatList } from "../../../src/chats";
+import { ChatList } from "../../../src/chats/chats";
 import type { AutomationAuthor, AutomationDraft, TaskStatus } from "../../../src/automations/contract";
 import { Automations } from "../../../src/automations/wiring";
 import { TaskFeed } from "../../../src/automations/tasks";
 import type { AutomationDeps, Callbacks, GateAnswer } from "../../../src/automations/automations";
 import type { MachineHub } from "../../../src/machines/contract";
 import type { MachineInfo } from "../../../src/protocol";
-import type { ModelChoice } from "../../../src/settings";
+import type { ModelChoice } from "../../../src/settings/contract";
 import type { Spawn } from "../../../src/skills/contract";
 import type { Clock, Instance, Json } from "../kit";
 import { Bookings } from "./scheduler";
 
 const NOTHING: GateAnswer = { text: JSON.stringify({ status: "completed", execution: { ok: true, value: null } }), error: false };
 
-/** What a gate's program answers, by its code: Executor's envelope, or Executor failing. */
 const GATES = new Map<string, GateAnswer>([
   ["nothing", NOTHING],
   ["news", { text: JSON.stringify({ status: "completed", execution: { ok: true, value: "news" } }), error: false }],
@@ -40,14 +27,12 @@ const GATES = new Map<string, GateAnswer>([
   ["offline", { text: "Executor is offline", error: true }]
 ]);
 
-/** The side chat the world has, by session; others are unknown. */
 const SIDE_CHAT = "5";
 
 const MACHINE = "mini";
 
 const WORKER: ModelChoice = { provider: "workers-ai", modelId: "glm", thinkingLevel: "off" };
 
-/** A session a cloud run works in, once the world says it is working. */
 const RUN_SESSION = "77";
 
 export type WorldAction =
@@ -58,7 +43,6 @@ export type WorldAction =
   | { readonly world: "machine"; readonly state: "on" | "paused" | "off" }
   | { readonly world: "chat"; readonly archived: boolean };
 
-/** A facade call that changes what the domain holds or has booked. */
 type Change =
   | { readonly create: Partial<AutomationDraft>; readonly author: AutomationAuthor; readonly watch: number | null }
   | { readonly update: string; readonly patch: Partial<AutomationDraft> }
@@ -69,7 +53,6 @@ type Change =
   | { readonly book: "dreamAt" | "recheckMachinesAt" | "sweepPeersAt"; readonly inMs: number }
   | { readonly start: "recover" | "bookLooks" };
 
-/** A facade call that only reads. */
 type Read =
   | { readonly ask: "wanted" | "checkInRun"; readonly id: string }
   | { readonly checkGate: string }
@@ -83,7 +66,6 @@ type SqlStorageOf = ConstructorParameters<typeof TaskFeed>[0];
 
 type Row = Record<string, SQLOutputValue>;
 
-/** A Durable Object's storage over one SQLite database: its `sql` and `transactionSync`, all automations use. */
 function openStorage(db: DatabaseSync) {
   let depth = 0;
 
@@ -123,10 +105,8 @@ function openStorage(db: DatabaseSync) {
   };
 }
 
-/** The id counter of the world whose call is in progress. */
 let nextId: (() => number) | undefined;
 
-/** Ids from the world's own counter: `0000000k` once `randomUUID()` loses its dashes and is cut to 8. */
 export function installIds(): void {
   vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
     if (!nextId) throw new Error("randomUUID outside a world's call");
@@ -135,13 +115,10 @@ export function installIds(): void {
   });
 }
 
-/** What the domain was asked to do or did outside its tables, in order. */
 type Effect = { readonly [key: string]: Json };
 
-/** A run started, or a report posted, and its automation's status at that moment; null once it is gone. */
 export type Seen = { readonly task: string; readonly status: string | null };
 
-/** A task's moves a run makes: it starts working, then ends. */
 const MOVES = new Map<TaskStatus, readonly TaskStatus[]>([
   ["queued", ["working"]],
   ["working", ["done", "failed"]]
@@ -149,19 +126,16 @@ const MOVES = new Map<TaskStatus, readonly TaskStatus[]>([
 
 export class World {
   readonly db = new DatabaseSync(":memory:");
-  /** The Durable Object's storage over `db`, and its SQL, as the domain, the feed and the chats take them. */
   readonly durable = openStorage(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
-  readonly chats = new ChatList(this.durable.sql());
+  readonly chats = new ChatList(this.durable.storage());
   readonly effects: Effect[] = [];
   readonly clock: Clock;
   ids = 0;
   emits = 0;
   machineState: "on" | "paused" | "off" = "on";
   failNextCommit = false;
-  /** pi's Runs doc for each conversation, as commits leave it. */
   docs: Record<string, Json> = {};
-  /** Each run started (a spawn, or a machine taking its task) and each report posted, for the invariants. */
   readonly started: Seen[] = [];
   readonly posted: Seen[] = [];
 
@@ -170,7 +144,6 @@ export class World {
     this.chats.add(SIDE_CHAT);
   }
 
-  /** Run `call` as this world, at the clock's time. */
   async in<T>(call: () => T | Promise<T>): Promise<T> {
     nextId = () => (this.ids += 1);
     vi.setSystemTime(this.clock.now());
@@ -182,9 +155,7 @@ export class World {
     }
   }
 
-  /** Rows read straight from the database, as the tests look at them. */
   rows(query: string, ...bindings: SQLInputValue[]): Row[] {
-    // node:sqlite's rows have no prototype; plain objects compare as JSON.
     return this.db.prepare(query).all(...bindings).map((row) => ({ ...row }));
   }
 
@@ -192,7 +163,6 @@ export class World {
     this.effects.push(effect);
   }
 
-  /** The status of the automation whose run `task` (`a-<id>-<slot>`) is, now. */
   statusOf(task: string): string | null {
     const id = task.split("-")[1] ?? "";
     const [row] = this.rows("SELECT status FROM ky_automations WHERE id = ?", id);
@@ -207,7 +177,6 @@ export class World {
       machines: () => [info()],
       machine: (name) => (name === MACHINE ? info() : undefined),
       defaultAgent: () => "claude",
-      // Like MachineHub.start, a task id it already has starts nothing.
       start: (machine, title, prompt, id, parent, source) => {
         if (this.feed.get(id) === undefined) {
           this.#did({ start: machine, title, prompt, id, parent, source: source ?? null });
@@ -283,7 +252,6 @@ export class World {
     };
   }
 
-  /** A world action: what goes on around the domain. */
   async world(action: WorldAction, scheduler: Bookings, side: Automations): Promise<Json> {
     switch (action.world) {
       case "progress":
@@ -309,7 +277,6 @@ export class World {
     }
   }
 
-  /** The automation's latest run moves on, if that is a move a run makes. */
   #progress(id: string, status: TaskStatus): string | null {
     const task = this.feed.latestFrom(`automation:${id}`);
 
@@ -319,7 +286,6 @@ export class World {
     return task.id;
   }
 
-  /** The run's reporter: a run that ended reports once, by its task id, if the automation still wants it. */
   #report(id: string, side: Automations): boolean {
     const task = this.feed.latestFrom(`automation:${id}`);
 
@@ -332,8 +298,6 @@ export class World {
 
 const DRAFT: AutomationDraft = { title: "Digest", prompt: "digest the news", cron: null, at: null, model: null, machine: null, chat: "1", gate: null };
 
-/** What a call came to, as JSON: a throw shows as its message. */
-/** What a facade method answers. */
 type Answer = object | string | number | boolean | null | undefined;
 
 async function settle(call: () => Answer | Promise<Answer | void>): Promise<Json> {
@@ -347,7 +311,6 @@ async function settle(call: () => Answer | Promise<Answer | void>): Promise<Json
   }
 }
 
-/** The real Scheduler's face over Bookings, so the port's facade takes it as it takes the real one. */
 class Booked extends Scheduler<Callbacks> {
   readonly bookings: Bookings<Callbacks>;
 
@@ -357,7 +320,6 @@ class Booked extends Scheduler<Callbacks> {
   }
 
   override set<Name extends keyof Callbacks>(when: Date | string | number, callback: Name, payload?: SchedulerPayload<Callbacks[Name]>, options?: ScheduleOptions) {
-    // The port books a Date or a cron, never a delay in seconds.
     return this.bookings.set(when instanceof Date ? when : String(when), callback, payload, options);
   }
 
@@ -374,17 +336,14 @@ class Booked extends Scheduler<Callbacks> {
   }
 }
 
-/** The Bookings the port was given. */
 export function schedulerOf(side: Automations): Bookings<Callbacks> {
   if (!(side.scheduler instanceof Booked)) throw new Error("The port's Scheduler is not the world's.");
 
   return side.scheduler.bookings;
 }
 
-/** The port's Automations over the world's storage, booking on Bookings. */
 export const port = (world: World, deps: AutomationDeps) => new Automations(world.durable.storage(), deps, (callbacks) => new Booked(callbacks));
 
-/** The port over a fresh world. */
 export function next(clock: Clock): Instance<Action> & { world: World; side: Automations; scheduler: Bookings<Callbacks>; due(): Promise<void> } {
   const world = new World(clock);
   const side = port(world, world.deps());
@@ -446,12 +405,10 @@ export function next(clock: Clock): Instance<Action> & { world: World; side: Aut
   };
 }
 
-/** Ids the world's counter makes, and one it never does. */
 const id = fc.constantFrom("00000001", "00000001", "00000001", "00000002", "00000002", "00000003", "0000000f");
 
 export const HOUR = 3_600_000;
 
-/** The run's start: a Sunday morning in UTC. */
 export const START = Date.UTC(2026, 9, 25, 8, 0, 0);
 
 const timing = fc.oneof(
@@ -459,7 +416,6 @@ const timing = fc.oneof(
   fc.record({ cron: fc.constant(null), at: fc.integer({ min: -HOUR, max: 6 * HOUR }).map((inMs) => START + inMs) })
 );
 
-/** A draft the domain saves, most of the time; `odd` takes in the ones it refuses too. */
 const draftOf = (odd: boolean) =>
   fc.record(
     {

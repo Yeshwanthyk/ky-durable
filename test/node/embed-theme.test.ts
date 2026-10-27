@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { PALETTE } from "../../src/embed-theme";
+import { PALETTE } from "../../src/sites/embed-theme";
 
 const css = readFileSync(new URL("../../src/ui/scotty.css", import.meta.url), "utf8");
 

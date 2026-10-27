@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index 06417c6..14e7272 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -76,7 +76,7 @@ export class Keys extends Context.Service<Keys, { key(team: string, kid: string)
+           const at = yield* Clock.currentTimeMillis;
+           const shared = kept.current;
+ 
+-          if (shared?.team === team && at - shared.at < maxAgeMs) return yield* yield* restore(Effect.promise(() => shared.keys));
++          if (shared && at - shared.at < maxAgeMs) return yield* yield* restore(Effect.promise(() => shared.keys));
+           let settle: (exit: Exit.Exit<TeamKeys, KeysUnavailable>) => void = () => {};
+ 
+           const entry: Kept = { team, at, keys: new Promise((resolve) => (settle = resolve)) };

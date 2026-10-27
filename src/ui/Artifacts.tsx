@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from "react";
 import Type from "typebox";
 import { parseOr } from "../core/decode";
-import type { FileRow } from "../files";
+import type { FileRow } from "../files/contract";
 import { FilesContext, isMedia } from "./Attachments";
 import { Icon } from "./Icon";
 import { type Media, useLightbox } from "./Lightbox";

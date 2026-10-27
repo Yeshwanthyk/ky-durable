@@ -1,0 +1,13 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index f8fcaa8..2586aa3 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -229,7 +229,7 @@ function readPage(browser: Browser, args: Args) {
+ }
+ 
+ function runStep(page: BrowserPage, step: Step): Effect.Effect<void, Failed> {
+-  if (step.do === "wait") return Effect.sleep(Math.min(Number(step.value ?? 1000) || 1000, STEP_TIMEOUT_MS));
++  if (step.do === "wait") return Effect.sleep(Number(step.value ?? 1000) || 1000);
+ 
+   const selector = step.selector;
+ 

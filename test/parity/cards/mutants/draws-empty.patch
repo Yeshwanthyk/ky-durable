@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..1ceb97f 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -112,7 +112,7 @@ export function cardOf(input: string): UiCard | null {
+   if (drawn === null) return null;
+   const blocks = drawn.blocks.filter(isBlock);
+ 
+-  return blocks.length > 0 ? { ...drawn, blocks } : null;
++  return { ...drawn, blocks };
+ }
+ 
+ const CardAnswer = Schema.Struct({

@@ -1,0 +1,502 @@
+{
+  "at": 1790939532000,
+  "schema": [
+    "CREATE TABLE ky_skills (\n      name TEXT PRIMARY KEY,\n      description TEXT NOT NULL,\n      body TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'active',\n      uses INTEGER NOT NULL DEFAULT 0,\n      created_at INTEGER NOT NULL,\n      updated_at INTEGER NOT NULL\n    , last_used_at INTEGER, pinned INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'user', answers TEXT, kind TEXT NOT NULL DEFAULT 'skill')",
+    "CREATE TABLE ky_skill_versions (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      name TEXT NOT NULL,\n      action TEXT NOT NULL,\n      actor TEXT NOT NULL,\n      description TEXT NOT NULL,\n      body TEXT NOT NULL,\n      status TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , conversation TEXT)",
+    "CREATE TABLE sqlite_sequence(name,seq)",
+    "CREATE TABLE ky_skill_reviews (\n      conversation TEXT PRIMARY KEY,\n      parent TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , kind TEXT NOT NULL DEFAULT 'review', upto INTEGER, run TEXT)",
+    "CREATE INDEX skill_reviews_by_parent ON ky_skill_reviews (parent, kind)",
+    "CREATE TABLE memo_log (\n      id INTEGER PRIMARY KEY, date TEXT NOT NULL, text TEXT NOT NULL)",
+    "CREATE TABLE memo_tree (\n      lo INTEGER NOT NULL, hi INTEGER NOT NULL, text TEXT NOT NULL,\n      PRIMARY KEY (lo, hi))",
+    "CREATE TABLE ky_specialists (\n    id TEXT PRIMARY KEY,\n    description TEXT NOT NULL,\n    model TEXT,\n    machine TEXT,\n    session TEXT,\n    created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_specialist_sessions (\n    session TEXT PRIMARY KEY,\n    specialist TEXT NOT NULL,\n    kind TEXT NOT NULL,\n    created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_soul_versions (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      action TEXT NOT NULL,\n      actor TEXT NOT NULL,\n      conversation TEXT,\n      body TEXT NOT NULL,\n      created_at INTEGER NOT NULL\n    , key TEXT NOT NULL DEFAULT 'soul', version INTEGER)",
+    "CREATE TABLE ky_dream_ledger (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      run TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      action TEXT NOT NULL,\n      target TEXT NOT NULL,\n      before,\n      reason TEXT,\n      absorbed_into TEXT,\n      at INTEGER NOT NULL,\n      undone_at INTEGER\n    , actor TEXT, after INTEGER)"
+  ],
+  "tables": {
+    "ky_skills": [
+      {
+        "name": "tea",
+        "description": "Tea",
+        "body": "Brew green tea.",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1790892000000,
+        "updated_at": 1790892061000,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "user",
+        "answers": null,
+        "kind": "skill"
+      },
+      {
+        "name": "mint",
+        "description": "Mint",
+        "body": "Pick mint.",
+        "status": "active",
+        "uses": 0,
+        "created_at": 1790939166000,
+        "updated_at": 1790939166000,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "dream",
+        "answers": null,
+        "kind": "skill"
+      },
+      {
+        "name": "green",
+        "description": "Green",
+        "body": "Green tea.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1790939227000,
+        "updated_at": 1790939288000,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "agent",
+        "answers": null,
+        "kind": "skill"
+      },
+      {
+        "name": "chai",
+        "description": "Chai",
+        "body": "Spice it.",
+        "status": "archived",
+        "uses": 0,
+        "created_at": 1790939410000,
+        "updated_at": 1790939471000,
+        "last_used_at": null,
+        "pinned": 0,
+        "created_by": "dream",
+        "answers": null,
+        "kind": "skill"
+      }
+    ],
+    "ky_skill_versions": [
+      {
+        "id": 1,
+        "name": "tea",
+        "action": "create",
+        "actor": "user",
+        "description": "Tea",
+        "body": "Brew tea.",
+        "status": "active",
+        "created_at": 1790892000000,
+        "conversation": null
+      },
+      {
+        "id": 2,
+        "name": "tea",
+        "action": "edit",
+        "actor": "dream",
+        "description": "Tea",
+        "body": "Brew green tea.",
+        "status": "active",
+        "created_at": 1790892061000,
+        "conversation": "c1"
+      },
+      {
+        "id": 3,
+        "name": "mint",
+        "action": "create",
+        "actor": "dream",
+        "description": "Mint",
+        "body": "Pick mint.",
+        "status": "active",
+        "created_at": 1790939166000,
+        "conversation": "c3"
+      },
+      {
+        "id": 4,
+        "name": "green",
+        "action": "create",
+        "actor": "agent",
+        "description": "Green",
+        "body": "Green tea.",
+        "status": "active",
+        "created_at": 1790939227000,
+        "conversation": null
+      },
+      {
+        "id": 5,
+        "name": "green",
+        "action": "archive",
+        "actor": "review",
+        "description": "Green",
+        "body": "Green tea.",
+        "status": "archived",
+        "created_at": 1790939288000,
+        "conversation": "c2"
+      },
+      {
+        "id": 6,
+        "name": "chai",
+        "action": "create",
+        "actor": "dream",
+        "description": "Chai",
+        "body": "Spice it.",
+        "status": "active",
+        "created_at": 1790939410000,
+        "conversation": null
+      },
+      {
+        "id": 7,
+        "name": "chai",
+        "action": "archive",
+        "actor": "user",
+        "description": "Chai",
+        "body": "Spice it.",
+        "status": "archived",
+        "created_at": 1790939471000,
+        "conversation": null
+      }
+    ],
+    "ky_skill_reviews": [
+      {
+        "conversation": "c1",
+        "parent": "chat",
+        "created_at": 1790892000000,
+        "kind": "dream",
+        "upto": null,
+        "run": "night-1"
+      },
+      {
+        "conversation": "c2",
+        "parent": "chat",
+        "created_at": 1790892000000,
+        "kind": "review",
+        "upto": null,
+        "run": null
+      },
+      {
+        "conversation": "c3",
+        "parent": "chat",
+        "created_at": 1790892000000,
+        "kind": "dream",
+        "upto": null,
+        "run": "night-2"
+      }
+    ],
+    "memo_log": [],
+    "memo_tree": [],
+    "ky_specialists": [],
+    "ky_specialist_sessions": [],
+    "ky_soul_versions": [
+      {
+        "id": 1,
+        "action": "create",
+        "actor": "template",
+        "conversation": null,
+        "body": "# SOUL.md\n*You're not a chatbot. You're becoming someone.*\n\nThis is your persona, yours to grow into and edit over time. Some starting truths:\n\n- **Be genuinely helpful, not performatively helpful.** Skip \"Great question!\" and \"I'd be happy to help!\" Just help.\n- **Have opinions.** You're allowed to prefer things, disagree, and find things funny or dull. Personality beats a search engine with extra steps.\n- **Be resourceful before asking.** Read the file, check the context, search, try building it. Come back with answers, not questions, then ask if you're truly stuck.\n- **You're a guest in someone's life.** You can see their messages, files, and calendar. Treat that access with care, and never be preachy.\n\nIf you change this file, tell the user. It's your soul, and they should know.\n",
+        "created_at": 1790938861000,
+        "key": "soul",
+        "version": 1
+      },
+      {
+        "id": 2,
+        "action": "edit",
+        "actor": "user",
+        "conversation": null,
+        "body": "# Soul\n\nI like tea. I like tea.",
+        "created_at": 1790938861000,
+        "key": "soul",
+        "version": 2
+      },
+      {
+        "id": 3,
+        "action": "patch",
+        "actor": "dream",
+        "conversation": "c3",
+        "body": "# Soul\n\nI like mint. I like tea.",
+        "created_at": 1790938922000,
+        "key": "soul",
+        "version": 3
+      },
+      {
+        "id": 4,
+        "action": "revert",
+        "actor": "user",
+        "conversation": "c9",
+        "body": "# Soul\n\nI like tea. I like tea.",
+        "created_at": 1790938983000,
+        "key": "soul",
+        "version": 4
+      },
+      {
+        "id": 5,
+        "action": "create",
+        "actor": "agent",
+        "conversation": null,
+        "body": "You build things.",
+        "created_at": 1790939044000,
+        "key": "specialist:eng",
+        "version": 1
+      },
+      {
+        "id": 6,
+        "action": "patch",
+        "actor": "agent",
+        "conversation": "c9",
+        "body": "You ship things.",
+        "created_at": 1790939105000,
+        "key": "specialist:eng",
+        "version": 2
+      }
+    ],
+    "ky_dream_ledger": [
+      {
+        "id": 1,
+        "run": "night-1",
+        "kind": "skill",
+        "action": "edit",
+        "target": "tea",
+        "before": 1,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790892061000,
+        "undone_at": null,
+        "actor": "dream",
+        "after": 2
+      },
+      {
+        "id": 2,
+        "run": "night-2",
+        "kind": "skill",
+        "action": "create",
+        "target": "mint",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939166000,
+        "undone_at": null,
+        "actor": "dream",
+        "after": 3
+      },
+      {
+        "id": 3,
+        "run": "c2",
+        "kind": "skill",
+        "action": "archive",
+        "target": "green",
+        "before": 4,
+        "reason": "merged into mint",
+        "absorbed_into": "mint",
+        "at": 1790939288000,
+        "undone_at": null,
+        "actor": "review",
+        "after": 5
+      },
+      {
+        "id": 4,
+        "run": "night-2",
+        "kind": "memory",
+        "action": "forget",
+        "target": "0-15",
+        "before": "the user likes tea",
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939349000,
+        "undone_at": null,
+        "actor": "dream",
+        "after": null
+      },
+      {
+        "id": 5,
+        "run": "dream-1790939410000",
+        "kind": "skill",
+        "action": "create",
+        "target": "chai",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939410000,
+        "undone_at": 1790939471000,
+        "actor": "dream",
+        "after": 6
+      }
+    ]
+  },
+  "reads": {
+    "soul": {
+      "current": {
+        "id": 4,
+        "action": "revert",
+        "actor": "user",
+        "conversation": "c9",
+        "body": "# Soul\n\nI like tea. I like tea.",
+        "created_at": 1790938983000
+      },
+      "view": {
+        "body": "# Soul\n\nI like tea. I like tea.",
+        "version": 4,
+        "updated_at": 1790938983000
+      },
+      "history": [
+        {
+          "id": 4,
+          "action": "revert",
+          "actor": "user",
+          "conversation": "c9",
+          "body": "# Soul\n\nI like tea. I like tea.",
+          "created_at": 1790938983000
+        },
+        {
+          "id": 3,
+          "action": "patch",
+          "actor": "dream",
+          "conversation": "c3",
+          "body": "# Soul\n\nI like mint. I like tea.",
+          "created_at": 1790938922000
+        },
+        {
+          "id": 2,
+          "action": "edit",
+          "actor": "user",
+          "conversation": null,
+          "body": "# Soul\n\nI like tea. I like tea.",
+          "created_at": 1790938861000
+        },
+        {
+          "id": 1,
+          "action": "create",
+          "actor": "template",
+          "conversation": null,
+          "body": "# SOUL.md\n*You're not a chatbot. You're becoming someone.*\n\nThis is your persona, yours to grow into and edit over time. Some starting truths:\n\n- **Be genuinely helpful, not performatively helpful.** Skip \"Great question!\" and \"I'd be happy to help!\" Just help.\n- **Have opinions.** You're allowed to prefer things, disagree, and find things funny or dull. Personality beats a search engine with extra steps.\n- **Be resourceful before asking.** Read the file, check the context, search, try building it. Come back with answers, not questions, then ask if you're truly stuck.\n- **You're a guest in someone's life.** You can see their messages, files, and calendar. Treat that access with care, and never be preachy.\n\nIf you change this file, tell the user. It's your soul, and they should know.\n",
+          "created_at": 1790938861000
+        }
+      ]
+    },
+    "briefs": {
+      "eng": [
+        {
+          "id": 2,
+          "action": "patch",
+          "actor": "agent",
+          "conversation": "c9",
+          "body": "You ship things.",
+          "created_at": 1790939105000
+        },
+        {
+          "id": 1,
+          "action": "create",
+          "actor": "agent",
+          "conversation": null,
+          "body": "You build things.",
+          "created_at": 1790939044000
+        }
+      ],
+      "none": [],
+      "current": {
+        "refused": "@none's brief does not exist."
+      }
+    },
+    "lastNight": [
+      {
+        "id": 2,
+        "run": "night-2",
+        "kind": "skill",
+        "action": "create",
+        "target": "mint",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939166000,
+        "undone_at": null,
+        "actor": "dream",
+        "after": 3
+      },
+      {
+        "id": 4,
+        "run": "night-2",
+        "kind": "memory",
+        "action": "forget",
+        "target": "0-15",
+        "before": "the user likes tea",
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939349000,
+        "undone_at": null,
+        "actor": "dream",
+        "after": null
+      },
+      {
+        "id": 5,
+        "run": "dream-1790939410000",
+        "kind": "skill",
+        "action": "create",
+        "target": "chai",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939410000,
+        "undone_at": 1790939471000,
+        "actor": "dream",
+        "after": 6
+      }
+    ],
+    "undo": [
+      {
+        "said": "Saved revert of tea (version 8)."
+      },
+      {
+        "said": "Saved archive of mint (version 9)."
+      },
+      {
+        "said": "Saved as #0."
+      },
+      {
+        "refused": "The dream's create of chai is already undone."
+      },
+      {
+        "refused": "No dream change 6."
+      },
+      {
+        "refused": "No dream change 99."
+      }
+    ],
+    "after": [
+      {
+        "id": 2,
+        "run": "night-2",
+        "kind": "skill",
+        "action": "create",
+        "target": "mint",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939166000,
+        "undone_at": 1790939532000,
+        "actor": "dream",
+        "after": 3
+      },
+      {
+        "id": 4,
+        "run": "night-2",
+        "kind": "memory",
+        "action": "forget",
+        "target": "0-15",
+        "before": "the user likes tea",
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939349000,
+        "undone_at": 1790939532000,
+        "actor": "dream",
+        "after": null
+      },
+      {
+        "id": 5,
+        "run": "dream-1790939410000",
+        "kind": "skill",
+        "action": "create",
+        "target": "chai",
+        "before": null,
+        "reason": null,
+        "absorbed_into": null,
+        "at": 1790939410000,
+        "undone_at": 1790939471000,
+        "actor": "dream",
+        "after": 6
+      }
+    ]
+  }
+}

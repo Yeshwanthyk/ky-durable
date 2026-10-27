@@ -1,0 +1,12 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..59e51ef 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -192,7 +192,6 @@ export function checkInput(input: UserInput): string | null {
+     return "These images are too large together. Attach fewer.";
+   }
+ 
+-  if (chars(images.slice(images.length - frames)) > MAX_FRAME_CHARS) return "These videos' frames are too large together.";
+ 
+   return null;
+ }

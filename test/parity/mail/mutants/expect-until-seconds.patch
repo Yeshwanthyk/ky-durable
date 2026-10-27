@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..4bca371 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -481,7 +481,7 @@ export const act = Effect.fnUntraced(function* ({ action, to = "", subject = "",
+   if (!sender || /\s/.test(sender)) return yield* new NoSender();
+   const wait = Math.min(Math.max(1, Math.round(minutes)), EXPECT_MAX_MINUTES);
+   const now = yield* Clock.currentTimeMillis;
+-  yield* box.expect(session, sender, now + wait * 60_000);
++  yield* box.expect(session, sender, now + wait * 1000);
+ 
+   return `Mail from ${sender} in the next ${wait} minutes comes to this chat, read for you.`;
+ });

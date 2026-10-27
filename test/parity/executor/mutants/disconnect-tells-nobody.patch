@@ -1,0 +1,12 @@
+diff --git a/src/executor/wiring.ts b/src/executor/wiring.ts
+index 56bdf43..17026b2 100644
+--- a/src/executor/wiring.ts
++++ b/src/executor/wiring.ts
+@@ -170,7 +170,6 @@ export class ExecutorLink {
+ 
+   async disconnect(): Promise<void> {
+     await this.#edge.runPromise(Link.use((link) => link.forget));
+-    await this.#changed();
+   }
+ 
+   async #settled(result: { refused?: string }): Promise<{ refused?: string }> {

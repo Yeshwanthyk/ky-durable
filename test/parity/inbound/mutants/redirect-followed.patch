@@ -1,0 +1,13 @@
+diff --git a/src/inbound/credentials.ts b/src/inbound/credentials.ts
+index 98f468c..8134e95 100644
+--- a/src/inbound/credentials.ts
++++ b/src/inbound/credentials.ts
+@@ -121,7 +121,7 @@ export async function credentialFetch(fetcher: Fetch, credential: Credential, re
+       method: request.method,
+       headers,
+       body: request.body,
+-      redirect: "manual",
++      redirect: "follow",
+       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+     });
+   } catch (error) {

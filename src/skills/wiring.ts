@@ -2,41 +2,28 @@ import type { Extension } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { Automations, Delivery, TaskFeed } from "../automations/contract";
-import { type Edge, makeEdge, type Refusable } from "../core/edge";
-import { isRefusal } from "../core/refusal";
+import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { Models } from "../models";
-import { Versioned } from "../dreaming/contract";
+import { Versioned, Versions } from "../dreaming/wiring";
 import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 
-/** What `effect` answers, or B's throw: an Error whose message is the refusal. A defect throws as it was thrown. */
-function run<S, A, E extends Refusable>(edge: Edge<S>, effect: Effect.Effect<A, E, S>): A {
-  const result = edge.run(Effect.map(effect, (value) => ({ value })));
-
-  if (isRefusal(result)) throw new Error(result.refused);
-
-  return result.value;
-}
-
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
-  readonly #edge: Edge<Roster>;
-  readonly #sql: SqlStorage;
-  readonly #briefs = new Map<string, Versioned>();
+  readonly #edge: Edge<Roster | Versions>;
   readonly #listeners = new Set<() => void>();
 
   /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
   constructor(storage: DurableObjectStorage) {
-    this.#sql = storage.sql;
-    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners, brief: (id) => this.brief(id) }).pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners }).pipe(Layer.provideMerge(Versions.layer), Layer.provide(Sql.layer(storage))));
     this.#run(() => Effect.void);
   }
 
   #run<A, E extends Refusable>(action: (roster: Roster["Service"]) => Effect.Effect<A, E>): A {
-    return run(this.#edge, Roster.use(action));
+    return runOrThrow(this.#edge, Roster.use(action));
   }
 
   onChange(listener: () => void): () => void {
@@ -61,19 +48,8 @@ export class Specialists {
     return this.list().map((row) => ({ ...row, brief: this.brief(row.id).view() }));
   }
 
-  /** A specialist's brief, versioned like SOUL.md. */
   brief(id: string): Versioned {
-    let brief = this.#briefs.get(id);
-
-    if (!brief) {
-      brief = new Versioned(this.#sql, `specialist:${id}`, `@${id}'s brief`);
-      brief.onChange(() => {
-        for (const listener of this.#listeners) listener();
-      });
-      this.#briefs.set(id, brief);
-    }
-
-    return brief;
+    return new Versioned(this.#edge, `specialist:${id}`, `@${id}'s brief`, { listeners: this.#listeners });
   }
 
   create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
@@ -111,7 +87,7 @@ export class Skills {
   }
 
   #run<A, E extends Refusable>(action: (library: Library["Service"]) => Effect.Effect<A, E>): A {
-    return run(this.#edge, Library.use(action));
+    return runOrThrow(this.#edge, Library.use(action));
   }
 
   /**
@@ -178,7 +154,7 @@ export class Reviews {
   }
 
   #run<A>(action: (log: ReviewLog["Service"]) => Effect.Effect<A>): A {
-    return run(this.#edge, ReviewLog.use(action));
+    return runOrThrow(this.#edge, ReviewLog.use(action));
   }
 
   kind(conversation: string) {

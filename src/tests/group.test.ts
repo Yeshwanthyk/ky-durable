@@ -4,7 +4,7 @@ import { RESPONDER_CAP } from "../peers/contract";
 import { forThem, parseRoute, plan, recentOf, ROUTER_PROMPT, routerInput } from "../peers/group";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
 import type { SpecialistRow } from "../skills/contract";
-import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../transcript";
+import { type PiMessage, projectEntry, SPECIALIST_REPLY, TO_SPECIALISTS } from "../core/transcript";
 import { connect, follow, type Follower, inside, snapshotView, taskChats, until } from "./drive";
 import { decodeNewChat } from "./frames";
 

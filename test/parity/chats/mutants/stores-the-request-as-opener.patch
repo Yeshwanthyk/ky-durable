@@ -1,0 +1,13 @@
+diff --git a/src/chats/chats.ts b/src/chats/chats.ts
+index a8eeee8..4ccfc6b 100644
+--- a/src/chats/chats.ts
++++ b/src/chats/chats.ts
+@@ -82,7 +82,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+               session,
+               now,
+               now,
+-              opener?.by ?? null,
++              opener?.request ?? null,
+               opener?.request ?? null
+             );
+           }),

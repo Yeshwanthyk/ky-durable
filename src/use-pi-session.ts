@@ -2,12 +2,12 @@ import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Asks } from "./asks";
-import type { AvatarsView } from "./avatar-spec";
+import type { AvatarsView } from "./avatars/contract";
 import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
 import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
 import { EMPTY_VIEW, reduceEvents } from "./view";
-import type { CardAnswer } from "./ui-blocks";
+import type { CardAnswer } from "./cards/contract";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
 import type {
@@ -328,7 +328,7 @@ export function usePiSession(session: string) {
       const operationId = crypto.randomUUID();
       const message: Extract<ClientMessage, { type: "submit" }> = { type: "submit", id: operationId, operationId, input, whenBusy };
 
-      if (card !== undefined) message.card = card;
+      if (card !== undefined) message.card = { ...card, values: card.values.map((value) => [...value]) };
       unanswered.current.set(operationId, { session, message });
       // It shows before the server answers: in the thread, or queued behind the run going now.
       setState((current) => ({

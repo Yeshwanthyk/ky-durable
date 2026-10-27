@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..17e1859 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -170,7 +170,7 @@ export class Box extends Context.Service<
+         held: mails("state = 'held' ORDER BY at"),
+         received: Effect.fnUntraced(function* (mail, hourlyTriages) {
+           const triaged = yield* count(`SELECT COUNT(*) AS n FROM ${MAIL} WHERE direction = 'in' AND state IN ('new', 'triaged') AND at > ?`, mail.at - HOUR);
+-          const answers = (yield* Effect.forEach(mail.answers, (id) => mails("direction = 'out' AND message_id = ?", id))).flat()[0];
++          const answers = (yield* Effect.forEach(mail.answers, (id) => mails("direction = 'out' AND message_id = ?", id))).flat().at(-1);
+ 
+           const [row] = yield* rows(
+             MailRow,

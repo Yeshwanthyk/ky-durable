@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..9925886 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -95,7 +95,7 @@ export const parse = Effect.fnUntraced(function* (raw: ReadableStream<Uint8Array
+     to: addressOf(envelope.to),
+     subject: (parsed.subject ?? "").slice(0, 300),
+     text: (parsed.text?.trim() || plain(parsed.html ?? "")).slice(0, BODY_CHARS),
+-    answers: [idOf(parsed.inReplyTo ?? ""), ...references.reverse()].filter((id) => id !== ""),
++    answers: [idOf(parsed.inReplyTo ?? ""), ...references].filter((id) => id !== ""),
+     at
+   } satisfies InboundMail;
+ });

@@ -1,0 +1,13 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index e396915..35c3e65 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -40,7 +40,7 @@ const certsOf = Schema.decodeUnknownEffect(Schema.fromJsonString(Certs));
+ const part = <A>(decode: (text: string) => Option.Option<A>, text: string) => Option.getOrUndefined(decode(new TextDecoder().decode(bytes(text))));
+ 
+ const valid = (claims: JwtClaims, team: string, aud: string, now: number) =>
+-  claims.iss === `https://${team}` && [claims.aud].flat().includes(aud) && claims.exp > now && (claims.nbf ?? 0) <= now + LEEWAY_S;
++  claims.iss === `https://${team}` && [claims.aud].flat().includes(aud) && claims.exp > now && (claims.nbf ?? 0) <= now;
+ 
+ const unavailable = (cause: unknown) => new KeysUnavailable({ cause });
+ 

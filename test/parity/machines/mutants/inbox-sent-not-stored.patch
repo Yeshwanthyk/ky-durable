@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..3a22522 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -359,8 +359,7 @@ const make = Effect.gen(function* () {
+ 
+   const markSent = (command: RunnerCommand) =>
+     Effect.gen(function* () {
+-      yield* exec("UPDATE ky_machine_inbox SET sent = 1 WHERE seq = ?", command.seq);
+-      const codex = command.type === "creds" ? command.codex : command.type === "run" ? command.creds?.codex : undefined;
++            const codex = command.type === "creds" ? command.codex : command.type === "run" ? command.creds?.codex : undefined;
+ 
+       if (codex) {
+         yield* exec(

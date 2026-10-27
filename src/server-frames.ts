@@ -11,7 +11,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
 import { ApprovalKindSchema, type ApprovalView, ToolPolicySchema, type ToolPolicyView } from "./approvals/contract.ts";
-import { BloubSpecSchema } from "./avatar-spec.ts";
+import { BloubSpecSchema } from "./avatars/contract";
 import type {
   AutomationInfo,
   ChatGptCode,

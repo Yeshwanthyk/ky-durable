@@ -1,0 +1,13 @@
+diff --git a/src/inbound/credentials.ts b/src/inbound/credentials.ts
+index 98f468c..8c75218 100644
+--- a/src/inbound/credentials.ts
++++ b/src/inbound/credentials.ts
+@@ -105,7 +105,7 @@ function redact(text: string, credential: Credential): string {
+ }
+ 
+ export async function credentialFetch(fetcher: Fetch, credential: Credential, request: CredentialRequest): Promise<CredentialReply> {
+-  if (httpsOrigin(request.url) !== credential.origin) return { refused: `This credential is only sent to ${credential.origin}, and not to any other origin.`, sent: false };
++  if (httpsOrigin(request.url) === null) return { refused: `This credential is only sent to ${credential.origin}, and not to any other origin.`, sent: false };
+   const [name, value] = credentialHeader(credential);
+   const headers = new Headers();
+ 

@@ -1,0 +1,14 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..1976083 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -522,8 +522,7 @@ const make = Effect.gen(function* () {
+       const from = turns.closed;
+ 
+       yield* setTurns(id, { closed: turn });
+-      yield* exec("UPDATE ky_machines SET turns_ended = turns_ended + 1 WHERE name = ?", task.worker);
+-
++      
+       if (sandboxes.named(task.worker)) host.cloud()?.turnEnded(task.worker);
+ 
+       if (turn === turns.turn) {

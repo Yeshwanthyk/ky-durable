@@ -1,0 +1,12 @@
+diff --git a/src/access/access.ts b/src/access/access.ts
+index 06417c6..04dbbf2 100644
+--- a/src/access/access.ts
++++ b/src/access/access.ts
+@@ -84,7 +84,6 @@ export class Keys extends Context.Service<Keys, { key(team: string, kid: string)
+           kept.current = entry;
+           const fetched = yield* Effect.exit(fetchKeys(team));
+ 
+-          if (Exit.isFailure(fetched) && kept.current === entry) kept.current = undefined;
+           settle(fetched);
+ 
+           return yield* fetched;

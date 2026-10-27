@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TaskLogStep, TaskRow } from "../protocol";
 import { endStep, pastTense, startStep, stepInput, stepSummary, stepTitle } from "../step-labels";
-import type { PiMessage } from "../transcript";
+import type { PiMessage } from "../core/transcript";
 import { taskTimeline, titleParts, turnTimeline } from "../ui/timeline-steps";
 
 /** A task's steps read in plain words with the key result, as Muse shows them. */

@@ -1,0 +1,13 @@
+diff --git a/src/executor/executor.ts b/src/executor/executor.ts
+index 51af458..64b09ea 100644
+--- a/src/executor/executor.ts
++++ b/src/executor/executor.ts
+@@ -182,7 +182,7 @@ export class Link extends Context.Service<
+ const metaOf = Schema.decodeUnknownOption(Schema.Struct({ url: Schema.String }));
+ 
+ const isExecutorUrl = (parsed: URL): boolean =>
+-  parsed.protocol === "https:" || (parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname));
++  parsed.protocol === "https:" || parsed.protocol === "http:" || (parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname));
+ 
+ const checkUrl = (url: string): Effect.Effect<URL, NotAUrl | NotHttps> =>
+   Effect.try({ try: () => new URL(url), catch: () => new NotAUrl() }).pipe(Effect.filterOrFail(isExecutorUrl, () => new NotHttps()));

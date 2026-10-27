@@ -1,0 +1,13 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index b1b509a..cbf425b 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -185,7 +185,7 @@ function readPage(browser: Browser, args: Args) {
+       catch: failed
+     }).pipe(
+       Effect.map((response) => ({ response, downloaded: false })),
+-      Effect.catchTag("Failed", (error) => (DOWNLOADED.test(error.said) ? Effect.succeed({ response: null, downloaded: true }) : Effect.fail(error)))
++      Effect.catchTag("Failed", (error) => (DOWNLOADED.test(error.said) || error.said.length > 0 ? Effect.succeed({ response: null, downloaded: true }) : Effect.fail(error)))
+     );
+ 
+     yield* Effect.tryPromise(() => page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS })).pipe(Effect.ignore);

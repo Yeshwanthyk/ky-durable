@@ -1,0 +1,229 @@
+{
+  "at": "effect-baseline b658a6e",
+  "now": 1767225914805,
+  "schema": [
+    "CREATE TABLE ky_files (\n      id TEXT PRIMARY KEY,\n      task TEXT NOT NULL,\n      name TEXT NOT NULL,\n      type TEXT NOT NULL,\n      size INTEGER NOT NULL,\n      caption TEXT,\n      created_at INTEGER NOT NULL)",
+    "CREATE TABLE ky_files_typed (done INTEGER NOT NULL)"
+  ],
+  "tables": {
+    "ky_files": [
+      {
+        "id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+        "task": "t1",
+        "name": "shot.png",
+        "type": "image/png",
+        "size": 1234,
+        "caption": "The login page",
+        "created_at": 1767225729800
+      },
+      {
+        "id": "c0ffee00c0ffee00c0ffee00c0ffee01",
+        "task": "t1",
+        "name": "voice.webm",
+        "type": "video/webm",
+        "size": 16750,
+        "caption": null,
+        "created_at": 1767225766801
+      },
+      {
+        "id": "c0ffee00c0ffee00c0ffee00c0ffee02",
+        "task": "t2",
+        "name": "changes.diff",
+        "type": "text/x-diff",
+        "size": 88,
+        "caption": null,
+        "created_at": 1767225803802
+      },
+      {
+        "id": "c0ffee00c0ffee00c0ffee00c0ffee03",
+        "task": "t2",
+        "name": "clip.mp4",
+        "type": "video/mp4",
+        "size": 6057,
+        "caption": "café ✓",
+        "created_at": 1767225840803
+      },
+      {
+        "id": "c0ffee00c0ffee00c0ffee00c0ffee04",
+        "task": "t1",
+        "name": "song.mp4",
+        "type": "audio/mp4",
+        "size": 5126,
+        "caption": "",
+        "created_at": 1767225877804
+      }
+    ],
+    "ky_files_typed": []
+  },
+  "reads": {
+    "before": {
+      "list": [
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee04",
+          "task": "t1",
+          "name": "song.mp4",
+          "type": "audio/mp4",
+          "size": 5126,
+          "caption": "",
+          "created_at": 1767225877804
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee03",
+          "task": "t2",
+          "name": "clip.mp4",
+          "type": "video/mp4",
+          "size": 6057,
+          "caption": "café ✓",
+          "created_at": 1767225840803
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee02",
+          "task": "t2",
+          "name": "changes.diff",
+          "type": "text/x-diff",
+          "size": 88,
+          "caption": null,
+          "created_at": 1767225803802
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee01",
+          "task": "t1",
+          "name": "voice.webm",
+          "type": "video/webm",
+          "size": 16750,
+          "caption": null,
+          "created_at": 1767225766801
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "task": "t1",
+          "name": "shot.png",
+          "type": "image/png",
+          "size": 1234,
+          "caption": "The login page",
+          "created_at": 1767225729800
+        }
+      ],
+      "t1": [
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "task": "t1",
+          "name": "shot.png",
+          "type": "image/png",
+          "size": 1234,
+          "caption": "The login page",
+          "created_at": 1767225729800
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee01",
+          "task": "t1",
+          "name": "voice.webm",
+          "type": "video/webm",
+          "size": 16750,
+          "caption": null,
+          "created_at": 1767225766801
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee04",
+          "task": "t1",
+          "name": "song.mp4",
+          "type": "audio/mp4",
+          "size": 5126,
+          "caption": "",
+          "created_at": 1767225877804
+        }
+      ],
+      "t2": [
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee02",
+          "task": "t2",
+          "name": "changes.diff",
+          "type": "text/x-diff",
+          "size": 88,
+          "caption": null,
+          "created_at": 1767225803802
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee03",
+          "task": "t2",
+          "name": "clip.mp4",
+          "type": "video/mp4",
+          "size": 6057,
+          "caption": "café ✓",
+          "created_at": 1767225840803
+        }
+      ],
+      "none": [],
+      "untyped": [
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee01",
+          "task": "t1",
+          "name": "voice.webm",
+          "type": "video/webm",
+          "size": 16750,
+          "caption": null,
+          "created_at": 1767225766801
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee03",
+          "task": "t2",
+          "name": "clip.mp4",
+          "type": "video/mp4",
+          "size": 6057,
+          "caption": "café ✓",
+          "created_at": 1767225840803
+        }
+      ]
+    },
+    "after": {
+      "list": [
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee04",
+          "task": "t1",
+          "name": "song.mp4",
+          "type": "audio/mp4",
+          "size": 5126,
+          "caption": "",
+          "created_at": 1767225877804
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee03",
+          "task": "t2",
+          "name": "clip.mp4",
+          "type": "video/mp4",
+          "size": 6057,
+          "caption": "café ✓",
+          "created_at": 1767225840803
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee02",
+          "task": "t2",
+          "name": "changes.diff",
+          "type": "text/x-diff",
+          "size": 88,
+          "caption": null,
+          "created_at": 1767225803802
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee01",
+          "task": "t1",
+          "name": "voice.webm",
+          "type": "audio/webm",
+          "size": 16750,
+          "caption": null,
+          "created_at": 1767225766801
+        },
+        {
+          "id": "c0ffee00c0ffee00c0ffee00c0ffee00",
+          "task": "t1",
+          "name": "shot.png",
+          "type": "image/png",
+          "size": 1234,
+          "caption": "The login page",
+          "created_at": 1767225729800
+        }
+      ],
+      "untyped": []
+    }
+  }
+}

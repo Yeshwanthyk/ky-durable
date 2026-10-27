@@ -1,0 +1,17 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..3c2c292 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -123,10 +123,10 @@ const ACTIONS = {
+     Effect.gen(function* () {
+       const owner = input.for ?? KY_AVATAR;
+ 
+-      if (!owners().includes(owner)) return yield* new NoOwner({ owner });
+-
+       if (!input.spec) return yield* new SpecMissing({ action: "set" });
+       const spec = yield* fitted(input.spec);
++
++      if (!owners().includes(owner)) return yield* new NoOwner({ owner });
+       yield* Wardrobe.use((wardrobe) => wardrobe.set(owner, spec));
+ 
+       return shown(`Saved as ${owner === KY_AVATAR ? "ky's" : `@${owner}'s`} avatar.`, [spec]);

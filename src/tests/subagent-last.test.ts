@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { agent, gateStarted, inside, prompt, submit, tasks, until } from "./drive";
 import { GLM, KIMI, OPENCODE_KEY } from "./stack";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ModelChoice } from "../settings";
+import type { ModelChoice } from "../settings/contract";
 
 const FLASH = { provider: "opencode-go", modelId: "deepseek-v4.1-flash" } as const;
 

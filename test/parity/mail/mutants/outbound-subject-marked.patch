@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..0c2b5df 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -201,7 +201,7 @@ export class Box extends Context.Service<
+             crypto.randomUUID(),
+             draft.answers,
+             draft.to,
+-            draft.subject,
++            `${draft.subject}!`,
+             draft.body,
+             state,
+             draft.session,

@@ -1,9 +1,3 @@
-/**
- * The skills domain's contract: what other domains may know of skills, specialists and subagents.
- * The shapes of their stored skill rows in Schema and their tool inputs in typebox (pi's tools take typebox), the actions each tool takes,
- * the tool names, the tables this domain owns, and the few functions other domains call. Nothing
- * here imports the domain's own modules at run time, so they can all import it.
- */
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type AgentChange, AssistantEntry, type Conversation, type ConversationId, configure, type EntryId, type Extension, type Tx } from "@earendil-works/pi-durable";
@@ -14,7 +8,7 @@ import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contrac
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../models";
-import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings";
+import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
 
 export type { Reviews, Skills } from "./wiring";
 
@@ -22,11 +16,6 @@ export type { Specialists } from "./wiring";
 
 export type { Spawn } from "./subagents";
 
-/**
- * The tables this domain owns. A backup restore stages each as `ky_restore__<table>` and matches
- * it by name, so these never change.
- */
-/** What a good skill is: the bar the agent, a skill review, the nightly dream and make-skill write to. */
 export const SKILL_CRAFT = `A good skill:
 - Does one job: one class of task. Two jobs are two skills.
 - Has a description that says when to use it and, when a neighbouring skill is close, when not ("Not for ...").
@@ -43,15 +32,12 @@ export const SKILL_TABLES = Object.freeze({
   specialistSessions: "ky_specialist_sessions"
 } as const);
 
-/** The tools this domain registers. */
 export const TOOLS = Object.freeze({
   skillView: "skill_view",
   skillManage: "skill_manage",
   specialist: "specialist",
   subagent: "subagent"
 } as const);
-
-// Skills.
 
 export const SkillAction = Type.Union([
   Type.Literal("create"),
@@ -64,25 +50,12 @@ export const SkillAction = Type.Union([
 
 export type SkillAction = Static<typeof SkillAction>;
 
-/** Pinning keeps a skill from ky's background runs (a dream, a review): no archive, merge or patch. Not a version: it changes no content. */
 export const PinAction = Type.Union([Type.Literal("pin"), Type.Literal("unpin")]);
 
-/**
- * The user's answers to a skill's Needs (`parse` below), saved from a chat or the panel. Not a version
- * either: answers are the user's facts for the skill, not its text, so a revert or a dream's undo leaves them.
- */
 export const AnswerAction = Type.Literal("answer");
 
-/**
- * Whether `actor` is one of ky's background runs (a dream, a skill review, or any later one) rather than the
- * user or the agent they are talking to: such a write must leave pinned skills alone, archive only as a merge
- * and never the user's own, and is kept in the dream's ledger so the user can undo it. "ky" is not one: it is
- * ky's own seeding (src/seeds.ts): its starter skills on a new ky's first start, and on any start the default skills
- * it creates and pins when missing.
- */
 export const isMachine = (actor: string): boolean => !["user", "agent", "ky"].includes(actor);
 
-/** Who made a skill. A dream may archive only what ky made (agent, review or dream); ky's starter skills count as the user's. */
 const SkillOrigin = Schema.Literals(["agent", "review", "dream", "user"]);
 
 export type SkillOrigin = typeof SkillOrigin.Type;
@@ -91,47 +64,35 @@ const SkillStatus = Schema.Literals(["active", "archived"]);
 
 export type SkillStatus = typeof SkillStatus.Type;
 
-/**
- * A skill does one job; a kit runs several, the skills and kits its `## Members` names. Set when it's created
- * and never changed after, so an edit that drops the Members section leaves a kit a kit, with no members.
- */
-export const SkillKind = Type.Union([Type.Literal("skill"), Type.Literal("kit")]);
+const SkillKind = Type.Union([Type.Literal("skill"), Type.Literal("kit")]);
 
 export type SkillKind = Static<typeof SkillKind>;
 
-/** A patch's passage and its replacement, or the version a revert goes back to. */
 const EDITS = {
   old: Type.Optional(Type.String()),
   new: Type.Optional(Type.String()),
   version: Type.Optional(Type.Number())
 };
 
-/** One change to the library, skill_manage's input; which fields it needs depends on the action. */
 export const SkillChange = Type.Object({
   action: Type.Union([SkillAction, PinAction, AnswerAction]),
   name: Type.String(),
   description: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
   ...EDITS,
-  /** On an archive that is a merge: the active skill that now covers this one. A dream must give it. */
   absorbed_into: Type.Optional(Type.String()),
-  /** Why, in a few words; a dream's shows in Activity's Last night. */
   reason: Type.Optional(Type.String()),
-  /** On an answer: each need's key and the user's answer; a blank answer clears it. */
   answers: Type.Optional(Type.Record(Type.String(), Type.String())),
-  /** On a create: "kit" for a kit; a skill otherwise. */
   kind: Type.Optional(SkillKind)
 });
 
 export type SkillChange = Static<typeof SkillChange>;
 
-/** skill_view's input. */
 export const SkillViewInput = Type.Object({
   name: Type.String(),
   history: Type.Optional(Type.Boolean())
 });
 
-/** A row of ky_skills as SQLite holds it: `pinned` is 0 or 1. Fields in the table's column order, which a decoded row keeps. */
 export const SkillStored = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
@@ -140,32 +101,21 @@ export const SkillStored = Schema.Struct({
   uses: Schema.Number,
   created_at: Schema.Number,
   updated_at: Schema.Number,
-  /** When skill_view last opened it; null if never. */
   last_used_at: Schema.NullOr(Schema.Number),
   pinned: Schema.Number,
   created_by: SkillOrigin,
-  /** The user's answers to its Needs as a JSON object; null until the first. */
   answers: Schema.NullOr(Schema.String),
   kind: Schema.Literals(["skill", "kit"])
 });
 
 export type SkillRow = Omit<typeof SkillStored.Type, "pinned" | "answers"> & {
-  /** The user pinned it: a dream leaves it as it is. */
   readonly pinned: boolean;
-  /** The user's answer to each need, by its key. */
   readonly answers: Readonly<Record<string, string>>;
 };
 
-// A skill's sections ky reads, besides following it: `## Needs`, what the skill asks the user before it can
-// run, one `- key: question` line each, with the choices in a trailing `(a | b)`; and `## Members`, the skills a
-// kit runs, one `- name` line each. Anything else in the body is its steps. Parsing never throws: a line that
-// doesn't fit is the skill's text, not a need.
-
 export type Need = {
-  /** lowercase-with-hyphens, as skill names are; the answer is kept under it. */
   readonly key: string;
   readonly question: string;
-  /** The options to pick from, when the question lists them; none means a free answer. */
   readonly choices: readonly string[];
 };
 
@@ -182,7 +132,6 @@ const MEMBER = /^[-*]\s+`?([^`\s]+)`?\s*$/;
 
 const CHOICES = /\s*\(([^()]*\|[^()]*)\)\s*$/;
 
-/** The lines under each `## heading`, by its lowercased title. */
 function sections(body: string): Map<string, string[]> {
   const found = new Map<string, string[]>();
   let current: string[] | undefined;
@@ -218,7 +167,6 @@ function need(line: string): Need | undefined {
   return question === "" ? undefined : { key, question, choices: choices && options.length >= 2 ? options : [] };
 }
 
-/** A body's needs, first of each key, and its members, each once, in the order written. */
 export function parse(body: string): Sections {
   const found = sections(body);
   const needs = new Map<string, Need>();
@@ -240,11 +188,6 @@ export function parse(body: string): Sections {
   return { needs: [...needs.values()], members: [...members] };
 }
 
-/**
- * Each skill's kits, by its name: the active kits whose Members name it, in the order given. A kit naming
- * itself doesn't count; a kit inside a kit is fine, and a cycle is harmless, since nothing follows Members
- * further than one step.
- */
 export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
   const kits = new Map<string, string[]>();
 
@@ -261,49 +204,36 @@ export function kitsOf(skills: readonly SkillRow[]): Map<string, string[]> {
 
 const decodeAnswers = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)));
 
-/** Stored answers; a column that doesn't hold an object of strings reads as none. */
 const answersOf = (stored: string | null): Readonly<Record<string, string>> => (stored === null ? {} : Option.getOrElse(decodeAnswers(stored), () => ({})));
 
-/** A stored skill, its pin as a boolean and its answers as an object. */
 export function skillOf({ pinned, answers, ...row }: typeof SkillStored.Type): SkillRow {
   return { ...row, pinned: pinned !== 0, answers: answersOf(answers) };
 }
 
-/**
- * A change about to be written, as Skills tells its watchers (the dream's ledger, src/dreaming/ledger.ts):
- * `before` is the skill's newest version until now, null for a create.
- */
 export type SkillWrite = {
   readonly name: string;
   readonly action: SkillAction;
   readonly actor: string;
-  /** The conversation that made it; null for the user's and for ky's staleness pass. */
   readonly conversation: string | null;
-  /** The run it belongs to when it has no conversation: ky's staleness pass gives the dream's that runs it. */
   readonly run: string | null;
   readonly before: number | null;
   readonly absorbed_into: string | null;
   readonly reason: string | null;
 };
 
-/** A row of ky_skill_versions. */
 export const SkillVersion = Schema.Struct({
   id: Schema.Number,
   name: Schema.String,
   action: Schema.String,
-  /** "agent", "review", "dream", "user" or "ky". */
   actor: Schema.String,
   description: Schema.String,
   body: Schema.String,
   status: SkillStatus,
   created_at: Schema.Number,
-  /** The conversation that made it; null for the user's edits and versions from before it was kept. */
   conversation: Schema.NullOr(Schema.String)
 });
 
 export type SkillVersion = typeof SkillVersion.Type;
-
-// Why ky won't change the library, in B's words: Skills (wiring.ts) throws each as an Error with the refusal as its message, as B threw them.
 
 export class NoSuchAction extends Schema.TaggedError<NoSuchAction>()("NoSuchAction", { action: Schema.String }) implements Refusable {
   get refusal(): string {
@@ -337,7 +267,6 @@ export class Exists extends Schema.TaggedError<Exists>()("Exists", { name: Schem
 
 const NEEDS = { create: "create needs a description and a body.", patch: "patch needs old and new.", revert: "revert needs a version." } as const;
 
-/** A change without the fields its action needs. */
 export class Incomplete extends Schema.TaggedError<Incomplete>()("Incomplete", { action: Schema.Literals(["create", "patch", "revert"]) }) implements Refusable {
   get refusal(): string {
     return NEEDS[this.action];
@@ -420,41 +349,27 @@ export class TooLong extends Schema.TaggedError<TooLong>()("TooLong", { field: S
   }
 }
 
-/** A version's text that can't be written. */
 export type TextRefusal = NoDescription | TooLong;
 
-/** Why a change to the library is refused. */
 export type SkillRefusal = NoSuchAction | BadName | KindStays | NoSkill | Exists | Incomplete | NotInBody | Ambiguous | NoVersion | Pinned | UsersOwn | NotAMerge | MachinePins | MachineAnswers | NotAsked | NoAnswers | TextRefusal;
 
-/**
- * What runs in the background: a review of one turn, a nightly dream (src/dreaming/dreaming.ts), an episode
- * reflection that keeps what a chat left open (src/dreaming/episodes.ts), or a look over the user's day
- * (src/dreaming/looks.ts).
- */
 export const ReviewKind = Schema.Literals(["review", "dream", "episode", "look"]);
 
 export type ReviewKind = typeof ReviewKind.Type;
 
 const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memory_zoom"] as const;
 
-/** The tools each kind may call; each is offered every tool, so the rest are blocked. */
 export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = Object.freeze({
   review: REVIEW_TOOLS,
-  // automation books check-ins (src/automations/automations.ts), and only them; anticipate keeps what is open (src/dreaming/anticipations.ts).
   dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"],
-  // An episode only keeps what is open, checking memory first; it writes no memory and no skill.
   episode: ["anticipate", "memory_recall"],
-  // A look only reads: memory, the chats, what is open (anticipate's list alone), and a check-in's web and browser.
   look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", ...CHECK_IN_TOOLS]
 });
-
-// Specialists.
 
 const SessionKind = Schema.Literals(["home", "consult", "discuss", "group"]);
 
 export type SessionKind = typeof SessionKind.Type;
 
-/** A model choice as a specialist stores it, JSON in ky_specialists.model. */
 const StoredModel = Schema.Struct({
   provider: Schema.String,
   modelId: Schema.String,
@@ -463,7 +378,6 @@ const StoredModel = Schema.Struct({
 
 const parseJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
-/** A row of ky_specialists as SQLite holds it: the model as JSON text. */
 export const SpecialistStored = Schema.Struct({
   id: Schema.String,
   description: Schema.String,
@@ -474,25 +388,19 @@ export const SpecialistStored = Schema.Struct({
 });
 
 export type SpecialistRow = Omit<typeof SpecialistStored.Type, "model"> & {
-  /** Its model; the worker's when null or no longer available. */
   readonly model: ModelChoice | null;
 };
 
-/** A stored specialist, its model checked and kept as stored; a damaged model reads as none, so the worker's runs. */
 export function specialistOf({ model, ...row }: typeof SpecialistStored.Type): SpecialistRow {
   return { ...row, model: model === null ? null : Option.getOrNull(Option.filter(parseJson(model), Schema.is(StoredModel))) };
 }
 
-/** A row of ky_specialist_sessions, as `bySession` reads it. */
 export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind: SessionKind });
 
-/** A specialist's brief as the panel shows it (src/dreaming/soul.ts's SoulView). */
 type BriefView = { readonly body: string; readonly version: number; readonly updated_at: number };
 
-/** What the panel shows: a specialist and its brief. */
 export type SpecialistView = SpecialistRow & { readonly brief: BriefView };
 
-/** A specialist's settings as the user or ky saves them; the brief only on create. A field left out keeps what is stored. */
 export const SpecialistDraftSchema = Type.Object({
   description: Type.Optional(Type.String()),
   model: Type.Optional(Type.Union([ModelChoiceSchema, Type.Null()])),
@@ -520,7 +428,6 @@ export const SpecialistAction = Type.Union([
 
 export type SpecialistAction = Static<typeof SpecialistAction>;
 
-/** The specialist tool's input. */
 export const SpecialistInput = Type.Object({
   action: SpecialistAction,
   id: Type.Optional(Type.String({ description: "Lowercase-with-hyphens, like engineer." })),
@@ -531,8 +438,6 @@ export const SpecialistInput = Type.Object({
 });
 
 export type SpecialistInput = Static<typeof SpecialistInput>;
-
-// Subagents.
 
 export const SubagentAction = Type.Union([
   Type.Literal("spawn"),
@@ -546,7 +451,6 @@ export const SubagentAction = Type.Union([
 
 export type SubagentAction = Static<typeof SubagentAction>;
 
-/** The subagent tool's input. */
 export const SubagentInput = Type.Object({
   action: SubagentAction,
   name: Type.Optional(Type.String({ description: "Short, like researcher or pharmacy-finder." })),
@@ -562,9 +466,6 @@ export const SubagentInput = Type.Object({
 
 export type SubagentInput = Static<typeof SubagentInput>;
 
-// What other domains call.
-
-/** The leading `@id`s of a message, in order; empty when it starts otherwise. */
 export function mentions(text: string): string[] {
   const found: string[] = [];
   const pattern = /^@([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)\s*/;
@@ -578,31 +479,22 @@ export function mentions(text: string): string[] {
   return found;
 }
 
-/** The text of an assistant message. */
 export function textOf(message: AssistantMessage | undefined): string {
   return (message?.content ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
-/** Configure a conversation as a specialist's: without `remove`, on `model`. */
 export async function setUp(tx: Tx, conversation: ConversationId, remove: readonly Extension[], model: ModelChoice): Promise<void> {
   await configure(tx, conversation, { extensions: { remove: [...remove] }, ...agentModel(model) });
 }
 
-/** Where a review or a dream runs and reports. */
 export type ReviewHost = {
   readonly conversation: (session: string) => Promise<Conversation>;
   readonly feed: TaskFeed;
-  /** Run work in the background of the current request, like `ctx.waitUntil`. */
   readonly later: (work: Promise<void>) => void;
   readonly context: Context;
-  /** The background purpose's model, which a review's fork runs on. */
   readonly model: () => AgentChange;
 };
 
-/**
- * Fork `conversation` at `at` for a review, a dream or an episode: the fork keeps the parent's agent and, since it
- * remembers, the parent's memory section, but runs on the background model.
- */
 export async function reviewFork(host: ReviewHost, conversation: Conversation, at: EntryId): Promise<Conversation> {
   const fork = await conversation.fork(at, { ownership: { kind: "ownerless" } }, host.context);
   await fork.configure(host.model(), host.context);
@@ -610,18 +502,14 @@ export async function reviewFork(host: ReviewHost, conversation: Conversation, a
   return fork;
 }
 
-/** A background task as it shows in Activity. */
 type BackgroundTask = { readonly id: string; readonly worker: string; readonly title: string; readonly content: string };
 
-/** The source of a task `runInFeed` runs: only this object's memory waits on it, so a restart cuts it off. */
 export const BACKGROUND_SOURCE = "background";
 
-/** How a background task's one message ended: its answer, or how Activity shows that it got none. */
-export type BackgroundOutcome =
+type BackgroundOutcome =
   | { readonly status: "done"; readonly answer: string }
   | { readonly status: "stopped" | "failed"; readonly summary: string };
 
-/** Send a background task's one message to `conversation` and wait for the answer, showing nothing; never throws. */
 export async function askInBackground(host: ReviewHost, conversation: Conversation, { id, worker, title, content }: BackgroundTask): Promise<BackgroundOutcome> {
   const { context } = host;
 
@@ -650,7 +538,6 @@ export async function askInBackground(host: ReviewHost, conversation: Conversati
   }
 }
 
-/** A background task's card in Activity, working until it ends. */
 function startCard(host: ReviewHost, conversation: Conversation, { id, worker, title }: Omit<BackgroundTask, "content">): void {
   host.feed.create({ id, kind: "cloud", source: BACKGROUND_SOURCE, worker, title, status: "working", session: String(conversation.id) });
 }
@@ -659,16 +546,11 @@ function endCard(host: ReviewHost, id: string, outcome: BackgroundOutcome): void
   host.feed.update(id, outcome.status === "done" ? { status: "done", summary: summarize(outcome.answer) || "Done" } : outcome);
 }
 
-/** A background task that already ended, shown in Activity as `runInFeed` leaves one. */
 export function showEnded(host: ReviewHost, conversation: Conversation, task: Omit<BackgroundTask, "content">, outcome: BackgroundOutcome): void {
   startCard(host, conversation, task);
   endCard(host, task.id, outcome);
 }
 
-/**
- * Show a task in Activity, send its one message to the conversation, and
- * report the answer. Returns the answer, or undefined when the task failed.
- */
 export async function runInFeed(host: ReviewHost, conversation: Conversation, task: BackgroundTask): Promise<string | undefined> {
   startCard(host, conversation, task);
   const outcome = await askInBackground(host, conversation, task);

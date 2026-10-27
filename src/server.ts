@@ -8,55 +8,53 @@ import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
-import { Access, bypassed } from "./access";
-import { KY_AVATAR } from "./avatar-spec";
-import { Avatars, avatarTools } from "./avatars";
+import { bypassed } from "./access/contract";
+import { Access } from "./access/wiring";
+import { KY_AVATAR, type Missing as NotSetUp, preamble, type PromptConfig } from "./avatars/contract";
+import { Avatars, avatarTools, seed, Setup } from "./avatars/wiring";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { uiExtension } from "./ui-tool";
-import { ChatList, chatActivityExtension, type Opener } from "./chats";
-import { chatsExtension } from "./chats-tool";
+import { uiExtension } from "./cards/wiring";
+import { ChatList, chatActivityExtension } from "./chats/chats";
+import type { Opener } from "./chats/contract";
+import { chatsExtension } from "./chats/tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
-import { browseExtension } from "./browse";
-import { ExecutorLink, executeOnce, executorExtension } from "./executor";
-import { retype } from "./file-types";
-import { download, type FileRow, FileStore, saveImage } from "./files";
-import { uploadMedia } from "./media-upload";
-import { History, startedByUser } from "./history";
-import { lookPost } from "./transcript";
+import { browseExtension } from "./browse/wiring";
+import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
+import type { FileRow } from "./files/contract";
+import { download, saveImage } from "./files/files";
+import { FileStore, retype, uploadMedia } from "./files/wiring";
+import { History, startedByUser } from "./history/wiring";
+import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
 import { sandboxRoute } from "./sandbox-routes";
-import { publicSiteRoute, siteRoute } from "./site-routes";
-import { siteExtension } from "./sites";
+import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
-import { MachineHub, machineTools } from "./machines/wiring";
+import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
-import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
-import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, MailBox, type MailDesk, mailExtension, mailLimits, readMail, receive } from "./mail";
-import { type NotSetUp, Setup } from "./setup";
+import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
+import { MailBox, type MailDesk, mailExtension, readMail, receive } from "./mail/wiring";
 import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
 import { hookGuard, inboundTools } from "./inbound/tools";
-import { Pushes } from "./push";
+import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
 import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
-import { seed } from "./seeds";
-import { Titler } from "./titles";
-import { RunnerPipe } from "./pipe";
+import { Titler } from "./chats/titles";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
-import type { Purpose } from "./settings";
+import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
 import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
@@ -96,13 +94,13 @@ export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] =
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
-  readonly files = new FileStore(this.ctx.storage.sql);
+  readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
   readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
   readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(
-    this.ctx.storage.sql,
+    this.ctx.storage,
     this.feed,
     (tag) => this.ctx.getWebSockets(tag),
     this.files,
@@ -112,13 +110,13 @@ export class PiAgent extends DurableObject<Env> {
   );
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
-  readonly models = new Models(this.ctx.storage.sql, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
+  readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
-  readonly setup = new Setup(this.ctx.storage.sql);
+  readonly setup = new Setup(this.ctx.storage);
   /** What the peer tool and Settings › Peers work with. */
   readonly peerDesk: PeerDesk = {
     peers: this.peers,
@@ -133,7 +131,7 @@ export class PiAgent extends DurableObject<Env> {
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   /** ky's own mail (src/mail.ts). */
-  readonly mailBox = new MailBox(this.ctx.storage.sql);
+  readonly mailBox = new MailBox(this.ctx.storage);
   /** What the mail tool, the email handler and Settings › Mail work with. */
   readonly mailDesk: MailDesk = {
     box: this.mailBox,
@@ -165,21 +163,21 @@ export class PiAgent extends DurableObject<Env> {
   );
   readonly skills = new Skills(this.ctx.storage);
   /** SOUL.md, ky's persona. */
-  readonly soul = new Soul(this.ctx.storage.sql);
+  readonly soul = new Soul(this.ctx.storage);
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
-  readonly avatars = new Avatars(this.ctx.storage.sql);
+  readonly avatars = new Avatars(this.ctx.storage);
   /** Which specialists are in which chats, and their seats there. */
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */
   readonly reviews = new Reviews(this.ctx.storage);
   /** Every change a dream makes, so the user can undo it; it also guards what a dream may change. */
-  readonly ledger = new DreamLedger(this.ctx.storage.sql, { skills: this.skills, memory: this.memory, reviews: this.reviews });
-  readonly chats = new ChatList(this.ctx.storage.sql);
+  readonly ledger = new DreamLedger(this.ctx.storage, { skills: this.skills, memory: this.memory, reviews: this.reviews });
+  readonly chats = new ChatList(this.ctx.storage);
   /** Every message of the main chat and the side chats, searchable. */
   readonly history = new History(
-    this.ctx.storage.sql,
+    this.ctx.storage,
     (session) => this.isChat(session),
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
@@ -261,7 +259,7 @@ export class PiAgent extends DurableObject<Env> {
     delivered: (requestId) => this.deliveries.delivered(requestId)
   });
   /** What ky posts unasked, as notifications on the user's devices. */
-  readonly pushes = new Pushes(this.ctx.storage.sql, {
+  readonly pushes = new Pushes(this.ctx.storage, {
     vault: () => this.env.Vault.getByName("owner"),
     zone: () => this.automations.checkIns().zone,
     most: () => this.proactivity.rightAway(),
@@ -270,7 +268,7 @@ export class PiAgent extends DurableObject<Env> {
     origin: () => this.setup.origin()
   });
   /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
-  readonly approvals = new Approvals(this.ctx.storage.sql, {
+  readonly approvals = new Approvals(this.ctx.storage, {
     present: (session) => this.userHere(session),
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
     home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
@@ -278,7 +276,7 @@ export class PiAgent extends DurableObject<Env> {
     defer: (work) => this.ctx.waitUntil(work)
   });
   /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
-  readonly executorApprovals = new ExecutorApprovals(this.ctx.storage.sql, this.approvals, {
+  readonly executorApprovals = new ExecutorApprovals(this.ctx.storage, this.approvals, {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
@@ -313,7 +311,7 @@ export class PiAgent extends DurableObject<Env> {
     later: (work) => this.ctx.waitUntil(work)
   });
   /** Webhooks, and the credentials ky asked for (src/inbound/inbound.ts). */
-  readonly inbound = new Inbound(this.ctx.storage.sql, {
+  readonly inbound = new Inbound(this.ctx.storage, {
     vault: () => this.env.Vault.getByName("owner"),
     asker: this.approvals,
     chat: (session) => this.isChat(session),

@@ -1,0 +1,13 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..b1f0776 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -178,7 +178,7 @@ export function checkInput(input: UserInput): string | null {
+ 
+   if (frames > images.length || frames > MAX_CLIPS * FRAMES_PER_VIDEO) return "A video's frames don't match its tag.";
+ 
+-  if (images.length - frames > MAX_IMAGES) return `Attach at most ${MAX_IMAGES} images.`;
++  if (images.length - frames > MAX_IMAGES + 1) return `Attach at most ${MAX_IMAGES} images.`;
+ 
+   for (const image of images) {
+     if (!IMAGE_TYPES.has(image.mimeType)) return `Images must be JPEG, PNG, WebP or GIF, not ${image.mimeType}.`;

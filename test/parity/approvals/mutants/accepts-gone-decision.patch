@@ -1,0 +1,13 @@
+diff --git a/src/approvals/approvals.ts b/src/approvals/approvals.ts
+index a06f1a0..e102ee2 100644
+--- a/src/approvals/approvals.ts
++++ b/src/approvals/approvals.ts
+@@ -190,7 +190,7 @@ class Store extends Context.Service<
+ 
+           const [claimed] = yield* rows(
+             Row,
+-            `UPDATE ${TABLE} SET status = ?, decided_at = ?, carried_at = NULL WHERE id = ? AND status = 'pending' RETURNING ${COLUMNS}`,
++            `UPDATE ${TABLE} SET status = ?, decided_at = ?, carried_at = NULL WHERE id = ? RETURNING ${COLUMNS}`,
+             STATUS[action],
+             decidedAt,
+             id

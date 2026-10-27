@@ -1,20 +1,3 @@
-/**
- * The deploy domain: deploys a release to the user's account, checks what's there, and removes it,
- * as Effects over @distilled.cloud/cloudflare's operations. What to deploy is the release's generic
- * wrangler.jsonc with the user's overlay merged over it (C6); everything else is found again each run,
- * so nothing is kept between runs. The edge that runs it is `Cloudflare.run` (cli/cloudflare.ts),
- * through wiring.ts.
- *
- * ky changes and removes only what it made. A Worker the CLI deployed carries the `ky` tag and its
- * release's version; one of the same name without the tag (one `pnpm run deploy` made, say) is
- * never changed or removed. A bucket the CLI made holds a marker object; one without it is never
- * emptied, and adopted only when it's empty and no other Worker binds it: the bucket a deploy cut
- * short made (I-D3). An Access app the CLI made carries the `ky` tag too; one without it that guards
- * the Worker's address is never changed or removed.
- *
- * Every write is read first and skipped when what's there is already what it would write, so a
- * second deploy of the same release makes reads only (I-D2).
- */
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import * as Containers from "@distilled.cloud/cloudflare/containers";
@@ -24,18 +7,16 @@ import * as R2 from "@distilled.cloud/cloudflare/r2";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import * as ZeroTrust from "@distilled.cloud/cloudflare/zero-trust";
 import * as Zones from "@distilled.cloud/cloudflare/zones";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Unstable_RawConfig } from "wrangler";
-import { BYPASS } from "../../src/access.ts";
-import { getService, type Login, MAIL_SCOPES, SCOPES, type Services, tokenPage } from "../cloudflare.ts";
+import { BYPASS } from "../../src/access/contract.ts";
+import { getService, type Login, MAIL_SCOPES, SCOPES, tokenPage } from "../cloudflare.ts";
 import { emails, mailAddress, writeDeployed } from "../config.ts";
 import { copyImage, imageDigest, TARGET } from "../image.ts";
 import { type Release, releaseImage, runs } from "../release.ts";
@@ -45,7 +26,6 @@ import {
   CantDeployKey,
   type Check,
   type Deployed,
-  type DeployRefusal,
   MailDomainMissing,
   MailRoutingOff,
   MailRuleElsewhere,
@@ -67,7 +47,6 @@ import {
   zeroTrustPage
 } from "./contract.ts";
 
-/** What the deployer turns into the Worker's metadata; anything else in a config is refused. */
 const DEPLOYS = new Set([
   "$schema",
   "account_id",
@@ -90,43 +69,28 @@ const DEPLOYS = new Set([
   "send_email"
 ]);
 
-/** The Durable Object class the cloud machine's container backs. */
 const CLOUD_CLASS = "CloudMachine";
 
-/** The repository in the account's registry the cloud machine's image is copied to. */
 const CLOUD_REPOSITORY = "ky-cloud";
 
-/** The cloud machine's size: half a vCPU, 4 GiB and 8 GB of disk. */
 const CLOUD_INSTANCE = "standard-1";
 
-/**
- * How many containers the app may run: one per sandbox (SANDBOX_CAP in src/sandboxes.ts), and one
- * more for a sandbox that wakes while its last container still saves its disk.
- */
 const CLOUD_MAX_INSTANCES = 9;
 
-/** Cloudflare's answer to a login whose token can't do this. */
 const REFUSALS = new Set(["Forbidden", "Unauthorized"]);
 
-/** A version that names a commit: a build from a dirty checkout goes by the same one, so its code is never taken as deployed. */
 const COMMIT = /^[0-9a-f]{7,}$/;
 
-/** Where the user moves the account to Workers Paid. */
 function plansPage(accountId: string): string {
   return `https://dash.cloudflare.com/${accountId}/workers/plans`;
 }
 
-/** What Cloudflare fails with: a tagged error. */
 interface Failure {
   readonly _tag: string;
 }
 
-/** One of the domain's actions: it needs distilled's login, and fails with a refusal or Cloudflare's error. */
-type Op<A> = Effect.Effect<A, DeployRefusal | Failure, Services>;
-
 type Say = (step: string) => void;
 
-/** One deploy's settings: the config to deploy and the overlay file it came from. */
 export type Site = { readonly config: Unstable_RawConfig; readonly settings: string };
 
 type Binding = Workers.PutScriptBinding;
@@ -141,10 +105,6 @@ type FoundApp = Out<ReturnType<typeof accessApps>>[number];
 
 type Names = Out<ReturnType<typeof names>>;
 
-/** Every item of a paginated operation. */
-const list = <A, E, R>(items: Stream.Stream<A, E, R>) => Stream.runCollect(items).pipe(Effect.map((all) => [...all]));
-
-/** The operation's result, or undefined when it fails with one of `missing` (say `NoSuchBucket`). */
 const find = <A, E extends Failure, R>(operation: Effect.Effect<A, E, R>, ...missing: string[]) =>
   operation.pipe(
     Effect.catchIf(
@@ -153,33 +113,26 @@ const find = <A, E extends Failure, R>(operation: Effect.Effect<A, E, R>, ...mis
     )
   );
 
-/** Whether Cloudflare refused the login. */
 const refused = (error: Failure) => REFUSALS.has(error._tag);
 
-/** A binding as sent, or as Cloudflare answers it. */
 type Bound = { readonly type: string };
 
-/** `binding` without the fields it leaves undefined, to compare with what Cloudflare answers, which has none. */
 const defined = (binding: Bound) => Object.fromEntries(Object.entries(binding).filter(([, each]) => each !== undefined));
 
-/** Whether two lists of names hold the same names. */
 const sameNames = (a: readonly string[] | null | undefined, b: readonly string[] | null | undefined) => Equal.equals([...(a ?? [])].sort(), [...(b ?? [])].sort());
 
 function required<T>(value: T | undefined, what: string): Effect.Effect<T, NoConfig> {
   return value === undefined || value === "" ? Effect.fail(new NoConfig({ what })) : Effect.succeed(value);
 }
 
-/** What R2 takes as a bucket's name. */
 const BUCKET = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 
-/** The bucket for a binding, the Worker's name and the binding's, refused when R2 wouldn't take it. */
 function bucketFor(script: string, binding: string): Effect.Effect<{ binding: string; name: string }, BucketName> {
   const bucketName = `${script}-${binding.toLowerCase().replaceAll("_", "-")}`;
 
   return BUCKET.test(bucketName) ? Effect.succeed({ binding, name: bucketName }) : Effect.fail(new BucketName({ binding, bucketName }));
 }
 
-/** The names this deploy's resources go by: each bucket is the Worker's name and its binding's. */
 const names = (config: Unstable_RawConfig) =>
   Effect.gen(function* () {
     const script = yield* required(config.name, "name");
@@ -189,26 +142,22 @@ const names = (config: Unstable_RawConfig) =>
     return { account, script, access: script, bypass: `${script} bypass`, buckets, cloud: `${script}-cloud` };
   });
 
-/** The release a Worker the CLI deployed runs, from its tags. */
 function releaseOf(script: Script): string | undefined {
   return script.tags?.find((tag) => tag.startsWith(RELEASE_TAG))?.slice(RELEASE_TAG.length);
 }
 
-/** The release the Worker runs, as said to the user; undefined when there's no Worker. */
 const ranRelease = (script: Script | undefined) => script && (releaseOf(script) ?? "an unknown release");
 
 function scripts(accountId: string) {
-  return list(Workers.listScripts.items({ accountId }));
+  return Stream.runCollect(Workers.listScripts.items({ accountId }));
 }
 
-/** The Worker of this name, whoever deployed it. */
 const existing = (accountId: string, name: string) => Effect.map(scripts(accountId), (all) => all.find((candidate) => candidate.id === name));
 
 function ours(script: Script): boolean {
   return script.tags?.includes(TAG) ?? false;
 }
 
-/** The Worker of this name, refusing one the CLI didn't deploy. */
 const findScript = (settings: string, name: Names) =>
   Effect.gen(function* () {
     const script = yield* existing(name.account, name.script);
@@ -218,11 +167,9 @@ const findScript = (settings: string, name: Names) =>
     return script;
   });
 
-/** The migration the Worker last ran, read where wrangler reads it. */
 const migrationTag = (accountId: string, name: string) =>
   Effect.map(getService({ accountId, serviceName: name }), (service) => service.defaultEnvironment.script.migrationTag ?? undefined);
 
-/** The other Workers that bind the bucket. */
 const bindersOf = (accountId: string, bucketName: string, except: string) =>
   Effect.gen(function* () {
     const binders: string[] = [];
@@ -238,18 +185,13 @@ const bindersOf = (accountId: string, bucketName: string, except: string) =>
     return binders;
   });
 
-/**
- * Whether the bucket is there, and whether the CLI made it: `orphan` is one without the marker that's
- * empty and that no Worker but `script` binds, as a deploy cut between making the bucket and marking it
- * leaves it; ky adopts it.
- */
 const bucketState = (accountId: string, bucketName: string, script: string) =>
   Effect.gen(function* () {
     if (!(yield* find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket"))) return "missing" as const;
-    const marked = yield* list(R2.listObjects.items({ accountId, bucketName, prefix: MARKER }));
+    const marked = yield* Stream.runCollect(R2.listObjects.items({ accountId, bucketName, prefix: MARKER }));
 
     if (marked.some((object) => object.key === MARKER)) return "ours" as const;
-    const [first] = yield* list(Stream.take(R2.listObjects.items({ accountId, bucketName }), 1));
+    const [first] = yield* Stream.runCollect(Stream.take(R2.listObjects.items({ accountId, bucketName }), 1));
 
     if (first || (yield* bindersOf(accountId, bucketName, script)).length > 0) return "theirs" as const;
 
@@ -265,11 +207,9 @@ const host = (accountId: string, name: string) =>
     return `${name}.${subdomain.subdomain}.workers.dev`;
   });
 
-/** The account's Access team domain, `<team>.cloudflareaccess.com`; undefined until Zero Trust is on. */
 const teamDomain = (accountId: string) =>
   Effect.map(find(ZeroTrust.listOrganizationsForAccount({ accountId }), "OrganizationNotFound"), (organization) => organization?.authDomain ?? undefined);
 
-/** A destination as Access compares it: no scheme, no trailing slash, lower case. */
 function normal(uri: string): string {
   return uri
     .trim()
@@ -279,10 +219,9 @@ function normal(uri: string): string {
 }
 
 function accessApps(accountId: string) {
-  return list(ZeroTrust.listAccessApplicationsForAccount.items({ accountId }));
+  return Stream.runCollect(ZeroTrust.listAccessApplicationsForAccount.items({ accountId }));
 }
 
-/** What the app guards, normalised. */
 function guards(app: FoundApp): Set<string> {
   const destinations = ("destinations" in app ? app.destinations : undefined) ?? [];
   const uris = destinations.flatMap((destination) => ("uri" in destination && destination.uri ? [destination.uri] : []));
@@ -299,10 +238,6 @@ function theirApp(app: FoundApp, address: string): string {
   return `An Access app named ${app.name} already guards ${address} and ky didn't make it`;
 }
 
-/**
- * The Access apps that guard this address or a C2 path under it: of ky's, the owner's covers the
- * address and the bypass app the paths; `theirs` are the ones ky didn't make.
- */
 const accessFor = (accountId: string, address: string) =>
   Effect.gen(function* () {
     const paths = BYPASS.map((path) => normal(`${address}${path}`));
@@ -320,11 +255,6 @@ const accessFor = (accountId: string, address: string) =>
 
 type Access = Out<ReturnType<typeof accessFor>>;
 
-/**
- * The deploy's Worker, when there is one, and its address, once none of the Worker, the buckets of
- * the deploy's names and the Access apps that guard the address is one ky didn't make; it writes
- * nothing.
- */
 const claim = ({ config, settings }: Site) =>
   Effect.gen(function* () {
     const name = yield* names(config);
@@ -341,12 +271,10 @@ const claim = ({ config, settings }: Site) =>
     return { script, address };
   });
 
-/** Whether the Worker ran a migration this release doesn't have: it's newer than this ky. */
 function newer(migrations: Migrations, applied: string | undefined): boolean {
   return applied !== undefined && !migrations.some((migration) => migration.tag === applied);
 }
 
-/** The config's migrations the Worker hasn't run, as one upload: all of them on the first deploy; refused when the Worker ran one this release doesn't have. */
 function pendingMigrations(migrations: Migrations, applied: string | undefined) {
   if (applied !== undefined && newer(migrations, applied)) return new OlderThanWorker({ applied });
   const from = applied ? migrations.findIndex((migration) => migration.tag === applied) : -1;
@@ -367,7 +295,6 @@ function pendingMigrations(migrations: Migrations, applied: string | undefined) 
   };
 }
 
-/** The config's `send_email` bindings: ky's mail, sent from its own address. */
 const sendEmail = (config: Unstable_RawConfig) =>
   (config.send_email ?? []).map(
     (email): Binding => ({
@@ -379,7 +306,6 @@ const sendEmail = (config: Unstable_RawConfig) =>
     })
   );
 
-/** The Worker's bindings, from the config, with its buckets and `env` added as plain text; a key the deployer doesn't deploy is refused. */
 function bindings(config: Unstable_RawConfig, buckets: Names["buckets"], env: Record<string, string>): Binding[] | CantDeployKey {
   const key = Object.keys(config).find((each) => !DEPLOYS.has(each));
 
@@ -417,7 +343,6 @@ const TYPES = new Map([
   ["webmanifest", "application/manifest+json"]
 ]);
 
-/** The web app's manifest, path to hash, and its files by hash; as in wrangler's, a hash covers the file and its extension. */
 function hashed(assets: Release["assets"]) {
   const files = new Map<string, File>();
   const manifest: Record<string, { hash: string; size: number }> = {};
@@ -433,7 +358,6 @@ function hashed(assets: Release["assets"]) {
   return { manifest, files };
 }
 
-/** Uploads the web app's files Cloudflare doesn't have yet, and returns the token that deploys them. */
 const uploadAssets = (accountId: string, scriptName: string, assets: Release["assets"]) =>
   Effect.gen(function* () {
     const { manifest, files } = hashed(assets);
@@ -451,17 +375,14 @@ const uploadAssets = (accountId: string, scriptName: string, assets: Release["as
     return jwt;
   });
 
-/** The account's `ky` Access tag, which an app must have before it's tagged. */
 const ensureTag = (accountId: string) =>
   Effect.gen(function* () {
-    if ((yield* list(ZeroTrust.listAccessTags.items({ accountId }))).some((tag) => tag.name === TAG)) return;
+    if ((yield* Stream.runCollect(ZeroTrust.listAccessTags.items({ accountId }))).some((tag) => tag.name === TAG)) return;
     yield* ZeroTrust.createAccessTag({ accountId, name: TAG });
   });
 
-/** Who an Access policy lets in, as ky writes it: listed emails, or everyone. */
 const Rule = Schema.Union([Schema.Struct({ email: Schema.Struct({ email: Schema.String }) }), Schema.Struct({ everyone: Schema.Struct({}) })]);
 
-/** What ky sets on an Access app; a found app is read as this, its other fields left out. */
 const AppSettings = Schema.Struct({
   name: Schema.String,
   destinations: Schema.Array(Schema.Struct({ type: Schema.Literal("public"), uri: Schema.String })),
@@ -470,20 +391,16 @@ const AppSettings = Schema.Struct({
 
 type AppSettings = typeof AppSettings.Type;
 
-/** A found app that is ky's self-hosted one, with an audience tag. */
 const readApp = Schema.decodeUnknownOption(
   Schema.Struct({ ...AppSettings.fields, aud: Schema.NonEmptyString, type: Schema.Literal("self_hosted"), tags: Schema.Tuple([Schema.Literal(TAG)]) })
 );
 
-/** What two apps' settings compare by: their destinations' addresses as Cloudflare normalizes them. */
 const compared = (app: AppSettings) => ({ ...app, destinations: app.destinations.map((destination) => normal(destination.uri)) });
 
-/** The found app's audience tag when it's already ky's app with these settings: nothing to write. */
 function unchanged(found: FoundApp | undefined, settings: AppSettings): string | undefined {
   return Option.getOrUndefined(Option.filter(readApp(found), (app) => Equal.equals(compared({ name: app.name, destinations: app.destinations, policies: app.policies }), compared(settings))))?.aud;
 }
 
-/** Creates the Access app, updates the one found, or leaves it when it's already `app`; returns its audience tag. */
 const saveApp = (accountId: string, found: FoundApp | undefined, settings: AppSettings) =>
   Effect.gen(function* () {
     const current = unchanged(found, settings);
@@ -497,7 +414,6 @@ const saveApp = (accountId: string, found: FoundApp | undefined, settings: AppSe
     return saved.aud;
   });
 
-/** The Access app that lets only the owner in, and the one for C2's paths; returns the first's audience tag. */
 const ensureAccess = (name: Names, address: string, allowed: string[]) =>
   Effect.gen(function* () {
     const accountId = name.account;
@@ -520,7 +436,6 @@ const ensureAccess = (name: Names, address: string, allowed: string[]) =>
     return aud;
   });
 
-/** Makes the buckets that aren't there yet, and marks them, and the one a cut deploy made, as ky's. */
 const ensureBuckets = (name: Names) =>
   Effect.gen(function* () {
     const accountId = name.account;
@@ -541,7 +456,6 @@ const ensureBuckets = (name: Names) =>
     }
   });
 
-/** Whether the account runs containers: Workers Paid, and a login that may use them. Cloudflare answering with an error says no; not reaching it fails. */
 const runsContainers = (accountId: string) =>
   Containers.getContainerIdentity({ accountId }).pipe(
     Effect.as(true),
@@ -551,7 +465,6 @@ const runsContainers = (accountId: string) =>
     )
   );
 
-/** Whether the cloud machine deploys: the release has its image, and the account runs containers. */
 const cloudState = (accountId: string, release: Release) =>
   Effect.gen(function* () {
     const none = { off: "this ky's release has no cloud machine image" };
@@ -565,14 +478,12 @@ const cloudState = (accountId: string, release: Release) =>
     return image ? { image } : none;
   });
 
-/** The cloud machine's Durable Object namespace, once the Worker has run migration v3. */
 const cloudNamespace = (name: Names) =>
   Effect.map(
-    list(DurableObjects.listNamespaces.items({ accountId: name.account })),
+    Stream.runCollect(DurableObjects.listNamespaces.items({ accountId: name.account })),
     (namespaces) => namespaces.find((namespace) => namespace.script === name.script && namespace.class === CLOUD_CLASS)?.id ?? undefined
   );
 
-/** The container app on a namespace, read by itself: the account's list can lag it, and name the image a finished rollout replaced. */
 const namespaceApp = (accountId: string, namespaceId: string) =>
   Effect.gen(function* () {
     const listed = (yield* Containers.listContainerApplications({ accountId })).find((app) => app.durableObjects?.namespaceId === namespaceId);
@@ -580,7 +491,6 @@ const namespaceApp = (accountId: string, namespaceId: string) =>
     return listed && (yield* Containers.getContainerApplication({ accountId, applicationId: listed.id }));
   });
 
-/** The container app that backs the Worker's cloud machine; undefined when there's none, or the account runs no containers. */
 const cloudApp = (name: Names) =>
   Effect.gen(function* () {
     if (!(yield* runsContainers(name.account))) return undefined;
@@ -591,7 +501,6 @@ const cloudApp = (name: Names) =>
     return yield* namespaceApp(name.account, namespaceId);
   });
 
-/** A short-lived login to the account's registry, to push the image with. */
 const registryLogin = (accountId: string) =>
   Effect.gen(function* () {
     const credential = yield* Containers.createContainerRegistryCredentials({ accountId, registryId: TARGET, permissions: ["pull", "push"], expirationMinutes: 15 });
@@ -602,10 +511,6 @@ const registryLogin = (accountId: string) =>
     return { username, password: credential.password };
   });
 
-/**
- * Attaches the image to the cloud machine's namespace: a new container app, or a rollout of the one
- * there; an app from before sandboxes gets room for them.
- */
 const ensureCloudApp = (name: Names, image: string, say: Say) =>
   Effect.gen(function* () {
     const accountId = name.account;
@@ -620,7 +525,6 @@ const ensureCloudApp = (name: Names, image: string, say: Say) =>
       yield* Containers.createContainerApplication({
         accountId,
         name: name.cloud,
-        // Each sandbox starts when a task wakes it.
         maxInstances: CLOUD_MAX_INSTANCES,
         instances: 0,
         schedulingPolicy: "default",
@@ -632,7 +536,6 @@ const ensureCloudApp = (name: Names, image: string, say: Say) =>
       return;
     }
 
-    // Only ever raised: a higher limit the user set stays.
     if (app.maxInstances < CLOUD_MAX_INSTANCES) {
       yield* Effect.sync(() => say("Making room for the sandboxes"));
       yield* Containers.updateContainerApplication({ accountId, applicationId: app.id, maxInstances: CLOUD_MAX_INSTANCES });
@@ -652,28 +555,22 @@ const ensureCloudApp = (name: Names, image: string, say: Say) =>
     });
   });
 
-/** Whether `rule` takes mail to `address`, and nothing else. */
 const takes = (rule: EmailRouting.GetRuleResponse, address: string) =>
   rule.matchers?.length === 1 && rule.matchers[0]?.type === "literal" && rule.matchers[0].value?.toLowerCase() === address;
 
-/** Whether `rule` hands its mail to the Worker `script`. */
 const handsTo = (rule: EmailRouting.GetRuleResponse, script: string) => rule.actions?.some((action) => action.type === "worker" && action.value?.includes(script)) === true;
 
-/**
- * The Email Routing rule that hands mail to ky's address to this Worker: made when it's missing. The address's
- * domain is a zone of the account with Email Routing on; a rule that sends the address elsewhere is the user's, and refused.
- */
 const ensureMailRoute = (accountId: string, script: string, address: string) => {
   const domain = address.split("@")[1] ?? "";
 
   return Effect.gen(function* () {
-    const [zone] = yield* list(Zones.listZones.items({ name: domain, account: { id: accountId } }));
+    const [zone] = yield* Stream.runCollect(Zones.listZones.items({ name: domain, account: { id: accountId } }));
 
     if (!zone) return yield* new MailDomainMissing({ domain });
     const routing = yield* EmailRouting.getEmailRouting({ zoneId: zone.id });
 
     if (!routing.enabled) return yield* new MailRoutingOff({ domain, accountId });
-    const rules = yield* list(EmailRouting.listRules.items({ zoneId: zone.id }));
+    const rules = yield* Stream.runCollect(EmailRouting.listRules.items({ zoneId: zone.id }));
     const found = rules.find((rule) => takes(rule, address));
 
     if (found && handsTo(found, script)) return;
@@ -695,7 +592,6 @@ const ensureMailRoute = (accountId: string, script: string, address: string) => 
   );
 };
 
-/** What the Worker's upload would write, as the settings Cloudflare answers compare it. */
 type Upload = {
   compatibilityDate?: string;
   compatibilityFlags?: string[];
@@ -704,11 +600,6 @@ type Upload = {
   migrations: Exclude<ReturnType<typeof pendingMigrations>, OlderThanWorker>;
 };
 
-/**
- * Whether the Worker already runs this upload: ky's tags for this release (whose version doesn't name a
- * commit), no migration to run, and settings holding the same bindings (its secrets aside), compatibility
- * and observability. Anything unsure uploads.
- */
 const deployedAlready = (accountId: string, script: Script | undefined, version: string, upload: Upload) =>
   Effect.gen(function* () {
     if (!script?.id || upload.migrations || COMMIT.test(version) || !sameNames(script.tags, [TAG, `${RELEASE_TAG}${version}`])) return false;
@@ -717,28 +608,24 @@ const deployedAlready = (accountId: string, script: Script | undefined, version:
     return Equal.equals(uploaded(settings), uploaded(upload)) && sameBindings(settings.bindings, upload.bindings);
   });
 
-/** What an upload sets on the Worker, its bindings aside, as sent or as Cloudflare answers it. */
 type UploadSettings = {
   readonly compatibilityDate?: string | null;
   readonly compatibilityFlags?: readonly string[] | null;
   readonly observability?: { readonly enabled?: boolean | null } | null;
 };
 
-/** What an upload and the settings it left compare by, its bindings aside. */
 const uploaded = (upload: UploadSettings) => ({
   date: upload.compatibilityDate ?? undefined,
   flags: [...(upload.compatibilityFlags ?? [])].sort(),
   observed: upload.observability?.enabled ?? false
 });
 
-/** Whether the Worker holds exactly the bindings wanted, its secrets aside. */
 function sameBindings(found: readonly Bound[] | null | undefined, wanted: readonly Binding[]): boolean {
   const bound = (found ?? []).filter((binding) => binding.type !== "secret_text");
 
   return bound.length === wanted.length && wanted.every((each) => bound.some((binding) => Equal.equals(defined(binding), defined(each))));
 }
 
-/** Turns workers.dev on for the Worker, unless it's on already with previews off. */
 const ensureWorkersDev = (accountId: string, scriptName: string) =>
   Effect.gen(function* () {
     const now = yield* Workers.getScriptSubdomain({ accountId, scriptName });
@@ -747,7 +634,6 @@ const ensureWorkersDev = (accountId: string, scriptName: string) =>
     yield* Workers.createScriptSubdomain({ accountId, scriptName, enabled: true, previewsEnabled: false });
   });
 
-/** The cloud machine's image, copied to the account's registry; undefined, said why, when the cloud machine is off. */
 const cloudImage = (accountId: string, release: Release, tell: (step: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     const cloud = yield* cloudState(accountId, release);
@@ -764,10 +650,6 @@ const cloudImage = (accountId: string, release: Release, tell: (step: string) =>
     return yield* Effect.promise(() => copyImage({ source: cloud.image, account: accountId, repository: CLOUD_REPOSITORY, login }));
   });
 
-/**
- * The settings the Worker's upload writes from the config, with the Access vars and, when the cloud machine runs, `KY_CLOUD`;
- * or why B's upload refused: its bindings first, then its migrations.
- */
 function upload(
   config: Unstable_RawConfig,
   buckets: Names["buckets"],
@@ -791,7 +673,6 @@ function upload(
   };
 }
 
-/** Uploads the Worker's modules with these settings, the web app's upload token, its container and its migrations. */
 const putWorker = (
   name: Names,
   config: Unstable_RawConfig,
@@ -812,7 +693,6 @@ const putWorker = (
     files: [...release.modules].map(([module, content]) => new File([Buffer.from(content)], module, { type: "application/javascript+module" }))
   });
 
-/** Routes the config's mail address, when it has one, to the Worker. */
 const routeMail = (config: Unstable_RawConfig, name: Names, tell: (step: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     const mail = mailAddress(config);
@@ -822,10 +702,6 @@ const routeMail = (config: Unstable_RawConfig, name: Names, tell: (step: string)
     yield* ensureMailRoute(name.account, name.script, mail);
   });
 
-/**
- * Deploys the release: buckets, the Access apps, the web app, then the Worker with its bindings,
- * the migrations it hasn't run and `ACCESS_*`; then workers.dev.
- */
 const deploy = (site: Site, release: Release, say: Say) =>
   Effect.gen(function* () {
     const { config } = site;
@@ -853,7 +729,6 @@ const deploy = (site: Site, release: Release, say: Say) =>
 
     yield* tell(from ? `Upgrading the Worker from ${from} to ${release.version}` : "Uploading the Worker");
 
-    // Refused where B's upload refused, after the web app is up.
     if ("refused" in worker) return yield* worker.refused;
 
     if (!current) yield* putWorker(name, config, release, { ...worker.upload, jwt, image });
@@ -864,15 +739,11 @@ const deploy = (site: Site, release: Release, say: Say) =>
     yield* ensureWorkersDev(accountId, name.script);
     yield* routeMail(config, name, tell);
 
-    // So ky backup and ky restore find it with no Cloudflare login, only cloudflared's.
     yield* Effect.promise(() => writeDeployed(site.settings, { account: accountId, name: name.script, url: `https://${address}` }));
 
-    const deployed: Deployed = { url: `https://${address}`, from };
-
-    return deployed;
+    return { url: `https://${address}`, from } satisfies Deployed;
   });
 
-/** The release the Worker runs, or undefined when there's no Worker. */
 const deployedRelease = ({ config, settings }: Site) =>
   Effect.gen(function* () {
     const script = yield* findScript(settings, yield* names(config));
@@ -892,7 +763,6 @@ function bucketCheck(state: Out<ReturnType<typeof bucketState>>, bucketName: str
   return { name: "Bucket", ok: false, detail: `${bucketName} is a bucket ky didn't create`, next: rename(settings) };
 }
 
-/** The deploy's buckets, and any Access app on its address ky didn't make. */
 const ownershipChecks = (name: Names, settings: string, access: Access, address: string) =>
   Effect.gen(function* () {
     const buckets: Check[] = [];
@@ -902,14 +772,12 @@ const ownershipChecks = (name: Names, settings: string, access: Access, address:
     return [...buckets, ...access.theirs.map((app): Check => ({ name: "Access", ok: false, detail: theirApp(app, address), next: rename(settings) }))];
   });
 
-/** Whether the Worker runs this ky's release: its version, or the commit the release was built from. */
 function releaseCheck(deployed: string | undefined, release: Release): Check {
   if (!runs(deployed, release)) return { name: "Release", ok: false, detail: `${deployed ?? "unknown"}, this ky is ${release.version}`, next: "ky upgrade" };
 
   return { name: "Release", ok: true, detail: deployed === release.version ? release.version : `${release.version}, built from ${deployed}`, next: "ky upgrade" };
 }
 
-/** Whether the Worker runs this ky's release and its migrations; a Worker past them is newer than this ky. */
 function releaseChecks(deployed: string | undefined, release: Release, applied: string | undefined): Check[] {
   const migrations = release.config.migrations ?? [];
   const latest = migrations.at(-1)?.tag;
@@ -923,7 +791,6 @@ function releaseChecks(deployed: string | undefined, release: Release, applied: 
   ];
 }
 
-/** Whether an Access app guards the address, and whether the bypass app covers every C2 path under it. */
 function accessChecks(access: Access, address: string): Check[] {
   const missing = access.paths.filter((path) => !access.bypass || !guards(access.bypass).has(path));
 
@@ -933,7 +800,6 @@ function accessChecks(access: Access, address: string): Check[] {
   ];
 }
 
-/** Whether the cloud machine runs this release's image; on an account without containers, why it's off, which is fine. */
 const cloudCheck = (name: Names, release: Release) =>
   Effect.gen(function* () {
     const cloud = yield* cloudState(name.account, release);
@@ -944,14 +810,12 @@ const cloudCheck = (name: Names, release: Release) =>
     if (!app) return { name: "Cloud machine", ok: false, detail: "no container app", next: "ky deploy" } satisfies Check;
     const digest = yield* Effect.promise(() => imageDigest(cloud.image));
 
-    // The release names an image (or an index of them); the account's copy goes by its linux/amd64 manifest.
     if (!app.configuration.image.endsWith(`@${digest}`))
       return { name: "Cloud machine", ok: false, detail: `runs ${app.configuration.image}, not this ky's ${cloud.image}`, next: "ky deploy" } satisfies Check;
 
     return { name: "Cloud machine", ok: true, detail: name.cloud } satisfies Check;
   });
 
-/** The Worker's release, migrations, Access apps and workers.dev. */
 const inspectWorker = (name: Names, release: Release, script: Script, access: Access, address: string, check: Checker) =>
   Effect.gen(function* () {
     const accountId = name.account;
@@ -965,7 +829,6 @@ const inspectWorker = (name: Names, release: Release, script: Script, access: Ac
     yield* check(yield* cloudCheck(name, release));
   });
 
-/** Zero Trust, workers.dev, then the names the deploy needs, then the Worker. */
 const inspectAccount = ({ config, settings }: Site, release: Release, check: Checker) =>
   Effect.gen(function* () {
     const name = yield* names(config);
@@ -999,7 +862,6 @@ const inspectAccount = ({ config, settings }: Site, release: Release, check: Che
     yield* inspectWorker(name, release, script, access, address, check);
   });
 
-/** Every piece of a deploy, checked in order, each with what fixes it; a refused login is a failed check too. */
 const inspect = (site: Site, release: Release, login: Login) =>
   Effect.gen(function* () {
     const checks: Check[] = [];
@@ -1022,21 +884,18 @@ const inspect = (site: Site, release: Release, login: Login) =>
     return checks;
   });
 
-/** What teardown does with the bucket: removes it, leaves it (ky didn't create it, or another Worker binds it), or nothing once it's gone. */
 const bucketFate = (accountId: string, bucketName: string, script: string) =>
   Effect.gen(function* () {
     const state = yield* bucketState(accountId, bucketName, script);
 
     if (state === "missing") return "gone" as const;
 
-    // An unmarked bucket stays, as at B, even one a cut deploy made.
     if (state !== "ours") return { leave: "ky didn't create it" };
     const binders = yield* bindersOf(accountId, bucketName, script);
 
     return binders.length > 0 ? { leave: `${binders.join(", ")} binds it` } : ("remove" as const);
   });
 
-/** ky's Access apps on the Worker's address, and the others there; undefined without a workers.dev subdomain to find them by. */
 const appsAt = (name: Names) =>
   Effect.gen(function* () {
     const subdomain = (yield* find(Workers.getSubdomain({ accountId: name.account }), "SubdomainNotFound"))?.subdomain;
@@ -1050,10 +909,6 @@ const appsAt = (name: Names) =>
     };
   });
 
-/**
- * What teardown removes once the Worker is gone (ky's Access apps for its address, the buckets ky
- * made that no other Worker binds), what it leaves, and whether the Access apps couldn't be found.
- */
 const removable = (name: Names) =>
   Effect.gen(function* () {
     const access = yield* appsAt(name);
@@ -1070,7 +925,6 @@ const removable = (name: Names) =>
     return { apps: access?.apps ?? [], buckets, kept: [...kept, ...(access?.kept ?? [])], lost: !access };
   });
 
-/** Removes the Worker with its data, after its container app, which holds on to the Worker's namespace. */
 const removeWorker = (name: Names, tell: (step: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     const app = yield* cloudApp(name);
@@ -1084,7 +938,6 @@ const removeWorker = (name: Names, tell: (step: string) => Effect.Effect<void>) 
     yield* Workers.deleteScript({ accountId: name.account, scriptName: name.script, force: true });
   });
 
-/** Removes ky's Access apps, saying so when there are any. */
 const removeApps = (accountId: string, apps: readonly FoundApp[], tell: (step: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     if (apps.length > 0) yield* tell("Removing the Access apps");
@@ -1092,19 +945,14 @@ const removeApps = (accountId: string, apps: readonly FoundApp[], tell: (step: s
     for (const each of apps) if (each.id) yield* ZeroTrust.deleteAccessApplicationForAccount({ accountId, appId: each.id });
   });
 
-/** Empties the bucket, a thousand objects at a time, then removes it. */
 const removeBucket = (accountId: string, bucketName: string) =>
   Effect.gen(function* () {
-    const keys = (yield* list(R2.listObjects.items({ accountId, bucketName, perPage: 1000 }))).flatMap((object) => (object.key ? [object.key] : []));
+    const keys = (yield* Stream.runCollect(R2.listObjects.items({ accountId, bucketName, perPage: 1000 }))).flatMap((object) => (object.key ? [object.key] : []));
 
     for (let i = 0; i < keys.length; i += 1000) yield* R2.deleteObjects({ accountId, bucketName, body: keys.slice(i, i + 1000) });
     yield* R2.deleteBucket({ accountId, bucketName });
   });
 
-/**
- * Removes the Worker (its Durable Objects' data and secrets go with it), then its Access apps and
- * buckets; when the Access apps can't be found, it says so and the overlay stays.
- */
 const teardown = ({ config, settings }: Site, say: Say) =>
   Effect.gen(function* () {
     const tell = (step: string) => Effect.sync(() => say(step));
@@ -1129,7 +977,6 @@ const teardown = ({ config, settings }: Site, say: Say) =>
     if (lost) return yield* new AppsLost({ script: name.script, accountId, settings });
   });
 
-/** What teardown should have removed that's still in the account. */
 const leftovers = ({ config }: Site) =>
   Effect.gen(function* () {
     const name = yield* names(config);
@@ -1148,32 +995,11 @@ const leftovers = ({ config }: Site) =>
     ];
   });
 
-export interface Deploys {
-  readonly claim: (site: Site) => Op<{ script: Script | undefined; address: string }>;
-  readonly address: (site: Site) => Op<string>;
-  readonly teamDomain: (accountId: string) => Op<string | undefined>;
-  readonly deploy: (site: Site, release: Release, say: Say) => Op<Deployed>;
-  readonly deployedRelease: (site: Site) => Op<string | undefined>;
-  readonly inspect: (site: Site, release: Release, login: Login) => Op<Check[]>;
-  readonly teardown: (site: Site, say: Say) => Op<void>;
-  readonly leftovers: (site: Site) => Op<string[]>;
-}
+const address = ({ config }: Site) =>
+  Effect.gen(function* () {
+    const name = yield* names(config);
 
-export class Deployer extends Context.Service<Deployer, Deploys>()("ky/deploy/Deployer") {
-  /** Needs nothing but distilled's login, which each action asks for and the edge provides. */
-  static readonly layer = Layer.succeed(Deployer)({
-    claim,
-    address: ({ config }) =>
-      Effect.gen(function* () {
-        const name = yield* names(config);
-
-        return `https://${yield* host(name.account, name.script)}`;
-      }),
-    teamDomain,
-    deploy,
-    deployedRelease,
-    inspect,
-    teardown,
-    leftovers
+    return `https://${yield* host(name.account, name.script)}`;
   });
-}
+
+export const Deployer = { claim, address, teamDomain, deploy, deployedRelease, inspect, teardown, leftovers };

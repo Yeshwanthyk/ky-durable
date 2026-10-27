@@ -1,0 +1,13 @@
+diff --git a/src/inbound/inbound.ts b/src/inbound/inbound.ts
+index 276e4ea..6737fd2 100644
+--- a/src/inbound/inbound.ts
++++ b/src/inbound/inbound.ts
+@@ -56,7 +56,7 @@ const { hooks: HOOKS, seen: SEEN, asks: ASKS, passes: PASSES } = INBOUND_TABLES;
+ 
+ const TOLD_CHARS = 32_000;
+ 
+-const SEEN_MS = 7 * 24 * 60 * 60_000;
++const SEEN_MS = 14 * 24 * 60 * 60_000;
+ 
+ const PASS_MS = 15 * 60_000;
+ 

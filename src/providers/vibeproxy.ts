@@ -1,5 +1,5 @@
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
-import type { NotSetUp } from "../setup";
+import type { Missing as NotSetUp } from "../avatars/contract";
 import type { Endpoint } from "./endpoint";
 import type { Offer } from "./offer";
 import type { ProviderRecord } from "./records";

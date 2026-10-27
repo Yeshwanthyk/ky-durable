@@ -1,1 +1,230 @@
-[]
+[
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from undefined is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from {} is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { memories: 'abc', at: 1 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { id: '7', date: null, text: 3 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a dream ledger row from { text:  } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a ledger row of an unknown kind or with a damaged cell is skipped, and a whole one decodes, with or without the later columns' values",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > the dream's ledger > an undo of a change the ledger never had, or of one a restore damaged, is refused"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from undefined is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from {} is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { memories: 'abc', at: 1 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { id: '7', date: null, text: 3 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a SOUL.md version from { text:  } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/dreaming.test.ts > SOUL.md and the specialists' briefs > a damaged version row is skipped, and the last whole one is current"
+  },
+  {
+    "check": "invariants",
+    "name": "allows no lint findings in src/settings.ts",
+    "class": "SCAN",
+    "replacedBy": "test/invariants/lint-zones.test.ts > allows no lint findings in src/settings/"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access keeps the team's keys, and fetches them again for a key it lacks at most once a minute",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > the team's keys > I-A6: a key id they lack fetches them again at most once a minute, so a key Access rotates in works within a minute"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access answers 503 while the team's certs fail, and fetches them again on the next request",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > the team's keys > I-A3: a fetch that fails, answers non-2xx, or holds no RSA keys is B's 503 and isn't kept; a JWT that can't pass without them never fetches"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access signs KY_DEV_EMAIL in without a JWT under KY_DEV=1, if ACCESS_EMAILS lets it in",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > Access's vars > I-A2: decide before any JWT: no ACCESS_EMAILS is not set up, KY_DEV=1 signs in KY_DEV_EMAIL against them, no team or app is not set up; none of it fetches the keys"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "Access refuses every request when Access's vars are missing",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/access.test.ts > Access's vars > I-A2: decide before any JWT: no ACCESS_EMAILS is not set up, KY_DEV=1 signs in KY_DEV_EMAIL against them, no team or app is not set up; none of it fetches the keys"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "sites refuses past 200 files, 10 MB or 50 sites",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/sites.test.ts > refusals > I-S7: publishes a folder of at most 200 files, all of them"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "what a navigation reached is a PDF by its content type or its first bytes, and otherwise the page, or a file it downloaded",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says so when the browser downloaded a file that isn't a PDF",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says a page whose navigation the browser aborted was aborted, not a download",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B6: a download is read only when its type or first bytes say PDF; otherwise it is refused, as a page when it is HTML"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF refuses a PDF over 15 MB",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B5: a download over 15 MB is refused, and one of 15 MB or less is read"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF stops reading a PDF when the call is stopped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B3: a stop answers at once with its reason, and the browser closes once"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF keeps long text whole past the old 20,000 characters, for guardrails to spill",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/browse.test.ts > I-B11: text over 400,000 characters is cut there and says so, and text of 400,000 or fewer is whole"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "browse reads a PDF says when the URL answers with nothing to read",
+    "class": "MOCK",
+    "replacedBy": "test/invariants/browse.test.ts > I-B7: a PDF fetch that fails is refused with its HTTP status, and one with no body says there is nothing to read"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs from no chat another chat opened: it refuses and opens and steers nothing"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool steers and inspects only the chats this chat opened: not main, not the user's, not another chat's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > steers or inspects only a chat this chat opened"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the chats tool refuses a conversation that is not a chat with the user, as a subagent's",
+    "class": "COPY",
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs only from a chat with the user: elsewhere it refuses and opens and steers nothing"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads sound.webm's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads clip.webm's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads sound.mp4's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture reads clip.mp4's tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture finds an MP4's index after its media by hopping box headers, not reading the media",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "node",
+    "name": "hasPicture can't tell from a file that isn't MP4 or WebM, or one cut off before its tracks",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/files.test.ts > a file's type > is the sound type when a video file holds no picture, as declared otherwise or when its tracks can't be read, and an MP4's index is found past its media without reading it"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "reading a mail off SMTP takes the sender, subject, text and the mails it answers, newest first",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > a mail that came in > is read off SMTP as its bare sender, name, subject cut to 300, text cut to 20000, its id and the ids it answers newest first, at the clock's time"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "the mail caps are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/mail.test.ts > the Worker's mail settings > read an address as its bracketed part lowercased, the caps as positive whole numbers else 50 and 20, and mail up to 2,000,000 bytes"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec keeps the examples as they are",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > roll > shows the examples as they are, and any spec it takes pulled into range"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec pulls sizes into range and refuses parts that aren't on the list",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > set > refuses a spec that isn't one in B's words and saves nothing; saves one that is"
+  },
+  {
+    "check": "worker-e2e",
+    "name": "a bloub spec rolls the same bloub for the same seed, and a valid one for any",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/avatars.test.ts > roll > offers one to six fitted bloubs, three when not asked, the same ones for the same seed"
+  }
+]

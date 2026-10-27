@@ -1,0 +1,13 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..a099e3d 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -170,7 +170,7 @@ export function checkInput(input: UserInput): string | null {
+   if (!Array.isArray(input)) return null;
+   const images = imagesOf(input);
+ 
+-  if (input.length === 0 || input.length - images.length > 1) return "Send one text part at most, and something.";
++  if (input.length === 0 || input.length - images.length > 2) return "Send one text part at most, and something.";
+   const { clips } = readMedia(input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
+   const frames = framesOf(clips);
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/mail/mail.ts b/src/mail/mail.ts
+index f663956..052bc9f 100644
+--- a/src/mail/mail.ts
++++ b/src/mail/mail.ts
+@@ -178,7 +178,7 @@ export class Box extends Context.Service<
+              VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (direction, message_id) DO NOTHING RETURNING ${COLUMNS}`,
+             crypto.randomUUID(),
+             mail.messageId,
+-            answers?.id ?? null,
++            null,
+             mail.from,
+             mail.fromName,
+             mail.subject,

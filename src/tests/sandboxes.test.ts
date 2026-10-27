@@ -1,8 +1,8 @@
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { ASSERTION } from "../access";
-import { CLOUD, CLOUD_FACTS } from "../cloud-facts";
+import { ASSERTION } from "../access/contract";
+import { CLOUD, CLOUD_FACTS } from "../machines/contract";
 import type { SandboxesView } from "../protocol";
 import { SANDBOX_CAP, type Sandbox, type SandboxChange, type SandboxDraft, saveKey } from "../sandboxes";
 import { agent, call, connect, FACTS, inside, pair, pairingCode, prompt, runner, tasks, until } from "./drive";
@@ -225,12 +225,12 @@ describe("routing a task to a sandbox", () => {
     expect((await mac.run()).prompt).toContain("fix it here");
 
     // The repo's sandbox off: refused, not sent to the default.
-    await inside(name, (instance) => instance.machines.configure("web", { state: "off" }));
+    await inside(name, (instance) => instance.machines.change("web", { state: "off" }));
     expect((await run({ prompt: "fix the site", repo: "me/web" })).text).toContain("me/web is the sandbox web's, which is off");
 
     // The default moves, and the tool says where unnamed work goes.
     await inside(name, (instance) => {
-      instance.machines.configure("web", { state: "on" });
+      instance.machines.change("web", { state: "on" });
       instance.changeSandbox(web.id, { isDefault: true });
     });
     await run({ prompt: "anything else" });

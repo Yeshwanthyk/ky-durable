@@ -1,0 +1,13 @@
+diff --git a/src/approvals/approvals.ts b/src/approvals/approvals.ts
+index a06f1a0..f3ea75f 100644
+--- a/src/approvals/approvals.ts
++++ b/src/approvals/approvals.ts
+@@ -270,7 +270,7 @@ export class Approvals implements Asker {
+ 
+     if (!asked) return id;
+ 
+-    if (!this.#deps.present(request.conversation)) this.#deps.notify(chat, `Waiting for your OK: ${request.summary}`.slice(0, 200));
++    if (this.#deps.present(request.conversation)) this.#deps.notify(chat, `Waiting for your OK: ${request.summary}`.slice(0, 200));
+     this.#changed();
+ 
+     return id;

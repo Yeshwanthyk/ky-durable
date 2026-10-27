@@ -1,0 +1,12 @@
+diff --git a/src/files/media.ts b/src/files/media.ts
+index 7e8beff..83e6a6a 100644
+--- a/src/files/media.ts
++++ b/src/files/media.ts
+@@ -207,7 +207,6 @@ export function imageSupport(settings: SettingsView, purpose: Purpose): string |
+ 
+   let found = find(settings.purposes[purpose]);
+ 
+-  if (found && !found.provider.connected && purpose !== "fallback") found = find(settings.purposes.fallback);
+ 
+   if (!found?.model || found.model.images) return null;
+ 

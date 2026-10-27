@@ -7,8 +7,12 @@ Baseline: B = `effect-baseline` (b658a6e). Doctor first; every run reports its s
 | Deploy | 1 (pilot) | 1, 3 (I-D1..I-D5, 4 mutants), 4 partly | [deploy.md](deploy.md) |
 | Automations | 2 | 1; 3 partly (B fails 7 of its own) | [automations.md](automations.md) |
 | Skills | 2 | 1; 3 partly | [skills.md](skills.md) |
+| Dreaming (core: Versioned, Soul, ledger) | 3 | 1; 3 partly (row decoders) | [dreaming.md](dreaming.md) |
+| Approvals | 3 | 1 | [approvals.md](approvals.md) |
+| Inbound | 3 | 1 | [inbound.md](inbound.md) |
+| Machines | 3 | 1 | [machines.md](machines.md) |
 
-Not mapped yet: machines (Wave 3, after the slim plan), peers, dreaming.
+Not mapped yet: peers and the rest of dreaming (Wave 4).
 
 ## Conventions
 

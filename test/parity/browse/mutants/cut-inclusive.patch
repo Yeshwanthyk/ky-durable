@@ -1,0 +1,13 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index b1b509a..7f70838 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -376,7 +376,7 @@ function readPdf(url: string, bytes: Uint8Array, ignored: boolean) {
+ }
+ 
+ function cut(text: string): string {
+-  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : text;
++  return text.length >= MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n[cut at ${MAX_TEXT} characters]` : text;
+ }
+ 
+ function closeBrowser(browser: Browser) {

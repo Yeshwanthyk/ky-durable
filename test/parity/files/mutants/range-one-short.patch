@@ -1,0 +1,11 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..dabc9fb 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -253,5 +253,5 @@ export async function download(request: Request, bucket: R2Bucket, id: string):
+ function rangeOf(start: string, end: string): { offset: number; length?: number } {
+   const offset = Number(start);
+ 
+-  return end === "" ? { offset } : { offset, length: Number(end) - offset + 1 };
++  return end === "" ? { offset } : { offset, length: Number(end) - offset };
+ }

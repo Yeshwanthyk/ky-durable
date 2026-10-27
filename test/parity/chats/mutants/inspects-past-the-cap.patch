@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index b7089ec..22eb827 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -5,7 +5,7 @@ import { toolReply as reply } from "../core/reply";
+ import type { ChatList } from "./chats";
+ import { type ChatRow, NotAChat, NothingToStart, NothingToSteer, NotOpenedHere, OpenedByAnother, type Opener } from "./contract";
+ 
+-const LAST_CHARS = 16_000;
++const LAST_CHARS = 16_001;
+ 
+ type ChatsParts = {
+   readonly chats: Pick<ChatList, "list" | "touch" | "rename" | "archive">;

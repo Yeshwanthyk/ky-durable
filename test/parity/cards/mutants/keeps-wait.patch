@@ -1,0 +1,13 @@
+diff --git a/src/cards/wiring.ts b/src/cards/wiring.ts
+index 59a83f0..e13bc07 100644
+--- a/src/cards/wiring.ts
++++ b/src/cards/wiring.ts
+@@ -32,7 +32,7 @@ function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAns
+   return Effect.succeed({ ...reply("Shown to the user. Your turn ends here; their answer arrives as their next message."), control: { terminate: true } });
+ }
+ 
+-function keep(doc: RunCardsDoc, call: string, { wait, ...card }: UiCardArgs): Effect.Effect<ToolExecutionResult, NoOneToShow> {
++function keep(doc: RunCardsDoc, call: string, { ...card }: UiCardArgs): Effect.Effect<ToolExecutionResult, NoOneToShow> {
+   if (!doc.run) return Effect.fail(new NoOneToShow());
+ 
+   if (!doc.cards.some((each) => each.call === call)) doc.cards.push({ call, card: JSON.stringify(card) });

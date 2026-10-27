@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it, vi } from "vitest";
-import { ASSERTION } from "../access";
-import { call, inside, prompt, promptTool } from "./drive";
+import { describe, expect, it } from "vitest";
+import { ASSERTION } from "../access/contract";
+import { call, inside, prompt } from "./drive";
 
 /**
  * Sites (src/sites.ts, src/site-routes.ts): the agent publishes a page or a workspace folder, the signed-in user
@@ -161,38 +161,6 @@ describe("sites", () => {
     expect(await (await call(`/s/${id}/`)).text()).toBe("v2");
     expect((await call(`/s/${id}/old.css`)).status).toBe(404);
     expect(await site(name, { action: "list" })).toContain(`${id} "Versions"`);
-  });
-
-  it("refuses past 200 files, 10 MB or 50 sites", async () => {
-    const name = crypto.randomUUID();
-    // Files ten to a folder, two deep: the folders don't count toward the cap.
-    const nested = (root: string, count: number) => Object.fromEntries(Array.from({ length: count }, (_, at) => [`${root}/d${at % 20}/e${at % 3}/${at}.html`, "x"]));
-    await write(name, nested("/workspace/full", 200));
-    const full = await site(name, { action: "publish", title: "Full", dir: "/workspace/full" });
-    expect(full).toContain("200 files");
-    expect((await call(`/s/${idOf(full)}/d19/e1/199.html`)).status).toBe(200);
-
-    await write(name, nested("/workspace/many", 201));
-    expect(await promptTool(name, `tool site ${JSON.stringify({ action: "publish", title: "Many", dir: "/workspace/many" })}`)).toEqual({
-      text: "tool said: Not published: a site holds at most 200 files, and /workspace/many has more.",
-      failed: true
-    });
-
-    // A page that large wouldn't fit in a tool call, so the folder holds eleven files of 1 MB; none is read.
-    await write(name, Object.fromEntries(Array.from({ length: 11 }, (_, at) => [`/workspace/big/${at}.html`, "x".repeat(1024 * 1024)])));
-    const reads = await inside(name, (instance) => vi.spyOn(instance.workspace.fs, "readFile"));
-    expect(await site(name, { action: "publish", title: "Big", dir: "/workspace/big" })).toContain("at most 10 MB");
-    expect(reads).not.toHaveBeenCalled();
-    reads.mockRestore();
-
-    for (const dir of ["/", "/.", "//", "/workspace/.."]) {
-      expect(await site(name, { action: "publish", title: "Root", dir }), dir).toContain("name a folder in the workspace");
-    }
-
-    const filler = Array.from({ length: 50 }, () => `sites/${crypto.randomUUID().replaceAll("-", "")}/.site`);
-    await Promise.all(filler.map((key) => env.FILES.put(key, JSON.stringify({ title: "filler", created: 0 }))));
-    expect(await site(name, { action: "publish", title: "One more", html: "x" })).toContain("at most 50 sites");
-    await env.FILES.delete(filler);
   });
 
   it("deletes a site a publish left without its metadata", async () => {

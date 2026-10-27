@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..6c0d880 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -162,7 +162,7 @@ const publish = ({ bucket, files, origin }: SiteHost, args: SiteArgs) =>
+     const to = yield* target(bucket, args.id);
+     const gathered = yield* gather(files, args);
+     const created = yield* Clock.currentTimeMillis;
+-    yield* Effect.promise(() => putMeta(bucket, to.id, { created, ...to.was, title: args.title ?? to.was?.title ?? "Untitled" }));
++    yield* Effect.promise(() => putMeta(bucket, to.id, { created, ...to.was, title: args.title ?? "Untitled" }));
+     yield* Effect.promise(() => store(bucket, to.id, gathered));
+ 
+     return `Published at ${addresses(origin).private(to.id)} (id ${to.id}, ${gathered.size} files), for the signed-in user only.`;

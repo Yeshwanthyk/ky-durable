@@ -1,0 +1,13 @@
+diff --git a/src/avatars/setup.ts b/src/avatars/setup.ts
+index be2136b..fa7d919 100644
+--- a/src/avatars/setup.ts
++++ b/src/avatars/setup.ts
+@@ -53,7 +53,7 @@ export class Places extends Context.Service<
+             const value = repo.trim();
+ 
+             if (value === "") {
+-              yield* exec(`DELETE FROM ${TABLE} WHERE key = 'repo'`);
++              yield* Effect.void;
+             } else {
+               if (!REPO.test(value)) return yield* new NotARepo({ repo: value });
+ 

@@ -28,3 +28,7 @@ answered every request with "Access isn't set up" and pointed its files at the w
 - **To check a deploy**, use `ky doctor [name]` and read-only wrangler commands (`wrangler versions list`,
   `wrangler deployments list`). These change nothing.
 - Local work runs on the local stack (`pnpm stack`) or the harness (`pnpm harness`), never a live ky.
+
+## Git
+
+- Commit messages and PR bodies carry no `Co-Authored-By`, "Generated with" or other agent attribution lines.

@@ -16,6 +16,7 @@ import Type from "typebox";
 import { Guard } from "typebox/guard";
 import { ClientMessageSchema, refusedFrame } from "./client-messages";
 import { decodeOr, parseOr } from "./core/decode";
+import { isRefusal } from "./core/refusal";
 import {
   decodeReport,
   isPipeReport,
@@ -31,27 +32,26 @@ import {
   runnerPathMachine,
   runnerTag
 } from "./machines/contract";
-import type { RunnerPipe } from "./pipe";
-import { checkInput, imagesOf } from "./images";
-import { spokenText } from "./media";
-import { CARD_ANSWER } from "./ui-blocks";
+import type { RunnerPipe } from "./machines/wiring";
+import { checkInput, imagesOf, spokenText } from "./files/media";
+import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
-import type { ChatList } from "./chats";
-import type { Avatars } from "./avatars";
+import type { ChatList } from "./chats/chats";
+import type { Avatars, Setup } from "./avatars/wiring";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
-import type { FileStore } from "./files";
+import type { FileStore } from "./files/wiring";
 import type { Models } from "./models";
 import type { Subscriptions } from "./subscriptions";
-import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail";
+import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail/wiring";
 import type { Approvals } from "./approvals/approvals";
 import type { ExecutorApprovals } from "./approvals/executor";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
-import type { ExecutorLink } from "./executor";
-import type { NotSetUp, Setup } from "./setup";
-import type { Pushes } from "./push";
+import type { ExecutorLink } from "./executor/wiring";
+import type { Missing as NotSetUp } from "./avatars/contract";
+import type { Pushes } from "./push/wiring";
 import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -958,7 +958,9 @@ export class PiSessionSockets {
       if (message.note !== undefined) change.note = message.note;
 
       if (message.login !== undefined) change.login = message.login;
-      this.#hub.configure(message.machine, change);
+      const changed = this.#hub.change(message.machine, change);
+
+      if (isRefusal(changed)) throw new Error(changed.refused);
 
       return null;
     },

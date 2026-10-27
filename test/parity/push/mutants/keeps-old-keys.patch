@@ -1,0 +1,13 @@
+diff --git a/src/push/push.ts b/src/push/push.ts
+index 3ef6051..12006df 100644
+--- a/src/push/push.ts
++++ b/src/push/push.ts
+@@ -134,7 +134,7 @@ export class Push extends Context.Service<
+             const now = yield* Clock.currentTimeMillis;
+             yield* exec(
+               `INSERT INTO ${DEVICES} (endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?)
+-               ON CONFLICT (endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
++               ON CONFLICT (endpoint) DO NOTHING`,
+               endpoint,
+               p256dh,
+               auth,

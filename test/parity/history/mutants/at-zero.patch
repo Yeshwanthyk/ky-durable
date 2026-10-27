@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..0de1309 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -230,7 +230,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+             text,
+             conversation,
+             roleOf(row, mine),
+-            row.at
++            0
+           );
+         };
+ 

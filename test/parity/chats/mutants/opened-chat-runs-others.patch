@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index b7089ec..06b5b76 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -80,7 +80,7 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
+   return reply(`Steered "${shown(row)}"; its agent answers there.`);
+ }
+ 
+-const callerRefusal = (parts: ChatsParts, from: string) => (!parts.chat(from) ? new NotAChat() : parts.openedBy(from) !== null ? new OpenedByAnother() : null);
++const callerRefusal = (parts: ChatsParts, from: string) => (!parts.chat(from) ? new NotAChat() : parts.openedBy(from) === "" ? new OpenedByAnother() : null);
+ 
+ async function onOpened(parts: ChatsParts, args: Static<typeof Args>, from: string, task: number, message: string): Promise<ToolExecutionResult> {
+   const row = ownedBy(parts, from).find((each) => each.session === args.chat);

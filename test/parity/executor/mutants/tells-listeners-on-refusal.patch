@@ -1,0 +1,13 @@
+diff --git a/src/executor/wiring.ts b/src/executor/wiring.ts
+index 56bdf43..20d07d8 100644
+--- a/src/executor/wiring.ts
++++ b/src/executor/wiring.ts
+@@ -174,7 +174,7 @@ export class ExecutorLink {
+   }
+ 
+   async #settled(result: { refused?: string }): Promise<{ refused?: string }> {
+-    if (!isRefusal(result)) await this.#changed();
++    await this.#changed();
+ 
+     return result;
+   }

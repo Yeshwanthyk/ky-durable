@@ -1,0 +1,13 @@
+diff --git a/src/cards/contract.ts b/src/cards/contract.ts
+index ba8110b..25fc2f6 100644
+--- a/src/cards/contract.ts
++++ b/src/cards/contract.ts
+@@ -64,7 +64,7 @@ const Columns = Schema.Struct({ type: Schema.Literal("columns"), columns: Many(M
+ const Choice = Schema.Struct({
+   type: Schema.Literal("choice"),
+   label: Schema.String,
+-  options: Many(Schema.Struct({ label: Schema.String, detail: Words }), 1, 12),
++  options: Many(Schema.Struct({ label: Schema.String, detail: Words }), 1, 1000),
+   multiple: Flag,
+   hint: Words
+ });

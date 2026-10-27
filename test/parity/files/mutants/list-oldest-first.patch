@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..5464785 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -88,7 +88,7 @@ export class Files extends Context.Service<
+           yield* exec(`INSERT INTO ${TYPED} (done) VALUES (1)`);
+         }),
+         restored: Effect.asVoid(exec(`DELETE FROM ${TYPED}`)),
+-        list: select("1 = 1 ORDER BY created_at DESC LIMIT ?", LIST_LIMIT),
++        list: select("1 = 1 ORDER BY created_at LIMIT ?", LIST_LIMIT),
+         forTask: (task) => select("task = ? ORDER BY created_at", task),
+         record: Effect.fnUntraced(function* (file) {
+           const row = { ...file, created_at: yield* Clock.currentTimeMillis };

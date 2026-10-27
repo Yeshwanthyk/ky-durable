@@ -29,6 +29,6 @@ cli/runner/
 src/machines/contract.ts
 src/machines/runner-protocol.ts
 src/core/decode.ts
-src/files.ts
+src/files/contract.ts
 src/step-labels.ts
 src/tool-labels.ts

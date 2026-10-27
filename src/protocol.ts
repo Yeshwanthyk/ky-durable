@@ -3,14 +3,14 @@ import type { AgentEvent } from "@earendil-works/pi-durable";
 import type { PiSessionId } from "agents/harness/pi";
 import type { Static } from "typebox";
 import type { ApprovalView, ToolPolicyView } from "./approvals/contract";
-import type { AvatarsView } from "./avatar-spec";
+import type { AvatarsView } from "./avatars/contract";
 import type { AutomationAction, AutomationDraft, AutomationView } from "./automations/contract";
 import type { ClientMessageSchema, SubscriptionKindSchema } from "./client-messages";
-import type { ChatRow } from "./chats";
-import type { FileRow } from "./files";
+import type { ChatRow } from "./chats/contract";
+import type { FileRow } from "./files/contract";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
-import type { SettingsView } from "./settings";
-import type { SetupView } from "./setup";
+import type { SettingsView } from "./settings/contract";
+import type { SetupView } from "./avatars/contract";
 import type { SkillRow, SpecialistView } from "./skills/contract";
 import type { MemoryView, Recalled, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
@@ -232,7 +232,7 @@ export type {
 
 export type { RunInfo, TaskLogStep, TaskRow, ZoneView } from "./automations/contract";
 
-export type { ChatRow } from "./chats";
+export * from "./chats/contract";
 
 export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
@@ -244,10 +244,10 @@ export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
 export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
-export type { FileRow } from "./files";
+export type { FileRow } from "./files/contract";
 
-export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings";
+export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 
-export type { SetupView } from "./setup";
+export type { SetupView } from "./avatars/contract";
 
 export type { PiSessionView as SessionView } from "./view";

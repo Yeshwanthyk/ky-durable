@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/versioned.ts b/src/dreaming/versioned.ts
+index d63919f..e1ba4b4 100644
+--- a/src/dreaming/versioned.ts
++++ b/src/dreaming/versioned.ts
+@@ -96,7 +96,7 @@ const patched = (label: string, was: string, old: string, replacement: string):
+ const checked = (label: string, body: string): Effect.Effect<string, Empty | TooLong> => {
+   if (body.trim() === "") return Effect.fail(new Empty({ label }));
+ 
+-  if (body.length > SOUL_CHARS) return Effect.fail(new TooLong({ label, length: body.length }));
++  if (body.length >= SOUL_CHARS) return Effect.fail(new TooLong({ label, length: body.length }));
+ 
+   return Effect.succeed(body);
+ };

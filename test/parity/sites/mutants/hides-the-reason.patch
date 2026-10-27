@@ -1,0 +1,13 @@
+diff --git a/src/sites/sites.ts b/src/sites/sites.ts
+index 0a51935..60a9a33 100644
+--- a/src/sites/sites.ts
++++ b/src/sites/sites.ts
+@@ -100,7 +100,7 @@ async function listed(files: SiteFiles, root: string): Promise<string[]> {
+ }
+ 
+ const reading = <A>(dir: string, read: () => Promise<A>) =>
+-  Effect.tryPromise({ try: read, catch: (error) => new Unreadable({ dir, reason: error instanceof Error ? error.message : String(error) }) });
++  Effect.tryPromise({ try: read, catch: (error) => new Unreadable({ dir, reason: String(error) }) });
+ 
+ const folder = (files: SiteFiles, dir: string) =>
+   Effect.gen(function* () {

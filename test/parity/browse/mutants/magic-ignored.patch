@@ -1,0 +1,13 @@
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
+index dd9b425..524f16c 100644
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
+@@ -250,7 +250,7 @@ function runStep(page: Page, step: Step): Effect.Effect<void, Failed> {
+ }
+ 
+ function reached(downloaded: boolean, contentType: string | undefined, head?: Uint8Array): "pdf" | "page" | "file" {
+-  const magic = head !== undefined && new TextDecoder().decode(head.subarray(0, 5)) === "%PDF-";
++  const magic = head !== undefined && new TextDecoder().decode(head.subarray(1, 6)) === "%PDF-";
+ 
+   if (magic || contentType?.toLowerCase().startsWith("application/pdf") === true) return "pdf";
+ 

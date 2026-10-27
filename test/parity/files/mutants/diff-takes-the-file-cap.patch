@@ -1,0 +1,13 @@
+diff --git a/src/files/files.ts b/src/files/files.ts
+index f6f50e9..65128e5 100644
+--- a/src/files/files.ts
++++ b/src/files/files.ts
+@@ -123,7 +123,7 @@ const label = (value: string, max: number) =>
+ 
+ const sizeOf = (request: Request, type: string) => {
+   const size = Number(request.headers.get("Content-Length"));
+-  const max = type === DIFF_TYPE ? MAX_DIFF_BYTES : MAX_FILE_BYTES;
++  const max = MAX_FILE_BYTES;
+ 
+   return Number.isInteger(size) && size >= 1 && size <= max ? Effect.succeed(size) : Effect.fail(new FileTooLarge({ max }));
+ };

@@ -1,0 +1,13 @@
+diff --git a/src/machines/machines.ts b/src/machines/machines.ts
+index 4fae5b7..adf1e88 100644
+--- a/src/machines/machines.ts
++++ b/src/machines/machines.ts
+@@ -695,7 +695,7 @@ const make = Effect.gen(function* () {
+       Effect.gen(function* () {
+         if (task.worker === to) return `${task.id} is already on ${to}.`;
+ 
+-        if (task.status !== "queued" || (yield* turnsOf(task.id)).sent > 0) {
++        if (task.status !== "queued") {
+           return `${task.id} has already run on ${task.worker}, and its session lives there, so it stays. Start a new task on ${to} with what it needs.`;
+         }
+ 

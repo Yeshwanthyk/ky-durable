@@ -1,7 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { describe, expect, it } from "vitest";
 import { captureDiff, type Git } from "../../cli/runner/diff.ts";
-import type { FileRow } from "../files";
+import type { FileRow } from "../files/contract";
 import { countsOf, feedbackMessage, latestDiff, patchSummary } from "../ui/review";
 
 /**
