@@ -11,9 +11,8 @@ import { CODE_TTL_MS, IDLE_MAX, type RouteRefused, RUNNER_TABLES, SANDBOX_CAP, t
 import { ownerRoute, tokenRoute } from "../../src/runners/routes";
 import { Registry, type SandboxRegistry } from "../../src/runners/sandboxes";
 import { pairAs } from "../../src/runners/wiring";
-import { assertParity, budget, type Json, type Parity } from "../parity/kit";
-import { legacy } from "../parity/runners/legacy";
-import { type Action, actions, FACTS, fakeUuids, instanceOf, MACHINE_TOKEN, next, storageOf, T, TASK_TOKEN, uuidsFrom, World } from "../parity/runners/world";
+import { budget, type Json } from "../parity/kit";
+import { FACTS, fakeUuids, MACHINE_TOKEN, storageOf, T, TASK_TOKEN, uuidsFrom, World } from "../parity/runners/world";
 
 const DATE = T - 3_600_000;
 
@@ -28,7 +27,7 @@ const words = {
   badIdle: `Idle minutes are a whole number from 1 to ${IDLE_MAX}.`
 };
 
-const runs = () => ({ numRuns: Math.max(10, Math.round(budget().numRuns / 5)), seed: budget().seed });
+const runs = () => ({ numRuns: budget().numRuns, seed: budget().seed });
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -423,7 +422,7 @@ describe("seeding and restoring", () => {
 type Routes = { readonly world: World; readonly route: (request: Request) => Promise<{ status: number; body: string }>; readonly at: (ms: number) => Promise<void> };
 
 async function routesWith(test: (routes: Routes) => Promise<void>): Promise<void> {
-  const world = new World(next, { now: () => DATE });
+  const world = new World({ now: () => DATE });
   const runtime = ManagedRuntime.make(TestClock.layer());
 
   const route = async (request: Request) => {
@@ -610,26 +609,4 @@ describe("a task's upload", () => {
         { attachFile: { id, task: "t1", name: "shot.png", type: "image/png", size: 8, caption: null } }
       ]);
     }));
-});
-
-const runnersParity: Parity<Action> = {
-  domain: "runners",
-  actions,
-  start: T,
-  advances: fc.constantFrom(1_000, 60_000, 5 * 60_000, 11 * 60_000),
-  legacy: async (clock) => instanceOf(legacy, clock),
-  next: async (clock) => instanceOf(next, clock),
-  divergences: [
-    {
-      name: "a row with a column of the wrong kind is skipped",
-      covers: (action) => action.kind === "damage",
-      heldBy: "test/invariants/runners.test.ts > skips a row a restore damaged"
-    }
-  ]
-};
-
-describe("runners parity", () => {
-  it("answers as B did over generated runs", async () => {
-    await assertParity(runnersParity);
-  }, 600_000);
 });
