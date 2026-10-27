@@ -64,7 +64,7 @@ export const ExpectRow = Schema.Struct({ session: Schema.String, sender: Schema.
 
 export const NOT_SET_UP = "ky has no address yet: the user sets it up in Settings › Mail.";
 
-export class NotSetUp extends Schema.TaggedError<NotSetUp>()("NotSetUp", {}) implements Refusable {
+export class NoAddress extends Schema.TaggedError<NoAddress>()("NoAddress", {}) implements Refusable {
   get refusal(): string {
     return NOT_SET_UP;
   }

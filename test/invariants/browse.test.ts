@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import { TestClock } from "effect/testing";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Browser, browseCall, type Launch, type Page, pdfReply } from "../../src/browse/wiring";
+import { type Browser, browseCall, type Launch, type BrowserPage, pdfReply } from "../../src/browse/wiring";
 import type { Refusable } from "../../src/core/edge";
 import { budget } from "../parity/kit";
 
@@ -34,7 +34,7 @@ function world(stall: Stall, options: Options = {}) {
     if (options.failing?.includes(selector)) throw new Error(`no ${selector}`);
   };
 
-  const page: Page = {
+  const page: BrowserPage = {
     goto: () => {
       if (options.gotoError !== undefined) return Promise.reject(new Error(options.gotoError));
 

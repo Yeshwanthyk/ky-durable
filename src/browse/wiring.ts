@@ -70,17 +70,17 @@ type CdpSession = {
   detach(): Promise<void>;
 };
 
-export interface Page {
+export interface BrowserPage {
   goto(url: string, options: { waitUntil: "domcontentloaded"; timeout: number }): Promise<Response | null>;
   waitForLoadState(state: "networkidle" | "domcontentloaded", options: { timeout: number }): Promise<void>;
   evaluate(read: (maxLinks: number) => PageRead, maxLinks: number): Promise<PageRead>;
   url(): string;
   locator(selector: string): { first(): Locator };
-  context(): { newCDPSession(page: Pick<Page, "url">): Promise<CdpSession> };
+  context(): { newCDPSession(page: Pick<BrowserPage, "url">): Promise<CdpSession> };
 }
 
 export type Browser = {
-  newPage(options: { viewport: { width: number; height: number } }): Promise<Page>;
+  newPage(options: { viewport: { width: number; height: number } }): Promise<BrowserPage>;
   close(): Promise<void>;
   _connection?: { toImpl?(browser: Browser): { _connection?: { _transport?: { close(): void } } } };
 };
@@ -228,7 +228,7 @@ function readPage(browser: Browser, args: Args) {
   });
 }
 
-function runStep(page: Page, step: Step): Effect.Effect<void, Failed> {
+function runStep(page: BrowserPage, step: Step): Effect.Effect<void, Failed> {
   if (step.do === "wait") return Effect.sleep(Math.min(Number(step.value ?? 1000) || 1000, STEP_TIMEOUT_MS));
 
   const selector = step.selector;

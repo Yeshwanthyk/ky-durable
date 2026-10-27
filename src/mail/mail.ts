@@ -24,7 +24,7 @@ import {
   NOT_SET_UP,
   NotAllowed,
   NotAnAddress,
-  NotSetUp,
+  NoAddress,
   NOTHING_NEW,
   NotWaiting,
   ServiceRefused
@@ -317,7 +317,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
   if (!boundary) {
     yield* box.failed(row.id, NOT_SET_UP);
 
-    return yield* new NotSetUp();
+    return yield* new NoAddress();
   }
 
   const now = yield* Clock.currentTimeMillis;
@@ -347,7 +347,7 @@ const deliver = Effect.fnUntraced(function* (row: MailRow) {
 const write = Effect.fnUntraced(function* (session: string, draft: { to: string; subject: string; body: string; answers: string | null }) {
   const box = yield* Box;
 
-  if (!(yield* Desk).boundary) return yield* new NotSetUp();
+  if (!(yield* Desk).boundary) return yield* new NoAddress();
   const to = addressOf(draft.to);
 
   if (!ADDRESS.test(to)) return yield* new NotAnAddress({ to: draft.to });
