@@ -1,0 +1,12 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..30795c1 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -76,7 +76,6 @@ export const pairing = (env: Env, machine: string, facts: MachineFacts, sandbox?
+ 
+ const pair = (request: Request, env: Env): Route =>
+   Effect.gen(function* () {
+-    if (request.method !== "POST") return yield* new NotAllowed();
+     const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
+ 
+     if (!(yield* Effect.promise(() => env.PAIR_LIMIT.limit({ key: address }))).success) return yield* new TooManyPairings();

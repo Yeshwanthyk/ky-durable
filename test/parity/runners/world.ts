@@ -254,7 +254,9 @@ export class World {
   }
 }
 
-export const IDS = ["cloud", "sb-lab", "sb-00000001", "sb-00000002", "sb-00000003", "sb-00000004", "sb-00000006", "nope"];
+const KEPT_IDS = ["cloud", "sb-lab", "sb-lost"];
+
+export const IDS = [...KEPT_IDS, "sb-00000001", "sb-00000002", "sb-00000003", "sb-00000004", "sb-00000006", "nope"];
 
 const NAMES = ["cloud", "lab", "web", "api", "  web ", "Web", "-bad", "a".repeat(33), "mini", "box", ""];
 
@@ -263,7 +265,7 @@ const REPOS = ["acme/api", "acme/web", " Acme/API ", "acme", "acme/api/x", "a_b/
 const repos = fc.array(fc.constantFrom(...REPOS), { maxLength: 3 });
 
 const sandbox: fc.Arbitrary<Sandbox> = fc.record({
-  id: fc.constantFrom(...IDS),
+  id: fc.constantFrom(...KEPT_IDS),
   name: fc.constantFrom("cloud", "lab", "web", "old"),
   repos: fc.array(fc.constantFrom("acme/api", "acme/web", "acme/old"), { maxLength: 2 }),
   idleMinutes: fc.constantFrom(null, 30),

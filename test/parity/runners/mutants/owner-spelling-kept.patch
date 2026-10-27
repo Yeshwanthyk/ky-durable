@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..3c34216 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -109,7 +109,7 @@ const make = Effect.gen(function* () {
+   const named = (name: string) => Effect.map(rows("deleted_at IS NULL AND name = ?", name), ([sandbox]) => sandbox);
+ 
+   const owner = (repo: string) => {
+-    const wanted = repo.trim().toLowerCase();
++    const wanted = repo;
+ 
+     return Effect.map(live, (sandboxes) => sandboxes.find((sandbox) => sandbox.repos.includes(wanted)));
+   };

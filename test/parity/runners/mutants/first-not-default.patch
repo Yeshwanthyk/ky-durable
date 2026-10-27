@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..a7cdc62 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -185,7 +185,7 @@ const make = Effect.gen(function* () {
+         const repos = yield* cleanRepos(draft.repos ?? []);
+ 
+         yield* checkOwners(repos);
+-        const first = (yield* live).length === 0 ? 1 : 0;
++        const first = 0;
+ 
+         if (draft.from !== undefined) {
+           const kept = yield* keptOne(draft.from);

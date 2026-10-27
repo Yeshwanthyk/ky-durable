@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..cd54219 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -129,7 +129,7 @@ const make = Effect.gen(function* () {
+ 
+   const seeded = Effect.gen(function* () {
+     yield* exec(`DELETE FROM ${SEEDED}`);
+-    yield* exec(`INSERT INTO ${SEEDED} (at) VALUES (?)`, yield* Clock.currentTimeMillis);
++    yield* exec(`INSERT INTO ${SEEDED} (at) VALUES (?)`, Date.now());
+   });
+ 
+   return {

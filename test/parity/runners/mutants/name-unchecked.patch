@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..3cf6a65 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -177,7 +177,7 @@ const make = Effect.gen(function* () {
+       Effect.gen(function* () {
+         const name = draft.name.trim();
+ 
+-        if (!isMachineName(name)) return yield* new NotAName();
++        if (name === "") return yield* new NotAName();
+ 
+         if (taken(name) || (yield* named(name))) return yield* new NameTaken({ name });
+ 

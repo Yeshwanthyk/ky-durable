@@ -62,7 +62,7 @@ async function registryWith(test: (harness: Harness) => Promise<void>): Promise<
     await test({
       registry,
       run: (effect) => runtime.runPromise(effect),
-      refusal: (effect) => runtime.runPromise(Effect.flip(effect)),
+      refusal: (effect) => runtime.runPromise(Effect.flip(effect).pipe(Effect.catch(() => Effect.die(new Error("It was taken, not refused."))))),
       at: (ms) => runtime.runPromise(TestClock.setTime(ms)),
       db,
       rows: () =>
@@ -151,7 +151,7 @@ describe("making a sandbox", () => {
           }
         })
       ),
-      runs()
+      { ...runs(), examples: [[["acme/api", " Acme/API ", "acme/web"]]] }
     ));
 
   it("refuses a repo another live sandbox owns, in either's spelling, and frees it once that one is deleted", () =>
@@ -230,7 +230,7 @@ describe("changing a sandbox", () => {
           }
         })
       ),
-      runs()
+      { ...runs(), examples: [[IDLE_MAX, false], [1, false], [0, false], [IDLE_MAX + 1, false]] }
     ));
 
   it("writes the repos before it checks the idle minutes, as B did", () =>
@@ -323,7 +323,7 @@ describe("reading the registry", () => {
           expect((await run(registry.kept)).map((each) => each.deletedAt)).toEqual(all.flatMap((each) => (each.deletedAt === null ? [] : [each.deletedAt])).sort((a, b) => b - a));
         })
       ),
-      runs()
+      { ...runs(), examples: [[["eel", "bee", "ant"], [false, false, true, false, false]]] }
     ));
 
   it("finds a repo's owner in any spelling, and answers reposFor as its repos, all for none, null when not live", () =>
@@ -414,7 +414,7 @@ describe("seeding and restoring", () => {
 
   it("keeps the cloud machine's save at its old key and every other under its id", () =>
     fc.assert(
-      fc.property(fc.string(), (id) => {
+      fc.property(fc.oneof(fc.constantFrom("cloud", "cloud-2", "cloudy", "sb-00000001"), fc.string()), (id) => {
         expect(saveKey(id)).toBe(id === "cloud" ? "cloud-machine/save.tar.gz" : `cloud-machine/${id}/save.tar.gz`);
       })
     ));
@@ -479,6 +479,7 @@ describe("a runner's socket", () => {
       expect(await route(socket("box", MACHINE_TOKEN))).toEqual({ status: 401, body: "Unauthorized" });
       expect(await route(socket("mini"))).toEqual({ status: 401, body: "Unauthorized" });
       expect(await route(socket("mini", TASK_TOKEN))).toEqual({ status: 401, body: "Unauthorized" });
+      expect(await route(socket("box", MACHINE_TOKEN, false))).toEqual({ status: 401, body: "Unauthorized" });
       expect(await route(socket("mini", MACHINE_TOKEN, false))).toEqual({ status: 426, body: "Upgrade Required" });
       expect(await route(socket("Mini", MACHINE_TOKEN))).toEqual({ status: 404, body: "Not found" });
       const opened = await route(socket("mini", MACHINE_TOKEN));

@@ -1,0 +1,12 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..d1d301f 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -223,7 +223,6 @@ const make = Effect.gen(function* () {
+           const minutes = change.idleMinutes;
+ 
+           if (minutes !== null && !(Number.isInteger(minutes) && minutes > 0 && minutes <= IDLE_MAX)) return yield* new BadIdle();
+-          yield* exec(`UPDATE ${SANDBOXES} SET idle_minutes = ? WHERE id = ?`, minutes, id);
+         }
+ 
+         if (change.isDefault) yield* exec(`UPDATE ${SANDBOXES} SET is_default = (id = ?)`, id);

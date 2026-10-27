@@ -1,0 +1,13 @@
+diff --git a/src/runners/contract.ts b/src/runners/contract.ts
+index 925df55..593fb73 100644
+--- a/src/runners/contract.ts
++++ b/src/runners/contract.ts
+@@ -11,7 +11,7 @@ export const IDLE_MAX = 24 * 60;
+ export const CODE_TTL_MS = 10 * 60_000;
+ 
+ export function saveKey(id: string): string {
+-  return id === CLOUD ? "cloud-machine/save.tar.gz" : `cloud-machine/${id}/save.tar.gz`;
++  return id.startsWith(CLOUD) ? "cloud-machine/save.tar.gz" : `cloud-machine/${id}/save.tar.gz`;
+ }
+ 
+ export const machineSubject = (machine: string, pairing: string) => `${machine}:${pairing}`;

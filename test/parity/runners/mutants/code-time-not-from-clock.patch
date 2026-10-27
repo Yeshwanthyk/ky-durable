@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..38b7114 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -97,7 +97,7 @@ const pair = (request: Request, env: Env): Route =>
+ 
+ const newCode = (env: Env): Route =>
+   Effect.gen(function* () {
+-    const expiresAt = (yield* Clock.currentTimeMillis) + CODE_TTL_MS;
++    const expiresAt = Date.now() + CODE_TTL_MS;
+     const code = yield* Effect.promise(() => vault(env).mint("pair", crypto.randomUUID(), CODE_TTL_MS));
+ 
+     return Response.json({ code, expiresAt });

@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..f01b1d9 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -193,7 +193,7 @@ const make = Effect.gen(function* () {
+           yield* exec(
+             `UPDATE ${SANDBOXES} SET name = ?, repos = ?, is_default = ?, created_at = ?, deleted_at = NULL WHERE id = ?`,
+             name,
+-            JSON.stringify(repos),
++            JSON.stringify(kept.repos),
+             first,
+             yield* Clock.currentTimeMillis,
+             kept.id

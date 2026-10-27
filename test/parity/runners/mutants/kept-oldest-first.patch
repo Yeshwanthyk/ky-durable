@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..ede3bf7 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -163,7 +163,7 @@ const make = Effect.gen(function* () {
+         { discard: true }
+       ),
+     live,
+-    kept: rows("deleted_at IS NOT NULL ORDER BY deleted_at DESC"),
++    kept: rows("deleted_at IS NOT NULL ORDER BY deleted_at"),
+     get,
+     named,
+     owner,

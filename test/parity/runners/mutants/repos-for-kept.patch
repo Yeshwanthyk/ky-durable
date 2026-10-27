@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..c1e2d99 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -169,7 +169,7 @@ const make = Effect.gen(function* () {
+     owner,
+     reposFor: (id) =>
+       Effect.map(get(id), (sandbox) => {
+-        if (!sandbox || sandbox.deletedAt !== null) return null;
++        if (!sandbox) return null;
+ 
+         return sandbox.repos.length === 0 ? "all" : sandbox.repos;
+       }),
