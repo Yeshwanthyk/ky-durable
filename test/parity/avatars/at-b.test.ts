@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { preamble } from "../../../src/avatars/prompt";
+import { preamble } from "../../../src/avatars/contract";
 import { Avatars, Setup } from "../../../src/avatars/wiring";
 import { storageOf, StoredRow } from "../skills/storage";
 import { readsOf } from "./reads";

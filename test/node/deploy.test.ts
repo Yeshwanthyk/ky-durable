@@ -43,6 +43,6 @@ describe("the deploy workflow", () => {
     const worker = [...(await files("src")), "wrangler.jsonc"];
 
     for (const file of worker) expect(await read(file), file).not.toContain("CLOUDFLARE_API_TOKEN");
-    expect(await read("src/avatars/prompt.ts")).not.toMatch(/wrangler|pnpm run deploy/);
+    expect(await read("src/avatars/contract.ts")).not.toMatch(/wrangler|pnpm run deploy/);
   });
 });
