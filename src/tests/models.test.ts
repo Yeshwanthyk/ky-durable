@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { Models } from "../models";
-import { CLAUDE_TOKEN_HERE } from "../providers/api-key";
+import { Models } from "../providers/wiring";
+import { CLAUDE_TOKEN_HERE } from "../providers/contract";
 import type { ModelChoice, Purpose } from "../settings/contract";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";

@@ -17,15 +17,15 @@ import {
 } from "@earendil-works/pi-ai/models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import type { AgentChange } from "@earendil-works/pi-durable";
-import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./providers/api-key";
-import type { MachineHub } from "./machines/contract";
-import type { RunnerPipe } from "./machines/wiring";
-import type { Endpoint } from "./providers/endpoint";
-import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./providers/records";
-import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./providers/vibeproxy";
-import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./providers/workers-ai";
-import { type ModelChoice, type ModelOption, nearestLevel, type ProviderInfo, type Purpose, type SettingsView } from "./settings/contract";
-import { Settings } from "./settings/wiring";
+import { apiKey, apiKeyRecord, type ProviderKey, type Vendor, VENDORS } from "./api-key";
+import type { MachineHub } from "../../machines/contract";
+import type { RunnerPipe } from "../../machines/wiring";
+import type { Endpoint } from "./endpoint";
+import { type ProviderKind, type ProviderRecord, ProviderRecords } from "./records";
+import { tunnelPort, type VibeProxyBoundary, VIBEPROXY_PROVIDER, vibeProxy, vibeProxyRecord } from "./vibeproxy";
+import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./workers-ai";
+import { type ModelChoice, type ModelOption, nearestLevel, type ProviderInfo, type Purpose, type SettingsView } from "../../settings/contract";
+import { Settings } from "../../settings/wiring";
 
 /**
  * Which model does what (C5). This owns the providers this deploy has (their

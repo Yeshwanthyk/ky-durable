@@ -1,0 +1,902 @@
+{
+  "commit": "b658a6e",
+  "cases": [
+    {
+      "name": "fresh",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    },
+    {
+      "name": "one key",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "vendor": "anthropic",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Anthropic",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {
+        "anthropic": {
+          "apiKey": "sk-ant-api03-test"
+        }
+      },
+      "reads": {
+        "providers": [
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "name": "Anthropic"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "anthropic",
+            "modelId": "claude-opus-5-5",
+            "thinkingLevel": "medium"
+          },
+          "worker": {
+            "provider": "anthropic",
+            "modelId": "claude-opus-5-5",
+            "thinkingLevel": "medium"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          }
+        },
+        "worker": {
+          "provider": "anthropic",
+          "modelId": "claude-opus-5-5",
+          "thinkingLevel": "medium"
+        }
+      }
+    },
+    {
+      "name": "three keys in order",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "vendor": "openai",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "OpenAI",
+            "enabled": 1
+          },
+          {
+            "id": "opencode-go",
+            "kind": "api-key",
+            "vendor": "opencode-go",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "OpenCode Go",
+            "enabled": 1
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "vendor": "anthropic",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Anthropic",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {
+        "openai": {
+          "apiKey": "sk-proj-test"
+        },
+        "opencode-go": {
+          "apiKey": "opencode-test-key"
+        },
+        "anthropic": {
+          "apiKey": "sk-ant-api03-test"
+        }
+      },
+      "reads": {
+        "providers": [
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "name": "OpenAI"
+          },
+          {
+            "id": "opencode-go",
+            "kind": "api-key",
+            "name": "OpenCode Go"
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "name": "Anthropic"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "worker": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "opencode-go",
+            "modelId": "deepseek-v4.1-flash",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "openai",
+          "modelId": "gpt-6.1-sol",
+          "thinkingLevel": "medium"
+        }
+      }
+    },
+    {
+      "name": "key saved twice",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "vendor": "openai",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "OpenAI",
+            "enabled": 1
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "vendor": "anthropic",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Anthropic",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {
+        "openai": {
+          "apiKey": "sk-proj-test"
+        },
+        "anthropic": {
+          "apiKey": "sk-ant-api03-test"
+        }
+      },
+      "reads": {
+        "providers": [
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "name": "OpenAI"
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "name": "Anthropic"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "worker": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "anthropic",
+            "modelId": "claude-opus-5-5",
+            "thinkingLevel": "medium"
+          }
+        },
+        "worker": {
+          "provider": "openai",
+          "modelId": "gpt-6.1-sol",
+          "thinkingLevel": "medium"
+        }
+      }
+    },
+    {
+      "name": "key removed",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "vendor": "openai",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "OpenAI",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {
+        "openai": {
+          "apiKey": "sk-proj-test"
+        }
+      },
+      "reads": {
+        "providers": [
+          {
+            "id": "openai",
+            "kind": "api-key",
+            "name": "OpenAI"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "worker": {
+            "provider": "openai",
+            "modelId": "gpt-6.1-sol",
+            "thinkingLevel": "medium"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          }
+        },
+        "worker": {
+          "provider": "openai",
+          "modelId": "gpt-6.1-sol",
+          "thinkingLevel": "medium"
+        }
+      }
+    },
+    {
+      "name": "vibeproxy on a machine",
+      "tunnel": false,
+      "machines": {
+        "mac": {
+          "online": true,
+          "shares": true
+        }
+      },
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "vendor": null,
+            "machine": "mac",
+            "port": 18317,
+            "api": "anthropic-messages",
+            "label": "Claude via VibeProxy",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "name": "Claude via VibeProxy on mac"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    },
+    {
+      "name": "vibeproxy moved machine",
+      "tunnel": false,
+      "machines": {
+        "mac": {
+          "online": false,
+          "shares": true
+        },
+        "mini": {
+          "online": true,
+          "shares": true
+        }
+      },
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "vendor": null,
+            "machine": "mini",
+            "port": 18317,
+            "api": "anthropic-messages",
+            "label": "Claude via VibeProxy",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "name": "Claude via VibeProxy on mini"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    },
+    {
+      "name": "vibeproxy offline machine",
+      "tunnel": false,
+      "machines": {
+        "mac": {
+          "online": false,
+          "shares": true
+        }
+      },
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "vendor": null,
+            "machine": "mac",
+            "port": 18317,
+            "api": "anthropic-messages",
+            "label": "Claude via VibeProxy",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "name": "Claude via VibeProxy on mac"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    },
+    {
+      "name": "vibeproxy by tunnel",
+      "tunnel": true,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "vendor": null,
+            "machine": null,
+            "port": 8443,
+            "api": "anthropic-messages",
+            "label": "Claude via VibeProxy",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": []
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "name": "Claude via VibeProxy"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    },
+    {
+      "name": "purposes chosen",
+      "tunnel": false,
+      "machines": {
+        "mac": {
+          "online": true,
+          "shares": true
+        }
+      },
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          },
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "vendor": null,
+            "machine": "mac",
+            "port": 18317,
+            "api": "anthropic-messages",
+            "label": "Claude via VibeProxy",
+            "enabled": 1
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "vendor": "anthropic",
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Anthropic",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": [
+          {
+            "purpose": "main",
+            "value": "{\"provider\":\"anthropic\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"high\"}"
+          },
+          {
+            "purpose": "worker",
+            "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-haiku-5-5\",\"thinkingLevel\":\"low\"}"
+          },
+          {
+            "purpose": "background",
+            "value": "{\"provider\":\"workers-ai\",\"modelId\":\"workers-ai/@cf/openai/gpt-oss-120b\",\"thinkingLevel\":\"low\"}"
+          },
+          {
+            "purpose": "fallback",
+            "value": "{\"provider\":\"anthropic\",\"modelId\":\"claude-haiku-4-5\",\"thinkingLevel\":\"off\"}"
+          }
+        ]
+      },
+      "vault": {
+        "anthropic": {
+          "apiKey": "sk-ant-api03-test"
+        }
+      },
+      "reads": {
+        "providers": [
+          {
+            "id": "vibeproxy",
+            "kind": "runner-local",
+            "name": "Claude via VibeProxy on mac"
+          },
+          {
+            "id": "anthropic",
+            "kind": "api-key",
+            "name": "Anthropic"
+          },
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "anthropic",
+            "modelId": "claude-opus-5-5",
+            "thinkingLevel": "high"
+          },
+          "worker": {
+            "provider": "anthropic",
+            "modelId": "claude-opus-5-5",
+            "thinkingLevel": "high"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/openai/gpt-oss-120b",
+            "thinkingLevel": "low"
+          },
+          "fallback": {
+            "provider": "anthropic",
+            "modelId": "claude-haiku-4-5",
+            "thinkingLevel": "off"
+          }
+        },
+        "worker": {
+          "provider": "anthropic",
+          "modelId": "claude-opus-5-5",
+          "thinkingLevel": "high"
+        }
+      }
+    },
+    {
+      "name": "purpose of a removed key",
+      "tunnel": false,
+      "machines": {},
+      "tables": {
+        "ky_providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "vendor": null,
+            "machine": null,
+            "port": null,
+            "api": null,
+            "label": "Workers AI",
+            "enabled": 1
+          }
+        ],
+        "ky_purposes": [
+          {
+            "purpose": "main",
+            "value": "{\"provider\":\"openai\",\"modelId\":\"gpt-6.1-sol\",\"thinkingLevel\":\"medium\"}"
+          }
+        ]
+      },
+      "vault": {},
+      "reads": {
+        "providers": [
+          {
+            "id": "workers-ai",
+            "kind": "workers-ai",
+            "name": "Workers AI"
+          }
+        ],
+        "purposes": {
+          "main": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "worker": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "background": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+            "thinkingLevel": "off"
+          },
+          "fallback": {
+            "provider": "workers-ai",
+            "modelId": "workers-ai/@cf/moonshotai/kimi-k2.6",
+            "thinkingLevel": "high"
+          }
+        },
+        "worker": {
+          "provider": "workers-ai",
+          "modelId": "workers-ai/@cf/zai-org/glm-5.3-flash",
+          "thinkingLevel": "off"
+        }
+      }
+    }
+  ]
+}

@@ -33,10 +33,6 @@
   "src/archive.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/chatgpt.ts": {
-    "ky(no-unchecked-parse)": 3,
-    "typescript(no-non-null-assertion)": 1
-  },
   "src/client.tsx": {
     "typescript(no-unsafe-argument)": 1,
     "typescript(no-unsafe-assignment)": 1,
@@ -45,11 +41,15 @@
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/models.ts": {
+  "src/providers/legacy/chatgpt.ts": {
+    "ky(no-unchecked-parse)": 3,
+    "typescript(no-non-null-assertion)": 1
+  },
+  "src/providers/legacy/models.ts": {
     "typescript(await-thenable)": 1,
     "typescript(no-non-null-assertion)": 1
   },
-  "src/providers/records.ts": {
+  "src/providers/legacy/records.ts": {
     "ky(no-unchecked-parse)": 1
   },
   "src/sandbox-routes.ts": {

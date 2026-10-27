@@ -1,5 +1,5 @@
 import Type, { type Static } from "typebox";
-import type { Fetch } from "../chatgpt";
+import type { Fetch } from "../providers/contract";
 import { SchemeSchema } from "./shapes";
 
 type Scheme = Static<typeof SchemeSchema>;

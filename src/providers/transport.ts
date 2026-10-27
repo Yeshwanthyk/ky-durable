@@ -1,10 +1,6 @@
 import type { Api, ApiStreamOptions, Model, StreamOptions } from "@earendil-works/pi-ai";
 import type { Provider } from "@earendil-works/pi-ai/models";
 
-/**
- * `provider`, with `options` laid over each request's own: the transport it
- * goes through, and what it must always send, such as headers or a session.
- */
 export function sending(provider: Provider, options: (given: StreamOptions | undefined) => StreamOptions): Provider {
   return {
     ...provider,

@@ -18,7 +18,8 @@ import {
   ToolTask,
   type Tx
 } from "@earendil-works/pi-durable";
-import { agentModel, type Models, parseModel } from "../models";
+import { agentModel, parseModel } from "../providers/contract";
+import type { Models } from "../providers/wiring";
 import type { ModelChoice } from "../settings/contract";
 import { DISCUSS_MAX, DISCUSS_MIN, discussionTitle, type Specialist } from "./specialists";
 import type { Specialists } from "./wiring";

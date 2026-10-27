@@ -11,7 +11,7 @@ import type { ChatList } from "../chats/chats";
 import { Sql } from "../core/sql";
 import { programOutcome } from "../executor/contract";
 import type { MachineHub } from "../machines/contract";
-import type { Models } from "../models";
+import type { Models } from "../providers/wiring";
 import type { Spawn } from "../skills/contract";
 import {
   AlreadyRan,

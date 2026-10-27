@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { Fetch } from "../chatgpt";
+import type { Fetch } from "../providers/contract";
 import { type Edge, makeEdge, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { PushDevice } from "./contract";

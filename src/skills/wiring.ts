@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import type { Automations, Delivery, TaskFeed } from "../automations/contract";
 import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
-import type { Models } from "../models";
+import type { Models } from "../providers/wiring";
 import { Versioned, Versions } from "../dreaming/wiring";
 import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";

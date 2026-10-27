@@ -2,7 +2,7 @@ import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@ea
 import { ROOT_SESSION } from "agents/harness/pi";
 import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
-import { parseModel } from "../models";
+import { parseModel } from "../providers/contract";
 import type { ModelChoice } from "../settings/contract";
 import {
   AUTOMATION_TOOL,

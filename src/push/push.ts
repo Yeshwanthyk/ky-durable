@@ -3,7 +3,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type { Fetch } from "../chatgpt";
+import type { Fetch } from "../providers/contract";
 import { Sql } from "../core/sql";
 import { localNow } from "../dreaming/contract";
 import { BadSubscription, PushDevice } from "./contract";

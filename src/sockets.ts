@@ -43,7 +43,7 @@ import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files/wiring";
-import type { Models } from "./models";
+import type { Models } from "./providers/wiring";
 import type { Subscriptions } from "./subscriptions";
 import { type MailDesk, mailApprove, mailDisallow, mailDiscard, mailView } from "./mail/wiring";
 import type { Approvals } from "./approvals/approvals";
