@@ -96,7 +96,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
-  readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
+  readonly sandboxes = new Sandboxes(this.ctx.storage);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
   readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(

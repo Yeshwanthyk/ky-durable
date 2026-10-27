@@ -56,7 +56,7 @@ export class World {
   readonly durable = storageOf(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
   readonly files = new FileStore(this.durable.storage());
-  readonly sandboxes = new Sandboxes(this.durable.sql());
+  readonly sandboxes = new Sandboxes(this.durable.storage());
   readonly effects: Effects = { vault: [], runner: [], pi: [], host: [] };
   readonly sockets = new Map<string, Socket>();
   constructor(now: number) {
