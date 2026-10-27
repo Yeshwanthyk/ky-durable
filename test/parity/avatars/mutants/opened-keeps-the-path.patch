@@ -1,0 +1,13 @@
+diff --git a/src/avatars/setup.ts b/src/avatars/setup.ts
+index be2136b..263df02 100644
+--- a/src/avatars/setup.ts
++++ b/src/avatars/setup.ts
+@@ -76,7 +76,7 @@ export class Places extends Context.Service<
+           }),
+           origin: Effect.map(get("origin"), (origin) => origin ?? null),
+           opened: Effect.fnUntraced(function* (page) {
+-            const origin = yield* originOf(page);
++            const origin = page;
+ 
+             if ((yield* get("origin")) !== origin) yield* put("origin", origin);
+           }),

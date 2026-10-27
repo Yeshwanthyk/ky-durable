@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
-import { KY_AVATAR } from "../avatar-spec";
+import { KY_AVATAR } from "../avatars/contract";
 import { Icon, type IconName } from "./Icon";
 import type { ChatKind } from "./open-chat";
 

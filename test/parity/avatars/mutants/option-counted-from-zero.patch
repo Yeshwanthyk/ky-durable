@@ -1,0 +1,13 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..10bc4f4 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -104,7 +104,7 @@ type Action = (input: AvatarInput, owners: () => readonly string[]) => Effect.Ef
+ const ACTIONS = {
+   preview: ({ specs, spec }) =>
+     Effect.gen(function* () {
+-      const checked = yield* Effect.forEach(specs ?? (spec ? [spec] : []), (each, index) => fitted(each, index + 1));
++      const checked = yield* Effect.forEach(specs ?? (spec ? [spec] : []), (each, index) => fitted(each, index));
+ 
+       if (checked.length === 0) return yield* new SpecMissing({ action: "preview" });
+ 

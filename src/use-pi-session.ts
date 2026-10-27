@@ -2,7 +2,7 @@ import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Asks } from "./asks";
-import type { AvatarsView } from "./avatar-spec";
+import type { AvatarsView } from "./avatars/contract";
 import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
 import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";

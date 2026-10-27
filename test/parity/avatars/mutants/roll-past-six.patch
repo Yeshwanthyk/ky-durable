@@ -1,0 +1,13 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..ce6eb4b 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -112,7 +112,7 @@ const ACTIONS = {
+     }),
+   roll: ({ count }) =>
+     Effect.sync(() => {
+-      const many = Math.min(6, Math.max(1, Math.round(count ?? 3)));
++      const many = Math.min(7, Math.max(1, Math.round(count ?? 3)));
+ 
+       return shown(
+         `Rolled ${many}. Ask which one, or what to change; then set it.`,

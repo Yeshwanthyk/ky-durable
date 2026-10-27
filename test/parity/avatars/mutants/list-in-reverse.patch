@@ -1,0 +1,13 @@
+diff --git a/src/avatars/avatars.ts b/src/avatars/avatars.ts
+index fd45de3..54e8532 100644
+--- a/src/avatars/avatars.ts
++++ b/src/avatars/avatars.ts
+@@ -51,7 +51,7 @@ export class Wardrobe extends Context.Service<
+         yield* exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (owner TEXT PRIMARY KEY, spec TEXT NOT NULL)`);
+ 
+         return Wardrobe.of({
+-          all: Effect.map(exec(`SELECT owner, spec FROM ${TABLE} ORDER BY owner`), (rows) => {
++          all: Effect.map(exec(`SELECT owner, spec FROM ${TABLE} ORDER BY owner DESC`), (rows) => {
+             const avatars: Record<string, BloubSpec> = {};
+ 
+             for (const row of rows.flatMap((raw) => Option.toArray(rowOf(raw)))) {

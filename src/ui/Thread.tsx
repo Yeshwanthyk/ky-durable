@@ -2,7 +2,7 @@ import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, u
 import { SENDING } from "../outbox";
 import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
-import { KY_AVATAR } from "../avatar-spec";
+import { KY_AVATAR } from "../avatars/contract";
 import type { BlobVariantId } from "./blob-catalog";
 import { BlockCard } from "./Blocks";
 import { answeredWith, isQuestion } from "./card-answers";

@@ -1,6 +1,6 @@
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SKILLS } from "../seeds";
+import { DEFAULT_SKILLS } from "../avatars/seeds";
 import { agent, connect, follow, inside, prompt, until } from "./drive";
 import { EXECUTOR_TOKEN, EXECUTOR_URL, FRESH } from "./stack";
 

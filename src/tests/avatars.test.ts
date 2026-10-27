@@ -1,42 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { type BloubSpec, checkSpec, EXAMPLES, rollSpec } from "../avatar-spec";
+import { type BloubSpec, EXAMPLES } from "../avatars/contract";
 import { connect, follow, inside, prompt } from "./drive";
 import { FRESH } from "./stack";
 import { advance, aim, newMotion, poke, poseOf } from "../ui/bloub-motion";
 import { bloubsIn } from "../ui/Bloub";
 
-/** Bloub avatars: the spec check, rolls, the avatar tool through ky's real agent, and the frame the page draws from. */
+/** Bloub avatars: the avatar tool through ky's real agent, and the frame the page draws from. */
 
 /** An avatar tool call as the fake model makes it from the user's message. */
 type Call = { readonly action: string; readonly for?: string; readonly spec?: BloubSpec; readonly count?: number };
 
 const tool = (args: Call) => `tool avatar ${JSON.stringify(args)}`;
-
-describe("a bloub spec", () => {
-  it("keeps the examples as they are", () => {
-    for (const spec of Object.values(EXAMPLES)) expect(checkSpec(spec)).toEqual(spec);
-  });
-
-  it("pulls sizes into range and refuses parts that aren't on the list", () => {
-    const huge = { body: { w: 400, h: 10, corner: 999, color: "#ABCDEF" }, eyes: { count: 2, size: 90 }, top: { kind: "none" }, cheeks: true, feet: false };
-    expect(checkSpec(huge)).toEqual({ body: { w: 124, h: 80, corner: 40, color: "#abcdef" }, eyes: { count: 2, size: 18 }, top: { kind: "none" }, cheeks: true, feet: false });
-
-    expect(checkSpec({ ...huge, top: { kind: "horns" } })).toHaveProperty("refused");
-    expect(checkSpec({ ...huge, body: { ...huge.body, color: "red" } })).toHaveProperty("refused");
-    expect(checkSpec({ ...huge, eyes: { count: 3, size: 10 } })).toHaveProperty("refused");
-    expect(checkSpec("<svg onload=alert(1)>")).toHaveProperty("refused");
-  });
-
-  it("rolls the same bloub for the same seed, and a valid one for any", () => {
-    expect(rollSpec("engineer")).toEqual(rollSpec("engineer"));
-    expect(rollSpec("engineer")).not.toEqual(rollSpec("researcher"));
-
-    for (let i = 0; i < 200; i++) {
-      const spec = rollSpec(`seed-${i}`);
-      expect(checkSpec(spec)).toEqual(spec);
-    }
-  });
-});
 
 describe("a bloub's motion", () => {
   it("is glad of the pointer only at rest, and dizzy after five quick pokes", () => {

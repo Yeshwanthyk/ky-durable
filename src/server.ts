@@ -10,8 +10,10 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { bypassed } from "./access/contract";
 import { Access } from "./access/wiring";
-import { KY_AVATAR } from "./avatar-spec";
-import { Avatars, avatarTools } from "./avatars";
+import { KY_AVATAR, type Missing as NotSetUp } from "./avatars/contract";
+import { preamble, type PromptConfig } from "./avatars/prompt";
+import { seed } from "./avatars/seeds";
+import { Avatars, avatarTools, Setup } from "./avatars/wiring";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -36,13 +38,11 @@ import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/c
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
-import { preamble, type PromptConfig } from "./prompt";
 import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
 import { MailBox, type MailDesk, mailExtension, readMail, receive } from "./mail/wiring";
-import { type NotSetUp, Setup } from "./setup";
 import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
@@ -54,7 +54,6 @@ import { PiSessionSockets } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
-import { seed } from "./seeds";
 import { Titler } from "./chats/titles";
 import { VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/vibeproxy";
 import type { Purpose } from "./settings/contract";
@@ -119,7 +118,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
-  readonly setup = new Setup(this.ctx.storage.sql);
+  readonly setup = new Setup(this.ctx.storage);
   /** What the peer tool and Settings › Peers work with. */
   readonly peerDesk: PeerDesk = {
     peers: this.peers,
@@ -170,7 +169,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage);
   /** The bloubs ky and the specialists wear. */
-  readonly avatars = new Avatars(this.ctx.storage.sql);
+  readonly avatars = new Avatars(this.ctx.storage);
   /** Which specialists are in which chats, and their seats there. */
   readonly groups = new GroupChats(this.ctx.storage.sql, this.specialists);
   /** Skill reviews and dreams: background conversations that remember but may only tend skills and memory. */

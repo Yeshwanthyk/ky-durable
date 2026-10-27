@@ -37,7 +37,7 @@ import { checkInput, imagesOf, spokenText } from "./files/media";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
-import type { Avatars } from "./avatars";
+import type { Avatars, Setup } from "./avatars/wiring";
 import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -50,7 +50,7 @@ import type { Approvals } from "./approvals/approvals";
 import type { ExecutorApprovals } from "./approvals/executor";
 import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, peerPair, peerRemove } from "./peers/wiring";
 import type { ExecutorLink } from "./executor/wiring";
-import type { NotSetUp, Setup } from "./setup";
+import type { Missing as NotSetUp } from "./avatars/contract";
 import type { Pushes } from "./push/wiring";
 import type { TaskFeed } from "./automations/contract";
 
