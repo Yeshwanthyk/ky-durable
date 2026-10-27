@@ -4,7 +4,7 @@ import { TaskFeed } from "../../../src/automations/tasks";
 import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
-import { Sandboxes } from "../../../src/sandboxes";
+import { Sandboxes } from "../../../src/runners/wiring";
 import type { Json } from "../kit";
 
 type Row = Record<string, SQLOutputValue>;

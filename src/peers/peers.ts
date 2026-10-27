@@ -4,7 +4,7 @@ import type { Static, TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { isRefusal, refused, type Result } from "../core/refusal";
-import { bearer } from "../runners";
+import { bearer } from "../runners/contract";
 import type { PeerInvite, PeerView } from "../protocol";
 import type { Vault } from "../vault";
 import {

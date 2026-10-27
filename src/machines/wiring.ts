@@ -6,7 +6,7 @@ import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { FileStore } from "../files/wiring";
 import type { MachineInfo } from "../protocol";
-import type { Sandboxes } from "../sandboxes";
+import type { Sandboxes } from "../runners/wiring";
 import type { CloudHook, MachineChange, SessionCreds, TaskTokens } from "./contract";
 import { type Harness, Host, Machines } from "./machines";
 import type { Agent, MachineFacts, TaskReport } from "./runner-protocol";

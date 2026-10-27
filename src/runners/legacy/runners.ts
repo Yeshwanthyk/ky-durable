@@ -1,6 +1,6 @@
-import { uploadedType } from "./files/files";
-import { upload } from "./files/wiring";
-import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "./machines/contract";
+import { uploadedType } from "../../files/files";
+import { upload } from "../../files/wiring";
+import { type MachineFacts, isMachineFacts, isMachineName, isPairRequest, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine } from "../../machines/contract";
 
 /**
  * Runners' routes. A machine pairs once with a code the user makes in ky,

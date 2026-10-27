@@ -31,7 +31,7 @@ import {
 } from "./archive";
 import { decode, decodeOr, parseAs } from "./core/decode";
 import { must } from "./core/must";
-import { saveKey } from "./sandboxes";
+import { saveKey } from "./runners/contract";
 import { restores } from "./tables";
 import { fromBase64, toBase64 } from "./machines/contract";
 import type { SecretStatus } from "./vault";

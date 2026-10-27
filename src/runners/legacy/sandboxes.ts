@@ -1,6 +1,6 @@
 import Type from "typebox";
-import { parseOr } from "./core/decode";
-import { CLOUD, isMachineName } from "./machines/contract";
+import { parseOr } from "../../core/decode";
+import { CLOUD, isMachineName } from "../../machines/contract";
 
 /**
  * Sandboxes: ky's own Linux machines in Cloudflare, one container each, such as one per project.

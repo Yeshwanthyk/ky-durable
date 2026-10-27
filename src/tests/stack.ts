@@ -14,7 +14,7 @@ import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 import { type CloudBox, CloudMachine as ProductionCloudMachine } from "../cloud";
-import { saveKey } from "../sandboxes";
+import { saveKey } from "../runners/contract";
 import { allowedRepos, proxyGit } from "../github";
 import { githubTool } from "../github-tools";
 import { fakeGithubApi, fakeGithubRest } from "../../test/fakes/github";

@@ -6,7 +6,7 @@ import { TaskFeed } from "../../../src/automations/tasks";
 import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
-import { Sandboxes } from "../../../src/sandboxes";
+import { Sandboxes } from "../../../src/runners/wiring";
 import { settle, storageOf } from "./world";
 
 const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
