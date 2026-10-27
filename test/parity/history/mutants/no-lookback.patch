@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..db4f3a7 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -31,7 +31,7 @@ const OUTPUT_CHARS = 12_000;
+ 
+ const BATCH = 500;
+ 
+-const LOOKBACK = 256;
++const LOOKBACK = 0;
+ 
+ const PLACED_SLACK = 5_000;
+ 

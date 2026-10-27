@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..22cd36a 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -63,7 +63,7 @@ const Entry = Schema.Struct({
+   id: Schema.Number,
+   conversation_id: Schema.Number,
+   kind: Schema.NullOr(Schema.String),
+-  at: IndexRow.fields.at,
++  at: Schema.Number,
+   text: Schema.NullOr(Schema.String)
+ });
+ 

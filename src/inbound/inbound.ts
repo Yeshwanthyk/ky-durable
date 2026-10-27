@@ -11,7 +11,7 @@ import { canonical } from "../core/canonical";
 import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
-import { runInputs } from "../history";
+import { runInputs } from "../history/wiring";
 import type { Vault } from "../vault";
 import { INBOUND_TABLES } from "./contract";
 import { type CredentialInfo, replyText } from "./credentials";

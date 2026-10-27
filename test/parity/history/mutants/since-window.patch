@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..d66b8d6 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -25,7 +25,7 @@ const SINCE_CHARS = 1_000;
+ 
+ const BRIEF_CHARS = 200;
+ 
+-const SINCE_WINDOW_MS = 7 * 86_400_000;
++const SINCE_WINDOW_MS = 6 * 86_400_000;
+ 
+ const OUTPUT_CHARS = 12_000;
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/history/history.ts b/src/history/history.ts
+index 5ed3e6a..7d7efcb 100644
+--- a/src/history/history.ts
++++ b/src/history/history.ts
+@@ -365,7 +365,7 @@ export class Index extends Context.Service<Index, ChatSearch>()("ky/history/Inde
+               const skip = yield* asking(caller);
+               const during = span === undefined ? "" : ` ${span.days}`;
+               const none = `No message matches ${query.trim()}${during}.`;
+-              const window = span ?? ALWAYS;
++              const window = ALWAYS;
+               const every = yield* match(terms.join(" AND "), skip, window);
+ 
+               if (every.length > 0 || terms.length === 1) return (yield* show(every, around, "")) || none;

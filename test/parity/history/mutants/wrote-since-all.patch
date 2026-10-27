@@ -1,0 +1,13 @@
+diff --git a/src/history/wiring.ts b/src/history/wiring.ts
+index 425ec4c..9be3fc4 100644
+--- a/src/history/wiring.ts
++++ b/src/history/wiring.ts
+@@ -7,7 +7,7 @@ import { Sql } from "../core/sql";
+ import type { RunInput, Said, SaidMark, SearchOptions } from "./contract";
+ import { Index, ownOf, PLACED, placedAround, placedOf, requestsOf } from "./history";
+ 
+-const WROTE_SINCE = 20;
++const WROTE_SINCE = -1;
+ 
+ const Id = Schema.Struct({ id: Schema.NullOr(Schema.Number) });
+ 
