@@ -1,6 +1,6 @@
 import type { Context, JsonValue } from "@earendil-works/chord";
 import type { ConversationDocToken, ConversationId, JsonObject, ToolExecutionApi, Tx } from "@earendil-works/pi-durable";
-import { uiExtension } from "../../../src/cards/tool";
+import { uiExtension } from "../../../src/cards/wiring";
 
 export type Where = "main" | "run" | "aside";
 

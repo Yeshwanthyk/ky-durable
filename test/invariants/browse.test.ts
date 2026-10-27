@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import { TestClock } from "effect/testing";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Browser, browseCall, type Launch, type Page, pdfReply } from "../../src/browse/browse";
+import { type Browser, browseCall, type Launch, type Page, pdfReply } from "../../src/browse/wiring";
 import type { Refusable } from "../../src/core/edge";
 import { budget } from "../parity/kit";
 

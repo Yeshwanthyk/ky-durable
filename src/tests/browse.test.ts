@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Effect from "effect/Effect";
-import { keepShots, pdfReply } from "../browse/browse";
+import { keepShots, pdfReply } from "../browse/wiring";
 
 function pdf(pages: string[], title?: string): Uint8Array<ArrayBuffer> {
   const pageIds = pages.map((_, index) => 4 + index * 2);

@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index b1b509a..4bfe082 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -169,10 +169,7 @@ function browse(launch: Launch, args: Args) {
      Effect.try({ try: launch, catch: failed }),
      (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),

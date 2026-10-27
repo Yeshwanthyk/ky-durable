@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index f8fcaa8..cbc5e35 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -129,7 +129,6 @@ export function browseExtension(binding: BrowserWorker, save: Save): Extension {
  
  export function browseCall(launch: Launch, args: Args, save: Save, signal?: AbortSignal) {

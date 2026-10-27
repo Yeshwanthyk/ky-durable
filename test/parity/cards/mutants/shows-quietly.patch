@@ -1,7 +1,7 @@
-diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+diff --git a/src/cards/wiring.ts b/src/cards/wiring.ts
 index 59a83f0..73cff31 100644
---- a/src/cards/tool.ts
-+++ b/src/cards/tool.ts
+--- a/src/cards/wiring.ts
++++ b/src/cards/wiring.ts
 @@ -25,7 +25,7 @@ export const RunCards = defineDoc<RunCardsDoc>({
  const asks = (card: UiCardArgs) => card.blocks.some((block) => INTERACTIVE.has(block.type));
  

@@ -1,7 +1,7 @@
-diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+diff --git a/src/cards/wiring.ts b/src/cards/wiring.ts
 index 59a83f0..6995203 100644
---- a/src/cards/tool.ts
-+++ b/src/cards/tool.ts
+--- a/src/cards/wiring.ts
++++ b/src/cards/wiring.ts
 @@ -36,7 +36,7 @@ function keep(doc: RunCardsDoc, call: string, { wait, ...card }: UiCardArgs): Ef
    if (!doc.run) return Effect.fail(new NoOneToShow());
  

@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index b1b509a..1eeaaa1 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -195,7 +195,7 @@ function readPage(browser: Browser, args: Args) {
      for (const [index, step] of (args.steps ?? []).entries()) {
        const stepFailed = yield* runStep(page, step).pipe(Effect.match({ onFailure: (error) => error.said, onSuccess: () => undefined }));

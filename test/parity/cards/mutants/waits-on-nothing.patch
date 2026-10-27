@@ -1,7 +1,7 @@
-diff --git a/src/cards/tool.ts b/src/cards/tool.ts
+diff --git a/src/cards/wiring.ts b/src/cards/wiring.ts
 index 59a83f0..404e6f4 100644
---- a/src/cards/tool.ts
-+++ b/src/cards/tool.ts
+--- a/src/cards/wiring.ts
++++ b/src/cards/wiring.ts
 @@ -27,7 +27,6 @@ const asks = (card: UiCardArgs) => card.blocks.some((block) => INTERACTIVE.has(b
  function show(card: UiCardArgs): Effect.Effect<ToolExecutionResult, NothingToAnswer> {
    if (!card.wait) return Effect.succeed(reply(asks(card) ? "Shown to the user; their answer, if any, arrives as a later message." : "Shown to the user."));

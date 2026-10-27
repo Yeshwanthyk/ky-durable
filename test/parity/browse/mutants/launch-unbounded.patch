@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index b1b509a..1f91e64 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -167,7 +167,7 @@ export function keepShots(result: Reply, save: Save) {
  function browse(launch: Launch, args: Args) {
    return Effect.acquireUseRelease(

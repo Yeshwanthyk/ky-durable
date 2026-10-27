@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index dd9b425..524f16c 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -250,7 +250,7 @@ function runStep(page: Page, step: Step): Effect.Effect<void, Failed> {
  }
  

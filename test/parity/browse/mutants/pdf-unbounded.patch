@@ -1,7 +1,7 @@
-diff --git a/src/browse/browse.ts b/src/browse/browse.ts
+diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
 index b1b509a..91e795a 100644
---- a/src/browse/browse.ts
-+++ b/src/browse/browse.ts
+--- a/src/browse/wiring.ts
++++ b/src/browse/wiring.ts
 @@ -262,7 +262,6 @@ export function pdfReply(url: string, response: Shown | null, args: Args) {
  
    return pdfFile(url, response).pipe(

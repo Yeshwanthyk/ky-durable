@@ -26,7 +26,7 @@ import { toolReply as reply } from "../core/reply";
 import { type Delivery, summarize, type TaskFeed } from "../automations/contract";
 import { must } from "../core/must";
 import { endStep, startStep } from "../step-labels";
-import { RunCards } from "../cards/tool";
+import { RunCards } from "../cards/wiring";
 import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
 type Outcome = { status: "done" | "failed" | "stopped"; summary: string };
