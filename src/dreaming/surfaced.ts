@@ -28,7 +28,7 @@ const SurfacedRow = Schema.Struct({
   ...ShownItem.fields,
   shown_at: Schema.Number,
   expires_at: Schema.Number,
-  outcome: SurfacedOutcome,
+  outcome: Schema.NullOr(SurfacedOutcome),
   outcome_at: Schema.NullOr(Schema.Number)
 });
 
