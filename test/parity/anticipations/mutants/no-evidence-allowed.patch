@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..e56cbda 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -568,7 +568,6 @@ export class Anticipating extends Context.Service<
+           const messages = [...new Set(evidence.messages)];
+           const memories = [...new Set(evidence.memories)];
+ 
+-          if (messages.length + memories.length === 0) return yield* new NoEvidence();
+           const places = yield* placesOf(messages);
+           const absent: string[] = messages.flatMap((id) => (places.has(id) ? [] : [`message #${id}`]));
+ 

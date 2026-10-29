@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/proactivity.ts b/src/dreaming/proactivity.ts
+index 4445f18..6e8ff4f 100644
+--- a/src/dreaming/proactivity.ts
++++ b/src/dreaming/proactivity.ts
+@@ -7,7 +7,7 @@ import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
+ import { Sql } from "../core/sql";
+ import { LOOK_TIME, LOOK_TIMES, type ProactivityLevel, type ProactivityView, RIGHT_AWAY_MOST } from "./contract";
+ 
+-const DEFAULT_LOOKS = ["08:00", "13:00", "18:00"];
++const DEFAULT_LOOKS = ["08:00", "18:00"];
+ 
+ const DEFAULT_RIGHT_AWAY = 6;
+ 

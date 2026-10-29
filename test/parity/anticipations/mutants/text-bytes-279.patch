@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..5509a6c 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -21,7 +21,7 @@ const EPISODE_CAP = 3;
+ 
+ const RUN_MS = 12 * 3_600_000;
+ 
+-const TEXT_BYTES = 280;
++const TEXT_BYTES = 279;
+ 
+ const PREPARED_CHARS = 1_500;
+ 

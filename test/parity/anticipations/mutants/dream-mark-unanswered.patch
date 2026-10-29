@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..ad856ed 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -311,7 +311,7 @@ export class DreamRuns extends Context.Service<
+             })
+           );
+ 
+-          if (answer !== undefined) {
++          if (answer === undefined) {
+             yield* exec(
+               "INSERT INTO ky_dream (id, memories, at, said) VALUES (1, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET memories = excluded.memories, at = excluded.at, said = excluded.said",
+               memories,

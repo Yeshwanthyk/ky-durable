@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..f61a8b7 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -849,7 +849,7 @@ export class Anticipating extends Context.Service<
+           expire: Effect.fn("Anticipations.expire")(function* (at) {
+             const now = yield* nowOr(at);
+ 
+-            const expired = (yield* exec("UPDATE ky_anticipations SET status = 'expired', closed_at = ? WHERE status = 'open' AND pinned = 0 AND window_to < ? RETURNING id", now, now)).length;
++            const expired = (yield* exec("UPDATE ky_anticipations SET status = 'expired', closed_at = ? WHERE status = 'open' AND window_to < ? RETURNING id", now, now)).length;
+ 
+             if (expired > 0) yield* Effect.sync(closed);
+ 

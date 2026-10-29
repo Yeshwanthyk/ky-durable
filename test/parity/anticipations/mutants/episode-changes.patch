@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..8f72a10 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -694,7 +694,6 @@ export class Anticipating extends Context.Service<
+         const changeable = Effect.fn("Anticipations.changeable")(function* (id: number, by: Actor) {
+           const row = yield* get(id);
+ 
+-          if (by === "episode") return yield* new EpisodeOnlyAdds();
+ 
+           if (by !== "user" && row.created_by === "user") return yield* new UsersOwn({ id });
+ 

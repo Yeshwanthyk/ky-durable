@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..148a465 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -15,7 +15,7 @@ import type { Memory } from "./memory";
+ 
+ const OPEN_CAP = 20;
+ 
+-export const RUN_CAP = 5;
++export const RUN_CAP = 6;
+ 
+ const EPISODE_CAP = 3;
+ 

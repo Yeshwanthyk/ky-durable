@@ -759,69 +759,78 @@ export class Anticipating extends Context.Service<
           return `#${id} is ${pinned ? "pinned: it never expires, and only the user changes it" : "unpinned"}.`;
         });
 
-        const handle = Effect.fn("Anticipations.handle")(function* (call: Call, now: number) {
-          const { args, by, session, pass } = call;
+        const adding = Effect.fn("Anticipations.adding")(function* ({ args, by, session, pass }: Call, now: number) {
+          const asked = by === "user" ? yield* latestAsk(session) : undefined;
+          const messages = [...(args.messages ?? []), ...(asked === undefined ? [] : [asked])];
+          const kind = yield* need(args.kind, "kind");
+          const line = yield* need(args.text, "text");
+          const window = yield* windowOf(args.from, args.to, now);
 
-          switch (args.action) {
-            case "add": {
-              const asked = by === "user" ? yield* latestAsk(session) : undefined;
-              const messages = [...(args.messages ?? []), ...(asked === undefined ? [] : [asked])];
-              const kind = yield* need(args.kind, "kind");
-              const line = yield* need(args.text, "text");
-              const window = yield* windowOf(args.from, args.to, now);
+          const row = yield* add(
+            {
+              kind,
+              text: line,
+              evidence: { messages, memories: args.memories ?? [] },
+              prepared: args.prepared,
+              window
+            },
+            by,
+            now,
+            pass
+          );
 
-              const row = yield* add(
-                {
-                  kind,
-                  text: line,
-                  evidence: { messages, memories: args.memories ?? [] },
-                  prepared: args.prepared,
-                  window
-                },
-                by,
-                now,
-                pass
-              );
-
-              return `Saved as #${row.id}.`;
-            }
-
-            case "close": {
-              const id = yield* need(args.id, "id");
-              const outcome = yield* need(args.outcome, "outcome");
-              yield* close(id, outcome, by, args.note, now);
-
-              return `#${id} is ${outcome}${outcome === "done" ? "; its outcome is a memory now" : ""}.`;
-            }
-
-            case "extend": {
-              const id = yield* need(args.id, "id");
-              const row = yield* extend(id, yield* need(yield* windowOf(args.from, args.to, now), "to"), by);
-
-              return `#${row.id} now matters from ${iso(row.window_from ?? now)} to ${iso(row.window_to ?? now)}.`;
-            }
-
-            case "absorb": {
-              const id = yield* need(args.id, "id");
-              const into = yield* need(args.into, "into");
-              const row = yield* absorb(id, into, by, now);
-
-              return `#${row.id} is folded into #${into}.`;
-            }
-
-            case "pin":
-              return yield* pinning(call, true);
-            case "unpin":
-              return yield* pinning(call, false);
-            case "list": {
-              if (args.about !== undefined) return lines(yield* matching(args.about.split(/[^\p{L}\p{N}_]+/u), now, 5, Number.MAX_SAFE_INTEGER), now);
-
-              if (args.hours !== undefined) return lines(yield* due(now, now + args.hours * 3_600_000), now);
-
-              return lines(yield* open, now);
-            }
-          }
+          return `Saved as #${row.id}.`;
         });
+
+        const closing = Effect.fn("Anticipations.closing")(function* ({ args, by }: Call, now: number) {
+          const id = yield* need(args.id, "id");
+          const outcome = yield* need(args.outcome, "outcome");
+          yield* close(id, outcome, by, args.note, now);
+
+          return `#${id} is ${outcome}${outcome === "done" ? "; its outcome is a memory now" : ""}.`;
+        });
+
+        const extending = Effect.fn("Anticipations.extending")(function* ({ args, by }: Call, now: number) {
+          const id = yield* need(args.id, "id");
+          const row = yield* extend(id, yield* need(yield* windowOf(args.from, args.to, now), "to"), by);
+
+          return `#${row.id} now matters from ${iso(row.window_from ?? now)} to ${iso(row.window_to ?? now)}.`;
+        });
+
+        const absorbing = Effect.fn("Anticipations.absorbing")(function* ({ args, by }: Call, now: number) {
+          const id = yield* need(args.id, "id");
+          const into = yield* need(args.into, "into");
+          const row = yield* absorb(id, into, by, now);
+
+          return `#${row.id} is folded into #${into}.`;
+        });
+
+        const listing = Effect.fn("Anticipations.listing")(function* ({ args }: Call, now: number) {
+          if (args.about !== undefined) return lines(yield* matching(args.about.split(/[^\p{L}\p{N}_]+/u), now, 5, Number.MAX_SAFE_INTEGER), now);
+
+          if (args.hours !== undefined) return lines(yield* due(now, now + args.hours * 3_600_000), now);
+
+          return lines(yield* open, now);
+        });
+
+        const handle = (call: Call, now: number) => {
+          switch (call.args.action) {
+            case "add":
+              return adding(call, now);
+            case "close":
+              return closing(call, now);
+            case "extend":
+              return extending(call, now);
+            case "absorb":
+              return absorbing(call, now);
+            case "pin":
+              return pinning(call, true);
+            case "unpin":
+              return pinning(call, false);
+            case "list":
+              return listing(call, now);
+          }
+        };
 
         return Anticipating.of({
           get,
@@ -917,36 +926,8 @@ export class Anticipations {
     );
   }
 
-  extend(id: number, window: Window, by: Actor): Anticipation {
-    return runOrThrow(
-      this.#edge,
-      Anticipating.use((store) => store.extend(id, window, by))
-    );
-  }
-
-  absorb(id: number, into: number, by: Actor, now?: number): Anticipation {
-    return runOrThrow(
-      this.#edge,
-      Anticipating.use((store) => store.absorb(id, into, by, now))
-    );
-  }
-
   expire(now?: number): number {
     return this.#edge.run(Anticipating.use((store) => store.expire(now)));
-  }
-
-  pin(id: number): void {
-    runOrThrow(
-      this.#edge,
-      Anticipating.use((store) => store.pin(id, true))
-    );
-  }
-
-  unpin(id: number): void {
-    runOrThrow(
-      this.#edge,
-      Anticipating.use((store) => store.pin(id, false))
-    );
   }
 
   act(call: Call): string {

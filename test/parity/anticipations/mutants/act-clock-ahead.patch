@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..42a65c5 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -861,7 +861,7 @@ export class Anticipating extends Context.Service<
+ 
+             if (call.by === "user" && USER_ACTS.has(call.args.action) && !(yield* Effect.sync(() => startedByUser(entries, call.session)))) return yield* new NoticeTurn();
+ 
+-            return yield* handle(call, yield* Clock.currentTimeMillis);
++            return yield* handle(call, (yield* Clock.currentTimeMillis) + 3_600_000);
+           })
+         });
+       })

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..45168f6 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -650,7 +650,7 @@ export class Anticipating extends Context.Service<
+ 
+         const latestAsk = Effect.fn("Anticipations.latestAsk")(function* (conversation: string) {
+           const users = (yield* exec(
+-            "SELECT id AS n FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user' ORDER BY id DESC LIMIT ?",
++            "SELECT id AS n FROM pi_entries WHERE conversation_id = ? AND json_extract(record, '$.kind') = 'pi.user' ORDER BY id ASC LIMIT ?",
+             Number(conversation),
+             RECENT_USERS
+           )).map(countOf);

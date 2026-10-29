@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..f6acfe4 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -686,7 +686,7 @@ export class Anticipating extends Context.Service<
+         const move = Effect.fn("Anticipations.move")(function* (row: Anticipation, to: AnticipationStatus, now: number, absorbedInto: number | null) {
+           yield* legal(row, to);
+           const closedAt = MOVES[to].length === 0 ? now : null;
+-          yield* exec("UPDATE ky_anticipations SET status = ?, closed_at = ?, absorbed_into = ? WHERE id = ?", to, closedAt, absorbedInto, row.id);
++          yield* exec("UPDATE ky_anticipations SET status = ?, closed_at = ?, absorbed_into = ? WHERE id = ?", to, closedAt, null, row.id);
+ 
+           if (closedAt !== null) yield* Effect.sync(closed);
+         });

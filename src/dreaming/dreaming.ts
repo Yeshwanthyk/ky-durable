@@ -52,7 +52,7 @@ class NotesFull extends Schema.TaggedError<NotesFull>()("NotesFull", {}) impleme
   }
 }
 
-export class DreamNoting extends Context.Service<
+class DreamNoting extends Context.Service<
   DreamNoting,
   {
     readonly check: (session: string) => Effect.Effect<void, NotesFull>;

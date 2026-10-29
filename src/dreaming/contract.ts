@@ -1,4 +1,3 @@
-import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -94,7 +93,7 @@ const Creator = Schema.Literals(["dream", "episode", "user"]);
 export type Creator = typeof Creator.Type;
 
 /** A commitment or thread; a date; a question likely next; a condition worth a gate. */
-export const AnticipationKind = Schema.Literals(["open_loop", "upcoming", "predicted_ask", "watch"]);
+const AnticipationKind = Schema.Literals(["open_loop", "upcoming", "predicted_ask", "watch"]);
 
 export type AnticipationKind = typeof AnticipationKind.Type;
 

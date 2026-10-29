@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..3e981c8 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -859,7 +859,6 @@ export class Anticipating extends Context.Service<
+           act: Effect.fn("Anticipations.act")(function* (call) {
+             if (call.args.action !== "list" && call.listOnly) return yield* new LookLists();
+ 
+-            if (call.by === "user" && USER_ACTS.has(call.args.action) && !(yield* Effect.sync(() => startedByUser(entries, call.session)))) return yield* new NoticeTurn();
+ 
+             return yield* handle(call, yield* Clock.currentTimeMillis);
+           })

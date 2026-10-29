@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..cd3d25b 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -13,7 +13,7 @@ import { ownMessages, startedByUser } from "../history/wiring";
+ import { ANTICIPATE, ANTICIPATION_KINDS, type Anticipation, type AnticipationKind, anticipationRow, type AnticipationStatus, type Creator, type Evidence } from "./contract";
+ import type { Memory } from "./memory";
+ 
+-const OPEN_CAP = 20;
++const OPEN_CAP = 21;
+ 
+ export const RUN_CAP = 5;
+ 

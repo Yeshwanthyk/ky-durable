@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..2ac7d49 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -31,7 +31,7 @@ const MATCH_TERMS = 12;
+ 
+ const RECENT_USERS = 20;
+ 
+-const TERM_CHARS = 3;
++const TERM_CHARS = 4;
+ 
+ const DAY_MS = 24 * 3_600_000;
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..67ed836 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -24,7 +24,7 @@ const DREAM_HOUR = 4;
+ 
+ export const dreamCron = (zone: string | null, now = Date.now()): string => localCron(DREAM_HOUR * 60, zone, now);
+ 
+-const AWAY_MS = 2 * 3_600_000;
++const AWAY_MS = 1 * 3_600_000;
+ 
+ const GIVE_UP_HOUR = 8;
+ 

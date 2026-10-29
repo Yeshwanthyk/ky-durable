@@ -44,7 +44,7 @@ class NotRightAway extends Schema.TaggedError<NotRightAway>()("NotRightAway", {}
   }
 }
 
-export class ProactivityStore extends Context.Service<
+class ProactivityStore extends Context.Service<
   ProactivityStore,
   {
     readonly level: Effect.Effect<ProactivityLevel>;

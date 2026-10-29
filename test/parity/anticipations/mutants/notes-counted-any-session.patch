@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..836a622 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -83,7 +83,6 @@ class DreamNoting extends Context.Service<
+             if (noted >= DREAM_NOTES) return yield* new NotesFull();
+           }),
+           noted: Effect.fn("DreamNotes.noted")(function* (session) {
+-            if (!isDream(session)) return;
+             yield* exec("INSERT INTO ky_dream_notes (conversation, notes) VALUES (?, 1) ON CONFLICT (conversation) DO UPDATE SET notes = notes + 1", session);
+           })
+         });

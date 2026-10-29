@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..4966135 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -752,7 +752,6 @@ export class Anticipating extends Context.Service<
+         });
+ 
+         const pinning = Effect.fn("Anticipations.pinning")(function* ({ args, by }: Call, pinned: boolean) {
+-          if (by !== "user") return yield* new OnlyUserPins();
+           const id = yield* need(args.id, "id");
+           yield* pin(id, pinned);
+ 

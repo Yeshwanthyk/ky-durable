@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..246aaea 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -587,7 +587,6 @@ export class Anticipating extends Context.Service<
+           if (elsewhere.length > 0) return yield* new NotFromChat({ ids: elsewhere });
+           const notices = messages.filter((id) => places.get(id)?.notice === true);
+ 
+-          if (notices.length > 0) return yield* new Relayed({ ids: notices });
+ 
+           return { messages, memories };
+         });

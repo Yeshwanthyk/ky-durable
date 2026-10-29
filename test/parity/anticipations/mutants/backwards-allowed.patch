@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..dd64563 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -360,7 +360,6 @@ const checkText = (line: string): Effect.Effect<string, Empty | NotOneLine | Too
+ const checkWindow = (window: Window): Effect.Effect<Window, NotDates | Backwards> => {
+   if (!Number.isFinite(window.from) || !Number.isFinite(window.to)) return Effect.fail(new NotDates());
+ 
+-  if (window.to < window.from) return Effect.fail(new Backwards());
+ 
+   return Effect.succeed(window);
+ };

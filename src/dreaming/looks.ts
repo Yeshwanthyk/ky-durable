@@ -84,7 +84,7 @@ const warn = (...said: unknown[]) => Effect.sync(() => console.warn(...said));
 
 type Booked = Array<{ readonly time: string; readonly cron: string }>;
 
-export class Looking extends Context.Service<
+class Looking extends Context.Service<
   Looking,
   {
     readonly booked: (zone: string | null, now: number | undefined) => Effect.Effect<Booked>;

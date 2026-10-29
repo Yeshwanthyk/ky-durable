@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..05a71a1 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -679,7 +679,7 @@ export class Anticipating extends Context.Service<
+         };
+ 
+         const due = (now: number, until: number) =>
+-          rows(`SELECT * FROM ky_anticipations WHERE ${LIVE} AND kind = 'upcoming' AND window_from <= ? AND window_to >= ? ORDER BY window_from, id`, until, now);
++          rows(`SELECT * FROM ky_anticipations WHERE ${LIVE} AND kind = 'upcoming' AND window_from <= ? AND window_to >= ? ORDER BY window_from DESC, id`, until, now);
+ 
+         const legal = (row: Anticipation, to: AnticipationStatus) => (MOVES[row.status].includes(to) ? Effect.void : Effect.fail(new Illegal({ id: row.id, status: row.status, to })));
+ 

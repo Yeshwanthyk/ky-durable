@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/proactivity.ts b/src/dreaming/proactivity.ts
+index 4445f18..2266cdf 100644
+--- a/src/dreaming/proactivity.ts
++++ b/src/dreaming/proactivity.ts
+@@ -9,7 +9,7 @@ import { LOOK_TIME, LOOK_TIMES, type ProactivityLevel, type ProactivityView, RIG
+ 
+ const DEFAULT_LOOKS = ["08:00", "13:00", "18:00"];
+ 
+-const DEFAULT_RIGHT_AWAY = 6;
++const DEFAULT_RIGHT_AWAY = 5;
+ 
+ const ProactivityRow = Schema.Struct({
+   id: Schema.Int,

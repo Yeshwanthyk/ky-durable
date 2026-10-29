@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..31390b8 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -265,7 +265,7 @@ export class DreamRuns extends Context.Service<
+               open.map((row) => anticipationLine(row, now))
+             ),
+             "",
+-            `Now: ${new Date(now).toISOString()}; the user's time zone: ${checkIns?.zone ?? "unknown, so take it from memory"}.`,
++            `Now: ${new Date(now + 60_000).toISOString()}; the user's time zone: ${checkIns?.zone ?? "unknown, so take it from memory"}.`,
+             ...(checkIns?.on ? section("Check-ins waiting:", checkIns.waiting) : [])
+           ].join("\n");
+ 

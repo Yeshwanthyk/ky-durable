@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..bd1af8b 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -147,7 +147,7 @@ export class SurfacedStore extends Context.Service<
+         items: (kind, prefix, from, limit) =>
+           Effect.map(
+             exec(
+-              "SELECT item, text FROM ky_surfaced WHERE kind = ? AND item >= ? AND item < ? AND shown_at >= ? ORDER BY shown_at DESC, id DESC LIMIT ?",
++              "SELECT item, text FROM ky_surfaced WHERE kind = ? AND item >= ? AND item < ? AND shown_at >= ? ORDER BY shown_at ASC, id DESC LIMIT ?",
+               kind,
+               prefix,
+               `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`,

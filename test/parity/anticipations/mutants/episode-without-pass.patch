@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..04e0620 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -593,7 +593,7 @@ export class Anticipating extends Context.Service<
+         });
+ 
+         const checkPass = Effect.fn("Anticipations.checkPass")(function* (evidence: Evidence, pass: EpisodePass | undefined) {
+-          if (pass === undefined) return yield* new NoPass();
++          if (pass === undefined) return;
+ 
+           if (evidence.messages.length === 0) return yield* new NoOwnWords();
+           const users = yield* own(evidence.messages);

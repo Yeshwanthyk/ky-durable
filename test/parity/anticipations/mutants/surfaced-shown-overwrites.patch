@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..840ad44 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -123,7 +123,7 @@ export class SurfacedStore extends Context.Service<
+         shown: Effect.fn("Surfaced.shown")(function* (entry, at) {
+           const now = yield* nowOr(at);
+           yield* exec(
+-            "INSERT INTO ky_surfaced (kind, loop, ref, item, text, shown_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (kind, item) DO NOTHING",
++            "INSERT INTO ky_surfaced (kind, loop, ref, item, text, shown_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (kind, item) DO UPDATE SET text = excluded.text",
+             entry.kind,
+             entry.kind,
+             entry.ref,

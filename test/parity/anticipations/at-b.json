@@ -1,0 +1,767 @@
+{
+  "at": 1793041200000,
+  "schema": [
+    "CREATE TABLE pi_entries (id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL, record TEXT NOT NULL)",
+    "CREATE TABLE pi_submissions (id INTEGER PRIMARY KEY, record TEXT NOT NULL)",
+    "CREATE TABLE memo_log (\n      id INTEGER PRIMARY KEY, date TEXT NOT NULL, text TEXT NOT NULL)",
+    "CREATE TABLE memo_tree (\n      lo INTEGER NOT NULL, hi INTEGER NOT NULL, text TEXT NOT NULL,\n      PRIMARY KEY (lo, hi))",
+    "CREATE TABLE ky_anticipations (\n      id INTEGER PRIMARY KEY,\n      created_at INTEGER NOT NULL,\n      created_by TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      text TEXT NOT NULL,\n      evidence TEXT NOT NULL,\n      prepared TEXT,\n      window_from INTEGER,\n      window_to INTEGER,\n      status TEXT NOT NULL DEFAULT 'open',\n      pinned INTEGER NOT NULL DEFAULT 0,\n      absorbed_into INTEGER,\n      closed_at INTEGER,\n      recalled_at INTEGER)",
+    "CREATE TABLE ky_surfaced (\n      id INTEGER PRIMARY KEY,\n      kind TEXT NOT NULL,\n      loop TEXT NOT NULL,\n      ref TEXT NOT NULL,\n      item TEXT NOT NULL,\n      text TEXT NOT NULL,\n      shown_at INTEGER NOT NULL,\n      expires_at INTEGER NOT NULL,\n      outcome TEXT,\n      outcome_at INTEGER,\n      UNIQUE (kind, item))",
+    "CREATE INDEX ky_surfaced_open ON ky_surfaced (outcome, expires_at)",
+    "CREATE TABLE ky_proactivity (\n      id INTEGER PRIMARY KEY CHECK (id = 1),\n      level TEXT NOT NULL, looks TEXT, right_away INTEGER)",
+    "CREATE TABLE ky_presence (\n      id INTEGER PRIMARY KEY CHECK (id = 1),\n      at INTEGER NOT NULL)",
+    "CREATE TABLE ky_dream_notes (conversation TEXT PRIMARY KEY, notes INTEGER NOT NULL)",
+    "CREATE TABLE ky_dream (\n      id INTEGER PRIMARY KEY CHECK (id = 1),\n      memories INTEGER NOT NULL,\n      at INTEGER NOT NULL\n    , said INTEGER NOT NULL DEFAULT 0)"
+  ],
+  "tables": {
+    "pi_entries": [
+      {
+        "id": 1,
+        "conversation_id": 1,
+        "record": "{\"kind\":\"pi.user\"}"
+      },
+      {
+        "id": 2,
+        "conversation_id": 1,
+        "record": "{\"kind\":\"pi.assistant\"}"
+      },
+      {
+        "id": 3,
+        "conversation_id": 1,
+        "record": "{\"kind\":\"pi.user\"}"
+      },
+      {
+        "id": 4,
+        "conversation_id": 1,
+        "record": "{\"kind\":\"pi.assistant\"}"
+      },
+      {
+        "id": 5,
+        "conversation_id": 1,
+        "record": "{\"kind\":\"pi.user\"}"
+      },
+      {
+        "id": 6,
+        "conversation_id": 2,
+        "record": "{\"kind\":\"pi.user\"}"
+      },
+      {
+        "id": 7,
+        "conversation_id": 2,
+        "record": "{\"kind\":\"pi.assistant\"}"
+      },
+      {
+        "id": 8,
+        "conversation_id": 2,
+        "record": "{\"kind\":\"pi.user\"}"
+      }
+    ],
+    "pi_submissions": [
+      {
+        "id": 1,
+        "record": "{\"entry\":1,\"requestId\":\"00000000-0000-4000-8000-000000000001\"}"
+      },
+      {
+        "id": 3,
+        "record": "{\"entry\":3,\"requestId\":\"mail:3\"}"
+      },
+      {
+        "id": 5,
+        "record": "{\"entry\":5,\"requestId\":\"00000000-0000-4000-8000-000000000005\"}"
+      },
+      {
+        "id": 6,
+        "record": "{\"entry\":6,\"requestId\":\"00000000-0000-4000-8000-000000000006\"}"
+      },
+      {
+        "id": 8,
+        "record": "{\"entry\":8,\"requestId\":\"mail:8\"}"
+      }
+    ],
+    "memo_log": [
+      {
+        "id": 0,
+        "date": "2026-10-26",
+        "text": "the user likes green tea"
+      },
+      {
+        "id": 1,
+        "date": "2026-10-26",
+        "text": "a trip to Lisbon in May"
+      },
+      {
+        "id": 2,
+        "date": "2026-10-26",
+        "text": "Sam signed the lease"
+      }
+    ],
+    "ky_anticipations": [
+      {
+        "id": 1,
+        "created_at": 1793016000000,
+        "created_by": "user",
+        "kind": "open_loop",
+        "text": "Reply to Sam about the lease",
+        "evidence": "{\"messages\":[1],\"memories\":[]}",
+        "prepared": "Sam's lease ends in March",
+        "window_from": null,
+        "window_to": null,
+        "status": "done",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": 1793023200000,
+        "recalled_at": null
+      },
+      {
+        "id": 2,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "Lisbon trip in May",
+        "evidence": "{\"messages\":[],\"memories\":[1]}",
+        "prepared": null,
+        "window_from": 1793088000000,
+        "window_to": 1793174400000,
+        "status": "open",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 3,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "watch",
+        "text": "tea with Ana",
+        "evidence": "{\"messages\":[5,6],\"memories\":[]}",
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": 1,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      },
+      {
+        "id": 4,
+        "created_at": 1793023200000,
+        "created_by": "user",
+        "kind": "predicted_ask",
+        "text": "Book the dentist",
+        "evidence": "{\"messages\":[6],\"memories\":[]}",
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "dismissed",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": 1793023200000,
+        "recalled_at": null
+      },
+      {
+        "id": 5,
+        "created_at": 1793023200000,
+        "created_by": "dream",
+        "kind": "open_loop",
+        "text": "Lisbon flights",
+        "evidence": "{\"messages\":[],\"memories\":[1]}",
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "dismissed",
+        "pinned": 0,
+        "absorbed_into": 2,
+        "closed_at": 1793023200000,
+        "recalled_at": null
+      },
+      {
+        "id": 6,
+        "created_at": 1793023200000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "dentist at nine",
+        "evidence": "{\"messages\":[5],\"memories\":[]}",
+        "prepared": null,
+        "window_from": 1793016000000,
+        "window_to": 1793026800000,
+        "status": "expired",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": 1793030400000,
+        "recalled_at": null
+      },
+      {
+        "id": 7,
+        "created_at": 1793023200000,
+        "created_by": "user",
+        "kind": "watch",
+        "text": "the lease renewal",
+        "evidence": "{\"messages\":[1],\"memories\":[]}",
+        "prepared": "Renewal is due in spring",
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 8,
+        "created_at": 1793030400000,
+        "created_by": "dream",
+        "kind": "open_loop",
+        "text": "damaged evidence",
+        "evidence": "not json",
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      },
+      {
+        "id": 9,
+        "created_at": 1793030400000,
+        "created_by": "dream",
+        "kind": "bogus",
+        "text": "damaged kind",
+        "evidence": "{\"messages\":[1]}",
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": 0,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      }
+    ],
+    "ky_surfaced": [
+      {
+        "id": 1,
+        "kind": "recall",
+        "loop": "recall",
+        "ref": "a",
+        "item": "1#4",
+        "text": "about lease",
+        "shown_at": 1793030400000,
+        "expires_at": 1793034000000,
+        "outcome": "expired",
+        "outcome_at": 1793034000000
+      },
+      {
+        "id": 2,
+        "kind": "recall",
+        "loop": "recall",
+        "ref": "b",
+        "item": "1#9",
+        "text": "about tea",
+        "shown_at": 1793030400000,
+        "expires_at": 1793066400000,
+        "outcome": null,
+        "outcome_at": null
+      },
+      {
+        "id": 3,
+        "kind": "look",
+        "loop": "look",
+        "ref": "a",
+        "item": "look-a",
+        "text": "a look",
+        "shown_at": 1793030400000,
+        "expires_at": 1793066400000,
+        "outcome": "missed",
+        "outcome_at": 1793030400000
+      },
+      {
+        "id": 4,
+        "kind": "post",
+        "loop": "post",
+        "ref": "c",
+        "item": "p-1",
+        "text": "odd",
+        "shown_at": 1793037600000,
+        "expires_at": 1793041200000,
+        "outcome": "weird",
+        "outcome_at": null
+      }
+    ],
+    "ky_proactivity": [
+      {
+        "id": 1,
+        "level": "on",
+        "looks": "[\"08:00\",\"18:00\"]",
+        "right_away": 3
+      }
+    ],
+    "ky_presence": [
+      {
+        "id": 1,
+        "at": 1793037600000
+      }
+    ],
+    "ky_dream": [
+      {
+        "id": 1,
+        "memories": 2,
+        "at": 1793034000000,
+        "said": 6
+      }
+    ],
+    "ky_dream_notes": [
+      {
+        "conversation": "7",
+        "notes": 3
+      }
+    ]
+  },
+  "reads": {
+    "open": [
+      {
+        "id": 2,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "Lisbon trip in May",
+        "evidence": {
+          "messages": [],
+          "memories": [
+            1
+          ]
+        },
+        "prepared": null,
+        "window_from": 1793088000000,
+        "window_to": 1793174400000,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 3,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "watch",
+        "text": "tea with Ana",
+        "evidence": {
+          "messages": [
+            5,
+            6
+          ],
+          "memories": []
+        },
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": true,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      },
+      {
+        "id": 7,
+        "created_at": 1793023200000,
+        "created_by": "user",
+        "kind": "watch",
+        "text": "the lease renewal",
+        "evidence": {
+          "messages": [
+            1
+          ],
+          "memories": []
+        },
+        "prepared": "Renewal is due in spring",
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      }
+    ],
+    "get": [
+      {
+        "said": {
+          "id": 1,
+          "created_at": 1793016000000,
+          "created_by": "user",
+          "kind": "open_loop",
+          "text": "Reply to Sam about the lease",
+          "evidence": {
+            "messages": [
+              1
+            ],
+            "memories": []
+          },
+          "prepared": "Sam's lease ends in March",
+          "window_from": null,
+          "window_to": null,
+          "status": "done",
+          "pinned": false,
+          "absorbed_into": null,
+          "closed_at": 1793023200000,
+          "recalled_at": null
+        }
+      },
+      {
+        "said": {
+          "id": 2,
+          "created_at": 1793019600000,
+          "created_by": "dream",
+          "kind": "upcoming",
+          "text": "Lisbon trip in May",
+          "evidence": {
+            "messages": [],
+            "memories": [
+              1
+            ]
+          },
+          "prepared": null,
+          "window_from": 1793088000000,
+          "window_to": 1793174400000,
+          "status": "open",
+          "pinned": false,
+          "absorbed_into": null,
+          "closed_at": null,
+          "recalled_at": 1793023200000
+        }
+      },
+      {
+        "said": {
+          "id": 3,
+          "created_at": 1793019600000,
+          "created_by": "dream",
+          "kind": "watch",
+          "text": "tea with Ana",
+          "evidence": {
+            "messages": [
+              5,
+              6
+            ],
+            "memories": []
+          },
+          "prepared": null,
+          "window_from": null,
+          "window_to": null,
+          "status": "open",
+          "pinned": true,
+          "absorbed_into": null,
+          "closed_at": null,
+          "recalled_at": null
+        }
+      },
+      {
+        "said": {
+          "id": 4,
+          "created_at": 1793023200000,
+          "created_by": "user",
+          "kind": "predicted_ask",
+          "text": "Book the dentist",
+          "evidence": {
+            "messages": [
+              6
+            ],
+            "memories": []
+          },
+          "prepared": null,
+          "window_from": null,
+          "window_to": null,
+          "status": "dismissed",
+          "pinned": false,
+          "absorbed_into": null,
+          "closed_at": 1793023200000,
+          "recalled_at": null
+        }
+      },
+      {
+        "said": {
+          "id": 5,
+          "created_at": 1793023200000,
+          "created_by": "dream",
+          "kind": "open_loop",
+          "text": "Lisbon flights",
+          "evidence": {
+            "messages": [],
+            "memories": [
+              1
+            ]
+          },
+          "prepared": null,
+          "window_from": null,
+          "window_to": null,
+          "status": "dismissed",
+          "pinned": false,
+          "absorbed_into": 2,
+          "closed_at": 1793023200000,
+          "recalled_at": null
+        }
+      },
+      {
+        "said": {
+          "id": 6,
+          "created_at": 1793023200000,
+          "created_by": "dream",
+          "kind": "upcoming",
+          "text": "dentist at nine",
+          "evidence": {
+            "messages": [
+              5
+            ],
+            "memories": []
+          },
+          "prepared": null,
+          "window_from": 1793016000000,
+          "window_to": 1793026800000,
+          "status": "expired",
+          "pinned": false,
+          "absorbed_into": null,
+          "closed_at": 1793030400000,
+          "recalled_at": null
+        }
+      },
+      {
+        "said": {
+          "id": 7,
+          "created_at": 1793023200000,
+          "created_by": "user",
+          "kind": "watch",
+          "text": "the lease renewal",
+          "evidence": {
+            "messages": [
+              1
+            ],
+            "memories": []
+          },
+          "prepared": "Renewal is due in spring",
+          "window_from": null,
+          "window_to": null,
+          "status": "open",
+          "pinned": false,
+          "absorbed_into": null,
+          "closed_at": null,
+          "recalled_at": 1793023200000
+        }
+      },
+      {
+        "refused": "No anticipation #8."
+      },
+      {
+        "refused": "No anticipation #9."
+      },
+      {
+        "refused": "No anticipation #99."
+      }
+    ],
+    "match": [
+      {
+        "id": 2,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "Lisbon trip in May",
+        "evidence": {
+          "messages": [],
+          "memories": [
+            1
+          ]
+        },
+        "prepared": null,
+        "window_from": 1793088000000,
+        "window_to": 1793174400000,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 7,
+        "created_at": 1793023200000,
+        "created_by": "user",
+        "kind": "watch",
+        "text": "the lease renewal",
+        "evidence": {
+          "messages": [
+            1
+          ],
+          "memories": []
+        },
+        "prepared": "Renewal is due in spring",
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 3,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "watch",
+        "text": "tea with Ana",
+        "evidence": {
+          "messages": [
+            5,
+            6
+          ],
+          "memories": []
+        },
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": true,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      }
+    ],
+    "recallable": [
+      {
+        "id": 2,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "Lisbon trip in May",
+        "evidence": {
+          "messages": [],
+          "memories": [
+            1
+          ]
+        },
+        "prepared": null,
+        "window_from": 1793088000000,
+        "window_to": 1793174400000,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 7,
+        "created_at": 1793023200000,
+        "created_by": "user",
+        "kind": "watch",
+        "text": "the lease renewal",
+        "evidence": {
+          "messages": [
+            1
+          ],
+          "memories": []
+        },
+        "prepared": "Renewal is due in spring",
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      },
+      {
+        "id": 3,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "watch",
+        "text": "tea with Ana",
+        "evidence": {
+          "messages": [
+            5,
+            6
+          ],
+          "memories": []
+        },
+        "prepared": null,
+        "window_from": null,
+        "window_to": null,
+        "status": "open",
+        "pinned": true,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": null
+      }
+    ],
+    "due": [
+      {
+        "id": 2,
+        "created_at": 1793019600000,
+        "created_by": "dream",
+        "kind": "upcoming",
+        "text": "Lisbon trip in May",
+        "evidence": {
+          "messages": [],
+          "memories": [
+            1
+          ]
+        },
+        "prepared": null,
+        "window_from": 1793088000000,
+        "window_to": 1793174400000,
+        "status": "open",
+        "pinned": false,
+        "absorbed_into": null,
+        "closed_at": null,
+        "recalled_at": 1793023200000
+      }
+    ],
+    "list": "- #2 upcoming, open, today, by dream, 2026-10-27 08:00 to 2026-10-28 08:00: Lisbon trip in May (rests on memory #1)\n- #3 watch, open, today, by dream, pinned: tea with Ana (rests on message #5, message #6)\n- #7 watch, open, today, by user: the lease renewal (rests on message #1)",
+    "listAbout": "- #2 upcoming, open, today, by dream, 2026-10-27 08:00 to 2026-10-28 08:00: Lisbon trip in May (rests on memory #1)\n- #7 watch, open, today, by user: the lease renewal (rests on message #1)",
+    "listHours": "- #2 upcoming, open, today, by dream, 2026-10-27 08:00 to 2026-10-28 08:00: Lisbon trip in May (rests on memory #1)",
+    "surfaced": {
+      "outcomes": [
+        "expired",
+        "absent",
+        "missed",
+        "absent",
+        "absent"
+      ],
+      "items": [
+        {
+          "item": "1#9",
+          "text": "about tea"
+        },
+        {
+          "item": "1#4",
+          "text": "about lease"
+        }
+      ],
+      "lastShown": [
+        [
+          "a",
+          1793030400000
+        ],
+        [
+          "b",
+          1793030400000
+        ]
+      ]
+    },
+    "proactivity": {
+      "level": "on",
+      "looks": [
+        "08:00",
+        "18:00"
+      ],
+      "rightAway": 3
+    },
+    "presence": 1793037600000,
+    "notes": {},
+    "mark": {
+      "memories": 2,
+      "at": 1793034000000,
+      "said": 6
+    },
+    "digest": "Since 2026-10-26T17:00:00.000Z.\n\nWhat was said, oldest first (\"user:\" is the user's own words; \"notice:\" was relayed for someone else):\n(none)\n\nNew memories, oldest first:\n#2 2026-10-26 Sam signed the lease\n\nSkill changes, oldest first:\n(none)\n\nActive skills:\n(none)\n\nFinished tasks, oldest first:\n(none)\n\nOpen anticipations, oldest first:\n- #2 upcoming, open, today, by dream, 2026-10-27 08:00 to 2026-10-28 08:00: Lisbon trip in May (rests on memory #1)\n- #3 watch, open, today, by dream, pinned: tea with Ana (rests on message #5, message #6)\n- #7 watch, open, today, by user: the lease renewal (rests on message #1)\n\nNow: 2026-10-26T19:00:00.000Z; the user's time zone: unknown, so take it from memory."
+  }
+}

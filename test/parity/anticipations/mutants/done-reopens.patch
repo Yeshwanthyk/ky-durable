@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..402cef1 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -56,7 +56,7 @@ export type Draft = {
+ const MOVES: Readonly<Record<AnticipationStatus, readonly AnticipationStatus[]>> = {
+   open: ["surfaced", "done", "dismissed", "expired"],
+   surfaced: ["done", "dismissed"],
+-  done: [],
++  done: ["dismissed"],
+   dismissed: [],
+   expired: []
+ };
