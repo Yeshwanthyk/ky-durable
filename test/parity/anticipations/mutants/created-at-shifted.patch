@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..5584961 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -635,7 +635,7 @@ export class Anticipating extends Context.Service<
+               rows(
+                 `INSERT INTO ky_anticipations (created_at, created_by, kind, text, evidence, prepared, window_from, window_to)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+-                now,
++                now + 1,
+                 by,
+                 draft.kind,
+                 line,

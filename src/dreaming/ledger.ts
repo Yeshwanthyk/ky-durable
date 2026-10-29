@@ -44,12 +44,6 @@ class AlreadyChanged extends Schema.TaggedError<AlreadyChanged>()("AlreadyChange
   }
 }
 
-class NotSaved extends Schema.TaggedError<NotSaved>()("NotSaved", {}) implements Refusable {
-  get refusal(): string {
-    return "The ledger row was not saved, so the change is not made.";
-  }
-}
-
 class NoChange extends Schema.TaggedError<NoChange>()("NoChange", { id: Schema.Number }) implements Refusable {
   get refusal(): string {
     return `No dream change ${this.id}.`;
@@ -99,9 +93,9 @@ type Deps = { readonly skills: Skills; readonly memory: Memory; readonly reviews
 export class Ledger extends Context.Service<
   Ledger,
   {
-    readonly skillWrite: (write: SkillWrite) => Effect.Effect<number, AlreadyChanged | NotSaved>;
+    readonly skillWrite: (write: SkillWrite) => Effect.Effect<number, AlreadyChanged>;
     readonly landed: (id: number, version: number) => Effect.Effect<void>;
-    readonly forget: (forget: MemoryForget) => Effect.Effect<void, AlreadyChanged | NotSaved>;
+    readonly forget: (forget: MemoryForget) => Effect.Effect<void, AlreadyChanged>;
     readonly lastNight: Effect.Effect<DreamLedgerRow[]>;
     readonly undo: (id: number) => Effect.Effect<string, NoChange | AlreadyUndone | ChangedSince | PinnedSince | Refused>;
   }
@@ -142,20 +136,24 @@ export class Ledger extends Context.Service<
             if (earlier) return yield* new AlreadyChanged({ kind: entry.kind, target: entry.target, action: earlier.action });
           }
 
-          const [row] = yield* rows(
-            "INSERT INTO ky_dream_ledger (run, actor, kind, action, target, before, reason, absorbed_into, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
-            entry.run,
-            entry.actor,
-            entry.kind,
-            entry.action,
-            entry.target,
-            entry.before,
-            entry.reason,
-            entry.absorbed_into,
-            at
+          const row = yield* Effect.orDie(
+            Effect.head(
+              rows(
+                "INSERT INTO ky_dream_ledger (run, actor, kind, action, target, before, reason, absorbed_into, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+                entry.run,
+                entry.actor,
+                entry.kind,
+                entry.action,
+                entry.target,
+                entry.before,
+                entry.reason,
+                entry.absorbed_into,
+                at
+              )
+            )
           );
 
-          return row?.id ?? (yield* new NotSaved());
+          return row.id;
         });
 
         const undoSkill = Effect.fn("Ledger.undoSkill")(function* ({ target, before, after, action }: DreamLedgerRow) {

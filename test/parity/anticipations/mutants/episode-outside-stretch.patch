@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..9c8d611 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -600,7 +600,6 @@ export class Anticipating extends Context.Service<
+           const places = yield* placesOf(evidence.messages);
+           const outside = evidence.messages.filter((id) => id <= pass.after || id > pass.upto || !users.has(id) || places.get(id)?.conversation !== pass.parent);
+ 
+-          if (outside.length > 0) return yield* new OutsideStretch({ ids: outside });
+ 
+           const added = yield* count(
+             `SELECT COUNT(*) AS n FROM ky_anticipations AS a WHERE created_by = 'episode' AND EXISTS (

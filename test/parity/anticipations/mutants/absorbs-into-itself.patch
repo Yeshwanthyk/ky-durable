@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..5b511e6 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -740,7 +740,7 @@ export class Anticipating extends Context.Service<
+           const row = yield* changeable(id, by);
+           const target = yield* get(into);
+ 
+-          if (into === id || MOVES[target.status].length === 0) return yield* new NotAnotherOpen({ into });
++          if (MOVES[target.status].length === 0) return yield* new NotAnotherOpen({ into });
+           yield* move(row, "dismissed", now, into);
+ 
+           return yield* Effect.orDie(get(id));

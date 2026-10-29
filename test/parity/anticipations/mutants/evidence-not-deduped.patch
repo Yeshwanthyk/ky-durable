@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..35c6caf 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -565,7 +565,7 @@ export class Anticipating extends Context.Service<
+         });
+ 
+         const checkEvidence = Effect.fn("Anticipations.checkEvidence")(function* (evidence: Evidence) {
+-          const messages = [...new Set(evidence.messages)];
++          const messages = [...evidence.messages];
+           const memories = [...new Set(evidence.memories)];
+ 
+           if (messages.length + memories.length === 0) return yield* new NoEvidence();

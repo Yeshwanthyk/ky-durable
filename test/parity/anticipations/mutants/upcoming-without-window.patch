@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..40d2d7f 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -372,7 +372,6 @@ const checkDraft = Effect.fn("Anticipations.checkDraft")(function* (draft: Draft
+   if (prepared !== undefined && prepared.length > PREPARED_CHARS) return yield* new PreparedTooLong({ length: prepared.length });
+   const window = draft.window === undefined ? undefined : yield* checkWindow(draft.window);
+ 
+-  if (draft.kind === "upcoming" && window === undefined) return yield* new NoWindow();
+ 
+   return { text: yield* checkText(draft.text), prepared, window };
+ });

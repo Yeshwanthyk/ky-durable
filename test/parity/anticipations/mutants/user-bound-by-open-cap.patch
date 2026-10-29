@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..b1c5f3e 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -615,7 +615,7 @@ export class Anticipating extends Context.Service<
+         });
+ 
+         const checkRoom = Effect.fn("Anticipations.checkRoom")(function* (by: Creator, now: number) {
+-          if (by !== "user" && (yield* open).length >= OPEN_CAP) return yield* new OpenFull();
++          if ((yield* open).length >= OPEN_CAP) return yield* new OpenFull();
+ 
+           if (by === "dream" && (yield* rows("SELECT * FROM ky_anticipations WHERE created_by = 'dream' AND created_at > ?", now - RUN_MS)).length >= RUN_CAP) {
+             return yield* new RunFull();

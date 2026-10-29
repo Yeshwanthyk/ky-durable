@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..d48fe0d 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -667,7 +667,7 @@ export class Anticipating extends Context.Service<
+           return rows(
+             `SELECT * FROM ky_anticipations
+              WHERE ${LIVE} AND ((window_from <= ? AND window_to >= ? AND (recalled_at IS NULL OR recalled_at < ?))${keyword.map((each) => ` OR ${each}`).join("")})
+-             ORDER BY (window_from <= ? AND window_to >= ?) DESC, id DESC LIMIT ?`,
++             ORDER BY (window_from <= ? AND window_to >= ?) DESC, id ASC LIMIT ?`,
+             now,
+             now,
+             recalledBefore,

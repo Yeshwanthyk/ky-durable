@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..89ae32e 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -37,7 +37,7 @@ function lookAgainAt(last: number, zone: string | null, now: number): number | u
+   return at < now + (GIVE_UP_HOUR * 60 - local) * 60_000 ? at : undefined;
+ }
+ 
+-export const DREAM_NOTES = 15;
++export const DREAM_NOTES = 14;
+ 
+ const NotesRow = Schema.Struct({
+   conversation: Schema.String,

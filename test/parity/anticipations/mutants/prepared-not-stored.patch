@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..8d76c49 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -640,7 +640,7 @@ export class Anticipating extends Context.Service<
+                 draft.kind,
+                 line,
+                 JSON.stringify(evidence),
+-                prepared ?? null,
++                null,
+                 window?.from ?? null,
+                 window?.to ?? null
+               )

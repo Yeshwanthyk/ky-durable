@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..e738061 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -293,7 +293,7 @@ export class DreamRuns extends Context.Service<
+           });
+           const since = yield* mark;
+           const memories = yield* Effect.sync(() => memory.count());
+-          const at = yield* Clock.currentTimeMillis;
++          const at = (yield* Clock.currentTimeMillis) + 1;
+           const digest = yield* digestOf(since, checkIns);
+ 
+           if (digest === undefined) return;

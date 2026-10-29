@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..ce66375 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -18,7 +18,7 @@ export type Shown = {
+   readonly expiresAt: number;
+ };
+ 
+-const KEEP_MS = 60 * 86_400_000;
++const KEEP_MS = 59 * 86_400_000;
+ 
+ const SurfacedRow = Schema.Struct({
+   id: Schema.Int,

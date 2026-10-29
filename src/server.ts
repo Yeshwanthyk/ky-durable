@@ -239,13 +239,13 @@ export class PiAgent extends DurableObject<Env> {
     model: () => agentModel(this.models.resolve("background").choice)
   };
   /** When the user was last here; the dream waits until they are away. */
-  readonly presence = new Presence(this.ctx.storage.sql);
+  readonly presence = new Presence(this.ctx.storage);
   /** What the user will need soon; a done one becomes a memory. */
-  readonly anticipations = new Anticipations(this.ctx.storage.sql, this.memory, (session) => this.isChat(session));
+  readonly anticipations = new Anticipations(this.ctx.storage, this.memory, (session) => this.isChat(session));
   /** What ky put in front of the user unasked, and what they did with it. */
-  readonly surfaced = new Surfaced(this.ctx.storage.sql);
+  readonly surfaced = new Surfaced(this.ctx.storage);
   /** How proactive ky is, from Settings › Proactivity. */
-  readonly proactivity = new Proactivity(this.ctx.storage.sql);
+  readonly proactivity = new Proactivity(this.ctx.storage);
   /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
   readonly recall = new Recall({
     storage: this.ctx.storage,
@@ -321,7 +321,7 @@ export class PiAgent extends DurableObject<Env> {
       await conversation.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
     }
   });
-  readonly dreaming = new Dreaming(this.ctx.storage.sql, {
+  readonly dreaming = new Dreaming(this.ctx.storage, {
     history: this.history,
     anticipations: this.anticipations,
     presence: this.presence,
@@ -345,7 +345,7 @@ export class PiAgent extends DurableObject<Env> {
     surfaced: this.surfaced
   });
   /** ky's looks over the user's day, at their look times while Proactivity is on. */
-  readonly looks: Looks = new Looks(this.ctx.storage.sql, {
+  readonly looks: Looks = new Looks(this.ctx.storage, {
     history: this.history,
     anticipations: this.anticipations,
     reviews: this.reviews,
@@ -378,7 +378,7 @@ export class PiAgent extends DurableObject<Env> {
         history: this.history,
         reviews: this.reviews,
         chat,
-        sql: this.ctx.storage.sql,
+        storage: this.ctx.storage,
         background: this.#background,
         busyAfter: () => this.skills.reviewAfter,
         proactivity: this.proactivity

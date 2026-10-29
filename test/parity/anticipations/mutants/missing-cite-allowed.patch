@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..acb4f68 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -576,7 +576,6 @@ export class Anticipating extends Context.Service<
+             if ((yield* count("SELECT COUNT(*) AS n FROM memo_log WHERE id = ?", id)) === 0) absent.push(`memory #${id}`);
+           }
+ 
+-          if (absent.length > 0) return yield* new Missing({ cited: absent });
+ 
+           const elsewhere = messages.filter((id) => {
+             const place = places.get(id);

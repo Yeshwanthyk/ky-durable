@@ -14,7 +14,7 @@ import { Proactivity } from "../../src/dreaming/proactivity";
 import { Recalls } from "../../src/dreaming/recall";
 import { Surfaced } from "../../src/dreaming/surfaced";
 import { budget } from "../parity/kit";
-import { sqlStorageOf, storageOf } from "../parity/memory/storage";
+import { storageOf } from "../parity/memory/storage";
 
 fc.configureGlobal({ baseSize: "large" });
 
@@ -717,7 +717,7 @@ async function recallWorld(source: Source) {
   db.exec("CREATE TABLE pi_entries (id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL, record TEXT NOT NULL)");
   db.exec("CREATE TABLE pi_submissions (id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL, status TEXT NOT NULL, record TEXT NOT NULL)");
   db.exec("CREATE TABLE ky_history (conversation TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL)");
-  const proactivity = new Proactivity(sqlStorageOf(db));
+  const proactivity = new Proactivity(storageOf(db));
 
   class Ahead extends Anticipations {
     override recallable(_terms: readonly string[], _now: number, limit = 5) {
@@ -729,7 +729,7 @@ async function recallWorld(source: Source) {
     }
   }
 
-  const anticipations = new Ahead(sqlStorageOf(db), new Memory(storageOf(db), () => Promise.reject(new Error("no compressor"))), () => true);
+  const anticipations = new Ahead(storageOf(db), new Memory(storageOf(db), () => Promise.reject(new Error("no compressor"))), () => true);
 
   const listeners = new Set([(session: string, recall: { readonly entry: number; readonly lines: readonly string[] }) => void shown.push({ session, ...recall })]);
 
@@ -739,7 +739,7 @@ async function recallWorld(source: Source) {
       memory: { relevant: (_terms: readonly string[], limit: number) => source.remembered.slice(0, limit).map((text, id) => ({ id, date: "2026-10-01", text })) },
       history: { search: () => source.chats.map((text, at) => `#${9000 + at} user: ${text}`).join("\n") },
       anticipations,
-      surfaced: new Surfaced(sqlStorageOf(db)),
+      surfaced: new Surfaced(storageOf(db)),
       proactivity,
       skills: () => SKILLS,
       chat: (session: string) => session !== "9",

@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..f324de2 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -366,7 +366,6 @@ const checkWindow = (window: Window): Effect.Effect<Window, NotDates | Backwards
+ };
+ 
+ const checkDraft = Effect.fn("Anticipations.checkDraft")(function* (draft: Draft) {
+-  if (!ANTICIPATION_KINDS.includes(draft.kind)) return yield* new NoKind({ kind: draft.kind });
+   const prepared = draft.prepared?.trim() || undefined;
+ 
+   if (prepared !== undefined && prepared.length > PREPARED_CHARS) return yield* new PreparedTooLong({ length: prepared.length });

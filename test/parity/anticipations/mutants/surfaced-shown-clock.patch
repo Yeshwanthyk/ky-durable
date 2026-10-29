@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..2c4534a 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -129,7 +129,7 @@ export class SurfacedStore extends Context.Service<
+             entry.ref,
+             entry.item,
+             entry.text,
+-            now,
++            now + 1,
+             entry.expiresAt
+           );
+         }),

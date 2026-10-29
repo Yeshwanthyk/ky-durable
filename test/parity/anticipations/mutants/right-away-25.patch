@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/proactivity.ts b/src/dreaming/proactivity.ts
+index 4445f18..77f70ea 100644
+--- a/src/dreaming/proactivity.ts
++++ b/src/dreaming/proactivity.ts
+@@ -103,7 +103,7 @@ class ProactivityStore extends Context.Service<
+           yield* exec("INSERT INTO ky_proactivity (id, level, looks) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET looks = excluded.looks", yield* level, JSON.stringify(sorted));
+         }),
+         setRightAway: Effect.fn("Proactivity.setRightAway")(function* (most) {
+-          if (!Number.isInteger(most) || most < 0 || most > RIGHT_AWAY_MOST) return yield* new NotRightAway();
++          if (!Number.isInteger(most) || most < 0 || most > RIGHT_AWAY_MOST + 1) return yield* new NotRightAway();
+           yield* exec("INSERT INTO ky_proactivity (id, level, right_away) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET right_away = excluded.right_away", yield* level, most);
+         }),
+         view: Effect.all({ level, looks, rightAway })

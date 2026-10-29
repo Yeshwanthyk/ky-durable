@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..143b35f 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -840,7 +840,7 @@ export class Anticipating extends Context.Service<
+           recallable: (terms, now, limit) => matching(terms, now, limit, now - RECALL_AGAIN_MS),
+           recalled: Effect.fn("Anticipations.recalled")(function* (ids, at) {
+             if (ids.length === 0) return;
+-            yield* exec("UPDATE ky_anticipations SET recalled_at = ? WHERE id IN (SELECT value FROM json_each(?))", yield* nowOr(at), JSON.stringify(ids));
++            yield* exec("UPDATE ky_anticipations SET recalled_at = ? WHERE id IN (SELECT value FROM json_each(?))", 0, JSON.stringify(ids));
+           }),
+           due,
+           close,

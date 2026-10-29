@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..6b9900c 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -350,7 +350,6 @@ const checkText = (line: string): Effect.Effect<string, Empty | NotOneLine | Too
+ 
+   if (trimmed === "") return Effect.fail(new Empty());
+ 
+-  if (/[\r\n]/.test(trimmed)) return Effect.fail(new NotOneLine());
+ 
+   if (bytes(trimmed) > TEXT_BYTES) return Effect.fail(new TooLong({ bytes: bytes(trimmed) }));
+ 

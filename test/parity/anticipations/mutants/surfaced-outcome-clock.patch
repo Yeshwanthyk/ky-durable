@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..f5ffc27 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -142,7 +142,7 @@ export class SurfacedStore extends Context.Service<
+           if (was === undefined) return yield* new NothingShown({ item });
+ 
+           if (was !== null) return yield* new AlreadyOver({ item, was });
+-          yield* exec("UPDATE ky_surfaced SET outcome = ?, outcome_at = ? WHERE kind = ? AND item = ?", outcome, now, kind, item);
++          yield* exec("UPDATE ky_surfaced SET outcome = ?, outcome_at = ? WHERE kind = ? AND item = ?", outcome, now + 1, kind, item);
+         }),
+         items: (kind, prefix, from, limit) =>
+           Effect.map(

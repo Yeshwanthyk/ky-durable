@@ -29,7 +29,7 @@ describe("dreaming's contract", () => {
         history: instance.history,
         reviews: instance.reviews,
         chat: () => true,
-        sql: state.storage.sql,
+        storage: state.storage,
         background,
         busyAfter: () => 5,
         proactivity: instance.proactivity

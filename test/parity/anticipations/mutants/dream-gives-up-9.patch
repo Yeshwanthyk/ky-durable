@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
+index aab69af..c50fd09 100644
+--- a/src/dreaming/dreaming.ts
++++ b/src/dreaming/dreaming.ts
+@@ -26,7 +26,7 @@ export const dreamCron = (zone: string | null, now = Date.now()): string => loca
+ 
+ const AWAY_MS = 2 * 3_600_000;
+ 
+-const GIVE_UP_HOUR = 8;
++const GIVE_UP_HOUR = 9;
+ 
+ function lookAgainAt(last: number, zone: string | null, now: number): number | undefined {
+   const at = last + AWAY_MS;

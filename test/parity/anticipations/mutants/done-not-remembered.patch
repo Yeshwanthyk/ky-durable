@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..69ff720 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -712,7 +712,7 @@ export class Anticipating extends Context.Service<
+             const done = `Done: ${row.text}`;
+             const said = note?.trim() || (bytes(done) <= TEXT_BYTES ? done : row.text);
+             yield* Effect.try({
+-              try: () => memory.note(said),
++              try: () => undefined,
+               catch: (cause) =>
+                 new Refused({
+                   refusal: cause instanceof Error ? cause.message : String(cause)

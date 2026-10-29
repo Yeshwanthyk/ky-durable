@@ -1,0 +1,12 @@
+diff --git a/src/dreaming/anticipations.ts b/src/dreaming/anticipations.ts
+index f8d8a6e..344f3af 100644
+--- a/src/dreaming/anticipations.ts
++++ b/src/dreaming/anticipations.ts
+@@ -728,7 +728,6 @@ export class Anticipating extends Context.Service<
+         const extend = Effect.fn("Anticipations.extend")(function* (id: number, window: Window, by: Actor) {
+           const row = yield* changeable(id, by);
+ 
+-          if (MOVES[row.status].length === 0) return yield* new Closed({ id, status: row.status });
+           const { from, to } = yield* checkWindow(window);
+           yield* exec("UPDATE ky_anticipations SET window_from = ?, window_to = ? WHERE id = ?", from, to, id);
+ 

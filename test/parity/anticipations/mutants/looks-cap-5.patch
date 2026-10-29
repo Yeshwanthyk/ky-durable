@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/proactivity.ts b/src/dreaming/proactivity.ts
+index 4445f18..38511bd 100644
+--- a/src/dreaming/proactivity.ts
++++ b/src/dreaming/proactivity.ts
+@@ -99,7 +99,7 @@ class ProactivityStore extends Context.Service<
+ 
+           if (sorted.some((time) => !LOOK_TIME.test(time))) return yield* new NotATime();
+ 
+-          if (sorted.length > LOOK_TIMES) return yield* new TooManyLooks();
++          if (sorted.length > LOOK_TIMES + 1) return yield* new TooManyLooks();
+           yield* exec("INSERT INTO ky_proactivity (id, level, looks) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET looks = excluded.looks", yield* level, JSON.stringify(sorted));
+         }),
+         setRightAway: Effect.fn("Proactivity.setRightAway")(function* (most) {

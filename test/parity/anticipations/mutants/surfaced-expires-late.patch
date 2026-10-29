@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/surfaced.ts b/src/dreaming/surfaced.ts
+index e259cbe..527f429 100644
+--- a/src/dreaming/surfaced.ts
++++ b/src/dreaming/surfaced.ts
+@@ -103,7 +103,7 @@ export class SurfacedStore extends Context.Service<
+       const expire = Effect.fn("Surfaced.expire")(function* (at: number | undefined) {
+         const now = yield* nowOr(at);
+ 
+-        return (yield* exec("UPDATE ky_surfaced SET outcome = 'expired', outcome_at = expires_at WHERE outcome IS NULL AND expires_at <= ? RETURNING id", now)).length;
++        return (yield* exec("UPDATE ky_surfaced SET outcome = 'expired', outcome_at = expires_at WHERE outcome IS NULL AND expires_at < ? RETURNING id", now)).length;
+       });
+ 
+       const outcomeOf = Effect.fn("Surfaced.outcomeOf")(function* (kind: SurfacedKind, item: string) {
