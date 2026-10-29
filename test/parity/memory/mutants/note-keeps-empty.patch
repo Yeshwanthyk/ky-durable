@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..ca4d290 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -175,7 +175,7 @@ const parseBlock = (id: string): Effect.Effect<Block, NotABlockId | NotABlock> =
+ const checkLine = (raw: string): Effect.Effect<string, EmptyLine | TwoLines | TooLong> => {
+   const line = raw.trim();
+ 
+-  if (line === "") return Effect.fail(new EmptyLine());
++  if (raw === "") return Effect.fail(new EmptyLine());
+ 
+   if (/[\r\n]/.test(line)) return Effect.fail(new TwoLines());
+   const size = bytes(line);

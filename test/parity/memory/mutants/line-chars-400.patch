@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..def91c8 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -17,7 +17,7 @@ import type { Surfaced } from "./surfaced";
+ 
+ const BLOCK_CHARS = 1_500;
+ 
+-const LINE_CHARS = 300;
++const LINE_CHARS = 400;
+ 
+ const TERMS = 8;
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..bb76613 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -458,7 +458,7 @@ export class Memories extends Context.Service<
+ 
+         return Memories.of({
+           count,
+-          since: (from, limit) => Effect.map(memories("SELECT id, date, text FROM memo_log WHERE id >= ? ORDER BY id DESC LIMIT ?", from, limit), (found) => found.toReversed()),
++          since: (from, limit) => Effect.map(memories("SELECT id, date, text FROM memo_log WHERE id >= ? ORDER BY id LIMIT ?", from, limit), (found) => found.toReversed()),
+           compress,
+           wake: Effect.gen(function* () {
+             const total = yield* count;

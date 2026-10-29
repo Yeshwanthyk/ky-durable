@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..c9f1bc7 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -294,7 +294,7 @@ export class Recalls extends Context.Service<
+             const latest = users.at(-1);
+ 
+             if (latest === undefined) return undefined;
+-            yield* decide(session, latest, messages, yield* Clock.currentTimeMillis);
++            yield* decide(session, latest, messages, Date.now());
+ 
+             const blocks = yield* blocksOf(session, users);
+ 

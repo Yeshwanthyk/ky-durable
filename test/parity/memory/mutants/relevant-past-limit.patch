@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..955f8b8 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -512,7 +512,7 @@ export class Memories extends Context.Service<
+               .map((memory) => ({ memory, score: patterns.filter((pattern) => pattern.test(memory.text)).length }))
+               .filter((each) => each.score > 0)
+               .sort((a, b) => b.score - a.score || b.memory.id - a.memory.id)
+-              .slice(0, limit)
++              .slice(0, limit + 1)
+               .map((each) => each.memory);
+           }),
+           zoom: (id) =>

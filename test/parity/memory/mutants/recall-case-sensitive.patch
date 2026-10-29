@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..5c287e3 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -188,7 +188,7 @@ const label = ([lo, hi]: Block) => `#${lo}-${hi - 1}`;
+ const blockId = ([lo, hi]: Block) => `${lo}-${hi - 1}`;
+ 
+ const regexOf = (pattern: string) =>
+-  Effect.try({ try: () => new RegExp(pattern, "i"), catch: (error) => new BadRegex({ reason: error instanceof Error ? error.message : String(error) }) });
++  Effect.try({ try: () => new RegExp(pattern), catch: (error) => new BadRegex({ reason: error instanceof Error ? error.message : String(error) }) });
+ 
+ type Days = { readonly from: string; readonly to: string; readonly said: string };
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..aa93516 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -27,7 +27,7 @@ import {
+   offsetMinutes
+ } from "./contract";
+ 
+-const WAKE_LINES = 96;
++const WAKE_LINES = 128;
+ 
+ const ENTRY_BYTES = 280;
+ 

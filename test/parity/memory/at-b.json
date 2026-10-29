@@ -1,0 +1,883 @@
+{
+  "at": 1790965800000,
+  "schema": [
+    "CREATE TABLE memo_log (\n      id INTEGER PRIMARY KEY, date TEXT NOT NULL, text TEXT NOT NULL)",
+    "CREATE TABLE memo_tree (\n      lo INTEGER NOT NULL, hi INTEGER NOT NULL, text TEXT NOT NULL,\n      PRIMARY KEY (lo, hi))"
+  ],
+  "tables": {
+    "memo_log": [
+      {
+        "id": 0,
+        "date": "2026-09-29",
+        "text": "the user likes oolong tea (0)"
+      },
+      {
+        "id": 1,
+        "date": "2026-09-29",
+        "text": "a trip to Lisbon in May (1)"
+      },
+      {
+        "id": 2,
+        "date": "2026-09-29",
+        "text": "Sam's deck by Friday (2)"
+      },
+      {
+        "id": 3,
+        "date": "2026-09-29",
+        "text": "the ky deploy failed on wrangler types (3)"
+      },
+      {
+        "id": 4,
+        "date": "2026-09-29",
+        "text": "groceries from Rainbow each Sunday (4)"
+      },
+      {
+        "id": 5,
+        "date": "2026-09-29",
+        "text": "the user likes oolong tea (5)"
+      },
+      {
+        "id": 6,
+        "date": "2026-09-29",
+        "text": "a trip to Lisbon in May (6)"
+      },
+      {
+        "id": 7,
+        "date": "2026-09-29",
+        "text": "Sam's deck by Friday (7)"
+      },
+      {
+        "id": 8,
+        "date": "2026-09-29",
+        "text": "the ky deploy failed on wrangler types (8)"
+      },
+      {
+        "id": 9,
+        "date": "2026-09-29",
+        "text": "groceries from Rainbow each Sunday (9)"
+      },
+      {
+        "id": 10,
+        "date": "2026-09-29",
+        "text": "the user likes oolong tea (10)"
+      },
+      {
+        "id": 11,
+        "date": "2026-09-30",
+        "text": "a trip to Lisbon in May (11)"
+      },
+      {
+        "id": 12,
+        "date": "2026-09-30",
+        "text": "Sam's deck by Friday (12)"
+      },
+      {
+        "id": 13,
+        "date": "2026-09-30",
+        "text": "the ky deploy failed on wrangler types (13)"
+      },
+      {
+        "id": 14,
+        "date": "2026-09-30",
+        "text": "groceries from Rainbow each Sunday (14)"
+      },
+      {
+        "id": 15,
+        "date": "2026-09-30",
+        "text": "the user likes oolong tea (15)"
+      },
+      {
+        "id": 16,
+        "date": "2026-09-30",
+        "text": "a trip to Lisbon in May (16)"
+      },
+      {
+        "id": 17,
+        "date": "2026-09-30",
+        "text": "Sam's deck by Friday (17)"
+      },
+      {
+        "id": 18,
+        "date": "2026-09-30",
+        "text": "the ky deploy failed on wrangler types (18)"
+      },
+      {
+        "id": 19,
+        "date": "2026-09-30",
+        "text": "groceries from Rainbow each Sunday (19)"
+      },
+      {
+        "id": 20,
+        "date": "2026-09-30",
+        "text": "the user likes oolong tea (20)"
+      },
+      {
+        "id": 21,
+        "date": "2026-09-30",
+        "text": "a trip to Lisbon in May (21)"
+      },
+      {
+        "id": 22,
+        "date": "2026-09-30",
+        "text": "Sam's deck by Friday (22)"
+      },
+      {
+        "id": 23,
+        "date": "2026-10-01",
+        "text": "the ky deploy failed on wrangler types (23)"
+      },
+      {
+        "id": 24,
+        "date": "2026-10-01",
+        "text": "groceries from Rainbow each Sunday (24)"
+      },
+      {
+        "id": 25,
+        "date": "2026-10-01",
+        "text": "the user likes oolong tea (25)"
+      },
+      {
+        "id": 26,
+        "date": "2026-10-01",
+        "text": "a trip to Lisbon in May (26)"
+      },
+      {
+        "id": 27,
+        "date": "2026-10-01",
+        "text": "Sam's deck by Friday (27)"
+      },
+      {
+        "id": 28,
+        "date": "2026-10-01",
+        "text": "the ky deploy failed on wrangler types (28)"
+      },
+      {
+        "id": 29,
+        "date": "2026-10-01",
+        "text": "groceries from Rainbow each Sunday (29)"
+      },
+      {
+        "id": 30,
+        "date": "2026-10-01",
+        "text": "the user likes oolong tea (30)"
+      },
+      {
+        "id": 31,
+        "date": "2026-10-01",
+        "text": "a trip to Lisbon in May (31)"
+      },
+      {
+        "id": 32,
+        "date": "2026-10-01",
+        "text": "Sam's deck by Friday (32)"
+      },
+      {
+        "id": 33,
+        "date": "2026-10-01",
+        "text": "the ky deploy failed on wrangler types (33)"
+      },
+      {
+        "id": 34,
+        "date": "2026-10-01",
+        "text": "groceries from Rainbow each Sunday (34)"
+      },
+      {
+        "id": 35,
+        "date": "2026-10-02",
+        "text": "the user likes oolong tea (35)"
+      },
+      {
+        "id": 36,
+        "date": "2026-10-02",
+        "text": "a trip to Lisbon in May (36)"
+      },
+      {
+        "id": 37,
+        "date": "2026-10-02",
+        "text": "Sam's deck by Friday (37)"
+      },
+      {
+        "id": 38,
+        "date": "2026-10-02",
+        "text": "the ky deploy failed on wrangler types (38)"
+      },
+      {
+        "id": 39,
+        "date": "2026-10-02",
+        "text": "groceries from Rainbow each Sunday (39)"
+      },
+      {
+        "id": 40,
+        "date": "2026-10-02",
+        "text": {
+          "blob": [
+            0,
+            255
+          ]
+        }
+      },
+      {
+        "id": 41,
+        "date": {
+          "blob": [
+            1
+          ]
+        },
+        "text": "a damaged date"
+      },
+      {
+        "id": 42,
+        "date": "2026-10-02",
+        "text": "the user prefers soy milk, not oat"
+      }
+    ],
+    "memo_tree": [
+      {
+        "lo": 0,
+        "hi": 2,
+        "text": "summary 1: a trip to Lisbon in May (1)"
+      },
+      {
+        "lo": 2,
+        "hi": 4,
+        "text": "summary 2: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 4,
+        "hi": 6,
+        "text": "summary 3: the user likes oolong tea (5)"
+      },
+      {
+        "lo": 6,
+        "hi": 8,
+        "text": "summary 4: Sam's deck by Friday (7)"
+      },
+      {
+        "lo": 8,
+        "hi": 10,
+        "text": "summary 5: groceries from Rainbow each Sunday (9)"
+      },
+      {
+        "lo": 10,
+        "hi": 12,
+        "text": "summary 6: a trip to Lisbon in May (11)"
+      },
+      {
+        "lo": 12,
+        "hi": 14,
+        "text": "summary 7: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 14,
+        "hi": 16,
+        "text": "summary 8: the user likes oolong tea (15)"
+      },
+      {
+        "lo": 16,
+        "hi": 18,
+        "text": "summary 9: Sam's deck by Friday (17)"
+      },
+      {
+        "lo": 18,
+        "hi": 20,
+        "text": "summary 10: groceries from Rainbow each Sunday (19)"
+      },
+      {
+        "lo": 20,
+        "hi": 22,
+        "text": "summary 11: a trip to Lisbon in May (21)"
+      },
+      {
+        "lo": 22,
+        "hi": 24,
+        "text": "summary 12: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 24,
+        "hi": 26,
+        "text": "summary 13: the user likes oolong tea (25)"
+      },
+      {
+        "lo": 26,
+        "hi": 28,
+        "text": "summary 14: Sam's deck by Friday (27)"
+      },
+      {
+        "lo": 28,
+        "hi": 30,
+        "text": "summary 15: groceries from Rainbow each Sunday (29)"
+      },
+      {
+        "lo": 30,
+        "hi": 32,
+        "text": "summary 16: a trip to Lisbon in May (31)"
+      },
+      {
+        "lo": 32,
+        "hi": 34,
+        "text": {
+          "blob": [
+            2
+          ]
+        }
+      },
+      {
+        "lo": 34,
+        "hi": 36,
+        "text": "summary 18: the user likes oolong tea (35)"
+      },
+      {
+        "lo": 36,
+        "hi": 38,
+        "text": "summary 19: Sam's deck by Friday (37)"
+      },
+      {
+        "lo": 38,
+        "hi": 40,
+        "text": "summary 20: groceries from Rainbow each Sunday (39)"
+      },
+      {
+        "lo": 0,
+        "hi": 4,
+        "text": "summary 21: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 4,
+        "hi": 8,
+        "text": "summary 22: Sam's deck by Friday (7)"
+      },
+      {
+        "lo": 8,
+        "hi": 12,
+        "text": "summary 23: a trip to Lisbon in May (11)"
+      },
+      {
+        "lo": 12,
+        "hi": 16,
+        "text": "summary 24: the user likes oolong tea (15)"
+      },
+      {
+        "lo": 16,
+        "hi": 20,
+        "text": "summary 25: groceries from Rainbow each Sunday (19)"
+      },
+      {
+        "lo": 20,
+        "hi": 24,
+        "text": "summary 26: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 24,
+        "hi": 28,
+        "text": "summary 27: Sam's deck by Friday (27)"
+      },
+      {
+        "lo": 28,
+        "hi": 32,
+        "text": "summary 28: a trip to Lisbon in May (31)"
+      },
+      {
+        "lo": 32,
+        "hi": 36,
+        "text": "summary 29: the user likes oolong tea (35)"
+      },
+      {
+        "lo": 36,
+        "hi": 40,
+        "text": "summary 30: groceries from Rainbow each Sunday (39)"
+      },
+      {
+        "lo": 0,
+        "hi": 8,
+        "text": "summary 31: Sam's deck by Friday (7)"
+      },
+      {
+        "lo": 8,
+        "hi": 16,
+        "text": "summary 32: the user likes oolong tea (15)"
+      },
+      {
+        "lo": 16,
+        "hi": 24,
+        "text": "summary 33: the ky deploy failed on wrangler types ("
+      },
+      {
+        "lo": 24,
+        "hi": 32,
+        "text": "summary 34: a trip to Lisbon in May (31)"
+      },
+      {
+        "lo": 32,
+        "hi": 40,
+        "text": "summary 35: groceries from Rainbow each Sunday (39)"
+      },
+      {
+        "lo": 0,
+        "hi": 16,
+        "text": "summary 36: the user likes oolong tea (15)"
+      },
+      {
+        "lo": 16,
+        "hi": 32,
+        "text": "summary 39: a trip to Lisbon in May (31)"
+      },
+      {
+        "lo": 0,
+        "hi": 32,
+        "text": "summary 40: summary 39: a trip to Lisbon in May (31)"
+      }
+    ]
+  },
+  "reads": {
+    "count": 43,
+    "wake": "#0 2026-09-29 the user likes oolong tea (0)\n#1 2026-09-29 a trip to Lisbon in May (1)\n#2 2026-09-29 Sam's deck by Friday (2)\n#3 2026-09-29 the ky deploy failed on wrangler types (3)\n#4 2026-09-29 groceries from Rainbow each Sunday (4)\n#5 2026-09-29 the user likes oolong tea (5)\n#6 2026-09-29 a trip to Lisbon in May (6)\n#7 2026-09-29 Sam's deck by Friday (7)\n#8 2026-09-29 the ky deploy failed on wrangler types (8)\n#9 2026-09-29 groceries from Rainbow each Sunday (9)\n#10 2026-09-29 the user likes oolong tea (10)\n#11 2026-09-30 a trip to Lisbon in May (11)\n#12 2026-09-30 Sam's deck by Friday (12)\n#13 2026-09-30 the ky deploy failed on wrangler types (13)\n#14 2026-09-30 groceries from Rainbow each Sunday (14)\n#15 2026-09-30 the user likes oolong tea (15)\n#16 2026-09-30 a trip to Lisbon in May (16)\n#17 2026-09-30 Sam's deck by Friday (17)\n#18 2026-09-30 the ky deploy failed on wrangler types (18)\n#19 2026-09-30 groceries from Rainbow each Sunday (19)\n#20 2026-09-30 the user likes oolong tea (20)\n#21 2026-09-30 a trip to Lisbon in May (21)\n#22 2026-09-30 Sam's deck by Friday (22)\n#23 2026-10-01 the ky deploy failed on wrangler types (23)\n#24 2026-10-01 groceries from Rainbow each Sunday (24)\n#25 2026-10-01 the user likes oolong tea (25)\n#26 2026-10-01 a trip to Lisbon in May (26)\n#27 2026-10-01 Sam's deck by Friday (27)\n#28 2026-10-01 the ky deploy failed on wrangler types (28)\n#29 2026-10-01 groceries from Rainbow each Sunday (29)\n#30 2026-10-01 the user likes oolong tea (30)\n#31 2026-10-01 a trip to Lisbon in May (31)\n#32 2026-10-01 Sam's deck by Friday (32)\n#33 2026-10-01 the ky deploy failed on wrangler types (33)\n#34 2026-10-01 groceries from Rainbow each Sunday (34)\n#35 2026-10-02 the user likes oolong tea (35)\n#36 2026-10-02 a trip to Lisbon in May (36)\n#37 2026-10-02 Sam's deck by Friday (37)\n#38 2026-10-02 the ky deploy failed on wrangler types (38)\n#39 2026-10-02 groceries from Rainbow each Sunday (39)\n#42 2026-10-02 the user prefers soy milk, not oat",
+    "view": {
+      "count": 43,
+      "newest": "2026-10-02",
+      "items": [
+        {
+          "kind": "memory",
+          "id": 42,
+          "date": "2026-10-02",
+          "text": "the user prefers soy milk, not oat"
+        },
+        {
+          "kind": "memory",
+          "id": 39,
+          "date": "2026-10-02",
+          "text": "groceries from Rainbow each Sunday (39)"
+        },
+        {
+          "kind": "memory",
+          "id": 38,
+          "date": "2026-10-02",
+          "text": "the ky deploy failed on wrangler types (38)"
+        },
+        {
+          "kind": "memory",
+          "id": 37,
+          "date": "2026-10-02",
+          "text": "Sam's deck by Friday (37)"
+        },
+        {
+          "kind": "memory",
+          "id": 36,
+          "date": "2026-10-02",
+          "text": "a trip to Lisbon in May (36)"
+        },
+        {
+          "kind": "memory",
+          "id": 35,
+          "date": "2026-10-02",
+          "text": "the user likes oolong tea (35)"
+        },
+        {
+          "kind": "memory",
+          "id": 34,
+          "date": "2026-10-01",
+          "text": "groceries from Rainbow each Sunday (34)"
+        },
+        {
+          "kind": "memory",
+          "id": 33,
+          "date": "2026-10-01",
+          "text": "the ky deploy failed on wrangler types (33)"
+        },
+        {
+          "kind": "memory",
+          "id": 32,
+          "date": "2026-10-01",
+          "text": "Sam's deck by Friday (32)"
+        },
+        {
+          "kind": "memory",
+          "id": 31,
+          "date": "2026-10-01",
+          "text": "a trip to Lisbon in May (31)"
+        },
+        {
+          "kind": "memory",
+          "id": 30,
+          "date": "2026-10-01",
+          "text": "the user likes oolong tea (30)"
+        },
+        {
+          "kind": "memory",
+          "id": 29,
+          "date": "2026-10-01",
+          "text": "groceries from Rainbow each Sunday (29)"
+        },
+        {
+          "kind": "memory",
+          "id": 28,
+          "date": "2026-10-01",
+          "text": "the ky deploy failed on wrangler types (28)"
+        },
+        {
+          "kind": "memory",
+          "id": 27,
+          "date": "2026-10-01",
+          "text": "Sam's deck by Friday (27)"
+        },
+        {
+          "kind": "memory",
+          "id": 26,
+          "date": "2026-10-01",
+          "text": "a trip to Lisbon in May (26)"
+        },
+        {
+          "kind": "memory",
+          "id": 25,
+          "date": "2026-10-01",
+          "text": "the user likes oolong tea (25)"
+        },
+        {
+          "kind": "memory",
+          "id": 24,
+          "date": "2026-10-01",
+          "text": "groceries from Rainbow each Sunday (24)"
+        },
+        {
+          "kind": "memory",
+          "id": 23,
+          "date": "2026-10-01",
+          "text": "the ky deploy failed on wrangler types (23)"
+        },
+        {
+          "kind": "memory",
+          "id": 22,
+          "date": "2026-09-30",
+          "text": "Sam's deck by Friday (22)"
+        },
+        {
+          "kind": "memory",
+          "id": 21,
+          "date": "2026-09-30",
+          "text": "a trip to Lisbon in May (21)"
+        },
+        {
+          "kind": "memory",
+          "id": 20,
+          "date": "2026-09-30",
+          "text": "the user likes oolong tea (20)"
+        },
+        {
+          "kind": "memory",
+          "id": 19,
+          "date": "2026-09-30",
+          "text": "groceries from Rainbow each Sunday (19)"
+        },
+        {
+          "kind": "memory",
+          "id": 18,
+          "date": "2026-09-30",
+          "text": "the ky deploy failed on wrangler types (18)"
+        },
+        {
+          "kind": "memory",
+          "id": 17,
+          "date": "2026-09-30",
+          "text": "Sam's deck by Friday (17)"
+        },
+        {
+          "kind": "memory",
+          "id": 16,
+          "date": "2026-09-30",
+          "text": "a trip to Lisbon in May (16)"
+        },
+        {
+          "kind": "memory",
+          "id": 15,
+          "date": "2026-09-30",
+          "text": "the user likes oolong tea (15)"
+        },
+        {
+          "kind": "memory",
+          "id": 14,
+          "date": "2026-09-30",
+          "text": "groceries from Rainbow each Sunday (14)"
+        },
+        {
+          "kind": "memory",
+          "id": 13,
+          "date": "2026-09-30",
+          "text": "the ky deploy failed on wrangler types (13)"
+        },
+        {
+          "kind": "memory",
+          "id": 12,
+          "date": "2026-09-30",
+          "text": "Sam's deck by Friday (12)"
+        },
+        {
+          "kind": "memory",
+          "id": 11,
+          "date": "2026-09-30",
+          "text": "a trip to Lisbon in May (11)"
+        },
+        {
+          "kind": "memory",
+          "id": 10,
+          "date": "2026-09-29",
+          "text": "the user likes oolong tea (10)"
+        },
+        {
+          "kind": "memory",
+          "id": 9,
+          "date": "2026-09-29",
+          "text": "groceries from Rainbow each Sunday (9)"
+        },
+        {
+          "kind": "memory",
+          "id": 8,
+          "date": "2026-09-29",
+          "text": "the ky deploy failed on wrangler types (8)"
+        },
+        {
+          "kind": "memory",
+          "id": 7,
+          "date": "2026-09-29",
+          "text": "Sam's deck by Friday (7)"
+        },
+        {
+          "kind": "memory",
+          "id": 6,
+          "date": "2026-09-29",
+          "text": "a trip to Lisbon in May (6)"
+        },
+        {
+          "kind": "memory",
+          "id": 5,
+          "date": "2026-09-29",
+          "text": "the user likes oolong tea (5)"
+        },
+        {
+          "kind": "memory",
+          "id": 4,
+          "date": "2026-09-29",
+          "text": "groceries from Rainbow each Sunday (4)"
+        },
+        {
+          "kind": "memory",
+          "id": 3,
+          "date": "2026-09-29",
+          "text": "the ky deploy failed on wrangler types (3)"
+        },
+        {
+          "kind": "memory",
+          "id": 2,
+          "date": "2026-09-29",
+          "text": "Sam's deck by Friday (2)"
+        },
+        {
+          "kind": "memory",
+          "id": 1,
+          "date": "2026-09-29",
+          "text": "a trip to Lisbon in May (1)"
+        },
+        {
+          "kind": "memory",
+          "id": 0,
+          "date": "2026-09-29",
+          "text": "the user likes oolong tea (0)"
+        }
+      ]
+    },
+    "since": [
+      {
+        "id": 39,
+        "date": "2026-10-02",
+        "text": "groceries from Rainbow each Sunday (39)"
+      },
+      {
+        "id": 42,
+        "date": "2026-10-02",
+        "text": "the user prefers soy milk, not oat"
+      }
+    ],
+    "children": [
+      {
+        "said": [
+          {
+            "kind": "block",
+            "block": "16-31",
+            "text": "summary 39: a trip to Lisbon in May (31)",
+            "from": "2026-09-30",
+            "to": "2026-10-01"
+          },
+          {
+            "kind": "block",
+            "block": "0-15",
+            "text": "summary 36: the user likes oolong tea (15)",
+            "from": "2026-09-29",
+            "to": "2026-09-30"
+          }
+        ]
+      },
+      {
+        "said": [
+          {
+            "kind": "block",
+            "block": "40-47",
+            "text": null,
+            "from": "",
+            "to": ""
+          },
+          {
+            "kind": "block",
+            "block": "32-39",
+            "text": "summary 35: groceries from Rainbow each Sunday (39)",
+            "from": "2026-10-01",
+            "to": "2026-10-02"
+          }
+        ]
+      },
+      {
+        "said": [
+          {
+            "kind": "memory",
+            "id": 33,
+            "date": "2026-10-01",
+            "text": "the ky deploy failed on wrangler types (33)"
+          },
+          {
+            "kind": "memory",
+            "id": 32,
+            "date": "2026-10-01",
+            "text": "Sam's deck by Friday (32)"
+          }
+        ]
+      },
+      {
+        "said": []
+      },
+      {
+        "refused": "#64-127 is beyond the memory: it holds 43."
+      },
+      {
+        "refused": "1-2 is not a block. Copy an id wake printed, like 16-31."
+      },
+      {
+        "refused": "'x' is not a block id, like 16-31."
+      }
+    ],
+    "zoom": [
+      {
+        "said": "#0-7 summary 31: Sam's deck by Friday (7)\n#8-15 summary 32: the user likes oolong tea (15)"
+      },
+      {
+        "said": "#32-33 not compressed yet\n#34-35 summary 18: the user likes oolong tea (35)"
+      }
+    ],
+    "recall": [
+      {
+        "said": "#0 2026-09-29 the user likes oolong tea (0)\n#5 2026-09-29 the user likes oolong tea (5)\n#10 2026-09-29 the user likes oolong tea (10)\n#15 2026-09-30 the user likes oolong tea (15)\n#20 2026-09-30 the user likes oolong tea (20)\n#25 2026-10-01 the user likes oolong tea (25)\n#30 2026-10-01 the user likes oolong tea (30)\n#35 2026-10-02 the user likes oolong tea (35)\n8 matches."
+      },
+      {
+        "said": "#1 2026-09-29 a trip to Lisbon in May (1)\n#2 2026-09-29 Sam's deck by Friday (2)\n#6 2026-09-29 a trip to Lisbon in May (6)\n#7 2026-09-29 Sam's deck by Friday (7)\n#11 2026-09-30 a trip to Lisbon in May (11)\n#12 2026-09-30 Sam's deck by Friday (12)\n#16 2026-09-30 a trip to Lisbon in May (16)\n#17 2026-09-30 Sam's deck by Friday (17)\n#21 2026-09-30 a trip to Lisbon in May (21)\n#22 2026-09-30 Sam's deck by Friday (22)\n#26 2026-10-01 a trip to Lisbon in May (26)\n#27 2026-10-01 Sam's deck by Friday (27)\n#31 2026-10-01 a trip to Lisbon in May (31)\n#32 2026-10-01 Sam's deck by Friday (32)\n#36 2026-10-02 a trip to Lisbon in May (36)\n#37 2026-10-02 Sam's deck by Friday (37)\n16 matches."
+      },
+      {
+        "refused": "Bad regex: Invalid regular expression: /(/i: Unterminated group"
+      },
+      {
+        "said": "No match."
+      },
+      {
+        "said": "#15 2026-09-30 the user likes oolong tea (15)\n#20 2026-09-30 the user likes oolong tea (20)\n#25 2026-10-01 the user likes oolong tea (25)\n#30 2026-10-01 the user likes oolong tea (30)\n4 matches."
+      }
+    ],
+    "search": [
+      {
+        "matches": [
+          {
+            "id": 35,
+            "date": "2026-10-02",
+            "text": "the user likes oolong tea (35)"
+          },
+          {
+            "id": 30,
+            "date": "2026-10-01",
+            "text": "the user likes oolong tea (30)"
+          },
+          {
+            "id": 25,
+            "date": "2026-10-01",
+            "text": "the user likes oolong tea (25)"
+          },
+          {
+            "id": 20,
+            "date": "2026-09-30",
+            "text": "the user likes oolong tea (20)"
+          },
+          {
+            "id": 15,
+            "date": "2026-09-30",
+            "text": "the user likes oolong tea (15)"
+          },
+          {
+            "id": 10,
+            "date": "2026-09-29",
+            "text": "the user likes oolong tea (10)"
+          },
+          {
+            "id": 5,
+            "date": "2026-09-29",
+            "text": "the user likes oolong tea (5)"
+          },
+          {
+            "id": 0,
+            "date": "2026-09-29",
+            "text": "the user likes oolong tea (0)"
+          }
+        ],
+        "total": 8,
+        "regex": true
+      },
+      {
+        "matches": [],
+        "total": 0,
+        "regex": false
+      },
+      {
+        "matches": [
+          {
+            "id": 42,
+            "date": "2026-10-02",
+            "text": "the user prefers soy milk, not oat"
+          }
+        ],
+        "total": 1,
+        "regex": true
+      }
+    ],
+    "relevant": [
+      {
+        "id": 37,
+        "date": "2026-10-02",
+        "text": "Sam's deck by Friday (37)"
+      },
+      {
+        "id": 36,
+        "date": "2026-10-02",
+        "text": "a trip to Lisbon in May (36)"
+      },
+      {
+        "id": 35,
+        "date": "2026-10-02",
+        "text": "the user likes oolong tea (35)"
+      }
+    ],
+    "forget": [
+      {
+        "said": "Forgot 2 summaries; they are rewritten in the background."
+      },
+      {
+        "refused": "No summary at 0-15."
+      },
+      {
+        "refused": "2-5 is not a block. Copy an id wake printed, like 16-31."
+      }
+    ],
+    "after": "#0 2026-09-29 the user likes oolong tea (0)\n#1 2026-09-29 a trip to Lisbon in May (1)\n#2 2026-09-29 Sam's deck by Friday (2)\n#3 2026-09-29 the ky deploy failed on wrangler types (3)\n#4 2026-09-29 groceries from Rainbow each Sunday (4)\n#5 2026-09-29 the user likes oolong tea (5)\n#6 2026-09-29 a trip to Lisbon in May (6)\n#7 2026-09-29 Sam's deck by Friday (7)\n#8 2026-09-29 the ky deploy failed on wrangler types (8)\n#9 2026-09-29 groceries from Rainbow each Sunday (9)\n#10 2026-09-29 the user likes oolong tea (10)\n#11 2026-09-30 a trip to Lisbon in May (11)\n#12 2026-09-30 Sam's deck by Friday (12)\n#13 2026-09-30 the ky deploy failed on wrangler types (13)\n#14 2026-09-30 groceries from Rainbow each Sunday (14)\n#15 2026-09-30 the user likes oolong tea (15)\n#16 2026-09-30 a trip to Lisbon in May (16)\n#17 2026-09-30 Sam's deck by Friday (17)\n#18 2026-09-30 the ky deploy failed on wrangler types (18)\n#19 2026-09-30 groceries from Rainbow each Sunday (19)\n#20 2026-09-30 the user likes oolong tea (20)\n#21 2026-09-30 a trip to Lisbon in May (21)\n#22 2026-09-30 Sam's deck by Friday (22)\n#23 2026-10-01 the ky deploy failed on wrangler types (23)\n#24 2026-10-01 groceries from Rainbow each Sunday (24)\n#25 2026-10-01 the user likes oolong tea (25)\n#26 2026-10-01 a trip to Lisbon in May (26)\n#27 2026-10-01 Sam's deck by Friday (27)\n#28 2026-10-01 the ky deploy failed on wrangler types (28)\n#29 2026-10-01 groceries from Rainbow each Sunday (29)\n#30 2026-10-01 the user likes oolong tea (30)\n#31 2026-10-01 a trip to Lisbon in May (31)\n#32 2026-10-01 Sam's deck by Friday (32)\n#33 2026-10-01 the ky deploy failed on wrangler types (33)\n#34 2026-10-01 groceries from Rainbow each Sunday (34)\n#35 2026-10-02 the user likes oolong tea (35)\n#36 2026-10-02 a trip to Lisbon in May (36)\n#37 2026-10-02 Sam's deck by Friday (37)\n#38 2026-10-02 the ky deploy failed on wrangler types (38)\n#39 2026-10-02 groceries from Rainbow each Sunday (39)\n#42 2026-10-02 the user prefers soy milk, not oat"
+  }
+}

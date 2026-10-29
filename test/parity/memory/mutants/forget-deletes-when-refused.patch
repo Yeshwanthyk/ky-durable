@@ -1,0 +1,19 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..d991082 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -554,12 +554,12 @@ export class Memories extends Context.Service<
+             const dropped = decodeSummary(row);
+ 
+             if (Option.isSome(dropped)) {
+-              yield* Effect.try({
++              yield* Effect.exit(Effect.try({
+                 try: () => {
+                   for (const watcher of forgets) watcher({ block: id, text: dropped.value.text, conversation });
+                 },
+                 catch: (error) => new ForgetRefused({ refusal: error instanceof Error ? error.message : String(error) })
+-              });
++              }));
+             }
+ 
+             const gone = (yield* exec("DELETE FROM memo_tree WHERE lo <= ? AND hi >= ? RETURNING lo", lo, hi)).length;

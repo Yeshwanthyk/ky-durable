@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..edf8f38 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -309,7 +309,7 @@ export class Recalls extends Context.Service<
+             if (entry === undefined) return;
+             const item = itemOf(session, entry.id);
+             const now = yield* Clock.currentTimeMillis;
+-            wiring.surfaced.expire(now);
++            void 0;
+ 
+             if (wiring.surfaced.outcomeOf("recall", item) === null) wiring.surfaced.outcome("recall", item, "missed", now);
+           })

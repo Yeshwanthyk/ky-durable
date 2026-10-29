@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..4d39f27 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -447,7 +447,7 @@ export class Memories extends Context.Service<
+           const [lo, hi] = yield* parseBlock(id);
+           const total = yield* count;
+ 
+-          if (lo >= total) return yield* new Beyond({ id, total });
++          if (lo > total) return yield* new Beyond({ id, total });
+           const mid = (lo + hi) / 2;
+           const items: MemoryItem[] = [];
+ 

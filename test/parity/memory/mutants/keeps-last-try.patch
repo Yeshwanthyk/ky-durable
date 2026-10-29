@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..37202e3 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -404,7 +404,7 @@ export class Memories extends Context.Service<
+             });
+           }
+ 
+-          return tries.reduce((best, line) => (bytes(line) < bytes(best) ? line : best));
++          return tries[tries.length - 1];
+         });
+ 
+         const compress = Effect.gen(function* () {

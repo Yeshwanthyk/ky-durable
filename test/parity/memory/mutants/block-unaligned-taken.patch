@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..ea036bf 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -167,7 +167,7 @@ const parseBlock = (id: string): Effect.Effect<Block, NotABlockId | NotABlock> =
+   const hi = Number(match[2]) + 1;
+   const size = hi - lo;
+ 
+-  if (size < 2 || (size & (size - 1)) !== 0 || lo % size !== 0) return Effect.fail(new NotABlock({ id }));
++  if (size < 2 || (size & (size - 1)) !== 0) return Effect.fail(new NotABlock({ id }));
+ 
+   return Effect.succeed([lo, hi]);
+ };

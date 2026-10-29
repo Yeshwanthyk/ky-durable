@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..77eb6bf 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -418,7 +418,7 @@ export class Memories extends Context.Service<
+               return;
+             }
+ 
+-            yield* exec("INSERT INTO memo_tree (lo, hi, text) VALUES (?, ?, ?) ON CONFLICT (lo, hi) DO UPDATE SET text = excluded.text WHERE typeof(memo_tree.text) <> 'text'", block[0], block[1], written.success);
++            yield* exec("INSERT INTO memo_tree (lo, hi, text) VALUES (?, ?, ?) ON CONFLICT (lo, hi) DO NOTHING", block[0], block[1], written.success);
+             yield* changed;
+           }
+         });

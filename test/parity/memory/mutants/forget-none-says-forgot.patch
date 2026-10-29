@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..ea24f18 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -564,7 +564,7 @@ export class Memories extends Context.Service<
+ 
+             const gone = (yield* exec("DELETE FROM memo_tree WHERE lo <= ? AND hi >= ? RETURNING lo", lo, hi)).length;
+ 
+-            if (gone === 0) return yield* new NoSummary({ id });
++            if (gone < 0) return yield* new NoSummary({ id });
+             yield* changed;
+ 
+             return `Forgot ${gone} summar${gone === 1 ? "y" : "ies"}; ${gone === 1 ? "it is" : "they are"} rewritten in the background.`;

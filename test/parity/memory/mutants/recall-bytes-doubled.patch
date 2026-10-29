@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..80f2a46 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -40,7 +40,7 @@ export type Compressor = (system: string, messages: Message[]) => Promise<Assist
+ 
+ const RAW_MAX = 16;
+ 
+-const RECALL_BYTES = 20_000;
++const RECALL_BYTES = 40_000;
+ 
+ type Block = readonly [lo: number, hi: number];
+ 

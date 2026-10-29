@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..a9f61be 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -396,7 +396,7 @@ export class Memories extends Context.Service<
+             tries.push(line);
+             const size = bytes(line);
+ 
+-            if (size <= ENTRY_BYTES || tries.length >= TRIES) break;
++            if (size <= ENTRY_BYTES + 1 || tries.length >= TRIES) break;
+             messages.push(answer, {
+               role: "user",
+               content: `That line is ${size} bytes; the limit is ${ENTRY_BYTES}. It must end where it is cut here:\n${cutBytes(line, ENTRY_BYTES)}| ← LIMIT`,
