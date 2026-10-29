@@ -11,7 +11,7 @@ export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "runner-lo
 
 export type ProviderKind = typeof ProviderKind.Type;
 
-export const ProviderRecord = Schema.Struct({
+const ProviderRecord = Schema.Struct({
   id: Schema.String,
   kind: ProviderKind,
   vendor: Schema.NullOr(Schema.String),
@@ -28,7 +28,7 @@ export const CONTEXT_WINDOW = 136_000;
 
 export type AskLimits = { readonly timeoutMs: number; readonly maxTokens: number };
 
-export type Need = { readonly images?: boolean };
+export type ModelNeed = { readonly images?: boolean };
 
 export type ProviderKey = { readonly apiKey: string; readonly headers?: Readonly<Record<string, string>> };
 

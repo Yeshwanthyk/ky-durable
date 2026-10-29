@@ -26,7 +26,7 @@ import {
   KeyRefused,
   ModelFailed,
   type ModelsBoundary,
-  type Need,
+  type ModelNeed,
   NoKey,
   NoKeyToRemove,
   NoProvider,
@@ -84,7 +84,7 @@ function cheapest(endpoints: readonly Endpoint[]): ModelChoice | undefined {
   return endpoint && model && choiceOf(endpoint, model);
 }
 
-function best(endpoints: readonly Endpoint[], need: Need = {}, except?: Model<Api>): ModelChoice | undefined {
+function best(endpoints: readonly Endpoint[], need: ModelNeed = {}, except?: Model<Api>): ModelChoice | undefined {
   for (const endpoint of endpoints) {
     const model = endpoint.featured.find((each) => each !== except && (!need.images || each.input.includes("image")));
 
@@ -104,7 +104,7 @@ function compacting(provider: Provider): Provider {
   };
 }
 
-export function textOf(answer: AssistantMessage): string {
+function textOf(answer: AssistantMessage): string {
   return answer.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
@@ -271,7 +271,7 @@ const make = Effect.gen(function* () {
     return tunnel ? records.add(vibeProxyRecord(null, tunnelPort(tunnel))) : Effect.void;
   });
 
-  const mainOf = (need: Need) =>
+  const mainOf = (need: ModelNeed) =>
     Effect.suspend(() => {
       const connected = endpoints.filter((endpoint) => endpoint.connected());
       const choice = best(connected, need) ?? best(connected) ?? best(endpoints);
@@ -279,7 +279,7 @@ const make = Effect.gen(function* () {
       return choice ? Effect.succeed(choice) : Effect.fail(new NoProvider());
     });
 
-  const fallbackOf = (from: Model<Api>, need: Need) => {
+  const fallbackOf = (from: Model<Api>, need: ModelNeed) => {
     const connected = endpoints.filter((endpoint) => endpoint.connected());
     const up = connected.filter((endpoint) => endpoint.breaker.closed());
     const elsewhere = up.filter((endpoint) => endpoint.provider.id !== from.provider);
@@ -287,14 +287,14 @@ const make = Effect.gen(function* () {
     return best(elsewhere, need) ?? best(up, need, from) ?? best(connected, {}, from);
   };
 
-  const resolve = (purpose: Purpose, need: Need = {}): Effect.Effect<Resolved, NoProvider> =>
+  const resolve = (purpose: Purpose, need: ModelNeed = {}): Effect.Effect<Resolved, NoProvider> =>
     Effect.gen(function* () {
       const choice = settings.get(purpose) ?? (yield* defaultOf(purpose, need));
 
       return { choice, model: yield* Effect.sync(() => modelFor(choice)) };
     });
 
-  const backgroundOf = (need: Need) =>
+  const backgroundOf = (need: ModelNeed) =>
     Effect.gen(function* () {
       const workers = endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
       const first = workers?.featured[0];
@@ -303,7 +303,7 @@ const make = Effect.gen(function* () {
       return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
     });
 
-  const defaultOf = (purpose: Purpose, need: Need): Effect.Effect<ModelChoice, NoProvider> => {
+  const defaultOf = (purpose: Purpose, need: ModelNeed): Effect.Effect<ModelChoice, NoProvider> => {
     switch (purpose) {
       case "main":
         return mainOf(need);

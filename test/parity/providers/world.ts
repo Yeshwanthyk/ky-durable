@@ -22,11 +22,9 @@ export const PROBE_TTL_MS = 10_000;
 
 export const COOLDOWN_MS = 60_000;
 
-export const MACHINES = ["mac", "mini"] as const;
-
 export const OPENCODE_KEY = "opencode-test-key";
 
-export const MODELS = {
+const MODELS = {
   "workers-ai": ["workers-ai/@cf/zai-org/glm-5.3-flash", "workers-ai/@cf/moonshotai/kimi-k2.6", "workers-ai/@cf/openai/gpt-oss-120b"],
   vibeproxy: ["claude-opus-5-5", "claude-haiku-5-5"],
   anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5", "claude-opus-4-5"],
@@ -44,8 +42,6 @@ export const REPLIES = {
   broken: { status: 500, error: "upstream broke" }
 } satisfies Record<string, Reply>;
 
-export type ReplyName = keyof typeof REPLIES;
-
 export const DEVICE_ANSWERS = ["ok", "interval0", "garbled", "refused", "bare500", "topCode", "throws"] as const;
 
 export const POLL_ANSWERS = ["ok", "pending403", "pending404", "forbidden", "noAccount", "badJwt", "tokenRefused", "throws"] as const;
@@ -58,42 +54,23 @@ type PollAnswer = (typeof POLL_ANSWERS)[number];
 
 type RefreshAnswer = (typeof REFRESH_ANSWERS)[number];
 
+type ActionOf<K extends Action["kind"]> = Extract<Action, { readonly kind: K }>;
+
+type Steps = { readonly [K in Action["kind"]]: (action: ActionOf<K>) => Promise<Answer> };
+
 export type Action =
-  | { readonly kind: "addKey"; readonly vendor: string; readonly key: string }
   | { readonly kind: "removeKey"; readonly id: string }
   | { readonly kind: "machine"; readonly name: string; readonly online: boolean; readonly shares: boolean }
-  | { readonly kind: "vibe"; readonly up: boolean }
-  | { readonly kind: "down"; readonly provider: "workers-ai" | "opencode-go"; readonly down: boolean }
-  | { readonly kind: "reply"; readonly reply: ReplyName }
   | { readonly kind: "refresh" }
   | { readonly kind: "probe" }
-  | { readonly kind: "set"; readonly purpose: Purpose; readonly choice: ModelChoice }
   | { readonly kind: "resolve"; readonly purpose: Purpose; readonly images: boolean }
-  | { readonly kind: "view" }
-  | { readonly kind: "catalog" }
-  | { readonly kind: "choices" }
-  | { readonly kind: "worker"; readonly own: ModelChoice | null }
-  | { readonly kind: "valid"; readonly choice: ModelChoice }
-  | { readonly kind: "imageSupport"; readonly purpose: Purpose }
   | { readonly kind: "ask"; readonly purpose: Purpose; readonly text: string; readonly maxTokens: number }
   | { readonly kind: "complete"; readonly purpose: Purpose }
   | { readonly kind: "reboot"; readonly tunnel: boolean }
-  | { readonly kind: "record"; readonly row: RawRow }
   | { readonly kind: "enable"; readonly id: string; readonly enabled: 0 | 1 }
   | { readonly kind: "device"; readonly answer: DeviceAnswer }
   | { readonly kind: "poll"; readonly answer: PollAnswer }
   | { readonly kind: "refreshLogin"; readonly answer: RefreshAnswer };
-
-export type RawRow = {
-  readonly id: string;
-  readonly kind: string;
-  readonly vendor: string | null;
-  readonly machine: string | null;
-  readonly port: number | null;
-  readonly api: string | null;
-  readonly label: string;
-  readonly enabled: number;
-};
 
 export const aChoice: fc.Arbitrary<ModelChoice> = fc
   .constantFrom(...Object.entries(MODELS).flatMap(([provider, ids]) => ids.map((modelId) => ({ provider, modelId }))))
@@ -101,11 +78,11 @@ export const aChoice: fc.Arbitrary<ModelChoice> = fc
 
 const base64url = (value: Json) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
-export const jwt = (claims: { readonly [key: string]: Json }) => `${base64url({ alg: "none" })}.${base64url(claims)}.sig`;
+const jwt = (claims: { readonly [key: string]: Json }) => `${base64url({ alg: "none" })}.${base64url(claims)}.sig`;
 
-export const ID_TOKEN = jwt({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-1" } });
+const ID_TOKEN = jwt({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-1" } });
 
-export const ACCESS_TOKEN = jwt({ exp: 1_800_000_000 });
+const ACCESS_TOKEN = jwt({ exp: 1_800_000_000 });
 
 export const DEVICE: Device = { deviceAuthId: "dev-1", userCode: "ABCD-1234", intervalMs: 5_000 };
 
@@ -311,116 +288,61 @@ export class World {
   }
 
   apply(action: Action): Promise<Json> {
-    return settle(() => this.#step(action));
+    return settle(() => this.#step(action.kind, action));
   }
 
-  async #step(action: Action): Promise<Answer> {
-    const models = this.models;
+  readonly #steps = {
+    removeKey: async ({ id }) => {
+      await this.models.removeKey(id);
 
-    switch (action.kind) {
-      case "addKey":
-        return models.addKey(action.vendor, action.key);
-      case "removeKey":
-        await models.removeKey(action.id);
+      return {};
+    },
+    machine: async ({ name, online, shares }) => {
+      this.machines.set(name, { online, shares });
 
-        return {};
-      case "machine":
-        this.machines.set(action.name, { online: action.online, shares: action.shares });
+      return null;
+    },
+    refresh: async () => {
+      await this.models.refresh();
 
-        return null;
-      case "vibe":
-        this.vibeUp = action.up;
+      return null;
+    },
+    probe: async () => {
+      await this.models.probe();
 
-        return null;
-      case "down":
-        if (action.down) this.down.add(action.provider);
-        else this.down.delete(action.provider);
+      return null;
+    },
+    resolve: async ({ purpose, images }) => {
+      const { choice, model } = this.models.resolve(purpose, images ? { images: true } : {});
 
-        return null;
-      case "reply":
-        this.reply = REPLIES[action.reply];
+      return { choice, model: shownModel(model) };
+    },
+    ask: async ({ purpose, text, maxTokens }) => {
+      const messages: Message[] = [{ role: "user", content: text, timestamp: this.clock.now() }];
 
-        return null;
-      case "refresh":
-        await models.refresh();
+      return shownAnswer(await this.models.ask(purpose, "Be brief.", messages, { timeoutMs: 20_000, maxTokens }));
+    },
+    complete: async ({ purpose }) => this.models.complete(purpose, "Name this chat.", "hello"),
+    reboot: async ({ tunnel }) => {
+      this.tunnel = tunnel;
+      this.models = this.boot();
 
-        return null;
-      case "probe":
-        await models.probe();
+      return null;
+    },
+    enable: async ({ id, enabled }) => {
+      this.db.prepare("UPDATE ky_providers SET enabled = ? WHERE id = ?").run(enabled, id);
 
-        return null;
-      case "set":
-        return models.settings.set(action.purpose, action.choice);
+      return null;
+    },
+    device: async ({ answer }) => startDevice(this.#openai(() => deviceAnswer(answer))),
+    poll: async ({ answer }) => pollDevice(this.#openai((path) => pollAnswer(answer, path)), DEVICE),
+    refreshLogin: async ({ answer }) => refreshLogin(this.#openai(() => refreshAnswer(answer)), LOGIN)
+  } satisfies Steps;
 
-      case "resolve": {
-        const { choice, model } = models.resolve(action.purpose, action.images ? { images: true } : {});
+  #step<K extends Action["kind"]>(kind: K, action: ActionOf<K>): Promise<Answer> {
+    const steps: Steps = this.#steps;
 
-        return { choice, model: shownModel(model) };
-      }
-
-      case "view":
-        return models.view();
-
-      case "catalog":
-        return models.catalog();
-      case "choices":
-        return models.choices();
-      case "worker":
-        return models.worker(action.own);
-
-      case "valid":
-        return models.valid(action.choice) ?? null;
-
-      case "imageSupport":
-        return models.imageSupport(action.purpose);
-      case "ask": {
-        const messages: Message[] = [{ role: "user", content: action.text, timestamp: this.clock.now() }];
-
-        return models.ask(action.purpose, "Be brief.", messages, { timeoutMs: 20_000, maxTokens: action.maxTokens }).then(shownAnswer);
-      }
-
-      case "complete":
-        return models.complete(action.purpose, "Name this chat.", "hello");
-      case "reboot":
-        this.tunnel = action.tunnel;
-        this.models = this.boot();
-
-        return null;
-      case "record": {
-        const { id, kind, vendor, machine, port, api, label, enabled } = action.row;
-
-        this.db
-          .prepare(
-            `INSERT INTO ky_providers (id, kind, vendor, machine, port, api, label, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, vendor = excluded.vendor, machine = excluded.machine, port = excluded.port, api = excluded.api, enabled = excluded.enabled`
-          )
-          .run(id, kind, vendor, machine, port, api, label, enabled);
-
-        return null;
-      }
-
-      case "enable":
-        this.db.prepare("UPDATE ky_providers SET enabled = ? WHERE id = ?").run(action.enabled, action.id);
-
-        return null;
-      case "device": {
-        const { answer } = action;
-
-        return startDevice(this.#openai(() => deviceAnswer(answer)));
-      }
-
-      case "poll": {
-        const { answer } = action;
-
-        return pollDevice(this.#openai((path) => pollAnswer(answer, path)), DEVICE);
-      }
-
-      case "refreshLogin": {
-        const { answer } = action;
-
-        return refreshLogin(this.#openai(() => refreshAnswer(answer)), LOGIN);
-      }
-    }
+    return steps[kind](action);
   }
 
   tables(): Json {
@@ -430,15 +352,6 @@ export class World {
     return {
       ky_providers: rows("SELECT id, kind, vendor, machine, port, api, label, enabled FROM ky_providers ORDER BY rowid"),
       ky_purposes: rows("SELECT purpose, value FROM ky_purposes ORDER BY purpose")
-    };
-  }
-
-  effects(): Json {
-    return {
-      vault: this.vaultLog,
-      calls: this.calls.map((call) => ({ url: call.url, model: call.model, reasoning: call.reasoning, key: call.headers["x-api-key"] ?? call.headers.authorization ?? null })),
-      openai: this.openai,
-      changes: this.changes
     };
   }
 }

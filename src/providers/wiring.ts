@@ -11,7 +11,7 @@ import type { RunnerPipe } from "../machines/wiring";
 import type { ModelChoice, ProviderInfo, Purpose, SettingsView } from "../settings/contract";
 import type { Settings } from "../settings/wiring";
 import * as ChatGpt from "./chatgpt";
-import type { AskLimits, ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, Need } from "./contract";
+import type { AskLimits, ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, ModelNeed } from "./contract";
 import { Host, Providers, type Resolved } from "./models";
 
 type Service = Providers["Service"];
@@ -35,18 +35,23 @@ async function once<A, E extends Refusable>(effect: Effect.Effect<A, E>): Promis
 }
 
 export function startDevice(fetch: Fetch): Promise<Device> {
-  return once(ChatGpt.startDevice(fetch));
+  return once(ChatGpt.begin(fetch));
 }
 
 export function pollDevice(fetch: Fetch, device: Device): Promise<ChatGptLogin | "pending"> {
-  return once(ChatGpt.pollDevice(fetch, device));
+  return once(ChatGpt.poll(fetch, device));
 }
 
 export function refreshLogin(fetch: Fetch, current: ChatGptLogin): Promise<ChatGptLogin> {
-  return once(ChatGpt.refreshLogin(fetch, current));
+  return once(ChatGpt.renew(fetch, current));
 }
 
-export class Models {
+type Picker = {
+  choices(): string;
+  valid(choice: ModelChoice): ModelChoice | undefined;
+};
+
+export class Models implements Picker {
   readonly settings: Settings;
   readonly registry: MutableModels;
   readonly #edge: Edge<Providers>;
@@ -101,7 +106,7 @@ export class Models {
     await this.#edge.runPromise(this.#providers.probe);
   }
 
-  resolve(purpose: Purpose, need: Need = {}): Resolved {
+  resolve(purpose: Purpose, need: ModelNeed = {}): Resolved {
     return runOrThrow(this.#edge, this.#providers.resolve(purpose, need));
   }
 

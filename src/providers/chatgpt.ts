@@ -96,7 +96,7 @@ const form = (body: Record<string, string>): RequestInit => ({
   body: new URLSearchParams(body).toString()
 });
 
-export const startDevice = Effect.fnUntraced(function* (fetch: Fetch) {
+export const begin = Effect.fnUntraced(function* (fetch: Fetch) {
   const response = yield* reach(fetch, `${OPENAI_ISSUER}/api/accounts/deviceauth/usercode`, json({ client_id: CLIENT_ID }));
   const body = yield* decoded("sign-in", response, DeviceAnswer);
   const interval = Number(body.interval);
@@ -106,7 +106,7 @@ export const startDevice = Effect.fnUntraced(function* (fetch: Fetch) {
   return { deviceAuthId: body.device_auth_id, userCode: body.user_code, intervalMs: interval * 1000 } satisfies Device;
 });
 
-export const pollDevice = Effect.fnUntraced(function* (fetch: Fetch, device: Device) {
+export const poll = Effect.fnUntraced(function* (fetch: Fetch, device: Device) {
   const response = yield* reach(fetch, `${OPENAI_ISSUER}/api/accounts/deviceauth/token`, json({ device_auth_id: device.deviceAuthId, user_code: device.userCode }));
 
   if ((response.status === 403 || response.status === 404) && (yield* errorCode(response)) === "deviceauth_authorization_pending") return "pending" as const;
@@ -127,7 +127,7 @@ export const pollDevice = Effect.fnUntraced(function* (fetch: Fetch, device: Dev
   return yield* login("sign-in", yield* decoded("sign-in", tokens, Tokens));
 });
 
-export const refreshLogin = Effect.fnUntraced(function* (fetch: Fetch, current: ChatGptLogin) {
+export const renew = Effect.fnUntraced(function* (fetch: Fetch, current: ChatGptLogin) {
   const response = yield* reach(
     fetch,
     `${OPENAI_ISSUER}/oauth/token`,
