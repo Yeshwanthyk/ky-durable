@@ -270,6 +270,7 @@ describe("time, read from the clock", () => {
         await world.apply({ kind: "machine", name: "mac", online: true, shares: true });
         await world.apply({ kind: "refresh" });
         expect(connected()).toBe(true);
+        await world.apply({ kind: "probe" });
         world.vibeUp = false;
 
         time.at += within;
