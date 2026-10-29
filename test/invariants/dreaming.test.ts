@@ -11,15 +11,12 @@ import { Sql } from "../../src/core/sql";
 import {
   anticipationRow,
   countOf,
-  datesOf,
   DREAM_MEMORY_TOOLS,
   DREAMING_TABLES,
   markOf,
   MEMORY_WRITE_TOOLS,
-  memoryRow,
   NO_MARK,
-  type SoulChange,
-  summaryOf
+  type SoulChange
 } from "../../src/dreaming/contract";
 import { DreamLedger, Ledger } from "../../src/dreaming/ledger";
 import { type Compressor, Memory } from "../../src/dreaming/memory";
@@ -48,10 +45,6 @@ describe("a damaged row decodes to its default", () => {
     expect(markOf({ memories: -1, at: 0 })).toEqual(NO_MARK);
   });
 
-  it.each(damaged)("a memory from %o is skipped", (row) => {
-    expect(memoryRow(row)).toBeUndefined();
-  });
-
   it.each(damaged)("an anticipation from %o is skipped", (row) => {
     expect(anticipationRow(row)).toBeUndefined();
   });
@@ -71,14 +64,10 @@ describe("a damaged row decodes to its default", () => {
 
   it.each(damaged)("the counts, summaries, dates and columns from %o fall back", (row) => {
     expect(countOf(row)).toBe(0);
-    expect(summaryOf(row)).toBeUndefined();
-    expect(datesOf(row)).toEqual({ from: "", to: "" });
   });
 
   it("whole rows decode as stored", () => {
-    expect(memoryRow({ id: 0, date: "2026-10-14", text: "the user likes green tea" })).toEqual({ id: 0, date: "2026-10-14", text: "the user likes green tea" });
     expect(countOf({ n: 3 })).toBe(3);
-    expect(summaryOf({ text: "a summary" })).toBe("a summary");
   });
 });
 
@@ -318,7 +307,7 @@ type Storage = ConstructorParameters<typeof Skills>[0];
 
 type World = { readonly db: DatabaseSync; readonly skills: Skills; readonly memory: Memory; readonly reviews: Reviews };
 
-const memoryOver = ({ sql }: Storage) => new Memory(sql, compressor);
+const memoryOver = (storage: Storage) => new Memory(storage, compressor);
 
 function world(): World {
   const db = new DatabaseSync(":memory:");

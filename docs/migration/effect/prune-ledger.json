@@ -226,5 +226,35 @@
     "name": "a bloub spec rolls the same bloub for the same seed, and a valid one for any",
     "class": "UNIT",
     "replacedBy": "test/invariants/avatars.test.ts > roll > offers one to six fitted bloubs, three when not asked, the same ones for the same seed"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a memory from undefined is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/memory.test.ts > a row a restore damaged > is skipped by every read of the memories, and a damaged summary is read as absent"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a memory from {} is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/memory.test.ts > a row a restore damaged > is skipped by every read of the memories, and a damaged summary is read as absent"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a memory from { memories: 'abc', at: 1 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/memory.test.ts > a row a restore damaged > is skipped by every read of the memories, and a damaged summary is read as absent"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a memory from { id: '7', date: null, text: 3 } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/memory.test.ts > a row a restore damaged > is skipped by every read of the memories, and a damaged summary is read as absent"
+  },
+  {
+    "check": "invariants",
+    "name": "a damaged row decodes to its default a memory from { text:  } is skipped",
+    "class": "UNIT",
+    "replacedBy": "test/invariants/memory.test.ts > a row a restore damaged > is skipped by every read of the memories, and a damaged summary is read as absent"
   }
 ]
