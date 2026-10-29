@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..14c3b17 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -354,7 +354,7 @@ const make = Effect.gen(function* () {
+ 
+       if (answer.stopReason === "error") return yield* new KeyRefused({ vendor: vendor.name, reason: answer.errorMessage ?? "no reason given" });
+ 
+-      if (answer.stopReason !== "stop" && answer.stopReason !== "length") return yield* new TestUnfinished({ vendor: vendor.name, reason: answer.errorMessage ?? answer.stopReason });
++      if (answer.stopReason !== "stop" && answer.stopReason !== "length" && answer.stopReason !== "toolUse") return yield* new TestUnfinished({ vendor: vendor.name, reason: answer.errorMessage ?? answer.stopReason });
+     });
+ 
+   const ask = (purpose: Purpose, system: string, messages: Message[], limits: AskLimits = SHORT) =>

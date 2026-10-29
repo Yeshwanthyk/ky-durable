@@ -5,7 +5,7 @@ import { type Schedule, Scheduler } from "agents/schedules";
 import { makeEdge, type Refusable } from "../core/edge";
 import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
-import type { Models } from "../models";
+import type { Models } from "../providers/wiring";
 import type { Reviews } from "../skills/contract";
 import { type AutomationDeps, Automator, type Callbacks, type Fire, type GateCheck, Host } from "./automations";
 import { AUTOMATION_SOURCE, type AutomationAuthor, type AutomationDraft, type AutomationRow, type AutomationStatus, type AutomationView, type CheckIns } from "./contract";

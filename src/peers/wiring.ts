@@ -1,5 +1,5 @@
 import type { Extension } from "@earendil-works/pi-durable";
-import type { Models } from "../models";
+import type { Models } from "../providers/wiring";
 import type { GroupDesk } from "./group";
 import { type PeerDesk, peerExtension } from "./peers";
 

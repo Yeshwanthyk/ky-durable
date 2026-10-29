@@ -1,0 +1,13 @@
+diff --git a/src/providers/records.ts b/src/providers/records.ts
+index 3817a07..c847f74 100644
+--- a/src/providers/records.ts
++++ b/src/providers/records.ts
+@@ -56,7 +56,7 @@ export class Records extends Context.Service<
+               `INSERT INTO ${TABLE} (id, kind, vendor, machine, port, api, label, enabled)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+          kind = excluded.kind, vendor = excluded.vendor, machine = excluded.machine,
+-         port = excluded.port, api = excluded.api`,
++         port = excluded.port, api = excluded.api, enabled = excluded.enabled`,
+               record.id,
+               record.kind,
+               record.vendor,

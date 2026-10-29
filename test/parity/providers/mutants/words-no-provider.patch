@@ -1,0 +1,13 @@
+diff --git a/src/providers/contract.ts b/src/providers/contract.ts
+index 4dff681..03e66e5 100644
+--- a/src/providers/contract.ts
++++ b/src/providers/contract.ts
+@@ -130,7 +130,7 @@ export class NoKeyToRemove extends Schema.TaggedError<NoKeyToRemove>()("NoKeyToR
+ 
+ export class NoProvider extends Schema.TaggedError<NoProvider>()("NoProvider", {}) implements Refusable {
+   get refusal(): string {
+-    return "No model provider is enabled.";
++    return "No provider is enabled.";
+   }
+ }
+ 

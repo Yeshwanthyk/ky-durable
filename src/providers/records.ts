@@ -1,50 +1,41 @@
-import type { Api } from "@earendil-works/pi-ai";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { Sql } from "../core/sql";
+import { PROVIDER_TABLES, ProviderKind, type ProviderRecord } from "./contract";
 
-/**
- * The providers this deploy has, one row each in `ky_providers` (C5). A row
- * is added the first time its provider can run: Workers AI always, since
- * every deploy has the AI binding; VibeProxy when the owner overlay has its
- * tunnel; an api-key vendor when the user saves a key for it, until they
- * remove the key. models.ts makes each enabled row live, when its transport
- * is there now.
- */
+const TABLE = PROVIDER_TABLES.providers;
 
-export type ProviderKind = "workers-ai" | "api-key" | "runner-local";
+const Row = Schema.Struct({
+  id: Schema.String,
+  kind: ProviderKind,
+  vendor: Schema.NullOr(Schema.String),
+  machine: Schema.NullOr(Schema.String),
+  port: Schema.NullOr(Schema.Number),
+  api: Schema.NullOr(Schema.String),
+  label: Schema.String,
+  enabled: Schema.Number
+});
 
-export type ProviderRecord = {
-  /** The pi provider id. */
-  readonly id: string;
-  readonly kind: ProviderKind;
-  /** An api-key provider's vendor, as api-key.ts names it. */
-  readonly vendor: string | null;
-  /** A runner-local provider's machine; none while it is reached through the overlay's tunnel. */
-  readonly machine: string | null;
-  /** A runner-local provider's port on its machine. */
-  readonly port: number | null;
-  /** The API a runner-local provider speaks. */
-  readonly api: Api | null;
-  /** The name Settings shows. */
-  readonly label: string;
-  readonly enabled: boolean;
-};
+const rowOf = Schema.decodeUnknownOption(Row);
 
-type Row = {
-  id: string;
-  kind: ProviderKind;
-  vendor: string | null;
-  machine: string | null;
-  port: number | null;
-  api: Api | null;
-  label: string;
-  enabled: number;
-};
+export class Records extends Context.Service<
+  Records,
+  {
+    readonly list: Effect.Effect<ProviderRecord[]>;
+    add(record: ProviderRecord): Effect.Effect<void>;
+    remove(id: string): Effect.Effect<void>;
+  }
+>()("ky/providers/Records") {
+  static readonly layer = Layer.effect(
+    Records,
+    Effect.gen(function* () {
+      const sql = yield* Sql;
 
-export class ProviderRecords {
-  readonly #sql: SqlStorage;
-
-  constructor(sql: SqlStorage) {
-    this.#sql = sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS ky_providers (
+      yield* Effect.orDie(
+        sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
       vendor TEXT,
@@ -52,39 +43,32 @@ export class ProviderRecords {
       port INTEGER,
       api TEXT,
       label TEXT NOT NULL,
-      enabled INTEGER NOT NULL)`);
-  }
+      enabled INTEGER NOT NULL)`)
+      );
 
-  list(): ProviderRecord[] {
-    return this.#sql
-      .exec<Row>("SELECT id, kind, vendor, machine, port, api, label, enabled FROM ky_providers ORDER BY rowid")
-      .toArray()
-      .map(({ enabled, ...row }) => ({ ...row, enabled: enabled === 1 }));
-  }
-
-  /**
-   * Record a provider, or refresh what this deploy's environment says of one
-   * already recorded (its kind, vendor, machine, port and API), so a row
-   * keeps the user's label and switch but never a port the overlay moved.
-   */
-  add(record: ProviderRecord): void {
-    this.#sql.exec(
-      `INSERT INTO ky_providers (id, kind, vendor, machine, port, api, label, enabled)
+      return Records.of({
+        list: Effect.map(Effect.orDie(sql.exec(`SELECT id, kind, vendor, machine, port, api, label, enabled FROM ${TABLE} ORDER BY rowid`)), (rows) =>
+          rows.flatMap((row) => Option.match(rowOf(row), { onNone: () => [], onSome: ({ enabled, ...record }) => [{ ...record, enabled: enabled === 1 }] }))
+        ),
+        add: (record) =>
+          Effect.asVoid(Effect.orDie(
+            sql.exec(
+              `INSERT INTO ${TABLE} (id, kind, vendor, machine, port, api, label, enabled)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
          kind = excluded.kind, vendor = excluded.vendor, machine = excluded.machine,
          port = excluded.port, api = excluded.api`,
-      record.id,
-      record.kind,
-      record.vendor,
-      record.machine,
-      record.port,
-      record.api,
-      record.label,
-      record.enabled ? 1 : 0
-    );
-  }
-
-  remove(id: string): void {
-    this.#sql.exec("DELETE FROM ky_providers WHERE id = ?", id);
-  }
+              record.id,
+              record.kind,
+              record.vendor,
+              record.machine,
+              record.port,
+              record.api,
+              record.label,
+              record.enabled ? 1 : 0
+            )
+          )),
+        remove: (id) => Effect.asVoid(Effect.orDie(sql.exec(`DELETE FROM ${TABLE} WHERE id = ?`, id)))
+      });
+    })
+  );
 }

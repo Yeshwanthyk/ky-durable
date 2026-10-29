@@ -2,7 +2,7 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import type { Refusable } from "../core/edge";
-import type { ProviderKind } from "../providers/records";
+import type { ProviderKind } from "../providers/contract";
 
 export const SETTINGS_TABLES = Object.freeze({ purposes: "ky_purposes" } as const);
 

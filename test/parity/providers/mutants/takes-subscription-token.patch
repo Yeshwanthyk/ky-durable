@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index cb3be71..d84f67d 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -429,7 +429,7 @@ const make = Effect.gen(function* () {
+ 
+         if (!trimmed) return yield* new NoKey({ vendor: vendor.name });
+ 
+-        if (vendor.subscription?.(trimmed)) return yield* new SubscriptionToken();
++        if (false && vendor.subscription?.(trimmed)) return yield* new SubscriptionToken();
+         yield* testCall(vendor, trimmed);
+         yield* Effect.promise(() => vault.put("provider", vendor.id, { apiKey: trimmed }));
+         yield* records.add(apiKeyRecord(vendor));

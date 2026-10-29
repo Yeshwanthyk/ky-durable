@@ -1,0 +1,13 @@
+diff --git a/src/providers/records.ts b/src/providers/records.ts
+index 3817a07..96b1fe2 100644
+--- a/src/providers/records.ts
++++ b/src/providers/records.ts
+@@ -63,7 +63,7 @@ export class Records extends Context.Service<
+               record.machine,
+               record.port,
+               record.api,
+-              record.label,
++              record.id,
+               record.enabled ? 1 : 0
+             )
+           )),

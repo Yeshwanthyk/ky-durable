@@ -16,7 +16,7 @@ import {
 import { decodeOr, parseOr } from "../core/decode";
 import { must } from "../core/must";
 import { refused } from "../core/refusal";
-import { agentModel } from "../models";
+import { agentModel } from "../providers/contract";
 import type { ModelChoice } from "../settings/contract";
 import { mentions, setUp, type SpecialistRow, type Specialists, textOf } from "../skills/contract";
 import { summarize, type TaskFeed } from "../automations/contract";

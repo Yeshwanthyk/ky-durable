@@ -23,7 +23,7 @@ import {
   until,
   wait
 } from "./drive";
-import { CONTEXT_WINDOW } from "../models";
+import { CONTEXT_WINDOW } from "../providers/contract";
 import { PROTOCOL } from "../machines/contract";
 import { taskLogRows } from "../automations/contract";
 import { BACKGROUND_SOURCE } from "../skills/contract";

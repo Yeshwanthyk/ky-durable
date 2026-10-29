@@ -1,0 +1,13 @@
+diff --git a/src/providers/contract.ts b/src/providers/contract.ts
+index 4dff681..af404eb 100644
+--- a/src/providers/contract.ts
++++ b/src/providers/contract.ts
+@@ -142,7 +142,7 @@ export class ModelFailed extends Schema.TaggedError<ModelFailed>()("ModelFailed"
+ 
+ export class ChatGptRefused extends Schema.TaggedError<ChatGptRefused>()("ChatGptRefused", { step: Schema.String, status: Schema.Number, code: Schema.optional(Schema.String) }) implements Refusable {
+   get refusal(): string {
+-    return `ChatGPT ${this.step} failed: ${this.status}${this.code ? ` ${this.code}` : ""}.`;
++    return `ChatGPT ${this.step} failed: ${this.status}.`;
+   }
+ }
+ 

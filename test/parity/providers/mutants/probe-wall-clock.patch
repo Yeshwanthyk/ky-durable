@@ -1,0 +1,13 @@
+diff --git a/src/providers/runner-local.ts b/src/providers/runner-local.ts
+index ced4919..69717c6 100644
+--- a/src/providers/runner-local.ts
++++ b/src/providers/runner-local.ts
+@@ -76,7 +76,7 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
+   const reachable = (): Promise<boolean> => {
+     const online = config.online();
+ 
+-    if (probe && probe.online === online && config.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
++    if (probe && probe.online === online && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
+ 
+     const up = online
+       ? ask(`${origin}/v1/models`, { headers: probeHeaders(config.key), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).then(

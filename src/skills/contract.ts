@@ -7,7 +7,7 @@ import Type, { type Static } from "typebox";
 import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contract";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
-import { agentModel } from "../models";
+import { agentModel } from "../providers/contract";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
 
 export type { Reviews, Skills } from "./wiring";

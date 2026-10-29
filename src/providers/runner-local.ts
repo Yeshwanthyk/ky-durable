@@ -4,19 +4,9 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { createProvider } from "@earendil-works/pi-ai/models";
 import type { Endpoint } from "./endpoint";
 import { type Offer, offered } from "./offer";
-import { Breaker } from "./breaker";
+import { Breaker, type Now } from "./breaker";
 import { sending } from "./transport";
 
-/**
- * A model server on one of the user's computers (C5's `runner-local`), such
- * as VibeProxy: an Anthropic-compatible or OpenAI-compatible API on a port of
- * a paired machine, reached through its runner over the pipe (pipe.ts), or
- * through the owner overlay's tunnel. Requests may only go to the API's own
- * paths. The provider is offered only while its machine is online and its
- * probe answers; models.ts runs a call on a stand-in when it does not.
- */
-
-/** The APIs a runner-local provider may speak, and what ky may ask of each. */
 export type LocalApi = "anthropic-messages" | "openai-completions";
 
 const APIS: Readonly<Record<LocalApi, { paths: ReadonlySet<string>; probe: (key: string) => Record<string, string>; api: () => ReturnType<typeof anthropicMessagesApi> }>> = {
@@ -38,28 +28,19 @@ const PROBE_TTL_MS = 30_000;
 
 export type RunnerLocalConfig = {
   readonly id: string;
-  /** The name Settings shows. */
   readonly name: string;
-  /** What connects it, when it is not. */
   readonly needs: string;
   readonly api: LocalApi;
-  /** The server's address as pi's models name it, e.g. http://127.0.0.1:8317; only its path reaches the server. */
   readonly origin: string;
-  /** The server's catalog; each model's `baseUrl` is set to `origin`. */
   readonly catalog: readonly Model<Api>[];
-  /** What of the catalog is featured, and its light model. */
   readonly offer: Offer;
   readonly thinkingLevel: ModelThinkingLevel;
-  /** The server's own key. */
   readonly key: string;
-  /** How requests reach the server: the machine's pipe, or the overlay's tunnel. */
   readonly transport: FetchFunction;
-  /** Its machine's runner is connected now; a tunnel's machine is always taken to be, and the probe tells. */
   readonly online: () => boolean;
-  /** Called when it comes or goes. */
   readonly onChange?: (up: boolean) => void;
-  /** How long one probe's answer is trusted while the machine stays online; 30s by default. */
   readonly probeTtlMs?: number;
+  readonly now: Now;
 };
 
 export function runnerLocal(config: RunnerLocalConfig): Endpoint {
@@ -71,7 +52,7 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
     config.offer
   );
 
-  const breaker = new Breaker(config.name);
+  const breaker = new Breaker(config.name, config.now);
 
   const allowed =
     (fetch: FetchFunction): FetchFunction =>
@@ -87,17 +68,15 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
     };
 
   const send = allowed(breaker.watch(config.transport));
-  // The probe goes around the breaker: its answer must not close a breaker that the calls opened.
   const ask = allowed(config.transport);
 
   let probe: { at: number; online: boolean; up: Promise<boolean> } | undefined;
   let lastUp = false;
 
-  // A machine that went offline is down at once, whatever the last probe said.
   const reachable = (): Promise<boolean> => {
     const online = config.online();
 
-    if (probe && probe.online === online && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
+    if (probe && probe.online === online && config.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
 
     const up = online
       ? ask(`${origin}/v1/models`, { headers: probeHeaders(config.key), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).then(
@@ -106,7 +85,7 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
         )
       : Promise.resolve(false);
 
-    probe = { at: Date.now(), online, up };
+    probe = { at: config.now(), online, up };
 
     void up.then((value) => {
       if (value === lastUp) return;
@@ -142,7 +121,6 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
     ...(light && { light }),
     thinkingLevel: config.thinkingLevel,
     breaker,
-    /** Online, and the last probe reached it. Starts a new probe when that one is stale. */
     connected: () => {
       void reachable();
 

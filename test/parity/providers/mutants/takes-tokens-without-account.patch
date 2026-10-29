@@ -1,0 +1,13 @@
+diff --git a/src/providers/chatgpt.ts b/src/providers/chatgpt.ts
+index 3d30bc6..c6bcd89 100644
+--- a/src/providers/chatgpt.ts
++++ b/src/providers/chatgpt.ts
+@@ -77,7 +77,7 @@ const login = (step: Step, tokens: { access_token: string; id_token: string; ref
+     const accountId = identity["https://api.openai.com/auth"]?.chatgpt_account_id ?? identity.chatgpt_account_id;
+     const { exp } = yield* claims(step, tokens.access_token);
+ 
+-    if (!accountId || exp === undefined) return yield* new ChatGptNoAccount({ step });
++    if (exp === undefined) return yield* new ChatGptNoAccount({ step });
+ 
+     return {
+       accessToken: tokens.access_token,

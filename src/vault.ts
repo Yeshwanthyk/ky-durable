@@ -2,12 +2,12 @@ import { DurableObject } from "cloudflare:workers";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import Type from "typebox";
 import { decode, decodeOr, parseAs } from "./core/decode";
-import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, pollDevice, refreshLogin, startDevice, VERIFICATION_URL } from "./chatgpt";
+import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, type ProviderKey, VERIFICATION_URL } from "./providers/contract";
+import { pollDevice, refreshLogin, startDevice } from "./providers/wiring";
 import type { ExecutorConnection } from "./executor/contract";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import { base64url, fromBase64url, vapidToken } from "./push/webpush";
-import type { ProviderKey } from "./providers/api-key";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
 import { credentialFetch, type CredentialReply, type CredentialRequest, CredentialSchema, HTTP_KIND, signedWith } from "./inbound/credentials";
 

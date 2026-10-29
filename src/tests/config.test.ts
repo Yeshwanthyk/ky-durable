@@ -62,7 +62,7 @@ describe("a deploy's config", () => {
 
   it("offers OpenCode Go's first model once pi-ai no longer has ky's", () => {
     const vendor = { ...VENDORS.find((each) => each.id === "opencode-go")!, offer: { featured: ["no-such-model"] } };
-    const endpoint = apiKey(vendor, fetch, async () => null);
+    const endpoint = apiKey(vendor, fetch, async () => null, () => 0);
 
     expect(endpoint.featured).toEqual([opencodeGoProvider().getModels()[0]]);
   });
