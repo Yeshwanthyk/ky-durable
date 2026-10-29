@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..4ea62ea 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -43,7 +43,7 @@ const asRow = Schema.decodeUnknownOption(Row);
+ 
+ const asRepos = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Schema.String)));
+ 
+-const REPO = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/;
++const REPO = /^[a-z0-9_.-]+\/[a-z0-9_./-]+$/;
+ 
+ const newId = () => `sb-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..2e3873e 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -151,7 +151,7 @@ const make = Effect.gen(function* () {
+         (sandbox) =>
+           Effect.gen(function* () {
+             yield* exec(
+-              `INSERT OR IGNORE INTO ${SANDBOXES} (id, name, repos, idle_minutes, is_default, created_at, deleted_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
++              `INSERT OR REPLACE INTO ${SANDBOXES} (id, name, repos, idle_minutes, is_default, created_at, deleted_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
+               sandbox.id,
+               sandbox.name,
+               JSON.stringify(sandbox.repos),

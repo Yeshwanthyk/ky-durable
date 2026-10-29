@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { CLOUD, CLOUD_FACTS } from "./machines/contract";
-import { pairAs } from "./runners";
-import { saveKey } from "./sandboxes";
+import { pairAs } from "./runners/wiring";
+import { saveKey } from "./runners/contract";
 import { putInParts } from "./uploads";
 
 /**

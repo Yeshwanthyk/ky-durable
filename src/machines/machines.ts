@@ -14,7 +14,7 @@ import { must } from "../core/must";
 import { Sql } from "../core/sql";
 import type { FileRow } from "../files/contract";
 import type { CloudState, MachineInfo } from "../protocol";
-import type { Sandboxes } from "../sandboxes";
+import type { Sandboxes } from "../runners/wiring";
 import {
   CLOUD_FACTS,
   type CloudHook,

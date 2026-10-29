@@ -1,8 +1,7 @@
 import Type from "typebox";
 import { Value } from "typebox/value";
 import type { SandboxesView, SavedDisk } from "./protocol";
-import { machineSubject } from "./runners";
-import { SANDBOX_CAP, saveKey } from "./sandboxes";
+import { machineSubject, SANDBOX_CAP, saveKey } from "./runners/contract";
 
 /**
  * Settings' routes for sandboxes (src/sandboxes.ts), after the user's sign-in: list them with their

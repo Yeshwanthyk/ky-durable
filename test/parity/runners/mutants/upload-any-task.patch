@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..370ae11 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -54,7 +54,7 @@ const taskUpload = (request: Request, env: Env, url: URL): Route =>
+     const task = url.searchParams.get("task");
+     const token = bearer(request);
+ 
+-    if (!task || !token || (yield* Effect.promise(() => vault(env).check("task", token))) !== task) return yield* new Unauthorized();
++    if (!task || !token || (yield* Effect.promise(() => vault(env).check("task", token))) === null) return yield* new Unauthorized();
+ 
+     return yield* Effect.promise(() => upload(request, env.FILES, (file) => agent(env).attachFile(file), uploadedType));
+   });

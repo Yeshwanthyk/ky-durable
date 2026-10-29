@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..3c67e9f 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -102,7 +102,7 @@ const make = Effect.gen(function* () {
+   const rows = (where: string, ...params: SqlStorageValue[]) =>
+     Effect.map(exec(`SELECT ${COLUMNS} FROM ${SANDBOXES} WHERE ${where}`, ...params), (found) => found.flatMap((row) => Option.toArray(Option.map(asRow(row), sandboxOf))));
+ 
+-  const live = rows("deleted_at IS NULL ORDER BY is_default DESC, name");
++  const live = rows("deleted_at IS NULL ORDER BY name");
+ 
+   const get = (id: string) => Effect.map(rows("id = ?", id), ([sandbox]) => sandbox);
+ 

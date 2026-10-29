@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..aac78c5 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -120,7 +120,7 @@ const make = Effect.gen(function* () {
+     Effect.flatMap(get(id), (sandbox) => (sandbox && sandbox.deletedAt === null ? Effect.succeed(sandbox) : Effect.fail(new NoSandbox({ id }))));
+ 
+   const keptOne = (id: string) =>
+-    Effect.flatMap(get(id), (sandbox) => (sandbox && sandbox.deletedAt !== null ? Effect.succeed(sandbox) : Effect.fail(new NoKeptDisk({ id }))));
++    Effect.flatMap(get(id), (sandbox) => (sandbox ? Effect.succeed(sandbox) : Effect.fail(new NoKeptDisk({ id }))));
+ 
+   const checkOwners = (repos: readonly string[], id?: string) =>
+     Effect.forEach(repos, (repo) =>

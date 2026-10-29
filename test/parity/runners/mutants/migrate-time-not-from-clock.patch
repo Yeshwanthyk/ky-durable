@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..101f84c 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -139,7 +139,7 @@ const make = Effect.gen(function* () {
+         `INSERT INTO ${SANDBOXES} (id, name, is_default, created_at) SELECT ?, ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM ${SANDBOXES})`,
+         CLOUD,
+         CLOUD,
+-        yield* Clock.currentTimeMillis
++        Date.now()
+       );
+       yield* seeded;
+     }),

@@ -1,0 +1,12 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..3ccc74a 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -241,7 +241,6 @@ const make = Effect.gen(function* () {
+       Effect.gen(function* () {
+         const kept = yield* keptOne(id);
+ 
+-        yield* exec(`DELETE FROM ${SANDBOXES} WHERE id = ?`, id);
+ 
+         return kept;
+       })

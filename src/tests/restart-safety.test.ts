@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { type Sandbox, saveKey } from "../sandboxes";
+import { type Sandbox, saveKey } from "../runners/contract";
 import { call, inside } from "./drive";
 import { type CloudMachine, FakeBox } from "./stack";
 

@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..bbd92dc 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -233,7 +233,7 @@ const make = Effect.gen(function* () {
+     delete: (id) =>
+       Effect.gen(function* () {
+         yield* liveOne(id);
+-        yield* exec(`UPDATE ${SANDBOXES} SET deleted_at = ?, is_default = 0 WHERE id = ?`, yield* Clock.currentTimeMillis, id);
++        yield* exec(`UPDATE ${SANDBOXES} SET deleted_at = ? WHERE id = ?`, yield* Clock.currentTimeMillis, id);
+ 
+         return yield* written(id);
+       }),

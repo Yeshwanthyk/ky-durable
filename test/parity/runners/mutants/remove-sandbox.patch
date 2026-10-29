@@ -1,0 +1,12 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..f4ea4a0 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -107,7 +107,6 @@ const remove = (env: Env, machine: string): Route =>
+   Effect.gen(function* () {
+     if (!isMachineName(machine)) return yield* new NotFound();
+ 
+-    if (yield* Effect.promise(() => agent(env).isSandbox(machine))) return yield* new SandboxNotRemovable({ machine });
+     const removed = yield* Effect.promise(() => agent(env).removeMachine(machine));
+ 
+     if (!removed) return yield* new NoRunnerMachine({ machine });

@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..8a39a2c 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -89,7 +89,7 @@ const pair = (request: Request, env: Env): Route =>
+ 
+     if (yield* Effect.promise(() => agent(env).isSandbox(body.name))) return yield* new SandboxName({ name: body.name });
+ 
+-    if ((yield* Effect.promise(() => vault(env).consume("pair", body.code))) === null) return yield* new CodeRefused();
++    if ((yield* Effect.promise(() => vault(env).check("pair", body.code))) === null) return yield* new CodeRefused();
+     const token = yield* pairing(env, body.name, body.facts);
+ 
+     return Response.json({ machine: body.name, token });

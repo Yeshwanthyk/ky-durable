@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..f5701cd 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -179,7 +179,7 @@ const make = Effect.gen(function* () {
+ 
+         if (!isMachineName(name)) return yield* new NotAName();
+ 
+-        if (taken(name) || (yield* named(name))) return yield* new NameTaken({ name });
++        if (yield* named(name)) return yield* new NameTaken({ name });
+ 
+         if ((yield* live).length >= SANDBOX_CAP) return yield* new AtCap();
+         const repos = yield* cleanRepos(draft.repos ?? []);

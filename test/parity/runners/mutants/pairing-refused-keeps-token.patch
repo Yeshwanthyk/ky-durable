@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..b8a494c 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -66,7 +66,7 @@ export const pairing = (env: Env, machine: string, facts: MachineFacts, sandbox?
+     const token = yield* Effect.promise(() => vault(env).mint("machine", subject));
+ 
+     const previous = yield* Effect.promise(() => agent(env).pairMachine(machine, facts, id, sandbox)).pipe(
+-      Effect.onError(() => Effect.promise(() => vault(env).revoke("machine", subject)))
++      Effect.onError(() => Effect.void)
+     );
+ 
+     if (previous !== null) yield* Effect.promise(() => vault(env).revoke("machine", machineSubject(machine, previous)));

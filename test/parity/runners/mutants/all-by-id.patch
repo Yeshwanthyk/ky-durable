@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..e61534c 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -144,7 +144,7 @@ const make = Effect.gen(function* () {
+       yield* seeded;
+     }),
+     seeded,
+-    all: rows("1 = 1 ORDER BY created_at"),
++    all: rows("1 = 1 ORDER BY id"),
+     keep: (lost) =>
+       Effect.forEach(
+         lost,

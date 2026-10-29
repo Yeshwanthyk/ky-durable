@@ -2,7 +2,7 @@ import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefO
 import Type, { type Static } from "typebox";
 import { parseOr } from "../core/decode";
 import type { MachineChange, MachineFacts, MachineLogin, MachineState } from "../machines/contract";
-import type { SandboxChange, SandboxDraft } from "../sandboxes";
+import type { SandboxChange, SandboxDraft } from "../runners/contract";
 import { osName } from "../protocol";
 import type {
   CloudState,

@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..880b378 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -50,7 +50,7 @@ const newId = () => `sb-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+ const sandboxOf = (row: typeof Row.Type): Sandbox => ({
+   id: row.id,
+   name: row.name,
+-  repos: Option.getOrElse(asRepos(row.repos), () => []),
++  repos: Option.getOrThrow(asRepos(row.repos)),
+   idleMinutes: row.idle_minutes,
+   isDefault: row.is_default === 1,
+   createdAt: row.created_at,

@@ -4,7 +4,7 @@ import { TaskFeed } from "../../../src/automations/tasks";
 import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
-import { Sandboxes } from "../../../src/sandboxes";
+import { Sandboxes } from "../../../src/runners/wiring";
 import type { Json } from "../kit";
 
 type Row = Record<string, SQLOutputValue>;
@@ -56,7 +56,7 @@ export class World {
   readonly durable = storageOf(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
   readonly files = new FileStore(this.durable.storage());
-  readonly sandboxes = new Sandboxes(this.durable.sql());
+  readonly sandboxes = new Sandboxes(this.durable.storage());
   readonly effects: Effects = { vault: [], runner: [], pi: [], host: [] };
   readonly sockets = new Map<string, Socket>();
   constructor(now: number) {

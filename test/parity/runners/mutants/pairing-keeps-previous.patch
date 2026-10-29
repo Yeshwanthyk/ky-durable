@@ -1,0 +1,12 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..990cdd6 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -69,7 +69,6 @@ export const pairing = (env: Env, machine: string, facts: MachineFacts, sandbox?
+       Effect.onError(() => Effect.promise(() => vault(env).revoke("machine", subject)))
+     );
+ 
+-    if (previous !== null) yield* Effect.promise(() => vault(env).revoke("machine", machineSubject(machine, previous)));
+ 
+     return token;
+   });

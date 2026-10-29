@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..0266c68 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -85,7 +85,7 @@ const pair = (request: Request, env: Env): Route =>
+       Effect.flatMap((text) => Effect.mapError(asPairRequest(text), () => new BadPairRequest()))
+     );
+ 
+-    if (!isMachineFacts(body.facts)) return yield* new BadFacts();
++    if (!isMachineFacts(body.facts)) return yield* Effect.flatMap(Effect.promise(() => vault(env).consume("pair", body.code)), () => new BadFacts());
+ 
+     if (yield* Effect.promise(() => agent(env).isSandbox(body.name))) return yield* new SandboxName({ name: body.name });
+ 

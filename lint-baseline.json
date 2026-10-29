@@ -52,15 +52,8 @@
   "src/providers/records.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/runners.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
   "src/sandbox-routes.ts": {
     "ky(no-unchecked-parse)": 2
-  },
-  "src/sandboxes.ts": {
-    "ky(no-unchecked-parse)": 1,
-    "typescript(no-non-null-assertion)": 4
   },
   "src/server.ts": {
     "typescript(no-non-null-assertion)": 1

@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..0e4dde8 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -59,7 +59,7 @@ const sandboxOf = (row: typeof Row.Type): Sandbox => ({
+ 
+ const cleanRepos = (repos: readonly string[]) =>
+   Effect.gen(function* () {
+-    const clean = [...new Set(repos.map((repo) => repo.trim().toLowerCase()))];
++    const clean = repos.map((repo) => repo.trim().toLowerCase());
+     const bad = clean.find((repo) => !REPO.test(repo));
+ 
+     if (bad !== undefined) return yield* new NotASandboxRepo({ repo: bad });

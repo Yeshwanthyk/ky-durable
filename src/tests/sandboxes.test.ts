@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ASSERTION } from "../access/contract";
 import { CLOUD, CLOUD_FACTS } from "../machines/contract";
 import type { SandboxesView } from "../protocol";
-import { SANDBOX_CAP, type Sandbox, type SandboxChange, type SandboxDraft, saveKey } from "../sandboxes";
+import { SANDBOX_CAP, type Sandbox, type SandboxChange, type SandboxDraft, saveKey } from "../runners/contract";
 import { agent, call, connect, FACTS, inside, pair, pairingCode, prompt, runner, tasks, until } from "./drive";
 import { SUBSCRIPTION } from "../vault";
 import { type CloudMachine, FakeBox, type Vault as TestVault } from "./stack";

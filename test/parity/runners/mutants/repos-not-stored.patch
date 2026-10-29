@@ -1,0 +1,12 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..18f5b35 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -216,7 +216,6 @@ const make = Effect.gen(function* () {
+           const repos = yield* cleanRepos(change.repos);
+ 
+           yield* checkOwners(repos, id);
+-          yield* exec(`UPDATE ${SANDBOXES} SET repos = ? WHERE id = ?`, JSON.stringify(repos), id);
+         }
+ 
+         if (change.idleMinutes !== undefined) {

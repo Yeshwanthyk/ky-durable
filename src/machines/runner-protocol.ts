@@ -185,8 +185,6 @@ export const WIRE = {
   pair: PairRequestSchema
 };
 
-export const isPairRequest = Schema.is(PairRequestSchema);
-
 export const isMachineFacts = Schema.is(FactsSchema);
 
 export function runnerPathMachine(pathname: string): string | undefined {

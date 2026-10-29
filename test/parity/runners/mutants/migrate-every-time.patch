@@ -1,0 +1,12 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..79496fb 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -134,7 +134,6 @@ const make = Effect.gen(function* () {
+ 
+   return {
+     migrate: Effect.gen(function* () {
+-      if ((yield* exec(`SELECT at FROM ${SEEDED}`)).length > 0) return;
+       yield* exec(
+         `INSERT INTO ${SANDBOXES} (id, name, is_default, created_at) SELECT ?, ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM ${SANDBOXES})`,
+         CLOUD,

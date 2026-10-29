@@ -1,0 +1,13 @@
+diff --git a/src/runners/routes.ts b/src/runners/routes.ts
+index 8e24302..c16d3c6 100644
+--- a/src/runners/routes.ts
++++ b/src/runners/routes.ts
+@@ -39,7 +39,7 @@ const runnerSocket = (request: Request, env: Env, url: URL): Route =>
+     const subject = token ? yield* Effect.promise(() => vault(env).check("machine", token)) : null;
+     const [owner, pairing] = subject?.split(":") ?? [];
+ 
+-    if (owner !== machine || pairing === undefined) return yield* new Unauthorized();
++    if (pairing === undefined) return yield* new Unauthorized();
+ 
+     if (request.headers.get("Upgrade") !== "websocket") return yield* new UpgradeRequired();
+     const headers = new Headers(request.headers);

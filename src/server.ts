@@ -29,14 +29,14 @@ import { FileStore, retype, uploadMedia } from "./files/wiring";
 import { History, startedByUser } from "./history/wiring";
 import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
-import { saveKey, type Sandbox, type SandboxChange, type SandboxDraft, Sandboxes } from "./sandboxes";
+import { machineSubject, saveKey, type Sandbox, type SandboxChange, type SandboxDraft } from "./runners/contract";
+import { ownerRoute, Sandboxes, tokenRoute } from "./runners/wiring";
 import { sandboxRoute } from "./sandbox-routes";
 import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
 import { agentModel, Models, type ModelsBoundary } from "./models";
-import { machineSubject, ownerRoute, tokenRoute } from "./runners";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
@@ -96,7 +96,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
-  readonly sandboxes = new Sandboxes(this.ctx.storage.sql);
+  readonly sandboxes = new Sandboxes(this.ctx.storage);
   /** The user's Claude and ChatGPT logins, in the Vault, for Settings and the runs that are handed them. */
   readonly subscriptions = new Subscriptions(() => this.env.Vault.getByName("owner"));
   readonly machines = new MachineHub(

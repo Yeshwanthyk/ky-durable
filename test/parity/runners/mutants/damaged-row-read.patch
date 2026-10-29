@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..d560c08 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -33,7 +33,7 @@ const Row = Schema.Struct({
+   repos: Schema.String,
+   idle_minutes: Schema.NullOr(Schema.Number),
+   is_default: Schema.Number,
+-  created_at: Schema.Number,
++  created_at: Schema.Union([Schema.Number, Schema.String]),
+   deleted_at: Schema.NullOr(Schema.Number)
+ });
+ 

@@ -1,0 +1,622 @@
+{
+  "schema": [
+    "CREATE TABLE ky_sandboxes (\n      id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      repos TEXT NOT NULL DEFAULT '[]',\n      idle_minutes INTEGER,\n      is_default INTEGER NOT NULL DEFAULT 0,\n      created_at INTEGER NOT NULL,\n      deleted_at INTEGER)",
+    "CREATE UNIQUE INDEX ky_sandboxes_live_name ON ky_sandboxes (name) WHERE deleted_at IS NULL",
+    "CREATE TABLE ky_sandboxes_seeded (at INTEGER NOT NULL)"
+  ],
+  "tables": {
+    "ky_sandboxes": [
+      {
+        "id": "cloud",
+        "name": "cloud",
+        "repos": "[]",
+        "idle_minutes": null,
+        "is_default": 0,
+        "created_at": 1760000000000,
+        "deleted_at": null
+      },
+      {
+        "id": "sb-00000001",
+        "name": "web",
+        "repos": "[\"acme/web\",\"acme/site\"]",
+        "idle_minutes": null,
+        "is_default": 0,
+        "created_at": 1760000001000,
+        "deleted_at": null
+      },
+      {
+        "id": "sb-00000002",
+        "name": "api",
+        "repos": "[\"acme/api\"]",
+        "idle_minutes": 45,
+        "is_default": 1,
+        "created_at": 1760000002000,
+        "deleted_at": null
+      },
+      {
+        "id": "sb-00000003",
+        "name": "old",
+        "repos": "[\"acme/old\"]",
+        "idle_minutes": null,
+        "is_default": 0,
+        "created_at": 1760000003000,
+        "deleted_at": 1760000004000
+      },
+      {
+        "id": "sb-lost",
+        "name": "lost",
+        "repos": "[\"acme/lost\"]",
+        "idle_minutes": 10,
+        "is_default": 0,
+        "created_at": 1759999991000,
+        "deleted_at": 1760000005000
+      },
+      {
+        "id": "sb-wreck",
+        "name": "wreck",
+        "repos": "not json",
+        "idle_minutes": null,
+        "is_default": 0,
+        "created_at": 1760000006000,
+        "deleted_at": null
+      }
+    ],
+    "ky_sandboxes_seeded": [
+      {
+        "at": 1760000000000
+      }
+    ]
+  },
+  "reads": {
+    "before": {
+      "all": [
+        {
+          "id": "sb-lost",
+          "name": "lost",
+          "repos": [
+            "acme/lost"
+          ],
+          "idleMinutes": 10,
+          "isDefault": false,
+          "createdAt": 1759999991000,
+          "deletedAt": 1760000005000
+        },
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web",
+            "acme/site"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000003",
+          "name": "old",
+          "repos": [
+            "acme/old"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000003000,
+          "deletedAt": 1760000004000
+        },
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": null
+        }
+      ],
+      "live": [
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web",
+            "acme/site"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": null
+        }
+      ],
+      "kept": [
+        {
+          "id": "sb-lost",
+          "name": "lost",
+          "repos": [
+            "acme/lost"
+          ],
+          "idleMinutes": 10,
+          "isDefault": false,
+          "createdAt": 1759999991000,
+          "deletedAt": 1760000005000
+        },
+        {
+          "id": "sb-00000003",
+          "name": "old",
+          "repos": [
+            "acme/old"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000003000,
+          "deletedAt": 1760000004000
+        }
+      ],
+      "get": [
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web",
+            "acme/site"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000003",
+          "name": "old",
+          "repos": [
+            "acme/old"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000003000,
+          "deletedAt": 1760000004000
+        },
+        {
+          "id": "sb-lost",
+          "name": "lost",
+          "repos": [
+            "acme/lost"
+          ],
+          "idleMinutes": 10,
+          "isDefault": false,
+          "createdAt": 1759999991000,
+          "deletedAt": 1760000005000
+        },
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": null
+        },
+        null
+      ],
+      "named": [
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web",
+            "acme/site"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        null,
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": null
+        },
+        null
+      ],
+      "owner": [
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web",
+            "acme/site"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        null,
+        null
+      ],
+      "reposFor": [
+        "all",
+        [
+          "acme/web",
+          "acme/site"
+        ],
+        [
+          "acme/api"
+        ],
+        null,
+        null,
+        "all",
+        null
+      ]
+    },
+    "after": {
+      "back": {
+        "id": "sb-00000003",
+        "name": "older",
+        "repos": [
+          "acme/older"
+        ],
+        "idleMinutes": null,
+        "isDefault": false,
+        "createdAt": 1760000070000,
+        "deletedAt": null
+      },
+      "all": [
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": 1760000070000
+        },
+        {
+          "id": "sb-00000003",
+          "name": "older",
+          "repos": [
+            "acme/older"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000070000,
+          "deletedAt": null
+        }
+      ],
+      "live": [
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000003",
+          "name": "older",
+          "repos": [
+            "acme/older"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000070000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        }
+      ],
+      "kept": [
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": 1760000070000
+        }
+      ],
+      "get": [
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000003",
+          "name": "older",
+          "repos": [
+            "acme/older"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000070000,
+          "deletedAt": null
+        },
+        null,
+        {
+          "id": "sb-wreck",
+          "name": "wreck",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000006000,
+          "deletedAt": 1760000070000
+        },
+        null
+      ],
+      "named": [
+        {
+          "id": "cloud",
+          "name": "cloud",
+          "repos": [],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000000000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        null,
+        null,
+        null
+      ],
+      "owner": [
+        {
+          "id": "sb-00000002",
+          "name": "api",
+          "repos": [
+            "acme/api"
+          ],
+          "idleMinutes": 45,
+          "isDefault": true,
+          "createdAt": 1760000002000,
+          "deletedAt": null
+        },
+        {
+          "id": "sb-00000001",
+          "name": "web",
+          "repos": [
+            "acme/web"
+          ],
+          "idleMinutes": null,
+          "isDefault": false,
+          "createdAt": 1760000001000,
+          "deletedAt": null
+        },
+        null,
+        null
+      ],
+      "reposFor": [
+        "all",
+        [
+          "acme/web"
+        ],
+        [
+          "acme/api"
+        ],
+        [
+          "acme/older"
+        ],
+        null,
+        null,
+        null
+      ],
+      "refusals": [
+        "api is taken; pick another name.",
+        "acme/api is already api's; a repo belongs to one sandbox.",
+        "No sandbox sb-lost.",
+        "No kept disk sb-00000002."
+      ],
+      "seeded": [
+        {
+          "at": 1760000000000
+        }
+      ]
+    }
+  }
+}

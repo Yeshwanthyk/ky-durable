@@ -1,0 +1,13 @@
+diff --git a/src/runners/sandboxes.ts b/src/runners/sandboxes.ts
+index 631b1d6..24a8881 100644
+--- a/src/runners/sandboxes.ts
++++ b/src/runners/sandboxes.ts
+@@ -195,7 +195,7 @@ const make = Effect.gen(function* () {
+             name,
+             JSON.stringify(repos),
+             first,
+-            yield* Clock.currentTimeMillis,
++            Date.now(),
+             kept.id
+           );
+ 

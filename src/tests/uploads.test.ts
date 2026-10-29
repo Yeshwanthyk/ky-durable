@@ -1,7 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { saveKey } from "../sandboxes";
+import { saveKey } from "../runners/contract";
 import { PART_BYTES, putInParts } from "../uploads";
 import { type CloudMachine, FakeBox } from "./stack";
 
