@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TaskLogStep, TaskRow } from "../protocol";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
@@ -132,7 +133,10 @@ export function Timeline({ steps, working, empty = "No steps yet" }: { steps: re
   );
 }
 
-/** A sheet over the page with a title, an X at the top right, and a timeline. It opens as it mounts. */
+/**
+ * A sheet over the page with a title, an X at the top right, and a timeline. It opens as it mounts. It lives on the
+ * body: a modal dialog moved in the DOM, as a row that holds it is when Now reorders, stays open but stops being modal.
+ */
 export function TimelineSheet({
   title,
   sub,
@@ -152,7 +156,7 @@ export function TimelineSheet({
     dialog.current?.showModal();
   }, []);
 
-  return (
+  return createPortal(
     <dialog
       ref={dialog}
       className="soul-sheet timeline-sheet"
@@ -175,7 +179,8 @@ export function TimelineSheet({
       <div className="timeline-body" data-scroll>
         {children}
       </div>
-    </dialog>
+    </dialog>,
+    document.body
   );
 }
 
