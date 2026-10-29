@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Sql } from "../../src/core/sql";
 import { CODE_TTL_MS, IDLE_MAX, type RouteRefused, RUNNER_TABLES, SANDBOX_CAP, type Sandbox, saveKey } from "../../src/runners/contract";
-import { ownerRoute, tokenRoute } from "../../src/runners/routes";
+import { ownerRoutes, tokenRoutes } from "../../src/runners/routes";
 import { Registry, type SandboxRegistry } from "../../src/runners/sandboxes";
 import { pairAs } from "../../src/runners/wiring";
 import { budget, type Json } from "../parity/kit";
@@ -145,7 +145,7 @@ describe("making a sandbox", () => {
           } else {
             const refused = await refusal(registry.create({ name: "web", repos }, () => false));
 
-            expect([refused._tag, refused.refusal]).toEqual(["NotARepo", words.notARepo(bad)]);
+            expect([refused._tag, refused.refusal]).toEqual(["NotASandboxRepo", words.notARepo(bad)]);
             expect(rows()).toEqual([]);
           }
         })
@@ -427,7 +427,7 @@ async function routesWith(test: (routes: Routes) => Promise<void>): Promise<void
 
   const route = async (request: Request) => {
     const url = new URL(request.url);
-    const program = tokenRoute(request, world.env, url) ?? ownerRoute(request, world.env, url);
+    const program = tokenRoutes(request, world.env, url) ?? ownerRoutes(request, world.env, url);
 
     if (!program) throw new Error(`No route for ${url.pathname}`);
     const response = await runtime.runPromise(program.pipe(Effect.catch((refused: RouteRefused) => Effect.succeed(new Response(refused.refusal, { status: refused.status })))));

@@ -6,7 +6,7 @@ index 8e24302..30795c1 100644
  
  const pair = (request: Request, env: Env): Route =>
    Effect.gen(function* () {
--    if (request.method !== "POST") return yield* new NotAllowed();
+-    if (request.method !== "POST") return yield* new RunnerMethodNotAllowed();
      const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
  
      if (!(yield* Effect.promise(() => env.PAIR_LIMIT.limit({ key: address }))).success) return yield* new TooManyPairings();

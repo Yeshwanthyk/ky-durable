@@ -4,7 +4,7 @@ import { type Edge, makeEdge, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { MachineFacts } from "../machines/contract";
 import type { RouteRefused, Sandbox, SandboxChange, SandboxDraft } from "./contract";
-import { ownerRoute as owners, pairing, tokenRoute as tokens } from "./routes";
+import { ownerRoutes as owners, pairing, tokenRoutes as tokens } from "./routes";
 import { Registry } from "./sandboxes";
 
 export class Sandboxes {

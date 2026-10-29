@@ -77,7 +77,7 @@ export class World {
   readonly tokens = new Map<string, Token>();
   readonly machines = new Map<string, string>([["mini", "p1"]]);
   readonly effects: Json[] = [];
-  uuids = 0;
+  readonly #minting = { uuids: 0 };
   #minted = 0;
 
   readonly clock: Clock;
@@ -94,7 +94,7 @@ export class World {
 
   at(): void {
     vi.setSystemTime(this.clock.now());
-    uuidsFrom(this);
+    uuidsFrom(this.#minting);
   }
 
   readonly vault = {

@@ -2,11 +2,11 @@ diff --git a/src/runners/routes.ts b/src/runners/routes.ts
 index 8e24302..afe5bdb 100644
 --- a/src/runners/routes.ts
 +++ b/src/runners/routes.ts
-@@ -129,7 +129,7 @@ export function tokenRoute(request: Request, env: Env, url: URL): Route | undefi
+@@ -129,7 +129,7 @@ export function tokenRoutes(request: Request, env: Env, url: URL): Route | undefi
  }
  
- export function ownerRoute(request: Request, env: Env, url: URL): Route | undefined {
--  if (url.pathname === "/api/runners/codes") return request.method === "POST" ? newCode(env) : new NotAllowed();
+ export function ownerRoutes(request: Request, env: Env, url: URL): Route | undefined {
+-  if (url.pathname === "/api/runners/codes") return request.method === "POST" ? newCode(env) : new RunnerMethodNotAllowed();
 +  if (url.pathname === "/api/runners/codes") return newCode(env);
  
    const machine = /^\/api\/runners\/([^/]+)$/.exec(url.pathname)?.[1];

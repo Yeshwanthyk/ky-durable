@@ -22,7 +22,7 @@ export function bearer(request: Request): string | undefined {
   return header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
 }
 
-export const Sandbox = Schema.Struct({
+const Sandbox = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   repos: Schema.Array(Schema.String),
@@ -34,11 +34,11 @@ export const Sandbox = Schema.Struct({
 
 export type Sandbox = typeof Sandbox.Type;
 
-export const SandboxDraft = Schema.Struct({ name: Schema.String, repos: Schema.optional(Schema.Array(Schema.String)), from: Schema.optional(Schema.String) });
+const SandboxDraft = Schema.Struct({ name: Schema.String, repos: Schema.optional(Schema.Array(Schema.String)), from: Schema.optional(Schema.String) });
 
 export type SandboxDraft = typeof SandboxDraft.Type;
 
-export const SandboxChange = Schema.Struct({
+const SandboxChange = Schema.Struct({
   repos: Schema.optional(Schema.Array(Schema.String)),
   idleMinutes: Schema.optional(Schema.NullOr(Schema.Number)),
   isDefault: Schema.optional(Schema.Literal(true))
@@ -64,7 +64,7 @@ export class AtCap extends Schema.TaggedError<AtCap>()("AtCap", {}) implements R
   }
 }
 
-export class NotARepo extends Schema.TaggedError<NotARepo>()("NotARepo", { repo: Schema.String }) implements Refusable {
+export class NotASandboxRepo extends Schema.TaggedError<NotASandboxRepo>()("NotASandboxRepo", { repo: Schema.String }) implements Refusable {
   get refusal(): string {
     return `A repo is owner/name, not ${JSON.stringify(this.repo)}.`;
   }
@@ -124,7 +124,7 @@ export class UpgradeRequired extends Schema.TaggedError<UpgradeRequired>()("Upgr
   }
 }
 
-export class NotAllowed extends Schema.TaggedError<NotAllowed>()("NotAllowed", {}) implements Refusable {
+export class RunnerMethodNotAllowed extends Schema.TaggedError<RunnerMethodNotAllowed>()("RunnerMethodNotAllowed", {}) implements Refusable {
   get status(): number {
     return 405;
   }
@@ -194,7 +194,7 @@ export class SandboxNotRemovable extends Schema.TaggedError<SandboxNotRemovable>
   }
 }
 
-export class NoMachine extends Schema.TaggedError<NoMachine>()("NoMachine", { machine: Schema.String }) implements Refusable {
+export class NoRunnerMachine extends Schema.TaggedError<NoRunnerMachine>()("NoRunnerMachine", { machine: Schema.String }) implements Refusable {
   get status(): number {
     return 404;
   }
@@ -208,11 +208,11 @@ export type RouteRefused =
   | NotFound
   | Unauthorized
   | UpgradeRequired
-  | NotAllowed
+  | RunnerMethodNotAllowed
   | TooManyPairings
   | BadPairRequest
   | BadFacts
   | SandboxName
   | CodeRefused
   | SandboxNotRemovable
-  | NoMachine;
+  | NoRunnerMachine;

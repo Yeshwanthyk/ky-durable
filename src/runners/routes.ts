@@ -11,8 +11,8 @@ import {
   CODE_TTL_MS,
   CodeRefused,
   machineSubject,
-  NoMachine,
-  NotAllowed,
+  NoRunnerMachine,
+  RunnerMethodNotAllowed,
   NotFound,
   type RouteRefused,
   SandboxName,
@@ -76,7 +76,7 @@ export const pairing = (env: Env, machine: string, facts: MachineFacts, sandbox?
 
 const pair = (request: Request, env: Env): Route =>
   Effect.gen(function* () {
-    if (request.method !== "POST") return yield* new NotAllowed();
+    if (request.method !== "POST") return yield* new RunnerMethodNotAllowed();
     const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
 
     if (!(yield* Effect.promise(() => env.PAIR_LIMIT.limit({ key: address }))).success) return yield* new TooManyPairings();
@@ -110,7 +110,7 @@ const remove = (env: Env, machine: string): Route =>
     if (yield* Effect.promise(() => agent(env).isSandbox(machine))) return yield* new SandboxNotRemovable({ machine });
     const removed = yield* Effect.promise(() => agent(env).removeMachine(machine));
 
-    if (!removed) return yield* new NoMachine({ machine });
+    if (!removed) return yield* new NoRunnerMachine({ machine });
     const last = removed.pairing;
 
     if (last !== null) yield* Effect.promise(() => vault(env).revoke("machine", machineSubject(machine, last)));
@@ -118,7 +118,7 @@ const remove = (env: Env, machine: string): Route =>
     return new Response(null, { status: 204 });
   });
 
-export function tokenRoute(request: Request, env: Env, url: URL): Route | undefined {
+export function tokenRoutes(request: Request, env: Env, url: URL): Route | undefined {
   if (url.pathname.startsWith(RUNNER_PATH)) return runnerSocket(request, env, url);
 
   if (url.pathname === "/api/runners/pair") return pair(request, env);
@@ -128,8 +128,8 @@ export function tokenRoute(request: Request, env: Env, url: URL): Route | undefi
   return undefined;
 }
 
-export function ownerRoute(request: Request, env: Env, url: URL): Route | undefined {
-  if (url.pathname === "/api/runners/codes") return request.method === "POST" ? newCode(env) : new NotAllowed();
+export function ownerRoutes(request: Request, env: Env, url: URL): Route | undefined {
+  if (url.pathname === "/api/runners/codes") return request.method === "POST" ? newCode(env) : new RunnerMethodNotAllowed();
 
   const machine = /^\/api\/runners\/([^/]+)$/.exec(url.pathname)?.[1];
 

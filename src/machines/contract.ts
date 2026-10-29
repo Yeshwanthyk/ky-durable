@@ -12,7 +12,6 @@ export {
   fromBase64,
   isMachineFacts,
   isMachineName,
-  isPairRequest,
   isPipeReport,
   ISSUED_TTL_MS,
   OUTDATED,

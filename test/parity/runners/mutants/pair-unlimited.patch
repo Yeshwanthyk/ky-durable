@@ -3,7 +3,7 @@ index 8e24302..06a149b 100644
 --- a/src/runners/routes.ts
 +++ b/src/runners/routes.ts
 @@ -79,7 +79,7 @@ const pair = (request: Request, env: Env): Route =>
-     if (request.method !== "POST") return yield* new NotAllowed();
+     if (request.method !== "POST") return yield* new RunnerMethodNotAllowed();
      const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
  
 -    if (!(yield* Effect.promise(() => env.PAIR_LIMIT.limit({ key: address }))).success) return yield* new TooManyPairings();

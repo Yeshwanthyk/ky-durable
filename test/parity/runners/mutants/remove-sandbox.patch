@@ -9,4 +9,4 @@ index 8e24302..f4ea4a0 100644
 -    if (yield* Effect.promise(() => agent(env).isSandbox(machine))) return yield* new SandboxNotRemovable({ machine });
      const removed = yield* Effect.promise(() => agent(env).removeMachine(machine));
  
-     if (!removed) return yield* new NoMachine({ machine });
+     if (!removed) return yield* new NoRunnerMachine({ machine });

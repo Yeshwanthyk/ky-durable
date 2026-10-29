@@ -10,4 +10,4 @@ index 631b1d6..3e061c2 100644
 +    const clean = [...new Set(repos.map((repo) => repo.trim()))];
      const bad = clean.find((repo) => !REPO.test(repo));
  
-     if (bad !== undefined) return yield* new NotARepo({ repo: bad });
+     if (bad !== undefined) return yield* new NotASandboxRepo({ repo: bad });

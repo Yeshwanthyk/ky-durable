@@ -14,7 +14,7 @@ import {
   NoKeptDisk,
   NoSandbox,
   NotAName,
-  NotARepo,
+  NotASandboxRepo,
   RepoOwned,
   RUNNER_TABLES,
   SANDBOX_CAP,
@@ -62,7 +62,7 @@ const cleanRepos = (repos: readonly string[]) =>
     const clean = [...new Set(repos.map((repo) => repo.trim().toLowerCase()))];
     const bad = clean.find((repo) => !REPO.test(repo));
 
-    if (bad !== undefined) return yield* new NotARepo({ repo: bad });
+    if (bad !== undefined) return yield* new NotASandboxRepo({ repo: bad });
 
     return clean;
   });
@@ -78,8 +78,8 @@ export interface SandboxRegistry {
   readonly named: (name: string) => Effect.Effect<Sandbox | undefined>;
   readonly owner: (repo: string) => Effect.Effect<Sandbox | undefined>;
   readonly reposFor: (id: string) => Effect.Effect<readonly string[] | "all" | null>;
-  readonly create: (draft: SandboxDraft, taken: (name: string) => boolean) => Effect.Effect<Sandbox, NotAName | NameTaken | AtCap | NotARepo | RepoOwned | NoKeptDisk>;
-  readonly change: (id: string, change: SandboxChange) => Effect.Effect<Sandbox, NoSandbox | NotARepo | RepoOwned | BadIdle>;
+  readonly create: (draft: SandboxDraft, taken: (name: string) => boolean) => Effect.Effect<Sandbox, NotAName | NameTaken | AtCap | NotASandboxRepo | RepoOwned | NoKeptDisk>;
+  readonly change: (id: string, change: SandboxChange) => Effect.Effect<Sandbox, NoSandbox | NotASandboxRepo | RepoOwned | BadIdle>;
   readonly delete: (id: string) => Effect.Effect<Sandbox, NoSandbox>;
   readonly forget: (id: string) => Effect.Effect<Sandbox, NoKeptDisk>;
 }
