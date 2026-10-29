@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..0bcd845 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -535,7 +535,7 @@ export class Memories extends Context.Service<
+           search: Effect.fn("Memories.search")(function* (query: string) {
+             const pattern = yield* Effect.option(regexOf(query));
+             const needle = query.toLowerCase();
+-            const test = Option.match(pattern, { onSome: (regex) => (line: string) => regex.test(line), onNone: () => (line: string) => line.toLowerCase().includes(needle) });
++            const test = Option.match(pattern, { onSome: (regex) => (line: string) => regex.test(line), onNone: () => (_line: string) => false });
+             const matches: MemoryRow[] = [];
+             let total = 0;
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..66b54b5 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -479,7 +479,7 @@ export class Memories extends Context.Service<
+             return cut === line ? saved : `${saved} It was ${bytes(line)} bytes, so it was cut to ${ENTRY_BYTES}.`;
+           }),
+           recall: Effect.fn("Memories.recall")(function* (pattern: string, days?: Days) {
+-            const regex = yield* regexOf(pattern);
++            const regex = yield* Effect.orElseSucceed(regexOf(pattern), () => new RegExp(""));
+             const range = days ?? EVERY_DAY;
+             const hits: string[] = [];
+             let size = 0;

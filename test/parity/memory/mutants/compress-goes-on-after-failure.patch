@@ -1,0 +1,18 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..a1a8224 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -408,11 +408,13 @@ export class Memories extends Context.Service<
+         });
+ 
+         const compress = Effect.gen(function* () {
++          let failures = 0;
+           for (let block = yield* owed; block; block = yield* owed) {
+             const written = yield* Effect.result(write(block));
+ 
+             if (Result.isFailure(written)) {
+               const { cause } = written.failure;
++              if (++failures < 2) continue;
+               yield* Effect.sync(() => console.warn(`memory: compressing ${blockId(block)} failed`, cause));
+ 
+               return;

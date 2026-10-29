@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..8d1e624 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -251,7 +251,7 @@ export class Recalls extends Context.Service<
+           const due = wiring.anticipations.recallable(terms, now, ANTICIPATIONS);
+           const ahead = due.map((row) => `anticipation #${row.id} ${row.kind}: ${row.text}`);
+           const remembered = wiring.memory.relevant(terms, MEMORIES).map((memory) => `memory #${memory.id} ${memory.date}: ${memory.text}`);
+-          const lines = fit([...ahead, ...remembered, ...(yield* said(session, terms, messages)), ...skillsOf(terms)]);
++          const lines = fit([...remembered, ...ahead, ...(yield* said(session, terms, messages)), ...skillsOf(terms)]);
+ 
+           return { lines, anticipations: due.slice(0, lines.length).map((row) => row.id) };
+         });

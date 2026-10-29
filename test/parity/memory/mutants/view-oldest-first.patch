@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..0d971dc 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -527,7 +527,7 @@ export class Memories extends Context.Service<
+             const total = yield* count;
+             const items: MemoryItem[] = [];
+ 
+-            for (const block of cover(total, VIEW_LINES).toReversed()) items.push(...(yield* item(block)));
++            for (const block of cover(total, VIEW_LINES)) items.push(...(yield* item(block)));
+             const [newest] = yield* slice(total - 1, total);
+ 
+             return { count: total, newest: newest?.date ?? null, items };

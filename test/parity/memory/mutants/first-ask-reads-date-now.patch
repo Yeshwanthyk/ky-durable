@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..6a26d94 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -382,7 +382,7 @@ export class Memories extends Context.Service<
+             {
+               role: "user",
+               content: [...(context === "" ? [] : [{ type: "text" as const, text: `<memory>\n${context}\n</memory>` }]), { type: "text" as const, text: step }],
+-              timestamp: yield* Clock.currentTimeMillis
++              timestamp: Date.now()
+             }
+           ];
+ 

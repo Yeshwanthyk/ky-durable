@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..d59a30a 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -178,7 +178,7 @@ export class Recalls extends Context.Service<
+           return entry.id;
+         });
+ 
+-        const wanted = (session: string, entry: number, text: string) => wiring.surfaced.outcomeOf("recall", itemOf(session, entry)) === undefined && !isTrivial(text);
++        const wanted = (session: string, entry: number, text: string) => wiring.surfaced.outcomeOf("recall", itemOf(session, entry)) === undefined;
+ 
+         const show = (session: string, entry: number, { lines, anticipations }: Gathered, now: number) =>
+           Effect.sync(() => {

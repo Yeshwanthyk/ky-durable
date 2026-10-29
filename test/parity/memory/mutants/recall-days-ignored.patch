@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..732797a 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -485,7 +485,7 @@ export class Memories extends Context.Service<
+             let size = 0;
+             let matched = 0;
+ 
+-            for (const m of yield* memories("SELECT id, date, text FROM memo_log WHERE date >= ? AND date <= ? ORDER BY id", range.from, range.to)) {
++            for (const m of yield* memories("SELECT id, date, text FROM memo_log WHERE date >= ? AND date <= ? ORDER BY id", EVERY_DAY.from, EVERY_DAY.to)) {
+               const line = lineOf(m);
+ 
+               if (!regex.test(line)) continue;

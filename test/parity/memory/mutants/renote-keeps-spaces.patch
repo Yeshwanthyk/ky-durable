@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..6f03933 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -472,7 +472,7 @@ export class Memories extends Context.Service<
+           }),
+           note,
+           renote: Effect.fn("Memories.renote")(function* (raw: string) {
+-            const line = raw.replace(/\s+/g, " ").trim();
++            const line = raw.trim();
+             const cut = cutBytes(line, ENTRY_BYTES);
+             const saved = yield* note(cut);
+ 

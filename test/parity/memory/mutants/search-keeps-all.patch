@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..58f487d 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -543,7 +543,7 @@ export class Memories extends Context.Service<
+               if (!test(lineOf(m))) continue;
+               total++;
+ 
+-              if (matches.length < SEARCH_ROWS) matches.push(m);
++              if (matches.length < SEARCH_ROWS * 2) matches.push(m);
+             }
+ 
+             return { matches, total, regex: Option.isSome(pattern) };

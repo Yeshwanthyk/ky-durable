@@ -47,11 +47,11 @@ describe("dreaming's contract", () => {
 
     const [tables, count, soul] = await inside(name, (instance, state) => {
       instance.memory.note("the user likes green tea");
-      new Memory(state.storage.sql, never);
+      new Memory(state.storage, never);
       const again = new Soul(state.storage);
       const listed = state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => row.name);
 
-      return [listed, new Memory(state.storage.sql, never).count(), again.current().action];
+      return [listed, new Memory(state.storage, never).count(), again.current().action];
     });
 
     expect(Object.values(DREAMING_TABLES).filter((table) => !tables.includes(table))).toEqual([]);

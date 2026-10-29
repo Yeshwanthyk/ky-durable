@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..3fa3489 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -34,7 +34,7 @@ const ENTRY_BYTES = 280;
+ const SCALE =
+   "user: prefers oolong over green tea since May; wants groceries ordered each Sunday from Rainbow, soy not oat milk; talk: made the Sunday automation, first run 2026-06-07 ok; work: Mac task fixed the ky deploy (wrangler types); open: renew passport before the August trip to Lisbon";
+ 
+-const TRIES = 4;
++const TRIES = 5;
+ 
+ export type Compressor = (system: string, messages: Message[]) => Promise<AssistantMessage>;
+ 

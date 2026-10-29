@@ -25,7 +25,7 @@ function textIn(message: Message | undefined): string {
 
 /** Memory on the agent's storage, with the quick writer, holding `count` memories, "memory 0" on, every summary written. */
 async function filled(state: DurableObjectState, count: number): Promise<Memory> {
-  const memory = new Memory(state.storage.sql, writer);
+  const memory = new Memory(state.storage, writer);
 
   for (let i = 0; i < count; i++) memory.note(`memory ${i}`);
   await memory.compress();
@@ -146,7 +146,7 @@ describe("memory panel", () => {
       const asks: string[] = [];
       const answers = ["x".repeat(400), "y".repeat(300), "z".repeat(350), "w".repeat(320)];
 
-      const memory = new Memory(state.storage.sql, async (_system, messages) => {
+      const memory = new Memory(state.storage, async (_system, messages) => {
         asks.push(textIn(messages.at(-1)));
 
         return fauxAssistantMessage([fauxText(answers[asks.length - 1] ?? "")]);
@@ -171,7 +171,7 @@ describe("memory panel", () => {
       const answers = ["x".repeat(400), "y".repeat(300), "z".repeat(350), "w".repeat(320)];
 
       const memory = new Memory(
-        state.storage.sql,
+        state.storage,
         async () => fauxAssistantMessage([fauxText(answers[calls++] ?? "")])
       );
 
@@ -189,7 +189,7 @@ describe("memory panel", () => {
     const [before, after] = await inside(crypto.randomUUID(), async (_instance, state) => {
       let down = true;
 
-      const memory = new Memory(state.storage.sql, async (system, messages) => {
+      const memory = new Memory(state.storage, async (system, messages) => {
         if (down) throw new Error("model down");
 
         return writer(system, messages);
@@ -217,7 +217,7 @@ describe("memory panel", () => {
       const memory = await filled(state, 18);
       const asked: string[] = [];
 
-      const spy = new Memory(state.storage.sql, async (system, messages) => {
+      const spy = new Memory(state.storage, async (system, messages) => {
         asked.push(textIn(messages[0]));
 
         return writer(system, messages);
@@ -240,7 +240,7 @@ describe("memory panel", () => {
     const systems = await inside(crypto.randomUUID(), async (_instance, state) => {
       const systems: string[] = [];
 
-      const memory = new Memory(state.storage.sql, async (system, messages) => {
+      const memory = new Memory(state.storage, async (system, messages) => {
         systems.push(system);
 
         return writer(system, messages);

@@ -22,7 +22,7 @@ const refusal = <A>(work: () => A): { said: A } | { refused: string } => {
 
 type Storage = ConstructorParameters<typeof Skills>[0];
 
-const memoryOver = ({ sql }: Storage) => new Memory(sql, () => Promise.reject(new Error("no compressor")));
+const memoryOver = (storage: Storage) => new Memory(storage, () => Promise.reject(new Error("no compressor")));
 
 describe("dreaming rows written at B", () => {
   afterEach(() => {

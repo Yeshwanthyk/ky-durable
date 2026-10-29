@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..4ce3eaa 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -518,7 +518,7 @@ export class Memories extends Context.Service<
+           zoom: (id) =>
+             Effect.map(children(id), (items) =>
+               items
+-                .toReversed()
++                .slice()
+                 .map((each) => (each.kind === "memory" ? lineOf(each) : `#${each.block} ${each.text ?? "not compressed yet"}`))
+                 .join("\n")
+             ),

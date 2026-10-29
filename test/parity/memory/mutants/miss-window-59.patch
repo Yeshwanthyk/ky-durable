@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..6c144cc 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -31,7 +31,7 @@ const ANTICIPATIONS = 3;
+ 
+ const SKILLS = 2;
+ 
+-const MISS_WINDOW_MS = 3_600_000;
++const MISS_WINDOW_MS = 3_540_000;
+ 
+ const REPLAYED = 100;
+ 

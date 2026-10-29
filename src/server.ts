@@ -157,7 +157,7 @@ export class PiAgent extends DurableObject<Env> {
   });
   /** Its summaries are written on the background model, as notes come in; its days are the user's. */
   readonly memory = new Memory(
-    this.ctx.storage.sql,
+    this.ctx.storage,
     (system, messages) => this.models.ask("background", system, messages, { timeoutMs: 120_000, maxTokens: 8_000 }),
     () => this.automations.checkIns().zone
   );
@@ -248,7 +248,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly proactivity = new Proactivity(this.ctx.storage.sql);
   /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
   readonly recall = new Recall({
-    sql: this.ctx.storage.sql,
+    storage: this.ctx.storage,
     memory: this.memory,
     history: this.history,
     anticipations: this.anticipations,

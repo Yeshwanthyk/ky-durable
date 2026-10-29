@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..232b6fe 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -289,7 +289,7 @@ export class Recalls extends Context.Service<
+ 
+         return Recalls.of({
+           request: Effect.fn("Recalls.request")(function* (session, messages) {
+-            if (!wiring.chat(session) || wiring.proactivity.level() === "off") return undefined;
++            if (wiring.proactivity.level() === "off") return undefined;
+             const users = messages.filter(isUser);
+             const latest = users.at(-1);
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..6a4cae1 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -511,7 +511,7 @@ export class Memories extends Context.Service<
+             return (yield* memories(`SELECT id, date, text FROM memo_log WHERE ${holding}`, ...like))
+               .map((memory) => ({ memory, score: patterns.filter((pattern) => pattern.test(memory.text)).length }))
+               .filter((each) => each.score > 0)
+-              .sort((a, b) => b.score - a.score || b.memory.id - a.memory.id)
++              .sort((a, b) => b.memory.id - a.memory.id)
+               .slice(0, limit)
+               .map((each) => each.memory);
+           }),

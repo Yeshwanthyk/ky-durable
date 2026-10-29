@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..22c5871 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -504,7 +504,7 @@ export class Memories extends Context.Service<
+           }),
+           relevant: Effect.fn("Memories.relevant")(function* (terms: readonly string[], limit: number) {
+             if (terms.length === 0) return [];
+-            const patterns = terms.map((term) => new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
++            const patterns = terms.map((term) => new RegExp(term, "i"));
+             const holding = terms.map(() => "text LIKE ? ESCAPE '\\'").join(" OR ");
+             const like = terms.map((term) => `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
+ 

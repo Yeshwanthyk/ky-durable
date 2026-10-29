@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..1e60dc2 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -319,7 +319,7 @@ export class Memories extends Context.Service<
+           const total = yield* count;
+ 
+           for (let size = 2; size <= total; size *= 2) {
+-            for (let k = 0; k < Math.floor(total / size); k++) {
++            for (let k = Math.floor(total / size) - 1; k >= 0; k--) {
+               const block: Block = [k * size, (k + 1) * size];
+ 
+               if ((yield* summary(...block)) === undefined) return block;

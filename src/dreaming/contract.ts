@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import { decodeOr, parseOr } from "../core/decode.ts";
 
@@ -59,59 +60,29 @@ export const DREAM_MEMORY_TOOLS = [MEMORY_RECALL, MEMORY_ZOOM, MEMORY_NOTE, MEMO
 
 // Memory.
 
-const MemoryRowSchema = Type.Object({ id: Type.Integer(), date: Type.String(), text: Type.String() });
+export const MemoryRow = Schema.Struct({ id: Schema.Int, date: Schema.String, text: Schema.String });
 
-export type MemoryRow = Static<typeof MemoryRowSchema>;
+export type MemoryRow = typeof MemoryRow.Type;
 
-/** One line of the memory as the panel shows it: a raw memory, or a block and its summary. */
-const MemoryItemSchema = Type.Union([
-  Type.Object({ kind: Type.Literal("memory"), ...MemoryRowSchema.properties }),
-  Type.Object({
-    kind: Type.Literal("block"),
-    /** Its id, like "16-31". */
-    block: Type.String(),
-    /** Its summary; null until the agent writes it. */
-    text: Type.Union([Type.String(), Type.Null()]),
-    /** The dates of its oldest and newest memory. */
-    from: Type.String(),
-    to: Type.String()
-  })
+const MemoryItem = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("memory"), ...MemoryRow.fields }),
+  Schema.Struct({ kind: Schema.Literal("block"), block: Schema.String, text: Schema.NullOr(Schema.String), from: Schema.String, to: Schema.String })
 ]);
 
-export type MemoryItem = Static<typeof MemoryItemSchema>;
+export type MemoryItem = typeof MemoryItem.Type;
 
-/** What the panel shows first: wake's view of the memory, newest first. */
-const MemoryViewSchema = Type.Object({
-  count: Type.Integer(),
-  /** The newest memory's date, YYYY-MM-DD; null when there are none. */
-  newest: Type.Union([Type.String(), Type.Null()]),
-  items: Type.Array(MemoryItemSchema)
-});
+const MemoryView = Schema.Struct({ count: Schema.Int, newest: Schema.NullOr(Schema.String), items: Schema.Array(MemoryItem) });
 
-export type MemoryView = Static<typeof MemoryViewSchema>;
+export type MemoryView = typeof MemoryView.Type;
 
-/** A search's newest matches, and how many there were. */
-const MemorySearchSchema = Type.Object({ matches: Type.Array(MemoryRowSchema), total: Type.Integer(), regex: Type.Boolean() });
+const MemorySearch = Schema.Struct({ matches: Schema.Array(MemoryRow), total: Schema.Int, regex: Schema.Boolean });
 
-export type MemorySearch = Static<typeof MemorySearchSchema>;
+export type MemorySearch = typeof MemorySearch.Type;
 
 const CountRow = Type.Object({ n: Type.Integer() });
 
-const SummaryRow = Type.Object({ text: Type.String() });
-
-const DatesRow = Type.Object({ from: Type.String(), to: Type.String() });
-
-/** A memory row as stored, or undefined when a restore left it damaged: callers skip it. */
-export const memoryRow = (row: Row): MemoryRow | undefined => decodeOr(MemoryRowSchema, row, undefined);
-
 /** A COUNT(*) row; 0 when it isn't one. */
 export const countOf = (row: Row): number => decodeOr(CountRow, row, { n: 0 }).n;
-
-/** A summary row's text, or undefined when there is none or it is damaged: the block is then owed again. */
-export const summaryOf = (row: Row): string | undefined => decodeOr(SummaryRow, row, undefined)?.text;
-
-/** A block's oldest and newest dates; empty when they can't be read. */
-export const datesOf = (row: Row): Static<typeof DatesRow> => decodeOr(DatesRow, row, { from: "", to: "" });
 
 // Anticipations.
 
@@ -191,14 +162,9 @@ export type ShownItem = Static<typeof ShownItemRow>;
 /** A shown item's row, or undefined when it is damaged: callers skip it. */
 export const shownItem = (row: Row): ShownItem | undefined => decodeOr(ShownItemRow, row, undefined);
 
-/** A pi entry's id and its message's timestamp, as recall reads a chat's user messages. */
-const EntryAtRow = Type.Object({ id: Type.Integer(), at: Type.Number() });
+const Recalled = Schema.Struct({ entry: Schema.Int, lines: Schema.Array(Schema.String) });
 
-/** An entry's id and timestamp, or undefined when the row has none (not a message): callers skip it. */
-export const entryAt = (row: Row): Static<typeof EntryAtRow> | undefined => decodeOr(EntryAtRow, row, undefined);
-
-/** The context recalled for a user's message, by its pi entry id: the lines its chip shows (src/dreaming/recall.ts). */
-export type Recalled = { readonly entry: number; readonly lines: readonly string[] };
+export type Recalled = typeof Recalled.Type;
 
 /** A look time: local HH:MM. */
 export const LOOK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;

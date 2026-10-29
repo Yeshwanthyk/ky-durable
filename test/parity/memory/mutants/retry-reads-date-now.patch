@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..d637e6a 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -400,7 +400,7 @@ export class Memories extends Context.Service<
+             messages.push(answer, {
+               role: "user",
+               content: `That line is ${size} bytes; the limit is ${ENTRY_BYTES}. It must end where it is cut here:\n${cutBytes(line, ENTRY_BYTES)}| ← LIMIT`,
+-              timestamp: yield* Clock.currentTimeMillis
++              timestamp: Date.now()
+             });
+           }
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..e19cca5 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -15,7 +15,7 @@ import type { Memory } from "./memory";
+ import type { Proactivity } from "./proactivity";
+ import type { Surfaced } from "./surfaced";
+ 
+-const BLOCK_CHARS = 1_500;
++const BLOCK_CHARS = 2_000;
+ 
+ const LINE_CHARS = 300;
+ 

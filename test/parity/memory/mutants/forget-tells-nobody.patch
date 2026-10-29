@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..b96703d 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -553,7 +553,7 @@ export class Memories extends Context.Service<
+             const [row] = yield* exec("SELECT text FROM memo_tree WHERE lo <= ? AND hi >= ? ORDER BY hi - lo LIMIT 1", lo, hi);
+             const dropped = decodeSummary(row);
+ 
+-            if (Option.isSome(dropped)) {
++            if (Option.isSome(dropped) && false) {
+               yield* Effect.try({
+                 try: () => {
+                   for (const watcher of forgets) watcher({ block: id, text: dropped.value.text, conversation });

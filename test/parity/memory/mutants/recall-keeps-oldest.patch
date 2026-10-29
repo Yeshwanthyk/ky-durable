@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..d02c05d 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -493,7 +493,7 @@ export class Memories extends Context.Service<
+               hits.push(line);
+               size += bytes(line) + 1;
+ 
+-              while (size > RECALL_BYTES) size -= bytes(must(hits.shift(), "the hits hold what size counts")) + 1;
++              while (size > RECALL_BYTES) size -= bytes(must(hits.pop(), "the hits hold what size counts")) + 1;
+             }
+ 
+             if (matched === 0) return days === undefined ? "No match." : `No match ${days.said}.`;

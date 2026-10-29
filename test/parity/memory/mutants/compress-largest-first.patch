@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..2b688fb 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -318,7 +318,7 @@ export class Memories extends Context.Service<
+         const owed = Effect.gen(function* () {
+           const total = yield* count;
+ 
+-          for (let size = 2; size <= total; size *= 2) {
++          for (let size = 2 ** Math.floor(Math.log2(Math.max(total, 1))); size >= 2; size /= 2) {
+             for (let k = 0; k < Math.floor(total / size); k++) {
+               const block: Block = [k * size, (k + 1) * size];
+ 

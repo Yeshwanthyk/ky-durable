@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..0715f5c 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -25,7 +25,7 @@ const TERM_CHARS = 3;
+ 
+ const MEMORIES = 3;
+ 
+-const MESSAGES = 3;
++const MESSAGES = 4;
+ 
+ const ANTICIPATIONS = 3;
+ 

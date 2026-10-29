@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..ede3ec8 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -160,7 +160,7 @@ class ForgetRefused extends Schema.TaggedError<ForgetRefused>()("ForgetRefused",
+ class Unwritten extends Schema.TaggedError<Unwritten>()("Unwritten", { cause: Schema.Defect() }) {}
+ 
+ const parseBlock = (id: string): Effect.Effect<Block, NotABlockId | NotABlock> => {
+-  const match = /^(\d+)-(\d+)$/.exec(id.trim());
++  const match = /^(\d+)-(\d+)/.exec(id.trim());
+ 
+   if (!match) return Effect.fail(new NotABlockId({ id }));
+   const lo = Number(match[1]);

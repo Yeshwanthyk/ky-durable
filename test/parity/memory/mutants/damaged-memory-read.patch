@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..124da47 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -296,7 +296,7 @@ export class Memories extends Context.Service<
+       Effect.gen(function* () {
+         const sql = yield* Sql;
+         const exec = (query: string, ...params: SqlStorageValue[]) => Effect.orDie(sql.exec(query, ...params));
+-        const memories = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(query, ...params), (found) => found.flatMap((row) => Option.toArray(decodeMemory(row))));
++        const memories = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(query, ...params), (found) => found.map((row) => Option.getOrElse(decodeMemory(row), () => ({ id: Number(row.id), date: String(row.date), text: String(row.text) }))));
+ 
+         const changed = Effect.sync(() => {
+           for (const listener of listeners) listener();

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..6a63133 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -313,7 +313,7 @@ export class Memories extends Context.Service<
+         const slice = (lo: number, hi: number) => memories("SELECT id, date, text FROM memo_log WHERE id >= ? AND id < ? ORDER BY id", lo, hi);
+ 
+         const summary = (lo: number, hi: number) =>
+-          Effect.map(exec("SELECT text FROM memo_tree WHERE lo = ? AND hi = ?", lo, hi), ([row]) => Option.getOrUndefined(Option.map(decodeSummary(row), (each) => each.text)));
++          Effect.map(exec("SELECT text FROM memo_tree WHERE lo = ? AND hi = ?", lo, hi), ([row]) => row === undefined ? undefined : String(row.text));
+ 
+         const owed = Effect.gen(function* () {
+           const total = yield* count;

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..1d550a8 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -539,7 +539,7 @@ export class Memories extends Context.Service<
+             const matches: MemoryRow[] = [];
+             let total = 0;
+ 
+-            for (const m of yield* memories("SELECT id, date, text FROM memo_log ORDER BY id DESC")) {
++            for (const m of yield* memories("SELECT id, date, text FROM memo_log ORDER BY id")) {
+               if (!test(lineOf(m))) continue;
+               total++;
+ 

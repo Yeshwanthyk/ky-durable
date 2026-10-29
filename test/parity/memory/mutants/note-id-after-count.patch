@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..eaf2903 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -426,7 +426,7 @@ export class Memories extends Context.Service<
+         const note = Effect.fn("Memories.note")(function* (raw: string) {
+           const line = yield* checkLine(raw);
+           const date = localNow(yield* Effect.sync(zone), yield* Clock.currentTimeMillis).date;
+-          const id = yield* count;
++          const id = (yield* count) + 1;
+           yield* exec("INSERT INTO memo_log (id, date, text) VALUES (?, ?, ?)", id, date, line);
+           yield* changed;
+ 

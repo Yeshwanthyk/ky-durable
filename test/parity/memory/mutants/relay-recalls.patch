@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/recall.ts b/src/dreaming/recall.ts
+index e226d0f..94cecb0 100644
+--- a/src/dreaming/recall.ts
++++ b/src/dreaming/recall.ts
+@@ -163,7 +163,7 @@ export class Recalls extends Context.Service<
+           return users.find((user) => {
+             const request = placed.get(user.id);
+ 
+-            return isOwnRequest(request) || (request !== undefined && wiring.delivered(request));
++            return true;
+           });
+         });
+ 

@@ -1,0 +1,13 @@
+diff --git a/src/dreaming/memory.ts b/src/dreaming/memory.ts
+index 0135a77..357ec67 100644
+--- a/src/dreaming/memory.ts
++++ b/src/dreaming/memory.ts
+@@ -550,7 +550,7 @@ export class Memories extends Context.Service<
+           }),
+           forget: Effect.fn("Memories.forget")(function* (id: string, conversation: string | null) {
+             const [lo, hi] = yield* parseBlock(id);
+-            const [row] = yield* exec("SELECT text FROM memo_tree WHERE lo <= ? AND hi >= ? ORDER BY hi - lo LIMIT 1", lo, hi);
++            const [row] = yield* exec("SELECT text FROM memo_tree WHERE lo <= ? AND hi >= ? ORDER BY hi - lo DESC LIMIT 1", lo, hi);
+             const dropped = decodeSummary(row);
+ 
+             if (Option.isSome(dropped)) {
