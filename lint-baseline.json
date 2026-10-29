@@ -41,17 +41,6 @@
   "src/github.ts": {
     "ky(no-unchecked-parse)": 1
   },
-  "src/providers/legacy/chatgpt.ts": {
-    "ky(no-unchecked-parse)": 3,
-    "typescript(no-non-null-assertion)": 1
-  },
-  "src/providers/legacy/models.ts": {
-    "typescript(await-thenable)": 1,
-    "typescript(no-non-null-assertion)": 1
-  },
-  "src/providers/legacy/records.ts": {
-    "ky(no-unchecked-parse)": 1
-  },
   "src/sandbox-routes.ts": {
     "ky(no-unchecked-parse)": 2
   },

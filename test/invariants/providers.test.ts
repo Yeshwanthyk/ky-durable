@@ -5,19 +5,13 @@ import { describe, expect, it } from "vitest";
 import { CLAUDE_TOKEN_HERE, CONTEXT_WINDOW } from "../../src/providers/contract";
 import type { Purpose } from "../../src/settings/contract";
 import { ANTHROPIC_KEY, OPENAI_KEY } from "../fakes/vendors";
-import { assertParity, budget, type Json, type Parity } from "../parity/kit";
-import { legacy } from "../parity/providers/legacy";
+import { budget, type Json } from "../parity/kit";
 import {
-  type Action,
   aChoice,
-  actions,
-  advances,
   COOLDOWN_MS,
   DEVICE,
   DEVICE_ANSWERS,
-  instanceOf,
   LOGIN,
-  next,
   OPENCODE_KEY,
   POLL_ANSWERS,
   PROBE_TTL_MS,
@@ -26,21 +20,6 @@ import {
   START,
   World
 } from "../parity/providers/world";
-
-const providersParity: Parity<Action> = {
-  domain: "providers",
-  actions,
-  advances,
-  start: START,
-  legacy: async (clock) => instanceOf(legacy, clock),
-  next: async (clock) => instanceOf(next, clock)
-};
-
-describe("providers against B", () => {
-  it("answers, stores, calls and changes as B does on every generated run", { timeout: 600_000 }, async () => {
-    await assertParity(providersParity);
-  });
-});
 
 const words = {
   noVendor: (id: string) => `ky has no vendor "${id}".`,
@@ -70,7 +49,7 @@ const aVendor = fc.constantFrom(...VENDORS);
 function fresh() {
   const time = { at: START };
 
-  return { world: new World(next, { now: () => time.at }), time };
+  return { world: new World({ now: () => time.at }), time };
 }
 
 const providerIds = (world: World) => world.models.catalog().map((provider) => provider.id);

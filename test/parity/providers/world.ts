@@ -6,36 +6,15 @@ import type { ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, ProviderKey
 import { Models, pollDevice, refreshLogin, startDevice } from "../../../src/providers/wiring";
 import type { ModelChoice, Purpose } from "../../../src/settings/contract";
 import { type AiCall, chatCompletions, fakeAI, type Reply } from "../../fakes/ai";
-import { ANTHROPIC_KEY, OPENAI_KEY, vendors } from "../../fakes/vendors";
+import { vendors } from "../../fakes/vendors";
 import { fakeVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../fakes/vibeproxy";
 import { clockAt } from "../access/clock";
-import type { Clock, Instance, Json } from "../kit";
+import type { Clock, Json } from "../kit";
 import { storageOf } from "../skills/storage";
-
-export type ModelsSide = Pick<
-  Models,
-  "settings" | "registry" | "onChange" | "choices" | "catalog" | "view" | "addKey" | "removeKey" | "refresh" | "probe" | "resolve" | "worker" | "valid" | "imageSupport" | "complete" | "ask"
->;
 
 type Machines = ConstructorParameters<typeof Models>[3];
 
 type Pipe = ConstructorParameters<typeof Models>[4];
-
-export type Side = {
-  models(storage: DurableObjectStorage, boundary: ModelsBoundary, vault: KeyVault, machines: Machines, pipe: Pipe, clock: Clock): ModelsSide;
-  startDevice(fetch: Fetch): Promise<Device>;
-  pollDevice(fetch: Fetch, device: Device): Promise<ChatGptLogin | "pending">;
-  refreshLogin(fetch: Fetch, current: ChatGptLogin): Promise<ChatGptLogin>;
-  timed<T>(clock: Clock, work: () => Promise<T>): Promise<T>;
-};
-
-export const next: Side = {
-  models: (storage, boundary, vault, machines, pipe, clock) => new Models(storage, boundary, vault, machines, pipe, clockAt(() => clock.now())),
-  startDevice,
-  pollDevice,
-  refreshLogin,
-  timed: (_clock, work) => work()
-};
 
 export const START = 1_700_000_000_000;
 
@@ -45,11 +24,7 @@ export const COOLDOWN_MS = 60_000;
 
 export const MACHINES = ["mac", "mini"] as const;
 
-export const PURPOSES: readonly Purpose[] = ["main", "worker", "background", "fallback"];
-
 export const OPENCODE_KEY = "opencode-test-key";
-
-export const SUBSCRIPTION_TOKEN = "sk-ant-oat01-subscription";
 
 export const MODELS = {
   "workers-ai": ["workers-ai/@cf/zai-org/glm-5.3-flash", "workers-ai/@cf/moonshotai/kimi-k2.6", "workers-ai/@cf/openai/gpt-oss-120b"],
@@ -120,67 +95,9 @@ export type RawRow = {
   readonly enabled: number;
 };
 
-export const PROVIDER_IDS = ["workers-ai", "vibeproxy", "anthropic", "openai", "opencode-go", "gone"];
-
-const aPurpose = fc.constantFrom(...PURPOSES);
-
 export const aChoice: fc.Arbitrary<ModelChoice> = fc
   .constantFrom(...Object.entries(MODELS).flatMap(([provider, ids]) => ids.map((modelId) => ({ provider, modelId }))))
   .chain((pick) => fc.constantFrom("off", "minimal", "low", "medium", "high", "xhigh", "max" as const).map((thinkingLevel) => ({ ...pick, thinkingLevel })));
-
-const aKey = fc.constantFrom(ANTHROPIC_KEY, OPENAI_KEY, OPENCODE_KEY, `  ${ANTHROPIC_KEY}  `, SUBSCRIPTION_TOKEN, `x${SUBSCRIPTION_TOKEN}`, "", "   ", "wrong");
-
-export const aRawRow: fc.Arbitrary<RawRow> = fc.oneof(
-  fc.record({
-    id: fc.constantFrom("nope", "anthropic", "elsewhere"),
-    kind: fc.constant("api-key"),
-    vendor: fc.constantFrom("nope", "anthropic", "openai", null),
-    machine: fc.constant(null),
-    port: fc.constant(null),
-    api: fc.constant(null),
-    label: fc.constantFrom("Nope", "Anthropic"),
-    enabled: fc.constantFrom(0, 1, 2)
-  }),
-  fc.record({
-    id: fc.constantFrom("ollama", "vibeproxy"),
-    kind: fc.constant("runner-local"),
-    vendor: fc.constant(null),
-    machine: fc.constantFrom(...MACHINES, null),
-    port: fc.constantFrom(VIBEPROXY_TEST_PORT, null),
-    api: fc.constantFrom("anthropic-messages", "openai-completions"),
-    label: fc.constantFrom("Ollama", "Claude via VibeProxy"),
-    enabled: fc.constantFrom(0, 1)
-  })
-);
-
-export const actions: fc.Arbitrary<Action> = fc.oneof(
-  { weight: 3, arbitrary: fc.record({ kind: fc.constant("addKey" as const), vendor: fc.constantFrom("anthropic", "openai", "opencode-go", "nope"), key: aKey }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("removeKey" as const), id: fc.constantFrom(...PROVIDER_IDS) }) },
-  { weight: 2, arbitrary: fc.record({ kind: fc.constant("machine" as const), name: fc.constantFrom(...MACHINES), online: fc.boolean(), shares: fc.boolean() }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("vibe" as const), up: fc.boolean() }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("down" as const), provider: fc.constantFrom("workers-ai" as const, "opencode-go" as const), down: fc.boolean() }) },
-  { weight: 2, arbitrary: fc.record({ kind: fc.constant("reply" as const), reply: fc.constantFrom<ReplyName>("hi", "title", "bad", "unauthorized", "limited", "broken") }) },
-  { weight: 2, arbitrary: fc.constant({ kind: "refresh" as const }) },
-  { weight: 1, arbitrary: fc.constant({ kind: "probe" as const }) },
-  { weight: 2, arbitrary: fc.record({ kind: fc.constant("set" as const), purpose: aPurpose, choice: aChoice }) },
-  { weight: 2, arbitrary: fc.record({ kind: fc.constant("resolve" as const), purpose: aPurpose, images: fc.boolean() }) },
-  { weight: 1, arbitrary: fc.constant({ kind: "view" as const }) },
-  { weight: 1, arbitrary: fc.constant({ kind: "catalog" as const }) },
-  { weight: 1, arbitrary: fc.constant({ kind: "choices" as const }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("worker" as const), own: fc.option(aChoice, { nil: null }) }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("valid" as const), choice: aChoice }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("imageSupport" as const), purpose: aPurpose }) },
-  { weight: 3, arbitrary: fc.record({ kind: fc.constant("ask" as const), purpose: aPurpose, text: fc.constantFrom("hello", "please fail"), maxTokens: fc.constantFrom(16, 2_000) }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("complete" as const), purpose: aPurpose }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("reboot" as const), tunnel: fc.boolean() }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("record" as const), row: aRawRow }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("enable" as const), id: fc.constantFrom(...PROVIDER_IDS), enabled: fc.constantFrom(0 as const, 1 as const) }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("device" as const), answer: fc.constantFrom(...DEVICE_ANSWERS) }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("poll" as const), answer: fc.constantFrom(...POLL_ANSWERS) }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("refreshLogin" as const), answer: fc.constantFrom(...REFRESH_ANSWERS) }) }
-);
-
-export const advances = fc.constantFrom(1_000, PROBE_TTL_MS, COOLDOWN_MS - 1, COOLDOWN_MS + 1_000);
 
 const base64url = (value: Json) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
@@ -262,10 +179,6 @@ function refreshAnswer(answer: RefreshAnswer): Response {
 
 type MachineState = { online: boolean; shares: boolean };
 
-const flushed = async () => {
-  for (let tick = 0; tick < 8; tick++) await new Promise((resolve) => setTimeout(resolve, 0));
-};
-
 function machineInfo(name: string, state: MachineState): MachineInfo {
   return {
     name,
@@ -330,17 +243,15 @@ export class World {
   tunnel = false;
   reply: Reply = REPLIES.hi;
   changes = 0;
-  models: ModelsSide;
-  readonly side: Side;
+  models: Models;
   readonly clock: Clock;
 
-  constructor(side: Side, clock: Clock) {
-    this.side = side;
+  constructor(clock: Clock) {
     this.clock = clock;
     this.models = this.boot();
   }
 
-  boot(): ModelsSide {
+  boot(): Models {
     const script = () => this.reply;
     const refusing = (id: string) => async () => (this.down.has(id) ? 503 : undefined);
 
@@ -382,7 +293,7 @@ export class World {
       }
     };
 
-    const models = this.side.models(storageOf(this.db), boundary, vault, machines, pipe, this.clock);
+    const models = new Models(storageOf(this.db), boundary, vault, machines, pipe, clockAt(() => this.clock.now()));
 
     models.onChange(() => this.changes++);
 
@@ -495,19 +406,19 @@ export class World {
       case "device": {
         const { answer } = action;
 
-        return this.side.startDevice(this.#openai(() => deviceAnswer(answer)));
+        return startDevice(this.#openai(() => deviceAnswer(answer)));
       }
 
       case "poll": {
         const { answer } = action;
 
-        return this.side.pollDevice(this.#openai((path) => pollAnswer(answer, path)), DEVICE);
+        return pollDevice(this.#openai((path) => pollAnswer(answer, path)), DEVICE);
       }
 
       case "refreshLogin": {
         const { answer } = action;
 
-        return this.side.refreshLogin(this.#openai(() => refreshAnswer(answer)), LOGIN);
+        return refreshLogin(this.#openai(() => refreshAnswer(answer)), LOGIN);
       }
     }
   }
@@ -530,22 +441,4 @@ export class World {
       changes: this.changes
     };
   }
-}
-
-export function instanceOf(side: Side, clock: Clock): Instance<Action> {
-  const world = side.timed(clock, async () => new World(side, clock));
-
-  return {
-    apply: async (action) =>
-      side.timed(clock, async () => {
-        const result = await (await world).apply(action);
-
-        await flushed();
-
-        return result;
-      }),
-    tables: async () => (await world).tables(),
-    effects: async () => (await world).effects(),
-    dispose: async () => (await world).db.close()
-  };
 }

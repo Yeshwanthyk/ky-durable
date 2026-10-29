@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
-import { next, START, World } from "./world";
+import { START, World } from "./world";
 
 const Cell = Schema.NullOr(Schema.Union([Schema.String, Schema.Number]));
 
@@ -25,7 +25,7 @@ const atB = Schema.decodeUnknownSync(Schema.Struct({ commit: Schema.Literal("b65
 );
 
 function saved(recorded: (typeof atB.cases)[number]): World {
-  const world = new World(next, { now: () => START });
+  const world = new World({ now: () => START });
 
   for (const [table, rows] of Object.entries(recorded.tables)) {
     world.db.exec(`DELETE FROM ${table}`);
