@@ -109,8 +109,10 @@ function Step({ step }: { step: TimelineStep }) {
   );
 }
 
-/** Steps as a timeline, newest last, with a Working line under them while the work goes on. */
+/** Steps as a timeline, newest last; while the work goes on and no step is running, a Thinking line under them. */
 export function Timeline({ steps, working, empty = "No steps yet" }: { steps: readonly TimelineStep[]; working: boolean; empty?: string }) {
+  const thinking = working && steps.at(-1)?.state !== "running";
+
   return (
     <>
       {steps.length > 0 ? (
@@ -122,10 +124,10 @@ export function Timeline({ steps, working, empty = "No steps yet" }: { steps: re
       ) : working ? null : (
         <p className="timeline-empty">{empty}</p>
       )}
-      {working ? (
+      {thinking ? (
         <div className="timeline-working" role="status">
           <Flower />
-          <span className="shimmer">Working</span>
+          <span className="shimmer">Thinking</span>
         </div>
       ) : null}
     </>
