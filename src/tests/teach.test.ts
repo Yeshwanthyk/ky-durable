@@ -38,7 +38,7 @@ async function showMe(name: string) {
   });
   const asked = await promptTool(name, `tool browse_handoff ${JSON.stringify({ url: SHOP, instructions: INSTRUCTIONS, teach: true })}`);
   expect(asked.failed).toBe(false);
-  const [card] = await inside(name, (instance) => instance.approvals.pending());
+  const [card] = await inside(name, (instance) => instance.approvals.cards());
 
   return card!;
 }
