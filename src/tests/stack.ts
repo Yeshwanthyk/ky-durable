@@ -10,6 +10,7 @@ import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wir
 import { edge, FakeAccess, signInAgain } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
 import { fakeOpenAi } from "../../test/fakes/openai";
+import { FakeBrowsers } from "./fake-browser";
 import { FakeExecutor } from "./fake-executor";
 import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
@@ -428,7 +429,7 @@ export class Vault extends ProductionVault {
  *   pipe instead, the test's own fake behind it; `pipe()` sends a request
  *   over it as a provider's would (`overPipe()`);
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
- * - Browser Rendering is left out: a launch is refused;
+ * - Browser Run is FakeBrowsers (src/tests/fake-browser.ts): Kitesurf and Chromium sessions reading the pages a test sets;
  * - other people's kys are other test agents: `https://<name>.peer.test` is the agent `<name>`'s peer
  *   routes, with a Vault of its own (`peerVaultName`), so two test kys pair as two deploys do;
  * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
@@ -539,6 +540,7 @@ export const peerVaultName = (agent: string) => `peer-vault-${agent}`;
 /** The test boundary, with its fakes in reach. */
 export type TestBoundary = Boundary & {
   readonly executorFake: FakeExecutor;
+  readonly browsers: FakeBrowsers;
   /** Every request to Workers AI and the api-key vendors, as the wire carried it. */
   readonly calls: AiCall[];
   /** Each request's user messages' text, as the wire carried them (a turn-start recall block included), in order. */
@@ -991,6 +993,7 @@ export class PiAgent extends ProductionAgent {
       // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
       probeTtlMs: this.ctx.id.name?.includes(STEADY) === true ? undefined : 0,
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
+      browsers: new FakeBrowsers(),
       executorFetch: executorFake.fetch,
       // Each test ky calls from an address of its own, so only a test that means to meets the pair route's limit.
       peerFetch: async (input, init) => {

@@ -37,6 +37,10 @@ import { credentialFetch, type CredentialReply, type CredentialRequest, Credenti
  *   (src/inbound/credentials.ts). A webhook's signing secret, ("hook-signing",
  *   its id), never leaves either: `hookSigned` checks a post with it.
  *
+ * - Browser logins, ("browser-login", site), are the cookies and local storage
+ *   a site left in ky's browser after the user signed in there (src/browse):
+ *   `browserLogins` gives them only to that browser's next session.
+ *
  * - ky's VAPID key pair signs its Web Push (src/push.ts): made the first
  *   time it is needed, kept with the HMAC key, and never handed out; only
  *   its public half and the tokens it signs leave the Vault.
@@ -88,6 +92,9 @@ const encoder = new TextEncoder();
 
 /** A row of ky_vault_keys, as the VAPID key is read. */
 const KeyRow = Type.Object({ key: Type.String() });
+
+/** A row of ky_vault_secrets, as a browser login is read. */
+const LoginRow = Type.Object({ id: Type.String(), value: Type.String() });
 
 /** The VAPID private key as kept: a P-256 JWK. */
 const VapidJwk = Type.Object({ kty: Type.Literal("EC"), crv: Type.Literal("P-256"), x: Type.String(), y: Type.String(), d: Type.String() });
@@ -187,6 +194,18 @@ export class Vault extends DurableObject<Env> {
       updatedAt: row.updated_at,
       error: row.error ?? undefined
     }));
+  }
+
+  /** The sites' logins ky's browser saved after a hand-off, ("browser-login", site): only its session restores them; no tool reads them. */
+  browserLogins(): { site: string; state: string }[] {
+    return this.#sql
+      .exec("SELECT id, value FROM ky_vault_secrets WHERE kind = 'browser-login' ORDER BY id")
+      .toArray()
+      .map((row) => {
+        const { id, value } = decode(LoginRow, row, "A browser login");
+
+        return { site: id, state: value };
+      });
   }
 
   /**

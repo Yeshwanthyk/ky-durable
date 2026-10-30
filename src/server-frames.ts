@@ -95,7 +95,7 @@ const MemoryItemSchema = Type.Unsafe<MemoryItem>(
 const Tools = Type.Array(Type.Object({ name: Text, description: Text }));
 
 const Approval = Type.Unsafe<ApprovalView>(
-  Type.Object({ id: Text, kind: ApprovalKindSchema, subject: Text, summary: Text, chat: Text, createdAt: Type.Number(), lapsedAt: Type.Optional(Type.Number()) })
+  Type.Object({ id: Text, kind: ApprovalKindSchema, subject: Text, summary: Text, chat: Text, createdAt: Type.Number(), lapsedAt: Type.Optional(Type.Number()), link: Type.Optional(Text) })
 );
 
 const ToolPolicy = Type.Unsafe<ToolPolicyView>(Type.Object({ tool: Text, policy: ToolPolicySchema }));

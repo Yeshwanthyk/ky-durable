@@ -1,13 +1,19 @@
 import Type, { type Static } from "typebox";
 
-export const ApprovalKindSchema = Type.Union([Type.Literal("executor"), Type.Literal("webhook-action"), Type.Literal("secret-request")]);
+export const ApprovalKindSchema = Type.Union([
+  Type.Literal("executor"),
+  Type.Literal("webhook-action"),
+  Type.Literal("secret-request"),
+  Type.Literal("browser-handoff")
+]);
 
 export type ApprovalKind = Static<typeof ApprovalKindSchema>;
 
 export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: string }>> = {
   executor: { title: "Approve this app action?" },
   "webhook-action": { title: "Approve this, on a webhook's data?" },
-  "secret-request": { title: "Approve this call with a credential?" }
+  "secret-request": { title: "Approve this call with a credential?" },
+  "browser-handoff": { title: "ky needs you in its browser" }
 };
 
 export const APPROVAL_TABLES = { approvals: "ky_approvals", policies: "ky_tool_policies", inputs: "ky_executor_inputs" } as const;
@@ -49,6 +55,8 @@ export type ApprovalView = {
   readonly createdAt: number;
   /** When it lapsed unanswered; its card then shows as expired, with no buttons. */
   readonly lapsedAt?: number;
+  /** A page the card opens for the user, such as a hand-off's live view. */
+  readonly link?: string;
 };
 
 export type ToolPolicyView = { readonly tool: string; readonly policy: ToolPolicy };

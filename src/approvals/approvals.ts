@@ -73,7 +73,7 @@ const actionOf = (status: ApprovalStatus): ApprovalAction | undefined =>
 
 const Row = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["executor", "webhook-action", "secret-request"]),
+  kind: Schema.Literals(["executor", "webhook-action", "secret-request", "browser-handoff"]),
   ref: Schema.String,
   subject: Schema.String,
   summary: Schema.String,
@@ -97,6 +97,8 @@ const Due = Schema.Struct({ at: Schema.NullOr(Schema.Number) });
 const COLUMNS = "id, kind, ref, subject, summary, payload, status, conversation, chat, created_at, reminded_at, lapsed_at";
 
 const payloadOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json));
+
+const linkOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ link: Schema.String.check(Schema.isPattern(/^https:\/\//)) })));
 
 const approvalOf = (row: Row): Approval => ({
   id: row.id,
@@ -410,7 +412,9 @@ export class Approvals implements Asker {
       if (!this.#handlers.has(row.kind)) return [];
       const view = { id: row.id, kind: row.kind, subject: row.subject, summary: row.summary, chat: row.chat, createdAt: row.created_at };
 
-      return [row.status === "expired" && row.lapsed_at !== null ? { ...view, lapsedAt: row.lapsed_at } : view];
+      const linked = Option.match(linkOf(row.payload), { onNone: () => view, onSome: ({ link }) => ({ ...view, link }) });
+
+      return [row.status === "expired" && row.lapsed_at !== null ? { ...linked, lapsedAt: row.lapsed_at } : linked];
     });
   }
 }
