@@ -325,7 +325,7 @@ export class DreamRuns extends Context.Service<
           mark,
           digest: (since, checkIns) => Effect.map(digestOf(since, checkIns), (digest) => digest?.text),
           run: Effect.gen(function* () {
-            if (yield* Ref.getAndSet(dreaming, true)) return;
+            if (!(yield* Effect.sync(() => host.allows("dream"))) || (yield* Ref.getAndSet(dreaming, true))) return;
             yield* dream.pipe(
               Effect.catchCause((cause) => warn("dream failed", Cause.squash(cause))),
               Effect.ensuring(Ref.set(dreaming, false))

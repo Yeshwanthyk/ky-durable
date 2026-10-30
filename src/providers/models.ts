@@ -134,6 +134,7 @@ const make = Effect.gen(function* () {
   const clock = yield* Clock.Clock;
   const now: Now = () => clock.currentTimeMillisUnsafe();
   const listeners = new Set<() => void>();
+  const answers = new Set<(purpose: Purpose, answer: AssistantMessage) => void>();
   const madeFrom = new WeakMap<Endpoint, string>();
   let endpoints: readonly Endpoint[] = [];
 
@@ -375,6 +376,8 @@ const make = Effect.gen(function* () {
         }
       });
 
+      for (const listener of answers) listener(purpose, answer);
+
       if (answer.stopReason === "error") return yield* new ModelFailed({ message: answer.errorMessage ?? `The ${purpose} model failed.` });
 
       return answer;
@@ -396,6 +399,11 @@ const make = Effect.gen(function* () {
       listeners.add(listener);
 
       return () => listeners.delete(listener);
+    },
+    onAnswer: (listener: (purpose: Purpose, answer: AssistantMessage) => void) => {
+      answers.add(listener);
+
+      return () => answers.delete(listener);
     },
     choices: Effect.sync(() => {
       const featured = catalog().flatMap((provider) =>

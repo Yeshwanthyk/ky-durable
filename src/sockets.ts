@@ -53,6 +53,7 @@ import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, p
 import type { ExecutorLink } from "./executor/wiring";
 import type { Missing as NotSetUp } from "./avatars/contract";
 import type { Pushes } from "./push/wiring";
+import { noticeIn, type Spend } from "./spend/wiring";
 import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -227,6 +228,7 @@ export class PiSessionSockets {
   /** Turn-start recall, for the chips under the user's messages. */
   readonly #recall: Recall;
   readonly #setup: Setup;
+  readonly #spend: Spend;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
@@ -263,6 +265,7 @@ export class PiSessionSockets {
     pushes: Pushes,
     recall: Recall,
     setup: Setup,
+    spend: Spend,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
@@ -298,6 +301,7 @@ export class PiSessionSockets {
     this.#pushes = pushes;
     this.#recall = recall;
     this.#setup = setup;
+    this.#spend = spend;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
     this.#version = version;
@@ -830,6 +834,7 @@ export class PiSessionSockets {
     if (chat || session === ROOT_SESSION) {
       // Only a message the user sends counts as being here: a tab that reconnects in the night does not.
       this.#presence.seen();
+      await noticeIn(this.#spend, await this.#harness.conversation(session));
       const all = this.#specialists.list();
       const text = textOf(message.input);
       const unknown = all.length === 0 ? undefined : mentions(text).find((id) => !this.#specialists.has(id));
@@ -1076,6 +1081,8 @@ export class PiSessionSockets {
     "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-looks": (message) => this.#proactivity.setLooks(message.looks),
     "set-right-away": (message) => this.#proactivity.setRightAway(message.most),
+    spend: () => this.#spend.view(),
+    "set-spend-cap": (message) => this.#spend.setCap(message.usd),
     "push-key": () => this.#pushes.key(),
     "push-subscribe": (message) => {
       this.#pushes.subscribe(message);

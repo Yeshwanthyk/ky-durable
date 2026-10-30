@@ -78,6 +78,11 @@ export class Models implements Picker {
     return this.#providers.onChange(listener);
   }
 
+  /** Each answer a direct ask gets, by the purpose that asked; pi's turns are counted by their own hook. */
+  onAnswer(listener: (purpose: Purpose, answer: AssistantMessage) => void): () => void {
+    return this.#providers.onAnswer(listener);
+  }
+
   choices(): string {
     return this.#edge.run(this.#providers.choices);
   }

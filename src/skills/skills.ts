@@ -707,6 +707,7 @@ export function skillsExtension(
   const reviewing = new Set<string>();
 
   async function review(session: string): Promise<void> {
+    if (!host.allows("skill-review")) return;
     const { context } = host;
     reviewing.add(session);
 

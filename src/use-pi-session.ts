@@ -478,6 +478,12 @@ export function usePiSession(session: string) {
   /** Settings › Proactivity's. New on each connect, so a page that asked while the socket was closed asks again. */
   const proactivityActions = useMemo(() => proactivityActionsOf(ask, state.status === "open"), [ask, state.status]);
 
+  /** Settings › Spend's, new on each connect as Proactivity's are. */
+  const spendActions = useMemo(
+    () => ({ open: state.status === "open", onView: () => ask("spend", {}), onCap: (usd: number | null) => ask("set-spend-cap", { usd }) }),
+    [ask, state.status]
+  );
+
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
     () => ask("new-chat", {}).then(({ session }) => session),
@@ -613,6 +619,7 @@ export function usePiSession(session: string) {
     mailActions,
     approvalActions,
     proactivityActions,
+    spendActions,
     ledgerActions,
     newChat,
     archiveChat,

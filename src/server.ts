@@ -34,6 +34,7 @@ import { machineSubject, saveKey, type Sandbox, type SandboxChange, type Sandbox
 import { ownerRoute, Sandboxes, tokenRoute } from "./runners/wiring";
 import { sandboxRoute } from "./sandbox-routes";
 import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
+import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
@@ -96,6 +97,8 @@ export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] =
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
+  /** What the models cost, by day in the user's zone, and the daily cap that holds unasked work (src/spend). */
+  readonly spend: Spend = new Spend(this.ctx.storage, () => this.automations.checkIns().zone);
   readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
   readonly sandboxes = new Sandboxes(this.ctx.storage);
@@ -229,7 +232,8 @@ export class PiAgent extends DurableObject<Env> {
     peers: () => this.sweepPeers(),
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
-    }
+    },
+    allows: (work) => this.spend.allows(work)
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -238,7 +242,8 @@ export class PiAgent extends DurableObject<Env> {
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
     context: BACKGROUND_CONTEXT,
-    model: () => agentModel(this.models.resolve("background").choice)
+    model: () => agentModel(this.models.resolve("background").choice),
+    allows: (work) => this.spend.allows(work)
   };
   /** When the user was last here; the dream waits until they are away. */
   readonly presence = new Presence(this.ctx.storage);
@@ -501,6 +506,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(peer);
       this.registry.install(mail);
       this.registry.install(inboundTools(this.inbound));
+      this.registry.install(spendExtension(this.spend, { chat, review: (session) => this.reviews.kind(session), task: (session) => this.feed.working(session) }));
 
       return Harness.open(
         storage,
@@ -558,6 +564,7 @@ export class PiAgent extends DurableObject<Env> {
     this.pushes,
     this.recall,
     this.setup,
+    this.spend,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
@@ -584,6 +591,7 @@ export class PiAgent extends DurableObject<Env> {
     if (this.machines.cloud) this.sandboxes.migrate();
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
+    meter(this.spend, { models: this.models, feed: this.feed });
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
     });

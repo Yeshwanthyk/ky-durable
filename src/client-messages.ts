@@ -156,6 +156,10 @@ export const ClientMessageSchema = Type.Union([
   message("set-looks", { looks: Texts }),
   /** Set how many posts a day push to the user's devices; answers with Settings › Proactivity. */
   message("set-right-away", { most: Type.Integer({ minimum: 0, maximum: RIGHT_AWAY_MOST }) }),
+  /** Answers with Settings › Spend: today, this month, today by purpose and source, and the daily cap. */
+  message("spend", {}),
+  /** Set the daily cap in US dollars, or null for none; answers as spend does, or with `{ refused }`. */
+  message("set-spend-cap", { usd: Type.Union([Type.Number(), Type.Null()]) }),
   /** Answers with ky's VAPID public key, base64url, which this device subscribes to pushes with. */
   message("push-key", {}),
   /** Push to this device: its PushSubscription's endpoint and keys. */

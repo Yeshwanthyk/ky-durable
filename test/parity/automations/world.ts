@@ -235,7 +235,8 @@ export class World {
         run: (time) => this.#did({ look: time })
       },
       peers: async () => this.#did({ peers: true }),
-      unwatched: (anticipation) => this.#did({ unwatched: anticipation })
+      unwatched: (anticipation) => this.#did({ unwatched: anticipation }),
+      allows: () => true
     };
   }
 

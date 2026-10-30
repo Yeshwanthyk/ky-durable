@@ -13,6 +13,7 @@ import { programOutcome } from "../executor/contract";
 import type { MachineHub } from "../machines/contract";
 import type { Models } from "../providers/wiring";
 import type { Spawn } from "../skills/contract";
+import type { BackgroundWork } from "../spend/contract";
 import {
   AlreadyRan,
   AUTOMATION_SOURCE as SOURCE,
@@ -63,6 +64,8 @@ export type AutomationDeps = {
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   readonly peers: () => Promise<void>;
   readonly unwatched: (anticipation: number) => void;
+  /** Whether a scheduled run may start now (src/spend); a run the user asks for always may. */
+  readonly allows: (work: BackgroundWork) => boolean;
 };
 
 const LookFire = Schema.Struct({ time: Schema.String });
@@ -750,6 +753,12 @@ const make = Effect.gen(function* () {
       const task = `a-${row.id}-${slot}`;
 
       if (overlaps(row.id, task)) return;
+
+      if (fired.slot === undefined && !(yield* Effect.sync(() => host.allows(isCheckIn(row) ? "check-in" : "automation")))) {
+        if (row.at !== null) yield* done(row.id, schedule.id);
+
+        return;
+      }
 
       if (!ran(task)) {
         const admitted = yield* admit(row, task, fired.slot !== undefined);
