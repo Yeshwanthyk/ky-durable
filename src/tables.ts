@@ -8,6 +8,7 @@ import { AUTOMATION_TABLES } from "./automations/contract";
 import { DREAMING_TABLES } from "./dreaming/contract";
 import { INBOUND_TABLES } from "./inbound/contract";
 import { PEERS_TABLES } from "./peers/contract";
+import { SITE_TABLES } from "./sites/contract";
 import { SKILL_TABLES } from "./skills/contract";
 
 /** ky's own tables, outside any domain, by the file that makes each. */
@@ -43,6 +44,7 @@ const RESTORED: ReadonlySet<string> = new Set([
   ...Object.values(AUTOMATION_TABLES),
   ...Object.values(DREAMING_TABLES),
   ...Object.values(PEERS_TABLES),
+  ...Object.values(SITE_TABLES),
   ...Object.values(SKILL_TABLES)
 ]);
 

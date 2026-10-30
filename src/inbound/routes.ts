@@ -83,7 +83,7 @@ const RECEIVED: Readonly<Record<Received, () => Response>> = {
   gone: notFound
 };
 
-async function capped(body: ReadableStream<unknown> | null, max: number): Promise<string | null> {
+export async function capped(body: ReadableStream<unknown> | null, max: number): Promise<string | null> {
   if (body === null) return "";
 
   const reader = body.getReader();

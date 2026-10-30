@@ -62,6 +62,7 @@ export type AutomationDeps = {
   readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   readonly peers: () => Promise<void>;
+  readonly sites: () => Promise<void>;
   readonly unwatched: (anticipation: number) => void;
 };
 
@@ -77,6 +78,7 @@ export type Callbacks = {
   look: (payload: LookFire) => Promise<void>;
   peers: () => Promise<void>;
   machines: () => Promise<void>;
+  sites: () => Promise<void>;
 };
 
 export type GateCheck =
@@ -1035,7 +1037,7 @@ const make = Effect.gen(function* () {
         return status === "active" || status === "done";
       }),
 
-    bookAt: (callback: "machines" | "peers", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+    bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
 
     dreamAt: (at: number) =>
       Effect.gen(function* () {

@@ -340,6 +340,11 @@ export class Inbound {
     return true;
   }
 
+  /** Tell `session` other outside data, as a webhook's post: the run on it is guarded as one is. */
+  tellOutside(session: string, content: string, key: string): Promise<void> {
+    return this.desk.tell(session, content, `${HOOK_REQUEST}${key}`);
+  }
+
   guarded(conversation: string): boolean {
     return runInputs(this.#storage.sql, conversation).some((input) => isHookData(input.request));
   }
