@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vite";
+import { precache } from "../../sw-precache.ts";
 
 /**
  * The local stack: ky's web app and real Worker (src/tests/stack.ts) with
@@ -17,6 +18,10 @@ import { defineConfig } from "vite";
  *
  * Ready when `GET /manifest.webmanifest` answers 200. Stop it with Ctrl-C or SIGTERM; the
  * state directory is left for inspection.
+ *
+ * Built, it is the same stack as production serves it, with the service worker active: `vite build`
+ * then `vite preview` with this config and KY_STACK_OUT set to a directory outside dist/, which holds
+ * the release (test/harness/built.ts does both).
  */
 
 const repo = path.resolve(import.meta.dirname, "../..");
@@ -28,6 +33,9 @@ const port = Number(process.env.KY_STACK_PORT ?? 8790);
  * Vite answers only hosts it knows, and refuses any other with 403 ("Blocked request").
  */
 const preview = process.env.SCOTTY_HATCH?.replace("{port}", String(port)).replace(/^https?:\/\//, "").split("/")[0];
+
+/** Where a built stack goes; never dist/, which holds the release `pnpm ky` deploys. */
+const out = process.env.KY_STACK_OUT;
 
 const state = mkdtempSync(path.join(tmpdir(), "ky-stack-"));
 
@@ -41,16 +49,21 @@ export default defineConfig({
     cloudflare({
       configPath: path.join(repo, "src/tests/wrangler.jsonc"),
       persistState: { path: state },
-      inspectorPort: false
+      inspectorPort: false,
+      // Built, the Worker exports only what workerd takes as an entrypoint.
+      ...(out && { config: { main: "stack-built.ts" } })
     }),
-    tailwindcss()
+    tailwindcss(),
+    precache()
   ],
+  ...(out && { build: { outDir: out } }),
   server: {
     host: "127.0.0.1",
     port,
     strictPort: true,
     ...(preview && { allowedHosts: [preview] })
   },
+  preview: { host: "127.0.0.1", port, strictPort: true },
   resolve: {
     dedupe: [
       "react",

@@ -33,8 +33,15 @@ let plugins: PluginConfig | undefined;
 let loading: Promise<PluginConfig> | undefined;
 
 // One object for the whole app: Streamdown's memo compares `plugins` by identity.
-const loadHighlighter = () =>
-  (loading ??= import("@streamdown/code").then(({ code }) => (plugins = { ...DIAGRAMS, code: finishedOnly(code) })));
+// A load that failed (offline before the service worker cached it) is forgotten, so the next fence tries again.
+function loadHighlighter(): Promise<PluginConfig> {
+  if (loading) return loading;
+  const load = import("@streamdown/code").then(({ code }) => (plugins = { ...DIAGRAMS, code: finishedOnly(code) }));
+  loading = load;
+  load.catch(() => (loading = undefined));
+
+  return load;
+}
 
 const FENCE = /^\s*(```|~~~)/m;
 
@@ -43,7 +50,8 @@ function useHighlighter(source: string) {
   const [loaded, setLoaded] = useState(plugins);
 
   useEffect(() => {
-    if (wanted && !loaded) void loadHighlighter().then(setLoaded);
+    // Until it loads, fences show as plain code.
+    if (wanted && !loaded) loadHighlighter().then(setLoaded, () => {});
   }, [wanted, loaded]);
 
   // Diagrams draw before shiki arrives: they don't need it.

@@ -7,6 +7,7 @@
     "test/fakes/claude.ts",
     "test/fakes/codex.ts",
     "test/web/global-setup.ts",
+    "src/tests/stack-built.ts",
     "test/web/outcomes.ts",
     "test/gate.ts",
     "test/gate-live.ts",

@@ -108,17 +108,36 @@ export async function accessCookie(url: string, access = new FakeAccess()): Prom
   return { name: COOKIE, value: await access.sign(), url };
 }
 
+const cookieOf = (request: Request): string | undefined =>
+  request.headers
+    .get("Cookie")
+    ?.split(";")
+    .map((part) => part.trim().split("="))
+    .find(([name]) => name === COOKIE)?.[1];
+
+/** The cookie a test sets to end the browser's Access session (`signInAgain`). */
+export const ENDED = "ended";
+
+/**
+ * Access's edge for a browser whose session has ended, as a test ends it with the cookie ENDED:
+ * every path outside BYPASS is sent to the team's login, which would come back to it signed in.
+ */
+export function signInAgain(request: Request): Response | null {
+  const url = new URL(request.url);
+
+  if (cookieOf(request) !== ENDED || bypassed(url.pathname)) return null;
+  const login = `https://${TEAM}/cdn-cgi/access/login/${url.host}?redirect_url=${encodeURIComponent(url.pathname + url.search)}`;
+
+  return new Response(null, { status: 302, headers: { Location: login } });
+}
+
 /**
  * Access's edge as far as the stack needs it: a browser's CF_Authorization cookie becomes the
  * assertion header on every path outside BYPASS. A request without it reaches the Worker as it
  * came, so the Worker's own check is what refuses it.
  */
 export function edge(request: Request): Request {
-  const cookie = request.headers
-    .get("Cookie")
-    ?.split(";")
-    .map((part) => part.trim().split("="))
-    .find(([name]) => name === COOKIE)?.[1];
+  const cookie = cookieOf(request);
 
   if (!cookie || bypassed(new URL(request.url).pathname)) return request;
   const headers = new Headers(request.headers);

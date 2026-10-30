@@ -7,7 +7,8 @@
     "src/tests/**/*.{ts,tsx}",
     "tools/oxlint/anti-slop/**/*.ts",
     "scripts/**/*.{ts,mjs,js}",
-    "wrangler-overlay.ts"
+    "wrangler-overlay.ts",
+    "sw-precache.ts"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
