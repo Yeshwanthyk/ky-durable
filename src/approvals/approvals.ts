@@ -67,7 +67,7 @@ const actionOf = (status: ApprovalStatus): ApprovalAction | undefined =>
 
 const Row = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["executor", "webhook-action", "secret-request"]),
+  kind: Schema.Literals(["executor", "webhook-action", "secret-request", "browser-handoff"]),
   ref: Schema.String,
   subject: Schema.String,
   summary: Schema.String,
@@ -85,6 +85,8 @@ const Id = Schema.Struct({ id: Schema.String });
 const COLUMNS = "id, kind, ref, subject, summary, payload, status, conversation, chat, created_at";
 
 const payloadOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json));
+
+const linkOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ link: Schema.String.check(Schema.isPattern(/^https:\/\//)) })));
 
 const approvalOf = (row: Row): Approval => ({
   id: row.id,
@@ -321,6 +323,10 @@ export class Approvals implements Asker {
     return this.#edge
       .run(Store.use((store) => store.pending))
       .filter((row) => this.#handlers.has(row.kind))
-      .map((row) => ({ id: row.id, kind: row.kind, subject: row.subject, summary: row.summary, chat: row.chat, createdAt: row.created_at }));
+      .map((row) => {
+        const view = { id: row.id, kind: row.kind, subject: row.subject, summary: row.summary, chat: row.chat, createdAt: row.created_at };
+
+        return Option.match(linkOf(row.payload), { onNone: () => view, onSome: ({ link }) => ({ ...view, link }) });
+      });
   }
 }

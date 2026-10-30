@@ -22,7 +22,8 @@ import type { Opener } from "./chats/contract";
 import { chatsExtension } from "./chats/tool";
 import { CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
-import { browseExtension } from "./browse/wiring";
+import type { Browsers } from "./browse/contract";
+import { browseRoute, Browsing, cloudBrowsers } from "./browse/wiring";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
 import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
@@ -75,6 +76,8 @@ export { GithubProxy } from "./github";
 export type Boundary = ModelsBoundary & {
   /** Browser Rendering, for browse. */
   readonly browser: BrowserWorker;
+  /** Kitesurf and ky's Chromium session; Browser Rendering's, through `browser`, unless set. */
+  readonly browsers?: Browsers;
   /** How requests reach Executor, once the user connects it in Settings; global fetch unless set. */
   readonly executorFetch?: typeof fetch;
   /** Seed the starter skills, specialist and automations on the first start (src/seeds.ts). */
@@ -366,8 +369,18 @@ export class PiAgent extends DurableObject<Env> {
     deliver: (item, now) => this.deliveries.deliver(item, now),
     automations: this.automations
   });
-  /** Subagents browse; the main agent delegates it, since a page can take a minute. */
-  readonly browse = browseExtension(this.boundary.browser, (png) => saveImage(this.env.FILES, png));
+  /** ky's browser: subagents browse, the main agent delegates it, since a page can take a minute; a chat hands it to the user. */
+  readonly browsing = new Browsing(this.ctx.storage, {
+    browsers: this.boundary.browsers ?? cloudBrowsers(this.boundary.browser),
+    vault: () => this.env.Vault.getByName("owner"),
+    save: (bytes, type) => saveImage(this.env.FILES, bytes, type),
+    workspace: this.workspace,
+    reads: (conversation) => this.mayCall(String(conversation), "read"),
+    chat: (session) => this.isChat(session),
+    asker: this.approvals,
+    tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId)
+  });
+  readonly browse = this.browsing.extension;
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const chat = (session: string) => this.isChat(session);
@@ -435,6 +448,7 @@ export class PiAgent extends DurableObject<Env> {
 
       await this.#installExecutor();
       this.registry.install(this.browse);
+      this.registry.install(this.browsing.handoffExtension);
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
@@ -594,6 +608,7 @@ export class PiAgent extends DurableObject<Env> {
     this.approvals.handle("executor", this.executorApprovals);
     this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
     this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
+    this.approvals.handle("browser-handoff", this.browsing.handler);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -1068,6 +1083,11 @@ export class PiAgent extends DurableObject<Env> {
     return this.inbound.asks(session);
   }
 
+  /** A saved browser login was removed: end the browser session that still holds it (src/browse/routes.ts). */
+  browserForgot(): Promise<void> {
+    return this.browsing.forget();
+  }
+
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */
   sweepPeers(now = Date.now()): Promise<void> {
     return sweepPeers(this.peerDesk, now);
@@ -1178,7 +1198,8 @@ export function worker(access: Access) {
         sandboxRoute(request, env, url) ??
         backupRoute(request, env, url) ??
         siteRoute(request, env, url) ??
-        inboundRoute(request, env, url);
+        inboundRoute(request, env, url) ??
+        browseRoute(request, env, url);
 
       if (owner) return owner;
 

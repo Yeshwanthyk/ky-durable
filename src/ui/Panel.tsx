@@ -42,6 +42,7 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { BrowserLogins } from "./BrowserLogins";
 import { Inbound } from "./Inbound";
 import { Mail } from "./Mail";
 import { Proactivity, ProactivityValue } from "./Proactivity";
@@ -2613,8 +2614,9 @@ function MailPage() {
 function InboundPage() {
   return (
     <>
-      <PageHead title="Webhooks">URLs a service posts to, into a chat, and the API credentials ky calls with.</PageHead>
+      <PageHead title="Webhooks">URLs a service posts to, into a chat, the API credentials ky calls with, and the sites its browser stays signed in to.</PageHead>
       <Inbound />
+      <BrowserLogins />
     </>
   );
 }

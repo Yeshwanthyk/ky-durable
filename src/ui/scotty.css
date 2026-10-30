@@ -3687,3 +3687,22 @@ button.live:hover .live-steps {
   align-self: flex-start;
   margin-top: 8px;
 }
+
+/* A hand-off's live view of ky's browser (Approvals.tsx). */
+.handoff-sheet .soul-sheet-body {
+  padding: 0 0 env(safe-area-inset-bottom);
+  overflow: hidden;
+}
+
+.handoff-view {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.handoff-tools {
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+}
