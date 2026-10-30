@@ -344,6 +344,8 @@ const TurnView = memo(function TurnView({
   const took = started === undefined || ended === undefined ? undefined : duration(ended - started);
   const errors = log.filter((item) => item.kind === "notice" && item.tone === "error");
   const steps = log.filter((item) => item.kind === "tool").length;
+  const last = log.at(-1);
+  const phase = last?.kind === "tool" && last.status === "running" ? null : answer ? "Writing" : "Thinking";
   const openSteps = useContext(OpenStepsContext);
   const recalled = useContext(RecalledContext)[turn.id];
 
@@ -415,7 +417,7 @@ const TurnView = memo(function TurnView({
                 <span className="live-avatar" aria-hidden="true">
                   <BotAvatar name={speaker.name} variantId={speaker.variantId} owner={speaker.variantId && KY_AVATAR} active size={20} />
                 </span>
-                <span className="shimmer">{speaker.name} is working</span>
+                {phase ? <span className="shimmer">{phase}</span> : null}
                 {took ? <span className="quiet tabular">{took}</span> : null}
                 {steps > 0 && openSteps ? (
                   <span className="quiet live-steps">
