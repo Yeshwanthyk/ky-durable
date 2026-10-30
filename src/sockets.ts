@@ -390,7 +390,7 @@ export class PiSessionSockets {
   }
 
   #approvalsMessage(): PiServerMessage {
-    return { type: "approvals", approvals: this.#approvals.pending() };
+    return { type: "approvals", approvals: this.#approvals.cards() };
   }
 
   #broadcastApprovals(): void {

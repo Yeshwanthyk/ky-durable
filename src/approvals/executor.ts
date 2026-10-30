@@ -9,7 +9,7 @@ import { Sql } from "../core/sql";
 import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, resultText } from "../executor/contract";
 import { callOnce } from "../executor/wiring";
 import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
-import { type ApprovalAction, APPROVAL_TABLES, type ToolPolicy, type ToolPolicyView } from "./contract";
+import { type ApprovalAction, APPROVAL_TABLES, NOBODY_ANSWERED, type ToolPolicy, type ToolPolicyView } from "./contract";
 
 const POLICIES = APPROVAL_TABLES.policies;
 
@@ -55,6 +55,8 @@ const CHOSE: Record<ApprovalAction, string> = { accept: "approved", decline: "de
 export type ExecutorApprovalDeps = {
   readonly config: () => Promise<ExecutorConfig | null>;
   readonly present: (session: string) => boolean;
+  /** Whether nobody can answer a card for the turn in `session`: an automation's run, a look, a dream or a mail's triage. */
+  readonly unattended: (session: string) => boolean;
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
 };
 
@@ -167,6 +169,17 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${resultText(declined)}\nTell the user it was blocked, and don't try it another way.`);
     }
 
+    // A background run would sit on a card nobody is there to tap: refused now, so its report says what it needs.
+    if (decided === "ask" && this.#deps.unattended(conversation)) {
+      const declined = await call("resume", { requestId: paused.requestId, response: { action: "decline" } });
+
+      return note(
+        result,
+        `ky declined this request: this is a background run, and nobody is here to approve ${tool || "it"}. Executor answered: ${resultText(declined)}\n` +
+          "Don't try it another way. Say in your report that it needs the user's OK; they can ask for it from a chat."
+      );
+    }
+
     if (decided === "allow") {
       const accepted = await this.#paused(await call("resume", { requestId: paused.requestId, response: { action: "accept" } }), conversation, call, present);
 
@@ -240,6 +253,21 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       approval,
       action,
       ", but ky restarted before it finished, so the tap may not have gone through. The card is back: if they tap it again and Executor no longer has the request, check with a read-only program whether it happened]"
+    );
+  }
+
+  async lapsed(approval: Approval): Promise<void> {
+    const payload = Option.getOrElse(payloadOf(approval.payload), () => ({ tool: approval.subject, message: approval.summary }));
+    const what = `"${payload.message}"${payload.tool ? ` (${payload.tool})` : ""}`;
+    const config = await this.#deps.config().catch(() => null);
+
+    // Executor may have let the request go already; declined either way, so no late tap can run it.
+    if (config) await callOnce(config, "resume", { requestId: approval.ref, response: { action: "decline" } }).catch(() => undefined);
+
+    return this.#deps.tell(
+      approval.chat,
+      `[${NOBODY_ANSWERED} to approve ${what}, so ky declined it and its card shows expired. Nothing was sent. Ask again if it still matters]`,
+      `approval:${approval.id}:${crypto.randomUUID()}`
     );
   }
 

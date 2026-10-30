@@ -28,6 +28,14 @@ export type ApprovalAction = Static<typeof ApprovalActionSchema>;
 
 export const GONE = "That approval isn't waiting any more.";
 
+/** A card nobody answered gets one push reminder after this long… */
+export const APPROVAL_REMIND_MS = 4 * 3_600_000;
+
+/** …and lapses after this long: it shows as expired, and the chat that asked is told. */
+export const APPROVAL_EXPIRE_MS = 24 * 3_600_000;
+
+export const NOBODY_ANSWERED = "Nobody answered within 24 hours";
+
 export const ToolPolicySchema = Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("block")]);
 
 export type ToolPolicy = Static<typeof ToolPolicySchema>;
@@ -39,6 +47,8 @@ export type ApprovalView = {
   readonly summary: string;
   readonly chat: string;
   readonly createdAt: number;
+  /** When it lapsed unanswered; its card then shows as expired, with no buttons. */
+  readonly lapsedAt?: number;
 };
 
 export type ToolPolicyView = { readonly tool: string; readonly policy: ToolPolicy };

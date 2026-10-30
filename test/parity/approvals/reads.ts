@@ -35,7 +35,8 @@ export function readsOf(side: Side) {
   for (const kind of KINDS) {
     side.approvals.handle(kind, {
       decide: async () => {},
-      lost: async (approval, action) => void lost.push({ approval, action })
+      lost: async (approval, action) => void lost.push({ approval, action }),
+      lapsed: async () => {}
     });
   }
 
