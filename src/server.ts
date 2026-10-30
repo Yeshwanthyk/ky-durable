@@ -8,6 +8,7 @@ import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { PING, PONG } from "./protocol";
 import { bypassed } from "./access/contract";
 import { Access } from "./access/wiring";
 import { KY_AVATAR, type Missing as NotSetUp, preamble, type PromptConfig } from "./avatars/contract";
@@ -46,10 +47,11 @@ import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } 
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
 import { hookGuard, inboundTools } from "./inbound/tools";
+import { replyPushExtension } from "./push/replies";
 import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
-import { PiSessionSockets } from "./sockets";
+import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
@@ -269,7 +271,8 @@ export class PiAgent extends DurableObject<Env> {
   });
   /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
   readonly approvals = new Approvals(this.ctx.storage, {
-    present: (session) => this.userHere(session),
+    // A card in the user's own turn pushes too once they have left ky: they sent it and went.
+    present: (session) => this.userHere(session) && this.watched(),
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
     home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
     notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
@@ -488,6 +491,13 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(checkInGuard);
       this.registry.install(chatActivityExtension(this.chats));
       this.registry.install(deliveryExtension(this.deliveries));
+      this.registry.install(
+        replyPushExtension({
+          asked: (session) => this.userHere(session),
+          watched: () => this.watched(),
+          notify: (session, text) => this.ctx.waitUntil(this.pushes.notify(session, text, true))
+        })
+      );
       this.registry.install(peer);
       this.registry.install(mail);
       this.registry.install(inboundTools(this.inbound));
@@ -560,6 +570,8 @@ export class PiAgent extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // The page's liveness check (src/connection.ts): the runtime answers it without waking the object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
@@ -637,6 +649,11 @@ export class PiAgent extends DurableObject<Env> {
       startedByUser(this.ctx.storage.sql, session) &&
       !this.inbound.guarded(session)
     );
+  }
+
+  /** Whether the user is looking at ky now, on any device: a page of it shown and in focus (src/sockets.ts watching). */
+  watched(): boolean {
+    return watching(this.webSockets.getConnections(BROWSER_TAG));
   }
 
   #archived(session: string): boolean {

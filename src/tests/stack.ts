@@ -7,7 +7,7 @@ import { parseOr } from "../core/decode";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
-import { edge, FakeAccess } from "./fake-access";
+import { edge, FakeAccess, signInAgain } from "./fake-access";
 import { vendors } from "../../test/fakes/vendors";
 import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeExecutor } from "./fake-executor";
@@ -1232,6 +1232,9 @@ const githubRest = fakeGithubRest();
 
 const stack = {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const ended = signInAgain(request);
+
+    if (ended) return ended;
     const signed = edge(request);
     const url = new URL(signed.url);
 

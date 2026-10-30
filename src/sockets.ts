@@ -12,7 +12,7 @@ import {
   type PiSessionId,
   type PiWhenBusy
 } from "agents/harness/pi";
-import Type from "typebox";
+import Type, { type Static } from "typebox";
 import { Guard } from "typebox/guard";
 import { ClientMessageSchema, refusedFrame } from "./client-messages";
 import { decodeOr, parseOr } from "./core/decode";
@@ -34,6 +34,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./machines/wiring";
 import { checkInput, imagesOf, spokenText } from "./files/media";
+import { withLateNote } from "./core/late";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
@@ -100,11 +101,34 @@ const PAIRING_TAG_PREFIX = "pairing:";
 /** The tag of a runner socket whose pairing was not its machine's when it came: it gets a goodbye and nothing else. */
 const REFUSED_TAG = "runner-refused";
 
-/** A browser connection's state: the time zone Cloudflare placed it in. */
-const ConnectionZone = Type.Object({ zone: Type.String() });
+/**
+ * A browser connection's state, kept on the socket so it outlives hibernation: the time zone Cloudflare placed it
+ * in, and whether the user is looking at its page now, as the page last said.
+ */
+const ConnectionState = Type.Object({ zone: Type.Optional(Type.String()), watching: Type.Optional(Type.Boolean()) });
+
+type ConnectionState = Static<typeof ConnectionState>;
+
+const stateOf = (connection: Connection): ConnectionState => decodeOr(ConnectionState, connection.state, {});
 
 /** The time zone `connection` was placed in when it opened, if any. */
-const zoneOf = (connection: Connection): string | null => decodeOr(ConnectionZone, connection.state, undefined)?.zone ?? null;
+const zoneOf = (connection: Connection): string | null => stateOf(connection).zone ?? null;
+
+/**
+ * Whether the user is looking at ky on any of `connections`: a page that said it is shown and in focus. A page says
+ * so as it opens and each time that changes, before iOS freezes it in the background; one that never said, an old
+ * page's, counts as not looking, so at worst a reply pushes while it is open.
+ */
+export function watching(connections: Iterable<Connection>): boolean {
+  for (const connection of connections) {
+    if (connection.readyState === OPEN && stateOf(connection).watching === true) return true;
+  }
+
+  return false;
+}
+
+/** The tag every browser socket carries, whatever session it follows. */
+export const BROWSER_TAG = UI_TAG;
 
 function pairingOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(PAIRING_TAG_PREFIX))?.slice(PAIRING_TAG_PREFIX.length);
@@ -798,6 +822,9 @@ export class PiSessionSockets {
 
     if (chat) this.#chats.touch(session, spokenText(textOf(message.input)));
 
+    // A message the page kept offline for long reaches the model with a note saying so; the thread drops the note.
+    const input = withLateNote(message.input, message.waited);
+
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
@@ -809,7 +836,7 @@ export class PiSessionSockets {
 
       if (unknown !== undefined) throw new Error(`No specialist @${unknown}. Specialists: ${all.map((each) => `@${each.id}`).join(", ")}`);
 
-      const theirs = all.length === 0 ? undefined : await this.#group.submit(session, message.input, text, message.operationId ?? crypto.randomUUID());
+      const theirs = all.length === 0 ? undefined : await this.#group.submit(session, input, text, message.operationId ?? crypto.randomUUID());
 
       if (theirs !== undefined) return await this.#keepAnswer(session, message, theirs);
     }
@@ -821,7 +848,7 @@ export class PiSessionSockets {
 
     if (message.operationId) options.operationId = message.operationId;
 
-    return await this.#keepAnswer(session, message, await this.#harness.session(session).submit(message.input, options));
+    return await this.#keepAnswer(session, message, await this.#harness.session(session).submit(input, options));
   }
 
   /**
@@ -1057,6 +1084,11 @@ export class PiSessionSockets {
     },
     "push-unsubscribe": (message) => {
       this.#pushes.unsubscribe(message.endpoint);
+
+      return null;
+    },
+    watching: (message, connection) => {
+      connection.setState({ ...stateOf(connection), watching: message.watching });
 
       return null;
     },

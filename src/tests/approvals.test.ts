@@ -84,6 +84,22 @@ describe("an approval is the user's tap", () => {
     expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "accept" } }]);
   });
 
+  it("in the user's own turn, pushes only once no page of ky is in front of them: they sent it and left", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { ask } = await page(name);
+    const pushes = await okPushes(name);
+
+    expect(await ask({ type: "watching", id: "", watching: true })).toBeNull();
+    await prompt(name, PAUSE);
+    expect(await pending(name)).toHaveLength(1);
+    expect(pushes).toEqual([]);
+
+    expect(await ask({ type: "watching", id: "", watching: false })).toBeNull();
+    await prompt(name, PAUSE.replace("send mail to sam", "send mail to ana"));
+    expect(pushes).toEqual([{ session: ROOT_SESSION, text: "Waiting for your OK: send mail to ana" }]);
+  });
+
   it("refuses accept from the model, even in the user's own chat, and sends nothing", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);

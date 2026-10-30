@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { type ApprovalAction, APPROVAL_KINDS, type ApprovalView } from "../approvals/contract";
 import type { UiCard } from "../cards/contract";
+import type { StoredAct } from "../outbox-store";
 import { BlockCard, ReplyContext } from "./Blocks";
 import { Problem } from "./Subscriptions";
 
@@ -13,11 +14,27 @@ import { Problem } from "./Subscriptions";
  * hears what came of it.
  */
 
-/** The approvals waiting on the user, and what a tap does: it resolves with why the tap was refused, if it was. Provided around the chat. */
+/**
+ * The approvals waiting on the user, and what a tap does: it resolves with why the tap was refused, if it was.
+ * `waiting`: taps made offline, by approval, which go once ky is back. Provided around the chat.
+ */
 export const ApprovalsContext = createContext<{
   approvals: readonly ApprovalView[];
   onDecide: (approval: string, action: ApprovalAction) => Promise<string | undefined>;
-}>({ approvals: [], onDecide: async () => undefined });
+  waiting: ReadonlyMap<string, ApprovalAction>;
+}>({ approvals: [], onDecide: async () => undefined, waiting: new Map() });
+
+/** The approval taps among the changes made offline, by approval. */
+export function decisionsWaiting(acts: readonly StoredAct[]): ReadonlyMap<string, ApprovalAction> {
+  return new Map(acts.flatMap(({ message }) => (message.type === "approval-decide" ? [[message.approval, message.action] as const] : [])));
+}
+
+/** What a card says under a tap made offline. */
+const WAITING_NOTE: Record<ApprovalAction, string> = {
+  accept: "Approved offline · goes to ky when it reconnects.",
+  decline: "Declined offline · goes to ky when it reconnects.",
+  cancel: "Cancelled offline · goes to ky when it reconnects."
+};
 
 /** The card an approval shows as: its blocks are the ui tool's own, so it looks and taps like any card. */
 function cardOf(approval: ApprovalView): UiCard {
@@ -48,9 +65,12 @@ export function ApprovalCards({ chat }: { chat: string }) {
 }
 
 function ApprovalCard({ approval }: { approval: ApprovalView }) {
-  const { onDecide } = useContext(ApprovalsContext);
+  const { onDecide, waiting } = useContext(ApprovalsContext);
   const [refused, setRefused] = useState<string>();
-  const ui = useMemo(() => cardOf(approval), [approval]);
+  const decided = waiting.get(approval.id);
+  const ui = useMemo(() => (decided === undefined ? cardOf(approval) : { ...cardOf(approval), note: WAITING_NOTE[decided] }), [approval, decided]);
+  // A tap made offline shows as made, and the card takes no other until ky has it.
+  const answer = useMemo(() => (decided === undefined ? null : { values: [], button: decided }), [decided]);
 
   // Each button replies with its answer; any other reply does nothing.
   const decide = (reply: string) => {
@@ -60,7 +80,7 @@ function ApprovalCard({ approval }: { approval: ApprovalView }) {
   return (
     <div className="approval" data-approval={approval.id}>
       <ReplyContext.Provider value={decide}>
-        <BlockCard call={`approval:${approval.id}`} ui={ui} answer={null} open />
+        <BlockCard call={`approval:${approval.id}`} ui={ui} answer={answer} open />
       </ReplyContext.Provider>
       <Problem text={refused} />
     </div>

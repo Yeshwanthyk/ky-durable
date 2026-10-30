@@ -130,8 +130,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
   number (6 until changed, `ky_proactivity`) push a local day, counted in `ky_push_sent` by one atomic statement,
   and only when a device took the push; past it a post still lands, quietly. `public/sw.js` shows the
   notification; a tap focuses an open ky and posts it the chat, which `src/ui/use-session-route.ts` switches to
-  without a reload, or opens ky there. Backups skip `ky_push*`: opening Settings on a subscribed device tells ky of
-  it again, subscribing again first if its VAPID key changed.
+  without a reload, or opens ky there. Backups skip `ky_push*`: each time a page's socket opens it tells ky of its
+  device's subscription again (`usePushUpkeep` in `src/ui/Proactivity.tsx`), subscribing again first if its VAPID
+  key changed or the browser dropped it while the user still wants notifications.
+  Replies push too (`src/push/replies.ts`): when a run the user's own message started yields its final answer and no
+  page of ky is in front of them, the answer is pushed, one push a run, at Urgency high and outside the right-away
+  number. Each page says on its socket whether the user is looking (`watching`: shown and in focus), as it opens
+  and each time that changes; it is kept on the connection's state so it outlives hibernation, and a page that
+  never said counts as not looking. An approval card in the user's own turn pushes on the same terms.
 - Turn-start recall (`src/dreaming/recall.ts`): a `beforeRequest` hook on the main chat's and side chats' requests
   looks up the user's latest message, when it is their own (or an automation's report delivered to the chat) and not an ack, in open anticipations, memory notes, chat
   search and skill descriptions, and appends a `<recalled>` block (at most 1,500 characters, one sourced line per hit)

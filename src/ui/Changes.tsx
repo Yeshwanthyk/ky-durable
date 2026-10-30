@@ -1,4 +1,4 @@
-import { lazy, Suspense, useContext, useEffect, useState } from "react";
+import { Component, lazy, type ReactNode, Suspense, useContext, useEffect, useState } from "react";
 import { FilesContext } from "./Attachments";
 import { Counts, plural, useReview } from "./change-review";
 import { latestDiff, patchSummary } from "./review";
@@ -11,6 +11,23 @@ import { Icon } from "./Icon";
 // Shiki it brings, load only when the row is opened.
 
 const ChangesBody = lazy(() => import("./ChangesBody"));
+
+/**
+ * The diff viewer's chunk can fail to load: offline before the service worker cached it, or after a
+ * deploy took it away from a page that was already open. Without this, the rejected import would
+ * unmount the whole app to a blank page; with it, only the open row says so.
+ */
+class Unloaded extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? <p className="ui-note">The diff viewer couldn't load. Reload ky when it's online.</p> : this.props.children;
+  }
+}
 
 const patches = new Map<string, Promise<string>>();
 
@@ -77,9 +94,11 @@ function ChangeSet({ task, id, caption, patch }: ChangeSetProps) {
         </span>
       </button>
       {open ? (
-        <Suspense fallback={null}>
-          <ChangesBody id={id} caption={caption} patch={patch} review={review} />
-        </Suspense>
+        <Unloaded>
+          <Suspense fallback={null}>
+            <ChangesBody id={id} caption={caption} patch={patch} review={review} />
+          </Suspense>
+        </Unloaded>
       ) : null}
     </div>
   );

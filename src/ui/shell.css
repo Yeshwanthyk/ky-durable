@@ -560,6 +560,22 @@
   animation: none;
 }
 
+/* Why the socket is down, in the tones of a machine's dot: offline is a still grey (nothing to wait
+   on but the network), can't-reach keeps the pulse in amber (it is still trying), signed out is a
+   still red (only the user can fix it). */
+.status-dot[data-tone="off"] {
+  animation: none;
+}
+
+.status-dot[data-tone="waking"] {
+  background: var(--warning);
+}
+
+.status-dot[data-tone="failed"] {
+  background: var(--danger);
+  animation: none;
+}
+
 /* Connecting settles with a small pop instead of swapping colour in place. */
 .status-dot[data-connected="true"][data-pop="true"] {
   animation: dot-settle 300ms var(--ease-out);
@@ -849,6 +865,12 @@
   font-size: calc(12px * var(--text-scale));
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* Offline, what can't wait for the connection (Stop all, a task's Stop) stays, dimmed, and says why on hover. */
+.feed-action:disabled,
+.feed-stop:disabled {
+  opacity: 0.5;
 }
 
 /* The first action takes the free room, so they sit together at the end, a pill's gap apart. */

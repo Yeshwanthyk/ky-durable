@@ -42,7 +42,12 @@ export const ClientMessageSchema = Type.Union([
     whenBusy: Type.Optional(Type.Union([Type.Literal("followUp"), Type.Literal("steer")])),
     operationId: Type.Optional(Text),
     /** The message answers a card ky showed: what was chosen, kept beside it for the card to read back. */
-    card: Type.Optional(CardAnswerSchema)
+    card: Type.Optional(CardAnswerSchema),
+    /**
+     * How long the message waited on the device before this send, in ms: a page that was offline kept it. Measured
+     * on the device, so its clock being off doesn't matter. A long wait puts a note for the model after the words.
+     */
+    waited: Type.Optional(Type.Number({ minimum: 0 }))
   }),
   message("abort", {}),
   /** Stop the step the run is on, so what is queued goes in now rather than after it. */
@@ -157,6 +162,8 @@ export const ClientMessageSchema = Type.Union([
   message("push-subscribe", { endpoint: Text, p256dh: Text, auth: Text }),
   /** Push no more to the device subscribed at `endpoint`. */
   message("push-unsubscribe", { endpoint: Text }),
+  /** Whether the user is looking at this page: shown and in focus. While one is, a reply to them doesn't push. */
+  message("watching", { watching: Type.Boolean() }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Answers with the user's time zone, whether they pinned it, and the zone this connection is placed in. */

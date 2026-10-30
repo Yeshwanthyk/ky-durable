@@ -22,7 +22,26 @@ export type Outgoing = {
    * pi withdrew it without the user asking, as Stop does, so it goes back to the composer.
    */
   readonly back: "taking" | "returned" | null;
+  /** Written while ky was out of reach and never put on an open socket: it waits above the composer, and the page alone can take it back. */
+  readonly waiting?: boolean;
+  /** Clips recorded or attached offline, which go up before the message can. */
+  readonly uploads?: readonly Upload[];
 };
+
+/** A clip that goes up before its message: its tag names `file`, a stand-in id, until the upload gives it its own. */
+export type Upload = { readonly file: string; readonly body: Blob; readonly type: string };
+
+/** A stand-in file id for a clip that has not gone up: the shape of a real one, so its tag reads as a clip. */
+export const standInFile = () => crypto.randomUUID().replaceAll("-", "");
+
+/** The message with each clip's stand-in id replaced by the id its upload got. */
+export function withFiles(input: UserInput, files: ReadonlyMap<string, string>): UserInput {
+  const swap = (text: string) => text.replace(/file="([0-9a-f]{32})"/g, (whole, file: string) => (files.has(file) ? `file="${files.get(file)}"` : whole));
+
+  if (!Array.isArray(input)) return swap(String(input));
+
+  return input.map((part) => (part.type === "text" ? { ...part, text: swap(part.text) } : part));
+}
 
 /** The id the thread gives a message still on its way, until pi's own entry takes its place. */
 export const SENDING = "sending:";
@@ -41,7 +60,10 @@ export function outgoingText(input: UserInput): string {
 export const outgoingImages = (input: UserInput): number => imagesOf(input).length;
 
 /** Whether it waits in the queue above the composer, rather than showing in the thread. */
-export const isQueued = (item: Outgoing): boolean => item.back !== "returned" && (item.behind || item.submission !== null);
+/** Written offline and not sent yet: it waits for the connection, above the composer. */
+export const isWaiting = (item: Outgoing): boolean => item.waiting === true && item.back !== "returned";
+
+export const isQueued = (item: Outgoing): boolean => !isWaiting(item) && item.back !== "returned" && (item.behind || item.submission !== null);
 
 /** Given back by pi, for the composer to take in. */
 export const isReturned = (item: Outgoing): boolean => item.back === "returned";

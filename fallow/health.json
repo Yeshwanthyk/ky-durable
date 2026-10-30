@@ -8,7 +8,7 @@
     },
     "public/sw.js": {
       "crap_moderate": {
-        "count": 3
+        "count": 2
       }
     },
     "src/approvals/executor.ts": {
@@ -26,19 +26,6 @@
         "count": 1
       }
     },
-    "src/browse.ts": {
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 3
-      }
-    },
-    "src/chats-tool.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "src/client.tsx": {
       "complexity_moderate": {
         "count": 3
@@ -52,45 +39,14 @@
         "count": 1
       }
     },
-    "src/container-tracks.ts": {
-      "complexity_moderate": {
-        "count": 1
-      },
+    "src/connection.ts": {
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
     "src/github.ts": {
       "complexity_moderate": {
         "count": 1
-      }
-    },
-    "src/history.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/images.ts": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/machines/machines.ts": {
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/media.ts": {
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/sandboxes.ts": {
-      "crap_moderate": {
-        "count": 2
       }
     },
     "src/server.ts": {
@@ -105,7 +61,7 @@
     },
     "src/skills/skills.ts": {
       "crap_moderate": {
-        "count": 2
+        "count": 1
       }
     },
     "src/skills/specialists.ts": {
@@ -203,10 +159,18 @@
         "count": 2
       },
       "crap_critical": {
-        "count": 3
+        "count": 4
       },
       "crap_high": {
-        "count": 2
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/ui/ComposerDock.tsx": {
+      "complexity_moderate": {
+        "count": 1
       },
       "crap_moderate": {
         "count": 1
@@ -240,7 +204,7 @@
         "count": 2
       },
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/ui/Proactivity.tsx": {
@@ -249,8 +213,17 @@
       }
     },
     "src/ui/QueueTray.tsx": {
-      "crap_moderate": {
+      "complexity_critical": {
         "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
       }
     },
     "src/ui/RoutineList.tsx": {
@@ -314,6 +287,11 @@
     "src/ui/ToolRow.tsx": {
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "src/ui/Topbar.tsx": {
+      "crap_moderate": {
+        "count": 2
       }
     },
     "src/ui/Welcome.tsx": {
@@ -414,6 +392,17 @@
     "src/use-pi-session.ts": {
       "complexity_critical": {
         "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "src/view-cache.ts": {
+      "crap_high": {
+        "count": 1
       }
     },
     "src/view.ts": {
@@ -455,11 +444,6 @@
     },
     "test/gate-live.ts": {
       "crap_moderate": {
-        "count": 1
-      }
-    },
-    "test/gate.ts": {
-      "crap_high": {
         "count": 1
       }
     },
@@ -562,32 +546,41 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "src/ui/turns.ts:high impact",
-    "src/ui/open-chat.ts:high impact",
+    "src/machines/wiring.ts:high impact",
+    "src/automations/wiring.ts:high impact",
     "src/outbox.ts:high impact",
+    "src/ui/turns.ts:high impact",
+    "src/runners/wiring.ts:high impact",
+    "src/ui/open-chat.ts:high impact",
+    "src/files/wiring.ts:high impact",
+    "src/dreaming/recall.ts:high impact",
+    "src/providers/offer.ts:high impact",
     "src/ui/Attachments.tsx:high impact",
-    "src/images.ts:high impact",
     "src/ui/card-answers.ts:high impact",
+    "src/chats/chats.ts:high impact",
     "src/ui/use-draft.ts:untested risk",
     "src/ui/RoutineList.tsx:untested risk",
-    "test/harness/client.ts:high impact",
-    "src/tool-labels.ts:high impact",
+    "src/automations/automations.ts:untested risk",
+    "src/browse/wiring.ts:high impact",
     "src/ui/activity.ts:high impact",
-    "src/ui/Panel.tsx:complexity",
-    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
-    "src/core/must.ts:high impact",
+    "src/machines/machines.ts:high impact",
     "src/ui/use-session-route.ts:high impact",
+    "tools/oxlint/anti-slop/rules/no-reduce-accumulator-copy.ts:untested risk",
+    "src/files/media.ts:high impact",
+    "test/harness/client.ts:high impact",
+    "src/skills/subagents.ts:untested risk",
+    "src/tool-labels.ts:high impact",
     "src/step-labels.ts:high impact",
-    "src/use-pi-session.ts:complexity",
-    "src/ui/thread-marks.ts:high impact",
     "src/ui/Thread.tsx:complexity",
+    "src/ui/thread-marks.ts:high impact",
+    "src/ui/Panel.tsx:complexity",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
     "src/ui/Composer.tsx:complexity",
-    "src/ui/crew-of.ts:high impact",
+    "src/use-pi-session.ts:complexity",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
-    "src/container-tracks.ts:untested risk",
+    "src/ui/crew-of.ts:high impact",
+    "test/visual/diff.ts:untested risk",
     "src/ui/Charts.tsx:untested risk",
-    "public/sw.js:untested risk",
     "tools/oxlint/anti-slop/shared/dictionary-types.ts:untested risk"
   ]
 }

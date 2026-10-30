@@ -26,6 +26,10 @@ export type PendingClip = {
   readonly file: string | null;
   /** How much has gone up, 0–1. */
   readonly progress: number;
+  /** The bytes, kept while it has no file, so a clip added offline goes up with its message once ky is back. */
+  readonly body?: Blob;
+  /** Its upload couldn't reach ky: it waits, and goes up once the message is sent and ky is back. */
+  readonly waiting?: boolean;
 };
 
 /** Longest side of a video frame: the model gets the gist, and a message's frames fit MAX_FRAME_CHARS. */
@@ -162,6 +166,13 @@ export function recordedClip(recording: Recording): PendingClip {
 /** What PUT /api/media answers with. */
 const Uploaded = Type.Object({ id: Type.String({ pattern: "^[0-9a-f]{32}$" }) });
 
+/** An upload that never reached ky: the device is offline, or ky is out of reach. The clip can wait and go later. */
+export class UploadOffline extends Error {
+  constructor() {
+    super("The clip didn't upload: check the connection and attach it again.");
+  }
+}
+
 /** PUT /api/media, reporting how much has gone up; resolves with the file's id. */
 export function uploadClip(body: Blob, type: string, onProgress: (done: number) => void): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -169,7 +180,7 @@ export function uploadClip(body: Blob, type: string, onProgress: (done: number) 
     request.open("PUT", "/api/media");
     request.setRequestHeader("Content-Type", type);
     request.upload.onprogress = (event) => event.lengthComputable && onProgress(event.loaded / event.total);
-    request.onerror = () => reject(new Error("The clip didn't upload: check the connection and attach it again."));
+    request.onerror = () => reject(new UploadOffline());
 
     request.onload = () => {
       const uploaded = request.status === 200 ? parseOr(Uploaded, request.responseText, null) : null;

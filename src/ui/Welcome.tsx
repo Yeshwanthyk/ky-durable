@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
@@ -139,8 +139,38 @@ const COPY: Record<ChatKind, { title: string; text: string }> = {
   }
 };
 
+/**
+ * A chat this device never showed, opened with no network: it may well have messages, which only the
+ * server has, so it doesn't say what an empty chat says.
+ */
+const OFFLINE_COPY = {
+  title: "Offline",
+  text: "This chat's messages show when ky is back online. What you send now goes then."
+};
+
 const welcomeCopy = (kind: ChatKind, first: boolean, provider: string | null) =>
   first && provider !== null ? FIRST_COPY(provider) : COPY[kind];
+
+/** What the welcome says, and whether it shows the first-run cards: neither an empty chat's words nor the cards offline. */
+function useWelcome(kind: ChatKind, setUp: SetUp, connected: boolean) {
+  const offline = useOffline() && !connected;
+  const first = firstRun(kind, setUp) && !offline;
+
+  return { first, copy: offline ? OFFLINE_COPY : welcomeCopy(kind, first, setUp.onlyProvider) };
+}
+
+const subscribeOnline = (changed: () => void) => {
+  window.addEventListener("online", changed);
+  window.addEventListener("offline", changed);
+
+  return () => {
+    window.removeEventListener("online", changed);
+    window.removeEventListener("offline", changed);
+  };
+};
+
+/** Whether the browser says there is no network. Not the socket: that is also closed while it first connects. */
+const useOffline = () => useSyncExternalStore(subscribeOnline, () => !navigator.onLine);
 
 const FIRST_COPY = (provider: string) => ({
   title: `You're on ${provider}.`,
@@ -243,8 +273,7 @@ export function Welcome({
   onPick: (value: string) => void;
   onGo: (target: FirstRunTarget) => void;
 }) {
-  const first = firstRun(kind, setUp);
-  const copy = welcomeCopy(kind, first, setUp.onlyProvider);
+  const { first, copy } = useWelcome(kind, setUp, connected);
   const enter = useEntrance();
 
   return (

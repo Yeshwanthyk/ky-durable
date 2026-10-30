@@ -11,21 +11,23 @@ import type { CardAnswer } from "./cards/contract";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
-import { isQueued, isReturned, type Outgoing, sendingMessage } from "./outbox";
+import { isQueued, isReturned, isWaiting, type Outgoing, sendingMessage, type Upload } from "./outbox";
 import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
-import { ApprovalsContext } from "./ui/Approvals";
+import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
-import { ProactivityContext } from "./ui/Proactivity";
+import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
 import { LedgerContext } from "./ui/LastNight";
 import { PeerContext } from "./ui/Peers";
+import { OnlineContext } from "./ui/online";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
 import { useShownCrew } from "./ui/Crew";
 import { crewOf, NO_CREW, sameCrew } from "./ui/crew-of";
-import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
+import { MAIN_SESSION, mainModelName, NAME, openChat, whoSub, withChanges, workingCount } from "./ui/open-chat";
+import { type ConnectionKind, CONNECTION_LABEL } from "./connection";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
 import { backgroundLine, isLive } from "./ui/task-progress";
@@ -103,8 +105,8 @@ function whyCantSee(images: readonly PendingImage[], settings: SettingsView | nu
   return imageSupport(settings, talksToMain ? "main" : "worker");
 }
 
-const canSend = (connected: boolean, reading: number, cantSee: string | null) =>
-  connected && reading === 0 && !cantSee;
+// Not whether the socket is open: a message sent offline waits and goes when it opens (src/use-pi-session.ts).
+const canSend = (reading: number, cantSee: string | null) => reading === 0 && !cantSee;
 
 /** A live task whose clock is running; a queued one that has not started shows no time to tick. */
 const clockRunning = (task: TaskRow) => isLive(task) && task.started_at !== null;
@@ -155,8 +157,8 @@ function describe(ky: Ky, session: string, theme: Theme) {
 
 type View = ReturnType<typeof describe>;
 
-/** How the connection is doing, in words. */
-type Status = { readonly label: string; readonly connected: boolean };
+/** How the connection is doing, in words, and why it is down. */
+type Status = { readonly label: string; readonly connected: boolean; readonly kind: ConnectionKind };
 
 /** What every part of the page is drawn from. */
 type Parts = {
@@ -180,6 +182,8 @@ type DraftDockProps = {
   run: ComponentProps<typeof ComposerDock>["session"];
   settings: SettingsView | null;
   connected: boolean;
+  /** The browser has no network, rather than ky being out of reach. */
+  offline: boolean;
   talksToMain: boolean;
   mentions: readonly Mentionable[];
   group: boolean;
@@ -188,9 +192,13 @@ type DraftDockProps = {
   /** A newer deploy is serving; reload unless that would throw the draft away. */
   updated: boolean;
   queue: readonly Outgoing[];
+  /** Messages written offline, waiting for the connection. */
+  waiting: readonly Outgoing[];
+  /** Changes made offline, waiting for the connection. */
+  changes: number;
   /** Queued messages ky gave back, as Stop does, for the composer to take in. */
   returned: readonly Outgoing[];
-  onSend: (input: UserInput) => void;
+  onSend: (input: UserInput, uploads: readonly Upload[]) => void;
   onStop: () => void;
   /** Stop the step ky is on, so the queue goes in now. */
   onSteer: () => void;
@@ -221,9 +229,9 @@ function useTakeReturned(returned: readonly Outgoing[], restore: (input: UserInp
 }
 
 /** Edit takes a queued message back into the composer, first out of the queue so it never goes in twice; delete just takes it back. */
-function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, restore: (input: UserInput) => void) {
+function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, restore: (input: UserInput, uploads?: readonly Upload[]) => void) {
   const onEdit = async (item: Outgoing) => {
-    if (await onWithdraw(item.operationId)) restore(item.input);
+    if (await onWithdraw(item.operationId)) restore(item.input, item.uploads);
   };
 
   const onDelete = async (item: Outgoing) => {
@@ -234,7 +242,7 @@ function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, 
 }
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, offline, talksToMain, mentions, group, history, updated, queue, waiting, changes, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
@@ -246,9 +254,9 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
   const seesImages = settings === null || imageSupport(settings, talksToMain ? "main" : "worker") === null;
 
   const submit = () => {
-    const input = canSend(connected, draft.reading, cantSee) ? draft.take(seesImages) : null;
+    const taken = canSend(draft.reading, cantSee) ? draft.take(seesImages) : null;
 
-    if (input !== null) onSend(input);
+    if (taken !== null) onSend(taken.input, taken.uploads);
   };
 
   const { onEdit, onDelete } = useQueueActions(onWithdraw, draft.restore);
@@ -257,9 +265,12 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
     <ComposerDock
       session={run}
       queue={queue}
+      waiting={waiting}
+      changes={changes}
       draft={draft}
       cantSee={cantSee}
       connected={connected}
+      offline={offline}
       talksToMain={talksToMain}
       mentions={mentions}
       group={group}
@@ -344,13 +355,18 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
  * run in the queue, and one ky gave back in the composer.
  */
 function useOutboxParts(outbox: readonly Outgoing[]) {
+  const waiting = useSame(
+    useMemo(() => outbox.filter(isWaiting), [outbox]),
+    shallow
+  );
+
   const queue = useSame(
     useMemo(() => outbox.filter(isQueued), [outbox]),
     shallow
   );
 
   const sending = useSame(
-    useMemo(() => outbox.filter((item) => !isQueued(item) && !isReturned(item)), [outbox]),
+    useMemo(() => outbox.filter((item) => !isQueued(item) && !isReturned(item) && !isWaiting(item)), [outbox]),
     shallow
   );
 
@@ -359,7 +375,7 @@ function useOutboxParts(outbox: readonly Outgoing[]) {
     shallow
   );
 
-  return { queue, sending, returned };
+  return { queue, waiting, sending, returned };
 }
 
 function Stage(parts: Parts) {
@@ -367,7 +383,7 @@ function Stage(parts: Parts) {
   const { open, variantId } = view;
   const composer = useRef<DraftHandle>(null);
 
-  const { queue, sending, returned } = useOutboxParts(ky.outbox);
+  const { queue, waiting, sending, returned } = useOutboxParts(ky.outbox);
 
   const messages = useMemo(
     () => (sending.length === 0 ? ky.messages : [...ky.messages, ...sending.map(sendingMessage)]),
@@ -416,9 +432,16 @@ function Stage(parts: Parts) {
   /** While a run is going, Enter steers it; otherwise it starts one. A tap on a card ky showed sends the same way. */
   const onSend = useStableCallback((input: UserInput, card?: CardAnswer) => ky.submit(input, ky.running ? "steer" : "followUp", card));
 
+  const onSendDraft = useStableCallback((input: UserInput, uploads: readonly Upload[]) => ky.submit(input, ky.running ? "steer" : "followUp", undefined, uploads));
+
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
-  const approvals = useMemo(() => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide }), [ky.approvals, ky.approvalActions]);
+  const deciding = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
+
+  const approvals = useMemo(
+    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting: deciding }),
+    [ky.approvals, ky.approvalActions, deciding]
+  );
 
   return (
     <section className="stage" aria-label="Chat">
@@ -435,14 +458,17 @@ function Stage(parts: Parts) {
           run={run}
           settings={ky.settings}
           connected={view.connected}
+          offline={ky.connection === "offline"}
           talksToMain={open.talksToMain}
           mentions={open.talksToMain ? ky.specialists : NONE}
           group={open.talksToMain && (ky.groups[view.session]?.length ?? 0) > 0}
           history={history}
           updated={ky.updated}
           queue={queue}
+          waiting={waiting}
+          changes={ky.acts.length}
           returned={returned}
-          onSend={onSend}
+          onSend={onSendDraft}
           onStop={ky.abort}
           onSteer={ky.steerNow}
           onWithdraw={ky.withdraw}
@@ -631,11 +657,13 @@ function App() {
   const [theme, setTheme] = useTheme();
   const rawPanel = usePanel();
   const ky = usePiSession(session);
+  usePushUpkeep(ky.proactivityActions, session);
   const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
   const panel = useStablePanel(rawPanel);
   const view = describe(ky, session, theme);
-  const label = statusLabel(ky.status);
-  const status = useMemo(() => ({ label, connected: view.connected }), [label, view.connected]);
+  const kind = ky.connection;
+  const label = withChanges(CONNECTION_LABEL[kind], ky.acts.length);
+  const status = useMemo(() => ({ label, connected: kind === "open", kind }), [label, kind]);
   const { setPaletteOpen } = shell;
   const onSearch = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
 
@@ -655,6 +683,7 @@ function App() {
   const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage };
 
   return (
+    <OnlineContext.Provider value={view.connected}>
     <AvatarsContext.Provider value={ky.avatars}>
       <FilesContext.Provider value={ky.files}>
         <SendTaskContext.Provider value={ky.sendTask}>
@@ -716,6 +745,7 @@ function App() {
         </SendTaskContext.Provider>
       </FilesContext.Provider>
     </AvatarsContext.Provider>
+    </OnlineContext.Provider>
   );
 }
 

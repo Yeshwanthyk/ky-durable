@@ -29,9 +29,10 @@ export class Pushes {
     this.#edge.run(Push.use((push) => push.unsubscribe(endpoint)));
   }
 
-  async notify(session: string, text: string): Promise<void> {
+  /** Push `text` as `session`'s; `asked`, a reply to the user's own message, doesn't count toward the day's right-away number. */
+  async notify(session: string, text: string, asked = false): Promise<void> {
     try {
-      await this.#edge.runPromise(Push.use((push) => push.notify(session, text)));
+      await this.#edge.runPromise(Push.use((push) => push.notify(session, text, asked)));
     } catch (error) {
       console.warn("push", error);
     }

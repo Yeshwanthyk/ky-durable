@@ -12,7 +12,8 @@ import { useRecorder } from "./use-recorder";
 function useVoice(draft: Draft, onSubmit: () => void): Voice {
   const { recorder, start, stop, cancel } = useRecorder({ onError: draft.setError });
   const [sendWhenReady, setSendWhenReady] = useState(false);
-  const ready = draft.reading === 0 && draft.clips.every((clip) => clip.file !== null);
+  // A clip waiting offline goes up with the message, so it doesn't hold the send.
+  const ready = draft.reading === 0 && draft.clips.every((clip) => clip.file !== null || clip.waiting === true);
 
   useEffect(() => {
     if (!sendWhenReady || !ready) return;
@@ -51,7 +52,9 @@ function ErrorNote({ error }: { error: string | null }) {
   ) : null;
 }
 
-function placeholder(running: boolean, talksToMain: boolean, group: boolean) {
+function placeholder(running: boolean, connected: boolean, offline: boolean, talksToMain: boolean, group: boolean) {
+  if (!connected) return offline ? "Offline · sends on reconnect" : "Sends when ky reconnects";
+
   if (running) return "Steer the running turn";
 
   if (group) return "Message the group, or @ a specialist";
@@ -63,9 +66,12 @@ function placeholder(running: boolean, talksToMain: boolean, group: boolean) {
 export function ComposerDock({
   session,
   queue,
+  waiting = [],
+  changes = 0,
   draft,
   cantSee,
   connected,
+  offline = false,
   talksToMain,
   mentions = [],
   group = false,
@@ -79,10 +85,16 @@ export function ComposerDock({
   session: Pick<PiSessionView, "retry" | "queued" | "error" | "running">;
   /** This page's messages waiting behind the run. */
   queue: readonly Outgoing[];
+  /** Messages written offline, waiting for the connection. */
+  waiting?: readonly Outgoing[];
+  /** Changes made offline, waiting for the connection. */
+  changes?: number;
   draft: Draft;
   /** Why the attached images can't go to this session's model, if they can't. */
   cantSee: string | null;
   connected: boolean;
+  /** The browser has no network; the topbar's pill says why else the socket is down. */
+  offline?: boolean;
   talksToMain: boolean;
   /** The specialists typing @ offers. */
   mentions?: readonly Mentionable[];
@@ -104,6 +116,8 @@ export function ComposerDock({
     <div ref={dock} className="composer-wrap">
       <QueueTray
         items={queue}
+        waiting={waiting}
+        changes={changes}
         more={Math.max(0, session.queued - queue.filter((item) => item.submission !== null).length)}
         connected={connected}
         running={session.running}
@@ -118,9 +132,10 @@ export function ComposerDock({
         value={draft.prompt}
         onChange={draft.setPrompt}
         onSubmit={onSubmit}
-        onStop={onStop}
+        // Offline the composer still takes a message: it waits in the thread and goes when the socket opens.
+        // Stop can't wait like that, so it isn't offered.
+        onStop={connected ? onStop : undefined}
         working={session.running}
-        disabled={!connected}
         busy={draft.reading > 0 || cantSee !== null}
         images={draft.images}
         clips={draft.clips}
@@ -131,7 +146,7 @@ export function ComposerDock({
         label="Message"
         mentions={mentions}
         history={history}
-        placeholder={placeholder(session.running, talksToMain, group)}
+        placeholder={placeholder(session.running, connected, offline, talksToMain, group)}
       />
     </div>
   );

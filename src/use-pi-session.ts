@@ -5,8 +5,12 @@ import { Asks } from "./asks";
 import type { AvatarsView } from "./avatars/contract";
 import { parseOr } from "./core/decode";
 import type { MachineChange } from "./machines/contract";
-import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing } from "./outbox";
+import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing, type Upload, withFiles } from "./outbox";
+import { actStore, messageStore, type StoredAct, type StoredMessage } from "./outbox-store";
+import { outgoingOf, Pending } from "./pending";
+import { uploadClip, UploadOffline } from "./ui/pick-media";
 import { EMPTY_VIEW, reduceEvents } from "./view";
+import { useConnection } from "./connection";
 import type { CardAnswer } from "./cards/contract";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
@@ -40,7 +44,7 @@ import type {
 } from "./protocol";
 import type { ApprovalAction, ApprovalView, ToolPolicy } from "./approvals/contract";
 
-export type ConnectionStatus = "connecting" | "open" | "closed";
+type ConnectionStatus = "connecting" | "open" | "closed";
 
 type State = SessionView & {
   /** Messages sent that pi has not placed yet, oldest first. */
@@ -86,6 +90,8 @@ type State = SessionView & {
   readonly approvals: readonly ApprovalView[];
   /** A newer deploy is serving than the one this page loaded from. */
   readonly updated: boolean;
+  /** Changes the user made while ky was out of reach, oldest first; each goes once a socket opens. */
+  readonly acts: readonly StoredAct[];
 };
 
 /** Each server frame, by its type. */
@@ -104,11 +110,11 @@ type Receiver = {
   readonly setState: (update: (current: State) => State) => void;
   readonly events: { add(events: readonly AgentEvent[]): void };
   readonly version: { current: string | null };
-  readonly unanswered: { readonly current: Map<string, unknown> };
+  readonly pending: Pending;
   readonly asks: Asks;
 };
 
-function frameHandlers({ setState, events, version, unanswered, asks }: Receiver): FrameHandlers {
+function frameHandlers({ setState, events, version, pending, asks }: Receiver): FrameHandlers {
   /** The frames that replace a part of the state outright. */
   const replace = (part: Partial<State>) => setState((current) => ({ ...current, ...part }));
 
@@ -121,14 +127,14 @@ function frameHandlers({ setState, events, version, unanswered, asks }: Receiver
     },
     events: (frame) => events.add(frame.events),
     result: ({ id, result }) => {
-      unanswered.current.delete(id);
+      pending.answered(id);
       setState((current) => ({ ...current, outbox: settleOutgoing(current.outbox, id, false) }));
       asks.answer(id, result);
     },
     error: ({ id, message }) => {
       // A refused submit is answered too; sending it again would be refused again.
       if (id !== undefined) {
-        unanswered.current.delete(id);
+        pending.answered(id);
         asks.fail(id, message);
       }
 
@@ -197,7 +203,8 @@ const INITIAL_STATE: State = {
   subscriptions: [],
   executor: null,
   approvals: [],
-  updated: false
+  updated: false,
+  acts: []
 };
 
 /** The one agent object this app talks to. */
@@ -214,17 +221,16 @@ export function usePiSession(session: string) {
   const version = useRef<string | null>(null);
   /** Asks waiting for their answer, by id. */
   const [asks] = useState(() => new Asks());
-  /**
-   * Submits the server has not answered yet, by operation id, with the session
-   * they went to. A socket that drops may or may not have delivered one, so
-   * each is sent again when its session's socket opens; pi drops the copy
-   * whose operation id it already has.
-   */
-  const unanswered = useRef(new Map<string, { session: string; message: ClientMessage }>());
-  /** This render's session and socket, for the open handler. */
-  const live = useRef<{ session: string; send(data: string): void } | null>(null);
+  /** Submits the server has not answered yet, in memory and on the device (src/pending.ts). */
+  const [pending] = useState(() => new Pending((operationId) => setState(withoutOutgoing(operationId))));
+
+  useEffect(() => () => pending.close(), [pending]);
+  /** This render's session and socket, for the open handler and for a message that goes once its clips are up. */
+  const live = useRef<Live | null>(null);
   const events = useEventBatch(setState);
-  const handlers = useMemo(() => frameHandlers({ setState, events, version, unanswered, asks }), [events, asks]);
+  const handlers = useMemo(() => frameHandlers({ setState, events, version, pending, asks }), [events, asks, pending]);
+  const deliver = useDeliver(pending, live, setState);
+  const acts = useActs(live, asks, setState);
 
   const agent = useAgent({
     agent: "pi-agent",
@@ -235,15 +241,13 @@ export function usePiSession(session: string) {
       events.flush();
       setState((state) => ({ ...state, status: "open" }));
 
-      for (const pending of unanswered.current.values()) {
-        if (pending.session === live.current?.session) live.current.send(JSON.stringify(pending.message));
-      }
+      for (const message of pending.of(live.current?.session ?? session)) deliver(message.operationId);
+      void acts.flush();
     },
     onClose: () => {
       events.flush();
       setState((current) => ({ ...current, status: "closed" }));
       asks.close();
-      void reloadIfSignedOut();
     },
     onMessage: (event) => {
       // The agents SDK's own frames, and anything else ky didn't send, aren't one.
@@ -258,10 +262,14 @@ export function usePiSession(session: string) {
   });
 
   useEffect(() => {
-    live.current = { session, send: (data) => agent.send(data) };
+    live.current = { session, send: (data) => agent.send(data), open: () => agent.readyState === WebSocket.OPEN };
   }, [session, agent]);
 
+  useRestore(pending, live, deliver, acts, setState);
+
   useResumeReconnect(agent);
+  // Why the socket is down, for the pill; it also catches a socket that says OPEN but is dead.
+  const connection = useConnection(agent, state.outbox.length);
   useSaveView(session, state);
 
   // Another chat starts from its cache during render, so the old chat never paints under the new one's name.
@@ -274,6 +282,9 @@ export function usePiSession(session: string) {
     setState((current) => ({
       ...INITIAL_STATE,
       ...cachedView(session),
+      // What the user sent here that ky hasn't answered, kept for this chat while another was open.
+      outbox: pending.of(session).map(outgoingOf),
+      acts: current.acts,
       tasks: current.tasks,
       machines: current.machines,
       files: current.files,
@@ -296,13 +307,17 @@ export function usePiSession(session: string) {
     }));
   }
 
+  /**
+   * A command over the socket. Offline, a change waits on the device and goes once a socket opens (WAITS_OFFLINE);
+   * any other says it didn't go, so a tap never does nothing. The page offers those only while connected.
+   */
   const send = useCallback(
     (message: ClientMessage) => {
-      if (agent.readyState === WebSocket.OPEN) {
-        agent.send(JSON.stringify(message));
-      }
+      if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify(message));
+      else if (WAITS_OFFLINE.has(message.type)) acts.queue(message);
+      else setState((current) => ({ ...current, error: "ky is offline, so that didn't go. Try again once it reconnects." }));
     },
-    [agent]
+    [agent, acts]
   );
 
   /** Send a message the server answers by its id; it settles on the answer, an error, the socket closing, or a timeout. */
@@ -323,26 +338,45 @@ export function usePiSession(session: string) {
    * Idle: starts a run. Busy: queued as a follow-up, or steers the run. Each
    * message gets one operation id, kept across resends, so pi takes it once.
    */
+  const running = useRef(state.running);
+  running.current = state.running;
+
+  /**
+   * Idle: starts a run. Busy: queued as a follow-up, or steers the run. Each message gets one operation id, kept
+   * across resends, so pi takes it once. Offline it waits, kept on the device, and goes once the socket opens;
+   * clips attached offline (`uploads`) go up first.
+   */
   const submit = useCallback(
-    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp", card?: CardAnswer) => {
+    (input: UserInput, whenBusy: "followUp" | "steer" = "followUp", card?: CardAnswer, uploads: readonly Upload[] = []) => {
       const operationId = crypto.randomUUID();
-      const message: Extract<ClientMessage, { type: "submit" }> = { type: "submit", id: operationId, operationId, input, whenBusy };
+      const message: StoredMessage["message"] = { type: "submit", id: operationId, operationId, input, whenBusy };
 
       if (card !== undefined) message.card = { ...card, values: card.values.map((value) => [...value]) };
-      unanswered.current.set(operationId, { session, message });
-      // It shows before the server answers: in the thread, or queued behind the run going now.
+      const at = Date.now();
+      const behind = running.current;
+      pending.add({ operationId, session, message, at, behind, written: false, uploads });
+      const sent = deliver(operationId);
+      // It shows before the server answers: in the thread, queued behind the run going now, or waiting for the connection.
       setState((current) => ({
         ...current,
-        outbox: [...current.outbox, { operationId, input, at: Date.now(), behind: current.running, submission: null, back: null }]
+        outbox: [...current.outbox, { operationId, input, at, behind, submission: null, back: null, waiting: !sent, uploads }]
       }));
-      send(message);
     },
-    [send, session]
+    [pending, deliver, session]
   );
 
-  /** Take back a queued message; resolves false once pi has placed it, too late to take back. */
+  /**
+   * Take back a queued message; resolves false once pi has placed it, too late to take back. One the page never
+   * sent, as one written offline, it takes back itself: ky never had it.
+   */
   const withdraw = useCallback(
     async (operationId: string) => {
+      if (pending.takeBack(operationId) !== undefined) {
+        setState(withoutOutgoing(operationId));
+
+        return true;
+      }
+
       // Marked first, so pi's word that it is withdrawn drops it rather than returning it to the composer.
       setState((current) => ({ ...current, outbox: markTaking(current.outbox, operationId, true) }));
       const taken = await ask("withdraw", { operationId }).catch(() => false);
@@ -351,7 +385,7 @@ export function usePiSession(session: string) {
 
       return taken;
     },
-    [ask]
+    [ask, pending]
   );
 
   /** The composer has taken in these returned messages. */
@@ -439,7 +473,7 @@ export function usePiSession(session: string) {
 
   const subscriptionActions = useSubscriptionActions(ask, send);
 
-  const { executorActions, peerActions, mailActions, approvalActions } = useSettingsActions(ask, send);
+  const { executorActions, peerActions, mailActions, approvalActions } = useSettingsActions(ask, send, live);
 
   /** Settings › Proactivity's. New on each connect, so a page that asked while the socket was closed asks again. */
   const proactivityActions = useMemo(() => proactivityActionsOf(ask, state.status === "open"), [ask, state.status]);
@@ -558,6 +592,7 @@ export function usePiSession(session: string) {
 
   return {
     ...state,
+    connection,
     submit,
     withdraw,
     takeReturned,
@@ -653,19 +688,218 @@ function useEventBatch(setState: (update: (current: State) => State) => void) {
   return batch;
 }
 
-/**
- * A socket upgrade Access or the Worker refused shows the browser only a close, not its status.
- * So on each close, ask for the page: if Access redirects it to its login or the Worker refuses it,
- * reload, and Access takes the page to its login.
- */
-async function reloadIfSignedOut(): Promise<void> {
-  try {
-    const page = await fetch("/", { method: "HEAD", redirect: "manual", cache: "no-store" });
+/** The open chat and its socket. */
+type Live = { readonly session: string; send(data: string): void; open(): boolean };
 
-    if (page.type === "opaqueredirect" || page.status === 401) location.reload();
-  } catch {
-    // Offline: the socket keeps retrying.
-  }
+type SetState = (update: (current: State) => State) => void;
+
+/** A message that waited at least this long on the device tells ky how long, for the model's note (src/core/late.ts). */
+const SAY_WAITED_MS = 5_000;
+
+/**
+ * The commands that, offline, wait on the device and go once a socket opens: changes the user made, which still
+ * mean the same later. Stop, Steer now and stopping a task don't: a stop that lands later would stop whatever
+ * runs by then, so the page offers them only while connected.
+ */
+const WAITS_OFFLINE: ReadonlySet<ClientMessage["type"]> = new Set<ClientMessage["type"]>([
+  "approval-decide",
+  "send-task",
+  "set-machine",
+  "set-model",
+  "remove-key",
+  "remove-subscription",
+  "remove-executor",
+  "archive-chat",
+  "rename-chat",
+  "skill-change",
+  "soul-change",
+  "chat-members",
+  "specialist-brief",
+  "memory-forget",
+  "automation",
+  "set-check-ins"
+]);
+
+const withOutgoing = (operationId: string, change: Partial<Outgoing>) => (current: State): State => ({
+  ...current,
+  outbox: current.outbox.map((item) => (item.operationId === operationId ? { ...item, ...change } : item))
+});
+
+const withoutOutgoing = (operationId: string) => (current: State): State => ({
+  ...current,
+  outbox: current.outbox.filter((item) => item.operationId !== operationId)
+});
+
+/**
+ * Puts a kept message on the open chat's socket; it stays kept until ky answers. Returns whether it went now: one
+ * with clips to put up first, or one another tab may have sent or taken back, goes once that is settled.
+ */
+function useDeliver(pending: Pending, live: { readonly current: Live | null }, setState: SetState): (operationId: string) => boolean {
+  return useMemo(() => {
+    const busy = new Set<string>();
+
+    const write = (operationId: string): boolean => {
+      const message = pending.get(operationId);
+      const socket = live.current;
+
+      if (message === undefined || socket === null || socket.session !== message.session || !socket.open()) return false;
+      const waited = Date.now() - message.at;
+      socket.send(JSON.stringify(waited >= SAY_WAITED_MS ? { ...message.message, waited } : message.message));
+
+      if (!message.written) {
+        pending.update(operationId, { written: true });
+        setState(withOutgoing(operationId, { waiting: false }));
+      }
+
+      return true;
+    };
+
+    const upload = async (operationId: string): Promise<void> => {
+      const message = pending.get(operationId);
+
+      if (message === undefined || message.uploads.length === 0) return;
+      const files = new Map<string, string>();
+
+      for (const each of message.uploads) files.set(each.file, await uploadClip(each.body, each.type, () => {}));
+
+      // Taken back while its clips went up: it goes nowhere.
+      if (pending.get(operationId) === undefined) return;
+      const input = withFiles(message.message.input, files);
+      pending.update(operationId, { message: { ...message.message, input }, uploads: [] });
+      setState(withOutgoing(operationId, { input, uploads: [] }));
+    };
+
+    const later = async (operationId: string): Promise<void> => {
+      if (busy.has(operationId)) return;
+      busy.add(operationId);
+
+      try {
+        if (pending.shared(operationId) && (await messageStore.has(operationId)) === false) {
+          // Another tab had it answered, or the user took it back there.
+          pending.forget(operationId);
+          setState(withoutOutgoing(operationId));
+
+          return;
+        }
+
+        await upload(operationId);
+        write(operationId);
+      } catch (error) {
+        // A clip that couldn't go up for want of a connection waits for the next one; one ky refused says why.
+        if (error instanceof Error && !(error instanceof UploadOffline)) setState((current) => ({ ...current, error: error.message }));
+      } finally {
+        busy.delete(operationId);
+      }
+    };
+
+    return (operationId: string) => {
+      const message = pending.get(operationId);
+
+      if (message === undefined) return false;
+
+      if (message.uploads.length === 0 && !pending.shared(operationId)) return write(operationId);
+      void later(operationId);
+
+      return false;
+    };
+  }, [pending, live, setState]);
+}
+
+/** Changes made offline: kept on the device, and sent in order once a socket opens, each by one tab only. */
+function useActs(live: { readonly current: Live | null }, asks: Asks, setState: SetState) {
+  return useMemo(() => {
+    const kept: StoredAct[] = [];
+    let flushing = false;
+
+    const shown = () => setState((current) => ({ ...current, acts: [...kept] }));
+
+    const sendAct = (socket: Live, { message }: StoredAct) => {
+      // An approval's refusal, like one that came too late, is said where the chat shows errors.
+      if (message.type === "approval-decide" && message.id !== undefined) {
+        asks
+          .wait("approval-decide", message.id)
+          .then(refusal, why)
+          .then((refused) => refused !== undefined && setState((current) => ({ ...current, error: refused })))
+          .catch(() => {});
+      }
+
+      socket.send(JSON.stringify(message));
+    };
+
+    return {
+      queue(message: ClientMessage) {
+        const act = { id: message.id ?? crypto.randomUUID(), at: Date.now(), message };
+        kept.push(act);
+        shown();
+        void actStore.put(act);
+      },
+      /** Ones another launch kept. */
+      restore(acts: readonly StoredAct[]) {
+        const fresh = acts.filter((act) => !kept.some((each) => each.id === act.id));
+
+        if (fresh.length === 0) return;
+        kept.push(...fresh);
+        kept.sort((a, b) => a.at - b.at);
+        shown();
+      },
+      async flush() {
+        if (flushing) return;
+        flushing = true;
+
+        try {
+          for (let act = kept[0]; act !== undefined && live.current?.open(); act = kept[0]) {
+            const taken = await actStore.take(act.id);
+            const socket = live.current;
+
+            if (!socket?.open()) {
+              // Closed while the device answered: it waits for the next socket.
+              if (taken === true) await actStore.put(act);
+              break;
+            }
+
+            kept.shift();
+            shown();
+
+            // Another tab sent it.
+            if (taken !== false) sendAct(socket, act);
+          }
+        } finally {
+          flushing = false;
+        }
+      }
+    };
+  }, [live, asks, setState]);
+}
+
+/** What the device kept from before this launch: messages show at once, in their chat, and go once its socket is open. */
+function useRestore(pending: Pending, live: { readonly current: Live | null }, deliver: (operationId: string) => boolean, acts: ReturnType<typeof useActs>, setState: SetState) {
+  useEffect(() => {
+    let gone = false;
+
+    void pending.restore().then((fresh) => {
+      const here = live.current?.session;
+
+      if (gone || here === undefined) return;
+      const shown = fresh.filter((each) => each.session === here);
+
+      setState((current) => ({
+        ...current,
+        outbox: [...current.outbox, ...shown.filter((each) => !current.outbox.some((item) => item.operationId === each.operationId)).map(outgoingOf)]
+      }));
+
+      for (const each of shown) deliver(each.operationId);
+    });
+
+    void actStore.all().then((kept) => {
+      if (gone) return;
+      acts.restore(kept);
+      void acts.flush();
+    });
+
+    return () => {
+      gone = true;
+    };
+  }, [pending, live, deliver, acts, setState]);
 }
 
 /** Activity's automation actions, sent over the socket. */
@@ -699,7 +933,7 @@ function useSubscriptionActions(ask: AskFn, send: (message: ClientMessage) => vo
 }
 
 /** Settings › Executor's actions (connect it, tested by the server first, or forget it) and Settings › Peers', answered over the socket. */
-function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) {
+function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void, live: { readonly current: Live | null }) {
   return useMemo(
     () => ({
       executorActions: {
@@ -710,10 +944,16 @@ function useSettingsActions(ask: AskFn, send: (message: ClientMessage) => void) 
       peerActions: peerActions(ask),
       mailActions: mailActions(ask),
       approvalActions: {
-        onDecide: (approval: string, action: ApprovalAction) => ask("approval-decide", { approval, action }).then(refusal, why)
+        // Offline the tap waits on the device and goes once ky is back; its card says so (src/ui/Approvals.tsx).
+        onDecide: async (approval: string, action: ApprovalAction) => {
+          if (live.current?.open()) return ask("approval-decide", { approval, action }).then(refusal, why);
+          send({ type: "approval-decide", id: crypto.randomUUID(), approval, action });
+
+          return undefined;
+        }
       }
     }),
-    [ask, send]
+    [ask, send, live]
   );
 }
 
@@ -729,7 +969,8 @@ function proactivityActionsOf(ask: AskFn, open: boolean) {
     onSetZone: (zone: string | null) => ask("set-zone", { zone }),
     onPushKey: () => ask("push-key", {}),
     onSubscribe: (device: { endpoint: string; p256dh: string; auth: string }) => ask("push-subscribe", device),
-    onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint })
+    onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint }),
+    onWatching: (watching: boolean) => ask("watching", { watching })
   };
 }
 
@@ -825,6 +1066,9 @@ function useResumeReconnect(agent: { readonly readyState: number; reconnect(): v
 
       const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
       hiddenAt = null;
+
+      // Offline, useConnection has stopped the socket and `online` starts it again.
+      if (!navigator.onLine) return;
 
       if (away >= STALE_AFTER_MS || agent.readyState !== WebSocket.OPEN) agent.reconnect();
     };

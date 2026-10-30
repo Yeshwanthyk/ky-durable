@@ -217,6 +217,7 @@ export const ANSWERS = {
   "push-key": Text,
   "push-subscribe": Type.Null(),
   "push-unsubscribe": Type.Null(),
+  watching: Type.Null(),
   "dream-ledger": Ledger,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };

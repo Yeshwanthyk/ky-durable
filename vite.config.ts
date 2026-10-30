@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vite";
+import { precache } from "./sw-precache";
 import { experimental_readRawConfig } from "wrangler";
 import { applyOverlay } from "./wrangler-overlay";
 
@@ -27,7 +28,9 @@ export default defineConfig({
         if (existsSync(OVERLAY)) applyOverlay(config, experimental_readRawConfig({ config: OVERLAY }).rawConfig);
       }
     }),
-    tailwindcss()
+    tailwindcss(),
+    // The service worker caches the whole build on install (public/sw.js).
+    precache()
   ],
   environments: {
     // The browser's bundle only; the Worker's stays one file.
