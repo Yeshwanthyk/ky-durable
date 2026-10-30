@@ -2,6 +2,7 @@ import type { AssistantMessage, ImageContent, JsonObject, JsonValue, Message, Te
 import type { EntryDraft, EntryRecord } from "@earendil-works/pi-durable";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { withoutLateNote } from "./late";
 
 export type PiMessagePart =
   | TextContent
@@ -106,8 +107,18 @@ export type PiMessage = {
   readonly posted?: true;
 };
 
+/** The user's own parts: a late message's note is the model's (late.ts), not part of what they wrote. */
 function userParts(content: UserMessage["content"]): PiMessagePart[] {
-  return Array.isArray(content) ? content : [{ type: "text", text: content }];
+  const parts: readonly (TextContent | ImageContent)[] = Array.isArray(content) ? content : [{ type: "text", text: content }];
+
+  return parts.flatMap((part): PiMessagePart[] => {
+    if (part.type !== "text") return [part];
+    const text = withoutLateNote(part.text);
+
+    if (text === part.text) return [part];
+
+    return text === "" ? [] : [{ ...part, text }];
+  });
 }
 
 function assistantParts(content: AssistantMessage["content"]): PiMessagePart[] {

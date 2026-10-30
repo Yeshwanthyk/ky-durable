@@ -12,7 +12,8 @@ import { useRecorder } from "./use-recorder";
 function useVoice(draft: Draft, onSubmit: () => void): Voice {
   const { recorder, start, stop, cancel } = useRecorder({ onError: draft.setError });
   const [sendWhenReady, setSendWhenReady] = useState(false);
-  const ready = draft.reading === 0 && draft.clips.every((clip) => clip.file !== null);
+  // A clip waiting offline goes up with the message, so it doesn't hold the send.
+  const ready = draft.reading === 0 && draft.clips.every((clip) => clip.file !== null || clip.waiting === true);
 
   useEffect(() => {
     if (!sendWhenReady || !ready) return;
@@ -65,6 +66,8 @@ function placeholder(running: boolean, connected: boolean, talksToMain: boolean,
 export function ComposerDock({
   session,
   queue,
+  waiting = [],
+  changes = 0,
   draft,
   cantSee,
   connected,
@@ -81,6 +84,10 @@ export function ComposerDock({
   session: Pick<PiSessionView, "retry" | "queued" | "error" | "running">;
   /** This page's messages waiting behind the run. */
   queue: readonly Outgoing[];
+  /** Messages written offline, waiting for the connection. */
+  waiting?: readonly Outgoing[];
+  /** Changes made offline, waiting for the connection. */
+  changes?: number;
   draft: Draft;
   /** Why the attached images can't go to this session's model, if they can't. */
   cantSee: string | null;
@@ -106,6 +113,8 @@ export function ComposerDock({
     <div ref={dock} className="composer-wrap">
       <QueueTray
         items={queue}
+        waiting={waiting}
+        changes={changes}
         more={Math.max(0, session.queued - queue.filter((item) => item.submission !== null).length)}
         connected={connected}
         running={session.running}

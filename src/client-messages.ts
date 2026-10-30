@@ -42,7 +42,12 @@ export const ClientMessageSchema = Type.Union([
     whenBusy: Type.Optional(Type.Union([Type.Literal("followUp"), Type.Literal("steer")])),
     operationId: Type.Optional(Text),
     /** The message answers a card ky showed: what was chosen, kept beside it for the card to read back. */
-    card: Type.Optional(CardAnswerSchema)
+    card: Type.Optional(CardAnswerSchema),
+    /**
+     * How long the message waited on the device before this send, in ms: a page that was offline kept it. Measured
+     * on the device, so its clock being off doesn't matter. A long wait puts a note for the model after the words.
+     */
+    waited: Type.Optional(Type.Number({ minimum: 0 }))
   }),
   message("abort", {}),
   /** Stop the step the run is on, so what is queued goes in now rather than after it. */

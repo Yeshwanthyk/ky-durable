@@ -81,10 +81,12 @@ export function mainModelName(settings: SettingsView | null): string {
   return provider?.models.find((each) => each.modelId === main.modelId)?.name ?? main.modelId;
 }
 
-export function statusLabel(status: ConnectionStatus): string {
+export function statusLabel(status: ConnectionStatus, changes = 0): string {
   if (status === "open") return "Connected";
+  const label = status === "connecting" ? "Connecting" : "Reconnecting";
 
-  return status === "connecting" ? "Connecting" : "Reconnecting";
+  // Changes made offline go once ky is back; until then this is where the panel says they wait.
+  return changes === 0 ? label : `${label} · ${changes === 1 ? "1 change waits" : `${changes} changes wait`}`;
 }
 
 /**

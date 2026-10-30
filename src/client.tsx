@@ -11,16 +11,17 @@ import type { CardAnswer } from "./cards/contract";
 import type { BlobVariantId } from "./ui/blob-catalog";
 import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
-import { isQueued, isReturned, type Outgoing, sendingMessage } from "./outbox";
+import { isQueued, isReturned, isWaiting, type Outgoing, sendingMessage, type Upload } from "./outbox";
 import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./ui/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
-import { ApprovalsContext } from "./ui/Approvals";
+import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext } from "./ui/Proactivity";
 import { LedgerContext } from "./ui/LastNight";
 import { PeerContext } from "./ui/Peers";
+import { OnlineContext } from "./ui/online";
 import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
 import { useShownCrew } from "./ui/Crew";
@@ -188,9 +189,13 @@ type DraftDockProps = {
   /** A newer deploy is serving; reload unless that would throw the draft away. */
   updated: boolean;
   queue: readonly Outgoing[];
+  /** Messages written offline, waiting for the connection. */
+  waiting: readonly Outgoing[];
+  /** Changes made offline, waiting for the connection. */
+  changes: number;
   /** Queued messages ky gave back, as Stop does, for the composer to take in. */
   returned: readonly Outgoing[];
-  onSend: (input: UserInput) => void;
+  onSend: (input: UserInput, uploads: readonly Upload[]) => void;
   onStop: () => void;
   /** Stop the step ky is on, so the queue goes in now. */
   onSteer: () => void;
@@ -221,9 +226,9 @@ function useTakeReturned(returned: readonly Outgoing[], restore: (input: UserInp
 }
 
 /** Edit takes a queued message back into the composer, first out of the queue so it never goes in twice; delete just takes it back. */
-function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, restore: (input: UserInput) => void) {
+function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, restore: (input: UserInput, uploads?: readonly Upload[]) => void) {
   const onEdit = async (item: Outgoing) => {
-    if (await onWithdraw(item.operationId)) restore(item.input);
+    if (await onWithdraw(item.operationId)) restore(item.input, item.uploads);
   };
 
   const onDelete = async (item: Outgoing) => {
@@ -234,7 +239,7 @@ function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, 
 }
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, waiting, changes, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
@@ -246,9 +251,9 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
   const seesImages = settings === null || imageSupport(settings, talksToMain ? "main" : "worker") === null;
 
   const submit = () => {
-    const input = canSend(draft.reading, cantSee) ? draft.take(seesImages) : null;
+    const taken = canSend(draft.reading, cantSee) ? draft.take(seesImages) : null;
 
-    if (input !== null) onSend(input);
+    if (taken !== null) onSend(taken.input, taken.uploads);
   };
 
   const { onEdit, onDelete } = useQueueActions(onWithdraw, draft.restore);
@@ -257,6 +262,8 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
     <ComposerDock
       session={run}
       queue={queue}
+      waiting={waiting}
+      changes={changes}
       draft={draft}
       cantSee={cantSee}
       connected={connected}
@@ -344,13 +351,18 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
  * run in the queue, and one ky gave back in the composer.
  */
 function useOutboxParts(outbox: readonly Outgoing[]) {
+  const waiting = useSame(
+    useMemo(() => outbox.filter(isWaiting), [outbox]),
+    shallow
+  );
+
   const queue = useSame(
     useMemo(() => outbox.filter(isQueued), [outbox]),
     shallow
   );
 
   const sending = useSame(
-    useMemo(() => outbox.filter((item) => !isQueued(item) && !isReturned(item)), [outbox]),
+    useMemo(() => outbox.filter((item) => !isQueued(item) && !isReturned(item) && !isWaiting(item)), [outbox]),
     shallow
   );
 
@@ -359,7 +371,7 @@ function useOutboxParts(outbox: readonly Outgoing[]) {
     shallow
   );
 
-  return { queue, sending, returned };
+  return { queue, waiting, sending, returned };
 }
 
 function Stage(parts: Parts) {
@@ -367,7 +379,7 @@ function Stage(parts: Parts) {
   const { open, variantId } = view;
   const composer = useRef<DraftHandle>(null);
 
-  const { queue, sending, returned } = useOutboxParts(ky.outbox);
+  const { queue, waiting, sending, returned } = useOutboxParts(ky.outbox);
 
   const messages = useMemo(
     () => (sending.length === 0 ? ky.messages : [...ky.messages, ...sending.map(sendingMessage)]),
@@ -416,9 +428,16 @@ function Stage(parts: Parts) {
   /** While a run is going, Enter steers it; otherwise it starts one. A tap on a card ky showed sends the same way. */
   const onSend = useStableCallback((input: UserInput, card?: CardAnswer) => ky.submit(input, ky.running ? "steer" : "followUp", card));
 
+  const onSendDraft = useStableCallback((input: UserInput, uploads: readonly Upload[]) => ky.submit(input, ky.running ? "steer" : "followUp", undefined, uploads));
+
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
-  const approvals = useMemo(() => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide }), [ky.approvals, ky.approvalActions]);
+  const deciding = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
+
+  const approvals = useMemo(
+    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting: deciding }),
+    [ky.approvals, ky.approvalActions, deciding]
+  );
 
   return (
     <section className="stage" aria-label="Chat">
@@ -441,8 +460,10 @@ function Stage(parts: Parts) {
           history={history}
           updated={ky.updated}
           queue={queue}
+          waiting={waiting}
+          changes={ky.acts.length}
           returned={returned}
-          onSend={onSend}
+          onSend={onSendDraft}
           onStop={ky.abort}
           onSteer={ky.steerNow}
           onWithdraw={ky.withdraw}
@@ -634,7 +655,7 @@ function App() {
   const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
   const panel = useStablePanel(rawPanel);
   const view = describe(ky, session, theme);
-  const label = statusLabel(ky.status);
+  const label = statusLabel(ky.status, ky.acts.length);
   const status = useMemo(() => ({ label, connected: view.connected }), [label, view.connected]);
   const { setPaletteOpen } = shell;
   const onSearch = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
@@ -655,6 +676,7 @@ function App() {
   const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage };
 
   return (
+    <OnlineContext.Provider value={view.connected}>
     <AvatarsContext.Provider value={ky.avatars}>
       <FilesContext.Provider value={ky.files}>
         <SendTaskContext.Provider value={ky.sendTask}>
@@ -716,6 +738,7 @@ function App() {
         </SendTaskContext.Provider>
       </FilesContext.Provider>
     </AvatarsContext.Provider>
+    </OnlineContext.Provider>
   );
 }
 

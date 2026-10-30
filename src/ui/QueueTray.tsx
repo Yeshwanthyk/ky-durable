@@ -35,7 +35,7 @@ function QueueHead({ queued, connected, running, onSteer }: { queued: number; co
         <button
           type="button"
           className="pressable queue-steer"
-          title="Stop what ky is running now, so the queue goes in at once"
+          title={connected ? "Stop what ky is running now, so the queue goes in at once" : "Offline · steer once ky reconnects"}
           disabled={steering || !connected}
           onClick={steer}
         >
@@ -47,20 +47,24 @@ function QueueHead({ queued, connected, running, onSteer }: { queued: number; co
   );
 }
 
-/** One queued message, to take back and edit, or delete. Both wait while it is being taken, or until pi has it. */
-function QueueRow({ item, connected, onEdit, onDelete }: { item: Outgoing; connected: boolean } & QueueActions) {
+/**
+ * One queued message, to take back and edit, or delete. Both wait while it is being taken, or until pi has it.
+ * One written offline (`waiting`) ky never had, so the page takes it back itself, connected or not.
+ */
+function QueueRow({ item, connected, waiting = false, onEdit, onDelete }: { item: Outgoing; connected: boolean; waiting?: boolean } & QueueActions) {
   const text = summary(item);
   const taking = item.back === "taking";
-  const busy = taking || !connected || item.submission === null;
+  const busy = taking || (!waiting && (!connected || item.submission === null));
+  const kind = waiting ? "waiting" : "queued";
 
   return (
     <li className="queue-item" data-taking={taking}>
-      <Icon name="clock" size={13} className="queue-glyph" />
+      <Icon name={waiting ? "cloud" : "clock"} size={13} className="queue-glyph" />
       <span className="queue-text">{text}</span>
       <button
         type="button"
         className="icon-button pressable queue-action"
-        aria-label={`Edit queued message: ${text}`}
+        aria-label={`Edit ${kind} message: ${text}`}
         title="Edit"
         disabled={busy}
         onClick={() => void onEdit(item)}
@@ -70,7 +74,7 @@ function QueueRow({ item, connected, onEdit, onDelete }: { item: Outgoing; conne
       <button
         type="button"
         className="icon-button pressable queue-action"
-        aria-label={`Delete queued message: ${text}`}
+        aria-label={`Delete ${kind} message: ${text}`}
         title="Delete"
         disabled={busy}
         onClick={() => void onDelete(item)}
@@ -86,13 +90,41 @@ type QueueActions = {
   onDelete: (item: Outgoing) => Promise<void>;
 };
 
+const changesText = (changes: number) => (changes === 1 ? "1 change" : `${changes} changes`);
+
+/** What was written offline: each message, to edit or delete before it goes, and how many other changes wait. */
+function WaitingGroup({ items, changes, onEdit, onDelete }: { items: readonly Outgoing[]; changes: number } & QueueActions) {
+  return (
+    <>
+      <div className="queue-head">
+        <p className="queue-note">{items.length > 0 ? `Waiting for connection · ${items.length}` : "Waiting for connection"}</p>
+      </div>
+      {items.length > 0 ? (
+        <ul className="queue-list" aria-label="Waiting to send">
+          {items.map((item) => (
+            <QueueRow key={item.operationId} item={item} connected={false} waiting onEdit={onEdit} onDelete={onDelete} />
+          ))}
+        </ul>
+      ) : null}
+      {changes > 0 ? (
+        <p className="queue-more">
+          {changesText(changes)} {items.length > 0 ? (changes === 1 ? "waits too" : "wait too") : changes === 1 ? "waits" : "wait"}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Messages sent while ky works, waiting to go in at its next step. Each can be
  * taken back to edit in the composer, or deleted. One pi places first goes in
- * anyway, and leaves the queue as it shows in the thread.
+ * anyway, and leaves the queue as it shows in the thread. Above them, what was
+ * written offline waits for the connection, and goes once ky is back.
  */
 export function QueueTray({
   items,
+  waiting = [],
+  changes = 0,
   more,
   connected,
   running,
@@ -101,23 +133,35 @@ export function QueueTray({
   onDelete,
 }: {
   items: readonly Outgoing[];
+  /** Written offline, never sent: waiting for the connection. */
+  waiting?: readonly Outgoing[];
+  /** Other changes made offline, waiting for the connection. */
+  changes?: number;
   /** Queued from elsewhere, like another device, so this page has no words for them. */
   more: number;
   connected: boolean;
   running: boolean;
   onSteer: () => void;
 } & QueueActions) {
-  if (items.length === 0 && more === 0) return null;
+  const queued = items.length > 0 || more > 0;
+  const offline = waiting.length > 0 || changes > 0;
+
+  if (!queued && !offline) return null;
 
   return (
-    <section className="queue" aria-label="Queued messages">
-      <QueueHead queued={items.length + more} connected={connected} running={running} onSteer={onSteer} />
-      <ul className="queue-list">
-        {items.map((item) => (
-          <QueueRow key={item.operationId} item={item} connected={connected} onEdit={onEdit} onDelete={onDelete} />
-        ))}
-      </ul>
-      {more > 0 ? <p className="queue-more">{more === 1 ? "1 more" : `${more} more`} queued from elsewhere</p> : null}
+    <section className="queue" aria-label={queued ? "Queued messages" : "Waiting messages"}>
+      {offline ? <WaitingGroup items={waiting} changes={changes} onEdit={onEdit} onDelete={onDelete} /> : null}
+      {queued ? (
+        <>
+          <QueueHead queued={items.length + more} connected={connected} running={running} onSteer={onSteer} />
+          <ul className="queue-list">
+            {items.map((item) => (
+              <QueueRow key={item.operationId} item={item} connected={connected} onEdit={onEdit} onDelete={onDelete} />
+            ))}
+          </ul>
+          {more > 0 ? <p className="queue-more">{more === 1 ? "1 more" : `${more} more`} queued from elsewhere</p> : null}
+        </>
+      ) : null}
     </section>
   );
 }

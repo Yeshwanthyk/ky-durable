@@ -34,6 +34,7 @@ import {
 } from "./machines/contract";
 import type { RunnerPipe } from "./machines/wiring";
 import { checkInput, imagesOf, spokenText } from "./files/media";
+import { withLateNote } from "./core/late";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
@@ -798,6 +799,9 @@ export class PiSessionSockets {
 
     if (chat) this.#chats.touch(session, spokenText(textOf(message.input)));
 
+    // A message the page kept offline for long reaches the model with a note saying so; the thread drops the note.
+    const input = withLateNote(message.input, message.waited);
+
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.
     if (chat || session === ROOT_SESSION) {
@@ -809,7 +813,7 @@ export class PiSessionSockets {
 
       if (unknown !== undefined) throw new Error(`No specialist @${unknown}. Specialists: ${all.map((each) => `@${each.id}`).join(", ")}`);
 
-      const theirs = all.length === 0 ? undefined : await this.#group.submit(session, message.input, text, message.operationId ?? crypto.randomUUID());
+      const theirs = all.length === 0 ? undefined : await this.#group.submit(session, input, text, message.operationId ?? crypto.randomUUID());
 
       if (theirs !== undefined) return await this.#keepAnswer(session, message, theirs);
     }
@@ -821,7 +825,7 @@ export class PiSessionSockets {
 
     if (message.operationId) options.operationId = message.operationId;
 
-    return await this.#keepAnswer(session, message, await this.#harness.session(session).submit(message.input, options));
+    return await this.#keepAnswer(session, message, await this.#harness.session(session).submit(input, options));
   }
 
   /**

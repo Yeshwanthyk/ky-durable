@@ -28,6 +28,7 @@ import type {
 import { Pick, type RoutinesView, RoutinesPage, Timeline, TODAY, TodayHead, useZone } from "./Automations";
 import { BROWSER_ZONE, clockIn, sameDay } from "./schedule";
 import { Attachments, FilesContext, isMedia } from "./Attachments";
+import { OFFLINE_TITLE, OnlineContext } from "./online";
 import { Changes } from "./Changes";
 import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
@@ -504,6 +505,7 @@ function NowSection({
 }: FeedProps & { live: readonly TaskRow[]; running: readonly string[]; onStopAll: () => void }) {
   const leaving = useLeaving(live);
   const section = useRef<HTMLElement>(null);
+  const online = useContext(OnlineContext);
   const empty = live.length === 0 && running.length === 0;
   const closing = empty && leaving.length > 0;
 
@@ -529,7 +531,7 @@ function NowSection({
       <h3 className="feed-head">
         Now
         {live.length > 1 ? (
-          <button type="button" className="feed-action pressable" onClick={onStopAll}>
+          <button type="button" className="feed-action pressable" disabled={!online} title={online ? undefined : OFFLINE_TITLE} onClick={onStopAll}>
             Stop all
           </button>
         ) : null}
@@ -1674,6 +1676,8 @@ function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number;
 
 /** Stop a working task, or cancel a queued one. */
 function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) => void }) {
+  const online = useContext(OnlineContext);
+
   if (!isLive(task)) return null;
 
   return (
@@ -1681,7 +1685,9 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
       type="button"
       className="icon-button pressable feed-stop"
       aria-label={`Stop ${plain(task.title)}`}
-      title={task.status === "queued" ? "Cancel" : "Stop"}
+      // A stop that landed later would stop whatever runs by then, so it waits for no connection.
+      disabled={!online}
+      title={!online ? OFFLINE_TITLE : task.status === "queued" ? "Cancel" : "Stop"}
       onClick={() => onStop(task.id)}
     >
       <Icon name="stop" size={14} />

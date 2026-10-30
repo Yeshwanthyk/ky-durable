@@ -851,6 +851,12 @@
   white-space: nowrap;
 }
 
+/* Offline, what can't wait for the connection (Stop all, a task's Stop) stays, dimmed, and says why on hover. */
+.feed-action:disabled,
+.feed-stop:disabled {
+  opacity: 0.5;
+}
+
 /* The first action takes the free room, so they sit together at the end, a pill's gap apart. */
 .feed-head > .feed-action:first-of-type {
   margin-left: auto;

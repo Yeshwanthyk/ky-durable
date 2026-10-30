@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page, test, type WebSocketRoute } from "@playwright/test";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { readFile } from "node:fs/promises";
-import { Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { decodeServerFrame, parsed } from "../../src/tests/frames.ts";
 import { ANTHROPIC_KEY } from "../fakes/vendors.ts";
@@ -115,12 +115,17 @@ async function pick(page: Page, purpose: string, model: RegExp): Promise<void> {
   await settings(page);
 }
 
-const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), operationId: Type.String() });
+/** A submit as the page sends it: the message, and how long it waited on the device, if it says. */
+const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), operationId: Type.String(), input: Type.Unknown(), waited: Type.Optional(Type.Number()) });
+
+type SubmitFrame = Static<typeof Submit>;
 
 /** One socket the page opened: the session it asked for, the submits it sent and the answers it got. */
 type Connection = {
   session: string | null;
   submits: string[];
+  /** The submits themselves, as sent. */
+  frames: SubmitFrame[];
   results: Array<{ id: string; result: JsonValue }>;
   errors: string[];
   route: WebSocketRoute;
@@ -133,12 +138,20 @@ type Connection = {
  */
 async function network(page: Page) {
   const connections: Connection[] = [];
-  const faults = { loseSubmits: false, dropOnAnswer: false };
+  const faults = { loseSubmits: false, dropOnAnswer: false, refuse: false };
 
   await page.routeWebSocket(/\/agents\/pi-agent\/me/, (route) => {
+    // Offline: ky is out of reach, so each socket the page opens closes at once, and the page keeps retrying.
+    if (faults.refuse) {
+      void route.close();
+
+      return;
+    }
+
     const connection: Connection = {
       session: new URL(route.url()).searchParams.get("session"),
       submits: [],
+      frames: [],
       results: [],
       errors: [],
       route
@@ -152,6 +165,8 @@ async function network(page: Page) {
       const submit = Value.Check(Submit, value) ? value : undefined;
 
       if (submit) connection.submits.push(submit.operationId);
+
+      if (submit) connection.frames.push(submit);
 
       if (submit && faults.loseSubmits) return;
 
@@ -172,7 +187,23 @@ async function network(page: Page) {
     });
   });
 
-  return { connections, faults };
+  /** Take ky out of reach: the open sockets close, and new ones are refused until `online`. */
+  const offline = async () => {
+    faults.refuse = true;
+
+    for (const connection of connections) await connection.route.close().catch(() => {});
+    await expect(page.getByRole("button", { name: /^ky: Connected/ })).toHaveCount(0);
+  };
+
+  const online = async () => {
+    faults.refuse = false;
+    await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible({ timeout: 30_000 });
+  };
+
+  /** Every submit the page sent, on every socket, by operation id. */
+  const submitted = () => connections.flatMap((connection) => connection.frames);
+
+  return { connections, faults, offline, online, submitted };
 }
 
 /** Note a result or a refusal from ky on its connection; the id of the command a result answers. */
@@ -2105,6 +2136,161 @@ test("takes a message while offline and sends it when the socket opens again", a
   await expect(page.getByText("typed with no network", { exact: true })).toHaveCount(1);
 });
 
+/** The messages written offline, waiting above the composer. */
+const waitingList = (page: Page) => page.getByRole("list", { name: "Waiting to send" });
+
+/** The submits that carried `text`, on every socket. */
+const carrying = (frames: readonly SubmitFrame[], text: string) => frames.filter((frame) => JSON.stringify(frame.input).includes(text));
+
+test("keeps a message written offline through a reload, waiting above the composer, and ky gets it once it's back", async ({ page }) => {
+  const net = await network(page);
+  await open(page);
+  await net.offline();
+
+  await send(page, "kept through the reload");
+  await expect(waitingList(page).getByText("kept through the reload")).toBeVisible();
+  await expect(page.getByText("Waiting for connection · 1", { exact: true })).toBeVisible();
+  // It waits above the composer, not as a bubble in the thread.
+  await expect(chat(page).locator(".turn").getByText("kept through the reload", { exact: true })).toHaveCount(0);
+
+  // A reload (a lapsed sign-in, a deploy, the app swiped away) keeps it: the device has it.
+  await page.reload();
+  await expect(waitingList(page).getByText("kept through the reload")).toBeVisible();
+
+  await net.online();
+  await expect(chat(page).getByText("echo: kept through the reload")).toBeVisible();
+  await expect(waitingList(page)).toHaveCount(0);
+  await expect(chat(page).getByText("kept through the reload", { exact: true })).toHaveCount(1);
+  expect(carrying(net.submitted(), "kept through the reload")).toHaveLength(1);
+
+  // Answered, it's gone from the device too: another reload doesn't bring it back.
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await expect(chat(page).getByText("kept through the reload", { exact: true })).toHaveCount(1);
+  await expect(waitingList(page)).toHaveCount(0);
+});
+
+test("deletes or edits a message written offline before it goes, and ky never gets the one deleted", async ({ page }) => {
+  const net = await network(page);
+  await open(page);
+  await net.offline();
+
+  await send(page, "never leaves the device");
+  await send(page, "edited while offline");
+  await expect(page.getByText("Waiting for connection · 2", { exact: true })).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/waiting-to-send.png` });
+
+  // Delete takes it back at once, offline: ky never had it.
+  await waitingList(page).getByRole("button", { name: "Delete waiting message: never leaves the device" }).click();
+  await expect(waitingList(page).getByRole("listitem")).toHaveCount(1);
+
+  // Edit puts it back in the composer, out of the queue, to change and send again.
+  await waitingList(page).getByRole("button", { name: "Edit waiting message: edited while offline" }).click();
+  await expect(composer(page)).toHaveValue("edited while offline");
+  await expect(waitingList(page)).toHaveCount(0);
+  await composer(page).fill("edited while offline, then sent");
+  await composer(page).press("Enter");
+  await expect(waitingList(page).getByText("edited while offline, then sent")).toBeVisible();
+
+  await page.reload();
+  await expect(waitingList(page).getByRole("listitem")).toHaveCount(1);
+
+  await net.online();
+  await expect(chat(page).getByText("echo: edited while offline, then sent")).toBeVisible();
+  expect(carrying(net.submitted(), "never leaves the device")).toEqual([]);
+  expect(carrying(net.submitted(), "edited while offline")).toHaveLength(1);
+});
+
+test("a message written offline in one tab goes once, and shows once, when two tabs come back", async ({ page, context }) => {
+  const net = await network(page);
+  await open(page);
+  await net.offline();
+  await send(page, "two tabs, one message");
+  await expect(waitingList(page).getByText("two tabs, one message")).toBeVisible();
+
+  // A second tab opened while offline finds it on the device too.
+  const other = await context.newPage();
+  const otherNet = await network(other);
+  otherNet.faults.refuse = true;
+  await other.goto("/");
+  await expect(waitingList(other).getByText("two tabs, one message")).toBeVisible();
+
+  await net.online();
+  await expect(chat(page).getByText("echo: two tabs, one message")).toBeVisible();
+  // The tab that sent it tells the other, which drops it rather than sending it again.
+  await expect(waitingList(other)).toHaveCount(0);
+
+  await otherNet.online();
+  await expect(chat(other).getByText("echo: two tabs, one message")).toBeVisible();
+  await expect(chat(other).getByText("two tabs, one message", { exact: true })).toHaveCount(1);
+  await expect(chat(page).getByText("two tabs, one message", { exact: true })).toHaveCount(1);
+  expect(carrying([...net.submitted(), ...otherNet.submitted()], "two tabs, one message")).toHaveLength(1);
+  await other.close();
+});
+
+test("a message that waited offline for hours tells the model so, and the user's bubble stays as written", async ({ page }) => {
+  await page.clock.install();
+  const net = await network(page);
+  await open(page);
+  await net.offline();
+
+  await send(page, "written before the tunnel");
+  await expect(waitingList(page).getByText("written before the tunnel")).toBeVisible();
+  await page.clock.fastForward("03:00:00");
+
+  await net.online();
+  // The stand-in model echoes what it was given: the words, and the note after them.
+  await expect(chat(page).getByText(/echo: written before the tunnel[\s\S]*written 3h ago while offline, delivered now/)).toBeVisible();
+  await expect(chat(page).getByText("written before the tunnel", { exact: true })).toHaveCount(1);
+
+  const [frame] = carrying(net.submitted(), "written before the tunnel");
+  expect(frame?.waited).toBeGreaterThanOrEqual(3 * 3_600_000);
+});
+
+test("offline, a task's Stop is dimmed and says why, since a stop that landed later would stop the wrong thing", async ({ page }) => {
+  const net = await network(page);
+  await open(page);
+
+  await send(page, "machine@webmac [delay=60000] a job to stop once back");
+  const stop = panel(page).getByRole("button", { name: /^Stop .*job to stop once back/ });
+  await expect(stop).toBeEnabled();
+
+  await net.offline();
+  await expect(stop).toBeDisabled();
+  await expect(stop).toHaveAttribute("title", "Offline · works once ky reconnects");
+
+  await net.online();
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(stop).toBeHidden();
+});
+
+test("an approval tapped offline shows as made and goes once ky is back", async ({ page }) => {
+  const net = await network(page);
+  await open(page);
+  await connectExecutor(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await send(page, `tool executor_execute ${JSON.stringify({ code: "approve gmail.send send mail to robin offline" })}`);
+  const card = chat(page).getByRole("region", { name: "Approve this app action?" });
+  await expect(card.getByText("send mail to robin offline")).toBeVisible();
+
+  await net.offline();
+
+  // The tap shows as made, and the card says it goes once ky is back.
+  await card.getByRole("button", { name: "Approve" }).click();
+  await expect(chat(page).getByText("Approved offline · goes to ky when it reconnects.")).toBeVisible();
+  await expect(panel(page).getByRole("status").filter({ hasText: "1 change waits" })).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/approval-offline.png` });
+
+  await net.online();
+  await expect(card).toBeHidden();
+  await expect(chat(page).getByText(/did send mail to robin offline/).first()).toBeVisible();
+});
+
 test("keeps an unanswered message for its own chat when the page switches chats", async ({ page }) => {
   const { connections, faults } = await network(page);
   await open(page);
@@ -2497,6 +2683,43 @@ test.describe("voice notes and video", () => {
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${SHOTS}/voice-and-video-card.png` });
     }
+  });
+
+  test("a clip attached offline waits with its message, goes up once ky is back, and the message names its file", async ({ page }) => {
+    const net = await network(page);
+    await open(page);
+    // Offline: the upload can't reach ky either.
+    await page.route("**/api/media", (route) => route.abort("internetdisconnected"));
+    await net.offline();
+
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Attach images, audio or video" }).click();
+    await (await chooser).setFiles(`${REPO}/test/web/fixtures/clip.webm`);
+    const clips = page.getByRole("list", { name: "Clips to send" });
+    await expect(clips.getByRole("listitem")).toHaveCount(1);
+    await expect(clips.getByRole("listitem")).toHaveAttribute("title", "Offline · uploads when ky reconnects");
+    await expect(page.getByText("The clip didn't upload")).toHaveCount(0);
+
+    await send(page, "a clip from the tunnel");
+    await expect(clips).toBeHidden();
+    await expect(waitingList(page).getByText(/a clip from the tunnel · clip\.webm/)).toBeVisible();
+
+    // Kept on the device, bytes and all, through a reload.
+    await page.reload();
+    await expect(waitingList(page).getByText(/a clip from the tunnel · clip\.webm/)).toBeVisible();
+
+    await page.unroute("**/api/media");
+    await net.online();
+    const player = chat(page).getByRole("figure").getByLabel("clip.webm").last();
+    await expect(chat(page).getByText("a clip from the tunnel", { exact: true })).toBeVisible();
+    await expect(player).toBeVisible();
+    await expect(waitingList(page)).toHaveCount(0);
+
+    // The message went with the file the upload gave it, which plays from ky.
+    const [frame] = carrying(net.submitted(), "a clip from the tunnel");
+    const file = /file="([0-9a-f]{32})"/.exec(JSON.stringify(frame?.input))?.[1] ?? "";
+    expect((await page.request.get(`/files/${file}`)).status()).toBe(200);
+    expect(carrying(net.submitted(), "a clip from the tunnel")).toHaveLength(1);
   });
 
   test("a video with no picture plays as a voice note, and a sound saves to the device", async ({ page }) => {

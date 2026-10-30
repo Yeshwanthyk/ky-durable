@@ -454,12 +454,13 @@ export function Composer({
   );
 }
 
-/** A clip waiting to be sent: what it is, how long, and while it uploads, how far along. */
+/** A clip waiting to be sent: what it is, how long, and while it uploads, how far along; offline, that it goes up later. */
 function ClipChip({ clip, onRemove }: { clip: PendingClip; onRemove: () => void }) {
-  const uploading = clip.file === null;
+  const waiting = clip.waiting === true;
+  const uploading = clip.file === null && !waiting;
 
   return (
-    <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined}>
+    <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined} title={waiting ? "Offline · uploads when ky reconnects" : undefined}>
       {clip.kind === "video" ? (
         <video src={clip.preview} muted playsInline preload="metadata" aria-hidden />
       ) : (
@@ -471,7 +472,8 @@ function ClipChip({ clip, onRemove }: { clip: PendingClip; onRemove: () => void 
       )}
       <span className="composer-clip-label">
         <span>{clip.kind === "audio" ? clip.name : clip.seconds !== null ? clock(clip.seconds) : "Video"}</span>
-        {clip.kind === "audio" && clip.seconds !== null ? <span className="quiet">{clock(clip.seconds)}</span> : null}
+        {clip.kind === "audio" && waiting ? <span className="quiet">Uploads on reconnect</span> : null}
+        {clip.kind === "audio" && !waiting && clip.seconds !== null ? <span className="quiet">{clock(clip.seconds)}</span> : null}
       </span>
       {uploading ? <span className="composer-clip-progress" style={{ width: `${clip.progress * 100}%` }} role="progressbar" aria-label={`Uploading ${clip.name}`} aria-valuenow={Math.round(clip.progress * 100)} /> : null}
       <button type="button" className="composer-image-remove" aria-label={`Remove ${clip.name}`} onClick={onRemove}>
