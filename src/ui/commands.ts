@@ -104,7 +104,7 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "activity",
       group: "ky",
       label: "Activity",
-      icon: "list",
+      icon: "panel",
       keywords: "tasks tools subagents feed",
       run: () => openPanel("activity")
     },
@@ -112,7 +112,7 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "skills",
       group: "ky",
       label: "Skills",
-      icon: "layers",
+      icon: "list",
       keywords: "procedures how-to library kits",
       run: openSkills
     },
