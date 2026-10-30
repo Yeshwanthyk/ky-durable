@@ -57,7 +57,7 @@ import { ExecutorApprovals } from "./approvals/executor";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
-import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
+import { delegationTools, draftFromDemo, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { Titler } from "./chats/titles";
 import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
@@ -399,7 +399,9 @@ export class PiAgent extends DurableObject<Env> {
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
     asker: this.approvals,
-    tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId)
+    tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
+    draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
+    later: (work) => this.ctx.waitUntil(work)
   });
   readonly browse = this.browsing.extension;
   readonly harness = new PiHarness({

@@ -14,6 +14,7 @@ import {
   LOGIN_KIND,
   type LoginVault,
   NoBrowser,
+  type Recorded,
   NoPage,
   SavedLogin,
   type Seat,
@@ -151,12 +152,13 @@ export const seat = (desk: Desk): Effect.Effect<Seat, NoBrowser, Sessions> =>
 
 const disconnect = (opened: Seat) => Effect.ignore(timed("closing ky's browser", () => opened.close()));
 
-export const handOff = (desk: Desk, args: { readonly url?: string | undefined; readonly instructions: string }) =>
+export const handOff = (desk: Desk, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) =>
   Effect.acquireUseRelease(seat(desk), (opened) =>
     Effect.gen(function* () {
       const tab = args.url === undefined ? yield* timed("finding the open page", () => opened.lastTab()) : yield* timed("opening a page", () => opened.newTab());
 
       if (tab === undefined) return yield* new NoPage();
+      const from = args.teach === true ? Option.some(yield* timed("starting the recorder", () => opened.record(tab))) : Option.none<number>();
       const url = args.url;
 
       if (url !== undefined) {
@@ -167,12 +169,14 @@ export const handOff = (desk: Desk, args: { readonly url?: string | undefined; r
       const link = yield* timed("making the live view", () => opened.liveView(tab, HANDOFF_MS));
       const at = tab.url();
 
-      return { handoff, view: { target, site: siteOfUrl(at) ?? at, url: at, link, instructions: args.instructions } satisfies Handoff };
+      const view: Handoff = { target, site: siteOfUrl(at) ?? at, url: at, link, instructions: args.instructions };
+
+      return { handoff, view: Option.match(from, { onNone: () => view, onSome: (index) => ({ ...view, teach: { from: index } }) }) };
     }),
     disconnect
   );
 
-export type Finished = { readonly title: string; readonly url: string; readonly saved: readonly string[] };
+export type Finished = { readonly title: string; readonly url: string; readonly saved: readonly string[]; readonly recorded: Option.Option<Recorded> };
 
 export const finish = (desk: Desk, handoff: Handoff, success: boolean) =>
   Effect.gen(function* () {
@@ -185,13 +189,14 @@ export const finish = (desk: Desk, handoff: Handoff, success: boolean) =>
       const tab = yield* Effect.orElseSucceed(timed("finding the page", () => opened.tab(handoff.target)), () => undefined);
 
       if (tab === undefined) return Option.none<Finished>();
+      const recorded = success && handoff.teach !== undefined ? yield* Effect.option(timed("reading what the user did", () => opened.recorded(tab))) : Option.none<Recorded>();
       yield* Effect.ignore(timed("ending the hand-off", () => opened.complete(tab, success)));
       const url = tab.url();
       const title = yield* Effect.orElseSucceed(timed("reading the title", () => tab.title()), () => "");
       const saved = success ? yield* keepLogins(desk, opened, [handoff.site, siteOfUrl(url) ?? handoff.site]) : [];
       yield* Effect.ignore(timed("closing the page", () => tab.close()));
 
-      return Option.some({ title, url, saved });
+      return Option.some({ title, url, saved, recorded });
     }).pipe(Effect.ensuring(disconnect(opened)));
   });
 

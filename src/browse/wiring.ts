@@ -2,6 +2,7 @@ import type { Workspace } from "@cloudflare/computer";
 import type { BrowserContext, BrowserWorker, Browser as CloudBrowser, Page } from "@cloudflare/playwright";
 import { Type } from "@earendil-works/pi-ai";
 import { type ConversationId, defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -11,10 +12,11 @@ import * as Semaphore from "effect/Semaphore";
 import type { Approval, ApprovalHandler, Asker, Settle } from "../approvals/approvals";
 import { type ApprovalAction, NOBODY_ANSWERED } from "../approvals/contract";
 import { type Edge, makeEdge } from "../core/edge";
-import { isRefusal } from "../core/refusal";
+import { isRefusal, type Refusal } from "../core/refusal";
 import { toolReply as reply } from "../core/reply";
 import { Sql } from "../core/sql";
 import { spillPath } from "../guardrails";
+import type { Drafted, NoDraft } from "../skills/contract";
 import { type Desk, type Finished, finish, forget, handOff, savedSites, seat, Sessions, siteOfUrl } from "./browse";
 import {
   type Args,
@@ -31,6 +33,7 @@ import {
   PageRead,
   type Part,
   PdfAnswered,
+  type Recorded,
   PdfInfo,
   type Reply,
   type Response,
@@ -42,6 +45,7 @@ import {
   TookTooLong,
   TooLarge
 } from "./contract";
+import { demoText, keepRecording, readLog, readRecording, RECORDER, recorder, recordingOf, showed } from "./teach";
 
 export type { Browser, BrowserPage, Launch } from "./contract";
 
@@ -102,6 +106,9 @@ export type BrowseDesk = {
   readonly chat: (session: string) => boolean;
   readonly asker: Pick<Asker, "requestApproval">;
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** A skill drafted from a show-me hand-off's recording, in a skill review of the chat (src/skills/skills.ts). */
+  readonly draft: (session: string, demo: string) => Effect.Effect<Drafted, NoDraft>;
+  readonly later: (work: Promise<void>) => void;
 };
 
 const failed = (cause: unknown) => new Failed({ said: cause instanceof Error ? cause.message : String(cause) });
@@ -117,8 +124,15 @@ const HandoffArgs = Type.Object({
   instructions: Type.String({
     maxLength: 500,
     description: "One sentence the user reads on the card: what to do and why, e.g. \"Sign in to GitHub so I can read your notifications.\""
-  })
+  }),
+  teach: Type.Optional(
+    Type.Boolean({
+      description: "Show me: ky records what the user clicks, types and sends while they do the task, and drafts a skill from it once they're done. Use it when the user offers to show you how."
+    })
+  )
 });
+
+const RECORDING_NOTE = "ky records what you click and type to learn it, never a password, code or card number.";
 
 const CHOSE: Readonly<Record<ApprovalAction, string>> = { accept: "finished", decline: "couldn't do it", cancel: "cancelled the hand-off" };
 
@@ -212,17 +226,19 @@ export class Browsing {
   });
 
   /** A hand-off: the page opened in ky's browser, handed to the user, and a card in the chat to take it over. */
-  async handOff(session: string, args: { readonly url?: string | undefined; readonly instructions: string }) {
+  async handOff(session: string, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) {
     if (!this.#keep.chat(session)) return reply(new OnlyInChat().refusal, true);
     const started = await this.#edge.runPromise(handOff(this.#desk, args));
 
     if (isRefusal(started)) return reply(`Could not hand the browser over: ${started.refused}`, true);
     const { handoff, view } = started;
 
-    this.#keep.asker.requestApproval({ kind: "browser-handoff", ref: handoff, subject: view.site, summary: view.instructions, payload: view, conversation: session });
+    const summary = view.teach === undefined ? view.instructions : `${view.instructions} ${RECORDING_NOTE}`;
+    this.#keep.asker.requestApproval({ kind: "browser-handoff", ref: handoff, subject: view.site, summary, payload: view, conversation: session });
+    const after = view.teach === undefined ? "you're told the page they end on once they're done" : "once they're done, ky drafts a skill from what they did and tells you its name";
 
     return {
-      ...reply(`${view.site} is open in ky's browser, and the user has a card to take it over. Your turn ends here; you're told the page they end on once they're done.`),
+      ...reply(`${view.site} is open in ky's browser, and the user has a card to take it over. Your turn ends here; ${after}.`),
       control: { terminate: true }
     };
   }
@@ -236,7 +252,7 @@ export class Browsing {
           "Hand ky's cloud browser to the user for what only they can do there: sign in, pass a code or CAPTCHA check, accept terms. " +
           "It opens url in ky's browser and shows the user a card: they take the live page over, then tap I'm done or I couldn't. " +
           "Your turn ends here; you're told the page they ended on. Once they're done ky keeps that site's login in its Vault, never shown to you, " +
-          "and browse reads the site signed in from then on. Only in a chat with the user.",
+          "and browse reads the site signed in from then on. teach: true records what they do, to draft a skill from it. Only in a chat with the user.",
         parameters: HandoffArgs,
         replay: "unsafe",
         execute: (args, api) => this.handOff(String(api.conversationId), args)
@@ -261,8 +277,39 @@ export class Browsing {
     }
 
     const done = await this.#edge.runPromise(finish(this.#desk, view.value, action === "accept"));
+    const told = toldOf(view.value, action, done);
+    const { teach } = view.value;
 
-    return this.#told(approval, toldOf(view.value, action, done));
+    if (teach === undefined) return this.#told(approval, told);
+    const recorded = Option.flatMap(done, (finished) => finished.recorded);
+
+    if (action !== "accept" || Option.isNone(recorded)) return this.#told(approval, `${told} No skill was made from it.`);
+    const kept = await this.#edge.runPromise(this.#kept(view.value, recorded.value, teach.from));
+
+    if (isRefusal(kept)) return this.#told(approval, `${told} ky couldn't keep what the user did (${kept.refused}), so no skill was made.`);
+
+    if (kept.path === undefined) return this.#told(approval, `${told} ky saw nothing the user did there, so no skill was made.`);
+    const { path, demo } = kept;
+
+    this.#keep.later(
+      this.#edge
+        .runPromise(this.#keep.draft(approval.conversation, demo))
+        .then((drafted) => this.#told(approval, `${told} ${draftedOf(drafted, path)}`))
+        .catch((error) => console.warn("demo skill not drafted", approval.id, error))
+    );
+  }
+
+  #kept(view: Handoff, recorded: Recorded, from: number) {
+    const { fs } = this.#keep.workspace;
+
+    return Effect.gen(function* () {
+      const recording = recordingOf(recorded, from, { site: view.site, instructions: view.instructions, at: yield* Clock.currentTimeMillis });
+
+      if (!showed(recording)) return { path: undefined };
+      const path = yield* keepRecording(fs, recording);
+
+      return { path, demo: demoText(yield* readRecording(fs, path), path) };
+    });
   }
 
   #told(approval: Approval, content: string): Promise<void> {
@@ -273,6 +320,22 @@ export class Browsing {
   forget(): Promise<void> {
     return this.#edge.runPromise(forget(this.#desk));
   }
+}
+
+function draftedOf(drafted: Drafted | Refusal, path: string): string {
+  const kept = `The recording is in ${path}.`;
+
+  if (isRefusal(drafted)) return `ky couldn't draft a skill from what they showed: ${drafted.refused}. ${kept}`;
+  const changed = [...new Set(drafted.changed.map((version) => version.name))];
+  const also = changed.length === 0 ? "" : ` It also changed ${changed.join(", ")}: skill_view history shows each version, and skill_manage revert undoes one.`;
+
+  if (drafted.draft === undefined) return `ky made no new skill from what they showed.${also} ${kept}`;
+  const name = drafted.draft;
+
+  return (
+    `From what they showed, ky drafted the skill ${name}, kept archived so nothing uses it yet. ` +
+    `Tell the user in a line what it does and ask if it's right (skill_view ${name} shows it). On yes, make any edit they ask for, then turn it on with skill_manage restore; on no, leave it archived.${also} ${kept}`
+  );
 }
 
 function toldOf(view: Handoff, action: ApprovalAction, done: Option.Option<Finished>): string {
@@ -376,6 +439,24 @@ function seatOf(browser: CloudBrowser, context: BrowserContext): Seat {
       }),
     liveView: (tab, ms) => on(tab, async (session) => (await session.send("Cloudflare.getLiveView", { mode: "tab", expiresInMs: ms })).devtoolsFrontendUrl),
     complete: (tab, success) => on(tab, async (session) => void (await session.send("Cloudflare.handoffComplete", { success }))),
+    record: async (tab) => {
+      const page = pageOf(tab);
+
+      if (page === undefined) throw new Error("the page closed");
+      await page.addInitScript(recorder, RECORDER);
+      await Promise.allSettled(page.frames().map((frame) => frame.evaluate(recorder, RECORDER)));
+
+      return (await cdp(page, (session) => session.send("Page.getNavigationHistory"))).currentIndex;
+    },
+    recorded: async (tab) => {
+      const page = pageOf(tab);
+
+      if (page === undefined) throw new Error("the page closed");
+      const logs = await Promise.allSettled(page.frames().map((frame) => frame.evaluate(readLog, RECORDER)));
+      const history = await cdp(page, (session) => session.send("Page.getNavigationHistory"));
+
+      return { logs: logs.flatMap((log) => (log.status === "fulfilled" ? [log.value] : [])), history };
+    },
     storageState: async () => Schema.decodeUnknownPromise(StorageState)(await context.storageState()),
     restore: async (state) => {
       await context.addCookies([...state.cookies]);

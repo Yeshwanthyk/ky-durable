@@ -66,6 +66,10 @@ export interface Seat {
   handoff(tab: BrowserTab, instructions: string, ms: number): Promise<{ target: string; handoff: string }>;
   liveView(tab: BrowserTab, ms: number): Promise<string>;
   complete(tab: BrowserTab, success: boolean): Promise<void>;
+  /** Starts the demo recorder in the tab's frames and in each document it opens; the navigation index it starts at. */
+  record(tab: BrowserTab): Promise<number>;
+  /** What the recorder logged in each of the tab's frames, and the tab's navigation history. */
+  recorded(tab: BrowserTab): Promise<Recorded>;
   storageState(): Promise<StorageState>;
   restore(state: StorageState): Promise<void>;
   end(): Promise<void>;
@@ -113,9 +117,60 @@ export type StorageState = typeof StorageState.Type;
 
 export const SavedLogin = Schema.Struct({ site: Schema.String, state: Schema.fromJsonString(StorageState) });
 
-export const Handoff = Schema.Struct({ target: Schema.String, site: Schema.String, url: Schema.String, link: Schema.String, instructions: Schema.String });
+export const Handoff = Schema.Struct({
+  target: Schema.String,
+  site: Schema.String,
+  url: Schema.String,
+  link: Schema.String,
+  instructions: Schema.String,
+  teach: Schema.optionalKey(Schema.Struct({ from: Schema.Number }))
+});
 
 export type Handoff = typeof Handoff.Type;
+
+const Described = Schema.Struct({
+  tag: Schema.optionalKey(Schema.String),
+  text: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(Schema.String),
+  name: Schema.optionalKey(Schema.String),
+  id: Schema.optionalKey(Schema.String),
+  placeholder: Schema.optionalKey(Schema.String),
+  role: Schema.optionalKey(Schema.String),
+  href: Schema.optionalKey(Schema.String),
+  type: Schema.optionalKey(Schema.String)
+});
+
+export const TeachEvent = Schema.Struct({
+  t: Schema.Literals(["page", "click", "input", "submit"]),
+  url: Schema.String,
+  frame: Schema.optionalKey(Schema.Boolean),
+  title: Schema.optionalKey(Schema.String),
+  value: Schema.optionalKey(Schema.String),
+  el: Schema.optionalKey(Described),
+  at: Schema.Number
+});
+
+export type TeachEvent = typeof TeachEvent.Type;
+
+/** Each frame's log, as JSON lines the page wrote, and the tab's navigation history. */
+export type Recorded = {
+  readonly logs: readonly string[];
+  readonly history: { readonly currentIndex: number; readonly entries: ReadonlyArray<{ readonly url: string; readonly title: string }> };
+};
+
+const Visited = Schema.Struct({ url: Schema.String, title: Schema.String });
+
+export const Recording = Schema.Struct({
+  site: Schema.String,
+  instructions: Schema.String,
+  finishedAt: Schema.Number,
+  pages: Schema.Array(Visited),
+  events: Schema.Array(TeachEvent)
+});
+
+export type Recording = typeof Recording.Type;
+
+export const TEACH_DIR = "/workspace/teach";
 
 const Login = Schema.Struct({ site: Schema.String, cookies: Schema.Number, updatedAt: Schema.Number });
 
