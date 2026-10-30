@@ -1278,6 +1278,54 @@ button.live:hover .live-steps {
   font-size: 1.1em;
 }
 
+.pele {
+  --pele-bg: var(--sunken);
+  --pele-fg: var(--ink);
+  --pele-muted: var(--muted);
+  --pele-line: var(--quiet);
+  --pele-surface: var(--surface);
+  --pele-surface-alt: var(--raised);
+  --pele-border: var(--line-strong);
+  --pele-accent: var(--ink);
+  --pele-font: var(--font-sans);
+  --pele-font-mono: var(--font-mono);
+  --pele-radius: var(--radius-sm);
+  --pele-series-1: #2b2b2b;
+  --pele-series-2: #7d93b2;
+  --pele-series-3: #c8a873;
+  --pele-series-4: #86a991;
+  --pele-series-5: #bd8a86;
+  --pele-series-6: #a094bd;
+  --pele-series-7: #a8a8a8;
+  --pele-series-8: #d6d0c2;
+}
+
+:root[data-mode="dark"] .pele {
+  --pele-series-1: #e6e6e6;
+  --pele-series-2: #7f9cc6;
+  --pele-series-3: #cfae74;
+  --pele-series-4: #86b394;
+  --pele-series-5: #c98f8a;
+  --pele-series-6: #a99bd0;
+  --pele-series-7: #6f6f6f;
+  --pele-series-8: #4a4740;
+}
+
+.diagram[data-drawn] {
+  display: flex;
+  justify-content: center;
+  padding: 20px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--sunken);
+  overflow-x: auto;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .markdown > :first-child {
   margin-top: 0;
 }
