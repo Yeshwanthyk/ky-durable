@@ -2145,7 +2145,7 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
   await pick(page, "Main agent", /^GPT OSS 120B/);
   await attach();
   await expect(page.getByRole("alert")).toHaveText(cantRead);
-  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 
   // Put the purposes back for the other tests.
   await pick(page, "Main agent", /^Glm 5.3 Flash/);
