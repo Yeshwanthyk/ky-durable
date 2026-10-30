@@ -4,7 +4,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publicSiteRoute, siteExtension, siteRoute } from "../../src/sites/wiring";
 import { budget } from "../parity/kit";
-import { type FakeFile, fakeBucket, fakeFiles, requestOf, siteId, toolOf } from "../parity/sites/world";
+import { type FakeFile, fakeBucket, fakeFiles, livingOf, requestOf, siteId, toolOf } from "../parity/sites/world";
 
 const ORIGIN = "https://ky.test";
 
@@ -28,7 +28,7 @@ function port(seed: Record<string, string> = {}, files: Record<string, FakeFile>
   const bucket = fakeBucket(seed);
   const fs = fakeFiles(files);
 
-  return { bucket, fs, tool: toolOf(siteExtension(isChat, bucket, { fs }, () => ORIGIN)), request: requestOf({ siteRoute, publicSiteRoute }, bucket) };
+  return { bucket, fs, tool: toolOf(siteExtension(isChat, livingOf(bucket), { fs }, () => ORIGIN)), request: requestOf({ siteRoute, publicSiteRoute }, bucket) };
 }
 
 const metaOf = (title: string, created: number, token?: string) => JSON.stringify(token === undefined ? { title, created } : { title, created, token });

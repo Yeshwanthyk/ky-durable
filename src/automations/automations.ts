@@ -64,6 +64,7 @@ export type AutomationDeps = {
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   readonly peers: () => Promise<void>;
   readonly approvals: () => void;
+  readonly sites: () => Promise<void>;
   readonly unwatched: (anticipation: number) => void;
   /** Whether a scheduled run may start now (src/spend); a run the user asks for always may. */
   readonly allows: (work: BackgroundWork) => boolean;
@@ -82,6 +83,7 @@ export type Callbacks = {
   peers: () => Promise<void>;
   machines: () => Promise<void>;
   approvals: () => Promise<void>;
+  sites: () => Promise<void>;
 };
 
 export type GateCheck =
@@ -1046,7 +1048,7 @@ const make = Effect.gen(function* () {
         return status === "active" || status === "done";
       }),
 
-    bookAt: (callback: "machines" | "peers", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+    bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
 
     // One alarm, at the earliest card due a reminder or its lapse.
     approvalsAt: (at: number) =>

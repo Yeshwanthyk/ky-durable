@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publicSiteRoute, siteExtension, siteRoute } from "../../../src/sites/wiring";
 import { readsOf } from "./reads";
-import { fakeBucket, fakeFiles, requestOf, seededRandom, toolOf } from "./world";
+import { fakeBucket, fakeFiles, livingOf, requestOf, seededRandom, toolOf } from "./world";
 
 const AtB = Schema.Struct({ objects: Schema.Record(Schema.String, Schema.String), reads: Schema.Unknown });
 
@@ -16,7 +16,7 @@ afterEach(() => {
 describe("sites written at B", () => {
   it("open under the port, read as B read them, and change as B changed them", async () => {
     const bucket = fakeBucket(atB.objects);
-    const tool = toolOf(siteExtension(() => true, bucket, { fs: fakeFiles({}) }, () => "https://ky.test"));
+    const tool = toolOf(siteExtension(() => true, livingOf(bucket), { fs: fakeFiles({}) }, () => "https://ky.test"));
     seededRandom().use();
     let now = Date.UTC(2025, 6, 1);
     vi.spyOn(Date, "now").mockImplementation(() => (now += 60_000));

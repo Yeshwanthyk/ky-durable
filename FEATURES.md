@@ -381,12 +381,27 @@ ky's own address on the user's domain (Cloudflare Email Service): Email Routing 
 | mail-expect | `mail expect` (an address or a domain, 60 minutes by default, a day at most) brings mail from it to the chat that asked, read for it, as for a sign-up's code; a reply to ky's mail comes to the chat that wrote it. | src/mail.ts:292, src/mail.ts:535 | local | W mail that comes in › brings mail a chat expects to that chat, newsletter or not; W mail that comes in › threads a reply to ky's mail, and ky's answer to it |
 | mail-send | The `mail` tool, in the main chat and side chats only, sends at once to the user's own addresses (ACCESS_EMAILS) and ones the user allowed; to anyone else it holds the mail and says it waits in Settings › Mail. There Send delivers it and allows the address, Discard drops it, and the chat that wrote it hears which; Remove forgets an allowed address. No tool approves. A reply carries In-Reply-To and References. At most 50 a day (KY_MAIL_DAILY_SENDS); what Email Service refuses is kept as failed with its reason. Without KY_MAIL_ADDRESS and the EMAIL binding the tool and Settings say it isn't set up, and how. | src/mail.ts:413, src/mail.ts:436, src/sockets.ts:812, src/ui/Mail.tsx:40 | local | W the mail caps › are the deploy's KY_MAIL_DAILY_SENDS and KY_MAIL_HOURLY_TRIAGES, 50 and 20 when unset or not a positive whole number; W ky writing mail › sends to the user's own address at once; W ky writing mail › holds a mail to someone new until the user sends it in Settings, and writes to them freely after; W ky writing mail › sends nothing when the user discards a held mail, and tells the chat; W ky writing mail › refuses a bad address, an empty mail, and a send past the day's cap; W ky writing mail › says what Email Service refused, and keeps the mail as failed; W ky writing mail › has no address on a deploy without one, and says how to set it up |
 
+## Living sites
+
+A site published with `app: true` is living: its pages get `window.ky.data`, a store of JSON items in ky's SQL, and poll a version to reload. Share links open it at `/p/<token>/`, each viewing or editing; what people write through them reaches ky in one batch as outside data.
+
+| id | behaviour | cite | tag | check |
+|---|---|---|---|---|
+| site-data | A site keeps JSON items in named collections, read and written at `/s/<id>/_data/…` signed in, by its pages, and by the site tool's read_data, write_data and remove_data; read_data marks what it reads as outside data. An item is at most 32 KB, a collection 2000 items, a site 50 collections; a collection and a key are names. | src/sites/store.ts:198, src/sites/routes.ts:224, src/sites/sites.ts:334 | local | W living sites › keeps JSON items in collections, read and written signed in and by ky's own tool; W living sites › refuses an item over 32 KB, a full collection, a site past its collections, and names that aren't names |
+| site-links | share (the tool, or a site's Share links in Artifacts) makes a link for one person: view reads the site and its data, edit also writes it; ky refuses a view link's write itself. revoke ends one at once, its page and its data, even if the bucket still routed it. | src/sites/sites.ts:195, src/sites/living.ts:48, src/ui/Artifacts.tsx:196 | local | W living sites › lets a view link read but never write, an edit link write, and a revoked link do neither |
+| site-owner-key | The owner's living page at `/s/<id>/` reads and writes its data through a key under `/p/` (a sandboxed page sends no cookie), never cached, that opens the data and no page; a site that isn't living is served as written. | src/sites/sites.ts:223, src/sites/routes.ts:292 | local | W living sites › serves the owner's living page with a key under /p/ that opens its data and nothing else |
+| site-isolation | A link or key opens its own site's data only; deleting a site drops its data and links. | src/sites/living.ts:48, src/sites/store.ts:174 | local | W living sites › never serves one site's data through another's link or key |
+| site-legacy-token | A public token from before share links keeps serving, as a view link labelled "Public link", until it's revoked or the site made private. | src/sites/sites.ts:73, src/sites/sites.ts:236 | local | W living sites › keeps a public token from before share links working as a view link, until it's revoked |
+| site-live-reload | `_version` moves its `published` on every publish and its `data` on every write; a living page polls it every 4 s while shown, reloading on a publish and telling `ky.data.onChange` on data. | src/sites/routes.ts:68, src/sites/store.ts:119 | local | W living sites › moves the version a page polls when ky republishes and when the data changes |
+| site-edits-wake | Writes through an edit link (never ky's or the owner's) are queued, and the first books a telling 30 s later; then the chat that published the site (else the main one) is told them in one message, with the collections' contents, as outside data, its run guarded as a webhook's is. | src/sites/store.ts:119, src/sites/living.ts:151, src/inbound/inbound.ts:344 | local | W living sites › tells ky what people wrote through edit links in one batch, 30 seconds on, as outside data; never ky's own writes |
+
 ## Live-only
 
 These need a real outside service, so the local gate can't cover them.
 
 | id | behaviour | cite | tag | check | why it is live-only |
 |---|---|---|---|---|---|
+| live-living-site | On a deploy, a living page opened from a share link in a real browser reads and writes its data from its sandboxed, opaque origin (CORS, the preflight), signed out through the `/p/*` Access bypass; the owner's page at `/s/<id>/` does the same through its key; an open page reloads within seconds of a republish. | src/sites/routes.ts:68, src/sites/routes.ts:302 | live-only | by hand: publish a site with app: true that lists and adds items, share an edit link, open it signed out in another browser, add an item, republish | Needs a real browser's sandbox and CORS, and Cloudflare Access at the edge; locally the Worker's responses are checked. |
 | live-access | The deployed Worker refuses a signed-out request and one with only a forged email header, opens for the owner's Access token, lets the manifest through signed out, and sends a runner path to its own 401. | src/access/wiring.ts:18 | live-only | L access; L bypass | Needs the deployed Worker behind the real Access app and `cloudflared access login`. |
 | live-hello | A deployed socket says hello with the machine tool. | src/sockets.ts:386 | live-only | L hello | Needs the deployed object. |
 | live-cloud | A cloud model answers on the deployed worker: Workers AI, on every deploy, titles a new side chat from its first message. The check aborts that chat's turn once its message is admitted, so it calls at most one title and one aborted main-model request, then archives the chat. | src/providers/workers-ai.ts:69, src/server.ts:391 | live-only | L cloud | Needs the deployed worker's AI binding. Locally a fake AI binding stands in (test/fakes/ai.ts). |
@@ -410,6 +425,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 213.
-- Live-only features: 16.
+- Local features: 220.
+- Live-only features: 17.
 - Known broken: none. `pnpm harness` has no expected failures.

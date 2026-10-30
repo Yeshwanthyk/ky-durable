@@ -1,8 +1,9 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useContext, useEffect, useMemo, useState } from "react";
 import Type from "typebox";
 import { parseOr } from "../core/decode";
 import type { FileRow } from "../files/contract";
 import { FilesContext, isMedia } from "./Attachments";
+import { CopyButton } from "./CopyButton";
 import { Icon } from "./Icon";
 import { type Media, useLightbox } from "./Lightbox";
 import { VoiceNote } from "./Media";
@@ -161,12 +162,15 @@ function Card({
     const { site } = artifact;
 
     return (
-      <a className="artifact pressable" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
-        <div className="artifact-preview artifact-site">
-          <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden onLoad={drawn} />
-        </div>
-        <Footer title={site.title} meta={meta} icon="globe" badge={site.public ? "Public" : undefined} />
-      </a>
+      <div className="artifact">
+        <a className="artifact-open pressable" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
+          <div className="artifact-preview artifact-site">
+            <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden onLoad={drawn} />
+          </div>
+          <Footer title={site.title} meta={meta} icon="globe" badge={site.public ? "Public" : undefined} />
+        </a>
+        <SiteLinks site={site} />
+      </div>
     );
   }
 
@@ -178,6 +182,85 @@ function Card({
   if (artifact.kind === "audio") return <SoundCard src={src} title={title} name={file.name} meta={made} />;
 
   return <VisualCard src={src} title={title} meta={made} video={artifact.kind === "videos"} onView={() => onView(src)} />;
+}
+
+const Links = Type.Object({
+  links: Type.Array(Type.Object({ token: Type.String(), label: Type.String(), mode: Type.Union([Type.Literal("view"), Type.Literal("edit")]), created: Type.Number() }))
+});
+
+type Link = Type.Static<typeof Links>["links"][number];
+
+const Refused = Type.Object({ error: Type.String() });
+
+/** A site's share links: each opens it at /p/<token>/, a view link only reading its data, an edit link writing it too; made and revoked here. */
+function SiteLinks({ site }: { site: Site }) {
+  const [links, setLinks] = useState<readonly Link[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [refused, setRefused] = useState<string | null>(null);
+  const base = `/api/sites/${site.id}/links`;
+
+  const load = async () => {
+    const response = await fetch(base).catch(() => null);
+    setLinks(response?.ok ? parseOr(Links, await response.text(), { links: [] }).links : []);
+  };
+
+  const said = async (response: Response | null) => {
+    const text = response?.ok === false ? await response.text().catch(() => "") : "";
+    setRefused(response?.ok ? null : parseOr(Refused, text, { error: "ky couldn't reach the site's links." }).error);
+    await load();
+  };
+
+  const make = async (event: FormEvent) => {
+    event.preventDefault();
+    await said(await fetch(base, { method: "POST", body: JSON.stringify({ label, mode }) }).catch(() => null));
+    setLabel("");
+  };
+
+  const toggle = () => {
+    if (!open && links === null) void load();
+    setOpen(!open);
+  };
+
+  return (
+    <div className="artifact-links">
+      <button type="button" className="automation-text pressable" aria-expanded={open} onClick={toggle}>
+        Share links
+      </button>
+      {open ? (
+        <>
+          {links === null ? <p className="field-hint">Loading…</p> : null}
+          {links?.length === 0 ? <p className="field-hint">No links: only you can open it.</p> : null}
+          <ul className="artifact-link-list">
+            {(links ?? []).map((link) => (
+              <li key={link.token} data-link={link.token}>
+                <a href={`/p/${link.token}/`} target="_blank" rel="noreferrer">
+                  {link.label || "Link"}
+                </a>
+                <span className="artifact-badge">{link.mode === "edit" ? "Can edit" : "View only"}</span>
+                <CopyButton text={`${location.origin}/p/${link.token}/`} label={`Copy ${link.label || "the"} link`} />
+                <button type="button" className="automation-text pressable" onClick={() => void fetch(`${base}/${link.token}`, { method: "DELETE" }).catch(() => null).then(said)}>
+                  Revoke
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form className="artifact-link-form" aria-label={`Share ${site.title}`} onSubmit={(event) => void make(event)}>
+            <input className="field-input" value={label} placeholder="Who it's for" maxLength={80} aria-label="Who it's for" onChange={(event) => setLabel(event.currentTarget.value)} />
+            <select className="field-select" value={mode} aria-label="What they can do" onChange={(event) => setMode(event.currentTarget.value === "edit" ? "edit" : "view")}>
+              <option value="view">View only</option>
+              <option value="edit">Can edit</option>
+            </select>
+            <button type="submit" className="pill primary pressable">
+              Make link
+            </button>
+          </form>
+          {refused ? <p className="field-hint">{refused}</p> : null}
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 function SoundCard({ src, title, name, meta }: { src: string; title: string; name: string; meta: string }) {

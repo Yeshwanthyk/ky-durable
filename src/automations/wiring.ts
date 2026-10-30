@@ -30,7 +30,8 @@ export class Automations {
       look: async ({ time }) => this.#deps.looks.run(time),
       peers: () => this.#deps.peers(),
       machines: async () => this.#deps.machines.recheck(),
-      approvals: async () => this.#deps.approvals()
+      approvals: async () => this.#deps.approvals(),
+      sites: () => this.#deps.sites()
     });
 
     const host = Layer.succeed(Host)({
@@ -142,6 +143,10 @@ export class Automations {
 
   sweepApprovalsAt(at: number): Promise<void> {
     return this.#void(Automator.use((automator) => automator.approvalsAt(at)));
+  }
+
+  flushSitesAt(at: number): Promise<void> {
+    return this.#void(Automator.use((automator) => automator.bookAt("sites", at)));
   }
 
   dreamAt(at: number): Promise<void> {

@@ -236,6 +236,7 @@ export class World {
       },
       peers: async () => this.#did({ peers: true }),
       approvals: () => {},
+      sites: async () => this.#did({ sites: true }),
       unwatched: (anticipation) => this.#did({ unwatched: anticipation }),
       allows: () => true
     };

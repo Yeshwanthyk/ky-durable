@@ -3624,6 +3624,55 @@ button.live:hover .live-steps {
   background: var(--surface);
 }
 
+/* A site's card: the page it opens, then its share links. */
+.artifact-open {
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+}
+
+.artifact-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.artifact-link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.artifact-link-list > li,
+.artifact-link-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.artifact-link-list a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.artifact-link-form .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .artifact-foot {
   display: flex;
   align-items: center;

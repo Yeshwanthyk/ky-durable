@@ -33,7 +33,8 @@ import type { SandboxNow } from "./cloud";
 import { machineSubject, saveKey, type Sandbox, type SandboxChange, type SandboxDraft } from "./runners/contract";
 import { ownerRoute, Sandboxes, tokenRoute } from "./runners/wiring";
 import { sandboxRoute } from "./sandbox-routes";
-import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
+import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
+import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
@@ -231,6 +232,7 @@ export class PiAgent extends DurableObject<Env> {
     looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
     peers: () => this.sweepPeers(),
     approvals: () => this.approvals.sweep(),
+    sites: () => this.sites.flush(),
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
     },
@@ -333,6 +335,13 @@ export class PiAgent extends DurableObject<Env> {
       const conversation = await this.harness.conversation(session);
       await conversation.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
     }
+  });
+  /** Living sites' data, share links and versions; edits through a link are told as the inbound tells a webhook (src/sites/living.ts). */
+  readonly sites: LivingSites = new LivingSites(this.ctx.storage, {
+    bucket: this.env.FILES,
+    chat: (session) => this.isChat(session),
+    tell: (session, content, key) => this.inbound.tellOutside(session, content, key),
+    flushAt: (at): Promise<void> => this.automations.flushSitesAt(at)
   });
   readonly dreaming = new Dreaming(this.ctx.storage, {
     history: this.history,
@@ -464,7 +473,7 @@ export class PiAgent extends DurableObject<Env> {
       // Cards and sites are for a chat with the user: the tools refuse elsewhere, and subagents and seats go without them.
       const ui = uiExtension(chat);
       this.registry.install(ui);
-      const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
+      const site = siteExtension(chat, this.sites, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
       // A chat opens side chats and steers them; one it opened runs none, so control goes one way.
@@ -1083,6 +1092,31 @@ export class PiAgent extends DurableObject<Env> {
   /** A post to a hook, its token, size and signature checked by the Worker (src/inbound/routes.ts). */
   hookReceived(id: string, delivery: HookDelivery): Promise<Received> {
     return this.inbound.received(id, delivery);
+  }
+
+  /** A living site's data, read or written by the owner or through a link, as the Worker took it (src/sites/routes.ts). */
+  siteData(site: string, caller: DataCaller, op: DataOp): Promise<DataAnswer> {
+    return this.sites.data(site, caller, op);
+  }
+
+  siteVersion(site: string): SiteVersion {
+    return this.sites.version(site);
+  }
+
+  siteOwnerKey(site: string): Promise<string | null> {
+    return this.sites.ownerKey(site);
+  }
+
+  siteLinks(site: string): Promise<{ links: ReadonlyArray<SiteLink> } | { refused: string }> {
+    return this.sites.links(site);
+  }
+
+  siteShare(site: string, label: string, mode: LinkMode): Promise<SiteLink | { refused: string }> {
+    return this.sites.share(site, label, mode);
+  }
+
+  siteRevoke(site: string, token: string): Promise<{ revoked: true } | { refused: string }> {
+    return this.sites.revoke(site, token);
   }
 
   /** The credential ky asked a chat for, which the Worker saves what the user typed as; null when it isn't asking. */
