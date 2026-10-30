@@ -262,7 +262,7 @@ function RoutineRow({ automation, open, tasks, now, onOpen }: RowProps) {
         <p className="rt-meta">{[scheduleOf(automation), ...stateOf(automation, taskOf(automation.runs[0]), now)].join(" · ")}</p>
         <LastLine automation={automation} now={now} />
         <Places automation={automation} />
-        <Strip runs={automation.runs} picked={open ? run?.id : undefined} now={now} onPick={open ? setPicked : null} />
+        {automation.runs.length > 0 ? <Strip runs={automation.runs} picked={open ? run?.id : undefined} now={now} onPick={open ? setPicked : null} /> : null}
       </div>
       <div className="rt-progress" aria-hidden />
       {open ? (
