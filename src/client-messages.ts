@@ -162,6 +162,8 @@ export const ClientMessageSchema = Type.Union([
   message("push-subscribe", { endpoint: Text, p256dh: Text, auth: Text }),
   /** Push no more to the device subscribed at `endpoint`. */
   message("push-unsubscribe", { endpoint: Text }),
+  /** Whether the user is looking at this page: shown and in focus. While one is, a reply to them doesn't push. */
+  message("watching", { watching: Type.Boolean() }),
   /** Let the nightly dream book check-ins, or not; off pauses the ones waiting. */
   message("set-check-ins", { on: Type.Boolean() }),
   /** Answers with the user's time zone, whether they pinned it, and the zone this connection is placed in. */

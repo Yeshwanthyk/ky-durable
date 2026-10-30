@@ -981,7 +981,8 @@ function proactivityActionsOf(ask: AskFn, open: boolean) {
     onSetZone: (zone: string | null) => ask("set-zone", { zone }),
     onPushKey: () => ask("push-key", {}),
     onSubscribe: (device: { endpoint: string; p256dh: string; auth: string }) => ask("push-subscribe", device),
-    onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint })
+    onUnsubscribe: (endpoint: string) => ask("push-unsubscribe", { endpoint }),
+    onWatching: (watching: boolean) => ask("watching", { watching })
   };
 }
 

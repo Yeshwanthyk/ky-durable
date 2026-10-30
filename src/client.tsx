@@ -18,7 +18,7 @@ import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
-import { ProactivityContext } from "./ui/Proactivity";
+import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
 import { LedgerContext } from "./ui/LastNight";
 import { PeerContext } from "./ui/Peers";
 import { OnlineContext } from "./ui/online";
@@ -652,6 +652,7 @@ function App() {
   const [theme, setTheme] = useTheme();
   const rawPanel = usePanel();
   const ky = usePiSession(session);
+  usePushUpkeep(ky.proactivityActions, session);
   const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
   const panel = useStablePanel(rawPanel);
   const view = describe(ky, session, theme);

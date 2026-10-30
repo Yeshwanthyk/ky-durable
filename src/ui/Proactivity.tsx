@@ -16,6 +16,7 @@ type ProactivityActions = {
   readonly onPushKey: () => Promise<string>;
   readonly onSubscribe: (device: PushDevice) => Promise<null>;
   readonly onUnsubscribe: (endpoint: string) => Promise<null>;
+  readonly onWatching: (watching: boolean) => Promise<null>;
 };
 
 /** A device's push subscription as ky keeps it: its endpoint and keys, base64url. */
@@ -32,7 +33,8 @@ export const ProactivityContext = createContext<ProactivityActions>({
   onSetZone: () => Promise.reject(new Error("Not connected.")),
   onPushKey: () => Promise.reject(new Error("Not connected.")),
   onSubscribe: () => Promise.reject(new Error("Not connected.")),
-  onUnsubscribe: () => Promise.reject(new Error("Not connected."))
+  onUnsubscribe: () => Promise.reject(new Error("Not connected.")),
+  onWatching: () => Promise.reject(new Error("Not connected."))
 });
 
 /** Look times a user may set, at most, as the server holds them (src/dreaming/contract.ts LOOK_TIMES). */
@@ -238,8 +240,25 @@ async function subscribeWith(key: string): Promise<PushDevice> {
 async function subscribe(key: string): Promise<PushDevice> {
   // First, while the click still counts as the user's: Safari asks only then.
   if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked for ky in this browser's settings.");
+  const device = await subscribeWith(key);
+  wanted(true);
 
-  return subscribeWith(key);
+  return device;
+}
+
+/** Kept while the user wants this device's notifications on, so a subscription the browser dropped is made again. */
+const WANTED = "ky-push-wanted";
+
+/** Whether the user turned this device's notifications on, or with `on`, say so. Storage may be gone or refuse. */
+function wanted(on?: boolean): boolean {
+  try {
+    if (on === true) localStorage.setItem(WANTED, "1");
+    else if (on === false) localStorage.removeItem(WANTED);
+
+    return localStorage.getItem(WANTED) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /** Whether `made` was subscribed with ky's VAPID `key`. */
@@ -251,16 +270,70 @@ function madeWith(made: PushSubscription, key: string): boolean {
 
 /**
  * Whether this device gets ky's pushes, making sure ky knows it: a subscription made with another VAPID key (a new
- * Vault) is made again with `key`, and either way ky is told of it, as it may have lost its row (a restore).
+ * Vault) is made again with `key`, one the browser dropped (iOS does, and ky forgets an endpoint its push service
+ * says is gone) is made again while the user still wants it, and either way ky is told of it, as it may have lost
+ * its row (a restore) or the endpoint may be new.
  */
 async function resume(key: string, remember: (device: PushDevice) => Promise<null>): Promise<boolean> {
+  if (Notification.permission !== "granted") return false;
   const made = await subscription();
 
-  if (made === null || Notification.permission !== "granted") return false;
-  const device = madeWith(made, key) ? deviceOf(made) : await made.unsubscribe().then(() => subscribeWith(key));
+  if (made === null && !wanted()) return false;
+  // One made before ky kept the wish is wanted all the same.
+  wanted(true);
+  const device = made !== null && madeWith(made, key) ? deviceOf(made) : await (made?.unsubscribe() ?? Promise.resolve()).then(() => subscribeWith(key));
   await remember(device);
 
   return true;
+}
+
+/** Whether the user is looking at this page: shown, and in focus or in a frame of it, such as a site's preview. */
+const looking = () => document.visibilityState === "visible" && (document.hasFocus() || document.activeElement instanceof HTMLIFrameElement);
+
+/**
+ * Keeps ky told, on each socket `actions` opens, whether the user is looking at this page, so a reply to them pushes
+ * only when they aren't (src/push/replies.ts); hidden, the page says so before iOS freezes it. And at launch, keeps
+ * this device's subscription known to ky, made again if the browser dropped it, without opening Settings first.
+ */
+export function usePushUpkeep(actions: ProactivityActions, session: string): void {
+  // Each chat has its own socket, and each socket its own word.
+  useEffect(() => {
+    if (!actions.open) return;
+    let said: boolean | null = null;
+
+    const say = () => {
+      const now = looking();
+
+      if (now === said) return;
+      said = now;
+      actions.onWatching(now).catch(() => {
+        said = null;
+      });
+    };
+
+    // Focus moves to a frame after its blur, so read it once that has settled.
+    const later = () => setTimeout(say, 0);
+    say();
+    document.addEventListener("visibilitychange", say);
+    window.addEventListener("focus", later);
+    window.addEventListener("blur", later);
+    window.addEventListener("pagehide", say);
+
+    return () => {
+      document.removeEventListener("visibilitychange", say);
+      window.removeEventListener("focus", later);
+      window.removeEventListener("blur", later);
+      window.removeEventListener("pagehide", say);
+    };
+  }, [actions, session]);
+
+  useEffect(() => {
+    if (!actions.open || !pushable()) return;
+    actions
+      .onPushKey()
+      .then((key) => resume(key, actions.onSubscribe))
+      .catch(() => undefined);
+  }, [actions]);
 }
 
 /** A subscription as ky keeps it; ky refuses one without its keys. */
@@ -273,6 +346,8 @@ function deviceOf(made: PushSubscription): PushDevice {
 /** Unsubscribe this device, if it is subscribed, and tell ky through `forget`. */
 async function unsubscribe(forget: (endpoint: string) => Promise<null>): Promise<void> {
   const made = await subscription();
+
+  wanted(false);
 
   if (!made) return;
   await made.unsubscribe();
@@ -335,7 +410,7 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
         <div className="row">
           <label className="row-text" htmlFor="right-away">
             <span className="row-label">Per day, at most</span>
-            <span className="row-sub">More arrive silently.</span>
+            <span className="row-sub">Of posts ky starts; more arrive silently. Replies to you always notify.</span>
           </label>
           <Stepper id="right-away" value={view.rightAway} min={0} max={RIGHT_AWAY_MOST} onChange={onRightAway} />
         </div>

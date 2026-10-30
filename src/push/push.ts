@@ -30,6 +30,9 @@ const LOGGED_CHARS = 200;
 
 const GONE = new Set([403, 404, 410]);
 
+/** RFC 8030's Urgency: a reply the user waits on is high, so a phone saving power still shows it at once. */
+type Urgency = "high" | "normal";
+
 const encoder = new TextEncoder();
 
 const DEVICES = "ky_push_devices";
@@ -71,7 +74,8 @@ export class Push extends Context.Service<
   {
     subscribe(device: PushDevice): Effect.Effect<void, BadSubscription>;
     unsubscribe(endpoint: string): Effect.Effect<void>;
-    notify(session: string, text: string): Effect.Effect<void>;
+    /** Push `text` as `session`'s to every device; one `asked` for (a reply to the user's message) leaves the day's budget alone. */
+    notify(session: string, text: string, asked?: boolean): Effect.Effect<void>;
   }
 >()("ky/push/Push") {
   static readonly layer = (parts: PushParts, fetch: Fetch) =>
@@ -101,7 +105,7 @@ export class Push extends Context.Service<
           return taken.length > 0;
         });
 
-        const post = (device: PushDevice, payload: Uint8Array) =>
+        const post = (device: PushDevice, payload: Uint8Array, urgency: Urgency) =>
           Effect.tryPromise({
             try: async () => {
               const origin = parts.origin();
@@ -113,16 +117,16 @@ export class Push extends Context.Service<
 
               return fetch(device.endpoint, {
                 method: "POST",
-                headers: { authorization, "content-encoding": "aes128gcm", "content-type": "application/octet-stream", ttl: String(TTL_SECONDS) },
+                headers: { authorization, "content-encoding": "aes128gcm", "content-type": "application/octet-stream", ttl: String(TTL_SECONDS), urgency },
                 body
               });
             },
             catch: (cause) => new Unsent({ cause })
           });
 
-        const send = (device: PushDevice, payload: Uint8Array) =>
+        const send = (device: PushDevice, payload: Uint8Array, urgency: Urgency) =>
           Effect.gen(function* () {
-            const response = yield* post(device, payload);
+            const response = yield* post(device, payload, urgency);
 
             if (response.ok) return true;
 
@@ -149,15 +153,23 @@ export class Push extends Context.Service<
             );
           }),
           unsubscribe,
-          notify: Effect.fnUntraced(function* (session, text) {
+          notify: Effect.fnUntraced(function* (session, text, asked = false) {
             const devices = yield* rows(DeviceRow, `SELECT * FROM ${DEVICES}`);
 
             if (devices.length === 0) return;
+            const payload = payloadOf(parts.title(session), session, text);
+
+            // The user is waiting on a reply: it comes at once, and the day's right-away number is for posts ky starts.
+            if (asked) {
+              yield* Effect.forEach(devices, (device) => send(device, payload, "high"), { concurrency: "unbounded" });
+
+              return;
+            }
+
             const day = localNow(parts.zone(), yield* Clock.currentTimeMillis).date;
 
             if (!(yield* take(day))) return;
-            const payload = payloadOf(parts.title(session), session, text);
-            const took = yield* Effect.forEach(devices, (device) => send(device, payload), { concurrency: "unbounded" });
+            const took = yield* Effect.forEach(devices, (device) => send(device, payload, "normal"), { concurrency: "unbounded" });
 
             if (!took.includes(true)) yield* exec(`UPDATE ${SENT} SET sent = sent - 1 WHERE day = ?`, day);
           })

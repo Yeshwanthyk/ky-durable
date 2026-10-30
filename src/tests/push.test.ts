@@ -227,6 +227,69 @@ describe("pushes", () => {
     page.close();
   });
 
+  it("send ky's answer to the user's own message once its turn ends, unless a page of ky is in front of them, past the right-away number", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    const other = await browser(name);
+    const { device, keys, auth } = await aDevice("https://push.test/phone");
+    const sent = await pushService(name, () => 201);
+    const pushed = () => Promise.all(sent.map((each) => open(each.body, keys, auth)));
+    // Its push goes out as the answer lands; time enough for one that would.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(await page.send({ type: "push-subscribe", ...device })).toMatchObject({ type: "result" });
+    // None a day for posts ky starts: a reply to the user still comes.
+    expect(await page.send({ type: "set-right-away", most: 0 })).toMatchObject({ type: "result" });
+
+    // The user sent it and left (no page said it is looking): one push, of the final answer, at high urgency.
+    await page.say("Is the parcel here yet?");
+    await until(async () => sent.length >= 1, "a reply's push");
+    await settle();
+    const answer = kySaid(page).at(-1) ?? "";
+    expect(answer).not.toBe("");
+    expect(await pushed()).toEqual([`ky\n/?session=${ROOT_SESSION}\n${answer.replaceAll(/\s+/g, " ").trim().slice(0, 120)}`]);
+    expect(sent[0]!.headers.get("urgency")).toBe("high");
+    expect(sent[0]!.headers.get("ttl")).toBe("86400");
+
+    // Another page of ky in front of them, even on another chat or device: they see it there, so no push.
+    expect(await other.send({ type: "watching", watching: true })).toMatchObject({ type: "result", result: null });
+    await page.say("And the rent?");
+    await settle();
+    expect(sent).toHaveLength(1);
+
+    // That page went to the background (iOS says so before it freezes the socket): the next reply pushes again.
+    expect(await other.send({ type: "watching", watching: false })).toMatchObject({ type: "result" });
+    await page.say("Thanks.");
+    await until(async () => sent.length >= 2, "a second reply's push");
+    await settle();
+    expect(sent).toHaveLength(2);
+
+    // A page that said it is looking and then closed counts no more.
+    expect(await other.send({ type: "watching", watching: true })).toMatchObject({ type: "result" });
+    other.close();
+    await until(async () => !(await inside(name, (instance) => instance.watched())), "the closed page to stop counting");
+    await page.say("One more.");
+    await until(async () => sent.length >= 3, "a third reply's push");
+    page.close();
+  });
+
+  it("send none for a turn a report started, nor its post past the right-away number: only the user's own turns are replies", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    const { device } = await aDevice("https://push.test/phone");
+    const sent = await pushService(name, () => 201);
+
+    expect(await page.send({ type: "push-subscribe", ...device })).toMatchObject({ type: "result" });
+    expect(await page.send({ type: "set-right-away", most: 0 })).toMatchObject({ type: "result" });
+    await inside(name, (instance) =>
+      instance.deliveries.deliver({ id: `report-${name}`, session: ROOT_SESSION, content: "Weather report: rain all morning", line: "Weather report", ref: "task:weather" })
+    );
+    await page.until(() => kySaid(page).length > 0 && !page.view().running);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(sent).toHaveLength(0);
+    page.close();
+  });
+
   it("refuse a subscription that isn't https or whose keys aren't a device's", async () => {
     const name = crypto.randomUUID();
     const page = await browser(name);

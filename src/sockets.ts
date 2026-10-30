@@ -12,7 +12,7 @@ import {
   type PiSessionId,
   type PiWhenBusy
 } from "agents/harness/pi";
-import Type from "typebox";
+import Type, { type Static } from "typebox";
 import { Guard } from "typebox/guard";
 import { ClientMessageSchema, refusedFrame } from "./client-messages";
 import { decodeOr, parseOr } from "./core/decode";
@@ -101,11 +101,34 @@ const PAIRING_TAG_PREFIX = "pairing:";
 /** The tag of a runner socket whose pairing was not its machine's when it came: it gets a goodbye and nothing else. */
 const REFUSED_TAG = "runner-refused";
 
-/** A browser connection's state: the time zone Cloudflare placed it in. */
-const ConnectionZone = Type.Object({ zone: Type.String() });
+/**
+ * A browser connection's state, kept on the socket so it outlives hibernation: the time zone Cloudflare placed it
+ * in, and whether the user is looking at its page now, as the page last said.
+ */
+const ConnectionState = Type.Object({ zone: Type.Optional(Type.String()), watching: Type.Optional(Type.Boolean()) });
+
+type ConnectionState = Static<typeof ConnectionState>;
+
+const stateOf = (connection: Connection): ConnectionState => decodeOr(ConnectionState, connection.state, {});
 
 /** The time zone `connection` was placed in when it opened, if any. */
-const zoneOf = (connection: Connection): string | null => decodeOr(ConnectionZone, connection.state, undefined)?.zone ?? null;
+const zoneOf = (connection: Connection): string | null => stateOf(connection).zone ?? null;
+
+/**
+ * Whether the user is looking at ky on any of `connections`: a page that said it is shown and in focus. A page says
+ * so as it opens and each time that changes, before iOS freezes it in the background; one that never said, an old
+ * page's, counts as not looking, so at worst a reply pushes while it is open.
+ */
+export function watching(connections: Iterable<Connection>): boolean {
+  for (const connection of connections) {
+    if (connection.readyState === OPEN && stateOf(connection).watching === true) return true;
+  }
+
+  return false;
+}
+
+/** The tag every browser socket carries, whatever session it follows. */
+export const BROWSER_TAG = UI_TAG;
 
 function pairingOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(PAIRING_TAG_PREFIX))?.slice(PAIRING_TAG_PREFIX.length);
@@ -1061,6 +1084,11 @@ export class PiSessionSockets {
     },
     "push-unsubscribe": (message) => {
       this.#pushes.unsubscribe(message.endpoint);
+
+      return null;
+    },
+    watching: (message, connection) => {
+      connection.setState({ ...stateOf(connection), watching: message.watching });
 
       return null;
     },

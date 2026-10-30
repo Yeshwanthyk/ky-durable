@@ -120,12 +120,15 @@ const Submit = Type.Object({ type: Type.Literal("submit"), id: Type.String(), op
 
 type SubmitFrame = Static<typeof Submit>;
 
-/** One socket the page opened: the session it asked for, the submits it sent and the answers it got. */
+const Watching = Type.Object({ type: Type.Literal("watching"), watching: Type.Boolean() });
+
+/** One socket the page opened: the session it asked for, the submits it sent, whether it said the user is looking, and the answers it got. */
 type Connection = {
   session: string | null;
   submits: string[];
   /** The submits themselves, as sent. */
   frames: SubmitFrame[];
+  watching: boolean[];
   results: Array<{ id: string; result: JsonValue }>;
   errors: string[];
   route: WebSocketRoute;
@@ -152,6 +155,7 @@ async function network(page: Page) {
       session: new URL(route.url()).searchParams.get("session"),
       submits: [],
       frames: [],
+      watching: [],
       results: [],
       errors: [],
       route
@@ -167,6 +171,7 @@ async function network(page: Page) {
       if (submit) connection.submits.push(submit.operationId);
 
       if (submit) connection.frames.push(submit);
+      if (Value.Check(Watching, value)) connection.watching.push(value.watching);
 
       if (submit && faults.loseSubmits) return;
 
@@ -2560,6 +2565,11 @@ test("badges the app icon with ky's notifications in the tray, and opening ky re
     await expect.poll(() => page.evaluate(() => globalThis.kyCleared)).toBe(2);
     // The first load had no worker registered yet, so nothing to close then.
     await expect.poll(() => page.evaluate(() => globalThis.kyClosed)).toEqual(["The pharmacy", "The bakery"]);
+
+    // A push with nothing readable in it still shows, as ky's, opening the main chat: Safari drops a page's
+    // subscription when its pushes show nothing.
+    await push("");
+    await expect.poll(() => worker.evaluate(() => globalThis.kyTray.map((shown) => shown.title))).toEqual(["ky"]);
   } finally {
     await page.evaluate(async () => void (await navigator.serviceWorker.getRegistration())?.unregister());
     await cdp.detach();
@@ -2597,6 +2607,37 @@ test("reopens its socket when the page comes back after a while away, not after 
   const id = crypto.randomUUID().slice(0, 8);
   await send(page, `back again ${id}`);
   await expect(page.getByText(`echo: back again ${id}`)).toBeVisible();
+});
+
+test("tells ky on each socket whether the user is looking, so a reply pushes only once they have left", async ({ page }) => {
+  const { connections } = await network(page);
+  await open(page);
+  const said = () => connections.at(-1)?.watching ?? [];
+
+  await expect.poll(said).toEqual([true]);
+
+  // Gone to another app: said as it hides, before iOS would freeze the socket. Back: said again.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(said).toEqual([true, false]);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(said).toEqual([true, false, true]);
+
+  // A new socket after a long time away is told too: ky keeps the word per socket.
+  const before = connections.length;
+  await switchAway(page, 20_000);
+  await expect.poll(() => connections.length).toBe(before + 1);
+  await expect.poll(said).toEqual([true]);
+
+  // So is another chat's socket.
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect.poll(() => connections.at(-1)?.session ?? null).not.toBeNull();
+  await expect.poll(said).toEqual([true]);
 });
 
 test("paints the last chat from the cache before the socket answers, then the snapshot replaces it", async ({ page }) => {

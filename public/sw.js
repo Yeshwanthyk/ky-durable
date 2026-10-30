@@ -88,15 +88,33 @@ async function prune() {
 }
 
 self.addEventListener("push", (event) => {
-  // src/push.ts sends lines: the title, the chat's address, then the text.
-  const [title = "ky", url = "/", ...text] = (event.data?.text() ?? "").split("\n");
+  // src/push/push.ts sends lines: the title, the chat's address, then the text. Every push shows a notification,
+  // even one that can't be read: Safari takes the subscription away from a page whose pushes show nothing.
+  let lines = [];
+
+  try {
+    lines = (event.data?.text() ?? "").split("\n");
+  } catch {
+    // Shown as ky's, opening the main chat.
+  }
+
+  const [title, url, ...text] = lines;
 
   event.waitUntil(
     (async () => {
-      await self.registration.showNotification(title, { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url } });
+      await self.registration.showNotification(title || "ky", { body: text.join("\n"), icon: "/icons/icon-192.png", data: { url: url || "/" } });
       await badge(true);
     })()
   );
+});
+
+// The browser made this device's subscription again, or dropped it: make it again with ky's key. The page tells ky
+// the new endpoint when it next opens (src/ui/Proactivity.tsx usePushUpkeep).
+self.addEventListener("pushsubscriptionchange", (event) => {
+  const key = event.oldSubscription?.options.applicationServerKey;
+
+  if (event.newSubscription || !key) return;
+  event.waitUntil(self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }).catch(() => {}));
 });
 
 // The app icon's badge counts ky's notifications in the tray, recounted as each is shown, tapped or swiped away.
